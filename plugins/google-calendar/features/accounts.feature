@@ -36,6 +36,19 @@ Feature: Configure and manage Google Calendar accounts
       | missing subject         |
       | missing required scopes |
 
+  Scenario: A verified Google email is accepted when Google normalizes the email scope name
+    Given a Web OAuth client is configured
+    And I begin connecting an account
+    When Google returns the Calendar scopes and a normalized email scope for "alice@example.com"
+    Then the connected accounts are "alice@example.com"
+
+  Scenario: A normalized email scope never replaces verified identity
+    Given a Web OAuth client is configured
+    And I begin connecting an account
+    When Google returns the Calendar scopes with an unverified normalized email identity
+    Then the callback fails safely
+    And no account was saved
+
   Scenario: A replayed callback is refused
     Given a Web OAuth client is configured
     And I begin connecting an account

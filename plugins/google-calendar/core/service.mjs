@@ -61,7 +61,10 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
     const tokens = await oauth.exchange({ code, verifier: pending.verifier, clientId, clientSecret, redirectUri });
     if (!tokens?.refresh_token) throw new Error('Google did not provide a refresh token; reconnect with consent');
     const granted = new Set((tokens.scope || '').split(/\s+/));
-    const missing = SCOPES.filter(scope => !granted.has(scope));
+    // Google may normalize `email` to its userinfo.email scope (or omit the
+    // literal alias). Verify email and subject via the userinfo response below;
+    // never relax the three Calendar permissions or openid.
+    const missing = SCOPES.filter(scope => scope !== 'email' && !granted.has(scope));
     if (missing.length) {
       const failure = new Error('Google did not grant all required Calendar scopes');
       failure.missingScopes = missing; // only our fixed, public scope names; never the provider response

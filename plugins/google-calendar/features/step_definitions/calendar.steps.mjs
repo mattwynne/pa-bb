@@ -86,6 +86,16 @@ When('the callback succeeds for subject {string} as {string} with refresh token 
   this.exchangeResponse = { access_token: 'access', refresh_token: token, scope: SCOPES.join(' ') };
   try { this.result = await this.service.finishConnect({ ...this.client, state: this.state, code: 'test-code' }); } catch (e) { this.failure = e; }
 });
+When('Google returns the Calendar scopes and a normalized email scope for {string}', async function (email) {
+  this.identityResponse = { sub: 'subject-a', email, email_verified: true };
+  this.exchangeResponse = { access_token: 'access', refresh_token: 'refresh', scope: [...SCOPES.filter(s => s !== 'email'), 'https://www.googleapis.com/auth/userinfo.email'].join(' ') };
+  await this.service.finishConnect({ ...this.client, state: this.state, code: 'test-code' });
+});
+When('Google returns the Calendar scopes with an unverified normalized email identity', async function () {
+  this.identityResponse = { sub: 'subject-a', email: 'alice@example.com', email_verified: false };
+  this.exchangeResponse = { access_token: 'access', refresh_token: 'refresh', scope: [...SCOPES.filter(s => s !== 'email'), 'https://www.googleapis.com/auth/userinfo.email'].join(' ') };
+  try { await this.service.finishConnect({ ...this.client, state: this.state, code: 'test-code' }); } catch (e) { this.failure = e; }
+});
 When('the same callback is replayed', async function () {
   try { await this.service.finishConnect({ ...this.client, state: this.state, code: 'test-code' }); } catch (e) { this.failure = e; }
 });
