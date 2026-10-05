@@ -31,7 +31,7 @@ BB tracks the default branch and periodically refreshes the catalog. `bb marketp
 
 ## What exists today
 
-`plugins/google-calendar/` is a separate BB-native plugin with Web OAuth account management and nine Calendar tools. The Pi extension's behavior informed its Gherkin features; Cucumber tests drive a hexagonal core via fake ports, and adapter/fake-BB tests exercise HTTP, storage, and tool registration. **Live Google authorization and a managed install on the running BB host have not yet been verified.**
+`plugins/google-calendar/` is a separate BB-native plugin with Web OAuth account management and nine Calendar tools. The Pi extension's behavior informed its Gherkin features; Cucumber tests drive a hexagonal core via fake ports, and adapter/fake-BB tests exercise HTTP, storage, and tool registration. A managed Git marketplace install succeeded in an isolated BB 0.45.0 instance with all nine tools and the settings UI registered. **Live Google authorization and installation on the PA BB host have not yet been verified.**
 
 The root `package.json` and `server.ts` still define an unrelated minimal **spike**. Its harmless nested Pi extension registers `/pa-bb-discovery-spike`. It is not PA core or Google Calendar; do not install it for Calendar access.
 

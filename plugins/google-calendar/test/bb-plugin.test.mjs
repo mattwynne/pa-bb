@@ -53,6 +53,37 @@ test('a native write blocks on the owner form and a decline makes no Google requ
   } finally { await harness.lifecycle.dispose(); }
 });
 
+test('an approved native Calendar write reaches Google exactly once with no invitations by default', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes('/userinfo')) return new Response(JSON.stringify({ sub: 'a', email: 'alice@example.com', email_verified: true }), { status: 200 });
+    requests.push({ url: String(url), options });
+    return new Response(JSON.stringify({ id: 'created', summary: 'Away' }), { status: 200 });
+  };
+  let harness;
+  try {
+    const host = await setup();
+    harness = host.harness;
+    const store = createBbStore(host.bb.storage.database(), () => {});
+    await store.addAccount({ subject: 'a', email: 'alice@example.com', refreshToken: 'private', accessToken: 'access', expiresAt: Date.now() + 600_000 });
+    const pending = harness.behavior.callAgentTool('gcal_create_event', { account: 'alice@example.com', calendarId: 'team', summary: 'Away', start: '2026-10-01', allDay: true });
+    await new Promise(resolve => setImmediate(resolve));
+    const form = harness.inspection.pendingInteractions[0];
+    assert.ok(form.payload.details.includes('"start":"2026-10-01"'));
+    harness.behavior.submitInteraction(form.id, { approved: true });
+    const result = await pending;
+    assert.equal(result.isError, undefined);
+    assert.equal(JSON.parse(result.content[0].text).event.id, 'created');
+    assert.equal(requests.length, 1);
+    assert.equal(new URL(requests[0].url).searchParams.get('sendUpdates'), 'none');
+    assert.equal(JSON.parse(requests[0].options.body).end.date, '2026-10-02');
+  } finally {
+    if (harness) await harness.lifecycle.dispose();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('a Web callback connects an account once and retains it across a BB plugin reload', async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
