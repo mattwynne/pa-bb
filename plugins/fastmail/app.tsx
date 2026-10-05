@@ -3,6 +3,8 @@ import type { FormEvent } from 'react';
 import { definePluginApp, useRpc } from '@get-bb/plugin-sdk/app';
 import { PasteBack } from './paste-back.js';
 import type { rpcContract } from './contract.js';
+import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButton, ConnectionDisclosure, ConnectionEmpty, ConnectionFooter, ConnectionGuide, ConnectionHeading, ConnectionSetup } from './connection-ui.js';
+import './connection-ui.css';
 import './app.css';
 
 type ConnectionStatus = { connected: boolean; pending: boolean; tools: number };
@@ -53,41 +55,38 @@ function FastmailSettings() {
     finally { setBusy(false); }
   }
 
-  return <section className="pa-fastmail" aria-label="Fastmail connection">
-    {error && <p className="pa-fastmail__alert" role="alert">{error}</p>}
-    {!status ? <div className="pa-fastmail__empty">
-      <p>{error ? 'Connection status unavailable.' : 'Checking connection…'}</p>
-      {error && <button type="button" className="pa-fastmail__button pa-fastmail__button--secondary" onClick={() => void reload()}>Try again</button>}
-    </div> : status.connected ? <>
-      <div className="pa-fastmail__heading">
-        <h3>Connection</h3>
-        <span className="pa-fastmail__badge">Connected</span>
-      </div>
-      <p className="pa-fastmail__account">Account address unavailable from this connection.</p>
-      <p className="pa-fastmail__detail">{status.tools} tools ready for new agent sessions.</p>
-      <div className="pa-fastmail__actions">
-        <button type="button" className="pa-fastmail__button pa-fastmail__button--quiet" onClick={() => void reload()} disabled={busy}>Refresh status</button>
-        <button type="button" className="pa-fastmail__button pa-fastmail__button--secondary" onClick={() => void disconnect()} disabled={busy}>Disconnect</button>
-      </div>
-      <details className="pa-fastmail__more"><summary>Change access</summary><p>Disconnect, then connect again and choose a new grant in Fastmail. Check your account address in Fastmail before approving.</p></details>
-    </> : <>
-      <h3>{status.pending ? 'Finish connecting' : 'Connect your account'}</h3>
-      {status.pending ? <>
-        <p className="pa-fastmail__detail">Choose your access in Fastmail. If its return page cannot open localhost, finish here instead.</p>
+  return <section className="pa-fastmail" aria-label="Fastmail connections">
+    {error && <ConnectionAlert>{error}</ConnectionAlert>}
+    {!status ? <ConnectionEmpty>
+      <span>{error ? 'Connection status unavailable.' : 'Checking connection…'}</span>
+      {error && <ConnectionButton tone="secondary" onClick={() => void reload()}>Try again</ConnectionButton>}
+    </ConnectionEmpty> : status.connected ? <>
+      <ConnectionHeading title="Connected accounts" count={1} description={`${status.tools} tools ready for new agent sessions.`} />
+      <ConnectionAccounts><ConnectionAccount initial="F" label="Account address unavailable" unavailable status="Connected"
+        action={<ConnectionButton disabled={busy} aria-label="Disconnect Fastmail account" onClick={() => void disconnect()}>Disconnect</ConnectionButton>} /></ConnectionAccounts>
+      <ConnectionDisclosure summary="Change access"><p>Disconnect, then reconnect with a different Fastmail grant. Verify your account in Fastmail before approving.</p></ConnectionDisclosure>
+    </> : status.pending ? <>
+      <ConnectionHeading title="Finish connecting" />
+      <ConnectionSetup title="Return from Fastmail">
+        <p>If the localhost page did not open, paste its address below.</p>
         <PasteBack callback={callback} busy={busy} onChange={setCallback} onSubmit={finish} />
-        <button type="button" className="pa-fastmail__button pa-fastmail__button--quiet" disabled={busy} onClick={() => void start()}>Start sign-in again</button>
-      </> : <>
-        <ol className="pa-fastmail__steps">
-          <li>Open Fastmail sign-in from BB.</li>
+        <ConnectionButton disabled={busy} onClick={() => void start()}>Start sign-in again</ConnectionButton>
+      </ConnectionSetup>
+    </> : <>
+      <ConnectionHeading title="Get started" action={<ConnectionButton tone="primary" disabled={busy} onClick={() => void start()}>Connect account</ConnectionButton>} />
+      <ConnectionSetup title="Connect your first account">
+        <ol>
+          <li>In BB, choose <strong>Connect account</strong> to open Fastmail.</li>
           <li>Choose the access you want in Fastmail, including write or send access if needed.</li>
-          <li>If localhost does not load afterward, return here to finish the connection.</li>
+          <li>If localhost does not load afterward, return to BB to finish the connection.</li>
         </ol>
-        <div className="pa-fastmail__actions">
-          <button type="button" className="pa-fastmail__button pa-fastmail__button--primary" disabled={busy} onClick={() => void start()}>Connect account</button>
-          <a className="pa-fastmail__guide" href={GUIDE} target="_blank" rel="noopener noreferrer">Setup guide ↗</a>
-        </div>
-      </>}
+        <ConnectionGuide href={GUIDE}>Step-by-step setup guide ↗</ConnectionGuide>
+      </ConnectionSetup>
     </>}
+    <ConnectionFooter>
+      <ConnectionButton onClick={() => void reload()} disabled={busy}>Refresh status</ConnectionButton>
+      {status?.connected && <ConnectionGuide href={GUIDE} />}
+    </ConnectionFooter>
   </section>;
 }
 export default definePluginApp(app => { app.slots.settingsSection({ id: 'fastmail-connection', component: FastmailSettings }); });

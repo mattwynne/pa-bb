@@ -38,6 +38,6 @@
   "scripts": {
     "build": "bb plugin build",
     "typecheck": "tsc --noEmit && bb plugin types --check",
-    "test": "npm run build && cucumber-js --format progress && node --test test/*.test.mjs"
+    "test": "node ../../scripts/sync-connection-ui.mjs --check && npm run build && cucumber-js --format progress && node --test test/*.test.mjs"
   }
 }

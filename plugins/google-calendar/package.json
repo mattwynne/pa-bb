@@ -31,10 +31,11 @@
     "cron-parser": "^5.5.0",
     "hono": "^4.11.9",
     "react": "19.2.0",
+    "react-dom": "^19.2.0",
     "typescript": "5.9.3"
   },
   "scripts": {
-    "test": "npm run build && cucumber-js --format progress && node --test test/*.test.mjs",
+    "test": "node ../../scripts/sync-connection-ui.mjs --check && npm run build && cucumber-js --format progress && node --test test/*.test.mjs",
     "typecheck": "tsc --noEmit && bb plugin types --check",
     "build": "bb plugin build"
   }

@@ -10,7 +10,11 @@ test('paste-back renders a password input without displaying callback code in pr
   const source = await readFile(resolve('paste-back.tsx'), 'utf8');
   const compiled = ts.transpileModule(source, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext } }).outputText;
   const temporary = resolve('paste-back.ui-test.generated.mjs');
+  const shared = resolve('connection-ui.js');
+  const sharedSource = await readFile(resolve('connection-ui.tsx'), 'utf8');
+  const sharedCompiled = ts.transpileModule(sharedSource, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext } }).outputText;
   try {
+    await writeFile(shared, sharedCompiled);
     await writeFile(temporary, compiled);
     const { PasteBack } = await import(`file://${temporary}`);
     const secret = 'http://localhost:38886/?code=synthetic-private-code';
@@ -19,5 +23,5 @@ test('paste-back renders a password input without displaying callback code in pr
     assert.match(markup, /Complete connection/);
     assert.equal(markup.split('synthetic-private-code').length - 1, 1); // only in the controlled input value
     assert.doesNotMatch(markup.replace(/<input\b[^>]*>/g, ''), /synthetic-private-code/);
-  } finally { await unlink(temporary).catch(() => {}); }
+  } finally { await unlink(temporary).catch(() => {}); await unlink(shared).catch(() => {}); }
 });

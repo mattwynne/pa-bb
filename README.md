@@ -15,6 +15,8 @@ plugins/
   fastmail/              # BB-native MCP plugin (dynamic granted tools)
   pa-core/               # planned assistant guidance and shared behaviour
   google-drive/          # planned integration
+shared/connection-ui/   # shared connection-screen source
+scripts/sync-connection-ui.mjs  # generate self-contained plugin copies
 ```
 
 Google Calendar and Fastmail are separate BB packages; the other directories are future possibilities, not a committed release list. Adding the catalog does not install plugins. Each listed plugin needs its own BB package; an optional `.bb/plugins.json` is a *monorepo plugin index*, not the marketplace catalog. The marketplace and plugins can live in the same Git repository. See the pinned [BB configuration guide](docs/references/bb-configuration.md) and [marketplace v2 schema](docs/references/bb-marketplace-v2.schema.json); validate behavior against the BB version in use before building on it.
@@ -42,6 +44,10 @@ The repository root is a marketplace catalog, not an installable BB plugin.
 npm install --prefix plugins/google-calendar
 npm --prefix plugins/google-calendar test          # BB build, Cucumber and adapter tests (including the marketplace catalog)
 npm --prefix plugins/google-calendar run typecheck
+npm install --prefix plugins/fastmail
+npm --prefix plugins/fastmail test
+npm --prefix plugins/fastmail run typecheck
+node scripts/sync-connection-ui.mjs --check    # both generated UI copies match shared source
 ```
 
 ## Documents
@@ -49,6 +55,7 @@ npm --prefix plugins/google-calendar run typecheck
 - [`marketplace.json`](marketplace.json) — BB catalog listing Calendar and Fastmail separately.
 - [Fastmail plugin](plugins/fastmail/README.md) — single-account MCP setup, grant semantics, security and test limits.
 - [Google Calendar plugin](plugins/google-calendar/README.md) — installation, Web OAuth, tool coverage, and current verification limits.
+- [Shared connection UI](shared/connection-ui/README.md) — common account/status/onboarding components and generated-package workflow.
 - [Google OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md) — step-by-step instructions for a new installer.
 - [Vision](docs/vision.md) — product direction: BB marketplace, PA core, optional integrations and abilities.
 - [Roadmap](docs/roadmap.md) and [iteration ledger](docs/plans/README.md) — priorities and plans.

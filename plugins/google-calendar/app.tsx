@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { definePluginApp, useRpc } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './contract.js';
+import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButton, ConnectionDisclosure, ConnectionEmpty, ConnectionFooter, ConnectionGuide, ConnectionHeading, ConnectionSetup } from './connection-ui.js';
+import './connection-ui.css';
 import './app.css';
 
 type Account = { subject: string; email: string; status: string };
@@ -39,42 +41,33 @@ function CalendarSettings() {
   }
 
   return <section className="pa-calendar" aria-label="Google Calendar connections">
-    <div className="pa-calendar__heading">
-      <div>
-        <h3 className="pa-calendar__title">{state && !state.configured ? 'Get started' : 'Connected accounts'} {state?.configured && <span className="pa-calendar__count">{state.accounts.length}</span>}</h3>
-        {state?.configured && <p className="pa-calendar__description">Search events and check availability across every calendar you can access.</p>}
-      </div>
-      <button className="pa-calendar__button pa-calendar__button--primary" type="button" disabled={busy || !state?.configured} onClick={() => void connect()}>+ Add account</button>
-    </div>
+    <ConnectionHeading title={state && !state.configured ? 'Get started' : 'Connected accounts'} count={state?.configured ? state.accounts.length : undefined}
+      description={state?.configured ? 'Search events and check availability across every calendar you can access.' : undefined}
+      action={<ConnectionButton tone="primary" disabled={busy || !state?.configured} onClick={() => void connect()}>+ Add account</ConnectionButton>} />
 
-    {error && <p className="pa-calendar__alert" role="alert">{error}</p>}
-    {!state ? <p className="pa-calendar__empty">Loading connections…</p> : <>
-      {!state.configured && <div className="pa-calendar__onboarding">
-        <h4>{state.accounts.length ? 'Restore OAuth setup' : 'Connect your first account'}</h4>
+    {error && <ConnectionAlert>{error}</ConnectionAlert>}
+    {!state ? <ConnectionEmpty>Loading connections…</ConnectionEmpty> : <>
+      {!state.configured && <ConnectionSetup title={state.accounts.length ? 'Restore OAuth setup' : 'Connect your first account'}>
         <ol>
           <li>Choose a Google Cloud project, enable the Calendar API, and configure its consent screen.</li>
           <li>Set up a Web OAuth client with this exact redirect URI:
             <div className="pa-calendar__redirect"><code>{state.redirectUri || 'Set an HTTPS BB_APP_URL first.'}</code>
-              {state.redirectUri && <button type="button" className="pa-calendar__button pa-calendar__button--secondary" onClick={() => void copyRedirect()}>{copied ? 'Copied' : 'Copy'}</button>}
+              {state.redirectUri && <ConnectionButton tone="secondary" onClick={() => void copyRedirect()}>{copied ? 'Copied' : 'Copy'}</ConnectionButton>}
             </div>
           </li>
           <li>Save its client ID and secret in Configuration above, then click <strong>Add account</strong>.</li>
         </ol>
-        <a className="pa-calendar__guide" href={SETUP_GUIDE} target="_blank" rel="noopener noreferrer">Step-by-step setup guide ↗</a>
-      </div>}
-      {state.accounts.length === 0 ? (state.configured && <div className="pa-calendar__empty"><strong>No accounts connected</strong><span>Add an account to make its calendars available to BB.</span></div>)
-      : <ul className="pa-calendar__accounts">{state.accounts.map(account => <li className="pa-calendar__account" key={account.subject}>
-        <span className="pa-calendar__avatar" aria-hidden="true">{account.email[0]?.toUpperCase() ?? 'G'}</span>
-        <span className="pa-calendar__account-name">{account.email}</span>
-        <span className={`pa-calendar__badge${account.status === 'Connected' ? '' : ' pa-calendar__badge--warning'}`}>{account.status}</span>
-        <button className="pa-calendar__button pa-calendar__button--quiet" type="button" disabled={busy} aria-label={`Remove ${account.email}`} onClick={() => void remove(account.subject, account.email)}>Remove</button>
-      </li>)}</ul>}
+        <ConnectionGuide href={SETUP_GUIDE}>Step-by-step setup guide ↗</ConnectionGuide>
+      </ConnectionSetup>}
+      {state.accounts.length === 0 ? (state.configured && <ConnectionEmpty><strong>No accounts connected</strong><span>Add an account to make its calendars available to BB.</span></ConnectionEmpty>)
+      : <ConnectionAccounts>{state.accounts.map(account => <ConnectionAccount key={account.subject} initial={account.email[0]?.toUpperCase() ?? 'G'} label={account.email} status={account.status}
+        warning={account.status !== 'Connected'} action={<ConnectionButton disabled={busy} aria-label={`Remove ${account.email}`} onClick={() => void remove(account.subject, account.email)}>Remove</ConnectionButton>} />)}</ConnectionAccounts>}
     </>}
 
-    <div className="pa-calendar__footer">
-      <button className="pa-calendar__button pa-calendar__button--quiet" type="button" onClick={() => void refresh()} disabled={busy}>Refresh status</button>
-      {state?.configured && <a className="pa-calendar__guide" href={SETUP_GUIDE} target="_blank" rel="noopener noreferrer">Setup guide ↗</a>}
-    </div>
+    <ConnectionFooter>
+      <ConnectionButton onClick={() => void refresh()} disabled={busy}>Refresh status</ConnectionButton>
+      {state?.configured && <ConnectionGuide href={SETUP_GUIDE} />}
+    </ConnectionFooter>
   </section>;
 }
 
@@ -102,12 +95,12 @@ function Approval({ interaction, submit, cancel }: {
       {typeof p.eventId === 'string' && <div><span>Event ID</span><strong>{p.eventId}</strong></div>}
       <div><span>Notify attendees</span><strong>{String(p.sendUpdates || 'none')}</strong></div>
     </div>
-    <details className="pa-calendar__setup" open><summary>Full proposed change</summary><pre className="pa-calendar__proposal">{String(p.details || '')}</pre></details>
-    {error && <p className="pa-calendar__alert" role="alert">{error}</p>}
+    <ConnectionDisclosure summary="Full proposed change" open><pre className="pa-calendar__proposal">{String(p.details || '')}</pre></ConnectionDisclosure>
+    {error && <ConnectionAlert>{error}</ConnectionAlert>}
     <div className="pa-calendar__approval-actions">
-      <button className="pa-calendar__button pa-calendar__button--primary" type="button" disabled={busy} onClick={() => void decide(true)}>Approve change</button>
-      <button className="pa-calendar__button pa-calendar__button--secondary" type="button" disabled={busy} onClick={() => void decide(false)}>Decline</button>
-      <button className="pa-calendar__button pa-calendar__button--quiet" type="button" disabled={busy} onClick={() => void cancel()}>Cancel</button>
+      <ConnectionButton tone="primary" disabled={busy} onClick={() => void decide(true)}>Approve change</ConnectionButton>
+      <ConnectionButton tone="secondary" disabled={busy} onClick={() => void decide(false)}>Decline</ConnectionButton>
+      <ConnectionButton disabled={busy} onClick={() => void cancel()}>Cancel</ConnectionButton>
     </div>
   </div>;
 }
