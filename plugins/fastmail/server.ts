@@ -2,8 +2,10 @@ import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { rpcContract } from './contract.js';
 import { z } from 'zod';
 import { FastmailConnection, callbackUrl, parseCallback } from './core.mjs';
+import { resultFor } from './result.mjs';
 
-export default async function plugin(bb: BbPluginApi) {
+// Optional fake transport keeps host-level tests off the real Fastmail endpoint.
+export async function plugin(bb: BbPluginApi, connect?: () => { client: any; transport: any }) {
   const db = bb.storage.database();
   bb.storage.migrate(db, ['CREATE TABLE IF NOT EXISTS fastmail_oauth (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL)']);
   const read = (): Record<string, any> => {
@@ -18,7 +20,7 @@ export default async function plugin(bb: BbPluginApi) {
     clear: () => { db.prepare('DELETE FROM fastmail_oauth').run(); },
   };
   const redirect = callbackUrl(bb.server.loopbackBaseUrl, bb.pluginId);
-  const connection = new FastmailConnection({ store, redirect, register: ({ name, description, parameters }: { name: string; description: string; parameters: Record<string, unknown> }) => {
+  const connection = new FastmailConnection({ store, redirect, connect, register: ({ name, description, parameters }: { name: string; description: string; parameters: Record<string, unknown> }) => {
     bb.agents.registerTool({ name, description, parameters, async execute(args, ctx) {
       try {
         const result = await connection.call(name, args as Record<string, unknown>, ctx.signal);
@@ -26,13 +28,6 @@ export default async function plugin(bb: BbPluginApi) {
       } catch { return { content: [{ type: 'text' as const, text: 'Fastmail call failed or connection changed. A mutation may have completed; check before retrying.' }], isError: true }; }
     } });
   } });
-  const resultFor = (result: { content: Array<{ type: string; [key: string]: any }>; isError?: boolean; structuredContent?: unknown; _meta?: unknown }) => ({
-    content: [
-      ...result.content.map(part => part.type === 'text' || part.type === 'image' ? part as { type: 'text'; text: string } : { type: 'text' as const, text: JSON.stringify(part) }),
-      ...(result.structuredContent === undefined ? [] : [{ type: 'text' as const, text: `Fastmail structuredContent: ${JSON.stringify(result.structuredContent)}` }]),
-      ...(result._meta === undefined ? [] : [{ type: 'text' as const, text: `Fastmail _meta: ${JSON.stringify(result._meta)}` }]),
-    ], isError: result.isError,
-  });
   bb.agents.registerTool({ name: 'fastmail_list_tools', description: 'List all tools currently granted by Fastmail, including provider input schemas.', parameters: z.object({}),
     execute() { return { content: [{ type: 'text' as const, text: JSON.stringify(connection.list()) }] }; },
   });
@@ -69,3 +64,5 @@ export default async function plugin(bb: BbPluginApi) {
     try { await connection.open(); } catch { bb.log.warn('Fastmail reconnect unavailable'); }
   }
 }
+
+export default plugin;

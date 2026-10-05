@@ -3,6 +3,9 @@ import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@model
 
 export const ENDPOINT = new URL('https://api.fastmail.com/mcp');
 const TTL = 10 * 60_000;
+const MAX_PAGES = 32;
+const MAX_TOOLS = 2048;
+const MAX_CATALOG_BYTES = 4 * 1024 * 1024;
 const equal = (a, b) => Boolean(a && b && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b)));
 export const callbackPath = id => `/api/v1/plugins/${encodeURIComponent(id)}/http/oauth/callback`;
 export function callbackUrl(base, id) {
@@ -56,7 +59,7 @@ const safeName = name => `fastmail_${name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 8);
 /** BB lifecycle is the only authority for catalog visibility and calls. */
 export class FastmailConnection {
-  constructor({ store, redirect, register, changed = () => {}, connect = null, endpoint = ENDPOINT }) {
+  constructor({ store, redirect, register, changed = () => {}, connect = /** @type {null | (() => {client: any, transport: any})} */ (null), endpoint = ENDPOINT }) {
     this.store = store; this.provider = new FastmailProvider(store, redirect); this.register = register; this.changed = changed;
     this.makeConnection = connect || (() => {
       const transport = new StreamableHTTPClientTransport(endpoint, { authProvider: this.provider, onInsufficientScope: 'throw',
@@ -67,10 +70,10 @@ export class FastmailConnection {
         },
       });
       return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.0' }, { listChanged: { tools: { onChanged: () => {
-        void this.refresh().catch(() => { this.catalog.clear(); this.names.clear(); this.changed(); });
+        void this.refresh().catch(() => { /* refresh itself revokes only the failing current catalog */ });
       } } } }) };
     });
-    this.catalog = new Map(); this.names = new Map(); this.registered = new Set(); this.enabled = true;
+    this.catalog = new Map(); this.names = new Map(); this.registered = new Set(); this.enabled = true; this.revision = 0;
   }
   get ready() { return this.enabled && Boolean(this.client); }
   async open() {
@@ -113,7 +116,34 @@ export class FastmailConnection {
   }
   async refresh() {
     if (!this.ready) return;
-    const { tools } = await this.client.listTools();
+    const client = this.client;
+    const revision = ++this.revision;
+    const seen = new Set();
+    const tools = [];
+    let bytes = 0;
+    let cursor;
+    try {
+      for (let page = 0; page < MAX_PAGES; page++) {
+        // SDK listTools() aggregates every page internally before returning;
+        // request one page at a time so our bounds apply before the next fetch.
+        const response = await client.request({ method: 'tools/list', ...(cursor === undefined ? {} : { params: { cursor } }) });
+        if (!Array.isArray(response.tools) || tools.length + response.tools.length > MAX_TOOLS) throw new Error('Fastmail catalog exceeds limit');
+        bytes += Buffer.byteLength(JSON.stringify(response.tools));
+        if (bytes > MAX_CATALOG_BYTES) throw new Error('Fastmail catalog exceeds limit');
+        tools.push(...response.tools);
+        if (response.nextCursor === undefined) { cursor = undefined; break; }
+        if (typeof response.nextCursor !== 'string' || !response.nextCursor || seen.has(response.nextCursor)) throw new Error('Fastmail catalog cursor cycle');
+        seen.add(response.nextCursor);
+        cursor = response.nextCursor;
+      }
+      if (cursor !== undefined) throw new Error('Fastmail catalog exceeds page limit');
+    } catch (error) {
+      if (this.client === client && this.revision === revision) {
+        this.catalog.clear(); this.names.clear(); this.changed();
+      }
+      throw error;
+    }
+    if (!this.ready || this.client !== client || this.revision !== revision) return;
     const next = new Map();
     const names = new Map();
     for (const tool of tools) {
@@ -146,7 +176,7 @@ export class FastmailConnection {
     return result;
   }
   async close() {
-    const client = this.client; this.client = null; this.transport = null;
+    const client = this.client; ++this.revision; this.client = null; this.transport = null;
     this.catalog.clear(); this.names.clear(); this.changed();
     if (client) await client.close().catch(() => {});
   }

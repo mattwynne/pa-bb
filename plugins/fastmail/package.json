@@ -25,7 +25,12 @@
     "@cucumber/cucumber": "^13.2.1",
     "@get-bb/plugin-sdk": "0.6.15",
     "@types/react": "19.2.7",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "bb-app": "0.45.0",
+    "better-sqlite3": "^13.0.3",
+    "cron-parser": "^5.10.1",
+    "hono": "^4.13.13",
     "react": "19.2.0",
     "react-dom": "^19.2.0",
     "typescript": "5.9.3"
@@ -33,6 +38,6 @@
   "scripts": {
     "build": "bb plugin build",
     "typecheck": "tsc --noEmit && bb plugin types --check",
-    "test": "cucumber-js --format progress && node --test test/*.test.mjs"
+    "test": "npm run build && cucumber-js --format progress && node --test test/*.test.mjs"
   }
 }
