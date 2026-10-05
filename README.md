@@ -2,21 +2,22 @@
 
 A planned **BB plugin marketplace** for a personal work assistant and optional service integrations. The idea is to add the PA marketplace to BB, then install only the plugins you want: a PA core, Google Drive/Docs, Calendar, email, and eventually task-focused abilities. BB is the user-facing product; useful parts of Matt's [PA project](https://github.com/mattwynne/pa) and [Pi extensions](https://github.com/mattwynne/pi-extensions) will move over case by case.
 
-Read [the vision](docs/vision.md) for the intended experience and plugin boundaries. The marketplace now lists one independently installable [Google Calendar plugin](plugins/google-calendar/README.md). **Each installation supplies its own Google Web OAuth client**; the marketplace does not provide shared credentials. PA core and the other integrations are not built yet. Adding the marketplace to BB **does not install the Calendar plugin**. The PA container provisioner registers the public GitHub repository as a Git-backed marketplace so BB can refresh the catalog without a local checkout.
+Read [the vision](docs/vision.md) for the intended experience and plugin boundaries. The marketplace lists independent [Google Calendar](plugins/google-calendar/README.md) and [Fastmail](plugins/fastmail/README.md) plugins. **Each Calendar installation supplies its own Google Web OAuth client**; Fastmail uses its own MCP OAuth flow. The marketplace provides no shared credentials. PA core and the other planned integrations are not built yet. Adding the marketplace to BB **does not install either plugin**. The PA container provisioner registers the public GitHub repository as a Git-backed marketplace so BB can refresh the catalog without a local checkout.
 
 ## Intended shape
 
 BB supports custom Git-hosted marketplace catalogs. The intended repository layout is roughly:
 
 ```text
-marketplace.json         # BB catalog: Google Calendar entry
+marketplace.json         # BB catalog: independent Calendar and Fastmail entries
 plugins/
   google-calendar/       # BB-native Calendar plugin (Web OAuth + nine tools)
+  fastmail/              # BB-native MCP plugin (dynamic granted tools)
   pa-core/               # planned assistant guidance and shared behaviour
   google-drive/          # planned integration
 ```
 
-Only `plugins/google-calendar/` exists today; the other directories are future possibilities, not a committed release list. Adding the catalog does not install plugins. Each listed plugin needs its own BB package; an optional `.bb/plugins.json` is a *monorepo plugin index*, not the marketplace catalog. The marketplace and plugins can live in the same Git repository. See the pinned [BB configuration guide](docs/references/bb-configuration.md) and [marketplace v2 schema](docs/references/bb-marketplace-v2.schema.json); validate behavior against the BB version in use before building on it.
+Google Calendar and Fastmail are separate BB packages; the other directories are future possibilities, not a committed release list. Adding the catalog does not install plugins. Each listed plugin needs its own BB package; an optional `.bb/plugins.json` is a *monorepo plugin index*, not the marketplace catalog. The marketplace and plugins can live in the same Git repository. See the pinned [BB configuration guide](docs/references/bb-configuration.md) and [marketplace v2 schema](docs/references/bb-marketplace-v2.schema.json); validate behavior against the BB version in use before building on it.
 
 ## Register the catalog on a BB host
 
@@ -27,11 +28,13 @@ bb marketplace add git:https://github.com/mattwynne/pa-bb.git
 bb marketplace list --json
 ```
 
-BB tracks the default branch and periodically refreshes the catalog. `bb marketplace refresh pa-for-bb` checks immediately. A catalog refresh does not install or update any plugins. To install Calendar separately, run `bb plugin install google-calendar@pa-for-bb` and follow the [beginner OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md). The GitHub source must contain the plugin before BB can install it.
+BB tracks the default branch and periodically refreshes the catalog. `bb marketplace refresh pa-for-bb` checks immediately. A catalog refresh does not install or update any plugins. To install Calendar, run `bb plugin install google-calendar@pa-for-bb` and follow its [OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md). To install Fastmail independently, run `bb plugin install fastmail@pa-for-bb` and follow its [connection guide](plugins/fastmail/README.md). The GitHub source must contain each plugin before BB can install it.
 
 ## What exists today
 
 `plugins/google-calendar/` is a separate BB-native plugin with Web OAuth account management and nine Calendar tools. The Pi extension's behavior informed its Gherkin features; Cucumber tests drive a hexagonal core via fake ports, and adapter/fake-BB tests exercise HTTP, storage, and tool registration. A managed Git marketplace install succeeded on BB, and the PA BB host has completed HTTPS Google authorization for multiple accounts. Live Calendar tool use and the write-approval UI still need end-to-end verification.
+
+`plugins/fastmail/` connects to Fastmail's official MCP endpoint. It discovers granted tool schemas at runtime, including mutation tools in broader grants; no writes have been live-tested through this standalone plugin. Synthetic OAuth/MCP and isolated BB install/disable/remove checks passed without a real account. The separate Agent Plugins bridge pilot on production PA is not a dependency and was not changed.
 
 The repository root is a marketplace catalog, not an installable BB plugin.
 
@@ -43,11 +46,12 @@ npm --prefix plugins/google-calendar run typecheck
 
 ## Documents
 
-- [`marketplace.json`](marketplace.json) — BB catalog listing the Calendar plugin.
+- [`marketplace.json`](marketplace.json) — BB catalog listing Calendar and Fastmail separately.
+- [Fastmail plugin](plugins/fastmail/README.md) — single-account MCP setup, grant semantics, security and test limits.
 - [Google Calendar plugin](plugins/google-calendar/README.md) — installation, Web OAuth, tool coverage, and current verification limits.
 - [Google OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md) — step-by-step instructions for a new installer.
 - [Vision](docs/vision.md) — product direction: BB marketplace, PA core, optional integrations and abilities.
 - [Roadmap](docs/roadmap.md) and [iteration ledger](docs/plans/README.md) — priorities and plans.
 - [Calendar iteration plan](docs/plans/001-marketplace-calendar.md) — historical implementation plan; see the plugin README for current setup and verification status.
-- [Fastmail spike findings](docs/plans/002-fastmail-mcp-findings.md#follow-up-isolated-live-proof) — read-only pilot connected on PA using a pasted localhost callback; one-install packaging remains.
+- [Fastmail spike findings](docs/plans/002-fastmail-mcp-findings.md#follow-up-isolated-live-proof) — historical read-only bridge pilot; standalone plugin verification is documented separately.
 - [Upstream BB references](docs/references/README.md) — pinned snapshots of BB marketplace documentation and schema.

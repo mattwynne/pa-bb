@@ -15,6 +15,17 @@
       "source": {
         "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/google-calendar", "ref": "main" }
       }
+    },
+    {
+      "id": "fastmail",
+      "displayName": "Fastmail",
+      "description": "Connect one Fastmail account and use the mail, calendar, contacts and other tools granted by Fastmail.",
+      "icon": "Mail",
+      "tags": ["fastmail", "mail", "calendar", "contacts"],
+      "author": { "name": "Matt Wynne", "github": "mattwynne" },
+      "source": {
+        "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/fastmail", "ref": "main" }
+      }
     }
   ]
 }
