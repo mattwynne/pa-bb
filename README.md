@@ -2,7 +2,7 @@
 
 A planned **BB plugin marketplace** for a personal work assistant and optional service integrations. The idea is to add the PA marketplace to BB, then install only the plugins you want: a PA core, Google Drive/Docs, Calendar, email, and eventually task-focused abilities. BB is the user-facing product; useful parts of Matt's [PA project](https://github.com/mattwynne/pa) and [Pi extensions](https://github.com/mattwynne/pi-extensions) will move over case by case.
 
-Read [the vision](docs/vision.md) for the intended experience and plugin boundaries. The marketplace now lists one independently installable [Google Calendar plugin](plugins/google-calendar/README.md); PA core and the other integrations are not built yet. Adding the marketplace to BB **does not install the Calendar plugin**. The root BB plugin remains a non-production packaging spike; do not install it as PA. The PA container provisioner registers the public GitHub repository as a Git-backed marketplace so BB can refresh the catalog without a local checkout.
+Read [the vision](docs/vision.md) for the intended experience and plugin boundaries. The marketplace now lists one independently installable [Google Calendar plugin](plugins/google-calendar/README.md). **Each installation supplies its own Google Web OAuth client**; the marketplace does not provide shared credentials. PA core and the other integrations are not built yet. Adding the marketplace to BB **does not install the Calendar plugin**. The root BB plugin remains a non-production packaging spike; do not install it as PA. The PA container provisioner registers the public GitHub repository as a Git-backed marketplace so BB can refresh the catalog without a local checkout.
 
 ## Intended shape
 
