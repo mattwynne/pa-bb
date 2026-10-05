@@ -1,0 +1,8 @@
+{
+  "name": "pa-bb-pi-discovery-spike",
+  "private": true,
+  "type": "module",
+  "pi": {
+    "extensions": ["./index.js"]
+  }
+}

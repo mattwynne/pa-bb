@@ -1,0 +1,24 @@
+{
+  "name": "pa-bb",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bb": ">=0.44",
+    "bbPluginSdk": ">=0.5.29"
+  },
+  "bb": {
+    "name": "PA Google packaging spike",
+    "description": "Tests plugin-owned Pi registration without Google credentials.",
+    "server": "./server.ts"
+  },
+  "files": ["server.ts", "src", "spike/pi-extension", "spike/cleanup-registration.mjs"],
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.5.29"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "smoke:pi": "node spike/check-pi-discovery.mjs",
+    "smoke:packed": "node spike/check-packed-artifact.mjs"
+  }
+}
