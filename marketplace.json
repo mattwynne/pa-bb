@@ -1,0 +1,8 @@
+{
+  "$schema": "https://getbb.app/schemas/marketplace-v2.schema.json",
+  "schemaVersion": 2,
+  "name": "pa-for-bb",
+  "displayName": "PA for BB",
+  "description": "Personal assistant integrations for BB. Plugins will appear here as they become ready.",
+  "plugins": []
+}
