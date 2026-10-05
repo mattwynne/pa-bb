@@ -20,9 +20,16 @@
 .pa-calendar__button--secondary:not(:disabled):hover { background: var(--muted); }
 .pa-calendar__button--quiet { color: var(--muted-foreground); }
 .pa-calendar__button--quiet:not(:disabled):hover { background: var(--muted); color: var(--foreground); }
-.pa-calendar__alert, .pa-calendar__notice { margin: 0.75rem 0; padding: 0.65rem 0.8rem; border-radius: 0.4rem; font-size: 0.8rem; }
-.pa-calendar__alert { background: color-mix(in oklab, var(--destructive) 12%, var(--background)); color: var(--destructive); }
-.pa-calendar__notice { background: var(--muted); color: var(--foreground); }
+.pa-calendar__alert { margin: 0.75rem 0; padding: 0.65rem 0.8rem; border-radius: 0.4rem; background: color-mix(in oklab, var(--destructive) 12%, var(--background)); color: var(--destructive); font-size: 0.8rem; }
+.pa-calendar__onboarding { padding: 1rem 1.25rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--card); }
+.pa-calendar__onboarding h4 { margin: 0 0 0.5rem; color: var(--foreground); font-size: 0.9rem; }
+.pa-calendar__onboarding ol { display: grid; gap: 0.6rem; margin: 0 0 0.85rem; padding-left: 1.3rem; }
+.pa-calendar__onboarding li { padding-left: 0.2rem; }
+.pa-calendar__onboarding li::marker { color: var(--muted-foreground); font-weight: 600; }
+.pa-calendar__onboarding .pa-calendar__redirect { margin: 0.4rem 0 0; }
+.pa-calendar__onboarding + .pa-calendar__accounts { margin-top: 0.75rem; }
+.pa-calendar__guide { color: var(--foreground); font-size: 0.78rem; font-weight: 600; text-decoration: underline; text-underline-offset: 0.18em; }
+.pa-calendar__guide:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: 2px; }
 .pa-calendar__accounts { overflow: hidden; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: max(0.5rem, var(--radius, 0.5rem)); background: var(--card); }
 .pa-calendar__account { display: flex; align-items: center; gap: 0.75rem; min-height: 3.25rem; padding: 0.55rem 0.75rem; }
 .pa-calendar__account + .pa-calendar__account { border-top: 1px solid var(--border); }
@@ -37,8 +44,6 @@
 .pa-calendar__footer .pa-calendar__button { margin-left: -0.65rem; }
 .pa-calendar__setup { margin-top: 0.75rem; border-top: 1px solid var(--border); color: var(--muted-foreground); }
 .pa-calendar__setup summary { width: fit-content; padding: 0.75rem 0; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
-.pa-calendar__setup-content { max-width: 55rem; padding-bottom: 0.5rem; font-size: 0.78rem; }
-.pa-calendar__setup-content p { margin: 0 0 0.7rem; }
 .pa-calendar__redirect { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.75rem; padding: 0.5rem 0.55rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--muted); }
 .pa-calendar__redirect code { flex: 1 1 auto; min-width: 0; color: var(--foreground); font-size: 0.73rem; overflow-wrap: anywhere; user-select: all; }
 .pa-calendar__approval { max-width: 42rem; padding: 0.5rem 0; }

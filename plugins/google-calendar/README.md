@@ -20,7 +20,9 @@ If `pa-for-bb` is already registered, do not add it twice: run `bb marketplace l
 
 ## Set up your own Google OAuth client
 
-Do this **once per BB installation**, before connecting Google accounts:
+**New to Google Cloud? Start with the [step-by-step setup guide](docs/google-oauth-setup.md).** It covers project creation, enabling the Calendar API, configuring the consent screen and scopes, creating a Web client, connecting an account in BB, and troubleshooting.
+
+Quick checklist—do this **once per BB installation**, before connecting Google accounts:
 
 1. Set `BB_APP_URL` to your installation's HTTPS origin, reachable in the browser where you sign in to Google. For Matt's PA host this is `https://pa.home.wynne.family`. BB can remain on a private network; do not expose it publicly just for OAuth.
 2. In [Google Cloud Console](https://console.cloud.google.com/auth/clients), choose a project **you control** (an existing project is fine). Enable the **Google Calendar API** and configure Google Auth Platform's branding/audience. For an External app in **Testing**, add every account you will connect as a test user. Google may show an unverified-app warning for sensitive Calendar scopes; public distribution may need verification. Testing-mode refresh tokens for these scopes may expire after seven days.
@@ -30,7 +32,7 @@ Do this **once per BB installation**, before connecting Google accounts:
    https://<your-bb-domain>/api/v1/plugins/google-calendar/http/callback
    ```
 
-   For Matt's PA host: `https://pa.home.wynne.family/api/v1/plugins/google-calendar/http/callback`. The plugin also displays its exact URL under **OAuth setup & troubleshooting** in BB Settings. **Authorized JavaScript origins** can be left blank for this server-side flow. A Desktop OAuth client with a `localhost` redirect (such as the Pi extension's) cannot use this HTTPS callback.
+   For Matt's PA host: `https://pa.home.wynne.family/api/v1/plugins/google-calendar/http/callback`. Before setup, the plugin displays its exact URL in **Get started** below Configuration in BB Settings. **Authorized JavaScript origins** can be left blank for this server-side flow. A Desktop OAuth client with a `localhost` redirect (such as the Pi extension's) cannot use this HTTPS callback.
 4. In **BB Settings → Installed plugins → Google Calendar → Configuration**, enter your new Web **client ID** and **client secret**. The secret is a BB secret setting; never paste it into chat or commit it to Git. Below Configuration, choose **Add account** and complete Google's consent screen. Repeat for other Google accounts; each account can access several calendars. Click **Refresh status** on returning to BB.
 
 If you deploy another BB installation, repeat these steps with **that installation's own client and redirect URI**. Google grants and refresh tokens are tied to the client that issued them; do not copy the Pi Desktop grant or another installation's tokens into this plugin.
@@ -65,4 +67,4 @@ npm test             # builds plugin, runs Cucumber core scenarios and adapter/B
 npm run typecheck
 ```
 
-The core is in `core/`; `adapters/` contain Google HTTP and BB storage. Gherkin scenarios in `features/` drive the core through fake ports. A managed Git install, HTTPS callback, and two real account connections have been verified on Matt's PA BB host. End-to-end Calendar tool use and the live write-approval UI still require verification. A public callback accepts only an expiring, one-use state/PKCE grant initiated from BB; keep the whole BB installation private and single-user.
+The core is in `core/`; `adapters/` contain Google HTTP and BB storage. Gherkin scenarios in `features/` drive the core through fake ports. A managed Git install, HTTPS callback, and multiple real account connections have been verified on Matt's PA BB host. End-to-end Calendar tool use and the live write-approval UI still require verification. A public callback accepts only an expiring, one-use state/PKCE grant initiated from BB; keep the whole BB installation private and single-user.

@@ -27,11 +27,11 @@ bb marketplace add git:https://github.com/mattwynne/pa-bb.git
 bb marketplace list --json
 ```
 
-BB tracks the default branch and periodically refreshes the catalog. `bb marketplace refresh pa-for-bb` checks immediately. A catalog refresh does not install or update any plugins. To install Calendar separately, run `bb plugin install google-calendar@pa-for-bb` and follow [its OAuth setup guide](plugins/google-calendar/README.md). The GitHub source must contain the plugin before BB can install it.
+BB tracks the default branch and periodically refreshes the catalog. `bb marketplace refresh pa-for-bb` checks immediately. A catalog refresh does not install or update any plugins. To install Calendar separately, run `bb plugin install google-calendar@pa-for-bb` and follow the [beginner OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md). The GitHub source must contain the plugin before BB can install it.
 
 ## What exists today
 
-`plugins/google-calendar/` is a separate BB-native plugin with Web OAuth account management and nine Calendar tools. The Pi extension's behavior informed its Gherkin features; Cucumber tests drive a hexagonal core via fake ports, and adapter/fake-BB tests exercise HTTP, storage, and tool registration. A managed Git marketplace install succeeded in an isolated BB 0.45.0 instance with all nine tools and the settings UI registered. **Live Google authorization and installation on the PA BB host have not yet been verified.**
+`plugins/google-calendar/` is a separate BB-native plugin with Web OAuth account management and nine Calendar tools. The Pi extension's behavior informed its Gherkin features; Cucumber tests drive a hexagonal core via fake ports, and adapter/fake-BB tests exercise HTTP, storage, and tool registration. A managed Git marketplace install succeeded on BB, and the PA BB host has completed HTTPS Google authorization for multiple accounts. Live Calendar tool use and the write-approval UI still need end-to-end verification.
 
 The repository root is a marketplace catalog, not an installable BB plugin.
 
@@ -45,6 +45,7 @@ npm --prefix plugins/google-calendar run typecheck
 
 - [`marketplace.json`](marketplace.json) — BB catalog listing the Calendar plugin.
 - [Google Calendar plugin](plugins/google-calendar/README.md) — installation, Web OAuth, tool coverage, and current verification limits.
+- [Google OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md) — step-by-step instructions for a new installer.
 - [Vision](docs/vision.md) — product direction: BB marketplace, PA core, optional integrations and abilities.
 - [Calendar iteration plan](docs/plans/iteration-1-marketplace-calendar.md) — historical implementation plan; see the plugin README for current setup and verification status.
 - [Upstream BB references](docs/references/README.md) — pinned snapshots of BB marketplace documentation and schema.

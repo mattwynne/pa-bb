@@ -5,6 +5,7 @@ import './app.css';
 
 type Account = { subject: string; email: string; status: string };
 type ConnectionState = { configured: boolean; redirectUri: string | null; accounts: Account[] };
+const SETUP_GUIDE = 'https://github.com/mattwynne/pa-bb/blob/main/plugins/google-calendar/docs/google-oauth-setup.md';
 
 function CalendarSettings() {
   const rpc = useRpc<typeof rpcContract>();
@@ -40,38 +41,40 @@ function CalendarSettings() {
   return <section className="pa-calendar" aria-label="Google Calendar connections">
     <div className="pa-calendar__heading">
       <div>
-        <h3 className="pa-calendar__title">Connected accounts <span className="pa-calendar__count">{state?.accounts.length ?? '–'}</span></h3>
-        <p className="pa-calendar__description">Search events and check availability across every calendar you can access.</p>
+        <h3 className="pa-calendar__title">{state && !state.configured ? 'Get started' : 'Connected accounts'} {state?.configured && <span className="pa-calendar__count">{state.accounts.length}</span>}</h3>
+        {state?.configured && <p className="pa-calendar__description">Search events and check availability across every calendar you can access.</p>}
       </div>
       <button className="pa-calendar__button pa-calendar__button--primary" type="button" disabled={busy || !state?.configured} onClick={() => void connect()}>+ Add account</button>
     </div>
 
     {error && <p className="pa-calendar__alert" role="alert">{error}</p>}
-    {state && !state.configured && <p className="pa-calendar__notice">Enter the Web OAuth client ID and secret in Configuration above to enable account connection.</p>}
-    {!state ? <p className="pa-calendar__empty">Loading connections…</p>
-      : state.accounts.length === 0 ? <div className="pa-calendar__empty"><strong>No accounts connected</strong><span>Add a Google account to make its calendars available to BB.</span></div>
+    {!state ? <p className="pa-calendar__empty">Loading connections…</p> : <>
+      {!state.configured && <div className="pa-calendar__onboarding">
+        <h4>{state.accounts.length ? 'Restore OAuth setup' : 'Connect your first account'}</h4>
+        <ol>
+          <li>Choose a Google Cloud project, enable the Calendar API, and configure its consent screen.</li>
+          <li>Set up a Web OAuth client with this exact redirect URI:
+            <div className="pa-calendar__redirect"><code>{state.redirectUri || 'Set an HTTPS BB_APP_URL first.'}</code>
+              {state.redirectUri && <button type="button" className="pa-calendar__button pa-calendar__button--secondary" onClick={() => void copyRedirect()}>{copied ? 'Copied' : 'Copy'}</button>}
+            </div>
+          </li>
+          <li>Save its client ID and secret in Configuration above, then click <strong>Add account</strong>.</li>
+        </ol>
+        <a className="pa-calendar__guide" href={SETUP_GUIDE} target="_blank" rel="noopener noreferrer">Step-by-step setup guide ↗</a>
+      </div>}
+      {state.accounts.length === 0 ? (state.configured && <div className="pa-calendar__empty"><strong>No accounts connected</strong><span>Add an account to make its calendars available to BB.</span></div>)
       : <ul className="pa-calendar__accounts">{state.accounts.map(account => <li className="pa-calendar__account" key={account.subject}>
         <span className="pa-calendar__avatar" aria-hidden="true">{account.email[0]?.toUpperCase() ?? 'G'}</span>
         <span className="pa-calendar__account-name">{account.email}</span>
         <span className={`pa-calendar__badge${account.status === 'Connected' ? '' : ' pa-calendar__badge--warning'}`}>{account.status}</span>
         <button className="pa-calendar__button pa-calendar__button--quiet" type="button" disabled={busy} aria-label={`Remove ${account.email}`} onClick={() => void remove(account.subject, account.email)}>Remove</button>
       </li>)}</ul>}
+    </>}
 
     <div className="pa-calendar__footer">
       <button className="pa-calendar__button pa-calendar__button--quiet" type="button" onClick={() => void refresh()} disabled={busy}>Refresh status</button>
-      <span>Removing an account deletes its local grant; it does not revoke access at Google.</span>
+      {state?.configured && <a className="pa-calendar__guide" href={SETUP_GUIDE} target="_blank" rel="noopener noreferrer">Setup guide ↗</a>}
     </div>
-
-    <details className="pa-calendar__setup" open={state && !state.configured ? true : undefined}>
-      <summary>OAuth setup &amp; troubleshooting</summary>
-      <div className="pa-calendar__setup-content">
-        <p>Create a Google <strong>Web application</strong> OAuth client and add this exact authorized redirect URI:</p>
-        <div className="pa-calendar__redirect"><code>{state?.redirectUri || 'Set an HTTPS BB_APP_URL first.'}</code>
-          {state?.redirectUri && <button type="button" className="pa-calendar__button pa-calendar__button--quiet" onClick={() => void copyRedirect()}>{copied ? 'Copied' : 'Copy'}</button>}
-        </div>
-        <p>Enable the Calendar API, then enter the client ID and secret in Configuration above. Existing Pi Desktop OAuth grants are separate. To reauthorize an account, remove it and connect it again.</p>
-      </div>
-    </details>
   </section>;
 }
 
