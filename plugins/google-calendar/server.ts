@@ -41,6 +41,24 @@ const safeError = (error: unknown) => {
   return 'Google Calendar operation failed. Check the connected account and try again.';
 };
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+// OAuth responses can contain codes, tokens, and provider diagnostics. Only log
+// a fixed failure category; never log the exception or its raw message.
+function oauthFailureCategory(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+  if (code === 'invalid_grant') return 'token_exchange_rejected';
+  if (message.startsWith('Google authorization was cancelled or incomplete')) return 'callback_incomplete';
+  if (message.startsWith('Google authorization has expired or is invalid')) return 'state_invalid_or_expired';
+  if (message.startsWith('Google authorization is temporarily unavailable')) return 'token_endpoint_unreachable';
+  if (message.startsWith('Google authorization failed')) return 'token_endpoint_rejected';
+  if (message.startsWith('Google did not provide a refresh token')) return 'missing_refresh_token';
+  if (message.startsWith('Google did not grant all required Calendar scopes')) return 'missing_required_scopes';
+  if (message.startsWith('Google identity failed')) return 'identity_endpoint_rejected';
+  if (message.startsWith('Google account identity is unverified') || message.startsWith('Google did not verify the account identity')) return 'identity_unverified';
+  if (message.startsWith('Google account is already connected')) return 'duplicate_account';
+  if (message.startsWith('Missing OAuth settings')) return 'client_not_configured';
+  return 'unexpected';
+}
 
 export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
@@ -86,7 +104,8 @@ export default async function plugin(bb: BbPluginApi) {
       const { clientId, clientSecret } = await getClient();
       if (!clientId || !clientSecret) throw new Error('Missing OAuth settings');
       await service().finishConnect({ state, code, error, clientId, clientSecret, redirectUri: publicCallback() });
-    } catch {
+    } catch (failure) {
+      bb.log.warn(`Google Calendar OAuth callback failed: ${oauthFailureCategory(failure)}`);
       heading = 'Google Calendar connection failed. Return to BB and try again.';
       status = 400;
     }

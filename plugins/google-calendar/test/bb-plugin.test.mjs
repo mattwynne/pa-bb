@@ -32,6 +32,8 @@ test('registers nine native tools, BB settings, an authenticated initiation RPC,
     const rejected = await harness.behavior.fetchHttp('GET', '/callback?state=bogus&code=bad');
     assert.equal(rejected.status, 400);
     assert.ok(!(await rejected.text()).includes('private-secret'));
+    assert.match(JSON.stringify(harness.inspection.logEntries), /state_invalid_or_expired/);
+    assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /private-secret|bogus|code=bad/);
   } finally { await harness.lifecycle.dispose(); }
 });
 
