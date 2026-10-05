@@ -61,7 +61,12 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
     const tokens = await oauth.exchange({ code, verifier: pending.verifier, clientId, clientSecret, redirectUri });
     if (!tokens?.refresh_token) throw new Error('Google did not provide a refresh token; reconnect with consent');
     const granted = new Set((tokens.scope || '').split(/\s+/));
-    if (SCOPES.some(scope => !granted.has(scope))) throw new Error('Google did not grant all required Calendar scopes');
+    const missing = SCOPES.filter(scope => !granted.has(scope));
+    if (missing.length) {
+      const failure = new Error('Google did not grant all required Calendar scopes');
+      failure.missingScopes = missing; // only our fixed, public scope names; never the provider response
+      throw failure;
+    }
     const identity = await oauth.identity(tokens.access_token);
     if (!identity?.sub || identity.email_verified !== true || !identity.email) throw new Error('Google did not verify the account identity');
     await store.addAccount({ subject: identity.sub, email: identity.email, refreshToken: tokens.refresh_token, accessToken: tokens.access_token, expiresAt: clock() + (Number(tokens.expires_in) || 3600) * 1000 });

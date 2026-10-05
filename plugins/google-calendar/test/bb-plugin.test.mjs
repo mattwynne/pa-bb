@@ -115,6 +115,23 @@ test('a Web callback connects an account once and retains it across a BB plugin 
   }
 });
 
+test('scope failure logs only public requested scope names, not provider credentials', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ access_token: 'private-access', refresh_token: 'private-refresh', scope: SCOPES.filter(s => s !== 'email').join(' ') }), { status: 200 });
+  let harness;
+  try {
+    ({ harness } = await setup());
+    const { url } = await harness.behavior.callRpc('beginConnect', null);
+    const state = new URL(url).searchParams.get('state');
+    const callback = await harness.behavior.fetchHttp('GET', `/callback?state=${encodeURIComponent(state)}&code=one-time`);
+    assert.equal(callback.status, 400);
+    const logs = JSON.stringify(harness.inspection.logEntries);
+    assert.match(logs, /missing_required_scopes \(email\)/);
+    assert.doesNotMatch(logs, /private-access|private-refresh|one-time/);
+    assert.deepEqual((await harness.behavior.callRpc('status', null)).accounts, []);
+  } finally { if (harness) await harness.lifecycle.dispose(); globalThis.fetch = originalFetch; }
+});
+
 test('rejects browser connection without Web OAuth settings', async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: 'google-calendar', appUrl: 'https://bb.example' });
   await plugin(bb);

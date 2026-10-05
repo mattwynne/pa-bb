@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { rpcContract } from './contract.js';
 import { createBbStore } from './adapters/bb-store.mjs';
 import { createGoogleAdapter } from './adapters/google.mjs';
-import { createCalendarService } from './core/service.mjs';
+import { createCalendarService, SCOPES } from './core/service.mjs';
 
 const text = z.string().min(1);
 const account = text.describe('Connected Google account email (choose explicitly).');
@@ -105,7 +105,10 @@ export default async function plugin(bb: BbPluginApi) {
       if (!clientId || !clientSecret) throw new Error('Missing OAuth settings');
       await service().finishConnect({ state, code, error, clientId, clientSecret, redirectUri: publicCallback() });
     } catch (failure) {
-      bb.log.warn(`Google Calendar OAuth callback failed: ${oauthFailureCategory(failure)}`);
+      const category = oauthFailureCategory(failure);
+      const declared = failure && typeof failure === 'object' && 'missingScopes' in failure && Array.isArray(failure.missingScopes)
+        ? failure.missingScopes.filter((scope): scope is string => typeof scope === 'string' && SCOPES.includes(scope)) : [];
+      bb.log.warn(`Google Calendar OAuth callback failed: ${category}${category === 'missing_required_scopes' && declared.length ? ` (${declared.join(', ')})` : ''}`);
       heading = 'Google Calendar connection failed. Return to BB and try again.';
       status = 400;
     }
