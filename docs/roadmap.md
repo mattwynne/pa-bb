@@ -12,7 +12,7 @@ This is a proposed order of work, not a promise to port every PA package. The [v
 
 ### 1. Fastmail: one connection, several capabilities
 
-The [connection spike](plans/002-fastmail-mcp-findings.md) found a remote OAuth callback blocker in the existing Agent Plugins bridge. Public discovery and mock verification are available; live BB/provider reads remain unverified. The next slice is reachable callback support and the isolated connection experiment, before releasing a Fastmail package.
+The [connection spike](plans/002-fastmail-mcp-findings.md#follow-up-isolated-live-proof) proved a read-only Fastmail MCP connection in isolated BB. Fastmail's MCP dynamic registration rejected public HTTPS callbacks, but accepted a localhost redirect pasted back into BB through a small bridge-fork UI. Mail, calendar, and contacts reads succeeded both in isolation and in the connected two-part production pilot; production packaging and agent-session checks remain before a Fastmail release.
 
 Build **one Fastmail plugin** that connects an account and makes the official Fastmail MCP service's mail, calendar, and contacts capabilities available in BB. A user should not have to install separate Fastmail Mail and Fastmail Calendar plugins. Own connection setup, status, and account choice at the Fastmail boundary; keep task workflows elsewhere.
 

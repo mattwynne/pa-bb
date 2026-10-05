@@ -1,6 +1,6 @@
-# Iteration 002 findings: remote callback blocks the live proof
+# Iteration 002 findings: Fastmail MCP connection
 
-Recorded 2026-10-05. **Decision: extend the existing bridge's callback support, then repeat the connection gate.** This spike produced a minimal [experimental package and public probe](../../experiments/fastmail-mcp/README.md). It did not establish a working Fastmail connection in BB. No production configuration, grants, or provider data were changed.
+Recorded 2026-10-05. The initial investigation below found that the bridge's localhost callback could not be opened directly from a browser on another machine. **A subsequent isolated BB experiment completed read-only Fastmail sign-in using a pasted localhost callback URL.** See [Follow-up: isolated live proof](#follow-up-isolated-live-proof) for the current outcome. No production PA BB configuration or grants were changed.
 
 ## Reviewed versions and evidence
 
@@ -41,7 +41,7 @@ COREPACK_HOME=/tmp/pa-bb-corepack pnpm --filter bb-plugin-agent-plugins exec vit
 
 The dependency install compiles native SQLite if no prebuilt binary is available. These tests use local synthetic services and grants; do not substitute real account credentials. From this repository, run `node experiments/fastmail-mcp/probe.mjs` separately for the public Fastmail check.
 
-## Callback gate: failed for a remote browser without forwarding
+## Initial callback gate: failed for a remote browser without forwarding
 
 In pinned [`server.ts`](https://github.com/patleeman/bb-plugins/blob/bf78d8767cd4a354985196e1cadaeee49d8102b7/packages/bb-plugin-agent-plugins/server.ts#L258), the bridge builds the callback from `bb.server.loopbackBaseUrl`, with this path:
 
@@ -69,7 +69,7 @@ The [`gateway.ts`](https://github.com/patleeman/bb-plugins/blob/bf78d8767cd4a354
 
 No write capability is ready to expose. Read-only consent is the intended provider-side boundary for the next live experiment, subject to verification. Provider data must remain untrusted content, and source attribution must survive forwarding.
 
-## Live result matrix
+## Initial live result matrix
 
 | Check | Pi through BB | Second provider through BB |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ No write capability is ready to expose. Read-only consent is the intended provid
 
 Consent, authenticated transport, restart, reconnect, reauthorization, disconnect, and rendered setup/error states remain unverified. Public discovery and mock OAuth are not substitutes for these checks.
 
-## Packaging decision and next falsifiable experiment
+## Initial packaging decision and next falsifiable experiment
 
 An Agent Plugins package is the smallest candidate: two JSON files and a visible bridge prerequisite. Connection controls live in Agent Plugins. Its package update/remove workflow is separate from BB's bridge update/remove workflow; removing the bridge affects every package using it. Neither the fixture nor the reviewed BB catalog mechanism establishes a one-install Fastmail experience. Do not silently install the bridge or advertise this fixture in our marketplace.
 
@@ -96,3 +96,27 @@ Acceptance experiment:
 5. Restart, reconnect, reauthorize, disconnect, and disable. Verify stale tool IDs cannot access a disabled connection and that Google Calendar still works. Test mutation denial and interaction requests with mocks, not real writes. Review first-run, connected, empty, and error UI states.
 
 If remote callbacks cannot safely pass BB routing, reconsider a native connector with established MCP/OAuth components. If they pass, ship the small package only after the provider matrix and honest install/update/remove documentation are complete.
+
+## Follow-up: isolated live proof
+
+The initial recommendation to use a public HTTPS callback did **not** work with Fastmail's MCP dynamic client registration: a credential-free registration experiment returned `invalid_redirect_uri` for both the private PA HTTPS hostname and an owned public HTTPS domain. Fastmail accepted `http://localhost` with the bridge's callback path and routing query. This is an observed constraint of the MCP dynamic registration endpoint, not a claim that Fastmail can never register an HTTPS client manually.
+
+The reviewed bridge already had a `finishAuthentication` RPC that accepts a callback URL and validates its OAuth state through the existing gateway, but no UI to invoke it. An [isolated fork change](https://github.com/mattwynne/bb-plugins/commit/16d6dce2a2a87ce243c703c21a41531030f683ef) ([upstream PR](https://github.com/patleeman/bb-plugins/pull/10)) uses `localhost` for the loopback redirect, exposes a paste-back form in the bridge UI, checks the pasted callback's origin/path/server context before the state/PKCE exchange, and lets the browser callback route run without a BB session. Automated tests cover wrong and replayed state, route access, callback URL validation, and the form. The upstream bridge is still a separately trusted prerequisite; the fork is **not** a Fastmail plugin release.
+
+On an isolated BB **0.45.0** instance on the PA host, the fork installed from that pinned commit and the fixture installed from this repository. The bridge reached Fastmail's consent screen with a `localhost` callback; Matt selected **Read data only**, copied the failed browser redirect into the BB form, and completed the connection. No callback URL, code, state, token, account name, or provider result was added to Git. One earlier callback was pasted into a chat by mistake; its pending OAuth state was canceled before a new sign-in was used. Never paste these URLs into chat.
+
+| Live check in isolated BB | Result |
+| --- | --- |
+| One Fastmail authorization | Connected; MCP server `ready` without an error |
+| Tool discovery | 12 tools, all read-only by observed name/catalog; no mutation tool exposed under the read-only grant |
+| Narrow mail search | Succeeded; no private results retained in findings |
+| Calendar list | Succeeded; names and details withheld |
+| Narrow contacts search | Succeeded; no private results retained in findings |
+| BB restart | Connection remained `ready`; all 12 tools rediscovered |
+| Invalid synthetic callback | HTTP 400; response did not disclose the supplied code |
+
+These calls were made through BB's plugin CLI against the isolated instance; they do **not** yet prove agent tool use in a fresh Pi and a second BB provider session. Writes, browser-rendered UX review, reauthorization, disconnect/disable, update/remove behavior, and a one-install Fastmail marketplace experience remain unverified. Do not copy the isolated OAuth grant into production.
+
+### Production pilot installation
+
+With the isolated read-only proof complete, the same pinned bridge fork and Fastmail fixture were installed and approved on the **single-user production PA BB instance** as a two-part pilot. Matt chose **Read data only** again and pasted that installation's localhost callback URL directly into the BB form; the sandbox grant was not copied. Production now reports the Fastmail server `ready` without error, exposes the same 12 read-only tools, and successfully ran narrow mail and contacts searches and a calendar-list read through BB's plugin CLI. Private results were not retained. Google Calendar remains running. This is **not** a PA marketplace entry or a general Fastmail release. Restart durability on production and agent use in fresh Pi and another provider session remain unverified; the isolated BB restart did pass. Do not claim write safety from these reads.

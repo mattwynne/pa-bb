@@ -1,6 +1,6 @@
 # Iteration 2: Fastmail MCP connection spike
 
-**Status:** Spike concluded with a connection blocker. See the [findings and next experiment](002-fastmail-mcp-findings.md): extend the bridge's remote OAuth callback support, then repeat the live gate. This iteration did not ship a Fastmail plugin or enable writes. The original investigation plan follows.
+**Status:** Isolated proof complete; read-only two-part pilot connected on production PA BB. See the [findings](002-fastmail-mcp-findings.md#follow-up-isolated-live-proof): Fastmail accepted a `localhost` callback pasted back into BB, not a public HTTPS callback through MCP dynamic registration. Agent-provider, production restart, and marketplace packaging gates remain. The original investigation plan follows.
 
 ## Goal
 
