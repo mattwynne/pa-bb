@@ -16,9 +16,12 @@
 .pa-fastmail__button--secondary { border-color: var(--border); background: var(--card); }
 .pa-fastmail__button--secondary:hover:not(:disabled), .pa-fastmail__button--quiet:hover:not(:disabled) { background: var(--muted); }
 .pa-fastmail__button--quiet { color: var(--muted-foreground); }
-.pa-fastmail__button:focus-visible, .pa-fastmail__guide:focus-visible, .pa-fastmail__paste input:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: 2px; }
+.pa-fastmail__button:focus-visible, .pa-fastmail__guide:focus-visible, .pa-fastmail__paste input:focus-visible, .pa-fastmail__more summary:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: 2px; }
 .pa-fastmail__button:disabled { opacity: 0.5; cursor: not-allowed; }
 .pa-fastmail__guide { color: var(--primary); text-underline-offset: 0.2em; }
+.pa-fastmail__more { margin-top: 0.6rem; color: var(--muted-foreground); }
+.pa-fastmail__more summary { width: fit-content; cursor: pointer; }
+.pa-fastmail__more p { margin: 0.5rem 0 0; }
 .pa-fastmail__paste { display: grid; justify-items: start; gap: 0.5rem; max-width: 100%; margin: 1rem 0 0.75rem; }
 .pa-fastmail__paste label { font-weight: 600; }
 .pa-fastmail__paste p { margin: 0; }

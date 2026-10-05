@@ -60,15 +60,16 @@ function FastmailSettings() {
       {error && <button type="button" className="pa-fastmail__button pa-fastmail__button--secondary" onClick={() => void reload()}>Try again</button>}
     </div> : status.connected ? <>
       <div className="pa-fastmail__heading">
-        <h3>Connected account</h3>
+        <h3>Connection</h3>
         <span className="pa-fastmail__badge">Connected</span>
       </div>
-      <p className="pa-fastmail__account">One account connected. Its address is not available from this connection.</p>
-      <p className="pa-fastmail__detail">{status.tools} tools available under your grant in new agent sessions. To change access, disconnect and connect again.</p>
+      <p className="pa-fastmail__account">Account address unavailable from this connection.</p>
+      <p className="pa-fastmail__detail">{status.tools} tools ready for new agent sessions.</p>
       <div className="pa-fastmail__actions">
         <button type="button" className="pa-fastmail__button pa-fastmail__button--quiet" onClick={() => void reload()} disabled={busy}>Refresh status</button>
         <button type="button" className="pa-fastmail__button pa-fastmail__button--secondary" onClick={() => void disconnect()} disabled={busy}>Disconnect</button>
       </div>
+      <details className="pa-fastmail__more"><summary>Change access</summary><p>Disconnect, then connect again and choose a new grant in Fastmail. Check your account address in Fastmail before approving.</p></details>
     </> : <>
       <h3>{status.pending ? 'Finish connecting' : 'Connect your account'}</h3>
       {status.pending ? <>
