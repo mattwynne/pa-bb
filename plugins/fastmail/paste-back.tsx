@@ -1,10 +1,10 @@
 import type { FormEvent } from 'react';
 
 export function PasteBack({ callback, busy, onChange, onSubmit }: { callback: string; busy: boolean; onChange(value: string): void; onSubmit(event: FormEvent): void }) {
-  return <form onSubmit={onSubmit} autoComplete="off">
-    <p>If your browser cannot open localhost, copy the entire failed localhost redirect address from its address bar and paste it here. This address contains a one-use code: do not paste it into chat or logs.</p>
-    <label htmlFor="fastmail-callback">Localhost callback URL</label>
-    <input id="fastmail-callback" type="password" autoComplete="off" spellCheck={false} value={callback} onChange={event => onChange(event.target.value)} />
-    <button disabled={busy || !callback} type="submit">Complete connection</button>
+  return <form className="pa-fastmail__paste" onSubmit={onSubmit} autoComplete="off">
+    <label htmlFor="fastmail-callback">Address from the failed localhost page</label>
+    <p id="fastmail-callback-help">Copy the entire address from your browser’s address bar. It contains a one-use code: paste it only here, never in chat or a support ticket.</p>
+    <input id="fastmail-callback" name="fastmail-callback" type="password" maxLength={8192} autoComplete="off" spellCheck={false} aria-describedby="fastmail-callback-help" value={callback} onChange={event => onChange(event.target.value)} />
+    <button className="pa-fastmail__button pa-fastmail__button--primary" disabled={busy || !callback.trim()} type="submit">Complete connection</button>
   </form>;
 }

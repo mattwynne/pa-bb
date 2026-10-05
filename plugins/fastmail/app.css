@@ -1,0 +1,28 @@
+.pa-fastmail { color: var(--foreground); font-size: 0.875rem; line-height: 1.5; max-width: 48rem; }
+.pa-fastmail h3 { margin: 0 0 0.5rem; color: var(--foreground); font-size: 1rem; font-weight: 650; }
+.pa-fastmail p { margin: 0 0 0.75rem; }
+.pa-fastmail__heading, .pa-fastmail__actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.pa-fastmail__heading { margin-bottom: 0.5rem; }
+.pa-fastmail__heading h3 { margin: 0; }
+.pa-fastmail__badge { border: 1px solid var(--border); border-radius: 999px; background: var(--muted); color: var(--foreground); padding: 0.12rem 0.55rem; font-size: 0.75rem; font-weight: 600; }
+.pa-fastmail__account { font-weight: 500; }
+.pa-fastmail__detail, .pa-fastmail__paste p { color: var(--muted-foreground); }
+.pa-fastmail__steps { display: grid; gap: 0.4rem; margin: 0.75rem 0 1rem; padding-left: 1.35rem; }
+.pa-fastmail__steps li { padding-left: 0.2rem; }
+.pa-fastmail__steps li::marker { color: var(--muted-foreground); }
+.pa-fastmail__button { display: inline-flex; justify-content: center; align-items: center; min-height: 2.25rem; padding: 0.4rem 0.8rem; border: 1px solid transparent; border-radius: var(--radius, 0.4rem); color: var(--foreground); background: transparent; font: inherit; font-weight: 600; cursor: pointer; }
+.pa-fastmail__button--primary { color: var(--primary-foreground); background: var(--primary); }
+.pa-fastmail__button--primary:hover:not(:disabled) { background: color-mix(in oklab, var(--primary) 82%, var(--background)); }
+.pa-fastmail__button--secondary { border-color: var(--border); background: var(--card); }
+.pa-fastmail__button--secondary:hover:not(:disabled), .pa-fastmail__button--quiet:hover:not(:disabled) { background: var(--muted); }
+.pa-fastmail__button--quiet { color: var(--muted-foreground); }
+.pa-fastmail__button:focus-visible, .pa-fastmail__guide:focus-visible, .pa-fastmail__paste input:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: 2px; }
+.pa-fastmail__button:disabled { opacity: 0.5; cursor: not-allowed; }
+.pa-fastmail__guide { color: var(--primary); text-underline-offset: 0.2em; }
+.pa-fastmail__paste { display: grid; justify-items: start; gap: 0.5rem; max-width: 100%; margin: 1rem 0 0.75rem; }
+.pa-fastmail__paste label { font-weight: 600; }
+.pa-fastmail__paste p { margin: 0; }
+.pa-fastmail__paste input { box-sizing: border-box; width: 100%; min-height: 2.25rem; padding: 0.4rem 0.65rem; border: 1px solid var(--border); border-radius: var(--radius, 0.4rem); background: var(--background); color: var(--foreground); font: inherit; }
+.pa-fastmail__alert { padding: 0.65rem 0.75rem; border: 1px solid var(--destructive); border-radius: var(--radius, 0.4rem); color: var(--foreground); }
+.pa-fastmail__empty { color: var(--muted-foreground); }
+@media (max-width: 40rem) { .pa-fastmail__actions { align-items: stretch; } .pa-fastmail__paste input { min-width: 0; } }
