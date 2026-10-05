@@ -1,12 +1,18 @@
 # PA for BB: vision
 
-PA for BB is a personal work assistant assembled from marketplace plugins. BB is the place people use it: they connect the services they trust, ask questions about their work, and approve useful actions. They should not need to know whether a capability originated in Pi or how its tools are loaded.
+PA for BB is a personal work assistant distributed through **its own BB plugin marketplace**. BB is the place people use it: they connect the services they trust, ask questions about their work, and approve useful actions. They should not need to know whether a capability originated in Pi or how its tools are loaded.
 
 The starting point is Matt's PA project in Pi, not a mandate to reproduce it wholesale. We will bring over proven tools and workflows from `~/git/mattwynne/pa` and `~/git/mattwynne/pi-extensions` **case by case**, adapting each to BB and to the needs of other users. The goal is a coherent assistant, not a long menu of provider API calls.
 
+## Distribution: one marketplace, independent plugins
+
+This repository is intended to host both a BB marketplace catalog (`marketplace.json`) and the source of the plugins it lists. A user adds the PA marketplace to BB, then chooses which plugins to install. Adding the catalog installs nothing; it is a discovery and distribution mechanism, not a running service or a bundle that silently installs every integration. We do not need to operate a separate app store.
+
+The catalog will list PA core and independently installable integrations, and may later list optional abilities. Each plugin will have its own package and release boundary. The repository's optional `.bb/plugins.json` index, if used, identifies plugins in a monorepo; it is **not** the marketplace catalog. BB's current catalog and monorepo formats are captured in [`docs/references/`](references/), but packaging and compatibility must be tested against the BB version we deploy.
+
 ## What using it should feel like
 
-Install the PA core plugin from the BB marketplace. It explains what it can do, what is missing, and how to add capabilities. Install a Calendar or Drive/Docs plugin, connect an account through BB, and ask a question such as “What do I need to prepare for tomorrow's meetings?” The assistant uses only the connected services it needs, makes clear where information came from, and distinguishes a proposed change from one it has made. Adding an email plugin later enables email-based tasks without reinstalling the assistant or giving Calendar access to mail.
+Add the PA marketplace to BB and install the PA core plugin. It explains what it can do, what is missing, and how to add capabilities. Install a Calendar or Drive/Docs plugin, connect an account through BB, and ask a question such as “What do I need to prepare for tomorrow's meetings?” The assistant uses only the connected services it needs, makes clear where information came from, and distinguishes a proposed change from one it has made. Adding an email plugin later enables email-based tasks without reinstalling the assistant or giving Calendar access to mail.
 
 A connected service supplies useful operations; PA turns them into outcomes. For example, searching mail and reading a calendar are integration capabilities. Preparing a daily briefing or planning a week is an assistant ability that may combine them. Some abilities need only instructions and context; others need several integrations. No single provider should define the assistant.
 
@@ -28,8 +34,8 @@ Reading and acting are different. PA can gather evidence and propose a change, b
 
 The Pi tools and abilities are valuable starting material. Reuse their behavior, tests, and safety rules where possible instead of writing a second, drifting implementation. During the transition, BB's Pi provider may run packaged Pi extensions behind the scenes. If another BB-native interface offers a better user experience or wider provider support, the product should not be blocked by the original runtime. Installation, authorization, and use should make sense entirely within BB.
 
-This repository currently contains a **packaging spike**, not the finished core or marketplace. It proves that a harmless Pi extension can be packed and discovered in isolated Pi sessions; it does not prove a real BB marketplace install, account connection, multi-user isolation, or the complete PA experience. [`docs/plans/pa-bb-plugin.md`](plans/pa-bb-plugin.md) records a Google-focused implementation path and open technical questions. Treat that plan as a candidate delivery step under this vision, not the definition of the whole product.
+This repository currently contains a **single-plugin packaging spike**, not a `marketplace.json`, the PA core, or installable integration plugins. It proves that a harmless Pi extension can be packed and discovered in isolated Pi sessions; it does not prove a real BB marketplace install, account connection, multi-user isolation, or the complete PA experience. [`docs/plans/pa-bb-plugin.md`](plans/pa-bb-plugin.md) records a Google-focused implementation path and open technical questions. Treat that plan as a candidate delivery step under this vision, not the definition of the whole product.
 
 ## How we'll judge progress
 
-A user can install PA in BB, understand what it can do, connect one service without connecting others, complete a useful task, and see and approve any consequential change. They can add or remove capabilities without breaking unrelated ones. A second user on the same BB installation sees only their own connections and data. As we move capabilities over, we test those experiences in BB itself—not just extension discovery in Pi.
+A user can add the PA marketplace to BB, install PA core and one integration without installing others, understand what is available, complete a useful task, and see and approve any consequential change. They can add or remove capabilities without breaking unrelated ones. A second user on the same BB installation sees only their own connections and data. As we move capabilities over, we test those experiences in BB itself—not just extension discovery in Pi.
