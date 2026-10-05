@@ -1,0 +1,124 @@
+import type { BbPluginApi } from '@get-bb/plugin-sdk';
+import { z } from 'zod';
+import { rpcContract } from './contract.js';
+import { createBbStore } from './adapters/bb-store.mjs';
+import { createGoogleAdapter } from './adapters/google.mjs';
+import { createCalendarService } from './core/service.mjs';
+
+const text = z.string().min(1);
+const account = text.describe('Connected Google account email (choose explicitly).');
+const target = z.object({ account, calendarId: text });
+const sendUpdates = z.enum(['none', 'all', 'externalOnly']).optional();
+const forCalendar = { account, calendarId: text };
+const eventId = { ...forCalendar, eventId: text };
+const schemas = {
+  gcal_auth_status: z.object({}),
+  gcal_list_calendars: z.object({}),
+  gcal_list_events: z.object({ ...forCalendar, timeMin: text.optional(), timeMax: text.optional(), maxResults: z.number().optional(), q: text.optional(), timeZone: text.optional(), singleEvents: z.boolean().optional() }),
+  gcal_search_events: z.object({ timeMin: text, timeMax: text, calendarSelection: z.enum(['selected','primary','all']).optional(), accounts: z.array(account).min(1).optional(), targets: z.array(target).min(1).optional(), q: text.optional(), timeZone: text.optional(), maxResults: z.number().optional() }),
+  gcal_get_event: z.object(eventId),
+  gcal_create_event: z.object({ ...forCalendar, summary: text, start: text, end: text.optional(), description: z.string().optional(), location: z.string().optional(), timeZone: text.optional(), allDay: z.boolean().optional(), attendees: z.array(text).optional(), sendUpdates }),
+  gcal_update_event: z.object({ ...eventId, summary: z.string().optional(), description: z.string().optional(), location: z.string().optional(), start: text.optional(), end: text.optional(), timeZone: text.optional(), moveToCalendarId: text.optional(), sendUpdates }),
+  gcal_delete_event: z.object({ ...eventId, sendUpdates }),
+  gcal_free_busy: z.object({ account, timeMin: text, timeMax: text, calendarIds: z.array(text).min(1) }),
+};
+const descriptions = {
+  gcal_auth_status: 'Report connected Google Calendar accounts and which require reauthorization.',
+  gcal_list_calendars: 'Discover calendars across all connected Google accounts, including partial failures.',
+  gcal_list_events: 'List events from one explicit account and calendar; defaults to the next 30 days.',
+  gcal_search_events: 'Search a time range across selected and primary calendars on connected accounts. Prefer this for an agenda spanning calendars.',
+  gcal_get_event: 'Read one event by ID from an explicit account and calendar.',
+  gcal_create_event: 'Create an event in an explicit account/calendar after the owner approves it. Attendee notifications default to none.',
+  gcal_update_event: 'Update or move an event after the owner approves it. Attendee notifications default to none.',
+  gcal_delete_event: 'Delete an event after the owner approves it. Attendee notifications default to none.',
+  gcal_free_busy: 'Query busy periods for explicit calendars in one Google account.',
+};
+const WRITE_NAMES = new Set(['gcal_create_event','gcal_update_event','gcal_delete_event']);
+const safeError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : '';
+  if (/^Unknown Google account|^Calendar change was not approved|^An end datetime|^Rescheduling requires|^No event changes|^Google account was removed|^Google account changed during refresh|^Configure the Google Web OAuth client|^Google authorization has expired|^Google did not grant|^Google did not provide|^Google account is already connected/.test(message)) return message;
+  if (message.includes('failed (401)') || ['reauthentication_required', 'invalid_grant'].includes((error as { code?: string })?.code || '')) return 'Google authorization expired. Reconnect the account in BB plugin settings.';
+  return 'Google Calendar operation failed. Check the connected account and try again.';
+};
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+
+export default async function plugin(bb: BbPluginApi) {
+  const settings = bb.settings.define({
+    clientId: { type: 'string', label: 'Google Web OAuth client ID', description: 'From your Google Cloud project. Enable the Calendar API and add the exact HTTPS redirect URI shown in the plugin README.', default: '' },
+    clientSecret: { type: 'string', label: 'Google Web OAuth client secret', description: 'Stored privately by BB; never paste it into an agent chat.', secret: true },
+  });
+  const store = createBbStore(bb.storage.database(), (db: Parameters<typeof bb.storage.migrate>[0], statements: Parameters<typeof bb.storage.migrate>[1]) => bb.storage.migrate(db, statements));
+  const getClient = async () => settings.get();
+  const adapter = createGoogleAdapter({ store, getClient });
+  const publicCallback = () => {
+    const origin = bb.server.experimental_appUrl;
+    if (!origin || !origin.startsWith('https://')) throw new Error('Configure an HTTPS BB_APP_URL before connecting Google');
+    return new URL(`/api/v1/plugins/${bb.pluginId}/http/callback`, origin).toString();
+  };
+  const service = (approve?: (proposal: { operation: string; account: string; calendarId: string; details: Record<string, unknown> }) => Promise<boolean>) =>
+    createCalendarService({ store, oauth: adapter.oauth, calendar: adapter.calendar, ...(approve ? { approve } : {}) });
+
+  bb.rpc.register(rpcContract, {
+    async status() {
+      const { clientId, clientSecret } = await getClient();
+      let redirectUri: string | null = null;
+      try { redirectUri = publicCallback(); } catch { /* setup still incomplete */ }
+      return { configured: Boolean(clientId && clientSecret && redirectUri), redirectUri, accounts: (await service().execute('gcal_auth_status')).accounts };
+    },
+    async beginConnect() {
+      const { clientId, clientSecret } = await getClient();
+      if (!clientId || !clientSecret) throw new Error('Configure the Google Web OAuth client in plugin settings');
+      const { url } = await service().beginConnect({ clientId, redirectUri: publicCallback() });
+      return { url };
+    },
+    async removeAccount({ subject }) { return { removed: await service().removeAccount(subject) }; },
+  });
+
+  // Google arrives without a BB browser Origin header. Only a one-use, expiring,
+  // owner-initiated state/PKCE grant may complete this deliberately public route.
+  bb.http.route('GET', '/callback', async ctx => {
+    const state = ctx.req.query('state') || '';
+    const code = ctx.req.query('code') || '';
+    const error = ctx.req.query('error') || '';
+    let heading = 'Google Calendar account connected';
+    let status = 200;
+    try {
+      const { clientId, clientSecret } = await getClient();
+      if (!clientId || !clientSecret) throw new Error('Missing OAuth settings');
+      await service().finishConnect({ state, code, error, clientId, clientSecret, redirectUri: publicCallback() });
+    } catch {
+      heading = 'Google Calendar connection failed. Return to BB and try again.';
+      status = 400;
+    }
+    const appUrl = bb.server.experimental_appUrl || '/';
+    return ctx.html(`<!doctype html><html lang="en"><meta charset="utf-8"><title>Google Calendar</title><body><h1>${escapeHtml(heading)}</h1><p><a href="${escapeHtml(appUrl)}">Return to BB</a></p></body></html>`, status as 200 | 400);
+  }, { auth: 'none' });
+
+  for (const [name, parameters] of Object.entries(schemas)) {
+    bb.agents.registerTool({
+      name, description: descriptions[name as keyof typeof descriptions], parameters,
+      instructions: WRITE_NAMES.has(name) ? 'This tool pauses for the BB owner to approve the exact change. Never interpret an unapproved change as completed.' : undefined,
+      async execute(args, ctx) {
+        const approve = async (proposal: { operation: string; account: string; calendarId: string; details: Record<string, unknown> }) => {
+          const response = await bb.ui.requestInput({
+            threadId: ctx.threadId, rendererId: 'calendar-approval', title: `Approve Calendar ${proposal.operation}`,
+            payload: { operation: proposal.operation, account: proposal.account, calendarId: proposal.calendarId,
+              summary: typeof proposal.details.summary === 'string' ? proposal.details.summary : null,
+              eventId: typeof proposal.details.eventId === 'string' ? proposal.details.eventId : null,
+              sendUpdates: typeof proposal.details.sendUpdates === 'string' ? proposal.details.sendUpdates : 'none',
+              details: JSON.stringify(proposal.details) },
+            describeSubmission: value => ({ title: (value && typeof value === 'object' && 'approved' in value && value.approved === true) ? 'Calendar change approved' : 'Calendar change declined' }),
+          }, { signal: ctx.signal });
+          return response.outcome === 'submitted' && response.value !== null && typeof response.value === 'object' && !Array.isArray(response.value) && response.value.approved === true;
+        };
+        try {
+          const result = await service(approve).execute(name, args as Record<string, unknown>);
+          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+        } catch (error) {
+          return { content: [{ type: 'text' as const, text: safeError(error) }], isError: true };
+        }
+      },
+    });
+  }
+  bb.agents.configure(() => ({ tools: Object.keys(schemas), skills: [] }));
+}

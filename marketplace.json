@@ -3,6 +3,18 @@
   "schemaVersion": 2,
   "name": "pa-for-bb",
   "displayName": "PA for BB",
-  "description": "Personal assistant integrations for BB. Plugins will appear here as they become ready.",
-  "plugins": []
+  "description": "Personal assistant integrations for BB, installed separately as needed.",
+  "plugins": [
+    {
+      "id": "google-calendar",
+      "displayName": "Google Calendar",
+      "description": "Connect multiple Google accounts and use Calendar tools from BB.",
+      "icon": "CalendarDays",
+      "tags": ["calendar", "google", "productivity"],
+      "author": { "name": "Matt Wynne", "github": "mattwynne" },
+      "source": {
+        "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/google-calendar", "ref": "main" }
+      }
+    }
+  ]
 }
