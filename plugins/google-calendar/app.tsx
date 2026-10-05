@@ -40,7 +40,6 @@ function CalendarSettings() {
   return <section className="pa-calendar" aria-label="Google Calendar connections">
     <div className="pa-calendar__heading">
       <div>
-        <p className="pa-calendar__eyebrow">GOOGLE CALENDAR</p>
         <h3 className="pa-calendar__title">Connected accounts <span className="pa-calendar__count">{state?.accounts.length ?? '–'}</span></h3>
         <p className="pa-calendar__description">Search events and check availability across every calendar you can access.</p>
       </div>
@@ -111,6 +110,6 @@ function Approval({ interaction, submit, cancel }: {
 }
 
 export default definePluginApp(app => {
-  app.slots.settingsSection({ id: 'calendar-accounts', title: 'Google Calendar accounts', description: 'Connect or remove Google accounts.', component: CalendarSettings });
+  app.slots.settingsSection({ id: 'calendar-accounts', component: CalendarSettings });
   app.slots.pendingInteraction({ id: 'calendar-approval', component: Approval });
 });

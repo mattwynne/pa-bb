@@ -31,7 +31,7 @@ Do this **once per BB installation**, before connecting Google accounts:
    ```
 
    For Matt's PA host: `https://pa.home.wynne.family/api/v1/plugins/google-calendar/http/callback`. The plugin also displays its exact URL under **OAuth setup & troubleshooting** in BB Settings. **Authorized JavaScript origins** can be left blank for this server-side flow. A Desktop OAuth client with a `localhost` redirect (such as the Pi extension's) cannot use this HTTPS callback.
-4. In **BB Settings → Installed plugins → Google Calendar → Configuration**, enter your new Web **client ID** and **client secret**. The secret is a BB secret setting; never paste it into chat or commit it to Git. Under **Google Calendar accounts**, choose **Add account** and complete Google's consent screen. Repeat for other Google accounts; each account can access several calendars. Click **Refresh status** on returning to BB.
+4. In **BB Settings → Installed plugins → Google Calendar → Configuration**, enter your new Web **client ID** and **client secret**. The secret is a BB secret setting; never paste it into chat or commit it to Git. Below Configuration, choose **Add account** and complete Google's consent screen. Repeat for other Google accounts; each account can access several calendars. Click **Refresh status** on returning to BB.
 
 If you deploy another BB installation, repeat these steps with **that installation's own client and redirect URI**. Google grants and refresh tokens are tied to the client that issued them; do not copy the Pi Desktop grant or another installation's tokens into this plugin.
 

@@ -62,8 +62,8 @@ function oauthFailureCategory(error: unknown): string {
 
 export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
-    clientId: { type: 'string', label: 'Google Web OAuth client ID', description: 'From your Google Cloud project. Enable the Calendar API and add the exact HTTPS redirect URI shown in the plugin README.', default: '' },
-    clientSecret: { type: 'string', label: 'Google Web OAuth client secret', description: 'Stored privately by BB; never paste it into an agent chat.', secret: true },
+    clientId: { type: 'string', label: 'Web OAuth client ID', description: 'From your Google Cloud project. Add the HTTPS redirect URI shown under OAuth setup below.', default: '' },
+    clientSecret: { type: 'string', label: 'Client secret', description: 'Stored privately by BB; never paste it into an agent chat.', secret: true },
   });
   const store = createBbStore(bb.storage.database(), (db: Parameters<typeof bb.storage.migrate>[0], statements: Parameters<typeof bb.storage.migrate>[1]) => bb.storage.migrate(db, statements));
   const getClient = async () => settings.get();
