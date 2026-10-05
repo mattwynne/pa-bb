@@ -47,5 +47,6 @@ npm --prefix plugins/google-calendar run typecheck
 - [Google Calendar plugin](plugins/google-calendar/README.md) — installation, Web OAuth, tool coverage, and current verification limits.
 - [Google OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md) — step-by-step instructions for a new installer.
 - [Vision](docs/vision.md) — product direction: BB marketplace, PA core, optional integrations and abilities.
-- [Calendar iteration plan](docs/plans/iteration-1-marketplace-calendar.md) — historical implementation plan; see the plugin README for current setup and verification status.
+- [Roadmap](docs/roadmap.md) and [iteration ledger](docs/plans/README.md) — priorities and plans.
+- [Calendar iteration plan](docs/plans/001-marketplace-calendar.md) — historical implementation plan; see the plugin README for current setup and verification status.
 - [Upstream BB references](docs/references/README.md) — pinned snapshots of BB marketplace documentation and schema.
