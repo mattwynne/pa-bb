@@ -2,7 +2,7 @@
 
 A planned **BB plugin marketplace** for a personal work assistant and optional service integrations. The idea is to add the PA marketplace to BB, then install only the plugins you want: a PA core, Google Drive/Docs, Calendar, email, and eventually task-focused abilities. BB is the user-facing product; useful parts of Matt's [PA project](https://github.com/mattwynne/pa) and [Pi extensions](https://github.com/mattwynne/pi-extensions) will move over case by case.
 
-Read [the vision](docs/vision.md) for the intended experience and plugin boundaries. The repository has a valid `marketplace.json` catalog, but **no installable PA plugins yet**. Adding the marketplace to BB installs nothing. The root BB plugin remains a non-production packaging spike; do not install it as PA. The PA container currently copies this empty catalog to a local `path:` marketplace; no GitHub remote has been configured for this repository yet.
+Read [the vision](docs/vision.md) for the intended experience and plugin boundaries. The repository has a valid `marketplace.json` catalog, but **no installable PA plugins yet**. Adding the marketplace to BB installs nothing. The root BB plugin remains a non-production packaging spike; do not install it as PA. The PA container registers the public GitHub repository as a Git-backed marketplace, so BB can refresh the catalog from its default branch without a local checkout.
 
 ## Intended shape
 
@@ -20,18 +20,18 @@ The plugin directories are a direction, **not** the current file layout or a com
 
 ## Register the catalog on a BB host
 
-For local testing, run BB and add the checkout as a `path:` marketplace:
+Run BB and add this Git-backed marketplace:
 
 ```sh
-bb marketplace add path:/absolute/path/to/pa-bb
+bb marketplace add git:https://github.com/mattwynne/pa-bb.git
 bb marketplace list --json
 ```
 
-The PA container provisioner instead copies `marketplace.json` into its persistent home and registers that copy, so the path does not depend on this checkout existing on the server. This registers an **empty catalog**, not the packaging spike. A future distributable marketplace needs a published Git source and independently installable plugin entries.
+BB tracks the default branch and periodically refreshes the catalog. `bb marketplace refresh pa-for-bb` checks immediately. This registers an **empty catalog**, not the packaging spike; a catalog refresh does not install or update any plugins.
 
 ## What exists today
 
-The root `package.json` and `server.ts` define a minimal BB plugin. Its harmless nested Pi extension registers `/pa-bb-discovery-spike`; there are **no** Google tools, connected accounts, OAuth flow, account-connect UI, PA core, or marketplace catalog. The plugin can opt in to registering that extension in a chosen Pi agent directory. Its purpose is to test packaging and Pi discovery, not to deliver a usable assistant.
+The root `package.json` and `server.ts` define a minimal BB plugin. Its harmless nested Pi extension registers `/pa-bb-discovery-spike`; there are **no** Google tools, connected accounts, OAuth flow, account-connect UI, or PA core. The plugin can opt in to registering that extension in a chosen Pi agent directory. Its purpose is to test packaging and Pi discovery, not to deliver a usable assistant.
 
 Local tests have verified that an `npm pack` artifact includes the extension without lifecycle scripts, that an isolated Pi directory discovers it in fresh RPC processes after install/update, and that explicit cleanup removes the plugin-owned registration without touching unrelated settings or credentials. The BB entrypoint's load/reload behavior has been tested with a mock BB API only. These tests **do not** prove a real BB build or marketplace install.
 
