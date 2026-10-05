@@ -12,6 +12,8 @@ This is a proposed order of work, not a promise to port every PA package. The [v
 
 ### 1. Fastmail: one connection, several capabilities
 
+The [connection spike](plans/002-fastmail-mcp-findings.md) found a remote OAuth callback blocker in the existing Agent Plugins bridge. Public discovery and mock verification are available; live BB/provider reads remain unverified. The next slice is reachable callback support and the isolated connection experiment, before releasing a Fastmail package.
+
 Build **one Fastmail plugin** that connects an account and makes the official Fastmail MCP service's mail, calendar, and contacts capabilities available in BB. A user should not have to install separate Fastmail Mail and Fastmail Calendar plugins. Own connection setup, status, and account choice at the Fastmail boundary; keep task workflows elsewhere.
 
 First prove that BB can authenticate to Fastmail's hosted MCP service, discover its tools, and handle any interactive confirmation across the provider sessions people actually use. If BB needs an adapter, keep it thin: do not copy provider tool schemas or rebuild the calendar protocol. PA [chose the official MCP service](https://github.com/mattwynne/pa/blob/main/docs/adrs/0006-use-official-fastmail-mcp-for-calendar-access.md) and removed its native CalDAV path because recurrence, timezones, and lossless edits were too risky to maintain locally. Start by validating reads; test write confirmations, exact account/calendar targeting, read-back, and uncertain outcomes before enabling consequential actions. PA's recorded live validation covered calendar reads, not mutations.

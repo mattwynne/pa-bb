@@ -1,6 +1,6 @@
 # Iteration 2: Fastmail MCP connection spike
 
-**Status:** Planned. This iteration is a decision-making spike, not a promise to ship the Fastmail plugin or enable writes.
+**Status:** Spike concluded with a connection blocker. See the [findings and next experiment](002-fastmail-mcp-findings.md): extend the bridge's remote OAuth callback support, then repeat the live gate. This iteration did not ship a Fastmail plugin or enable writes. The original investigation plan follows.
 
 ## Goal
 

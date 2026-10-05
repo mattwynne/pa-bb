@@ -49,4 +49,5 @@ npm --prefix plugins/google-calendar run typecheck
 - [Vision](docs/vision.md) — product direction: BB marketplace, PA core, optional integrations and abilities.
 - [Roadmap](docs/roadmap.md) and [iteration ledger](docs/plans/README.md) — priorities and plans.
 - [Calendar iteration plan](docs/plans/001-marketplace-calendar.md) — historical implementation plan; see the plugin README for current setup and verification status.
+- [Fastmail spike findings](docs/plans/002-fastmail-mcp-findings.md) — remote OAuth callback blocker, experimental package, public discovery probe, and next connection experiment.
 - [Upstream BB references](docs/references/README.md) — pinned snapshots of BB marketplace documentation and schema.

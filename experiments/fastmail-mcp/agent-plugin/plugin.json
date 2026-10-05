@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "pa-fastmail-spike",
+  "version": "0.0.0",
+  "description": "Experimental single Fastmail connection; requires BB Agent Plugins and explicit read-only OAuth consent."
+}
