@@ -9,7 +9,7 @@
       "id": "google-calendar",
       "displayName": "Google Calendar",
       "description": "Connect multiple Google accounts and use Calendar tools from BB.",
-      "icon": "CalendarDays",
+      "icon": "Calendar",
       "tags": ["calendar", "google", "productivity"],
       "author": { "name": "Matt Wynne", "github": "mattwynne" },
       "source": {

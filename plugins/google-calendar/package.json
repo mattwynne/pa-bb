@@ -12,7 +12,7 @@
     "name": "Google Calendar",
     "description": "Connect Google accounts and work with their calendars in BB.",
     "branding": {
-      "icon": "CalendarDays"
+      "icon": "Calendar"
     },
     "server": "./server.ts",
     "app": "./app.tsx"
