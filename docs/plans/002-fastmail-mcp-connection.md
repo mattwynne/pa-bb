@@ -1,6 +1,6 @@
 # Iteration 2: Fastmail MCP connection spike
 
-**Status:** Isolated proof complete; read-only two-part pilot connected on production PA BB. See the [findings](002-fastmail-mcp-findings.md#follow-up-isolated-live-proof): Fastmail accepted a `localhost` callback pasted back into BB, not a public HTTPS callback through MCP dynamic registration. Agent-provider, production restart, and marketplace packaging gates remain. The original investigation plan follows.
+**Status:** Historical bridge spike; the two-part production pilot was removed after a standalone Fastmail marketplace plugin connected successfully. See the [findings](002-fastmail-mcp-findings.md#standalone-successor). Fresh provider-session calls and live writes in the standalone plugin remain unverified. The original investigation plan follows.
 
 ## Goal
 

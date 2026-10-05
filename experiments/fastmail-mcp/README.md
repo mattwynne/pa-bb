@@ -1,6 +1,6 @@
 # Fastmail connection experiment
 
-This is an **unreleased Agent Plugins-spec pilot**, not an independently installable BB marketplace plugin or a read-only enforcement layer. After an isolated read-only proof, the pinned bridge and this fixture were installed on the single-user production PA BB host for a limited pilot. Matt authorized read-only access again on production, and mail/calendar/contacts reads succeeded there; no OAuth grants were copied from the sandbox. Agent-session checks and production restart remain. The [iteration findings](../../docs/plans/002-fastmail-mcp-findings.md#follow-up-isolated-live-proof) record the evidence and remaining release work.
+This is a **retired Agent Plugins-spec experiment**, not an installable Fastmail plugin. Its pinned bridge and fixture passed an isolated read-only proof and were briefly used on production PA, then removed when the [standalone Fastmail plugin](../../plugins/fastmail/README.md) connected. Do not reinstall this fixture for normal use. No OAuth grants were copied between installations. The [iteration findings](../../docs/plans/002-fastmail-mcp-findings.md#standalone-successor) preserve the historical evidence.
 
 `agent-plugin/` supplies one server using the official Fastmail endpoint. It contains no credentials, copied tool schemas, account identifiers, or workflows. Read-only access must be selected during Fastmail consent; the JSON cannot enforce it. Agent Plugins is a separately trusted prerequisite.
 

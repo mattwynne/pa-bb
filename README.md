@@ -34,7 +34,7 @@ BB tracks the default branch and periodically refreshes the catalog. `bb marketp
 
 `plugins/google-calendar/` is a separate BB-native plugin with Web OAuth account management and nine Calendar tools. The Pi extension's behavior informed its Gherkin features; Cucumber tests drive a hexagonal core via fake ports, and adapter/fake-BB tests exercise HTTP, storage, and tool registration. A managed Git marketplace install succeeded on BB, and the PA BB host has completed HTTPS Google authorization for multiple accounts. Live Calendar tool use and the write-approval UI still need end-to-end verification.
 
-`plugins/fastmail/` connects to Fastmail's official MCP endpoint. It discovers granted tool schemas at runtime, including mutation tools in broader grants; no writes have been live-tested through this standalone plugin. Synthetic OAuth/MCP and isolated BB install/disable/remove checks passed without a real account. The separate Agent Plugins bridge pilot on production PA is not a dependency and was not changed.
+`plugins/fastmail/` connects to Fastmail's official MCP endpoint. It discovers granted tool schemas at runtime, including mutation tools in broader grants; no writes have been live-tested through this standalone plugin. Synthetic OAuth/MCP and isolated BB install/disable/remove checks passed. The standalone plugin is connected on production PA; the old Agent Plugins bridge pilot was removed. See its [setup guide](plugins/fastmail/docs/setup.md).
 
 The repository root is a marketplace catalog, not an installable BB plugin.
 
@@ -53,5 +53,5 @@ npm --prefix plugins/google-calendar run typecheck
 - [Vision](docs/vision.md) — product direction: BB marketplace, PA core, optional integrations and abilities.
 - [Roadmap](docs/roadmap.md) and [iteration ledger](docs/plans/README.md) — priorities and plans.
 - [Calendar iteration plan](docs/plans/001-marketplace-calendar.md) — historical implementation plan; see the plugin README for current setup and verification status.
-- [Fastmail spike findings](docs/plans/002-fastmail-mcp-findings.md#follow-up-isolated-live-proof) — historical read-only bridge pilot; standalone plugin verification is documented separately.
+- [Fastmail spike findings](docs/plans/002-fastmail-mcp-findings.md#follow-up-isolated-live-proof) — historical bridge pilot and the standalone successor.
 - [Upstream BB references](docs/references/README.md) — pinned snapshots of BB marketplace documentation and schema.
