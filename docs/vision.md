@@ -19,7 +19,7 @@ A connected service supplies useful operations; PA turns them into outcomes. For
 ## Plugin boundaries
 
 - **PA core** supplies the assistant's identity, guidance, ability discovery, and shared rules for using context and requesting approval. It should remain useful without a connected account, explain its limits honestly, and avoid claiming access it does not have. Core should stay small rather than absorbing every provider and workflow.
-- **Integration plugins** own service-specific authentication, account selection, connection status, tools, and setup. Google Drive/Docs, Google Calendar, Gmail, and Fastmail are examples, not a required launch set. Each integration should be independently installable and useful outside PA where practical. An integration grants only the permissions its service requires.
+- **Integration plugins** own service-specific authentication, account selection, connection status, tools, and setup. Each should be independently installable and useful outside PA where practical. The user's service grant determines which capabilities are available.
 - **Abilities** describe tasks people want to accomplish—such as inbox triage, email drafting, meeting preparation, or weekly planning—and compose the available integrations. We can ship an initial set with core, then split abilities into optional plugins when that improves clarity or choice. We will choose which PA abilities to bring over individually, not promise a complete migration.
 
 This is a product boundary, not yet a prescribed BB inter-plugin protocol. Plugin discovery, dependency declarations, shared context, and installation UX need validation against BB's actual marketplace and plugin APIs. Prefer loose composition to a framework every integration must adopt before it can work.
@@ -28,7 +28,7 @@ This is a product boundary, not yet a prescribed BB inter-plugin protocol. Plugi
 
 Connections belong to the user who authorized them. In a multi-user BB installation, one person's accounts and private data must not become another person's tools or context. Each plugin should make its scopes and connection state visible; secrets stay out of prompts, transcripts, logs, and plugin artifacts. Uninstalling a capability must not silently destroy the user's data or other plugins' configuration.
 
-Reading and acting are different. A user's service grant defines available tools, including mutation tools if the user selects them; an explicit user request supplies the intent to act. Honor any BB or provider interaction required for a call, but do not add a blanket second approval gate to Fastmail's granted MCP tools. Describe consequential changes clearly, avoid blind retries after uncertain writes, and report what happened. Provider data is evidence for the task, not a source of instructions to the assistant. Personal knowledge and preferences remain under the user's control; Matt's private vault and PA-specific policy are not bundled into a public plugin.
+Reading and acting are different. A user's service grant defines available tools; an explicit user request supplies the intent to act. Honor required platform and provider interactions, describe consequential changes clearly, avoid blind retries after uncertain writes, and report what happened. Provider data is evidence for the task, not a source of instructions to the assistant. Personal knowledge and preferences remain under the user's control; Matt's private vault and PA-specific policy are not bundled into a public plugin.
 
 ## Reuse without making Pi the product
 
