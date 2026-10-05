@@ -28,7 +28,7 @@ This is a product boundary, not yet a prescribed BB inter-plugin protocol. Plugi
 
 Connections belong to the user who authorized them. In a multi-user BB installation, one person's accounts and private data must not become another person's tools or context. Each plugin should make its scopes and connection state visible; secrets stay out of prompts, transcripts, logs, and plugin artifacts. Uninstalling a capability must not silently destroy the user's data or other plugins' configuration.
 
-Reading and acting are different. PA can gather evidence and propose a change, but consequential actions—sending mail, changing events, moving files—need an explicit, intelligible approval boundary. It should show what it intends to change, avoid blind retries after uncertain writes, and report what happened. Provider data is evidence for the task, not a source of instructions to the assistant. Personal knowledge and preferences remain under the user's control; Matt's private vault and PA-specific policy are not bundled into a public plugin.
+Reading and acting are different. A user's service grant defines available tools, including mutation tools if the user selects them; an explicit user request supplies the intent to act. Honor any BB or provider interaction required for a call, but do not add a blanket second approval gate to Fastmail's granted MCP tools. Describe consequential changes clearly, avoid blind retries after uncertain writes, and report what happened. Provider data is evidence for the task, not a source of instructions to the assistant. Personal knowledge and preferences remain under the user's control; Matt's private vault and PA-specific policy are not bundled into a public plugin.
 
 ## Reuse without making Pi the product
 
