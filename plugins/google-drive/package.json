@@ -7,7 +7,7 @@
   "bb": {
     "name": "Google Drive",
     "description": "Find Drive files and read Google Docs from connected accounts.",
-    "branding": { "icon": "HardDrive" },
+    "branding": { "icon": "FolderOpen" },
     "server": "./server.ts",
     "app": "./app.tsx"
   },

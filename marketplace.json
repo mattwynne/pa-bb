@@ -31,7 +31,7 @@
       "id": "google-drive",
       "displayName": "Google Drive",
       "description": "Find files and folders in Google Drive and read Google Docs, with a read-only grant.",
-      "icon": "HardDrive",
+      "icon": "FolderOpen",
       "tags": ["drive", "docs", "google", "productivity"],
       "author": { "name": "Matt Wynne", "github": "mattwynne" },
       "source": {
