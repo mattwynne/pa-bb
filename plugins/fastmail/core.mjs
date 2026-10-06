@@ -1,5 +1,6 @@
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
+import { failureCategory } from './diagnostic.mjs';
 
 export const ENDPOINT = new URL('https://api.fastmail.com/mcp');
 const TTL = 10 * 60_000;
@@ -79,8 +80,9 @@ export function defaultSendingAddress(result) {
 }
 /** BB lifecycle is the only authority for catalog visibility and calls. */
 export class FastmailConnection {
-  constructor({ store, redirect, register, changed = () => {}, connect = /** @type {null | (() => {client: any, transport: any})} */ (null), endpoint = ENDPOINT }) {
+  constructor({ store, redirect, register, changed = () => {}, diagnose = /** @type {(message: string) => void} */ (() => {}), connect = /** @type {null | (() => {client: any, transport: any})} */ (null), endpoint = ENDPOINT }) {
     this.store = store; this.provider = new FastmailProvider(store, redirect); this.register = register; this.changed = changed;
+    this.diagnose = (stage, error) => diagnose(`${stage} ${typeof error === 'string' && ['provider_error_result', 'no_default_sender'].includes(error) ? error : failureCategory(error)}`);
     this.makeConnection = connect || (() => {
       const transport = new StreamableHTTPClientTransport(endpoint, { authProvider: this.provider, onInsufficientScope: 'throw',
         fetch: async (input, init) => {
@@ -89,8 +91,8 @@ export class FastmailConnection {
           return response;
         },
       });
-      return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.0' }, { listChanged: { tools: { onChanged: () => {
-        void this.refresh().catch(() => { /* refresh itself revokes only the failing current catalog */ });
+      return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.1' }, { listChanged: { tools: { onChanged: () => {
+        void this.refresh().catch(() => { /* refresh logs and revokes the failing catalog */ });
       } } } }) };
     });
     this.catalog = new Map(); this.names = new Map(); this.registered = new Set(); this.enabled = true; this.revision = 0;
@@ -110,6 +112,7 @@ export class FastmailConnection {
       if (this.client === client) { this.client = null; this.transport = null; this.catalog.clear(); this.names.clear(); this.changed(); }
       await client.close().catch(() => {});
       if (error instanceof UnauthorizedError && this.provider.authorizationUrl) return;
+      this.diagnose('connection_open', error);
       throw new Error('Fastmail connection failed');
     }
   }
@@ -133,7 +136,7 @@ export class FastmailConnection {
       this.provider.finish();
       await this.open();
       if (!this.ready) throw new Error('Fastmail connection failed');
-    } catch { this.provider.finish(); throw new Error('Fastmail authorization failed'); }
+    } catch (error) { this.provider.finish(); this.diagnose('authorization_finish', error); throw new Error('Fastmail authorization failed'); }
   }
   async refresh() {
     if (!this.ready) return;
@@ -161,6 +164,7 @@ export class FastmailConnection {
     } catch (error) {
       if (this.client === client && this.revision === revision) {
         this.catalog.clear(); this.names.clear(); this.changed();
+        this.diagnose('catalog_refresh', error);
       }
       throw error;
     }
@@ -189,8 +193,14 @@ export class FastmailConnection {
     if (this.identityLookup) return this.identityLookup;
     const client = this.client;
     const lookup = this.callByName('list_identities', {}, AbortSignal.timeout(6000))
-      .then(result => this.client === client ? defaultSendingAddress(result) : null)
-      .catch(() => null)
+      .then(result => {
+        if (this.client !== client) return null;
+        if (result.isError) this.diagnose('identity_lookup', 'provider_error_result');
+        const address = defaultSendingAddress(result);
+        if (!address && !result.isError) this.diagnose('identity_lookup', 'no_default_sender');
+        return address;
+      })
+      .catch(error => { this.diagnose('identity_lookup', error); return null; })
       .finally(() => { if (this.identityLookup === lookup) this.identityLookup = null; });
     this.identityLookup = lookup;
     return lookup;

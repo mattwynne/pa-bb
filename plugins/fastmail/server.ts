@@ -3,6 +3,7 @@ import { rpcContract } from './contract.js';
 import { z } from 'zod';
 import { FastmailConnection, callbackUrl, parseCallback } from './core.mjs';
 import { resultFor } from './result.mjs';
+import { failureCategory } from './diagnostic.mjs';
 
 // Optional fake transport keeps host-level tests off the real Fastmail endpoint.
 export async function plugin(bb: BbPluginApi, connect?: () => { client: any; transport: any }) {
@@ -20,12 +21,17 @@ export async function plugin(bb: BbPluginApi, connect?: () => { client: any; tra
     clear: () => { db.prepare('DELETE FROM fastmail_oauth').run(); },
   };
   const redirect = callbackUrl(bb.server.loopbackBaseUrl, bb.pluginId);
-  const connection = new FastmailConnection({ store, redirect, connect, register: ({ name, description, parameters }: { name: string; description: string; parameters: Record<string, unknown> }) => {
+  const diagnose = (stage: string, category: string) => bb.log.warn(`Fastmail ${stage} ${category}`);
+  const connection = new FastmailConnection({ store, redirect, connect, diagnose: (message: string) => diagnose('connection', message), register: ({ name, description, parameters }: { name: string; description: string; parameters: Record<string, unknown> }) => {
     bb.agents.registerTool({ name, description, parameters, async execute(args, ctx) {
       try {
         const result = await connection.call(name, args as Record<string, unknown>, ctx.signal);
+        if (result.isError) diagnose('direct_call', 'provider_error_result');
         return resultFor(result);
-      } catch { return { content: [{ type: 'text' as const, text: 'Fastmail call failed or connection changed. A mutation may have completed; check before retrying.' }], isError: true }; }
+      } catch (error) {
+        diagnose('direct_call', failureCategory(error));
+        return { content: [{ type: 'text' as const, text: 'Fastmail call failed or connection changed. A mutation may have completed; check before retrying.' }], isError: true };
+      }
     } });
   } });
   bb.agents.registerTool({ name: 'fastmail_list_tools', description: 'List all tools currently granted by Fastmail, including provider input schemas.', parameters: z.object({}),
@@ -34,8 +40,14 @@ export async function plugin(bb: BbPluginApi, connect?: () => { client: any; tra
   bb.agents.registerTool({ name: 'fastmail_call_tool', description: 'Call a currently granted Fastmail tool by its provider name and arguments. Use the schema from fastmail_list_tools.',
     parameters: z.object({ name: z.string(), arguments: z.record(z.string(), z.unknown()).default({}) }),
     async execute({ name, arguments: args }, ctx) {
-      try { return resultFor(await connection.callByName(name, args, ctx.signal)); }
-      catch { return { content: [{ type: 'text' as const, text: 'Fastmail call failed or connection changed. A mutation may have completed; check before retrying.' }], isError: true }; }
+      try {
+        const result = await connection.callByName(name, args, ctx.signal);
+        if (result.isError) diagnose('fallback_call', 'provider_error_result');
+        return resultFor(result);
+      } catch (error) {
+        diagnose('fallback_call', failureCategory(error));
+        return { content: [{ type: 'text' as const, text: 'Fastmail call failed or connection changed. A mutation may have completed; check before retrying.' }], isError: true };
+      }
     },
   });
   bb.onDispose(() => connection.shutdown());

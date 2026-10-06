@@ -2,23 +2,25 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { FastmailConnection, FastmailProvider, callbackUrl, parseCallback, defaultSendingAddress } from '../core.mjs';
+import { failureCategory } from '../diagnostic.mjs';
+import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
 
 function fixture() {
   let value = {};
   const store = { get: () => structuredClone(value), patch: patch => { value = { ...value, ...patch }; }, remove: (...keys) => { for (const key of keys) delete value[key]; }, clear: () => { value = {}; } };
-  const calls = [], registered = [];
+  const calls = [], registered = [], diagnostics = [];
   let tools = [
     { name: 'search_mail', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, description: 'Search mail' },
     { name: 'create_calendar_event', inputSchema: { type: 'object', properties: { title: { type: 'string' } } }, description: 'Create event' },
   ];
   const clients = [];
   const redirect = callbackUrl('http://127.0.0.1:38886', 'fastmail');
-  const connection = new FastmailConnection({ store, redirect, register: tool => registered.push(tool), connect: () => {
+  const connection = new FastmailConnection({ store, redirect, register: tool => registered.push(tool), diagnose: message => diagnostics.push(message), connect: () => {
     const client = { connect: async () => {}, close: async () => {}, request: async () => ({ tools }), callTool: async (args) => { calls.push(args); return { content: [{ type: 'text', text: 'provider data' }] }; } };
     clients.push(client);
     return { client, transport: { finishAuth: async () => {}, close: async () => {} } };
   } });
-  return { store, calls, registered, connection, clients, setTools: value => { tools = value; }, redirect };
+  return { store, calls, registered, diagnostics, connection, clients, setTools: value => { tools = value; }, redirect };
 }
 
 test('connection exposes dynamic read and mutation schemas, then revokes both', async () => {
@@ -110,6 +112,21 @@ test('expired or cancelled callbacks never reach exchange', async () => {
   state = await provider.state(); provider.saveCodeVerifier('verifier');
   assert.throws(() => provider.consume(new URLSearchParams({ state, error: 'access_denied' })), /Invalid/);
   assert.equal(f.store.get().pending, undefined);
+});
+
+test('diagnostic categories discard untrusted error messages and arbitrary codes', () => {
+  const secret = 'token=private code=one-use';
+  assert.equal(failureCategory(new ProtocolError(-32602, secret, { body: secret })), 'protocol_code=-32602');
+  assert.equal(failureCategory(new SdkError(SdkErrorCode.RequestTimeout, secret)), 'REQUEST_TIMEOUT');
+  assert.equal(failureCategory(new Error(secret)), 'unknown');
+  assert.equal(failureCategory({ name: secret, code: secret, status: 401, message: secret }), 'unknown');
+});
+
+test('connection failures report only a bounded category, not provider errors', async () => {
+  const f = fixture();
+  f.connection.makeConnection = () => ({ client: { connect: async () => { throw new Error('code=private one-time-token'); }, close: async () => {} }, transport: {} });
+  await assert.rejects(f.connection.open(), /^Error: Fastmail connection failed$/);
+  assert.deepEqual(f.diagnostics, ['connection_open unknown']);
 });
 
 test('a protocol failure is not retried, including an uncertain mutation', async () => {
