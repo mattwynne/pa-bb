@@ -151,6 +151,103 @@ test('a protocol failure is not retried, including an uncertain mutation', async
   assert.equal(attempts, 1);
 });
 
+test('an aged connection rotates before sending a tool call, even for a mutation', async () => {
+  const f = fixture(); let connections = 0; let calls = 0; let closes = 0;
+  f.connection.makeConnection = () => {
+    const generation = ++connections;
+    return { client: {
+      connect: async () => {}, close: async () => { closes++; },
+      request: async () => ({ tools: [{ name: 'send_mail', inputSchema: { type: 'object' } }] }),
+      callTool: async () => { calls++; return { content: [{ type: 'text', text: `connection ${generation}` }] }; },
+    }, transport: {} };
+  };
+  await f.connection.open();
+  f.connection.openedAt = Date.now() - 26 * 60_000;
+  const id = f.connection.toolNames()[0];
+  assert.equal((await f.connection.call(id, {})).content[0].text, 'connection 2');
+  assert.equal(connections, 2);
+  assert.equal(closes, 1);
+  assert.equal(calls, 1, 'the mutation is sent only on the fresh connection');
+});
+
+test('concurrent calls share a proactive rotation', async () => {
+  const f = fixture(); let connections = 0; let calls = 0;
+  f.connection.makeConnection = () => ({ client: {
+    connect: async () => { connections++; }, close: async () => {},
+    request: async () => ({ tools: [{ name: 'read', inputSchema: { type: 'object' } }] }),
+    callTool: async () => { calls++; return { content: [] }; },
+  }, transport: {} });
+  await f.connection.open();
+  f.connection.openedAt = Date.now() - 26 * 60_000;
+  const id = f.connection.toolNames()[0];
+  await Promise.all([f.connection.call(id, {}), f.connection.call(id, {})]);
+  assert.equal(connections, 2);
+  assert.equal(calls, 2);
+});
+
+test('an in-flight mutation is never interrupted for proactive rotation', async () => {
+  const f = fixture(); let connections = 0; let finishWrite; let started;
+  const writeStarted = new Promise(resolve => { started = resolve; });
+  f.connection.makeConnection = () => ({ client: {
+    connect: async () => { connections++; }, close: async () => {},
+    request: async () => ({ tools: [{ name: 'send_mail', inputSchema: { type: 'object' } }] }),
+    callTool: async () => {
+      if (!finishWrite) { started(); return new Promise(resolve => { finishWrite = resolve; }); }
+      return { content: [] };
+    },
+  }, transport: {} });
+  await f.connection.open();
+  const id = f.connection.toolNames()[0];
+  const pendingWrite = f.connection.call(id, {});
+  await writeStarted;
+  f.connection.openedAt = Date.now() - 26 * 60_000;
+  await f.connection.call(id, {});
+  assert.equal(connections, 1, 'an active write is never closed for maintenance');
+  finishWrite({ content: [] });
+  await pendingWrite;
+  await f.connection.call(id, {});
+  assert.equal(connections, 2, 'rotation proceeds after the write finishes');
+});
+
+test('an aged identity lookup uses the fresh connection and still returns the default address', async () => {
+  const f = fixture(); let connections = 0;
+  f.connection.makeConnection = () => {
+    connections++;
+    return { client: {
+      connect: async () => {}, close: async () => {},
+      request: async () => ({ tools: [{ name: 'list_identities', inputSchema: { type: 'object' } }] }),
+      callTool: async () => ({ content: [{ type: 'text', text: JSON.stringify([{ email: 'private@example.test', isDefault: true }]) }] }),
+    }, transport: {} };
+  };
+  await f.connection.open();
+  f.connection.openedAt = Date.now() - 26 * 60_000;
+  assert.equal(await f.connection.getDefaultSendingAddress(), 'private@example.test');
+  assert.equal(connections, 2);
+});
+
+test('disconnect during proactive rotation cannot restore a revoked grant', async () => {
+  const f = fixture(); let connections = 0; let finishClose; let closing;
+  const closeStarted = new Promise(resolve => { closing = resolve; });
+  f.connection.makeConnection = () => {
+    connections++;
+    return { client: {
+      connect: async () => {}, close: async () => { closing(); await new Promise(resolve => { finishClose = resolve; }); },
+      request: async () => ({ tools: [{ name: 'read', inputSchema: { type: 'object' } }] }),
+    }, transport: {} };
+  };
+  f.store.patch({ tokens: { access_token: 'private-token' } });
+  await f.connection.open();
+  f.connection.openedAt = Date.now() - 26 * 60_000;
+  const pending = f.connection.call(f.connection.toolNames()[0], {});
+  await closeStarted;
+  await f.connection.disconnect();
+  finishClose();
+  await assert.rejects(pending, /Fastmail tool unavailable/);
+  assert.equal(connections, 1);
+  assert.equal(f.connection.ready, false);
+  assert.deepEqual(f.store.get(), {});
+});
+
 test('an HTTP 500 reopens the connection without retrying an uncertain call', async () => {
   const f = fixture();
   let connections = 0; let calls = 0; let closes = 0;

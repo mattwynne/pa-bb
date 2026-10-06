@@ -7,6 +7,7 @@ const TTL = 10 * 60_000;
 const MAX_PAGES = 32;
 const MAX_TOOLS = 2048;
 const MAX_CATALOG_BYTES = 4 * 1024 * 1024;
+const ROTATE_AFTER_MS = 25 * 60_000;
 const equal = (a, b) => Boolean(a && b && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b)));
 export const callbackPath = id => `/api/v1/plugins/${encodeURIComponent(id)}/http/oauth/callback`;
 export function callbackUrl(base, id) {
@@ -92,12 +93,12 @@ export class FastmailConnection {
           return response;
         },
       });
-      return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.3' }, { listChanged: { tools: { onChanged: () => {
+      return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.4' }, { listChanged: { tools: { onChanged: () => {
         void this.refresh().catch(() => { /* refresh logs and revokes the failing catalog */ });
       } } } }) };
     });
     this.catalog = new Map(); this.names = new Map(); this.registered = new Set(); this.enabled = true; this.revision = 0;
-    this.identityLookup = null; this.reconnecting = null; this.openedAt = null;
+    this.identityLookup = null; this.reconnecting = null; this.openedAt = null; this.activeCalls = 0;
   }
   get ready() { return this.enabled && Boolean(this.client); }
   async open() {
@@ -191,6 +192,7 @@ export class FastmailConnection {
   toolNames() { return this.ready ? [...this.catalog.keys()].filter(name => this.registered.has(name)) : []; }
   list() { return this.ready ? [...this.catalog.entries()].map(([id, tool]) => ({ id, name: tool.name, description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations })) : []; }
   async getDefaultSendingAddress() {
+    try { await this.rotateIfAged(); } catch { return null; /* open logged the bounded failure. */ }
     if (!this.ready || !this.names.has('list_identities')) return null;
     if (this.identityLookup) return this.identityLookup;
     const client = this.client;
@@ -213,19 +215,34 @@ export class FastmailConnection {
     return this.call(id, args, signal);
   }
   async call(name, args, signal) {
+    // Rotate before submitting the call, never after an uncertain mutation.
+    await this.rotateIfAged();
     if (!this.ready || !this.catalog.has(name)) throw new Error('Fastmail tool unavailable');
     const tool = this.catalog.get(name);
     const client = this.client;
-    let result;
-    try { result = await client.callTool({ name: tool.name, arguments: args }, { signal }); }
-    catch (error) {
+    this.activeCalls++;
+    try {
+      const result = await client.callTool({ name: tool.name, arguments: args }, { signal });
+      if (!this.ready || this.client !== client || !this.catalog.has(name)) throw new Error('Fastmail tool unavailable');
+      return result;
+    } catch (error) {
       // A provider failure may follow an expired MCP connection. Reopen for
       // future calls, but never retry this call: a mutation may have completed.
       if (error instanceof SdkHttpError && error.status === 500) await this.reopenAfterFailure(client, error);
       throw error;
-    }
-    if (!this.ready || this.client !== client || !this.catalog.has(name)) throw new Error('Fastmail tool unavailable');
-    return result;
+    } finally { this.activeCalls--; }
+  }
+  async rotateIfAged() {
+    if (this.reconnecting) return this.reconnecting;
+    if (!this.enabled || !this.client || this.activeCalls || this.openedAt === null || Date.now() - this.openedAt < ROTATE_AFTER_MS) return;
+    const renewal = (async () => {
+      const revision = this.revision + 1;
+      await this.close();
+      if (this.enabled && this.revision === revision) await this.open();
+    })();
+    this.reconnecting = renewal;
+    try { await renewal; }
+    finally { if (this.reconnecting === renewal) this.reconnecting = null; }
   }
   async reopenAfterFailure(client, error) {
     if (!this.enabled || this.client !== client) return;
