@@ -20,4 +20,4 @@ npm test
 npm run typecheck
 ```
 
-The core uses injectable storage, OAuth and provider ports; the BB adapter stores separate Drive account/pending tables. Host tests use synthetic tokens and Google responses. Real Google sign-in and provider-session reads remain to be verified after an installation owner configures the Web OAuth client. Do not use this plugin on a multi-user BB installation until BB can enforce per-user isolation.
+The core uses injectable storage, OAuth and provider ports; the BB adapter stores separate Drive account/pending tables. The [Gherkin acceptance feature](features/oauth-client-reuse.feature) runs both plugin servers under fake BB hosts to check client reuse in either order; the cross-plugin test builds Calendar's sibling package in this monorepo. Host tests use synthetic tokens and Google responses. Real Google sign-in and provider-session reads remain to be verified after an installation owner configures the Web OAuth client. Do not use this plugin on a multi-user BB installation until BB can enforce per-user isolation.

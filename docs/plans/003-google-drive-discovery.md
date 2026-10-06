@@ -17,7 +17,7 @@ The owner can configure **Calendar first, then Drive** or **Drive first, then Ca
 
 The source plugin discloses the client ID and secret only through a verified, server-to-server RPC whose caller is the named destination plugin; browser, CLI, agent, and unrelated-plugin callers are denied. The destination persists its own copy without returning either value to the UI or logs, and refuses to replace settings while accounts are connected. If the source is missing or unconfigured, explain how to enter a Web client manually. After a copy, either plugin can be disabled or removed without breaking the other's local credentials or tokens. Rotating or deleting the shared client in Google Cloud affects both copies and requires updating both plugins; no live synchronization is promised.
 
-Acceptance checks cover both copy directions, unauthorized callers, missing source, existing destination accounts, absence of secrets in UI/logs/RPC results, independent removal/reload, and the rendered first-run/recovery screens at desktop and narrow widths.
+The executable [Gherkin acceptance feature](../../plugins/google-drive/features/oauth-client-reuse.feature) covers both copy directions, unauthorized callers, missing source, existing destination accounts, absence of secrets in RPC results and logs, independent removal/reload, and each destination's requested scopes. Google Cloud redirect registration remains an owner-performed external prerequisite that BB cannot verify; the feature checks the URI BB presents. Rendered first-run/recovery screens also require desktop, narrow, and keyboard review.
 
 ## Deliberately later
 
