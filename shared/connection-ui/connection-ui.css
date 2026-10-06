@@ -24,8 +24,10 @@
 .pa-connection__account { display: flex; align-items: center; gap: 0.75rem; min-height: 3.25rem; padding: 0.55rem 0.75rem; }
 .pa-connection__account + .pa-connection__account { border-top: 1px solid var(--border); }
 .pa-connection__avatar { display: inline-grid; flex: 0 0 2rem; place-items: center; height: 2rem; border-radius: 0.55rem; background: var(--muted); color: var(--foreground); font-size: 0.8rem; font-weight: 700; }
-.pa-connection__account-name { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; font-weight: 600; }
+.pa-connection__identity { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+.pa-connection__account-name { overflow-wrap: anywhere; font-weight: 600; }
 .pa-connection__account-name--unavailable { color: var(--muted-foreground); font-weight: 500; }
+.pa-connection__account-caption { color: var(--muted-foreground); font-size: 0.72rem; }
 .pa-connection__badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.35rem; padding: 0.22rem 0.55rem; border-radius: 999px; background: color-mix(in oklab, var(--success, #27815d) 13%, var(--card)); color: var(--success, #27815d); font-size: 0.7rem; font-weight: 600; }
 .pa-connection__badge::before { content: ''; width: 0.35rem; height: 0.35rem; border-radius: 50%; background: currentColor; }
 .pa-connection__badge--warning { background: color-mix(in oklab, var(--destructive) 10%, var(--card)); color: var(--destructive); }
@@ -40,7 +42,7 @@
 @media (max-width: 40rem) {
   .pa-connection__heading { align-items: flex-start; flex-direction: column; }
   .pa-connection__account { flex-wrap: wrap; }
-  .pa-connection__account-name { flex-basis: calc(100% - 3rem); }
+  .pa-connection__identity { flex-basis: calc(100% - 3rem); }
   .pa-connection__badge { margin-left: 2.75rem; }
   .pa-connection__account .pa-connection__button { margin-left: auto; }
   .pa-connection__footer { align-items: flex-start; flex-direction: column; gap: 0; }

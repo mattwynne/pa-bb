@@ -7,7 +7,7 @@ import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButto
 import './connection-ui.css';
 import './app.css';
 
-type ConnectionStatus = { connected: boolean; pending: boolean; tools: number };
+type ConnectionStatus = { connected: boolean; pending: boolean; tools: number; defaultSendingAddress: string | null };
 const GUIDE = 'https://github.com/mattwynne/pa-bb/blob/main/plugins/fastmail/docs/setup.md';
 
 function FastmailSettings() {
@@ -62,7 +62,9 @@ function FastmailSettings() {
       {error && <ConnectionButton tone="secondary" onClick={() => void reload()}>Try again</ConnectionButton>}
     </ConnectionEmpty> : status.connected ? <>
       <ConnectionHeading title="Connected accounts" count={1} description={`${status.tools} tools ready for new agent sessions.`} />
-      <ConnectionAccounts><ConnectionAccount initial="F" label="Account address unavailable" unavailable status="Connected"
+      <ConnectionAccounts><ConnectionAccount initial={status.defaultSendingAddress?.[0]?.toUpperCase() ?? 'F'}
+        label={status.defaultSendingAddress ?? 'Default sending address unavailable'} unavailable={!status.defaultSendingAddress}
+        caption={status.defaultSendingAddress ? 'Default sending address · login may differ' : undefined} status="Connected"
         action={<ConnectionButton disabled={busy} aria-label="Disconnect Fastmail account" onClick={() => void disconnect()}>Disconnect</ConnectionButton>} /></ConnectionAccounts>
       <ConnectionDisclosure summary="Change access"><p>Disconnect, then reconnect with a different Fastmail grant. Verify your account in Fastmail before approving.</p></ConnectionDisclosure>
     </> : status.pending ? <>

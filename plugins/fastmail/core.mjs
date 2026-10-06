@@ -57,6 +57,26 @@ export class FastmailProvider {
 
 const safeName = name => `fastmail_${name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 8);
+
+// An identity is a send-from address, not proof of the Fastmail login username.
+// Display only the one address the provider explicitly marks as default.
+export function defaultSendingAddress(result) {
+  if (!result || result.isError) return null;
+  const candidates = [result.structuredContent];
+  for (const part of result.content || []) {
+    if (part.type !== 'text' || typeof part.text !== 'string' || part.text.length > 256 * 1024) continue;
+    try { candidates.push(JSON.parse(part.text)); } catch { /* Ignore non-JSON messages. */ }
+  }
+  for (const value of candidates) {
+    const identities = Array.isArray(value) ? value : value?.identities;
+    if (!Array.isArray(identities)) continue;
+    const defaults = identities.filter(identity => identity && identity.isDefault === true);
+    if (defaults.length !== 1) return null;
+    const email = defaults[0].email;
+    return typeof email === 'string' && email.length <= 254 && /^[^\s@<>\x00-\x1f\x7f]+@[^\s@<>\x00-\x1f\x7f]+$/.test(email) ? email : null;
+  }
+  return null;
+}
 /** BB lifecycle is the only authority for catalog visibility and calls. */
 export class FastmailConnection {
   constructor({ store, redirect, register, changed = () => {}, connect = /** @type {null | (() => {client: any, transport: any})} */ (null), endpoint = ENDPOINT }) {
@@ -74,6 +94,7 @@ export class FastmailConnection {
       } } } }) };
     });
     this.catalog = new Map(); this.names = new Map(); this.registered = new Set(); this.enabled = true; this.revision = 0;
+    this.identityLookup = null;
   }
   get ready() { return this.enabled && Boolean(this.client); }
   async open() {
@@ -163,6 +184,17 @@ export class FastmailConnection {
   }
   toolNames() { return this.ready ? [...this.catalog.keys()].filter(name => this.registered.has(name)) : []; }
   list() { return this.ready ? [...this.catalog.entries()].map(([id, tool]) => ({ id, name: tool.name, description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations })) : []; }
+  async getDefaultSendingAddress() {
+    if (!this.ready || !this.names.has('list_identities')) return null;
+    if (this.identityLookup) return this.identityLookup;
+    const client = this.client;
+    const lookup = this.callByName('list_identities', {}, AbortSignal.timeout(6000))
+      .then(result => this.client === client ? defaultSendingAddress(result) : null)
+      .catch(() => null)
+      .finally(() => { if (this.identityLookup === lookup) this.identityLookup = null; });
+    this.identityLookup = lookup;
+    return lookup;
+  }
   async callByName(name, args, signal) {
     const id = this.names.get(name);
     if (!id) throw new Error('Fastmail tool unavailable');
@@ -177,7 +209,7 @@ export class FastmailConnection {
   }
   async close() {
     const client = this.client; ++this.revision; this.client = null; this.transport = null;
-    this.catalog.clear(); this.names.clear(); this.changed();
+    this.catalog.clear(); this.names.clear(); this.identityLookup = null; this.changed();
     if (client) await client.close().catch(() => {});
   }
   async disconnect() { await this.close(); this.store.clear(); this.provider.authorizationUrl = null; }

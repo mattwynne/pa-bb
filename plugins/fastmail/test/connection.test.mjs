@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { FastmailConnection, FastmailProvider, callbackUrl, parseCallback } from '../core.mjs';
+import { FastmailConnection, FastmailProvider, callbackUrl, parseCallback, defaultSendingAddress } from '../core.mjs';
 
 function fixture() {
   let value = {};
@@ -72,6 +72,19 @@ test('a late catalog page cannot restore tools after disconnect', async () => {
   await refresh;
   assert.deepEqual(f.connection.toolNames(), []);
   assert.deepEqual(f.connection.list(), []);
+});
+
+test('only one explicitly default sending identity can label a connection', () => {
+  const identities = [
+    { email: 'alias@example.test', name: 'Alias', isDefault: false },
+    { email: 'sender@example.test', name: 'Sender', isDefault: true },
+  ];
+  assert.equal(defaultSendingAddress({ content: [{ type: 'text', text: JSON.stringify(identities) }] }), 'sender@example.test');
+  assert.equal(defaultSendingAddress({ structuredContent: { identities }, content: [] }), 'sender@example.test');
+  assert.equal(defaultSendingAddress({ content: [{ type: 'text', text: JSON.stringify(identities) }], isError: true }), null);
+  assert.equal(defaultSendingAddress({ content: [{ type: 'text', text: JSON.stringify(identities.map(item => ({ ...item, isDefault: false }))) }] }), null);
+  assert.equal(defaultSendingAddress({ content: [{ type: 'text', text: JSON.stringify(identities.map(item => ({ ...item, isDefault: true }))) }] }), null);
+  assert.equal(defaultSendingAddress({ content: [{ type: 'text', text: JSON.stringify([{ email: 'bad\n@example.test', isDefault: true }]) }] }), null);
 });
 
 test('callback paste-back checks exact route, one-use state and PKCE verifier without returning a code', async () => {

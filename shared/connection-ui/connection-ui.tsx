@@ -18,12 +18,15 @@ export function ConnectionAccounts({ children }: { children: ReactNode }) {
   return <ul className="pa-connection__accounts">{children}</ul>;
 }
 
-export function ConnectionAccount({ initial, label, status, warning = false, action, unavailable = false }: {
-  initial: string; label: string; status: string; warning?: boolean; action?: ReactNode; unavailable?: boolean;
+export function ConnectionAccount({ initial, label, caption, status, warning = false, action, unavailable = false }: {
+  initial: string; label: string; caption?: string; status: string; warning?: boolean; action?: ReactNode; unavailable?: boolean;
 }) {
   return <li className="pa-connection__account">
     <span className="pa-connection__avatar" aria-hidden="true">{initial}</span>
-    <span className={`pa-connection__account-name${unavailable ? ' pa-connection__account-name--unavailable' : ''}`}>{label}</span>
+    <span className="pa-connection__identity">
+      <span className={`pa-connection__account-name${unavailable ? ' pa-connection__account-name--unavailable' : ''}`}>{label}</span>
+      {caption && <span className="pa-connection__account-caption">{caption}</span>}
+    </span>
     <span className={`pa-connection__badge${warning ? ' pa-connection__badge--warning' : ''}`}>{status}</span>
     {action}
   </li>;

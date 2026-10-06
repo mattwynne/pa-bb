@@ -15,10 +15,11 @@ test('shared connection UI renders the account, status, actions and recovery aff
     const ui = await import(`file://${temporary}`);
     const button = createElement(ui.ConnectionButton, { 'aria-label': 'Remove account', disabled: true }, 'Remove');
     const row = renderToStaticMarkup(createElement(ui.ConnectionAccounts, null,
-      createElement(ui.ConnectionAccount, { initial: 'E', label: 'example@example.test', status: 'Connected', action: button })));
+      createElement(ui.ConnectionAccount, { initial: 'E', label: 'example@example.test', caption: 'Default sending address', status: 'Connected', action: button })));
     assert.match(row, /pa-connection__accounts/);
     assert.match(row, /pa-connection__badge/);
     assert.match(row, /example@example\.test/);
+    assert.match(row, /pa-connection__account-caption">Default sending address/);
     assert.match(row, /disabled=""/);
     assert.match(row, /aria-label="Remove account"/);
     const heading = renderToStaticMarkup(createElement(ui.ConnectionHeading, { title: 'Connected accounts', count: 1 }));
