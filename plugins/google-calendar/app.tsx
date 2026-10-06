@@ -51,8 +51,9 @@ function CalendarSettings() {
   }
 
   return <section className="pa-calendar" aria-label="Google Calendar connections">
-    <ConnectionHeading title={state && !state.configured ? 'Get started' : 'Connected accounts'} count={state?.configured ? state.accounts.length : undefined}
-      description={state?.configured ? 'Search events and check availability across every calendar you can access.' : undefined}
+    <ConnectionHeading title={!state || !state.configured || !state.accounts.length ? 'Get started' : 'Connected accounts'}
+      count={state?.configured && state.accounts.length ? state.accounts.length : undefined}
+      description={state?.accounts.length ? 'Search events and check availability across every calendar you can access.' : undefined}
       action={<ConnectionButton tone="primary" disabled={busy || !state?.configured} onClick={() => void connect()}>+ Add account</ConnectionButton>} />
 
     {error && <ConnectionAlert>{error}</ConnectionAlert>}
