@@ -78,6 +78,13 @@ export default async function plugin(bb: BbPluginApi) {
       await settings.experimental_set(client);
       return { imported: true };
     },
+    async exportOAuthClientForCalendar(_input, context) {
+      if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'google-calendar')
+        throw new Error('OAuth client export is restricted to the Google Calendar plugin');
+      const { clientId, clientSecret } = await getClient();
+      if (!clientId || !clientSecret) throw new Error('Drive OAuth client is not configured');
+      return { clientId, clientSecret };
+    },
   });
   // Public callback accepts only an expiring, owner-initiated, one-use PKCE grant.
   bb.http.route('GET', '/callback', async ctx => {

@@ -20,4 +20,8 @@ export const rpcContract = defineRpcContract({
     input: z.null(),
     output: z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }),
   },
+  importDriveOAuthClient: {
+    input: z.null(),
+    output: z.object({ imported: z.boolean() }),
+  },
 });

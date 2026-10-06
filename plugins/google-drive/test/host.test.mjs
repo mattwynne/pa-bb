@@ -28,6 +28,19 @@ test('registers five read-only tools, an independent callback, and no connected 
   } finally { await harness.lifecycle.dispose(); }
 });
 
+test('only the verified Calendar plugin can receive Drive Web client settings', async () => {
+  const { harness } = await setup({ clientId: 'web-id', clientSecret: 'private-client-secret' });
+  try {
+    await assert.rejects(() => harness.behavior.callRpc('exportOAuthClientForCalendar', null), /restricted/);
+    await assert.rejects(() => harness.behavior.callRpc('exportOAuthClientForCalendar', null,
+      { experimental_caller: { kind: 'plugin', pluginId: 'fastmail' } }), /restricted/);
+    const client = await harness.behavior.callRpc('exportOAuthClientForCalendar', null,
+      { experimental_caller: { kind: 'plugin', pluginId: 'google-calendar' } });
+    assert.deepEqual(client, { clientId: 'web-id', clientSecret: 'private-client-secret' });
+    assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /private-client-secret/);
+  } finally { await harness.lifecycle.dispose(); }
+});
+
 test('one-time Calendar client import stays server-side and Drive keeps its own copy', async () => {
   let { harness } = await setup({});
   try {
@@ -46,6 +59,14 @@ test('one-time Calendar client import stays server-side and Drive keeps its own 
     ({ harness } = await harness.lifecycle.reload(plugin));
     assert.equal((await harness.behavior.callRpc('status', null)).configured, true);
     assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /private-calendar-secret/);
+  } finally { await harness.lifecycle.dispose(); }
+});
+
+test('a missing Calendar plugin leaves Drive unconfigured', async () => {
+  const { harness } = await setup({});
+  try {
+    await assert.rejects(() => harness.behavior.callRpc('importCalendarOAuthClient', null));
+    assert.equal((await harness.behavior.callRpc('status', null)).configured, false);
   } finally { await harness.lifecycle.dispose(); }
 });
 

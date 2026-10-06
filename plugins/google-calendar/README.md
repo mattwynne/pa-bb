@@ -2,7 +2,7 @@
 
 BB-native Calendar tools for a **single-user** BB installation. Connect multiple Google accounts; each account may expose multiple calendars. The plugin does not read or modify the Pi Google Calendar extension's Desktop OAuth files.
 
-**Bring your own Google OAuth client:** Every BB installation needs its **own Google Cloud Web application OAuth client** (client ID and secret) with that installation's HTTPS callback registered. This marketplace does not supply a shared client, hosted OAuth broker, client secret, or Google API credentials. One client on your installation can authorize multiple Google accounts; you do not need one client per account or calendar. The optional Google Drive plugin can copy this Web client's ID and secret once through a server-only, plugin-verified RPC after its own callback has been added in Google Cloud. Drive keeps separate grants and stored settings, and removing Calendar does not remove Drive's copy.
+**Bring your own Google OAuth client:** Every BB installation needs its **own Google Cloud Web application OAuth client** (client ID and secret) with that installation's HTTPS callback registered. This marketplace does not supply a shared client, hosted OAuth broker, client secret, or Google API credentials. One client on your installation can authorize multiple Google accounts; you do not need one client per account or calendar. Calendar and the optional Google Drive plugin can copy a configured Web client's ID and secret **in either direction** through server-only, plugin-verified RPC after the destination callback has been added in Google Cloud. Each keeps separate grants and settings; removing one plugin does not remove the other's copy.
 
 > This plugin is not safe for a multi-user BB installation: BB agent tools and plugin routes do not supply a user identity. Do not install where another person can use your BB instance.
 
@@ -26,14 +26,14 @@ Quick checklist—do this **once per BB installation**, before connecting Google
 
 1. Set `BB_APP_URL` to your installation's HTTPS origin, reachable in the browser where you sign in to Google. For Matt's PA host this is `https://pa.home.wynne.family`. BB can remain on a private network; do not expose it publicly just for OAuth.
 2. In [Google Cloud Console](https://console.cloud.google.com/auth/clients), choose a project **you control** (an existing project is fine). Enable the **Google Calendar API** and configure Google Auth Platform's branding/audience. For an External app in **Testing**, add every account you will connect as a test user. Google may show an unverified-app warning for sensitive Calendar scopes; public distribution may need verification. Testing-mode refresh tokens for these scopes may expire after seven days.
-3. Under **Google Auth Platform → Clients**, create a new client of type **Web application**. Add this exact **Authorized redirect URI** (replace the origin with *your* `BB_APP_URL`; no trailing slash):
+3. Under **Google Auth Platform → Clients**, use an existing Drive **Web application** client or create a new one. Add this exact **Authorized redirect URI** (replace the origin with *your* `BB_APP_URL`; no trailing slash):
 
    ```text
    https://<your-bb-domain>/api/v1/plugins/google-calendar/http/callback
    ```
 
    For Matt's PA host: `https://pa.home.wynne.family/api/v1/plugins/google-calendar/http/callback`. Before setup, the plugin displays its exact URL in **Get started** below Configuration in BB Settings. **Authorized JavaScript origins** can be left blank for this server-side flow. A Desktop OAuth client with a `localhost` redirect (such as the Pi extension's) cannot use this HTTPS callback.
-4. In **BB Settings → Installed plugins → Google Calendar → Configuration**, enter your new Web **client ID** and **client secret**. The secret is a BB secret setting; never paste it into chat or commit it to Git. Below Configuration, choose **Add account** and complete Google's consent screen. Repeat for other Google accounts; each account can access several calendars. Click **Refresh status** on returning to BB.
+4. In **BB Settings → Installed plugins → Google Calendar**, choose **Use Drive’s OAuth client** if Drive is already configured, or enter a Web **client ID** and **client secret** in Configuration. The secret is a BB secret setting; never paste it into chat or commit it to Git. Below Configuration, choose **Add account** and complete Google's consent screen. Repeat for other Google accounts; each account can access several calendars. Click **Refresh status** on returning to BB.
 
 If you deploy another BB installation, repeat these steps with **that installation's own client and redirect URI**. Google grants and refresh tokens are tied to the client that issued them; do not copy the Pi Desktop grant or another installation's tokens into this plugin.
 

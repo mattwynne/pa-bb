@@ -3,6 +3,8 @@
 .pa-calendar .pa-connection__onboarding + .pa-connection__accounts { margin-top: 0.75rem; }
 .pa-calendar__redirect { display: flex; align-items: center; gap: 0.5rem; margin: 0.4rem 0 0.75rem; padding: 0.5rem 0.55rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--muted); }
 .pa-calendar__redirect code { flex: 1 1 auto; min-width: 0; color: var(--foreground); font-size: 0.73rem; overflow-wrap: anywhere; user-select: all; }
+.pa-calendar__import { margin-top: 0.4rem; }
+.pa-calendar__notice { padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--muted); }
 .pa-calendar__approval { max-width: 42rem; padding: 0.5rem 0; }
 .pa-calendar__eyebrow { margin: 0 0 0.3rem; color: var(--muted-foreground); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.11em; }
 .pa-calendar__title { margin: 0; font-size: 1rem; font-weight: 650; letter-spacing: -0.015em; line-height: 1.35; text-transform: capitalize; }

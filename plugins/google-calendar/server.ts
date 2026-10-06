@@ -97,6 +97,13 @@ export default async function plugin(bb: BbPluginApi) {
       if (!clientId || !clientSecret) throw new Error('Calendar OAuth client is not configured');
       return { clientId, clientSecret };
     },
+    async importDriveOAuthClient() {
+      if ((await store.accounts()).length) throw new Error('Disconnect Calendar accounts before changing their OAuth client');
+      const client = await bb.sdk.plugins.callRpc({ pluginId: 'google-drive', method: 'exportOAuthClientForCalendar', input: null,
+        outputSchema: z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }) });
+      await settings.experimental_set(client);
+      return { imported: true };
+    },
   });
 
   // Google arrives without a BB browser Origin header. Only a one-use, expiring,

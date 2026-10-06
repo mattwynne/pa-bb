@@ -50,6 +50,44 @@ test('only the verified Drive plugin can receive the Calendar Web client through
   } finally { await harness.lifecycle.dispose(); }
 });
 
+test('one-time Drive client import persists in Calendar without exposing the secret', async () => {
+  const host = createFakePluginHost({ pluginId: 'google-calendar', appUrl: 'https://bb.example' });
+  let { harness } = host;
+  await plugin(host.bb);
+  try {
+    harness.sdk.stub('plugins.callRpc', async args => {
+      assert.equal(args.pluginId, 'google-drive');
+      assert.equal(args.method, 'exportOAuthClientForCalendar');
+      return { clientId: 'drive-web-id', clientSecret: 'private-drive-secret' };
+    });
+    assert.deepEqual(await harness.behavior.callRpc('importDriveOAuthClient', null), { imported: true });
+    assert.equal((await harness.behavior.callRpc('status', null)).configured, true);
+    assert.equal(new URL((await harness.behavior.callRpc('beginConnect', null)).url).searchParams.get('client_id'), 'drive-web-id');
+    assert.doesNotMatch(JSON.stringify(await harness.behavior.callRpc('status', null)), /private-drive-secret/);
+    ({ harness } = await harness.lifecycle.reload(plugin));
+    assert.equal((await harness.behavior.callRpc('status', null)).configured, true);
+  } finally { await harness.lifecycle.dispose(); }
+});
+
+test('a missing Drive plugin leaves Calendar unconfigured', async () => {
+  const host = createFakePluginHost({ pluginId: 'google-calendar', appUrl: 'https://bb.example' });
+  await plugin(host.bb);
+  try {
+    await assert.rejects(() => host.harness.behavior.callRpc('importDriveOAuthClient', null));
+    assert.equal((await host.harness.behavior.callRpc('status', null)).configured, false);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+
+test('Calendar import refuses to replace a client with connected accounts', async () => {
+  const host = await setup();
+  try {
+    const store = createBbStore(host.bb.storage.database(), () => {});
+    await store.addAccount({ subject: 'a', email: 'alice@example.com', refreshToken: 'private-refresh' });
+    await assert.rejects(() => host.harness.behavior.callRpc('importDriveOAuthClient', null), /Disconnect Calendar accounts/);
+    assert.deepEqual(host.harness.sdk.callsTo('plugins.callRpc'), []);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+
 test('a native write blocks on the owner form and a decline makes no Google request', async () => {
   const { bb, harness } = await setup();
   try {
