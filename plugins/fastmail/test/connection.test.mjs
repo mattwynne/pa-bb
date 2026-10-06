@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { FastmailConnection, FastmailProvider, callbackUrl, parseCallback, defaultSendingAddress } from '../core.mjs';
 import { failureCategory } from '../diagnostic.mjs';
-import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
+import { ProtocolError, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/client';
 
 function fixture() {
   let value = {};
@@ -135,6 +135,75 @@ test('a protocol failure is not retried, including an uncertain mutation', async
   await f.connection.open();
   await assert.rejects(f.connection.call(f.connection.toolNames()[0], {}), /response lost/);
   assert.equal(attempts, 1);
+});
+
+test('an HTTP 500 reopens the connection without retrying an uncertain call', async () => {
+  const f = fixture();
+  let connections = 0; let calls = 0; let closes = 0;
+  f.connection.makeConnection = () => {
+    const generation = ++connections;
+    return { client: {
+      connect: async () => {}, close: async () => { closes++; },
+      request: async () => ({ tools: [{ name: 'send_mail', inputSchema: { type: 'object' } }] }),
+      callTool: async () => {
+        calls++;
+        if (generation === 1) throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'private provider body', { status: 500, text: 'private token' });
+        return { content: [{ type: 'text', text: 'success' }] };
+      },
+    }, transport: {} };
+  };
+  await f.connection.open();
+  const id = f.connection.toolNames()[0];
+  await assert.rejects(f.connection.call(id, {}), /private provider body/);
+  assert.equal(calls, 1, 'an uncertain mutation is never retried');
+  assert.equal(connections, 2, 'one fresh connection is opened');
+  assert.equal(closes, 1);
+  assert.equal(f.connection.ready, true);
+  assert.deepEqual(f.diagnostics, ['connection_reset http_status=500']);
+  assert.equal((await f.connection.call(id, {})).content[0].text, 'success');
+});
+
+test('concurrent HTTP 500s reopen the connection only once', async () => {
+  const f = fixture(); let connections = 0; let calls = 0;
+  f.connection.makeConnection = () => {
+    const generation = ++connections;
+    return { client: {
+      connect: async () => {}, close: async () => {}, request: async () => ({ tools: [{ name: 'read', inputSchema: { type: 'object' } }] }),
+      callTool: async () => { calls++; if (generation === 1) throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'private', { status: 500 }); return { content: [] }; },
+    }, transport: {} };
+  };
+  await f.connection.open();
+  const id = f.connection.toolNames()[0];
+  const results = await Promise.allSettled([f.connection.call(id, {}), f.connection.call(id, {})]);
+  assert.deepEqual(results.map(result => result.status), ['rejected', 'rejected']);
+  assert.equal(calls, 2);
+  assert.equal(connections, 2);
+  assert.equal(f.connection.ready, true);
+});
+
+test('disconnect during a failed-call recovery cannot restore the old grant', async () => {
+  const f = fixture(); let connections = 0; let finishClose;
+  let closing;
+  const closeStarted = new Promise(resolve => { closing = resolve; });
+  f.connection.makeConnection = () => {
+    connections++;
+    return { client: {
+      connect: async () => {},
+      close: async () => { closing(); await new Promise(resolve => { finishClose = resolve; }); },
+      request: async () => ({ tools: [{ name: 'write', inputSchema: { type: 'object' } }] }),
+      callTool: async () => { throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'private', { status: 500 }); },
+    }, transport: {} };
+  };
+  f.store.patch({ tokens: { access_token: 'private-token' } });
+  await f.connection.open();
+  const failed = f.connection.call(f.connection.toolNames()[0], {});
+  await closeStarted;
+  await f.connection.disconnect();
+  finishClose();
+  await assert.rejects(failed);
+  assert.equal(connections, 1);
+  assert.equal(f.connection.ready, false);
+  assert.deepEqual(f.store.get(), {});
 });
 
 test('failed SDK exchange fails closed and consumes pending callback', async () => {

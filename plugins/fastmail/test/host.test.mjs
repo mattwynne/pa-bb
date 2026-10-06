@@ -95,6 +95,39 @@ test('failure diagnostics distinguish call routes and status without leaking pro
   } finally { await host.harness.lifecycle.dispose(); }
 });
 
+test('BB remains connected after an HTTP 500 without replaying the failed tool', async () => {
+  const host = createFakePluginHost({ pluginId: 'fastmail' });
+  const db = host.bb.storage.database();
+  db.prepare('CREATE TABLE fastmail_oauth (id INTEGER PRIMARY KEY, value TEXT NOT NULL)').run();
+  db.prepare('INSERT INTO fastmail_oauth VALUES (1, ?)').run(JSON.stringify({ tokens: { access_token: 'private-token' } }));
+  let connections = 0; let calls = 0;
+  const fakeConnect = () => {
+    const generation = ++connections;
+    return { client: { connect: async () => {}, close: async () => {}, request: async () => ({ tools: [
+      { name: 'read', inputSchema: { type: 'object' } }, { name: 'list_identities', inputSchema: { type: 'object' } },
+    ] }), callTool: async ({ name }) => {
+      if (name === 'list_identities') return { content: [{ type: 'text', text: JSON.stringify([{ email: 'private@example.test', isDefault: true }]) }] };
+      calls++;
+      if (generation === 1) throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'private body', { status: 500, text: 'private token' });
+      return { content: [{ type: 'text', text: 'ok' }] };
+    } }, transport: { close: async () => {} } };
+  };
+  try {
+    await plugin(host.bb, fakeConnect);
+    const selected = await host.harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
+    const read = selected.tools.find(tool => tool.name.startsWith('fastmail_read_'));
+    assert.equal((await host.harness.behavior.callAgentTool(read.name, {})).isError, true);
+    assert.equal(calls, 1);
+    assert.equal(connections, 2);
+    assert.equal((await host.harness.behavior.callRpc('status', null)).connected, true);
+    assert.equal((await host.harness.behavior.callAgentTool(read.name, {})).isError, undefined);
+    const logs = JSON.stringify(host.harness.inspection.logEntries);
+    assert.match(logs, /connection_reset http_status=500/);
+    assert.match(logs, /direct_call http_status=500/);
+    assert.doesNotMatch(logs, /private body|private token|private@example/);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+
 test('a successful identity response without a default sender explains the blank account label', async () => {
   const host = createFakePluginHost({ pluginId: 'fastmail' });
   const db = host.bb.storage.database();

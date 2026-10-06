@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
-import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
+import { Client, SdkHttpError, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 import { failureCategory } from './diagnostic.mjs';
 
 export const ENDPOINT = new URL('https://api.fastmail.com/mcp');
@@ -91,21 +91,22 @@ export class FastmailConnection {
           return response;
         },
       });
-      return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.1' }, { listChanged: { tools: { onChanged: () => {
+      return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.2' }, { listChanged: { tools: { onChanged: () => {
         void this.refresh().catch(() => { /* refresh logs and revokes the failing catalog */ });
       } } } }) };
     });
     this.catalog = new Map(); this.names = new Map(); this.registered = new Set(); this.enabled = true; this.revision = 0;
-    this.identityLookup = null;
+    this.identityLookup = null; this.reconnecting = null;
   }
   get ready() { return this.enabled && Boolean(this.client); }
   async open() {
     if (!this.enabled) throw new Error('Fastmail disabled');
     if (this.client) return;
     const { client, transport } = this.makeConnection();
+    const revision = this.revision;
     try {
       await client.connect(transport, { timeout: 15000 });
-      if (!this.enabled) throw new Error('Fastmail disabled');
+      if (!this.enabled || this.revision !== revision) throw new Error('Fastmail connection changed');
       this.client = client; this.transport = transport;
       await this.refresh();
     } catch (error) {
@@ -213,9 +214,32 @@ export class FastmailConnection {
   async call(name, args, signal) {
     if (!this.ready || !this.catalog.has(name)) throw new Error('Fastmail tool unavailable');
     const tool = this.catalog.get(name);
-    const result = await this.client.callTool({ name: tool.name, arguments: args }, { signal });
-    if (!this.ready || !this.catalog.has(name)) throw new Error('Fastmail tool unavailable');
+    const client = this.client;
+    let result;
+    try { result = await client.callTool({ name: tool.name, arguments: args }, { signal }); }
+    catch (error) {
+      // A provider failure may follow an expired MCP connection. Reopen for
+      // future calls, but never retry this call: a mutation may have completed.
+      if (error instanceof SdkHttpError && error.status === 500) await this.reopenAfterFailure(client, error);
+      throw error;
+    }
+    if (!this.ready || this.client !== client || !this.catalog.has(name)) throw new Error('Fastmail tool unavailable');
     return result;
+  }
+  async reopenAfterFailure(client, error) {
+    if (!this.enabled || this.client !== client) return;
+    if (this.reconnecting) return this.reconnecting;
+    const recovery = (async () => {
+      this.diagnose('connection_reset', error);
+      const revision = this.revision + 1;
+      await this.close();
+      // A concurrent disconnect/disable must win over recovery.
+      if (!this.enabled || this.revision !== revision) return;
+      try { await this.open(); } catch { /* open logs its own bounded failure. */ }
+    })();
+    this.reconnecting = recovery;
+    try { await recovery; }
+    finally { if (this.reconnecting === recovery) this.reconnecting = null; }
   }
   async close() {
     const client = this.client; ++this.revision; this.client = null; this.transport = null;
