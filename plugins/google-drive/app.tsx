@@ -38,9 +38,9 @@ function DriveSettings() {
     catch { setError('Could not copy the redirect URI. Select and copy it instead.'); }
   }
   return <section className="pa-drive" aria-label="Google Drive connections">
-    <ConnectionHeading title={!state || !state.configured || !state.accounts.length ? 'Get started' : 'Connected accounts'}
+    <ConnectionHeading title={!state ? 'Connections' : !state.configured || !state.accounts.length ? 'Get started' : 'Connected accounts'}
       count={state?.configured && state.accounts.length ? state.accounts.length : undefined}
-      action={<ConnectionButton tone="primary" disabled={busy || !state?.configured} onClick={() => void connect()}>{state?.accounts.length ? '+ Add account' : 'Connect account'}</ConnectionButton>} />
+      action={state && <ConnectionButton tone="primary" disabled={busy || !state.configured} onClick={() => void connect()}>{state.accounts.length ? '+ Add account' : 'Connect account'}</ConnectionButton>} />
     {error && <ConnectionAlert>{error}</ConnectionAlert>}
     {!state ? <ConnectionEmpty>{error ? 'Connection status unavailable.' : 'Loading connections…'}
       {error && <ConnectionButton tone="secondary" onClick={() => void refresh()}>Try again</ConnectionButton>}</ConnectionEmpty> : <>
@@ -58,6 +58,7 @@ function DriveSettings() {
       </ConnectionSetup>}
       {state.accounts.length ? <ConnectionAccounts>{state.accounts.map(account => <ConnectionAccount key={account.subject}
         initial={account.email[0]?.toUpperCase() ?? 'G'} label={account.email} status={account.status}
+        caption={account.status === 'Re-authentication required' ? 'Remove and reconnect this account.' : account.status === 'Connection unavailable' ? 'Refresh status and try again later.' : undefined}
         warning={account.status !== 'Connected'} action={<ConnectionButton disabled={busy}
           aria-label={`Remove ${account.email}`} onClick={() => void remove(account.subject, account.email)}>Remove</ConnectionButton>} />)}</ConnectionAccounts>
       : state.configured && <ConnectionEmpty><strong>No accounts connected</strong><span>Connect an account to find its files and read Google Docs.</span></ConnectionEmpty>}
