@@ -41,7 +41,7 @@ function textFromTabs(tabs) {
 }
 
 // Ports are plugin-owned storage, Google OAuth, Google Drive/Docs reads, and clock.
-export function createDriveService({ store, oauth, drive, clock = () => Date.now() }) {
+export function createDriveService({ store, oauth, drive, diagnose = /** @type {(stage: string, error: unknown) => void} */ (() => {}), clock = () => Date.now() }) {
   async function account(email) {
     const record = await store.byEmail(required(email, 'account'));
     if (!record) throw new Error('Unknown Google Drive account. Check connected accounts in BB settings.');
@@ -79,7 +79,10 @@ export function createDriveService({ store, oauth, drive, clock = () => Date.now
         const identity = await drive.identity(record);
         if (identity?.sub !== record.subject) throw Object.assign(new Error('Google identity changed'), { code: 'reauthentication_required' });
         if (identity.email !== record.email) await store.updateEmail(record.subject, identity.email);
-      } catch (error) { status = code(error) === 'reauthentication_required' ? 'Re-authentication required' : 'Connection unavailable'; }
+      } catch (error) {
+        status = code(error) === 'reauthentication_required' ? 'Re-authentication required' : 'Connection unavailable';
+        diagnose('identity_lookup', error);
+      }
       accounts.push({ subject: record.subject, email: (await store.bySubject(record.subject))?.email || record.email, status });
     }
     return { accounts };
@@ -101,7 +104,10 @@ export function createDriveService({ store, oauth, drive, clock = () => Date.now
           // A provider page token belongs to the selected account, never broadcast it to others.
           pageToken: args.pageToken });
         return { account: record.email, files: (page.files || []).map(fileInfo), nextPageToken: page.nextPageToken || null, incompleteSearch: page.incompleteSearch === true };
-      } catch (error) { return { account: record.email, files: [], error: { code: code(error) } }; }
+      } catch (error) {
+        diagnose('search_files', error);
+        return { account: record.email, files: [], error: { code: code(error) } };
+      }
     }));
     return { accounts: results };
   }

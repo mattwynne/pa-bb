@@ -27,6 +27,18 @@ test('the Web OAuth flow uses PKCE and exchanges code server-side', async () => 
   assert.equal(new URLSearchParams(requests[0].options.body).get('code_verifier'), 'verifier');
 });
 
+test('OAuth distinguishes explicit invalid_grant from other 400 responses without exposing the body', async () => {
+  for (const providerCode of ['invalid_grant', 'invalid_client']) {
+    const { oauth } = await fixture(async () => json({ error: providerCode, detail: 'private-token-and-code' }, 400));
+    await assert.rejects(() => oauth.exchange({ code: 'private-code', verifier: 'private-verifier', clientId: 'web-id', clientSecret: 'private-secret', redirectUri: 'https://bb.example/callback' }), error => {
+      assert.equal(error.status, 400);
+      assert.equal(error.code, providerCode === 'invalid_grant' ? 'invalid_grant' : undefined);
+      assert.doesNotMatch(error.message, /private-token|private-code|private-secret|invalid_client/);
+      return true;
+    });
+  }
+});
+
 test('an identity mismatch blocks Google Calendar requests including writes', async () => {
   const requests = [];
   const { calendar, record } = await fixture(async (url, options) => {

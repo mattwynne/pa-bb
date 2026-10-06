@@ -4,6 +4,7 @@ import { rpcContract } from './contract.js';
 import { createBbStore } from './adapters/bb-store.mjs';
 import { createGoogleAdapter } from './adapters/google.mjs';
 import { createCalendarService, SCOPES } from './core/service.mjs';
+import { failureCategory } from './diagnostic.mjs';
 
 const text = z.string().min(1);
 const account = text.describe('Connected Google account email (choose explicitly).');
@@ -34,11 +35,19 @@ const descriptions = {
   gcal_free_busy: 'Query busy periods for explicit calendars in one Google account.',
 };
 const WRITE_NAMES = new Set(['gcal_create_event','gcal_update_event','gcal_delete_event']);
-const safeError = (error: unknown) => {
+const safeError = (error: unknown, write = false) => {
   const message = error instanceof Error ? error.message : '';
-  if (/^Unknown Google account|^Calendar change was not approved|^An end datetime|^Rescheduling requires|^No event changes|^Google account was removed|^Google account changed during refresh|^Configure the Google Web OAuth client|^Google authorization has expired|^Google did not grant|^Google did not provide|^Google account is already connected/.test(message)) return message;
+  if (message.startsWith('Unknown Google account:')) return 'Unknown Google account. Check connected accounts in BB settings.';
+  const localErrors = [
+    'Calendar change was not approved', 'An end datetime is required for non-all-day events',
+    'Rescheduling requires both start and end', 'No event changes requested',
+    'Google account was removed; reconnect it', 'Google account changed during refresh; try again',
+  ];
+  if (localErrors.includes(message)) return message;
+  if (message.startsWith('Configure the Google Web OAuth client')) return 'Configure the Google Web OAuth client in BB plugin settings.';
   if (message.includes('failed (401)') || ['reauthentication_required', 'invalid_grant'].includes((error as { code?: string })?.code || '')) return 'Google authorization expired. Reconnect the account in BB plugin settings.';
-  return 'Google Calendar operation failed. Check the connected account and try again.';
+  return write ? 'Google Calendar change could not be confirmed. It may have completed; check the calendar before retrying.'
+    : 'Google Calendar operation failed. Check the connected account and try again.';
 };
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 // OAuth responses can contain codes, tokens, and provider diagnostics. Only log
@@ -73,8 +82,9 @@ export default async function plugin(bb: BbPluginApi) {
     if (!origin || !origin.startsWith('https://')) throw new Error('Configure an HTTPS BB_APP_URL before connecting Google');
     return new URL(`/api/v1/plugins/${bb.pluginId}/http/callback`, origin).toString();
   };
+  const diagnose = (stage: string, error: unknown) => bb.log.warn(`Google Calendar ${stage} ${failureCategory(error)}`);
   const service = (approve?: (proposal: { operation: string; account: string; calendarId: string; details: Record<string, unknown> }) => Promise<boolean>) =>
-    createCalendarService({ store, oauth: adapter.oauth, calendar: adapter.calendar, ...(approve ? { approve } : {}) });
+    createCalendarService({ store, oauth: adapter.oauth, calendar: adapter.calendar, diagnose, ...(approve ? { approve } : {}) });
 
   bb.rpc.register(rpcContract, {
     async status() {
@@ -151,7 +161,8 @@ export default async function plugin(bb: BbPluginApi) {
           const result = await service(approve).execute(name, args as Record<string, unknown>);
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
         } catch (error) {
-          return { content: [{ type: 'text' as const, text: safeError(error) }], isError: true };
+          diagnose(`agent_tool ${name}`, error);
+          return { content: [{ type: 'text' as const, text: safeError(error, WRITE_NAMES.has(name)) }], isError: true };
         }
       },
     });

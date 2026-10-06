@@ -134,6 +134,59 @@ test('agent reads use explicit account, return source identity, and reject unkno
   } finally { if (harness) await harness.lifecycle.dispose(); globalThis.fetch = original; }
 });
 
+test('callback distinguishes a token endpoint rejection from other connection failures without leaking its body', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ error: 'invalid_client', detail: 'private-token-and-code' }, { status: 400 });
+  let harness;
+  try {
+    ({ harness } = await setup());
+    const { url } = await harness.behavior.callRpc('beginConnect', null);
+    const state = new URL(url).searchParams.get('state');
+    assert.equal((await harness.behavior.fetchHttp('GET', `/callback?state=${encodeURIComponent(state)}&code=private-code`)).status, 400);
+    const logs = JSON.stringify(harness.inspection.logEntries);
+    assert.match(logs, /token_endpoint_rejected http_status=400/);
+    assert.doesNotMatch(logs, /invalid_client|private-token|private-code|private-client-secret/);
+  } finally { if (harness) await harness.lifecycle.dispose(); globalThis.fetch = originalFetch; }
+});
+
+test('revoked Drive grant tells the agent to reconnect and logs a bounded category', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ error: 'invalid_grant', detail: 'private-token-and-code' }, { status: 400 });
+  let harness;
+  try {
+    const host = await setup(); harness = host.harness;
+    const store = createBbStore(host.bb.storage.database(), () => {});
+    await store.addAccount({ subject: 'a', email: 'alice@example.test', refreshToken: 'private-refresh' });
+    const result = await harness.behavior.callAgentTool('gdrive_get_file', { account: 'alice@example.test', fileId: 'doc-a' });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /Reconnect the Drive account/);
+    const logs = JSON.stringify(harness.inspection.logEntries);
+    assert.match(logs, /agent_tool gdrive_get_file reauthentication_required/);
+    assert.doesNotMatch(logs, /private-token|private-code|private-refresh|alice@example/);
+  } finally { if (harness) await harness.lifecycle.dispose(); globalThis.fetch = originalFetch; }
+});
+
+test('failed identity, partial search, and tool calls log bounded diagnostics without private data', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ message: 'private-body-and-token' }, { status: 503 });
+  let harness;
+  try {
+    const host = await setup(); harness = host.harness;
+    const store = createBbStore(host.bb.storage.database(), () => {});
+    await store.addAccount({ subject: 'a', email: 'alice@example.test', refreshToken: 'private-refresh', accessToken: 'private-access', expiresAt: Date.now() + 600_000 });
+    assert.equal((await harness.behavior.callRpc('status', null)).accounts[0].status, 'Connection unavailable');
+    const search = JSON.parse((await harness.behavior.callAgentTool('gdrive_search_files', { query: 'private-query' })).content[0].text);
+    assert.equal(search.accounts[0].error.code, 'drive_unavailable');
+    const failed = await harness.behavior.callAgentTool('gdocs_read', { account: 'alice@example.test', document: 'doc-a' });
+    assert.equal(failed.isError, true);
+    const logs = JSON.stringify(harness.inspection.logEntries);
+    assert.match(logs, /identity_lookup http_status=503/);
+    assert.match(logs, /search_files http_status=503/);
+    assert.match(logs, /agent_tool gdocs_read http_status=503/);
+    assert.doesNotMatch(logs, /private-body|private-token|private-query|private-access|private-refresh|alice@example/);
+  } finally { if (harness) await harness.lifecycle.dispose(); globalThis.fetch = originalFetch; }
+});
+
 test('unconfigured OAuth cannot start even though the plugin tools are installed', async () => {
   const { harness } = await setup({});
   try {

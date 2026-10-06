@@ -62,6 +62,7 @@ node scripts/sync-connection-ui.mjs --check    # generated UI copies match share
 - [Google Calendar plugin](plugins/google-calendar/README.md) — installation, Web OAuth, tool coverage, and current verification limits.
 - [Google Drive plugin](plugins/google-drive/README.md) — read-only Drive/Docs setup, tool coverage and verification limits.
 - [Shared connection UI](shared/connection-ui/README.md) — common account/status/onboarding components and generated-package workflow.
+- [Observability standards](docs/o11y-standards.md) — safe diagnostics, partial failures, and verification gates for plugins.
 - [Google OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md) — step-by-step instructions for a new installer.
 - [Vision](docs/vision.md) — product direction: BB marketplace, PA core, optional integrations and abilities.
 - [Roadmap](docs/roadmap.md) and [iteration ledger](docs/plans/README.md) — priorities and plans.

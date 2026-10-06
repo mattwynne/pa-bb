@@ -4,6 +4,7 @@ import { rpcContract } from './contract.js';
 import { createBbStore } from './adapters/bb-store.mjs';
 import { createGoogleAdapter } from './adapters/google.mjs';
 import { createDriveService } from './core/service.mjs';
+import { failureCategory } from './diagnostic.mjs';
 
 const required = z.string().min(1);
 const account = required.describe('Email of the connected Google Drive account.');
@@ -25,8 +26,15 @@ const descriptions = {
 };
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
-  if (/^(Unknown Google Drive account|Select exactly one account|Search query is too long|Use a Google Docs URL|This file is not a Google Doc|account is required|folderId is required|fileId is required|document is required)/.test(message)) return message;
-  if ((error as { code?: string })?.code === 'reauthentication_required' || (error as { status?: number })?.status === 401)
+  const localErrors = [
+    'Unknown Google Drive account. Check connected accounts in BB settings.',
+    'Select exactly one account to continue a search page', 'Search query is too long',
+    'Use a Google Docs URL or document ID',
+    'This file is not a Google Doc; reading other formats is not supported yet',
+    'account is required', 'folderId is required', 'fileId is required', 'document is required',
+  ];
+  if (localErrors.includes(message)) return message;
+  if (['reauthentication_required', 'invalid_grant'].includes((error as { code?: string })?.code || '') || (error as { status?: number })?.status === 401)
     return 'Google authorization expired. Reconnect the Drive account in BB settings.';
   return 'Google Drive read failed. Check the connected account and try again.';
 }
@@ -39,6 +47,10 @@ function oauthCategory(error: unknown) {
   if (message.startsWith('Google did not grant')) return 'missing_required_scopes';
   if (message.startsWith('Google account is already connected')) return 'duplicate_account';
   if ((error as { code?: string })?.code === 'invalid_grant') return 'token_exchange_rejected';
+  if (message.startsWith('Google authorization is temporarily unavailable')) return 'token_endpoint_unreachable';
+  if (message.startsWith('Google authorization failed')) return `token_endpoint_rejected ${failureCategory(error)}`;
+  if (message.startsWith('Google identity failed')) return `identity_endpoint_rejected ${failureCategory(error)}`;
+  if (message.startsWith('Google account identity is unverified') || message.startsWith('Google did not verify the account identity')) return 'identity_unverified';
   return 'connection_failed';
 }
 export default async function plugin(bb: BbPluginApi) {
@@ -54,7 +66,8 @@ export default async function plugin(bb: BbPluginApi) {
     if (!origin || !origin.startsWith('https://')) throw new Error('Configure HTTPS BB_APP_URL before connecting Google');
     return new URL(`/api/v1/plugins/${bb.pluginId}/http/callback`, origin).toString();
   };
-  const service = () => createDriveService({ store, oauth: adapter.oauth, drive: adapter.drive });
+  const diagnose = (stage: string, error: unknown) => bb.log.warn(`Google Drive ${stage} ${failureCategory(error)}`);
+  const service = () => createDriveService({ store, oauth: adapter.oauth, drive: adapter.drive, diagnose });
   bb.rpc.register(rpcContract, {
     async status() {
       const { clientId, clientSecret } = await getClient();
@@ -106,7 +119,10 @@ export default async function plugin(bb: BbPluginApi) {
     bb.agents.registerTool({ name, description: descriptions[name as keyof typeof descriptions], parameters,
       async execute(args) {
         try { return { content: [{ type: 'text' as const, text: JSON.stringify(await service().execute(name, args as Record<string, unknown>)) }] }; }
-        catch (error) { return { content: [{ type: 'text' as const, text: safeError(error) }], isError: true }; }
+        catch (error) {
+          diagnose(`agent_tool ${name}`, error);
+          return { content: [{ type: 'text' as const, text: safeError(error) }], isError: true };
+        }
       },
     });
   }

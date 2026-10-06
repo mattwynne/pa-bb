@@ -5,7 +5,7 @@ import { createDriveService, SCOPES } from '../core/service.mjs';
 
 function fixture() {
   const store = createMemoryStore();
-  const calls = [];
+  const calls = [], diagnostics = [];
   const oauth = {
     authorizeUrl: props => { calls.push(['authorize', props]); return `https://accounts.google.com/?state=${props.state}`; },
     exchange: async props => { calls.push(['exchange', props]); return { access_token: 'private-access', refresh_token: 'private-refresh', scope: SCOPES.join(' '), expires_in: 3600 }; },
@@ -21,7 +21,7 @@ function fixture() {
       ] },
     ] }; },
   };
-  return { store, calls, oauth, drive, service: createDriveService({ store, oauth, drive }) };
+  return { store, calls, diagnostics, oauth, drive, service: createDriveService({ store, oauth, drive, diagnose: (stage, error) => diagnostics.push({ stage, error }) }) };
 }
 
 test('OAuth uses verified identity, least-privilege scope, one-use state and isolated account records', async () => {
@@ -49,7 +49,7 @@ test('a missing read scope fails closed, consumes state, and stores no account',
 });
 
 test('searches names and indexed text, escapes Drive q, attributes accounts and exposes pagination', async () => {
-  const { store, drive, calls, service } = fixture();
+  const { store, drive, calls, diagnostics, service } = fixture();
   await store.addAccount({ subject: 'a', email: 'alice@example.test', refreshToken: 'x' });
   await store.addAccount({ subject: 'b', email: 'bob@example.test', refreshToken: 'y' });
   drive.listFiles = async (record, options) => {
@@ -65,6 +65,7 @@ test('searches names and indexed text, escapes Drive q, attributes accounts and 
   assert.equal(result.accounts[0].incompleteSearch, true);
   assert.equal(result.accounts[0].nextPageToken, 'next');
   assert.deepEqual(result.accounts[1].error, { code: 'drive_unavailable' });
+  assert.deepEqual(diagnostics.map(({ stage, error }) => [stage, error.status]), [['search_files', 503]]);
   await assert.rejects(() => service.execute('gdrive_search_files', { pageToken: 'next' }), /Select exactly one account/);
   assert.equal(calls.length, 2, 'invalid multi-account pagination must not make a provider request');
   const page = await service.execute('gdrive_search_files', { accounts: ['alice@example.test'], pageToken: 'next' });

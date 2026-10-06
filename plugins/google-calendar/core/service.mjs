@@ -34,7 +34,7 @@ const nextDate = (date) => {
 
 // Ports: store (accounts/pending grants), oauth (Web authorization), calendar (provider calls),
 // approve (a real BB user interaction), and clock. No BB or Google SDK types enter this core.
-export function createCalendarService({ store, oauth, calendar, approve = async (_proposal) => false, clock = () => Date.now() }) {
+export function createCalendarService({ store, oauth, calendar, approve = async (_proposal) => false, diagnose = /** @type {(stage: string, error: unknown) => void} */ (() => {}), clock = () => Date.now() }) {
   async function account(email) {
     const record = await store.byEmail(required(email, 'account'));
     if (!record) throw new Error(`Unknown Google account: ${email}`);
@@ -84,9 +84,12 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
       let status = 'Connected';
       try {
         const verified = await calendar.identity(record);
-        if (verified?.sub && verified.sub !== record.subject) throw Object.assign(new Error('Mismatched identity'), { code: 'reauthentication_required' });
+        if (verified?.sub !== record.subject) throw Object.assign(new Error('Mismatched identity'), { code: 'reauthentication_required' });
         if (verified?.email && verified.email !== record.email) await store.updateEmail(record.subject, verified.email);
-      } catch (e) { if (safeCode(e, 'transient') === 'reauthentication_required') status = 'Re-authentication required'; }
+      } catch (e) {
+        status = safeCode(e, 'transient') === 'reauthentication_required' ? 'Re-authentication required' : 'Connection unavailable';
+        diagnose('identity_lookup', e);
+      }
       result.push({ subject: record.subject, email: (await store.bySubject(record.subject))?.email || record.email, status });
     }
     return { accounts: result };
@@ -107,7 +110,10 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
   async function listCalendars() {
     const results = await Promise.all((await store.accounts()).map(async record => {
       try { return { account: record.email, calendars: await discover(record) }; }
-      catch (error) { return { account: record.email, calendars: [], error: { code: safeCode(error, 'calendar_list_failed') } }; }
+      catch (error) {
+        diagnose('calendar_discovery', error);
+        return { account: record.email, calendars: [], error: { code: safeCode(error, 'calendar_list_failed') } };
+      }
     }));
     return { accounts: results };
   }
@@ -156,7 +162,10 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
           for (const c of await discover(record)) {
             if (args.calendarSelection === 'all' || (args.calendarSelection === 'primary' ? c.primary : c.primary || c.selected)) targets.push({ record, id: c.id, summary: c.summary });
           }
-        } catch (e) { failures.push({ account: record.email, code: safeCode(e, 'calendar_list_failed') }); }
+        } catch (e) {
+          diagnose('search_discovery', e);
+          failures.push({ account: record.email, code: safeCode(e, 'calendar_list_failed') });
+        }
       }
     }
     // Shared calendar IDs are queried once, with another account as fallback on failure.
@@ -179,6 +188,7 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
             found = true;
             break;
           } catch (e) {
+            diagnose('search_events', e);
             if (target === group.at(-1)) failures.push({ account: target.record.email, calendarId: target.id, code: safeCode(e, 'event_list_failed') });
           }
         }

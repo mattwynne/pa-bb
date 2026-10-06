@@ -29,6 +29,18 @@ test('Drive and Docs GETs use verified identity, encoded file IDs, paging, and t
   assert.ok(requests.every(([, opts]) => opts.headers.authorization === 'Bearer private-access'));
 });
 
+test('OAuth labels only an explicit invalid_grant as a revoked grant', async () => {
+  for (const providerCode of ['invalid_grant', 'invalid_client']) {
+    const { adapter } = await fixture(async () => Response.json({ error: providerCode, detail: 'private-token-and-code' }, { status: 400 }));
+    await assert.rejects(() => adapter.oauth.exchange({ code: 'private-code', verifier: 'private-verifier', clientId: 'web', clientSecret: 'private-secret', redirectUri: 'https://bb.example/callback' }), error => {
+      assert.equal(error.status, 400);
+      assert.equal(error.code, providerCode === 'invalid_grant' ? 'invalid_grant' : undefined);
+      assert.doesNotMatch(error.message, /private-token|private-code|private-secret|invalid_client/);
+      return true;
+    });
+  }
+});
+
 test('mismatched Google subject blocks Drive reads before the API request', async () => {
   const requests = [];
   const { record, adapter } = await fixture(async url => {

@@ -20,7 +20,11 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
     catch { throw new Error('Google authorization is temporarily unavailable'); }
     if (!response.ok) {
       const error = failure(response, 'Google authorization');
-      if (response.status === 400 || response.status === 401) error.code = 'invalid_grant';
+      // A generic 400 is not proof the user's grant was revoked.
+      if (response.status === 400) {
+        try { if ((await response.json())?.error === 'invalid_grant') error.code = 'invalid_grant'; }
+        catch { /* Keep the bounded HTTP status. */ }
+      }
       throw error;
     }
     return response.json();

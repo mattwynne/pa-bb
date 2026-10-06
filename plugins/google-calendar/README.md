@@ -67,4 +67,6 @@ npm test             # builds plugin, runs Cucumber core scenarios and adapter/B
 npm run typecheck
 ```
 
+BB's `bb plugin logs google-calendar` records bounded stage/status categories for failed identity checks, partial calendar discovery/search, and agent tool failures. It never records raw Google messages, account addresses, OAuth secrets, or tool arguments. A connected identity is not proof that a Calendar API read will succeed; verify with a harmless read. These diagnostics are covered by synthetic host tests but have not yet been checked in a live failure on BB.
+
 The core is in `core/`; `adapters/` contain Google HTTP and BB storage. Gherkin scenarios in `features/` drive the core through fake ports. A managed Git install, HTTPS callback, and multiple real account connections have been verified on Matt's PA BB host. End-to-end Calendar tool use and the live write-approval UI still require verification. A public callback accepts only an expiring, one-use state/PKCE grant initiated from BB; keep the whole BB installation private and single-user.

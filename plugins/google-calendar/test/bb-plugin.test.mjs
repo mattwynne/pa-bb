@@ -137,6 +137,32 @@ test('an approved native Calendar write reaches Google exactly once with no invi
   }
 });
 
+test('an uncertain Calendar write logs safely and tells the agent to inspect before retrying', async () => {
+  const originalFetch = globalThis.fetch;
+  let writes = 0;
+  globalThis.fetch = async url => {
+    if (String(url).includes('/userinfo')) return Response.json({ sub: 'a', email: 'alice@example.com', email_verified: true });
+    writes++;
+    return Response.json({ detail: 'private-event-body' }, { status: 503 });
+  };
+  let harness;
+  try {
+    const host = await setup(); harness = host.harness;
+    const store = createBbStore(host.bb.storage.database(), () => {});
+    await store.addAccount({ subject: 'a', email: 'alice@example.com', refreshToken: 'private-refresh', accessToken: 'private-access', expiresAt: Date.now() + 600_000 });
+    const pending = harness.behavior.callAgentTool('gcal_delete_event', { account: 'alice@example.com', calendarId: 'team', eventId: 'event' });
+    await new Promise(resolve => setImmediate(resolve));
+    harness.behavior.submitInteraction(harness.inspection.pendingInteractions[0].id, { approved: true });
+    const result = await pending;
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /may have completed; check the calendar before retrying/);
+    assert.equal(writes, 1);
+    const logs = JSON.stringify(harness.inspection.logEntries);
+    assert.match(logs, /agent_tool gcal_delete_event http_status=503/);
+    assert.doesNotMatch(logs, /private-event|private-access|private-refresh|alice@example/);
+  } finally { if (harness) await harness.lifecycle.dispose(); globalThis.fetch = originalFetch; }
+});
+
 test('a Web callback connects an account once and retains it across a BB plugin reload', async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
@@ -180,6 +206,31 @@ test('scope failure logs only public requested scope names, not provider credent
     assert.ok(logs.includes('missing_required_scopes (https://www.googleapis.com/auth/calendar.freebusy)'));
     assert.doesNotMatch(logs, /private-access|private-refresh|one-time/);
     assert.deepEqual((await harness.behavior.callRpc('status', null)).accounts, []);
+  } finally { if (harness) await harness.lifecycle.dispose(); globalThis.fetch = originalFetch; }
+});
+
+test('failed identity and partial discovery are not reported as healthy and log no provider data', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ message: 'private-body-and-token' }), { status: 503 });
+  let harness;
+  try {
+    const host = await setup(); harness = host.harness;
+    const store = createBbStore(host.bb.storage.database(), () => {});
+    await store.addAccount({ subject: 'a', email: 'alice@example.com', refreshToken: 'private-refresh', accessToken: 'private-access', expiresAt: Date.now() + 600_000 });
+    const status = await harness.behavior.callRpc('status', null);
+    assert.equal(status.accounts[0].status, 'Connection unavailable');
+    const discovery = JSON.parse((await harness.behavior.callAgentTool('gcal_list_calendars', {})).content[0].text);
+    assert.equal(discovery.accounts[0].error.code, 'calendar_list_failed');
+    const failed = await harness.behavior.callAgentTool('gcal_get_event', { account: 'alice@example.com', calendarId: 'team', eventId: 'event' });
+    assert.equal(failed.isError, true);
+    const unknown = await harness.behavior.callAgentTool('gcal_get_event', { account: 'private-account@example.test', calendarId: 'team', eventId: 'event' });
+    assert.equal(unknown.isError, true);
+    assert.doesNotMatch(JSON.stringify(unknown), /private-account/);
+    const logs = JSON.stringify(harness.inspection.logEntries);
+    assert.match(logs, /identity_lookup http_status=503/);
+    assert.match(logs, /calendar_discovery http_status=503/);
+    assert.match(logs, /agent_tool gcal_get_event http_status=503/);
+    assert.doesNotMatch(logs, /private-body|private-token|private-access|private-refresh|alice@example|private-account/);
   } finally { if (harness) await harness.lifecycle.dispose(); globalThis.fetch = originalFetch; }
 });
 
