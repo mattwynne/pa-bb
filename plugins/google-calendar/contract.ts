@@ -14,4 +14,10 @@ export const rpcContract = defineRpcContract({
     input: z.object({ subject: z.string().min(1) }).strict(),
     output: z.object({ removed: z.boolean() }),
   },
+  // Only the installed Drive plugin may call this server-to-server; the
+  // Calendar handler rejects browser, CLI, and agent callers at runtime.
+  exportOAuthClientForDrive: {
+    input: z.null(),
+    output: z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }),
+  },
 });

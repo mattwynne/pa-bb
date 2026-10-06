@@ -2,7 +2,7 @@
 
 BB-native Calendar tools for a **single-user** BB installation. Connect multiple Google accounts; each account may expose multiple calendars. The plugin does not read or modify the Pi Google Calendar extension's Desktop OAuth files.
 
-**Bring your own Google OAuth client:** Every BB installation needs its **own Google Cloud Web application OAuth client** (client ID and secret) with that installation's HTTPS callback registered. This marketplace does not supply a shared client, hosted OAuth broker, client secret, or Google API credentials. One client on your installation can authorize multiple Google accounts; you do not need one client per account or calendar.
+**Bring your own Google OAuth client:** Every BB installation needs its **own Google Cloud Web application OAuth client** (client ID and secret) with that installation's HTTPS callback registered. This marketplace does not supply a shared client, hosted OAuth broker, client secret, or Google API credentials. One client on your installation can authorize multiple Google accounts; you do not need one client per account or calendar. The optional Google Drive plugin can copy this Web client's ID and secret once through a server-only, plugin-verified RPC after its own callback has been added in Google Cloud. Drive keeps separate grants and stored settings, and removing Calendar does not remove Drive's copy.
 
 > This plugin is not safe for a multi-user BB installation: BB agent tools and plugin routes do not supply a user identity. Do not install where another person can use your BB instance.
 

@@ -14,14 +14,24 @@ function DriveSettings() {
   const [state, setState] = useState<ConnectionState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [copied, setCopied] = useState(false);
   async function refresh() {
     try { setState(await rpc.call('status', null)); setError(''); }
     catch { setError('Could not load Google Drive connection status. Check BB and try again.'); }
   }
   useEffect(() => { void refresh(); }, []);
+  async function importCalendarClient() {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await rpc.call('importCalendarOAuthClient', null);
+      await refresh();
+      setNotice('Calendar’s OAuth client copied to Drive. Connect an account to authorize Drive access.');
+    } catch { setError('Could not copy Calendar’s OAuth client. Check that Calendar is installed and configured, or enter the client details in Configuration.'); }
+    finally { setBusy(false); }
+  }
   async function connect() {
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setNotice('');
     try { const { url } = await rpc.call('beginConnect', null); window.location.assign(url); }
     catch { setError('Could not start Google authorization. Check the OAuth client settings.'); setBusy(false); }
   }
@@ -42,6 +52,7 @@ function DriveSettings() {
       count={state?.configured && state.accounts.length ? state.accounts.length : undefined}
       action={state && <ConnectionButton tone="primary" disabled={busy || !state.configured} onClick={() => void connect()}>{state.accounts.length ? '+ Add account' : 'Connect account'}</ConnectionButton>} />
     {error && <ConnectionAlert>{error}</ConnectionAlert>}
+    {notice && <p className="pa-drive__notice" role="status">{notice}</p>}
     {!state ? <ConnectionEmpty>{error ? 'Connection status unavailable.' : 'Loading connections…'}
       {error && <ConnectionButton tone="secondary" onClick={() => void refresh()}>Try again</ConnectionButton>}</ConnectionEmpty> : <>
       {!state.configured && <ConnectionSetup title={state.accounts.length ? 'Restore OAuth setup' : 'Connect your first account'}>
@@ -52,7 +63,10 @@ function DriveSettings() {
               {state.redirectUri && <ConnectionButton tone="secondary" onClick={() => void copyRedirect()}>{copied ? 'Copied' : 'Copy'}</ConnectionButton>}
             </div>
           </li>
-          <li>Save its client ID and secret in Configuration above, then choose <strong>Connect account</strong>.</li>
+          <li>Already configured Google Calendar in BB? Add this Drive redirect URI to the same Web client in Google Cloud, then choose <strong>Use Calendar’s OAuth client</strong> below. The details are copied server-side; the plugins keep separate grants.
+            <div className="pa-drive__import"><ConnectionButton tone="secondary" disabled={busy} onClick={() => void importCalendarClient()}>Use Calendar’s OAuth client</ConnectionButton></div>
+          </li>
+          <li>Otherwise save a Web client ID and secret in Configuration above. Then choose <strong>Connect account</strong>.</li>
         </ol>
         <ConnectionGuide href={GUIDE}>Step-by-step setup guide ↗</ConnectionGuide>
       </ConnectionSetup>}

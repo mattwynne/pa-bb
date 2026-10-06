@@ -37,6 +37,19 @@ test('registers nine native tools, BB settings, an authenticated initiation RPC,
   } finally { await harness.lifecycle.dispose(); }
 });
 
+test('only the verified Drive plugin can receive the Calendar Web client through server RPC', async () => {
+  const { harness } = await setup();
+  try {
+    await assert.rejects(() => harness.behavior.callRpc('exportOAuthClientForDrive', null), /restricted/);
+    await assert.rejects(() => harness.behavior.callRpc('exportOAuthClientForDrive', null,
+      { experimental_caller: { kind: 'plugin', pluginId: 'fastmail' } }), /restricted/);
+    const imported = await harness.behavior.callRpc('exportOAuthClientForDrive', null,
+      { experimental_caller: { kind: 'plugin', pluginId: 'google-drive' } });
+    assert.deepEqual(imported, { clientId: 'web-client', clientSecret: 'private-secret' });
+    assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /private-secret/);
+  } finally { await harness.lifecycle.dispose(); }
+});
+
 test('a native write blocks on the owner form and a decline makes no Google request', async () => {
   const { bb, harness } = await setup();
   try {

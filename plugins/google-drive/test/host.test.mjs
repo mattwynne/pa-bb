@@ -28,6 +28,37 @@ test('registers five read-only tools, an independent callback, and no connected 
   } finally { await harness.lifecycle.dispose(); }
 });
 
+test('one-time Calendar client import stays server-side and Drive keeps its own copy', async () => {
+  let { harness } = await setup({});
+  try {
+    harness.sdk.stub('plugins.callRpc', async args => {
+      assert.equal(args.pluginId, 'google-calendar');
+      assert.equal(args.method, 'exportOAuthClientForDrive');
+      return { clientId: 'shared-web-id', clientSecret: 'private-calendar-secret' };
+    });
+    assert.deepEqual(await harness.behavior.callRpc('importCalendarOAuthClient', null), { imported: true });
+    const status = await harness.behavior.callRpc('status', null);
+    assert.equal(status.configured, true);
+    assert.equal(JSON.stringify(status).includes('private-calendar-secret'), false);
+    const { url } = await harness.behavior.callRpc('beginConnect', null);
+    assert.equal(new URL(url).searchParams.get('client_id'), 'shared-web-id');
+    assert.doesNotMatch(url, /private-calendar-secret/);
+    ({ harness } = await harness.lifecycle.reload(plugin));
+    assert.equal((await harness.behavior.callRpc('status', null)).configured, true);
+    assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /private-calendar-secret/);
+  } finally { await harness.lifecycle.dispose(); }
+});
+
+test('import refuses to replace the OAuth client of an already connected Drive account', async () => {
+  const host = await setup({});
+  try {
+    const store = createBbStore(host.bb.storage.database(), () => {});
+    await store.addAccount({ subject: 'a', email: 'alice@example.test', refreshToken: 'private-refresh' });
+    await assert.rejects(() => host.harness.behavior.callRpc('importCalendarOAuthClient', null), /Disconnect Drive accounts/);
+    assert.deepEqual(host.harness.sdk.callsTo('plugins.callRpc'), []);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+
 test('callback consumes grant once and a plugin reload retains the Drive account without touching Calendar', async () => {
   const fetchOriginal = globalThis.fetch;
   let exchanges = 0;

@@ -69,6 +69,15 @@ export default async function plugin(bb: BbPluginApi) {
       return service().beginConnect({ clientId, redirectUri: callbackUrl() });
     },
     async removeAccount({ subject }) { return { removed: await service().removeAccount(subject) }; },
+    async importCalendarOAuthClient() {
+      if ((await store.accounts()).length) throw new Error('Disconnect Drive accounts before changing their OAuth client');
+      // BB verifies the plugin caller for this RPC. Credentials stay on the
+      // server and are copied into Drive's own secret settings once, not linked.
+      const client = await bb.sdk.plugins.callRpc({ pluginId: 'google-calendar', method: 'exportOAuthClientForDrive', input: null,
+        outputSchema: z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }) });
+      await settings.experimental_set(client);
+      return { imported: true };
+    },
   });
   // Public callback accepts only an expiring, owner-initiated, one-use PKCE grant.
   bb.http.route('GET', '/callback', async ctx => {

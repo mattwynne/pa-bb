@@ -2,7 +2,7 @@
 
 An independent, read-only Google Drive and Docs plugin for a **single-user BB installation**. Connect several Google accounts through an installation-owned Web OAuth client. Calendar and Fastmail remain separate: no credentials, tokens or account records are imported from another plugin or from Pi.
 
-[Set up your Google Web OAuth client and connect an account](docs/setup.md). The registered HTTPS callback is `/api/v1/plugins/google-drive/http/callback`; the exact URL is shown in BB Settings. Google's `drive.readonly` scope grants access to files the connected account can read. No mutation tools are registered in this first slice.
+[Connect using your existing Calendar Web OAuth client or a new one](docs/setup.md). Drive can copy Calendar's configured client details once via a server-only RPC after you register Drive's callback; it then saves its own copy, so Calendar is not a runtime dependency. The registered HTTPS callback is `/api/v1/plugins/google-drive/http/callback`; the exact URL is shown in BB Settings. Google's `drive.readonly` scope grants access to files the connected account can read. No mutation tools are registered in this first slice.
 
 | Tool | Use |
 | --- | --- |
