@@ -1,0 +1,5 @@
+.pa-drive { color: var(--foreground); font-size: 0.875rem; line-height: 1.45; max-width: 100%; }
+.pa-drive *, .pa-drive *::before, .pa-drive *::after { box-sizing: border-box; }
+.pa-drive .pa-connection__onboarding + .pa-connection__accounts { margin-top: 0.75rem; }
+.pa-drive__redirect { display: flex; align-items: center; gap: 0.5rem; margin: 0.4rem 0 0.75rem; padding: 0.5rem 0.55rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--muted); }
+.pa-drive__redirect code { flex: 1 1 auto; min-width: 0; color: var(--foreground); font-size: 0.73rem; overflow-wrap: anywhere; user-select: all; }

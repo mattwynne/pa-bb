@@ -1,0 +1,50 @@
+/* Generated from shared/connection-ui/connection-ui.css. Do not edit this copy. */
+/* Shared source: run `node scripts/sync-connection-ui.mjs` after changes. */
+.pa-connection__heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.pa-connection__heading > div { min-width: 0; }
+.pa-connection__title { display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1rem; font-weight: 650; letter-spacing: -0.015em; line-height: 1.35; }
+.pa-connection__count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.35rem; height: 1.35rem; padding: 0 0.3rem; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); font-size: 0.7rem; font-weight: 600; }
+.pa-connection__description { margin: 0.25rem 0 0; color: var(--muted-foreground); font-size: 0.8rem; }
+.pa-connection__button { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; min-height: 2rem; padding: 0.35rem 0.75rem; border: 1px solid transparent; border-radius: max(0.4rem, var(--radius, 0.4rem)); background: transparent; color: var(--foreground); font: inherit; font-size: 0.78rem; font-weight: 600; line-height: 1.2; white-space: nowrap; cursor: pointer; transition: background 120ms ease, border-color 120ms ease; }
+.pa-connection__button:focus-visible, .pa-connection__guide:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: 2px; }
+.pa-connection__button:disabled { opacity: 0.5; cursor: not-allowed; }
+.pa-connection__button--primary { background: var(--primary); color: var(--primary-foreground); }
+.pa-connection__button--primary:not(:disabled):hover { background: color-mix(in oklab, var(--primary) 82%, var(--background)); }
+.pa-connection__button--secondary { border-color: var(--border); background: var(--card); }
+.pa-connection__button--secondary:not(:disabled):hover { background: var(--muted); }
+.pa-connection__button--quiet { color: var(--muted-foreground); }
+.pa-connection__button--quiet:not(:disabled):hover { background: var(--muted); color: var(--foreground); }
+.pa-connection__alert { margin: 0.75rem 0; padding: 0.65rem 0.8rem; border-radius: 0.4rem; background: color-mix(in oklab, var(--destructive) 12%, var(--background)); color: var(--destructive); font-size: 0.8rem; }
+.pa-connection__onboarding { padding: 1rem 1.25rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--card); }
+.pa-connection__onboarding h4 { margin: 0 0 0.5rem; color: var(--foreground); font-size: 0.9rem; }
+.pa-connection__onboarding ol { display: grid; gap: 0.6rem; margin: 0 0 0.85rem; padding-left: 1.3rem; }
+.pa-connection__onboarding li { padding-left: 0.2rem; }
+.pa-connection__onboarding li::marker { color: var(--muted-foreground); font-weight: 600; }
+.pa-connection__guide { color: var(--foreground); font-size: 0.78rem; font-weight: 600; text-decoration: underline; text-underline-offset: 0.18em; }
+.pa-connection__accounts { overflow: hidden; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: max(0.5rem, var(--radius, 0.5rem)); background: var(--card); }
+.pa-connection__account { display: flex; align-items: center; gap: 0.75rem; min-height: 3.25rem; padding: 0.55rem 0.75rem; }
+.pa-connection__account + .pa-connection__account { border-top: 1px solid var(--border); }
+.pa-connection__avatar { display: inline-grid; flex: 0 0 2rem; place-items: center; height: 2rem; border-radius: 0.55rem; background: var(--muted); color: var(--foreground); font-size: 0.8rem; font-weight: 700; }
+.pa-connection__identity { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+.pa-connection__account-name { overflow-wrap: anywhere; font-weight: 600; }
+.pa-connection__account-name--unavailable { color: var(--muted-foreground); font-weight: 500; }
+.pa-connection__account-caption { color: var(--muted-foreground); font-size: 0.72rem; }
+.pa-connection__badge { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.35rem; padding: 0.22rem 0.55rem; border-radius: 999px; background: color-mix(in oklab, var(--success, #27815d) 13%, var(--card)); color: var(--success, #27815d); font-size: 0.7rem; font-weight: 600; }
+.pa-connection__badge::before { content: ''; width: 0.35rem; height: 0.35rem; border-radius: 50%; background: currentColor; }
+.pa-connection__badge--warning { background: color-mix(in oklab, var(--destructive) 10%, var(--card)); color: var(--destructive); }
+.pa-connection__empty { display: flex; flex-direction: column; gap: 0.2rem; margin: 0; padding: 1.25rem; border: 1px dashed var(--border); border-radius: 0.5rem; color: var(--muted-foreground); font-size: 0.8rem; }
+.pa-connection__empty strong { color: var(--foreground); font-weight: 600; }
+.pa-connection__footer { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 0.5rem; color: var(--muted-foreground); font-size: 0.72rem; }
+.pa-connection__footer .pa-connection__button { margin-left: -0.65rem; }
+.pa-connection__disclosure { margin-top: 0.75rem; border-top: 1px solid var(--border); color: var(--muted-foreground); }
+.pa-connection__disclosure summary { width: fit-content; padding: 0.75rem 0; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+.pa-connection__disclosure summary:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: 2px; }
+.pa-connection__disclosure p { margin: 0 0 0.75rem; }
+@media (max-width: 40rem) {
+  .pa-connection__heading { align-items: flex-start; flex-direction: column; }
+  .pa-connection__account { flex-wrap: wrap; }
+  .pa-connection__identity { flex-basis: calc(100% - 3rem); }
+  .pa-connection__badge { margin-left: 2.75rem; }
+  .pa-connection__account .pa-connection__button { margin-left: auto; }
+  .pa-connection__footer { align-items: flex-start; flex-direction: column; gap: 0; }
+}

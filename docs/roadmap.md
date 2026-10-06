@@ -6,7 +6,7 @@ This is a proposed order of work, not a promise to port every PA package. The [v
 
 ## Where we are
 
-**Google Calendar is built** as an independently installable BB plugin. It connects multiple Google accounts through a Web OAuth client supplied by each BB installation. See the [plugin README](../plugins/google-calendar/README.md) for its tools, setup, verification status, and current single-user limitation. It is one calendar provider, not PA's default calendar or a replacement for Fastmail Calendar.
+**Google Calendar, Fastmail, and a read-only Google Drive first slice are built** as independently installable BB plugins. Calendar and Drive connect Google accounts using separate OAuth callbacks and plugin-owned grants; Fastmail uses its official MCP service. See each plugin README for setup and verification limits. Drive's live consent and provider reads are not yet verified.
 
 ## Priorities
 
@@ -26,7 +26,7 @@ The first cross-provider use case is **calendar awareness**: answer a question a
 
 ### 3. Google Drive and Docs
 
-Build an independently installable Google Drive/Docs connection using the Pi Google Drive extension as a behavioral starting point. Start with file and folder discovery, document reading, and links to source material; then add approved creation, editing, sharing, and filing. The Pi extension has extensive Docs operations but its folder-finding tools do not amount to general file search, so design this around actual document-finding tasks rather than copying its tool list. Add Sheets and Slides when demonstrated workflows need them, not as a prerequisite to useful Drive access.
+The independently installable [Google Drive/Docs read-only first slice](plans/003-google-drive-discovery.md) uses the Pi extension as a behavioral starting point. Verify its live consent and reads, then add approved creation, editing, sharing, and filing. The Pi extension has extensive Docs operations but its folder-finding tools do not amount to general file search, so design this around actual document-finding tasks rather than copying its tool list. Add Sheets and Slides when demonstrated workflows need them, not as a prerequisite to useful Drive access.
 
 ### 4. Personal knowledge and Obsidian
 

@@ -14,8 +14,12 @@ test('the Git marketplace catalog passes BB v2 schema and targets this plugin pa
   assert.ok(validate(catalog), JSON.stringify(validate.errors));
   const entry = catalog.plugins.find(plugin => plugin.id === 'google-calendar');
   const fastmail = catalog.plugins.find(plugin => plugin.id === 'fastmail');
+  const drive = catalog.plugins.find(plugin => plugin.id === 'google-drive');
   assert.ok(entry);
   assert.ok(fastmail);
+  assert.ok(drive);
+  assert.equal(drive.source.git.subdir, 'plugins/google-drive');
+  assert.notEqual(drive.source.git.subdir, entry.source.git.subdir);
   assert.equal(fastmail.source.git.subdir, 'plugins/fastmail');
   assert.notEqual(fastmail.source.git.subdir, entry.source.git.subdir);
   assert.equal(entry.id, 'google-calendar');

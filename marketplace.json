@@ -26,6 +26,17 @@
       "source": {
         "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/fastmail", "ref": "main" }
       }
+    },
+    {
+      "id": "google-drive",
+      "displayName": "Google Drive",
+      "description": "Find files and folders in Google Drive and read Google Docs, with a read-only grant.",
+      "icon": "HardDrive",
+      "tags": ["drive", "docs", "google", "productivity"],
+      "author": { "name": "Matt Wynne", "github": "mattwynne" },
+      "source": {
+        "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/google-drive", "ref": "main" }
+      }
     }
   ]
 }
