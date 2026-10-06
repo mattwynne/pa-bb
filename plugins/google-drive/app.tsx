@@ -58,12 +58,12 @@ function DriveSettings() {
       {!state.configured && <ConnectionSetup title={state.accounts.length ? 'Restore OAuth setup' : 'Connect your first account'}>
         <ol>
           <li>In Google Cloud, enable the Drive and Docs APIs and configure the OAuth consent screen.</li>
-          <li>Create a Web OAuth client with this exact redirect URI:
+          <li>Add this redirect URI to your Calendar Web client, or create a Web client with it:
             <div className="pa-drive__redirect"><code>{state.redirectUri || 'Set an HTTPS BB_APP_URL first.'}</code>
               {state.redirectUri && <ConnectionButton tone="secondary" onClick={() => void copyRedirect()}>{copied ? 'Copied' : 'Copy'}</ConnectionButton>}
             </div>
           </li>
-          <li>Already configured Google Calendar in BB? Add this Drive redirect URI to the same Web client in Google Cloud, then choose <strong>Use Calendar’s OAuth client</strong> below. The details are copied server-side; the plugins keep separate grants.
+          <li>If Calendar is configured in BB, copy its client settings to Drive. The plugins keep separate grants.
             <div className="pa-drive__import"><ConnectionButton tone="secondary" disabled={busy} onClick={() => void importCalendarClient()}>Use Calendar’s OAuth client</ConnectionButton></div>
           </li>
           <li>Otherwise save a Web client ID and secret in Configuration above. Then choose <strong>Connect account</strong>.</li>
@@ -75,11 +75,18 @@ function DriveSettings() {
         caption={account.status === 'Re-authentication required' ? 'Remove and reconnect this account.' : account.status === 'Connection unavailable' ? 'Refresh status and try again later.' : undefined}
         warning={account.status !== 'Connected'} action={<ConnectionButton disabled={busy}
           aria-label={`Remove ${account.email}`} onClick={() => void remove(account.subject, account.email)}>Remove</ConnectionButton>} />)}</ConnectionAccounts>
-      : state.configured && <ConnectionEmpty><strong>No accounts connected</strong><span>Connect an account to find its files and read Google Docs.</span></ConnectionEmpty>}
+      : state.configured && <ConnectionSetup title="Connect your first account">
+        <p>Confirm that this Drive redirect URI is registered on your Google Web OAuth client:</p>
+        <div className="pa-drive__redirect"><code>{state.redirectUri}</code>
+          {state.redirectUri && <ConnectionButton tone="secondary" onClick={() => void copyRedirect()}>{copied ? 'Copied' : 'Copy'}</ConnectionButton>}
+        </div>
+        <p>Then choose <strong>Connect account</strong> to authorize Drive access.</p>
+        <ConnectionGuide href={GUIDE}>Step-by-step setup guide ↗</ConnectionGuide>
+      </ConnectionSetup>}
     </>}
     <ConnectionFooter>
       <ConnectionButton disabled={busy} onClick={() => void refresh()}>Refresh status</ConnectionButton>
-      {state?.configured && <ConnectionGuide href={GUIDE} />}
+      {Boolean(state?.accounts.length) && <ConnectionGuide href={GUIDE} />}
     </ConnectionFooter>
   </section>;
 }
