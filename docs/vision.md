@@ -1,6 +1,6 @@
 # PA for BB: vision
 
-PA for BB is a personal work assistant distributed through **its own BB plugin marketplace**. BB is the place people use it: they connect the services they trust, ask questions about their work, and approve useful actions. They should not need to know whether a capability originated in Pi or how its tools are loaded.
+PA for BB is a personal work assistant distributed through **its own BB plugin marketplace** for **single-user BB installations**. Each installation has one owner, who connects trusted services, asks questions about their work, and approves useful actions. The owner should not need to know whether a capability originated in Pi or how its tools are loaded.
 
 The starting point is Matt's PA project in Pi, not a mandate to reproduce it wholesale. We will bring over proven tools and workflows from `~/git/mattwynne/pa` and `~/git/mattwynne/pi-extensions` **case by case**, adapting each to BB and to the needs of other users. The goal is a coherent assistant, not a long menu of provider API calls.
 
@@ -26,7 +26,7 @@ This is a product boundary, not yet a prescribed BB inter-plugin protocol. Plugi
 
 ## Trust is part of the experience
 
-Connections belong to the user who authorized them. In a multi-user BB installation, one person's accounts and private data must not become another person's tools or context. Each plugin should make its scopes and connection state visible; secrets stay out of prompts, transcripts, logs, and plugin artifacts. Uninstalling a capability must not silently destroy the user's data or other plugins' configuration.
+PA for BB assumes one owner per BB installation. Its plugins do not isolate accounts or data between BB users; do not use them on a shared installation. Each plugin should make its scopes and connection state visible; secrets stay out of prompts, transcripts, logs, and plugin artifacts. Uninstalling a capability must not silently destroy the owner's data or other plugins' configuration.
 
 Reading and acting are different. A user's service grant defines available tools; an explicit user request supplies the intent to act. Honor required platform and provider interactions, describe consequential changes clearly, avoid blind retries after uncertain writes, and report what happened. Provider data is evidence for the task, not a source of instructions to the assistant. Personal knowledge and preferences remain under the user's control; Matt's private vault and PA-specific policy are not bundled into a public plugin.
 
@@ -34,8 +34,8 @@ Reading and acting are different. A user's service grant defines available tools
 
 The Pi tools and abilities are valuable starting material. Reuse their behavior, tests, and safety rules where possible instead of writing a second, drifting implementation. During the transition, BB's Pi provider may run packaged Pi extensions behind the scenes. If another BB-native interface offers a better user experience or wider provider support, the product should not be blocked by the original runtime. Installation, authorization, and use should make sense entirely within BB.
 
-The marketplace now lists a BB-native **Google Calendar plugin** with Web OAuth account management and Calendar tools. Its core and BB adapter have automated tests, and managed installation and live Google account connection have been verified on the PA host. End-to-end Calendar tool use and live write approval still require verification. The Calendar plugin does not establish multi-user isolation or the complete PA experience. [`docs/plans/001-marketplace-calendar.md`](plans/001-marketplace-calendar.md) records the historical delivery plan; see the [plugin README](../plugins/google-calendar/README.md) for current status.
+The marketplace now lists a BB-native **Google Calendar plugin** with Web OAuth account management and Calendar tools. Its core and BB adapter have automated tests, and managed installation and live Google account connection have been verified on the PA host. End-to-end Calendar tool use and live write approval still require verification. The Calendar plugin is for single-user installations and does not establish the complete PA experience. [`docs/plans/001-marketplace-calendar.md`](plans/001-marketplace-calendar.md) records the historical delivery plan; see the [plugin README](../plugins/google-calendar/README.md) for current status.
 
 ## How we'll judge progress
 
-A user can add the PA marketplace to BB, install PA core and one integration without installing others, understand what is available, complete a useful task, and see and approve any consequential change. They can add or remove capabilities without breaking unrelated ones. A second user on the same BB installation sees only their own connections and data. As we move capabilities over, we test those experiences in BB itself—not just extension discovery in Pi.
+An installation owner can add the PA marketplace to BB, install PA core and one integration without installing others, understand what is available, complete a useful task, and see and approve any consequential change. They can add or remove capabilities without breaking unrelated ones. We test those experiences in a single-user BB installation—not just extension discovery in Pi.
