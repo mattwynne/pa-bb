@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { FastmailConnection, FastmailProvider, callbackUrl, parseCallback, defaultSendingAddress } from '../core.mjs';
-import { failureCategory } from '../diagnostic.mjs';
+import { failureCategory, connectionFailureContext } from '../diagnostic.mjs';
 import { ProtocolError, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/client';
 
 function fixture() {
@@ -122,6 +122,20 @@ test('diagnostic categories discard untrusted error messages and arbitrary codes
   assert.equal(failureCategory({ name: secret, code: secret, status: 401, message: secret }), 'unknown');
 });
 
+test('connection context only includes bounded age, session presence, protocol and validated provider trace', () => {
+  const error = new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'private token and callback code', {
+    status: 500, text: JSON.stringify({ trace_id: `ti_${'a'.repeat(32)}`, detail: 'private email body' }),
+  });
+  const context = connectionFailureContext(error, { openedAt: 1000, now: 37 * 60_000, sessionIdPresent: true, protocolVersion: '2025-11-25' });
+  assert.equal(context, `age=30-60m session=present protocol=2025-11-25 trace=ti_${'a'.repeat(32)}`);
+  assert.doesNotMatch(context, /private|token|callback|email/);
+  const hostile = new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'private', {
+    status: 500, text: JSON.stringify({ trace_id: 'ti_private-email-body', detail: 'private-token' }),
+  });
+  assert.equal(connectionFailureContext(hostile, { openedAt: -1, now: 1000, sessionIdPresent: 'private', protocolVersion: 'private-token' }),
+    'age=unknown session=unknown protocol=unknown trace=none');
+});
+
 test('connection failures report only a bounded category, not provider errors', async () => {
   const f = fixture();
   f.connection.makeConnection = () => ({ client: { connect: async () => { throw new Error('code=private one-time-token'); }, close: async () => {} }, transport: {} });
@@ -159,7 +173,7 @@ test('an HTTP 500 reopens the connection without retrying an uncertain call', as
   assert.equal(connections, 2, 'one fresh connection is opened');
   assert.equal(closes, 1);
   assert.equal(f.connection.ready, true);
-  assert.deepEqual(f.diagnostics, ['connection_reset http_status=500']);
+  assert.deepEqual(f.diagnostics, ['connection_reset http_status=500 age=under_5m session=absent protocol=unknown trace=none']);
   assert.equal((await f.connection.call(id, {})).content[0].text, 'success');
 });
 

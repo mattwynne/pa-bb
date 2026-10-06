@@ -108,7 +108,9 @@ test('BB remains connected after an HTTP 500 without replaying the failed tool',
     ] }), callTool: async ({ name }) => {
       if (name === 'list_identities') return { content: [{ type: 'text', text: JSON.stringify([{ email: 'private@example.test', isDefault: true }]) }] };
       calls++;
-      if (generation === 1) throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'private body', { status: 500, text: 'private token' });
+      if (generation === 1) throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'private body', {
+        status: 500, text: JSON.stringify({ trace_id: `ti_${'b'.repeat(32)}`, detail: 'private token' }),
+      });
       return { content: [{ type: 'text', text: 'ok' }] };
     } }, transport: { close: async () => {} } };
   };
@@ -122,7 +124,7 @@ test('BB remains connected after an HTTP 500 without replaying the failed tool',
     assert.equal((await host.harness.behavior.callRpc('status', null)).connected, true);
     assert.equal((await host.harness.behavior.callAgentTool(read.name, {})).isError, undefined);
     const logs = JSON.stringify(host.harness.inspection.logEntries);
-    assert.match(logs, /connection_reset http_status=500/);
+    assert.match(logs, /connection_reset http_status=500 age=under_5m session=absent protocol=unknown trace=ti_b{32}/);
     assert.match(logs, /direct_call http_status=500/);
     assert.doesNotMatch(logs, /private body|private token|private@example/);
   } finally { await host.harness.lifecycle.dispose(); }

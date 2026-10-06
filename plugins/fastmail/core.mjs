@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { Client, SdkHttpError, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
-import { failureCategory } from './diagnostic.mjs';
+import { failureCategory, connectionFailureContext } from './diagnostic.mjs';
 
 export const ENDPOINT = new URL('https://api.fastmail.com/mcp');
 const TTL = 10 * 60_000;
@@ -82,6 +82,7 @@ export function defaultSendingAddress(result) {
 export class FastmailConnection {
   constructor({ store, redirect, register, changed = () => {}, diagnose = /** @type {(message: string) => void} */ (() => {}), connect = /** @type {null | (() => {client: any, transport: any})} */ (null), endpoint = ENDPOINT }) {
     this.store = store; this.provider = new FastmailProvider(store, redirect); this.register = register; this.changed = changed;
+    this.reportDiagnostic = diagnose;
     this.diagnose = (stage, error) => diagnose(`${stage} ${typeof error === 'string' && ['provider_error_result', 'no_default_sender'].includes(error) ? error : failureCategory(error)}`);
     this.makeConnection = connect || (() => {
       const transport = new StreamableHTTPClientTransport(endpoint, { authProvider: this.provider, onInsufficientScope: 'throw',
@@ -91,12 +92,12 @@ export class FastmailConnection {
           return response;
         },
       });
-      return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.2' }, { listChanged: { tools: { onChanged: () => {
+      return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.3' }, { listChanged: { tools: { onChanged: () => {
         void this.refresh().catch(() => { /* refresh logs and revokes the failing catalog */ });
       } } } }) };
     });
     this.catalog = new Map(); this.names = new Map(); this.registered = new Set(); this.enabled = true; this.revision = 0;
-    this.identityLookup = null; this.reconnecting = null;
+    this.identityLookup = null; this.reconnecting = null; this.openedAt = null;
   }
   get ready() { return this.enabled && Boolean(this.client); }
   async open() {
@@ -107,10 +108,10 @@ export class FastmailConnection {
     try {
       await client.connect(transport, { timeout: 15000 });
       if (!this.enabled || this.revision !== revision) throw new Error('Fastmail connection changed');
-      this.client = client; this.transport = transport;
+      this.client = client; this.transport = transport; this.openedAt = Date.now();
       await this.refresh();
     } catch (error) {
-      if (this.client === client) { this.client = null; this.transport = null; this.catalog.clear(); this.names.clear(); this.changed(); }
+      if (this.client === client) { this.client = null; this.transport = null; this.openedAt = null; this.catalog.clear(); this.names.clear(); this.changed(); }
       await client.close().catch(() => {});
       if (error instanceof UnauthorizedError && this.provider.authorizationUrl) return;
       this.diagnose('connection_open', error);
@@ -230,7 +231,10 @@ export class FastmailConnection {
     if (!this.enabled || this.client !== client) return;
     if (this.reconnecting) return this.reconnecting;
     const recovery = (async () => {
-      this.diagnose('connection_reset', error);
+      this.reportDiagnostic(`connection_reset ${failureCategory(error)} ${connectionFailureContext(error, {
+        openedAt: this.openedAt, sessionIdPresent: Boolean(this.transport?.sessionId),
+        protocolVersion: client.getNegotiatedProtocolVersion?.(),
+      })}`);
       const revision = this.revision + 1;
       await this.close();
       // A concurrent disconnect/disable must win over recovery.
@@ -242,7 +246,7 @@ export class FastmailConnection {
     finally { if (this.reconnecting === recovery) this.reconnecting = null; }
   }
   async close() {
-    const client = this.client; ++this.revision; this.client = null; this.transport = null;
+    const client = this.client; ++this.revision; this.client = null; this.transport = null; this.openedAt = null;
     this.catalog.clear(); this.names.clear(); this.identityLookup = null; this.changed();
     if (client) await client.close().catch(() => {});
   }
