@@ -7,7 +7,7 @@ import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButto
 import './connection-ui.css';
 import './app.css';
 
-type ConnectionStatus = { connected: boolean; pending: boolean; tools: number; defaultSendingAddress: string | null };
+type ConnectionStatus = { connected: boolean; pending: boolean; defaultSendingAddress: string | null };
 const GUIDE = 'https://github.com/mattwynne/pa-bb/blob/main/plugins/fastmail/docs/setup.md';
 
 function FastmailSettings() {
@@ -55,13 +55,13 @@ function FastmailSettings() {
     finally { setBusy(false); }
   }
 
-  return <section className="pa-fastmail" aria-label="Fastmail connections">
+  return <section className="pa-fastmail" aria-label="Fastmail connection">
     {error && <ConnectionAlert>{error}</ConnectionAlert>}
     {!status ? <ConnectionEmpty>
       <span>{error ? 'Connection status unavailable.' : 'Checking connection…'}</span>
       {error && <ConnectionButton tone="secondary" onClick={() => void reload()}>Try again</ConnectionButton>}
     </ConnectionEmpty> : status.connected ? <>
-      <ConnectionHeading title="Connected accounts" count={1} description={`${status.tools} tools ready for new agent sessions.`} />
+      <ConnectionHeading title="Connected account" />
       <ConnectionAccounts><ConnectionAccount initial={status.defaultSendingAddress?.[0]?.toUpperCase() ?? 'F'}
         label={status.defaultSendingAddress ?? 'Default sending address unavailable'} unavailable={!status.defaultSendingAddress}
         caption={status.defaultSendingAddress ? 'Default sending address · login may differ' : undefined} status="Connected"
@@ -76,7 +76,7 @@ function FastmailSettings() {
       </ConnectionSetup>
     </> : <>
       <ConnectionHeading title="Get started" action={<ConnectionButton tone="primary" disabled={busy} onClick={() => void start()}>Connect account</ConnectionButton>} />
-      <ConnectionSetup title="Connect your first account">
+      <ConnectionSetup title="Connect your account">
         <ol>
           <li>In BB, choose <strong>Connect account</strong> to open Fastmail.</li>
           <li>Choose the access you want in Fastmail, including write or send access if needed.</li>
