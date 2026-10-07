@@ -151,6 +151,51 @@ test('a protocol failure is not retried, including an uncertain mutation', async
   assert.equal(attempts, 1);
 });
 
+test('schema key ordering cannot change a selected tool ID across rotations', async () => {
+  const f = fixture(); let connections = 0; let calls = 0;
+  f.connection.makeConnection = () => {
+    const generation = ++connections;
+    const inputSchema = generation === 1
+      ? { type: 'object', properties: { calendar: { type: 'string', description: 'Calendar' }, range: { type: 'object', properties: { start: { type: 'string' }, end: { type: 'string' } } } }, required: ['calendar'] }
+      : { required: ['calendar'], properties: { range: { properties: { end: { type: 'string' }, start: { type: 'string' } }, type: 'object' }, calendar: { description: 'Calendar', type: 'string' } }, type: 'object' };
+    return { client: {
+      connect: async () => {}, close: async () => {},
+      request: async () => ({ tools: [{ name: 'search_events', inputSchema }] }),
+      callTool: async () => { calls++; return { content: [] }; },
+    }, transport: {} };
+  };
+  await f.connection.open();
+  const selectedId = f.connection.toolNames()[0];
+  f.connection.openedAt = Date.now() - 26 * 60_000;
+  await f.connection.call(selectedId, {});
+  assert.equal(connections, 2);
+  assert.equal(calls, 1, 'the previously selected tool remains callable after rotation');
+  assert.deepEqual(f.connection.toolNames(), [selectedId]);
+  assert.deepEqual(f.connection.list().map(tool => tool.id), [selectedId]);
+});
+
+test('a semantic schema change still revokes the old selected write tool', async () => {
+  const f = fixture(); let connections = 0; let calls = 0;
+  f.connection.makeConnection = () => {
+    const generation = ++connections;
+    return { client: {
+      connect: async () => {}, close: async () => {},
+      request: async () => ({ tools: [{ name: 'send_mail', inputSchema: {
+        type: 'object', properties: { recipient: { type: 'string' } },
+        required: generation === 1 ? ['recipient'] : ['recipient', 'approval'],
+      } }] }),
+      callTool: async () => { calls++; return { content: [] }; },
+    }, transport: {} };
+  };
+  await f.connection.open();
+  const selectedId = f.connection.toolNames()[0];
+  f.connection.openedAt = Date.now() - 26 * 60_000;
+  await assert.rejects(f.connection.call(selectedId, {}), /Fastmail tool unavailable/);
+  assert.equal(connections, 2);
+  assert.equal(calls, 0, 'old write schema is never forwarded');
+  assert.notEqual(f.connection.toolNames()[0], selectedId);
+});
+
 test('an aged connection rotates before sending a tool call, even for a mutation', async () => {
   const f = fixture(); let connections = 0; let calls = 0; let closes = 0;
   f.connection.makeConnection = () => {

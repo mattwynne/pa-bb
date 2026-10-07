@@ -58,7 +58,12 @@ export class FastmailProvider {
 }
 
 const safeName = name => `fastmail_${name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 8);
+// Fastmail sends equivalent schemas with object keys in varying order. A BB
+// tool ID must survive a new MCP session; arrays retain their semantic order.
+const canonical = value => Array.isArray(value) ? value.map(canonical)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]))
+  : value;
+const hash = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex').slice(0, 8);
 
 // An identity is a send-from address, not proof of the Fastmail login username.
 // Display only the one address the provider explicitly marks as default.
@@ -93,7 +98,7 @@ export class FastmailConnection {
           return response;
         },
       });
-      return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.4' }, { listChanged: { tools: { onChanged: () => {
+      return { transport, client: new Client({ name: 'bb-fastmail', version: '0.1.5' }, { listChanged: { tools: { onChanged: () => {
         void this.refresh().catch(() => { /* refresh logs and revokes the failing catalog */ });
       } } } }) };
     });
