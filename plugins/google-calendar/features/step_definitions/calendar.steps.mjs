@@ -13,6 +13,7 @@ Before(function () {
   this.discoverErrors = new Map();
   this.eventErrors = new Map();
   this.deny = false;
+  this.notifyAttendees = false;
   this.revocations = 0;
   this.oauth = {
     authorizeUrl: ({ clientId, redirectUri, state, challenge, scopes }) => {
@@ -46,7 +47,7 @@ Before(function () {
     deleteEvent: async (record, calendarId, eventId, sendUpdates) => { this.calls.push({ kind: 'delete', account: record.email, calendarId, eventId, sendUpdates }); },
   };
   this.service = createCalendarService({ store: this.store, oauth: this.oauth, calendar: this.google,
-    approve: async proposal => { this.calls.push({ kind: 'approval', proposal }); return !this.deny; }, clock: () => this.now });
+    approve: async proposal => { this.calls.push({ kind: 'approval', proposal }); return { approved: !this.deny, notifyAttendees: this.notifyAttendees }; }, clock: () => this.now });
 });
 
 Given('an empty single-user Calendar installation', function () {});
@@ -122,6 +123,7 @@ Given('the same occurrence {string} appears in each account\'s {string} calendar
 Given('Google has event {string} on {string} calendar {string}', function (id, email, cal) { this.eventPages.set(`${email}/${cal}`, [[{ id, start: { dateTime: '2026-01-02T10:00:00Z' } }]]); });
 Given('event listing fails for {string} calendar {string}', function (email, id) { this.eventErrors.set(`${email}/${id}`, new Error('private failure secret')); });
 Given('the owner denies the next Calendar change', function () { this.deny = true; });
+Given('the owner chooses to notify attendees', function () { this.notifyAttendees = true; });
 When('I call {string} with:', async function (name, docString) { try { this.result = await this.service.execute(name, JSON.parse(docString)); } catch (e) { this.failure = e; } });
 Then('calendar discovery includes {string} for {string}', async function (ids, email) { const result = await this.service.execute('gcal_list_calendars'); assert.deepEqual(result.accounts.find(x => x.account === email).calendars.map(x => x.id), split(ids)); });
 Then('the result includes calendars {string} for {string}', function (ids, email) { assert.deepEqual(this.result.accounts.find(x => x.account === email).calendars.map(x => x.id), split(ids)); });
@@ -129,6 +131,7 @@ Then('the result reports {string} for {string}', function (code, email) { const 
 Then('the call fails with {string}', function (message) { assert.ok(this.failure?.message.includes(message), `expected ${message}; got ${this.failure?.message}`); });
 Then('Google received no Calendar requests', function () { assert.equal(this.calls.filter(c => c.kind !== 'approval').length, 0); });
 Then('Google received no Calendar writes', function () { assert.equal(this.calls.filter(c => ['insert','patch','move','delete'].includes(c.kind)).length, 0); });
+Then('all Calendar writes used sendUpdates {string}', function (mode) { const writes = this.calls.filter(c => ['insert','patch','move','delete'].includes(c.kind)); assert.ok(writes.length); assert.ok(writes.every(c => c.sendUpdates === mode)); });
 Then('the result has events {string}', function (ids) { assert.deepEqual(this.result.events.map(e => e.id), split(ids)); });
 Then('Google received singleEvents true and orderBy {string}', function (orderBy) { assert.ok(this.calls.filter(c => c.kind === 'listEvents').every(c => c.opts.singleEvents === true && c.opts.orderBy === orderBy)); });
 Then('Google searched calendar IDs {string}', function (ids) { assert.deepEqual(this.calls.filter(c => c.kind === 'listEvents').map(c => c.calendarId), split(ids)); });

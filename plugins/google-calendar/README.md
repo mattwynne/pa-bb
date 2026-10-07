@@ -57,7 +57,9 @@ Each Google account's calendar list supplies its primary, selected, shared, and 
 | `gcal_free_busy` | Query busy blocks for explicit calendar IDs |
 | `gcal_create_event`, `gcal_update_event`, `gcal_delete_event` | Change an explicit account/calendar after BB owner approval |
 
-Tool results contain structured JSON text. Search deduplicates recurring event copies, preserves source calendars, and limits concurrent calendar queries. Reads never pick a default account for a single-target operation. Writes present a BB approval form with the **full proposed arguments**, default attendee notifications to `none`, and never retry an uncertain failed write. If the approval UI is unavailable, the write fails closed.
+Tool results contain structured JSON text. Search deduplicates recurring event copies, preserves source calendars, and limits concurrent calendar queries. Reads never pick a default account for a single-target operation.
+
+Writes need BB owner approval. **Notify attendees** starts unchecked: off sends `sendUpdates: none`; on sends `all`. The checkbox overrides the tool's requested notification mode, and the result reports the mode used. Technical details show the effective proposal. Older approval submissions without a checkbox also default to off. Writes never retry automatically; if the approval UI is unavailable, they fail closed.
 
 ## Development and limitations
 

@@ -11,7 +11,7 @@ for (const operation of ['create', 'update', 'delete']) for (const failure of [f
     let approved = false;
     globalThis.fetch = async (url, options) => {
       const path = new URL(url).pathname, method = options?.method || 'GET';
-      requests.push({ path, method, body: options?.body });
+      requests.push({ path, method, sendUpdates: new URL(url).searchParams.get('sendUpdates'), body: options?.body });
       if (method !== 'GET') {
         assert.equal(approved, true, 'No provider mutation before explicit consent');
         if (method === 'DELETE') return new Response(null, { status: 204 });
@@ -40,12 +40,14 @@ for (const operation of ['create', 'update', 'delete']) for (const failure of [f
       if (!failure && operation === 'update') assert.deepEqual(form.payload.context.currentEvent.attendees, [{ email: 'old@example.test', displayName: 'Old guest' }]);
       assert.ok(requests.every(r => r.method === 'GET'));
       if (outcome === 'cancelled') harness.behavior.cancelInteraction(form.id);
-      else { approved = outcome === 'approved'; harness.behavior.submitInteraction(form.id, { approved }); }
+      else { approved = outcome === 'approved'; harness.behavior.submitInteraction(form.id, { approved, ...(!approved ? { notifyAttendees: true } : {}) }); }
       const result = await pending;
       const writes = requests.filter(r => r.method !== 'GET');
       if (approved) {
         assert.equal(result.isError, undefined);
         assert.equal(writes.length, 1);
+        assert.equal(writes[0].sendUpdates, 'none', 'Older submissions without the checkbox must default to off');
+        assert.equal(JSON.parse(result.content[0].text).sendUpdates, 'none');
         assert.equal(writes[0].method, { create: 'POST', update: 'PATCH', delete: 'DELETE' }[operation]);
         if (operation === 'create') assert.equal(JSON.parse(writes[0].body).end.date, form.payload.proposed.end);
         if (operation === 'update') assert.deepEqual(JSON.parse(writes[0].body).attendees, [{ email: 'new@example.test' }]);

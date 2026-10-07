@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deletionScope, attendeeChanges, allDayRange } from '../approval-model.mjs';
+import { deletionScope, attendeeChanges, allDayRange, approvalChoice } from '../approval-model.mjs';
+
+test('notifications require an explicit checked boolean and an explicit approval', () => {
+  assert.deepEqual(approvalChoice({ approved: true, notifyAttendees: true }), { approved: true, notifyAttendees: true });
+  for (const notifyAttendees of [undefined, false, 'true', 1, null, [], {}]) {
+    assert.deepEqual(approvalChoice({ approved: true, notifyAttendees }), { approved: true, notifyAttendees: false });
+  }
+  for (const value of [null, [], true, { approved: false, notifyAttendees: true }, { approved: 'true', notifyAttendees: true }]) {
+    assert.deepEqual(approvalChoice(value), { approved: false, notifyAttendees: false });
+  }
+});
 
 test('deletion scope uses verified provider metadata, never an event ID pattern', () => {
   assert.equal(deletionScope({ id: 'event', recurringEventId: 'series' }), 'occurrence');

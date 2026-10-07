@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { approvalChoice } from '../approval-model.mjs';
 
 export const SCOPES = Object.freeze([
   'openid', 'email',
@@ -34,7 +35,7 @@ const nextDate = (date) => {
 
 // Ports: store (accounts/pending grants), oauth (Web authorization), calendar (provider calls),
 // approve (a real BB user interaction), and clock. No BB or Google SDK types enter this core.
-export function createCalendarService({ store, oauth, calendar, approve = async (_proposal) => false, diagnose = /** @type {(stage: string, error: unknown) => void} */ (() => {}), clock = () => Date.now() }) {
+export function createCalendarService({ store, oauth, calendar, approve = async (_proposal) => /** @type {boolean | { approved: boolean, notifyAttendees: boolean }} */ (false), diagnose = /** @type {(stage: string, error: unknown) => void} */ (() => {}), clock = () => Date.now() }) {
   async function account(email) {
     const record = await store.byEmail(required(email, 'account'));
     if (!record) throw new Error(`Unknown Google account: ${email}`);
@@ -245,7 +246,9 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
       if (args.moveToCalendarId) context.destinationCalendarName = name(args.moveToCalendarId);
     } catch (error) { diagnose('approval_calendar_read', error); }
     const allowed = await approve({ operation, account: record.email, calendarId: args.calendarId, details: args, context });
-    if (allowed !== true) throw new Error('Calendar change was not approved');
+    const choice = approvalChoice(allowed === true ? { approved: true } : allowed);
+    if (!choice.approved) throw new Error('Calendar change was not approved');
+    return choice.notifyAttendees ? 'all' : 'none';
   }
   async function createEvent(args) {
     const record = await account(args.account);
@@ -258,8 +261,8 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
       end: args.allDay ? { date: args.end || nextDate(start) } : { dateTime: args.end, ...(args.timeZone ? { timeZone: args.timeZone } : {}) },
       ...(args.attendees ? { attendees: args.attendees.map(email => ({ email })) } : {}) };
     // Review the effective dates, including the exact all-day default that will be sent.
-    await approval('create', { ...args, end: args.allDay ? event.end.date : args.end }, record);
-    return { account: record.email, calendarId, event: await calendar.insertEvent(record, calendarId, event, args.sendUpdates || 'none') };
+    const sendUpdates = await approval('create', { ...args, end: args.allDay ? event.end.date : args.end }, record);
+    return { account: record.email, calendarId, sendUpdates, event: await calendar.insertEvent(record, calendarId, event, sendUpdates) };
   }
   async function updateEvent(args) {
     const record = await account(args.account);
@@ -276,8 +279,7 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
       patch.end = allDay ? { date: args.end } : { dateTime: args.end, ...(args.timeZone ? { timeZone: args.timeZone } : {}) };
     }
     if (!Object.keys(patch).length && !args.moveToCalendarId) throw new Error('No event changes requested');
-    await approval('update', args, record);
-    const notify = args.sendUpdates || 'none';
+    const notify = await approval('update', args, record);
     let destination = calendarId;
     let event;
     if (args.moveToCalendarId) {
@@ -286,15 +288,15 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
       eventId = event.id || eventId;
     }
     if (Object.keys(patch).length) event = await calendar.patchEvent(record, destination, eventId, patch, notify);
-    return { account: record.email, calendarId: destination, event };
+    return { account: record.email, calendarId: destination, sendUpdates: notify, event };
   }
   async function deleteEvent(args) {
     const record = await account(args.account);
     const calendarId = required(args.calendarId, 'calendarId');
     const eventId = required(args.eventId, 'eventId');
-    await approval('delete', args, record);
-    await calendar.deleteEvent(record, calendarId, eventId, args.sendUpdates || 'none');
-    return { account: record.email, calendarId, eventId, deleted: true };
+    const sendUpdates = await approval('delete', args, record);
+    await calendar.deleteEvent(record, calendarId, eventId, sendUpdates);
+    return { account: record.email, calendarId, eventId, sendUpdates, deleted: true };
   }
   const tools = { gcal_auth_status: authStatus, gcal_list_calendars: listCalendars, gcal_list_events: listEvents,
     gcal_search_events: searchEvents, gcal_get_event: getEvent, gcal_create_event: createEvent,

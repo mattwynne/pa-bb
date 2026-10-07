@@ -64,3 +64,11 @@ export function allDayRange(start, end) {
   if (first === null || exclusive === null || exclusive <= first) return null;
   return { start: /** @type {string} */ (start), last: new Date(exclusive - 86_400_000).toISOString().slice(0, 10), days: (exclusive - first) / 86_400_000 };
 }
+
+/** Explicit consent only. Older submissions have no checkbox and default off.
+ * @param {unknown} value */
+export function approvalChoice(value) {
+  const data = object(value);
+  const approved = data.approved === true;
+  return { approved, notifyAttendees: approved && data.notifyAttendees === true };
+}

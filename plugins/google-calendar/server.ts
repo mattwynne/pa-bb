@@ -5,11 +5,12 @@ import { createBbStore } from './adapters/bb-store.mjs';
 import { createGoogleAdapter } from './adapters/google.mjs';
 import { createCalendarService, SCOPES } from './core/service.mjs';
 import { failureCategory } from './diagnostic.mjs';
+import { approvalChoice } from './approval-model.mjs';
 
 const text = z.string().min(1);
 const account = text.describe('Connected Google account email (choose explicitly).');
 const target = z.object({ account, calendarId: text });
-const sendUpdates = z.enum(['none', 'all', 'externalOnly']).optional();
+const sendUpdates = z.enum(['none', 'all', 'externalOnly']).optional().describe('Requested notification mode. The owner checkbox starts off and overrides this request: unchecked sends none, checked notifies all attendees.');
 const forCalendar = { account, calendarId: text };
 const eventId = { ...forCalendar, eventId: text };
 const schemas = {
@@ -84,7 +85,7 @@ export default async function plugin(bb: BbPluginApi) {
     return new URL(`/api/v1/plugins/${bb.pluginId}/http/callback`, origin).toString();
   };
   const diagnose = (stage: string, error: unknown) => bb.log.warn(`Google Calendar ${stage} ${failureCategory(error)}`);
-  const service = (approve?: (proposal: ApprovalProposal) => Promise<boolean>) =>
+  const service = (approve?: (proposal: ApprovalProposal) => Promise<ReturnType<typeof approvalChoice>>) =>
     createCalendarService({ store, oauth: adapter.oauth, calendar: adapter.calendar, diagnose, ...(approve ? { approve } : {}) });
 
   bb.rpc.register(rpcContract, {
@@ -156,9 +157,12 @@ export default async function plugin(bb: BbPluginApi) {
               proposed: JSON.parse(JSON.stringify(proposal.details)),
               context: proposal.context ? JSON.parse(JSON.stringify(proposal.context)) : null,
               details: JSON.stringify(proposal.details) },
-            describeSubmission: value => ({ title: (value && typeof value === 'object' && 'approved' in value && value.approved === true) ? 'Calendar change approved' : 'Calendar change declined' }),
+            describeSubmission: value => {
+              const choice = approvalChoice(value);
+              return { title: !choice.approved ? 'Calendar change declined' : choice.notifyAttendees ? 'Calendar change approved · notify attendees' : 'Calendar change approved · notifications off' };
+            },
           }, { signal: ctx.signal });
-          return response.outcome === 'submitted' && response.value !== null && typeof response.value === 'object' && !Array.isArray(response.value) && response.value.approved === true;
+          return approvalChoice(response.outcome === 'submitted' ? response.value : null);
         };
         try {
           const result = await service(approve).execute(name, args as Record<string, unknown>);

@@ -12,7 +12,7 @@ const connection = resolve('test/approval-connection.ui-test.generated.mjs');
 const compile = source => ts.transpileModule(source, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext } }).outputText;
 await writeFile(connection, compile(await readFile(resolve('connection-ui.tsx'), 'utf8')));
 await writeFile(temporary, compile((await readFile(resolve('approval.tsx'), 'utf8')).replace('./connection-ui.js', './approval-connection.ui-test.generated.mjs').replace('./approval-model.mjs', '../approval-model.mjs')));
-const { Approval, notificationConsequence, formatEventTime } = await import(`file://${temporary}`);
+const { Approval, formatEventTime } = await import(`file://${temporary}`);
 test.after(async () => { await unlink(temporary); await unlink(connection); });
 const proposed = { account: 'person@example.test', calendarId: 'opaque-calendar', eventId: 'opaque-event', start: '2026-10-07T08:00:00-07:00', end: '2026-10-07T08:30:00-07:00', timeZone: 'America/Vancouver', sendUpdates: 'all' };
 const payload = { operation: 'update', account: proposed.account, calendarId: proposed.calendarId, eventId: proposed.eventId, proposed, details: JSON.stringify(proposed), context: { calendarName: 'Team', currentEvent: { summary: 'Weekly catch-up', start: { dateTime: '2026-10-07T07:30:00-07:00', timeZone: 'America/Vancouver' }, end: { dateTime: '2026-10-07T08:00:00-07:00', timeZone: 'America/Vancouver' } } } };
@@ -28,14 +28,14 @@ test('leads with verified title and current/proposed time; IDs and JSON are coll
   assert.match(visible, /8:30/);
   assert.match(visible, /America\/Vancouver/);
   assert.match(visible, /Team/);
-  assert.match(visible, /All attendees will be notified/);
+  assert.match(visible, /Notify attendees/);
   assert.doesNotMatch(visible, /opaque-calendar|opaque-event|CONFIRM CALENDAR|Update event\?/);
   assert.match(html, /<summary>Technical details<\/summary>/);
   assert.doesNotMatch(html, /<details[^>]*\sopen/);
   assert.match(html, /opaque-calendar/);
   assert.match(html, /Decline change/);
   assert.doesNotMatch(html, />Cancel</);
-  assert.match(html, /Declining leaves the event unchanged/);
+  assert.doesNotMatch(html, /Declining leaves the event unchanged|Event details were read/);
 });
 
 test('missing or failed reads show the proposal without fabricated identity or before values', () => {
@@ -154,16 +154,24 @@ test('new all-day event shows inclusive days rather than the provider exclusive 
   assert.doesNotMatch(visible, /Oct 8|2026-10-08|exclusive|Not available/);
   assert.match(html, /2026-10-08/);
   assert.match(html, />Create event<\/button>/);
-  assert.match(html, /Declining creates nothing/);
+  assert.doesNotMatch(html, /Declining creates nothing/);
   const multi = render({ operation: 'create', proposed: { ...proposal, start: '2026-12-31', end: '2027-01-03' } });
   assert.match(multi.split('<details')[0], /Dec 31, 2026[\s\S]*Jan 2, 2027/);
 });
 
-test('notification text uses Google Calendar semantics, not company boundaries or false guarantees', () => {
-  assert.match(notificationConsequence('externalOnly'), /do not use Google Calendar/);
-  assert.match(notificationConsequence('none'), /Google may still send some emails/);
-  assert.match(notificationConsequence(undefined), /not requested/);
-  assert.match(notificationConsequence('unexpected'), /unknown/);
+test('notification checkbox starts off for every operation, regardless of requested notification mode', () => {
+  for (const operation of ['create', 'update', 'delete']) for (const sendUpdates of [undefined, 'none', 'all', 'externalOnly']) {
+    const html = render({ ...payload, operation, proposed: { ...proposed, sendUpdates } });
+    const checkbox = html.match(/<input[^>]*type="checkbox"[^>]*>/)?.[0];
+    assert.ok(checkbox, 'A notification checkbox is required');
+    assert.doesNotMatch(checkbox, /\schecked(?:=|\s|>)/);
+    const id = checkbox.match(/id="([^"]+)"/)[1];
+    assert.ok(html.includes(`for="${id}"`));
+    assert.match(html, /Notify attendees/);
+    assert.doesNotMatch(html, /Attendee notifications are not requested|Google may still send|Declining |Event details were read/);
+    assert.doesNotMatch(html.split('<details')[0], /All attendees will be notified|Only attendees who/);
+    assert.match(html, /&quot;sendUpdates&quot;: &quot;none&quot;/);
+  }
 });
 
 test('time formatting preserves offsets without zones and does not silently use browser timezone', () => {

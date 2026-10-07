@@ -1,19 +1,10 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ConnectionAlert, ConnectionButton, ConnectionDisclosure } from './connection-ui.js';
-import { allDayRange, attendeeChanges, deletionScope } from './approval-model.mjs';
+import { allDayRange, approvalChoice, attendeeChanges, deletionScope } from './approval-model.mjs';
 
 type Data = Record<string, unknown>;
 const object = (value: unknown): Data => value && typeof value === 'object' && !Array.isArray(value) ? value as Data : {};
 const text = (value: unknown) => typeof value === 'string' ? value : '';
-
-export function notificationConsequence(value: unknown) {
-  switch (value ?? 'none') {
-    case 'all': return 'All attendees will be notified.';
-    case 'externalOnly': return 'Only attendees who do not use Google Calendar will be notified.';
-    case 'none': return 'Attendee notifications are not requested. Google may still send some emails; changes may not sync to external calendars.';
-    default: return 'Notification setting is unknown. Check Technical details before approving.';
-  }
-}
 
 // Never format in the reviewer's browser timezone. Without a verified IANA
 // zone, keep the supplied datetime and UTC offset intact.
@@ -74,12 +65,19 @@ function AttendeeRow({ guest, change }: { guest: Guest; change: 'add' | 'remove'
   </li>;
 }
 
-export function Approval({ interaction, submit }: {
-  interaction: { payload: unknown };
-  submit(value: { approved: boolean }): Promise<void>;
-}) {
+type ApprovalProps = {
+  interaction: { id?: string; payload: unknown };
+  submit(value: ReturnType<typeof approvalChoice>): Promise<void>;
+};
+export function Approval(props: ApprovalProps) {
+  // Each new interaction starts unchecked, even when BB reuses the renderer.
+  return <ApprovalForm key={props.interaction.id} {...props} />;
+}
+function ApprovalForm({ interaction, submit }: ApprovalProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notifyAttendees, setNotifyAttendees] = useState(false);
+  const notificationId = useId();
   const p = object(interaction.payload);
   let proposed = object(p.proposed);
   // Pending interactions persisted before this renderer update only have JSON.
@@ -109,7 +107,7 @@ export function Approval({ interaction, submit }: {
 
   async function decide(approved: boolean) {
     setBusy(true); setError('');
-    try { await submit({ approved }); }
+    try { await submit(approvalChoice({ approved, notifyAttendees })); }
     catch { setError('Could not submit your choice. Please try again.'); }
     finally { setBusy(false); }
   }
@@ -154,23 +152,22 @@ export function Approval({ interaction, submit }: {
       <div><dt>Calendar</dt><dd>{text(context.calendarName) || 'Name unavailable — see Calendar ID in Technical details'}</dd></div>
       {creating && <div><dt>Attendees</dt><dd>{Array.isArray(proposed.attendees) ? proposed.attendees.filter(a => typeof a === 'string').join(', ') || 'None' : 'None'}</dd></div>}
     </dl>
-    <p className="pa-calendar__notifications">{creating && (!Array.isArray(proposed.attendees) || !proposed.attendees.length) && (proposed.sendUpdates ?? p.sendUpdates ?? 'none') === 'none' ? 'No attendee notifications are requested.' : notificationConsequence(proposed.sendUpdates ?? p.sendUpdates)}</p>
+    <label className="pa-calendar__notifications" htmlFor={notificationId}>
+      <input id={notificationId} type="checkbox" checked={notifyAttendees} disabled={busy} onChange={event => setNotifyAttendees(event.target.checked)} />
+      <span>Notify attendees</span>
+    </label>
     <ConnectionDisclosure summary="Technical details">
       <dl className="pa-calendar__approval-summary">
         <div><dt>Calendar ID</dt><dd>{text(p.calendarId) || text(proposed.calendarId) || 'Unavailable'}</dd></div>
         {text(p.eventId || proposed.eventId) && <div><dt>Event ID</dt><dd>{text(p.eventId || proposed.eventId)}</dd></div>}
         {text(proposed.moveToCalendarId) && <div><dt>Destination calendar ID</dt><dd>{text(proposed.moveToCalendarId)}</dd></div>}
       </dl>
-      <pre className="pa-calendar__proposal">{typeof p.details === 'string' ? p.details : JSON.stringify(proposed, null, 2)}</pre>
+      <pre className="pa-calendar__proposal">{Object.keys(proposed).length ? JSON.stringify({ ...proposed, sendUpdates: notifyAttendees ? 'all' : 'none' }, null, 2) : text(p.details)}</pre>
     </ConnectionDisclosure>
     {error && <ConnectionAlert>{error}</ConnectionAlert>}
     <div className="pa-calendar__approval-actions">
       <ConnectionButton tone="primary" className={deleting ? 'pa-calendar__delete-button' : ''} disabled={busy} onClick={() => void decide(true)}>{primaryLabel}</ConnectionButton>
       <ConnectionButton tone="secondary" disabled={busy} onClick={() => void decide(false)}>Decline change</ConnectionButton>
     </div>
-    {/* Host cancellation and a submitted refusal both resume this plugin's tool
-        without approval. One explicit refusal avoids two redundant choices. */}
-    <p className="pa-calendar__context-note">{creating ? 'Declining creates nothing.' : 'Declining leaves the event unchanged.'}</p>
-    {!creating && Object.keys(current).length > 0 && <p className="pa-calendar__context-note">Event details were read from Google Calendar for this review; they may change before approval.</p>}
   </div>;
 }
