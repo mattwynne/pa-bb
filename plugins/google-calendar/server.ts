@@ -49,6 +49,7 @@ const safeError = (error: unknown, write = false) => {
   return write ? 'Google Calendar change could not be confirmed. It may have completed; check the calendar before retrying.'
     : 'Google Calendar operation failed. Check the connected account and try again.';
 };
+type ApprovalProposal = { operation: string; account: string; calendarId: string; details: Record<string, unknown>; context?: { currentEvent: Record<string, unknown> | null; calendarName: string | null; destinationCalendarName: string | null } };
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 // OAuth responses can contain codes, tokens, and provider diagnostics. Only log
 // a fixed failure category; never log the exception or its raw message.
@@ -83,7 +84,7 @@ export default async function plugin(bb: BbPluginApi) {
     return new URL(`/api/v1/plugins/${bb.pluginId}/http/callback`, origin).toString();
   };
   const diagnose = (stage: string, error: unknown) => bb.log.warn(`Google Calendar ${stage} ${failureCategory(error)}`);
-  const service = (approve?: (proposal: { operation: string; account: string; calendarId: string; details: Record<string, unknown> }) => Promise<boolean>) =>
+  const service = (approve?: (proposal: ApprovalProposal) => Promise<boolean>) =>
     createCalendarService({ store, oauth: adapter.oauth, calendar: adapter.calendar, diagnose, ...(approve ? { approve } : {}) });
 
   bb.rpc.register(rpcContract, {
@@ -145,13 +146,15 @@ export default async function plugin(bb: BbPluginApi) {
       name, description: descriptions[name as keyof typeof descriptions], parameters,
       instructions: WRITE_NAMES.has(name) ? 'This tool pauses for the BB owner to approve the exact change. Never interpret an unapproved change as completed.' : undefined,
       async execute(args, ctx) {
-        const approve = async (proposal: { operation: string; account: string; calendarId: string; details: Record<string, unknown> }) => {
+        const approve = async (proposal: ApprovalProposal) => {
           const response = await bb.ui.requestInput({
             threadId: ctx.threadId, rendererId: 'calendar-approval', title: `Approve Calendar ${proposal.operation}`,
             payload: { operation: proposal.operation, account: proposal.account, calendarId: proposal.calendarId,
               summary: typeof proposal.details.summary === 'string' ? proposal.details.summary : null,
               eventId: typeof proposal.details.eventId === 'string' ? proposal.details.eventId : null,
               sendUpdates: typeof proposal.details.sendUpdates === 'string' ? proposal.details.sendUpdates : 'none',
+              proposed: JSON.parse(JSON.stringify(proposal.details)),
+              context: proposal.context ? JSON.parse(JSON.stringify(proposal.context)) : null,
               details: JSON.stringify(proposal.details) },
             describeSubmission: value => ({ title: (value && typeof value === 'object' && 'approved' in value && value.approved === true) ? 'Calendar change approved' : 'Calendar change declined' }),
           }, { signal: ctx.signal });

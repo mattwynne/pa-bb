@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { definePluginApp, useRpc } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './contract.js';
-import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButton, ConnectionDisclosure, ConnectionEmpty, ConnectionFooter, ConnectionGuide, ConnectionHeading, ConnectionSetup } from './connection-ui.js';
+import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButton, ConnectionEmpty, ConnectionFooter, ConnectionGuide, ConnectionHeading, ConnectionSetup } from './connection-ui.js';
+import { Approval } from './approval.js';
 import './connection-ui.css';
 import './app.css';
 
@@ -91,40 +92,6 @@ function CalendarSettings() {
       {Boolean(state?.accounts.length) && <ConnectionGuide href={SETUP_GUIDE} />}
     </ConnectionFooter>
   </section>;
-}
-
-function Approval({ interaction, submit, cancel }: {
-  interaction: { payload: unknown };
-  submit(value: { approved: boolean }): Promise<void>;
-  cancel(): Promise<void>;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const p = interaction.payload && typeof interaction.payload === 'object' && !Array.isArray(interaction.payload) ? interaction.payload as Record<string, unknown> : {};
-  async function decide(approved: boolean) {
-    setBusy(true); setError('');
-    try { await submit({ approved }); }
-    catch { setError('Could not submit your choice. Please try again.'); }
-    finally { setBusy(false); }
-  }
-  return <div className="pa-calendar pa-calendar__approval" role="group" aria-label="Approve Google Calendar change">
-    <p className="pa-calendar__eyebrow">CONFIRM CALENDAR CHANGE</p>
-    <h3 className="pa-calendar__title">{String(p.operation || 'Change')} event?</h3>
-    <div className="pa-calendar__approval-summary">
-      <div><span>Account</span><strong>{String(p.account || '')}</strong></div>
-      <div><span>Calendar</span><strong>{String(p.calendarId || '')}</strong></div>
-      {typeof p.summary === 'string' && <div><span>Title</span><strong>{p.summary}</strong></div>}
-      {typeof p.eventId === 'string' && <div><span>Event ID</span><strong>{p.eventId}</strong></div>}
-      <div><span>Notify attendees</span><strong>{String(p.sendUpdates || 'none')}</strong></div>
-    </div>
-    <ConnectionDisclosure summary="Full proposed change" open><pre className="pa-calendar__proposal">{String(p.details || '')}</pre></ConnectionDisclosure>
-    {error && <ConnectionAlert>{error}</ConnectionAlert>}
-    <div className="pa-calendar__approval-actions">
-      <ConnectionButton tone="primary" disabled={busy} onClick={() => void decide(true)}>Approve change</ConnectionButton>
-      <ConnectionButton tone="secondary" disabled={busy} onClick={() => void decide(false)}>Decline</ConnectionButton>
-      <ConnectionButton disabled={busy} onClick={() => void cancel()}>Cancel</ConnectionButton>
-    </div>
-  </div>;
 }
 
 export default definePluginApp(app => {

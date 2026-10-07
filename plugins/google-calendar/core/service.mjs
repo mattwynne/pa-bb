@@ -206,8 +206,33 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
     const max = limit(args.maxResults);
     return { events: sorted.slice(0, max), count: Math.min(sorted.length, max), truncated: sorted.length > max, failures };
   }
-  async function approval(operation, args) {
-    const allowed = await approve({ operation, account: args.account, calendarId: args.calendarId, details: args });
+  async function approval(operation, args, record) {
+    // Context is a read-only snapshot, not a precondition or a second consent gate.
+    // Missing context must never suppress the proposal or imply an old value.
+    let context;
+    if (operation === 'update') {
+      context = { currentEvent: null, calendarName: null, destinationCalendarName: null };
+      try {
+        const event = await calendar.getEvent(record, args.calendarId, args.eventId);
+        if (event && typeof event === 'object') {
+          context.currentEvent = {};
+          for (const field of ['summary', 'start', 'end', 'location', 'description']) {
+            if (event[field] !== undefined) context.currentEvent[field] = event[field];
+          }
+        }
+      } catch (error) { diagnose('approval_event_read', error); }
+      try {
+        const calendars = await discover(record);
+        const name = id => {
+          const entry = calendars.find(c => c.id === id || (id === 'primary' && c.primary));
+          return typeof entry?.summaryOverride === 'string' && entry.summaryOverride.trim() ? entry.summaryOverride
+            : typeof entry?.summary === 'string' && entry.summary.trim() ? entry.summary : null;
+        };
+        context.calendarName = name(args.calendarId);
+        if (args.moveToCalendarId) context.destinationCalendarName = name(args.moveToCalendarId);
+      } catch (error) { diagnose('approval_calendar_read', error); }
+    }
+    const allowed = await approve({ operation, account: record?.email || args.account, calendarId: args.calendarId, details: args, ...(context ? { context } : {}) });
     if (allowed !== true) throw new Error('Calendar change was not approved');
   }
   async function createEvent(args) {
@@ -238,7 +263,7 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
       patch.end = allDay ? { date: args.end } : { dateTime: args.end, ...(args.timeZone ? { timeZone: args.timeZone } : {}) };
     }
     if (!Object.keys(patch).length && !args.moveToCalendarId) throw new Error('No event changes requested');
-    await approval('update', args);
+    await approval('update', args, record);
     const notify = args.sendUpdates || 'none';
     let destination = calendarId;
     let event;
