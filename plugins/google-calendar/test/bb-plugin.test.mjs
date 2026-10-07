@@ -88,11 +88,19 @@ test('Calendar import refuses to replace a client with connected accounts', asyn
   } finally { await host.harness.lifecycle.dispose(); }
 });
 
-test('a native write blocks on the owner form and a decline makes no Google request', async () => {
+test('a native write blocks on the owner form and a decline makes no Google mutation', async () => {
+  const originalFetch = globalThis.fetch;
+  let writes = 0;
+  globalThis.fetch = async (url, options) => {
+    if ((options?.method || 'GET') !== 'GET') { writes++; assert.fail('No mutation without approval'); }
+    if (String(url).includes('/userinfo')) return Response.json({ sub: 'a', email: 'alice@example.com', email_verified: true });
+    if (String(url).includes('/calendarList')) return Response.json({ items: [{ id: 'team', summary: 'Team' }] });
+    return Response.json({ id: 'e1', summary: 'Meeting' });
+  };
   const { bb, harness } = await setup();
   try {
     const store = createBbStore(bb.storage.database(), () => {});
-    await store.addAccount({ subject: 'a', email: 'alice@example.com', refreshToken: 'private', accessToken: 'access', expiresAt: Date.now() + 60_000 });
+    await store.addAccount({ subject: 'a', email: 'alice@example.com', refreshToken: 'private', accessToken: 'access', expiresAt: Date.now() + 600_000 });
     const pending = harness.behavior.callAgentTool('gcal_delete_event', { account: 'alice@example.com', calendarId: 'team', eventId: 'e1' });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(harness.inspection.pendingInteractions.length, 1);
@@ -103,7 +111,8 @@ test('a native write blocks on the owner form and a decline makes no Google requ
     const result = await pending;
     assert.equal(result.isError, true);
     assert.match(result.content[0].text, /not approved/);
-  } finally { await harness.lifecycle.dispose(); }
+    assert.equal(writes, 0);
+  } finally { globalThis.fetch = originalFetch; await harness.lifecycle.dispose(); }
 });
 
 test('an approved native Calendar write reaches Google exactly once with no invitations by default', async () => {
@@ -111,6 +120,7 @@ test('an approved native Calendar write reaches Google exactly once with no invi
   const requests = [];
   globalThis.fetch = async (url, options) => {
     if (String(url).includes('/userinfo')) return new Response(JSON.stringify({ sub: 'a', email: 'alice@example.com', email_verified: true }), { status: 200 });
+    if (String(url).includes('/calendarList')) return Response.json({ items: [{ id: 'team', summary: 'Team' }] });
     requests.push({ url: String(url), options });
     return new Response(JSON.stringify({ id: 'created', summary: 'Away' }), { status: 200 });
   };
@@ -140,8 +150,9 @@ test('an approved native Calendar write reaches Google exactly once with no invi
 test('an uncertain Calendar write logs safely and tells the agent to inspect before retrying', async () => {
   const originalFetch = globalThis.fetch;
   let writes = 0;
-  globalThis.fetch = async url => {
+  globalThis.fetch = async (url, options) => {
     if (String(url).includes('/userinfo')) return Response.json({ sub: 'a', email: 'alice@example.com', email_verified: true });
+    if ((options?.method || 'GET') === 'GET') return String(url).includes('/calendarList') ? Response.json({ items: [{ id: 'team', summary: 'Team' }] }) : Response.json({ id: 'event', summary: 'Meeting' });
     writes++;
     return Response.json({ detail: 'private-event-body' }, { status: 503 });
   };

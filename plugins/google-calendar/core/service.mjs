@@ -209,30 +209,42 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
   async function approval(operation, args, record) {
     // Context is a read-only snapshot, not a precondition or a second consent gate.
     // Missing context must never suppress the proposal or imply an old value.
-    let context;
-    if (operation === 'update') {
-      context = { currentEvent: null, calendarName: null, destinationCalendarName: null };
+    const context = { currentEvent: null, calendarName: null, destinationCalendarName: null };
+    if (operation !== 'create') {
       try {
         const event = await calendar.getEvent(record, args.calendarId, args.eventId);
-        if (event && typeof event === 'object') {
+        if (event && typeof event === 'object' && !Array.isArray(event)) {
+          if (typeof event.id === 'string' && event.id !== args.eventId) throw new Error('Unexpected event identity');
           context.currentEvent = {};
-          for (const field of ['summary', 'start', 'end', 'location', 'description']) {
+          const fields = ['id', 'summary', 'start', 'end', 'location', 'description'];
+          if (operation === 'delete') fields.push('recurrence', 'recurringEventId', 'originalStartTime');
+          for (const field of fields) {
             if (event[field] !== undefined) context.currentEvent[field] = event[field];
+          }
+          // Guest identity is needed only when reviewing a replacement guest list.
+          // Do not copy response statuses, comments or other provider fields.
+          if (operation === 'update' && Array.isArray(args.attendees)) {
+            if (Array.isArray(event.attendees)) context.currentEvent.attendees = event.attendees.map(value => {
+              const guest = {};
+              for (const field of ['email', 'displayName']) if (typeof value?.[field] === 'string') guest[field] = value[field];
+              return guest;
+            });
+            if (typeof event.attendeesOmitted === 'boolean') context.currentEvent.attendeesOmitted = event.attendeesOmitted;
           }
         }
       } catch (error) { diagnose('approval_event_read', error); }
-      try {
-        const calendars = await discover(record);
-        const name = id => {
-          const entry = calendars.find(c => c.id === id || (id === 'primary' && c.primary));
-          return typeof entry?.summaryOverride === 'string' && entry.summaryOverride.trim() ? entry.summaryOverride
-            : typeof entry?.summary === 'string' && entry.summary.trim() ? entry.summary : null;
-        };
-        context.calendarName = name(args.calendarId);
-        if (args.moveToCalendarId) context.destinationCalendarName = name(args.moveToCalendarId);
-      } catch (error) { diagnose('approval_calendar_read', error); }
     }
-    const allowed = await approve({ operation, account: record?.email || args.account, calendarId: args.calendarId, details: args, ...(context ? { context } : {}) });
+    try {
+      const calendars = await discover(record);
+      const name = id => {
+        const entry = calendars.find(c => c.id === id || (id === 'primary' && c.primary));
+        return typeof entry?.summaryOverride === 'string' && entry.summaryOverride.trim() ? entry.summaryOverride
+          : typeof entry?.summary === 'string' && entry.summary.trim() ? entry.summary : null;
+      };
+      context.calendarName = name(args.calendarId);
+      if (args.moveToCalendarId) context.destinationCalendarName = name(args.moveToCalendarId);
+    } catch (error) { diagnose('approval_calendar_read', error); }
+    const allowed = await approve({ operation, account: record.email, calendarId: args.calendarId, details: args, context });
     if (allowed !== true) throw new Error('Calendar change was not approved');
   }
   async function createEvent(args) {
@@ -245,7 +257,8 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
       start: args.allDay ? { date: start } : { dateTime: start, ...(args.timeZone ? { timeZone: args.timeZone } : {}) },
       end: args.allDay ? { date: args.end || nextDate(start) } : { dateTime: args.end, ...(args.timeZone ? { timeZone: args.timeZone } : {}) },
       ...(args.attendees ? { attendees: args.attendees.map(email => ({ email })) } : {}) };
-    await approval('create', args);
+    // Review the effective dates, including the exact all-day default that will be sent.
+    await approval('create', { ...args, end: args.allDay ? event.end.date : args.end }, record);
     return { account: record.email, calendarId, event: await calendar.insertEvent(record, calendarId, event, args.sendUpdates || 'none') };
   }
   async function updateEvent(args) {
@@ -279,7 +292,7 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
     const record = await account(args.account);
     const calendarId = required(args.calendarId, 'calendarId');
     const eventId = required(args.eventId, 'eventId');
-    await approval('delete', args);
+    await approval('delete', args, record);
     await calendar.deleteEvent(record, calendarId, eventId, args.sendUpdates || 'none');
     return { account: record.email, calendarId, eventId, deleted: true };
   }

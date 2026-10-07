@@ -19,7 +19,7 @@ const schemas = {
   gcal_search_events: z.object({ timeMin: text, timeMax: text, calendarSelection: z.enum(['selected','primary','all']).optional(), accounts: z.array(account).min(1).optional(), targets: z.array(target).min(1).optional(), q: text.optional(), timeZone: text.optional(), maxResults: z.number().optional() }),
   gcal_get_event: z.object(eventId),
   gcal_create_event: z.object({ ...forCalendar, summary: text, start: text, end: text.optional(), description: z.string().optional(), location: z.string().optional(), timeZone: text.optional(), allDay: z.boolean().optional(), attendees: z.array(text).optional(), sendUpdates }),
-  gcal_update_event: z.object({ ...eventId, summary: z.string().optional(), description: z.string().optional(), location: z.string().optional(), start: text.optional(), end: text.optional(), timeZone: text.optional(), moveToCalendarId: text.optional(), sendUpdates }),
+  gcal_update_event: z.object({ ...eventId, summary: z.string().optional(), description: z.string().optional(), location: z.string().optional(), attendees: z.array(text).optional().describe('Complete replacement attendee email list; omitted leaves attendees unchanged, [] removes all attendees.'), start: text.optional(), end: text.optional(), timeZone: text.optional(), moveToCalendarId: text.optional(), sendUpdates }),
   gcal_delete_event: z.object({ ...eventId, sendUpdates }),
   gcal_free_busy: z.object({ account, timeMin: text, timeMax: text, calendarIds: z.array(text).min(1) }),
 };

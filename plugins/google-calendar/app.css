@@ -25,7 +25,31 @@
 .pa-calendar__notifications, .pa-calendar__move { margin: 0.75rem 0; overflow-wrap: anywhere; }
 .pa-calendar__proposal { max-height: 12rem; overflow: auto; margin: 0 0 0.75rem; padding: 0.7rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--muted); color: var(--foreground); font-size: 0.72rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pa-calendar__approval-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.pa-calendar__event-when { margin: 0.4rem 0 1rem; color: var(--muted-foreground); font-size: 0.8rem; overflow-wrap: anywhere; }
+.pa-calendar__effect { margin: 0.75rem 0 1rem; padding: 0.8rem; border: 1px solid var(--border); border-radius: var(--radius, 0.4rem); background: var(--card); font-size: 0.8rem; }
+.pa-calendar__effect p { margin: 0; }
+.pa-calendar__effect p + p { margin-top: 0.25rem; }
+.pa-calendar__effect-title { font-weight: 650; }
+.pa-calendar__guests { margin: 0.75rem 0; padding: 0; list-style: none; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius, 0.4rem); background: var(--card); }
+.pa-calendar__guest { display: grid; grid-template-columns: 1.75rem minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; padding: 0.8rem; --guest-tone: var(--muted-foreground); }
+.pa-calendar__guest + .pa-calendar__guest { border-top: 1px solid var(--border); }
+.pa-calendar__guest--add { --guest-tone: var(--success, #27815d); background: color-mix(in oklab, var(--guest-tone) 7%, var(--card)); }
+.pa-calendar__guest--remove { --guest-tone: var(--destructive); background: color-mix(in oklab, var(--guest-tone) 5%, var(--card)); }
+.pa-calendar__guest-icon { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%; background: color-mix(in oklab, var(--guest-tone) 12%, var(--card)); color: var(--guest-tone); font-size: 1.2rem; line-height: 1; }
+.pa-calendar__guest--keep .pa-calendar__guest-icon { font-size: 0.9rem; background: var(--muted); }
+.pa-calendar__guest-identity { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.pa-calendar__guest--remove .pa-calendar__guest-identity { text-decoration-color: var(--destructive); text-decoration-thickness: 1px; }
+.pa-calendar__guest-name { font-weight: 600; font-size: 0.8rem; }
+.pa-calendar__guest-email { color: var(--muted-foreground); font-size: 0.75rem; }
+.pa-calendar__guest-change { padding: 0.15rem 0.5rem; border-radius: 0.3rem; color: color-mix(in oklab, var(--guest-tone) 50%, var(--foreground)); background: color-mix(in oklab, var(--guest-tone) 10%, var(--card)); font-size: 0.75rem; font-weight: 600; }
+.pa-calendar__guest--keep .pa-calendar__guest-name { color: var(--muted-foreground); font-weight: 500; }
+.pa-calendar__guest--keep .pa-calendar__guest-change { background: transparent; font-weight: 500; }
+.pa-calendar__guest-note { margin: 0.75rem 0; font-size: 0.8rem; overflow-wrap: anywhere; }
+.pa-calendar__delete-button { background: var(--destructive); color: var(--destructive-foreground, var(--primary-foreground)); }
+.pa-calendar__delete-button:not(:disabled):hover { background: color-mix(in oklab, var(--destructive) 85%, var(--background)); }
 @container calendar-approval (max-width: 32rem) {
   .pa-calendar__change { grid-template-columns: minmax(0, 1fr); }
   .pa-calendar__change-value--current { order: 1; }
+  .pa-calendar__guest { gap: 0.5rem; padding: 0.65rem; }
+  .pa-calendar__guest-change { padding: 0.15rem 0.35rem; }
 }
