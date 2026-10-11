@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { RcloneCloudProvider, syncArguments } from '../adapters/rclone-cloud-provider.ts';
-import type { Mirror } from '../core/ports.ts';
+import type { Mirror, SyncProgress } from '../core/ports.ts';
 const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null };
 function fixture(root = '/tmp/synthetic-root', limit?: number) {
   const calls: { method: string; body: any }[] = []; const commands: string[][] = [];
@@ -63,6 +63,22 @@ test('capacity exhaustion pauses before bisync and never prunes unexpired recove
     await writeFile(`${root}/backups/snapshots/${'b'.repeat(64)}.json`, JSON.stringify({ captured: Date.now(), mirror: 'mirror-1', entries: [{ side: 'local', path: 'note', blob: digest }] }));
     await assert.rejects(f.provider.prepareMirror(mirror), /capacity/);
     assert.equal(await readFile(previous, 'utf8'), '12345678'); assert.deepEqual(f.commands.map(c => c[0]), ['size']);
+  } finally { await rm(root, { recursive: true }); }
+});
+test('provider reports both recovery copies and only finishes after the sync command', async () => {
+  const root = await mkdtemp('/tmp/icloud-progress-provider-'); const stages: SyncProgress[] = [];
+  const provider = new RcloneCloudProvider(root, async () => ({}), async (args, _capture, report) => {
+    if (args[0] === 'size') return '{"bytes":4,"count":1}';
+    report?.({ bytes: 1, totalBytes: 2, files: 0, totalFiles: 1 });
+    if (args[0] === 'bisync') report?.({ bytes: 4, totalBytes: 4, files: 1, totalFiles: 1 });
+    return '';
+  }, async () => {}, async () => {});
+  try {
+    await provider.prepareMirror(mirror, value => stages.push(value));
+    for (const stage of ['checking', 'backing_up_cloud', 'backing_up_local', 'saving_recovery', 'transferring', 'verifying']) assert.ok(stages.some(value => value.stage === stage), stage);
+    assert.ok(stages.some(value => value.stage === 'backing_up_cloud' && value.bytes === 1 && value.totalBytes === 4));
+    assert.equal(stages.at(-1)!.stage, 'verifying');
+    assert.equal(await readFile(root + '/baselines/mirror-1/initialized', 'utf8'), '1');
   } finally { await rm(root, { recursive: true }); }
 });
 test('account binding prevents sending retained mirrors to a different Apple account', async () => {

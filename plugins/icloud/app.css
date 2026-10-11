@@ -12,6 +12,15 @@
 .pa-icloud__mirror-head { display: flex; gap: 0.75rem; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
 .pa-icloud__mirrors p { color: var(--muted-foreground); margin: 0.5rem 0; }
 .pa-icloud__mirrors p[role="alert"] { color: var(--destructive); }
+.pa-icloud__progress { margin: 0.75rem 0; }
+.pa-icloud__progress-heading { display: flex; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.4rem; font-size: 0.8rem; }
+.pa-icloud__progress-heading [role="status"] { min-width: 0; }
+.pa-icloud__progress-track { height: 0.5rem; overflow: hidden; border-radius: 999px; background: var(--muted); }
+.pa-icloud__progress-fill { height: 100%; border-radius: inherit; background: var(--primary); }
+.pa-icloud__progress-track--indeterminate .pa-icloud__progress-fill { width: 33%; animation: pa-icloud-activity 1.8s ease-in-out infinite; }
+.pa-icloud__progress-details { margin-top: 0.4rem; color: var(--muted-foreground); font-size: 0.75rem; }
+@keyframes pa-icloud-activity { 0% { transform: translateX(-100%); } 100% { transform: translateX(305%); } }
+@media (prefers-reduced-motion: reduce) { .pa-icloud__progress-track--indeterminate .pa-icloud__progress-fill { animation: none; } }
 .pa-icloud__icon { width: 1rem; height: 1rem; flex-shrink: 0; }
 .pa-icloud__mirror-name { display: inline-flex; align-items: center; gap: 0.5rem; min-width: 0; }
 .pa-icloud__browser { padding: 0; background: var(--card); }

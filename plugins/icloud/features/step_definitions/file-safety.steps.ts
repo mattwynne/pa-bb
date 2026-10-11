@@ -11,7 +11,7 @@ Given('two disposable filesystem folders and stock rclone', async function(this:
   const root = await mkdtemp('/tmp/icloud-safety-'); const cloud = root + '/cloud/Test Vault'; await mkdir(cloud, { recursive: true });
   const worker = new RcloneProcess(root + '/worker', process.env.RCLONE_TEST_BINARY);
   const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null };
-  const provider = new RcloneCloudProvider(root + '/worker', (method, body) => worker.call(method, body), (args, capture) => worker.run(args, capture), () => worker.checkAvailability(), () => worker.stop());
+  const provider = new RcloneCloudProvider(root + '/worker', (method, body) => worker.call(method, body), (args, capture, report) => worker.run(args, capture, report), () => worker.checkAvailability(), () => worker.stop());
   this.real = { root, cloud, local: provider.localFolder(mirror), process: worker, provider, mirror };
   await worker.call('config/create', { name: 'icloud', type: 'alias', parameters: { remote: root + '/cloud' }, opt: { nonInteractive: true } });
 });
@@ -46,7 +46,7 @@ Then('the local folder contains the renamed note instead of the old name', async
   const names = await readdir(this.real!.local); assert.ok(names.includes('renamed.md')); assert.ok(!names.includes('cloud.md'));
 });
 When('recovery capacity is exhausted', async function(this: SafetyWorld) {
-  const r = this.real!; r.provider = new RcloneCloudProvider(r.root + '/worker', (method, body) => r.process.call(method, body), (args, capture) => r.process.run(args, capture), () => r.process.checkAvailability(), () => r.process.stop(), 1);
+  const r = this.real!; r.provider = new RcloneCloudProvider(r.root + '/worker', (method, body) => r.process.call(method, body), (args, capture, report) => r.process.run(args, capture, report), () => r.process.checkAvailability(), () => r.process.stop(), 1);
 });
 Then('synchronization is rejected before the cloud note changes', async function(this: SafetyWorld) {
   const r = this.real!; await assert.rejects(r.provider.synchronize(r.mirror), /capacity/); assert.equal(await readFile(r.cloud + '/cloud.md', 'utf8'), 'original note');

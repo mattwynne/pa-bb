@@ -8,6 +8,11 @@ export type Challenge = 'verification_code' | 'trusted_device';
 export type Connection = { connected: true } | { connected: false; challenge: Challenge };
 export type CloudFolder = { id: string; name: string; ancestors: string[] };
 export type Mirror = { id: string; folder: CloudFolder; initialized: boolean; enabled: boolean; phase: 'paused' | 'ready' | 'running' | 'failed' | 'retained'; lastSuccess: string | null; failure: Failure | null };
+export type SyncStage = 'checking' | 'backing_up_cloud' | 'backing_up_local' | 'saving_recovery' | 'transferring' | 'verifying';
+export type TransferProgress = { bytes: number; totalBytes: number | null; files: number; totalFiles: number | null };
+export type SyncProgress = TransferProgress & { stage: SyncStage };
+export type ProgressReporter = (progress: SyncProgress) => void;
+export const activity = (stage: SyncStage): SyncProgress => ({ stage, bytes: 0, totalBytes: null, files: 0, totalFiles: null });
 export type State = { connected: boolean; challenge: Challenge | null; mirrors: Mirror[] };
 export interface CloudProvider {
   checkAvailability(): Promise<void>;
@@ -15,8 +20,8 @@ export interface CloudProvider {
   connect(credentials: { account: string; password: string }): Promise<Connection>;
   answerChallenge(answer: string): Promise<Connection>;
   listFolders(parent: string | null): Promise<CloudFolder[]>;
-  prepareMirror(mirror: Mirror): Promise<void>;
-  synchronize(mirror: Mirror): Promise<void>;
+  prepareMirror(mirror: Mirror, report?: ProgressReporter): Promise<void>;
+  synchronize(mirror: Mirror, report?: ProgressReporter): Promise<void>;
   disconnect(): Promise<void>;
   stop(): Promise<void>;
   // Explicit consuming-integration boundary, never settings path selection.

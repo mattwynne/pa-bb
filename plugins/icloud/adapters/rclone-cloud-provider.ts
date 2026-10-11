@@ -2,8 +2,8 @@ import { mkdir, readdir, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { RecoveryCopies, BACKUP_LIMIT } from './recovery-copies.ts';
 export { BACKUP_LIMIT, treeSize } from './recovery-copies.ts';
-import { CloudError } from '../core/ports.ts';
-import type { CloudProvider, CloudFolder, Connection, Mirror } from '../core/ports.ts';
+import { CloudError, activity } from '../core/ports.ts';
+import type { CloudProvider, CloudFolder, Connection, Mirror, ProgressReporter } from '../core/ports.ts';
 import type { CommandRunner, RcCall } from './rclone-process.ts';
 
 const encode = (path: string) => Buffer.from(path).toString('base64url');
@@ -75,26 +75,34 @@ export class RcloneCloudProvider implements CloudProvider {
     return join(this.root, 'mirrors', mirror.id);
   }
   private remote(mirror: Mirror) { return `icloud:${decode(mirror.folder.id)}`; }
-  private async backup(mirror: Mirror) {
+  private async backup(mirror: Mirror, report?: ProgressReporter) {
     const copies = new RecoveryCopies(join(this.root, 'backups'), this.run, this.limit);
-    await copies.capture(mirror.id, this.remote(mirror), this.localFolder(mirror));
+    await copies.capture(mirror.id, this.remote(mirror), this.localFolder(mirror), report);
   }
-  async prepareMirror(mirror: Mirror) {
+  private async bisync(mirror: Mirror, initial: boolean, report?: ProgressReporter) {
+    report?.(activity('checking'));
+    await this.run(syncArguments(this.remote(mirror), this.localFolder(mirror), join(this.root, 'baselines', mirror.id), initial), false, report ? stats => {
+      const complete = stats.totalFiles !== null && stats.files >= stats.totalFiles && (stats.totalBytes === null || stats.bytes >= stats.totalBytes);
+      report(complete ? activity('verifying') : { ...stats, stage: stats.bytes || stats.totalBytes || stats.totalFiles ? 'transferring' : 'checking' });
+    } : undefined);
+    report?.(activity('verifying'));
+  }
+  async prepareMirror(mirror: Mirror, report?: ProgressReporter) {
     const local = this.localFolder(mirror); const baseline = join(this.root, 'baselines', mirror.id);
     await mkdir(local, { recursive: true, mode: 0o700 }); await mkdir(baseline, { recursive: true, mode: 0o700 });
     // Never use initial resync to recover existing data or a partial attempt.
     if ((await readdir(local)).length || (await readdir(baseline)).length || mirror.initialized) throw new CloudError('recovery_required');
     await writeFile(join(baseline, 'preparing'), '', { flag: 'wx', mode: 0o600 });
-    await this.backup(mirror);
-    await this.run(syncArguments(this.remote(mirror), local, baseline, true));
+    await this.backup(mirror, report);
+    await this.bisync(mirror, true, report);
     await writeFile(join(baseline, 'initialized'), '1', { mode: 0o600 });
   }
-  async synchronize(mirror: Mirror) {
+  async synchronize(mirror: Mirror, report?: ProgressReporter) {
     const baseline = join(this.root, 'baselines', mirror.id);
     try { if (!mirror.initialized || await readFile(join(baseline, 'initialized'), 'utf8') !== '1') throw new Error(); }
     catch { throw new CloudError('recovery_required'); }
-    await this.backup(mirror);
-    await this.run(syncArguments(this.remote(mirror), this.localFolder(mirror), baseline, false));
+    await this.backup(mirror, report);
+    await this.bisync(mirror, false, report);
   }
   async disconnect() {
     this.continuation = null;

@@ -5,12 +5,14 @@ import { chmod, mkdir, open, readFile, lstat, writeFile, unlink } from 'node:fs/
 import { join, isAbsolute } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { CloudError } from '../core/ports.ts';
+import type { TransferProgress } from '../core/ports.ts';
+import { RcloneStatsStream } from './rclone-stats.ts';
 
 export function safeEnvironment(): NodeJS.ProcessEnv {
   // Never inherit provider options, credentials, proxies or BB process secrets.
   return { PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin', HOME: process.env.HOME, LANG: 'C.UTF-8', GOMEMLIMIT: '256MiB' };
 }
-export type CommandRunner = (args: string[], capture?: boolean) => Promise<string>;
+export type CommandRunner = (args: string[], capture?: boolean, report?: (stats: TransferProgress) => void) => Promise<string>;
 export type RcCall = (method: string, body: Record<string, unknown>) => Promise<any>;
 export class RcloneProcess {
   private binary: string | null = null;
@@ -108,10 +110,16 @@ export class RcloneProcess {
     });
   }
   async call(method: string, body: Record<string, unknown>) { await this.ensure(); return this.rawCall(method, body); }
-  async run(args: string[], capture = false) { await this.ensure(); return this.execute(this.binary!, [...args, ...this.flags()], capture, 10 * 60_000); }
-  private execute(binary: string, args: string[], capture: boolean, timeout: number): Promise<string> {
+  async run(args: string[], capture = false, report?: (stats: TransferProgress) => void) {
+    await this.ensure();
+    const stats = report ? ['--use-json-log', '--stats', '1s', '--stats-log-level', 'NOTICE', '--log-level', 'NOTICE'] : [];
+    return this.execute(this.binary!, [...args, ...this.flags(), ...stats], capture, 10 * 60_000, report);
+  }
+  private execute(binary: string, args: string[], capture: boolean, timeout: number, report?: (stats: TransferProgress) => void): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = spawn(binary, args, { env: safeEnvironment(), stdio: ['ignore', capture ? 'pipe' : 'ignore', 'ignore'] });
+      const child = spawn(binary, args, { env: safeEnvironment(), stdio: ['ignore', capture ? 'pipe' : 'ignore', report ? 'pipe' : 'ignore'] });
+      const stats = report ? new RcloneStatsStream(report) : null;
+      child.stderr?.on('data', chunk => stats?.write(chunk));
       this.children.add(child); let output = ''; let overflow = false; let timedOut = false;
       child.stdout?.on('data', chunk => { if (output.length + chunk.length > 4 * 1024 * 1024) { overflow = true; child.kill('SIGKILL'); } else output += chunk; });
       const timer = setTimeout(() => { timedOut = true; child.kill('SIGINT'); }, timeout); timer.unref();
@@ -119,7 +127,7 @@ export class RcloneProcess {
       const cleanup = () => { clearTimeout(timer); clearTimeout(hard); this.children.delete(child); };
       child.on('error', () => { cleanup(); reject(new CloudError('unavailable')); });
       child.on('close', (code, signal) => {
-        cleanup();
+        stats?.end(); cleanup();
         if (code === 0 && !overflow && !timedOut && !this.stopping) resolve(output);
         else reject(new CloudError(this.stopping || timedOut || signal ? 'interrupted' : code === 7 ? 'recovery_required' : 'sync_failed'));
       });

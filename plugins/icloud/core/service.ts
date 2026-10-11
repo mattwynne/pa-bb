@@ -1,8 +1,10 @@
-import { CloudError, category, emptyState } from './ports.ts';
-import type { CloudProvider, StateRepository, State, CloudFolder, Mirror } from './ports.ts';
+import { CloudError, category, emptyState, activity } from './ports.ts';
+import type { CloudProvider, StateRepository, State, CloudFolder, Mirror, SyncProgress, ProgressReporter } from './ports.ts';
+import { progressSnapshot } from './progress.ts';
 
 export class ICloudSync {
   private state: State = emptyState();
+  private progress = new Map<string, SyncProgress>();
   private busy = false;
   private stopped = false;
   private current: Promise<unknown> | null = null;
@@ -28,7 +30,7 @@ export class ICloudSync {
     }
     await this.save();
   }
-  status() { return structuredClone(this.state); }
+  status() { return { ...structuredClone(this.state), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), progress: mirror.phase === 'running' ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
   private save() { return this.repository.save(structuredClone(this.state)); }
   private folder(id: string) {
     const folder = this.state.mirrors.find(item => item.id === id);
@@ -122,18 +124,26 @@ export class ICloudSync {
     });
   }
   private async run(mirror: Mirror, initial: boolean) {
-    mirror.phase = 'running'; await this.save();
+    mirror.phase = 'running'; this.progress.set(mirror.id, activity('checking'));
+    let reporting = true;
+    const report: ProgressReporter = value => {
+      if (!reporting || mirror.phase !== 'running') return;
+      const safe = progressSnapshot(value); if (safe) this.progress.set(mirror.id, safe);
+    };
     try {
-      if (initial) await this.provider.prepareMirror(structuredClone(mirror));
-      else await this.provider.synchronize(structuredClone(mirror));
-      if (this.stopped) throw new CloudError('interrupted');
-      mirror.initialized = true; mirror.lastSuccess = this.clock(); mirror.failure = null; mirror.phase = 'ready';
-    } catch (error) {
-      mirror.enabled = false; mirror.phase = 'failed'; mirror.failure = category(error);
-      if (mirror.failure === 'authentication') this.state.connected = false;
-      this.diagnose(initial ? 'prepare' : 'sync', mirror.failure);
-    }
-    await this.save();
+      await this.save();
+      try {
+        if (initial) await this.provider.prepareMirror(structuredClone(mirror), report);
+        else await this.provider.synchronize(structuredClone(mirror), report);
+        if (this.stopped) throw new CloudError('interrupted');
+        mirror.initialized = true; mirror.lastSuccess = this.clock(); mirror.failure = null; mirror.phase = 'ready';
+      } catch (error) {
+        mirror.enabled = false; mirror.phase = 'failed'; mirror.failure = category(error);
+        if (mirror.failure === 'authentication') this.state.connected = false;
+        this.diagnose(`${initial ? 'prepare' : 'sync'}/${this.progress.get(mirror.id)?.stage ?? 'checking'}`, mirror.failure);
+      }
+      await this.save();
+    } finally { reporting = false; this.progress.delete(mirror.id); }
   }
   disconnect() {
     return this.exclusive(async () => {

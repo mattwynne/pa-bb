@@ -1,7 +1,8 @@
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 const folder = z.object({ id: z.string(), name: z.string(), ancestors: z.array(z.string()) });
-const mirror = z.object({ id: z.string(), folder, initialized: z.boolean(), enabled: z.boolean(), phase: z.enum(['paused', 'ready', 'running', 'failed', 'retained']), lastSuccess: z.string().nullable(), failure: z.string().nullable() });
+const progress = z.object({ stage: z.enum(['checking', 'backing_up_cloud', 'backing_up_local', 'saving_recovery', 'transferring', 'verifying']), bytes: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), totalBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(), files: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), totalFiles: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable() }).strict();
+const mirror = z.object({ id: z.string(), folder, initialized: z.boolean(), enabled: z.boolean(), phase: z.enum(['paused', 'ready', 'running', 'failed', 'retained']), lastSuccess: z.string().nullable(), failure: z.string().nullable(), progress: progress.nullable().optional() });
 export const statusSchema = z.object({ connected: z.boolean(), challenge: z.enum(['verification_code', 'trusted_device']).nullable(), mirrors: z.array(mirror), available: z.boolean(), prerequisite: z.string().nullable() });
 const id = z.object({ id: z.string().min(1).max(64) }).strict();
 export const rpcContract = defineRpcContract({

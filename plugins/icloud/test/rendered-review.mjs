@@ -135,4 +135,54 @@ try {
     console.log(`${view} ${width}: folder icons, navigation, selection state and layout checked`);
     await page.close();
   }
+  const progressCases = [
+    { key: 'checking', stage: 'checking', percent: null },
+    { key: 'cloud-backup', stage: 'backing_up_cloud', bytes: 3 * 1024 * 1024, totalBytes: 4 * 1024 * 1024, files: 10, totalFiles: 20, percent: 75 },
+    { key: 'local-backup', stage: 'backing_up_local', bytes: 2 * 1024 * 1024, totalBytes: 4 * 1024 * 1024, files: 5, totalFiles: 10, percent: 50 },
+    { key: 'save-recovery', stage: 'saving_recovery', files: 7, totalFiles: 10, percent: 70 },
+    { key: 'transfer', stage: 'transferring', bytes: 1024, totalBytes: 4096, files: 1, totalFiles: 4, percent: 25 },
+    { key: 'zero-byte-files', stage: 'transferring', files: 2, totalFiles: 4, percent: 50 },
+    { key: 'unknown-total', stage: 'transferring', bytes: 4096, files: 1, percent: null },
+    { key: 'all-transferred', stage: 'transferring', bytes: 4096, totalBytes: 4096, files: 4, totalFiles: 4, percent: 100 },
+    { key: 'finishing', stage: 'verifying', percent: null },
+    { key: 'growing-total', stage: 'transferring', bytes: 1024, totalBytes: 4096, files: 1, totalFiles: 4, percent: 25 },
+    { key: 'progress-success', stage: 'transferring', bytes: 1024, totalBytes: 4096, files: 1, totalFiles: 4, percent: 25 },
+    { key: 'progress-failure', stage: 'transferring', bytes: 1024, totalBytes: 4096, files: 1, totalFiles: 4, percent: 25 },
+  ];
+  for (const fixture of progressCases) for (const width of [1280, 390]) {
+    const page = await browser.newPage({ viewport: { width, height: 1100 } });
+    const progress = { stage: fixture.stage, bytes: fixture.bytes ?? 0, totalBytes: fixture.totalBytes ?? null, files: fixture.files ?? 0, totalFiles: fixture.totalFiles ?? null };
+    const state = { available: true, prerequisite: null, connected: true, challenge: null, mirrors: [{ ...mirror, phase: 'running', progress }] };
+    let calls = 0;
+    await page.route('**/api/v1/plugins/icloud/rpc/**', route => { calls++; return route.fulfill({ json: { ok: true, result: state } }); });
+    await page.goto(base + '/plugins/icloud?configure=icloud'); const section = page.locator('.pa-icloud');
+    const bar = section.getByRole('progressbar'); await bar.waitFor();
+    await page.waitForFunction(() => document.querySelector('.pa-icloud__progress-track')?.clientHeight > 0);
+    assert.equal(await bar.getAttribute('aria-valuenow'), fixture.percent === null ? null : String(fixture.percent));
+    assert.equal(await section.getByText('Last successful sync:', { exact: false }).textContent(), `Last successful sync: ${await page.evaluate(value => new Date(value).toLocaleString(), mirror.lastSuccess)}`);
+    assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).isDisabled(), true);
+    assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
+    await page.keyboard.press('Tab'); const focus = section.getByRole('button', { name: 'Reconnect', exact: true }); await focus.focus();
+    assert.equal(await focus.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+    if (fixture.percent === null) {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      assert.equal(await section.locator('.pa-icloud__progress-fill').evaluate(element => getComputedStyle(element).animationName), 'none');
+    }
+    if (fixture.key === 'all-transferred') await section.getByText('Transfers complete. Waiting for sync checks.', { exact: true }).waitFor();
+    if (fixture.key === 'growing-total') {
+      state.mirrors[0].progress = { ...progress, totalBytes: 8192 };
+      await page.waitForFunction(() => document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow') === '12');
+      assert.ok(calls >= 2);
+    }
+    if (fixture.key === 'progress-success' || fixture.key === 'progress-failure') {
+      state.mirrors[0].phase = fixture.key === 'progress-success' ? 'ready' : 'failed'; state.mirrors[0].progress = null;
+      state.mirrors[0].enabled = fixture.key === 'progress-success'; state.mirrors[0].failure = fixture.key === 'progress-failure' ? 'interrupted' : null;
+      if (fixture.key === 'progress-success') state.mirrors[0].lastSuccess = '2026-10-10T06:00:00.000Z';
+      await bar.waitFor({ state: 'hidden' });
+      if (fixture.key === 'progress-failure') await section.getByRole('alert').waitFor();
+    }
+    await page.screenshot({ path: `${artifacts}/${fixture.key}-${width}.png` });
+    console.log(`${fixture.key} ${width}: visible progress, safe totals, timestamp, focus and lifecycle checked`);
+    await page.close();
+  }
 } finally { await browser.close(); }

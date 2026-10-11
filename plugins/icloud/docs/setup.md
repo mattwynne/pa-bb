@@ -16,6 +16,8 @@ On a trusted Apple device, open **Settings → Apple Account → iCloud** and en
 4. Choose **Choose a folder**. Use **Open** to browse into a folder and **Select** to choose it. BB assigns its local storage automatically. Parent and child selections cannot overlap.
 5. Choose **Enable sync** and review the confirmation. Initial preparation downloads into a new empty local folder. After a successful baseline, background sync runs about once a minute. A run taking longer than a minute does not overlap the next run.
 
+While a folder is running, a progress bar shows checking, saving recovery copies, transfers and finishing checks. Measured stages show bytes or file counts; stages without a known total show activity rather than an invented percentage. A transfer reaching 100% does not finish the whole sync. Progress updates about once a second while the settings page is open and disappears when the run succeeds or pauses after failure. No filenames or provider logs appear in the progress display.
+
 The **Last successful sync** time changes only after successful completion. “Syncing” or an active worker is not proof that a phone edit reached BB. Open the disposable vault on the phone, make a harmless change, and confirm its content through the consuming integration before trusting the connection with personal data. Editing personal data or testing destructive changes needs separate approval.
 
 ## Everyday controls
@@ -50,4 +52,4 @@ A stale worker lock or a failed staging tree requires operator inspection while 
 
 ## Diagnostics
 
-BB logs bounded lines such as `iCloud connect authentication`, `iCloud sync capacity`, `iCloud sync recovery_required` or `iCloud restart interrupted`. An unrecognized error is `unknown`; raw provider messages, bodies, account addresses, filenames, tokens and exception stacks are excluded. A generic sync failure cannot establish that no provider write happened, which exact file failed, or whether Apple authorization expired. Inspect state and use protected settings, not raw provider logs in chat.
+BB logs bounded lines such as `iCloud connect authentication`, `iCloud sync/checking capacity`, `iCloud sync/backing_up_cloud sync_failed`, `iCloud sync/verifying recovery_required` or `iCloud restart interrupted`. An unrecognized error is `unknown`; raw provider messages, bodies, account addresses, filenames, tokens and exception stacks are excluded. A generic sync failure cannot establish that no provider write happened, which exact file failed, or whether Apple authorization expired. Inspect state and use protected settings, not raw provider logs in chat.

@@ -2,7 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, readdir, lstat, readFile, writeFile, rename, rm, statfs, copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { CloudError } from '../core/ports.ts';
+import { CloudError, activity } from '../core/ports.ts';
+import type { ProgressReporter, TransferProgress } from '../core/ports.ts';
 import type { CommandRunner } from './rclone-process.ts';
 export const BACKUP_LIMIT = 1024 * 1024 * 1024;
 const RETENTION = 30 * 24 * 60 * 60_000;
@@ -52,7 +53,8 @@ export class RecoveryCopies {
       if (!referenced.has(blob)) await rm(join(this.root, 'blobs', blob));
     }
   }
-  async capture(mirror: string, remote: string, local: string) {
+  async capture(mirror: string, remote: string, local: string, report?: ProgressReporter) {
+    report?.(activity('checking'));
     for (const dir of ['blobs', 'snapshots']) await mkdir(join(this.root, dir), { recursive: true, mode: 0o700 });
     // A leftover staging tree means an interrupted backup; never silently remove it.
     if ((await readdir(this.root)).some(name => !['blobs', 'snapshots'].includes(name))) throw new CloudError('recovery_required');
@@ -67,17 +69,28 @@ export class RecoveryCopies {
     const staging = join(this.root, `staging-${randomUUID()}`); await mkdir(staging, { mode: 0o700 });
     for (const dir of ['cloud', 'local']) await mkdir(join(staging, dir), { mode: 0o700 });
     const budget = String(Math.max(1, Math.floor((this.limit - used - 64 * 1024) / 2)));
-    await this.run(['copy', remote, join(staging, 'cloud'), '--max-transfer', budget, '--cutoff-mode', 'hard']);
-    await this.run(['copy', local, join(staging, 'local'), '--max-transfer', budget, '--cutoff-mode', 'hard']);
+    const copy = async (side: 'cloud' | 'local', source: string, bytes: number, count: number | null) => {
+      const stage = side === 'cloud' ? 'backing_up_cloud' : 'backing_up_local';
+      const update = (stats: TransferProgress) => report?.({ ...stats, stage, totalBytes: Math.max(stats.totalBytes ?? 0, bytes) || null, totalFiles: Math.max(stats.totalFiles ?? 0, count ?? 0) || null });
+      update({ bytes: 0, totalBytes: null, files: 0, totalFiles: null });
+      await this.run(['copy', source, join(staging, side), '--max-transfer', budget, '--cutoff-mode', 'hard'], false, report ? update : undefined);
+    };
+    const cloudCount = Number.isSafeInteger(remoteSize.count) && remoteSize.count >= 0 ? remoteSize.count : null;
+    await copy('cloud', remote, remoteSize.bytes, cloudCount);
+    await copy('local', local, localBytes, (await files(local)).length);
+    report?.(activity('saving_recovery'));
     if (await treeSize(this.root) > this.limit - 64 * 1024) throw new CloudError('capacity');
     const entries: Entry[] = [];
-    for (const side of ['cloud', 'local'] as const) for (const path of (await files(join(staging, side))).sort()) {
+    const sources = await Promise.all((['cloud', 'local'] as const).map(async side => ({ side, paths: (await files(join(staging, side))).sort() })));
+    const totalFiles = sources.reduce((count, source) => count + source.paths.length, 0) || null;
+    for (const { side, paths } of sources) for (const path of paths) {
       const source = join(staging, side, path); const blob = await hashFile(source); const target = join(this.root, 'blobs', blob);
       try { await lstat(target); } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         await copyFile(source, target);
       }
       entries.push({ side, path, blob });
+      report?.({ ...activity('saving_recovery'), files: entries.length, totalFiles });
     }
     const identity = createHash('sha256').update(JSON.stringify({ mirror, entries })).digest('hex');
     const snapshot: Snapshot = { mirror, captured: this.now(), entries };

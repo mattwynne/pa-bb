@@ -19,7 +19,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudPr
     if (!isAbsolute(database.name)) throw new CloudError('unavailable');
     const root = join(dirname(database.name), 'sync');
     const process = new RcloneProcess(root);
-    provider = new RcloneCloudProvider(root, (method, body) => process.call(method, body), (args, capture) => process.run(args, capture), () => process.checkAvailability(), () => process.stop());
+    provider = new RcloneCloudProvider(root, (method, body) => process.call(method, body), (args, capture, report) => process.run(args, capture, report), () => process.checkAvailability(), () => process.stop());
   }
   const sync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose);
   await sync.start();

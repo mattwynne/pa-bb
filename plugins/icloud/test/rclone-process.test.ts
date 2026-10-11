@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat, writeFile, unlink, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile, unlink, access } from 'node:fs/promises';
 import { RcloneProcess, safeEnvironment } from '../adapters/rclone-process.ts';
+import type { TransferProgress } from '../core/ports.ts';
 const binary = process.env.RCLONE_TEST_BINARY;
 test('subprocess environment excludes credentials and provider overrides', () => {
   process.env.RCLONE_CONFIG_PASS = 'sentinel-secret'; process.env.BB_TOKEN = 'sentinel-token';
@@ -31,6 +32,27 @@ test('an encrypted config with a missing key is refused without generating a rep
     runner = new RcloneProcess(root, binary); await assert.rejects(runner.ensure());
     await assert.rejects(access(root + '/secrets/config.key'));
   } finally { await runner.stop(); await rm(root, { recursive: true }); }
+});
+test('real command-local stats stream measured progress without leaking raw records', { skip: !binary }, async () => {
+  const root = await mkdtemp('/tmp/icloud-stats-'); const runner = new RcloneProcess(root + '/worker', binary);
+  const progress: TransferProgress[] = [];
+  try {
+    await mkdir(root + '/source'); await mkdir(root + '/target');
+    await writeFile(root + '/source/sentinel-private-file', Buffer.alloc(24 * 1024 * 1024, 42));
+    await runner.run(['copy', root + '/source', root + '/target', '--disable', 'Copy'], false, stats => progress.push(stats));
+    assert.ok(progress.some(stats => stats.bytes > 0 && stats.totalBytes !== null && stats.bytes < stats.totalBytes));
+    assert.ok(progress.length >= 2);
+    assert.ok(progress.some(stats => stats.totalFiles === 1));
+    assert.equal((await stat(root + '/target/sentinel-private-file')).size, 24 * 1024 * 1024);
+    assert.doesNotMatch(JSON.stringify(progress), /sentinel|password|object|checking|transferring/);
+  } finally { await runner.stop(); await rm(root, { recursive: true }); }
+});
+test('stats on a failed command never leak raw errors or turn failure into success', async () => {
+  const runner = new RcloneProcess('/tmp/unused-stats-proof') as unknown as { execute(binary: string, args: string[], capture: boolean, timeout: number, report: (stats: TransferProgress) => void): Promise<string> };
+  const progress: TransferProgress[] = [];
+  const record = { msg: 'sentinel-private-error', object: 'sentinel-file', stats: { bytes: 4, totalBytes: 4, transfers: 1, totalTransfers: 1, lastError: 'sentinel-password' } };
+  await assert.rejects(runner.execute(process.execPath, ['-e', `process.stderr.write(${JSON.stringify(JSON.stringify(record) + '\n')}); process.exit(7);`], false, 5000, stats => progress.push(stats)), /recovery_required/);
+  assert.equal(progress.length, 1); assert.doesNotMatch(JSON.stringify(progress), /sentinel/);
 });
 test('a stale worker lock is never cleared automatically', { skip: !binary }, async () => {
   const root = await mkdtemp('/tmp/icloud-process-'); const process = new RcloneProcess(root, binary);
