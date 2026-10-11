@@ -39,10 +39,12 @@ This remains a trusted plugin for a single-user BB installation, not a sandbox
 that prevents other trusted plugins or unrestricted filesystem tools reading
 host files.
 
-The planning assumption is that iCloud is available. Its actual live Apple and
-disposable-vault gates remain recorded in iteration 004; this plan does not mark
-them passed. Obsidian can be installed before iCloud, but must explain the missing
-source and expose no note content until configuration succeeds.
+The planning assumption is that iCloud can supply the vault. Its actual live
+Apple and disposable-vault gates remain recorded in iteration 004; this plan does
+not mark them passed. Obsidian can be installed before iCloud, but usable note
+access requires an explicitly selected mirror with a successful initial sync.
+Installing iCloud or connecting Apple alone is not sufficient. Dependency checks
+and guided onboarding are part of this iteration, not a documentation fallback.
 
 ## First slice
 
@@ -129,19 +131,33 @@ complete resolver. Community-plugin semantics are deliberately unsupported.
 
 The existing integration boundary is:
 
-- `plugins/icloud/server.ts`: the read-only `inventory` RPC.
-- `plugins/icloud/contract.ts`: mirror ID, display name, `localFolder`, phase and
-  `lastSuccess`.
-- `plugins/icloud/core/service.ts`: initialized mirrors are listed; rebuilt
-  mirrors receive new IDs while previous copies become `retained`.
+- BB's `bb.sdk.plugins.list()`: verified installation, enabled state and host
+  runtime status; filter to iCloud server-side and discard host paths/details.
+- `plugins/icloud/server.ts`: the read-only `status` and `inventory` RPCs.
+- `plugins/icloud/contract.ts`: `status` includes prerequisite availability,
+  connection/challenge state and all selected mirrors; `inventory` supplies
+  initialized mirror IDs, names, `localFolder`, phase and `lastSuccess`.
+- `plugins/icloud/core/service.ts`: uninitialized mirrors are absent from
+  inventory, including an active first sync. Rebuilt mirrors receive new IDs
+  while previous copies become `retained`.
 
-Use `bb.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'inventory', ... })`
-with a local validated output schema. The installed SDK supports this pattern;
-Calendar/Drive already use cross-plugin RPC. Prove the actual loaded-plugin call
-and shared filesystem access in a small host spike before building the UI.
-Do not import iCloud's database, derive its private storage paths or call its
-agent tool through a language model. Keep `localFolder` in the server adapter;
-never expose it in Obsidian tools, browser responses, citations or diagnostics.
+Use `bb.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'status' | 'inventory',
+... })` with local validated output schemas. The installed SDK supports this
+pattern; Calendar/Drive already use cross-plugin RPC. Prove actual loaded-plugin
+calls and shared filesystem access in a small host spike before building the UI.
+An empty inventory is not proof that no folders are selected: inspect `status`
+to distinguish an unselected folder, sync not yet enabled, an active initial sync
+and failed preparation. A failed RPC is not proof that iCloud is uninstalled or
+Apple disconnected. If responses disagree across a transition, recheck within a
+bounded budget or report that status is temporarily unavailable.
+
+Map those observations to a single dependency/onboarding state in the core;
+settings and agent tools use that same state, not independent guesses. Retain
+only the fields needed for this decision. Do not import iCloud's database, derive
+its private storage paths or call its agent tool through a language model. Keep
+`localFolder` in the server adapter; never expose it in Obsidian tools, browser
+responses, citations or diagnostics. Never pass through arbitrary host
+`statusDetail`, provider errors or iCloud failure text as a safe explanation.
 
 Policy for the selected, previously initialized mirror:
 
@@ -175,8 +191,10 @@ Use a TypeScript hexagonal core, cucumber-js acceptance scenarios and fake ports
 following the existing plugins rather than introducing a shared integration
 framework.
 
-- **MirrorCatalog port:** inventory and current source state. Production adapter
-  calls iCloud RPC; fake models disappearance, replacement and sync transitions.
+- **MirrorCatalog port:** verified plugin availability, iCloud setup state,
+  inventory and current source state. Production adapter uses the host plugin
+  list and read-only iCloud RPCs; fake models each onboarding state, disappearance,
+  replacement and sync transitions.
 - **VaultFiles port:** bounded enumeration and stable, scoped regular-file reads.
   Production adapter validates every path against the current root and scope,
   rejects traversal/absolute paths/symlink components and returns safe categories.
@@ -220,34 +238,101 @@ rendered iCloud views confirm that BB already supplies the plugin name and
 Configuration section; do not repeat them. Reuse its layout, not Apple login or
 multi-account assumptions: this plugin has one selected vault and no login form.
 
-Provide these states with clear next actions:
+### Guided first run
 
-- iCloud missing/unavailable: explain the dependency and offer its setup route
-  where the host supports it; do not silently install or enable sync.
-- No initialized mirrors: ordered steps to connect iCloud, select the vault folder
-  and finish its first successful sync, then return to select and authorize it.
-- Selection/scope pending: preserve choices on a failed save; prevent duplicate
-  submission and outdated responses from restoring a revoked selection.
-- Configured: lead with the selected vault, read-only scope and last successful
-  sync. Put change-vault, scope, forget and the guide in a secondary hierarchy.
-- Empty permitted vault: distinguish a successful scan with no notes from a scan
-  that was incomplete or could not run.
-- Paused, syncing, failed, removed or replaced source: explain the appropriate
-  stale/busy/recovery behaviour without duplicating iCloud recovery controls.
+Explain once: “Obsidian reads a local copy of your vault supplied by iCloud.
+Set up iCloud first, then choose which notes BB can read.” Show the sequence:
+
+1. Install/enable iCloud and connect Apple in **BB's iCloud settings**.
+2. Select the vault folder there, enable sync and wait for its first successful
+   sync. Merely choosing a folder does not start syncing.
+3. Return to **Obsidian settings**, select that vault and authorize note scope.
+
+Mark progress only from verified state. Keep the Obsidian selection unavailable
+until an eligible initialized mirror exists. When multiple folders have different
+states, offer eligible mirrors with their status rather than blocking them
+because an unrelated folder is syncing or failed. Never select one automatically.
+
+Expected setup gaps are calm guidance, not red exception banners. A real check,
+save or sync failure gets an accessible error with a recovery action. First-run
+copy and the full guide must say which actions happen in iCloud and which happen
+in Obsidian; Obsidian never asks for Apple passwords or verification codes.
+
+### Dependency messages and recovery actions
+
+Use verified conditions to select the following copy; examples are planned copy,
+not claims that the routes or rendered UI are already tested. Check installation
+and RPC availability first, then assess any saved selection and eligible mirrors
+before first-run connection guidance. An initial `failed`/`running` phase takes
+precedence over “sync not enabled”; `enabled=false` alone proves neither. Provider
+prerequisite/connection warnings do not revoke a previously authorized local copy
+that the freshness policy still permits reading.
+
+| Verified condition | Explanation | Primary next action |
+| --- | --- | --- |
+| Plugin list confirms iCloud is not installed | “Set up iCloud first so BB can access your Obsidian vault.” | Find/install iCloud through BB's marketplace. |
+| iCloud is installed but disabled | “iCloud is turned off. Enable it in BB to continue.” | Open its BB plugin details; do not enable it automatically. |
+| Host reports iCloud starting | “iCloud is starting. We'll check again shortly.” | Bounded status refresh; never reload it to hurry setup. |
+| Host reports incompatible iCloud | “This iCloud version cannot run with the current BB installation.” | Open its plugin details for the host's update guidance. |
+| Plugin-list/RPC check failed or host reports an unavailable/error state | “Could not check iCloud setup. Your Obsidian settings have been kept.” | Check again; offer iCloud details as a secondary action, not a guessed reinstall/reconnect. |
+| iCloud reports unavailable host prerequisites | “iCloud needs host setup before it can sync your vault.” | Open iCloud's prerequisite guidance; ask the host operator to complete it. |
+| No eligible mirror and Apple verification is pending | “Finish Apple verification in iCloud settings.” | Open iCloud settings; never request the code here or in chat. |
+| No eligible mirror and Apple is disconnected | “Connect your Apple account in iCloud settings to sync a vault.” | Open iCloud settings. |
+| Connected, no vault folder selected | “Choose your Obsidian vault folder in iCloud settings.” | Open the iCloud folder selection. |
+| Folder selected, never initialized, paused and not enabled | “Enable sync for your vault in iCloud settings. Obsidian needs its first successful sync.” | Open iCloud settings; no automatic Enable sync call. |
+| Initial sync is running | “Your vault's first sync is still running. Obsidian will be available after it finishes.” | Show verified folder status and refresh while this page is open; no invented percentage, ETA or success. |
+| Initial sync failed | “The first sync did not finish. Review recovery in iCloud before continuing.” | Open iCloud recovery guidance; do not retry/resync/rebuild automatically. |
+| Eligible mirror exists, no Obsidian selection | “Choose the synced vault BB may read.” | Select vault and scope, then explicitly save authorization. |
+| Saved mirror ID is absent or retained/replaced | “The selected vault is no longer available for normal reads. Review it in iCloud, then choose a vault again.” | Open iCloud; preserve the previous selection without silently granting access to a replacement. |
+
+For previously authorized mirrors, retain the freshness policy above: paused or
+Apple-disconnected copies with a successful baseline can be read with a visible
+stale-copy warning; running sync produces a busy response; failed/retained copies
+require recovery. Do not force an otherwise permitted stale read through first-run
+onboarding merely because Apple is disconnected. Conversely, a folder with no
+successful baseline must never be presented as a stale-but-readable vault.
+
+Use one primary action appropriate to the current state, plus a quiet full-guide
+link. Confirm BB's actual catalog/details/settings navigation in running BB. The
+existing `/plugins/icloud?configure=icloud` review route is a candidate for an
+installed plugin, not a proven install/catalog deep link. If the host offers no
+stable route for a step, give exact BB navigation instructions rather than a
+broken button or an automatic install command.
+
+Refresh on returning to Obsidian and use bounded polling only while its setup
+page is visible for pending states. Completing initial sync makes the selection
+available without reinstalling Obsidian or starting a new chat. Preserve unsaved
+scope choices on failed saves; ignore late responses after scope change/forget.
+After setup, lead with the vault, read-only scope and last successful sync; keep
+the setup checklist behind a quiet guide. Distinguish an empty permitted vault
+from an incomplete or failed scan.
+
+### Agent-facing errors
+
+`obsidian_status` exposes the same bounded setup code and useful next step.
+Blocked content tools return an error result with that code and explanation,
+never `[]`, “vault empty”, a raw RPC exception or a generic “read failed”. For
+example: “Obsidian is not ready: the vault's first iCloud sync is still running.
+Wait for it to finish in iCloud settings, then choose the vault in Obsidian.”
+Keep installation/verification/sync actions in settings, not agent tools. The
+assistant must not ask for credentials, recommend a reset for a transient check
+failure, or imply it searched notes when setup prevented the search.
 
 Write a complete portable setup guide. Inspect the running host again before
-finalizing controls, then review first-run, pending, configured, empty, error and
-revocation states at desktop and narrow widths with keyboard navigation and
-accessible announcements. No write-approval UI is applicable to this read-only
-slice; authorization to read is still explicit.
+finalizing controls, then review every dependency state above plus configured,
+empty, save-error and revoked states at desktop and narrow widths with keyboard
+navigation and accessible announcements. No write-approval UI is applicable to
+this read-only slice; authorization to read is still explicit.
 
 ## Delivery steps and gates
 
 1. **Prove the handoff.** In an isolated running BB, install iCloud and a minimal
    Obsidian package; prove server-to-server inventory, filesystem readability,
-   missing/disabled dependency behaviour and name-based selection using synthetic
-   mirrors. Record the supported host/SDK versions and race limitations. Do not
-   proceed on the strength of SDK types alone.
+   plugin-list/status/inventory classification, dependency navigation and
+   name-based selection using synthetic mirrors. Include empty inventory during
+   an active initial sync and a previously successful disconnected copy. Record
+   the supported host/SDK versions and race limitations. Do not proceed on the
+   strength of SDK types alone.
 2. **Specify behaviour.** Write Gherkin features for the outcomes below; define
    ports and fixtures before implementation. Compare uncertain syntax/resolution
    cases with a disposable vault in Obsidian. Choose parser libraries and record
@@ -280,7 +365,11 @@ synced-vault end-to-end gate remains unverified.
 | Area | Executable examples |
 | --- | --- |
 | Authorization | No content before explicit selection/scope; selection persists over restart; changing scope/forget revokes cached paths, results and cursors. |
-| Dependency | Missing/disabled/removed iCloud or inventory failure is not an empty successful vault; no cached-root fallback. |
+| Dependency | Plugin-list/status/inventory failures are not guessed to mean missing iCloud, disconnected Apple or an empty vault; no cached-root fallback. |
+| Onboarding | Installed-before-iCloud, disabled/starting/incompatible plugin, missing host prerequisites, Apple verification/disconnection, no folder, sync not enabled, active/failed initial sync and ready-to-select states have distinct verified messages/actions. |
+| Onboarding transitions | Empty inventory during first sync never says “no folders selected”; completion unlocks selection without reinstall/new chat; eligible folders remain offered while unrelated folders are pending/failed; late responses cannot restore revoked access. |
+| Recovery/navigation | Every advertised install/details/settings action reaches the correct BB screen; returning refreshes status; no automatic install, enable, sync, reconnect or destructive recovery; saved selection/scope survives unavailable checks. |
+| Agent errors | Blocked reads/search/tasks return the same actionable setup code as settings, not empty success; no credentials requested and no claim that notes were searched. |
 | Identity | Duplicate display names remain distinguishable; replacement/retained mirror never silently inherits authorization. |
 | Filesystem | Include/exclude scope applies to search, read, tasks and followed links; absolute paths, traversal, encoded traversal, symlink escape and symlink-swap attempts fail safely. |
 | Syntax | Properties, aliases, nested/case-insensitive tags, links/embeds, heading/block references, nested tasks and nonblank completion markers; Unicode, spaces, LF and CRLF fixtures. |
@@ -292,7 +381,7 @@ synced-vault end-to-end gate remains unverified.
 | Read-only | Reads create no files inside the vault, execute no note code, make no provider writes and never enable sync. Hash fixture vaults before/after. |
 | Diagnostics | Fixed `Obsidian <stage> <category>` messages at handled failures; sentinels in paths, note bodies, parser exceptions, RPC responses and causes never leak to logs/errors. |
 | Host lifecycle | Installation alone grants no note access; fresh sessions discover tools; disable/remove stops exposure without changing iCloud, notes or other integrations. |
-| UI | Rendered first-run, pending, selected, empty, stale, busy, recovery and revoked states at desktop/narrow widths, keyboard focus and accessible errors. |
+| UI | Rendered dependency/onboarding matrix, selected, empty, stale, busy, recovery, save-error and revoked states at desktop/narrow widths; working navigation, keyboard focus, calm setup guidance and accessible errors. |
 
 ## Deliberately later
 
