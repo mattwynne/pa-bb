@@ -1,6 +1,7 @@
 .pa-icloud { color: var(--foreground); font-size: 0.875rem; line-height: 1.45; max-width: 100%; }
 .pa-icloud *, .pa-icloud *::before, .pa-icloud *::after { box-sizing: border-box; }
 .pa-icloud .pa-connection__heading:not(:first-child) { margin-top: 1.25rem; }
+.pa-icloud .pa-connection__onboarding ol { list-style: decimal; padding-left: 1.5rem; }
 .pa-icloud__form { display: grid; gap: 0.5rem; margin: 1rem 0; min-width: 0; }
 .pa-icloud__form label { font-weight: 600; }
 .pa-icloud__form input { width: 100%; min-width: 0; padding: 0.5rem 0.65rem; border: 1px solid var(--border); border-radius: var(--radius, 0.4rem); color: var(--foreground); background: var(--background); font: inherit; }

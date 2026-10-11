@@ -22,9 +22,13 @@ try {
     });
     await page.goto(base + '/plugins/icloud?configure=icloud');
     const section = page.locator('.pa-icloud'); await section.waitFor();
+    await page.waitForFunction(() => [...document.styleSheets].some(sheet => {
+      try { return [...sheet.cssRules].some(rule => rule.selectorText === '.pa-icloud__form'); } catch { return false; }
+    }));
     await section.getByText(view === 'error' ? 'Connection status unavailable.' : view === 'pending' ? 'Finish connecting' : view === 'first' || view === 'prerequisite' ? 'Get started' : 'Connected', { exact: true }).waitFor();
     assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
     if (['first', 'prerequisite', 'pending'].includes(view)) {
+      if (view !== 'pending') assert.equal(await section.locator('ol').evaluate(element => getComputedStyle(element).listStyleType), 'decimal');
       const secret = section.getByLabel(view === 'pending' ? 'Verification code' : 'Apple password', { exact: true });
       assert.equal(await secret.getAttribute('type'), 'password');
       await secret.focus(); assert.equal(await secret.evaluate(element => element === document.activeElement), true);
