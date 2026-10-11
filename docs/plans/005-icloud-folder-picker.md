@@ -2,7 +2,7 @@ Drafted by Matt's robot
 
 # 005 — Make the iCloud folder picker feel like a file browser
 
-Status: verified for iCloud 0.1.2; live deployment held while the initial sync is running.
+Status: iCloud 0.1.2 installed; deployment interrupted a later scheduled run, leaving sync paused for recovery.
 
 ## Change
 
@@ -21,4 +21,7 @@ Use BB's shared icon component and existing connection button styles; keep label
 
 - 29 Cucumber scenarios / 222 steps and 22 unit/adapter/host tests passed, including the stock-rclone checks with no skips. Typecheck, build and shared connection UI drift checks passed.
 - Running isolated BB rendered 17 controlled states at 1280px and 390px. Exercised keyboard focus, navigation through parent/root breadcrumbs, selection feedback, overlap restrictions, loading/error recovery, close-during-request handling and consent dialogs. Inspected screenshots and compared the controls with the existing Fastmail connection. Corrected unsupported icon names found during visual review.
-- The connected production status reports an initial folder run in progress and no completed sync yet. This is a deployment safety blocker, not proof of a failed sync. No update, live folder mutation or provider-content read was attempted. Live rendering of this version and post-update preservation remain pending until the current run finishes.
+- Initial deployment was held while the first sync was running. The initial sync subsequently completed, and production reported successful later runs.
+- Only iCloud was updated to 0.1.2 after an idle status check; the account remained connected and the other installed integrations stayed unchanged. The idle check did not reserve the window: a scheduled run started during update preparation and plugin disposal interrupted it. This was a deployment mistake. Sync is now failed/disabled with the last successful timestamp preserved; no automatic retry, baseline reset, lock clearing or resync was attempted.
+- Read-only recovery metadata inspection found an initialized marker, no baseline lock, no baseline writes after the last success, no interrupted backup staging directories and retained recovery manifests. This does not establish that it is safe to resume. Recovery review and live rendering of this version remain pending.
+- Future updates must explicitly quiesce new runs before preparing/reloading the plugin and wait for the current run to finish. A point-in-time idle check is not sufficient.
