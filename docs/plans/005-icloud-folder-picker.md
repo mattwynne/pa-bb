@@ -2,7 +2,7 @@ Drafted by Matt's robot
 
 # 005 — Make the iCloud folder picker feel like a file browser
 
-Status: iCloud 0.1.2 installed; deployment interrupted a later scheduled run, leaving sync paused for recovery.
+Status: iCloud 0.1.2 installed; deployment interruption recovered with explicit approval and a successful normal sync.
 
 ## Change
 
@@ -24,4 +24,10 @@ Use BB's shared icon component and existing connection button styles; keep label
 - Initial deployment was held while the first sync was running. The initial sync subsequently completed, and production reported successful later runs.
 - Only iCloud was updated to 0.1.2 after an idle status check; the account remained connected and the other installed integrations stayed unchanged. The idle check did not reserve the window: a scheduled run started during update preparation and plugin disposal interrupted it. This was a deployment mistake. Sync is now failed/disabled with the last successful timestamp preserved; no automatic retry, baseline reset, lock clearing or resync was attempted.
 - Read-only recovery metadata inspection found an initialized marker, no baseline lock, no baseline writes after the last success, no interrupted backup staging directories and retained recovery manifests. This does not establish that it is safe to resume. Recovery review and live rendering of this version remain pending.
-- Future updates must explicitly quiesce new runs before preparing/reloading the plugin and wait for the current run to finish. A point-in-time idle check is not sufficient.
+- Future updates must explicitly quiesce new runs before preparing/reloading the plugin and wait for the current run to finish. A point-in-time idle check is not sufficient. The shipping skill now requires this.
+
+## Approved recovery
+
+A stock-rclone dry run against a private copy of the original baseline succeeded with no proposed file operations or errors. The original baseline and local file metadata remained unchanged. The owner explicitly approved resuming the existing folder. With the plugin stopped, a private checkpoint was saved and only the interrupted status was changed to paused; files and baselines were untouched. The plugin was restarted and resumed through its normal validated control. A subsequent normal sync completed successfully, leaving the folder enabled/ready with no failure and an advanced successful timestamp. No resync, fresh mirror, lock removal or file restore was performed; other integrations were unchanged.
+
+The deployed connected UI was inspected in running BB at 1280px and 390px, including native icons, keyboard focus and layout. Private folder names were masked in review screenshots. Progress bars are a separate, still-unimplemented enhancement.
