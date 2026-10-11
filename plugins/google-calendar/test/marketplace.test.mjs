@@ -18,6 +18,9 @@ test('the Git marketplace catalog passes BB v2 schema and targets this plugin pa
   assert.ok(entry);
   assert.ok(fastmail);
   assert.ok(drive);
+  const icloud = catalog.plugins.find(plugin => plugin.id === 'icloud');
+  assert.ok(icloud);
+  assert.equal(icloud.source.git.subdir, 'plugins/icloud');
   assert.equal(drive.source.git.subdir, 'plugins/google-drive');
   assert.notEqual(drive.source.git.subdir, entry.source.git.subdir);
   assert.equal(fastmail.source.git.subdir, 'plugins/fastmail');

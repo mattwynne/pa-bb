@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext", "jsx": "react-jsx", "strict": true, "skipLibCheck": true, "noEmit": true, "allowImportingTsExtensions": true },
+  "include": ["*.ts", "*.tsx", "core/**/*.ts", "adapters/**/*.ts", "features/**/*.ts", "test/**/*.ts"]
+}

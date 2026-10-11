@@ -1,0 +1,39 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, stat, writeFile, unlink, access } from 'node:fs/promises';
+import { RcloneProcess, safeEnvironment } from '../adapters/rclone-process.ts';
+const binary = process.env.RCLONE_TEST_BINARY;
+test('subprocess environment excludes credentials and provider overrides', () => {
+  process.env.RCLONE_CONFIG_PASS = 'sentinel-secret'; process.env.BB_TOKEN = 'sentinel-token';
+  assert.equal(safeEnvironment().RCLONE_CONFIG_PASS, undefined); assert.equal(safeEnvironment().BB_TOKEN, undefined);
+  delete process.env.RCLONE_CONFIG_PASS; delete process.env.BB_TOKEN;
+});
+test('real stock rclone uses a private socket, encrypted config and survives a clean restart', { skip: !binary }, async () => {
+  const root = await mkdtemp('/tmp/icloud-process-'); let process = new RcloneProcess(root, binary);
+  try {
+    await process.ensure();
+    await process.call('config/create', { name: 'proof', type: 'local', parameters: { description: 'sentinel-private' }, opt: { nonInteractive: true } });
+    assert.equal((await stat(root + '/control.sock')).mode & 0o777, 0o600);
+    const encrypted = await readFile(root + '/state/rclone.conf', 'utf8');
+    assert.match(encrypted, /RCLONE_ENCRYPT_V0:/); assert.doesNotMatch(encrypted, /sentinel-private/);
+    await process.stop(); process = new RcloneProcess(root, binary); await process.ensure();
+    assert.equal((await process.call('config/get', { name: 'proof' })).description, 'sentinel-private');
+  } finally { await process.stop(); await rm(root, { recursive: true }); }
+});
+test('timeout cannot count a graceful zero exit as a successful operation', async () => {
+  const runner = new RcloneProcess('/tmp/unused-synthetic-root') as unknown as { execute(binary: string, args: string[], capture: boolean, timeout: number): Promise<string> };
+  await assert.rejects(runner.execute(process.execPath, ['-e', 'process.on("SIGINT", () => process.exit(0)); setInterval(() => {}, 1000)'], true, 300), /interrupted/);
+});
+test('an encrypted config with a missing key is refused without generating a replacement', { skip: !binary }, async () => {
+  const root = await mkdtemp('/tmp/icloud-process-'); let runner = new RcloneProcess(root, binary);
+  try {
+    await runner.ensure(); await runner.stop(); await unlink(root + '/secrets/config.key');
+    runner = new RcloneProcess(root, binary); await assert.rejects(runner.ensure());
+    await assert.rejects(access(root + '/secrets/config.key'));
+  } finally { await runner.stop(); await rm(root, { recursive: true }); }
+});
+test('a stale worker lock is never cleared automatically', { skip: !binary }, async () => {
+  const root = await mkdtemp('/tmp/icloud-process-'); const process = new RcloneProcess(root, binary);
+  try { await writeFile(root + '/worker.lock', ''); await assert.rejects(process.ensure(), /recovery_required/); assert.equal(await readFile(root + '/worker.lock', 'utf8'), ''); }
+  finally { await process.stop(); await rm(root, { recursive: true }); }
+});

@@ -1,0 +1,15 @@
+.pa-icloud { color: var(--foreground); font-size: 0.875rem; line-height: 1.45; max-width: 100%; }
+.pa-icloud *, .pa-icloud *::before, .pa-icloud *::after { box-sizing: border-box; }
+.pa-icloud .pa-connection__heading:not(:first-child) { margin-top: 1.25rem; }
+.pa-icloud__form { display: grid; gap: 0.5rem; margin: 1rem 0; min-width: 0; }
+.pa-icloud__form label { font-weight: 600; }
+.pa-icloud__form input { width: 100%; min-width: 0; padding: 0.5rem 0.65rem; border: 1px solid var(--border); border-radius: var(--radius, 0.4rem); color: var(--foreground); background: var(--background); font: inherit; }
+.pa-icloud__form input:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: 2px; }
+.pa-icloud__form button { justify-self: start; }
+.pa-icloud__mirrors, .pa-icloud__browser ul { list-style: none; margin: 0; padding: 0; }
+.pa-icloud__mirrors > li, .pa-icloud__browser { margin: 0.75rem 0; padding: 0.9rem; border: 1px solid var(--border); border-radius: var(--radius, 0.4rem); overflow-wrap: anywhere; }
+.pa-icloud__mirror-head { display: flex; gap: 0.75rem; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
+.pa-icloud__mirrors p { color: var(--muted-foreground); margin: 0.5rem 0; }
+.pa-icloud__mirrors p[role="alert"] { color: var(--destructive); }
+.pa-icloud__browser li { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin: 0.5rem 0; }
+.pa-icloud__browser li span { flex: 1 1 8rem; min-width: 0; }

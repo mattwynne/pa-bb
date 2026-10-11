@@ -37,6 +37,17 @@
       "source": {
         "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/google-drive", "ref": "main" }
       }
+    },
+    {
+      "id": "icloud",
+      "displayName": "iCloud",
+      "description": "Sync selected iCloud Drive folders with persistent local folders, with protected Apple setup and recovery copies.",
+      "icon": "Cloud",
+      "tags": ["icloud", "sync", "files", "productivity"],
+      "author": { "name": "Matt Wynne", "github": "mattwynne" },
+      "source": {
+        "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/icloud", "ref": "main" }
+      }
     }
   ]
 }
