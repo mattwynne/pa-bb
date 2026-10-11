@@ -2,7 +2,7 @@ Drafted by Matt's robot
 
 # 008 — Incremental iCloud recovery copies
 
-Status: verified for iCloud 0.1.4; approved recovery and production deployment pending.
+Status: iCloud 0.1.4 installed from `d7c79de`; approved recovery, bootstrap and unchanged-run verification complete.
 
 ## Contract
 
@@ -28,6 +28,14 @@ Pause future scheduled runs through supported controls before update preparation
 - Running isolated BB passed 30 controlled states at 1280px/390px (60 cases), including the new changed-source warning without an inappropriate fresh-mirror action, progress lifecycle, setup/browser/approval states, focus, layout and reduced motion. Screenshots were inspected.
 - Native local copies are bounded to planned sizes; multi-chunk, empty-file and growing-source tests passed. Reused blobs are verified; missing/corrupt/symlink blobs fail closed. Ordered generations choose the latest complete index independently of wall-clock ties.
 - Repeated all release gates in the replacement session: 45 scenarios / 403 steps, 48 tests without skips, typecheck/build/shared UI checks, and 60 rendered-BB cases passed. A read-only preview against a private baseline copy completed in 42 seconds with no errors or proposed changes; the original baseline and local metadata stayed unchanged. Earlier 120/180-second previews timed out, but the timeout was not reproduced and its cause remains unknown.
+
+## Deployment
+
+- Committed and pushed `d7c79de`, then updated only iCloud to 0.1.4 while its failed mirror was disabled. Preserved the unfinished backup as an incomplete retention manifest in the bounded recovery store, saved a private state checkpoint, and changed only the reviewed failure to paused. Enabled the plugin and resumed the existing folder through its normal control. The baseline, local folder, last successful timestamp, Apple connection and other integration versions were preserved; no forced resync, fresh mirror or lock removal occurred.
+- Live production progress and completion passed at 1280px/390px: measured bars, changing counters, keyboard focus, non-overflowing layout, advanced successful timestamps and cleared progress after completion, with folder names masked in screenshots. Existing plugin log entries were inspected and contained only fixed operation/category messages; the original backup error remains unspecified, not retroactively diagnosed.
+- The first upgraded normal run completed at `2026-10-11T22:49:17.290Z`, establishing a complete generation-1 index for 1,499 cloud and 1,499 local files. Its full cloud-copy stage reported 19,132,966 bytes; observation began partway through that stage and measured about 290 seconds of remaining cloud copying, 38 seconds saving recovery, and 33 seconds checking sync. These are observed stage intervals, not a claimed whole-run duration.
+- The next run completed at `2026-10-11T22:51:11.750Z` in about 106 observed seconds: roughly 71 seconds of metadata/sync checking and 35 seconds saving/revalidating recovery. Generation 2 had identical recovery entries, no unknown versions or encoding-sensitive fallback paths, and zero unfinished staging trees. An additional staging/process observer saw no cloud selector, staged cloud files, cloud-copy commands or nonzero cloud transfer counters while the staging tree was present: unchanged recovery downloaded zero file bodies. Metadata listing, local hashing and final sync checks still take time; the one-minute schedule does not promise each run finishes within a minute.
+- No account edits were manufactured to demonstrate performance. Targeted real-cloud changes, phone-to-consumer round trips and expired Apple-session recovery remain unverified; generated-file change/conflict/deletion tests do not substitute for them.
 
 The old installed release failed a cloud-backup read before two-way sync. Read-only inspection found unchanged successful baseline metadata, intact listings without lock/error/new-list files, and one incomplete recovery copy. The missing file's metadata and a protected download succeeded subsequently; the original underlying error remains unknown. The supported-pause watcher did not obtain an idle window and timed out without performing an update. The later failed state has already disabled future runs. Explicit consent authorizes preserving the incomplete versions, retaining the baseline/local folder, and normal resumption after this release passes all gates; it does not authorize a baseline reset or forced resync.
 

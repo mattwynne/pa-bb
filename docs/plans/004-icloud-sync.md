@@ -2,7 +2,7 @@ Drafted by Matt's robot
 
 # 004 — iCloud folder sync
 
-Status: built and verified in isolated BB; live Apple/disposable-vault verification pending.
+Status: installed; live Apple connection and scheduled sync verified in follow-up iterations, with phone-to-consumer and expired-session checks still pending.
 
 ## Outcome
 
@@ -49,4 +49,5 @@ Record scenario/test counts, build/typecheck results, installed version/commit, 
 - Limits: selected folders only; no Photos or whole-Drive selection. Trusted-device and automatically sent SMS codes are supported; selecting among multiple SMS phone numbers is not yet implemented. Consumers must explicitly choose a replacement mirror, not silently switch to it.
 - Marketplace deployment: implementation commit `a2745ff` installed as iCloud 0.1.0. Running BB reported stock rclone available, no connection, no selected mirrors and an empty read-only inventory. Other integration versions remained unchanged and running. The actual production first-run form rendered at desktop and narrow widths; protected input and keyboard checks passed without submitting credentials. An isolated host's missing-rclone path produced only `iCloud prerequisite unavailable` in its plugin log.
 - Rendered follow-up: explicitly number setup steps because BB resets list markers. Wait for plugin CSS in the review harness before taking screenshots or asserting layout.
-- Remaining live gates: Apple login/2FA, supported app-library visibility, approved disposable-vault sync through a consuming integration, expired-session recovery and connected production feedback. Do not use a personal vault merely to close these gates.
+- Follow-up evidence: Apple login, folder access, scheduled sync and connected production UI were verified during iterations [005](005-icloud-folder-picker.md) and [007](007-icloud-sync-progress.md). Incremental recovery and its live results are tracked in [008](008-incremental-icloud-recovery.md).
+- Remaining live gates: a phone edit reaching BB through a consuming integration, expired-session recovery, and feedback on the current release. Do not use a personal vault merely to close these gates.
