@@ -1,0 +1,285 @@
+{
+  "sources": [
+    {
+      "directory": "help",
+      "repository": "https://github.com/obsidianmd/obsidian-help",
+      "revision": "b95e59dab8b5d94ff06376f1437c8492f14da80d",
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "b990cfffe426fa58e9b03602e65896fa506d42d6b7efb507b19fb863d628402b"
+        },
+        {
+          "path": "en/Editing and formatting/Obsidian Flavored Markdown.md",
+          "sha256": "da08d3873a6b5a2334d57c1c943a9a1ca6d74991573638b466d3f6ecf9c9cda4"
+        },
+        {
+          "path": "en/Editing and formatting/Basic formatting syntax.md",
+          "sha256": "38db5d30f637adfcbe212fd8b5616412b93bd8c0387845e5ff5355f5195235bd"
+        },
+        {
+          "path": "en/Editing and formatting/Advanced formatting syntax.md",
+          "sha256": "15ed1c714c0e8a4dd48ac05ce53df787d1eda241c78d8b27a091f142cbe26307"
+        },
+        {
+          "path": "en/Editing and formatting/Properties.md",
+          "sha256": "75c85e422f5e2b17c9c8fe9125b6c9b4159fd6635cefbbef6b72c3272b623db6"
+        },
+        {
+          "path": "en/Editing and formatting/Tags.md",
+          "sha256": "20214764032cb166d6e13cc39605b654d691f5a17ad70437d6df81e28fc149dc"
+        },
+        {
+          "path": "en/Editing and formatting/Callouts.md",
+          "sha256": "5d12e34b9fb68c6b7ad0ea39d80fb11267b0406cd204f61d4c00f2d5dea9bab6"
+        },
+        {
+          "path": "en/Editing and formatting/Attachments.md",
+          "sha256": "7e3ec7096b7f7a4c4c523cc93b1d8de1a98c15141e862a243098387b8f112493"
+        },
+        {
+          "path": "en/Editing and formatting/HTML content.md",
+          "sha256": "e83bd7192d72c4ef9e2d60d7406879dcb49c60caa09e903639037b629652f95c"
+        },
+        {
+          "path": "en/Linking notes and files/Internal links.md",
+          "sha256": "4ebf7be1cce4bf31e104b60c8eb2a175f134a79a29e29a16822033cfb5088ce1"
+        },
+        {
+          "path": "en/Linking notes and files/Aliases.md",
+          "sha256": "c108b0e8d90888a49ea34092b2d2dc375fb027d2b7599268b20fe48283470909"
+        },
+        {
+          "path": "en/Linking notes and files/Embed files.md",
+          "sha256": "5757a6269949f507f3b5f1605ab9bfe81f247738d5b44c3bf096efc6215fbc54"
+        },
+        {
+          "path": "en/Files and folders/How Obsidian stores data.md",
+          "sha256": "add03088da7be4ab2fd364918c17b006d646eafedffada5440db83217f6942e6"
+        },
+        {
+          "path": "en/Files and folders/Configuration folder.md",
+          "sha256": "ab6b05840f1508b621210f2fb74a68199b22a80d0370ecccbb480b5b98a4e9d6"
+        },
+        {
+          "path": "en/Files and folders/Accepted file formats.md",
+          "sha256": "95ede78937600de68ad15ade8cf5044f05261eac9f72187c2880f6a7c71b517e"
+        },
+        {
+          "path": "en/Files and folders/Manage notes.md",
+          "sha256": "8f0510b45a78489ac4b0e3cf3f35f0c2abc8d6bcba201da9a23a2ae0af36d789"
+        },
+        {
+          "path": "en/Files and folders/Symbolic links and junctions.md",
+          "sha256": "d4c5c736ff4028d307d0608791f8c8e5ff797046057766dd2361036b5677118f"
+        },
+        {
+          "path": "en/Plugins/Daily notes.md",
+          "sha256": "776472f0c26adcc0c7556b4a7f3b7e3440720b48b724689a0282985fede4c2b8"
+        },
+        {
+          "path": "en/Plugins/Templates.md",
+          "sha256": "abf70b302301e49448c47f4a770d4d466d0946e5dfacb66b36fbd0aed0efbb65"
+        },
+        {
+          "path": "en/Plugins/Search.md",
+          "sha256": "1d7cd531ea24dff744f3a307daea7aa236bb756ff0320f4c7bfe4b1aef82cdfa"
+        },
+        {
+          "path": "en/Plugins/Backlinks.md",
+          "sha256": "d6f71bc20352f1af0338cad780095d0c32c65af6bfffd0065f315b3a8685d928"
+        },
+        {
+          "path": "en/Plugins/Outgoing links.md",
+          "sha256": "eb19e4331f43b70b2f33c35cd8e8ea6ea73b8f2e7f37c5f185068fa0e315ae07"
+        },
+        {
+          "path": "en/Plugins/Canvas.md",
+          "sha256": "67a36c9ffe1eb7c371a945dc99f627df445b6439b7271222ab87950a2c6a5225"
+        },
+        {
+          "path": "en/Bases/Bases syntax.md",
+          "sha256": "669f7ad38178da072f04684c8ed7076635c83489a27647fa89a8a2067af564e1"
+        },
+        {
+          "path": "en/User interface/Settings.md",
+          "sha256": "b3947392c596720a3e91b85b08a927b2e7e318c01b0a986b65090c656b192029"
+        },
+        {
+          "path": "en/Extending Obsidian/Obsidian CLI.md",
+          "sha256": "884d3f36a30ad2dc08bcdc84c1243e17e255677a2bd4a7a1aa0d8f77939fc012"
+        },
+        {
+          "path": "en/Extending Obsidian/Obsidian Headless.md",
+          "sha256": "48e063d9f46deb199213ac6f57f099cd9e0dde67c2b78546755ca838e1914cbb"
+        },
+        {
+          "path": "en/Extending Obsidian/Obsidian URI.md",
+          "sha256": "183ba482457be55723c23f3dc568e82e602f27082fc17f33aece38924f7443ed"
+        }
+      ]
+    },
+    {
+      "directory": "developer",
+      "repository": "https://github.com/obsidianmd/obsidian-developer-docs",
+      "revision": "c56c7e770ba25dd0ea392aacf4588f9425970d36",
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "97cf02b06d34c79fa09c58a396b4147be9d557146cfe5de77403102aceb9cac1"
+        },
+        {
+          "path": "en/Plugins/Vault.md",
+          "sha256": "b1461b73892f9b628e3871df3935426363c510ea95a027170220580ef6c311ad"
+        },
+        {
+          "path": "en/Reference/TypeScript API/parseLinktext.md",
+          "sha256": "dfb87336f014b3cc575831a0b170ebd7985648db1cca596533bfe339d24fad33"
+        },
+        {
+          "path": "en/Reference/TypeScript API/resolveSubpath.md",
+          "sha256": "9ee5bbcc72723c40efb02b7846c7de65551d483ada6458a97802f8b18fd5f53c"
+        },
+        {
+          "path": "en/Reference/TypeScript API/getAllTags.md",
+          "sha256": "3e1937eaa878967227c9a290b318983e7771180eb67447bbb4a164f4285e20e5"
+        },
+        {
+          "path": "en/Reference/TypeScript API/parseYaml.md",
+          "sha256": "64a65b7787ed67018fbc136a5fe375e4c4b8fd6a943e40ff6970273a0454861b"
+        },
+        {
+          "path": "en/Reference/TypeScript API/stringifyYaml.md",
+          "sha256": "02dd1a7684876f685509cf5d870445e65b581fe7ff2d9775bfe5135776aad8c1"
+        },
+        {
+          "path": "en/Reference/TypeScript API/getFrontMatterInfo.md",
+          "sha256": "db2e9129e426ffaafef62b1808ca42f8b5ba5ffe029d7b534c431449413d705c"
+        },
+        {
+          "path": "en/Reference/TypeScript API/parseFrontMatterAliases.md",
+          "sha256": "d86a6eb0d646bf092e5ffabd33c9500c02de511983d3cc99d45b5f83d5245b9b"
+        },
+        {
+          "path": "en/Reference/TypeScript API/parseFrontMatterTags.md",
+          "sha256": "cd74ba0fbd71803f4e8467442fda044e54516c3559c567e4197e018a7af5f846"
+        },
+        {
+          "path": "en/Reference/TypeScript API/parseFrontMatterEntry.md",
+          "sha256": "1e2f757fd679ed3816ce5de663bcc86299bd0cc92c185b6166ca987ec2c3bf89"
+        },
+        {
+          "path": "en/Reference/TypeScript API/parseFrontMatterStringArray.md",
+          "sha256": "191d224768da807e93fc03ad96433a6cc5fcbea8b4081138a2525d08b9ff3787"
+        },
+        {
+          "path": "en/Reference/TypeScript API/CachedMetadata.md",
+          "sha256": "7b7ab7d183af7073046a88c0fbd5d2ea989f17f202885b5d6139b8b6260ac724"
+        },
+        {
+          "path": "en/Reference/TypeScript API/LinkCache.md",
+          "sha256": "8f397c6ffe0618a130ee2d92b07c05bdff57089e91ca025ea283836d434ddb92"
+        },
+        {
+          "path": "en/Reference/TypeScript API/EmbedCache.md",
+          "sha256": "502a00651710772223880f5280181275c01181967a29f0c52b3d7fd6947b0b8a"
+        },
+        {
+          "path": "en/Reference/TypeScript API/HeadingCache.md",
+          "sha256": "a3ec624fd7329fd068fb67dfaea29fd34ac9ec52a5b855b2b82ae868af7c0d74"
+        },
+        {
+          "path": "en/Reference/TypeScript API/BlockCache.md",
+          "sha256": "203f14c521beff14d09e5995647a5128c4f077c36b57542737f06a66144fc61f"
+        },
+        {
+          "path": "en/Reference/TypeScript API/TagCache.md",
+          "sha256": "5dc191f65f5a14b43167e8092903014bfbe2f0bfbbcdc2036ade5c2d9ee4015b"
+        },
+        {
+          "path": "en/Reference/TypeScript API/ListItemCache.md",
+          "sha256": "c16d451b050ae47b079307540210fc2e34e358b7bda54c6216bce31bb68ad998"
+        },
+        {
+          "path": "en/Reference/TypeScript API/FrontMatterCache.md",
+          "sha256": "abbc2ce4dde0ce0b28f719a65b6da7ac3db930fc70c7aa5f4f5e8b270bf1be2a"
+        },
+        {
+          "path": "en/Reference/TypeScript API/ReferenceCache.md",
+          "sha256": "037e2e0dc67b64224fb4f37e163871139d2a37afeb938b1e699c732c5f4704cb"
+        },
+        {
+          "path": "en/Reference/TypeScript API/Pos.md",
+          "sha256": "298562aafeab6cf8b609e3c06d71c0f961b5d38c86c24b96a04d8b42b95a61de"
+        },
+        {
+          "path": "en/Reference/TypeScript API/MetadataCache.md",
+          "sha256": "82efb6a43569ca4ff98ae849e35e2f4c939f266df605dfbfebb3adb05e242794"
+        },
+        {
+          "path": "en/Reference/TypeScript API/MetadataCache/getFirstLinkpathDest.md",
+          "sha256": "bc0b81b9862fdafff4265efca50c152dc644f6fbe6e580342e02b197b216a332"
+        },
+        {
+          "path": "en/Reference/TypeScript API/MetadataCache/getFileCache.md",
+          "sha256": "7397ce55daad38c2b21f788653cc9f9be0df7408ef88c31b61872f9925290f3f"
+        },
+        {
+          "path": "en/Reference/TypeScript API/Vault.md",
+          "sha256": "451e0c189c76258104910383b9a595800cf896817d5e6a06261e502bf340cf80"
+        },
+        {
+          "path": "en/Reference/TypeScript API/Vault/read.md",
+          "sha256": "2dd4c23f272f90d5406e2a08b4a0f9574e6b1ff981e2b8d57fdca0fe54112b9e"
+        },
+        {
+          "path": "en/Reference/TypeScript API/Vault/process.md",
+          "sha256": "e3d6fafa881cf4deacad1d587dc816eefacf8574917130e969a35f76d295ae21"
+        },
+        {
+          "path": "en/Reference/TypeScript API/FileManager/processFrontMatter.md",
+          "sha256": "01d8b45f8bafb6debbdab29f55fc1dffb00e84302807eab60859093dc46230c2"
+        },
+        {
+          "path": "en/Reference/TypeScript API/FileManager/generateMarkdownLink.md",
+          "sha256": "854109fa806293efc57bd4bc601479cf7e65e0ad4ebc494cf2ac204aa75aaee8"
+        },
+        {
+          "path": "en/Reference/TypeScript API/FileManager/renameFile.md",
+          "sha256": "568fcc7552359eba1cf99a9713a2c6b7fd35268df27fe3c9c0b949993c7e00c9"
+        },
+        {
+          "path": "en/Reference/TypeScript API/normalizePath.md",
+          "sha256": "8092b0ee5fa4926727965e707e7a9e82b4dfd99a6c164bfcb4804a606f0e7746"
+        }
+      ]
+    },
+    {
+      "directory": "api",
+      "repository": "https://github.com/obsidianmd/obsidian-api",
+      "revision": "9abd9605ce081383674aae1ed111c456edde0688",
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "89b06377b8bb16019f959237ef64db04f257c11898450853858fbb711d5b3b90"
+        },
+        {
+          "path": "LICENSE.md",
+          "sha256": "c7e9eeb6640ebb1c22d8888f6d2c771b1f058a54e6216d69c7e2224b3cbad394"
+        },
+        {
+          "path": "package.json",
+          "sha256": "327e9c193b0e70e9fc1dcc9d3d85e916037f04606a4fadb53639be318161e41e"
+        },
+        {
+          "path": "obsidian.d.ts",
+          "sha256": "97c86417c893db691e401fdffd9026e348dc96da6bfcfa5d49a301d7fe7542a0"
+        },
+        {
+          "path": "canvas.d.ts",
+          "sha256": "b5f78362dd27ceee81f4a9c0c4fcebcc2da55b7c519083f9bbfbb2364c6d6c5b"
+        }
+      ]
+    }
+  ]
+}
