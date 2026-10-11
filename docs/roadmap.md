@@ -1,3 +1,5 @@
+Drafted by Matt's robot
+
 # PA for BB roadmap
 
 PA for BB should be a useful assistant assembled from independently installed service connections and task-focused abilities. **A service is a plugin; a task that spans services is an ability.** Installing the marketplace installs neither. Users choose which accounts and capabilities to connect.
@@ -30,7 +32,7 @@ The independently installable [Google Drive/Docs read-only first slice](plans/00
 
 ### 4. Personal knowledge and Obsidian
 
-Make access to projects, people, and source-owned actions optional. Start read-only and settle how the BB host gets a current, authorized view of a user's vault before offering edits. PA currently relies on Matt's local iCloud/Obsidian filesystem and git workflow; that path and Matt's private knowledge or policies must not be bundled into a public plugin. If vault access is the gating dependency for the next useful ability, move this item ahead of Drive/Docs.
+[Iteration 006 — Obsidian vault reading](plans/006-obsidian-vault-reading.md) plans one explicitly authorized vault supplied by the iCloud plugin, with read-only note search, reads, link resolution, task discovery and source citations. Prove the live inventory handoff and safe reads during sync; distinguish local read time from last successful cloud sync. Keep vault scope under the owner's control and personal layouts or policies out of the public package. Note edits, daily-note capture and task completion come later. If vault access is the gating dependency for the next useful ability, move this item ahead of Drive/Docs.
 
 ### 5. Outcome abilities
 
