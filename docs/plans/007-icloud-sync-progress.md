@@ -2,7 +2,7 @@ Drafted by Matt's robot
 
 # 007 — Honest per-folder sync progress
 
-Status: verified for iCloud 0.1.3; safe production update pending.
+Status: installed as iCloud 0.1.3; live progress and successful normal completion verified.
 
 ## Contract and display
 
@@ -24,4 +24,5 @@ Use private stderr NDJSON stats from each separately spawned stock-rclone comman
 
 - 40 Cucumber scenarios / 351 steps and 29 unit/adapter/host tests passed with no skips, including stock-rclone transfer stats observed mid-command and generated-data conflict/deletion safety. Typecheck, build and shared connection UI checks passed.
 - Running isolated BB rendered 29 controlled states at 1280px and 390px (58 cases). Reviewed screenshots for byte/file progress, both recovery-copy stages, unknown/growing totals, complete transfers, finishing activity and success/failure cleanup, plus existing setup/browser/approval states. Tested adaptive polling, preserved timestamps, keyboard focus, non-overflowing layout and reduced motion. Compared with the existing connection styling.
+- Installed only iCloud after quiescing the failed mirror and obtaining explicit recovery consent. Preserved incomplete backup versions in the shared recovery store; the existing baseline and local folder were unchanged. Live measured bars, changing counters, focus and layout passed at 1280px/390px, and a normal run completed successfully. Other integrations and the Apple connection were preserved. A later cloud-backup download failed safely before two-way sync; that separate recovery and incremental optimization are tracked in iteration 008.
 - Progress is a transient, whitelisted status projection, not saved provider data. The command-local parser drops malformed/oversized NDJSON records and ignores callback failures; private-message/file/error sentinels did not reach status or diagnostics. Failed runs log a bounded operation/stage (for example `sync/backing_up_cloud`) and category, not provider error text.

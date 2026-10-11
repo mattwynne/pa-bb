@@ -18,6 +18,8 @@ On a trusted Apple device, open **Settings → Apple Account → iCloud** and en
 
 While a folder is running, a progress bar shows checking, saving recovery copies, transfers and finishing checks. Measured stages show bytes or file counts; stages without a known total show activity rather than an invented percentage. A transfer reaching 100% does not finish the whole sync. Progress updates about once a second while the settings page is open and disappears when the run succeeds or pauses after failure. No filenames or provider logs appear in the progress display.
 
+Before applying sync changes, BB saves recovery versions on the host. After one full backup to establish an index, unchanged files normally reuse verified copies; cloud changes and local edits/deletions trigger fresh cloud backups for the affected paths. Local contents are hashed, not assumed unchanged from timestamps. Unknown cloud modification metadata and encoding-sensitive filenames use a conservative fresh-download fallback. Legacy manifests and expired indexes require another full backup. A newly seeded local mirror may also need a settling capture because its contents changed during initialization.
+
 The **Last successful sync** time changes only after successful completion. “Syncing” or an active worker is not proof that a phone edit reached BB. Open the disposable vault on the phone, make a harmless change, and confirm its content through the consuming integration before trusting the connection with personal data. Editing personal data or testing destructive changes needs separate approval.
 
 ## Everyday controls
@@ -28,6 +30,8 @@ The **Last successful sync** time changes only after successful completion. “S
 - **Disconnect** removes local password/session credentials and pauses sync. Local files and recovery copies remain. It does not revoke authorization at Apple. Remove/uninstall behaviour is governed by BB's host data policy; archive local data before asking BB to remove plugin data.
 
 ## Recovery
+
+If files change while recovery copies are being made, BB pauses before applying sync changes and keeps unfinished copies for review. Ask the host operator to review them before retrying; a changed-source warning is not evidence that the existing sync baseline is damaged.
 
 A failed or interrupted sync pauses. Do not try to bypass a lock, force deletion checks, erase baselines or run an automatic resync. The phone or iCloud may already have received some changes.
 
@@ -42,14 +46,16 @@ All locations are allocated under the plugin's own persistent directory, derived
 
 - `mirrors/<id>/`: local files; retained previous mirrors are not deleted automatically.
 - `baselines/<id>/`: preparation/initialization markers and bisync listings/locks.
-- `backups/snapshots/`: JSON manifests mapping mirror identifier, capture time, side (`cloud`/`local`), relative filename and SHA-256 blob identifier.
+- `backups/snapshots/`: JSON manifests mapping mirror identifier, capture time, side (`cloud`/`local`), relative filename and SHA-256 blob identifier. Complete schema-2 manifests also hold opaque version fingerprints and an ordered generation. Incomplete retained captures are not reusable indexes.
 - `backups/blobs/`: immutable file copies shared across identical snapshots.
 - `state/`: encrypted rclone configuration. `secrets/` holds its separately protected encryption key and key-reader helper. Protect both; a backup of ciphertext without its key cannot recover the connection.
 
 For a recovery copy, find the chosen mirror/time/side in a manifest, then copy its referenced blob to a separate review directory using the manifest's relative filename. Validate the relative path remains inside that review directory. Never restore blindly into an active mirror, print file content or credentials in diagnostics, or run a mass restore merely to test installation. The first release provides fresh-mirror recovery in BB; reviewing/restoring individual historical versions is an operator-assisted task.
 
+Schema-2 cloud filenames use the pinned rclone standard encoding, marked by `cloudPathEncoding: "rclone-standard"`; local filenames and legacy manifests use native filesystem names. For unusual cloud filenames, reconstruct an isolated encoded review directory and let stock rclone translate into a separate empty native review directory, for example `rclone copy ':local,encoding=0x2018002:/absolute/review-encoded' /absolute/review-native`. Do not decode paths by hand or restore into an active mirror. The numeric encoding is the pinned standard `Slash,Del,Ctl,Dot` mask, not an account setting.
+
 A stale worker lock or a failed staging tree requires operator inspection while BB's plugin and any child rclone process are stopped. Confirm no worker is alive before changing locks; preserve baseline/staging/recovery files and inspect possible partial mutations. The plugin will not clear these automatically, including when creating a fresh mirror.
 
 ## Diagnostics
 
-BB logs bounded lines such as `iCloud connect authentication`, `iCloud sync/checking capacity`, `iCloud sync/backing_up_cloud sync_failed`, `iCloud sync/verifying recovery_required` or `iCloud restart interrupted`. An unrecognized error is `unknown`; raw provider messages, bodies, account addresses, filenames, tokens and exception stacks are excluded. A generic sync failure cannot establish that no provider write happened, which exact file failed, or whether Apple authorization expired. Inspect state and use protected settings, not raw provider logs in chat.
+BB logs bounded lines such as `iCloud connect authentication`, `iCloud sync/checking capacity`, `iCloud sync/backing_up_cloud sync_failed`, `iCloud sync/saving_recovery source_changed`, `iCloud sync/verifying recovery_required` or `iCloud restart interrupted`. An unrecognized error is `unknown`; raw provider messages, bodies, account addresses, filenames, tokens and exception stacks are excluded. A generic sync failure cannot establish that no provider write happened, which exact file failed, or whether Apple authorization expired. Inspect state and use protected settings, not raw provider logs in chat.

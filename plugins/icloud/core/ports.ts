@@ -1,5 +1,5 @@
 // Domain ports: no command flags, config keys, remote syntax or raw errors.
-export type Failure = 'unavailable' | 'authentication' | 'capacity' | 'interrupted' | 'sync_failed' | 'busy' | 'invalid_selection' | 'recovery_required' | 'unknown';
+export type Failure = 'unavailable' | 'authentication' | 'capacity' | 'interrupted' | 'sync_failed' | 'source_changed' | 'busy' | 'invalid_selection' | 'recovery_required' | 'unknown';
 export class CloudError extends Error {
   readonly category: Failure;
   constructor(category: Failure) { super(category); this.name = 'CloudError'; this.category = category; }

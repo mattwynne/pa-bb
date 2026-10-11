@@ -5,14 +5,18 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, utimes, rename } from
 import { RcloneProcess } from '../../adapters/rclone-process.ts';
 import { RcloneCloudProvider } from '../../adapters/rclone-cloud-provider.ts';
 import type { Mirror } from '../../core/ports.ts';
-interface SafetyWorld extends World { real?: { root: string; cloud: string; local: string; process: RcloneProcess; provider: RcloneCloudProvider; mirror: Mirror } }
+interface SafetyWorld extends World { real?: { root: string; cloud: string; local: string; process: RcloneProcess; provider: RcloneCloudProvider; mirror: Mirror; cloudDownloads: string[] } }
 Given('two disposable filesystem folders and stock rclone', async function(this: SafetyWorld) {
   if (!process.env.RCLONE_TEST_BINARY) return 'skipped';
   const root = await mkdtemp('/tmp/icloud-safety-'); const cloud = root + '/cloud/Test Vault'; await mkdir(cloud, { recursive: true });
   const worker = new RcloneProcess(root + '/worker', process.env.RCLONE_TEST_BINARY);
   const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null };
-  const provider = new RcloneCloudProvider(root + '/worker', (method, body) => worker.call(method, body), (args, capture, report) => worker.run(args, capture, report), () => worker.checkAvailability(), () => worker.stop());
-  this.real = { root, cloud, local: provider.localFolder(mirror), process: worker, provider, mirror };
+  const cloudDownloads: string[] = [];
+  const provider = new RcloneCloudProvider(root + '/worker', (method, body) => worker.call(method, body), async (args, capture, report) => {
+    if (args[0] === 'copy' && args[1].startsWith('icloud:')) cloudDownloads.push(...(await readFile(args[args.indexOf('--files-from-raw') + 1], 'utf8')).trimEnd().split('\n'));
+    return worker.run(args, capture, report);
+  }, () => worker.checkAvailability(), () => worker.stop());
+  this.real = { root, cloud, local: provider.localFolder(mirror), process: worker, provider, mirror, cloudDownloads };
   await worker.call('config/create', { name: 'icloud', type: 'alias', parameters: { remote: root + '/cloud' }, opt: { nonInteractive: true } });
 });
 Given('an initialized two-way mirror with five notes', async function(this: SafetyWorld) {
@@ -50,5 +54,20 @@ When('recovery capacity is exhausted', async function(this: SafetyWorld) {
 });
 Then('synchronization is rejected before the cloud note changes', async function(this: SafetyWorld) {
   const r = this.real!; await assert.rejects(r.provider.synchronize(r.mirror), /capacity/); assert.equal(await readFile(r.cloud + '/cloud.md', 'utf8'), 'original note');
+});
+When('I add cloud notes with literal comment and newline filenames', async function(this: SafetyWorld) {
+  const r = this.real!; await mkdir(r.cloud + '/nested');
+  await changed(r.cloud + '/nested/#literal.md', 'literal comment filename'); await changed(r.cloud + '/nested/one\ntwo.md', 'literal newline filename');
+});
+Then('both unusual filenames and their contents are mirrored exactly', async function(this: SafetyWorld) {
+  assert.equal(await readFile(this.real!.local + '/nested/#literal.md', 'utf8'), 'literal comment filename');
+  assert.equal(await readFile(this.real!.local + '/nested/one\ntwo.md', 'utf8'), 'literal newline filename');
+});
+Given('an unchanged indexed recovery copy', async function(this: SafetyWorld) { await this.real!.provider.synchronize(this.real!.mirror); this.real!.cloudDownloads.length = 0; });
+Then('no cloud file bodies were downloaded for recovery', function(this: SafetyWorld) { assert.deepEqual(this.real!.cloudDownloads, []); });
+Then('only the changed cloud note was downloaded for recovery', function(this: SafetyWorld) { assert.deepEqual(this.real!.cloudDownloads, ['cloud.md']); });
+Then('recovery copies contain both new note versions', async function(this: SafetyWorld) {
+  const root = this.real!.root + '/worker/backups/blobs'; const values = await Promise.all((await readdir(root)).map(name => readFile(root + '/' + name, 'utf8')));
+  assert.ok(values.includes('a cloud version of the note')); assert.ok(values.includes('a different BB version of the note'));
 });
 After(async function(this: SafetyWorld) { if (this.real) { await this.real.process.stop(); await rm(this.real.root, { recursive: true }); } });

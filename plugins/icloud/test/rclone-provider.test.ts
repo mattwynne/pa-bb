@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { RcloneCloudProvider, syncArguments } from '../adapters/rclone-cloud-provider.ts';
+import { recoveryFixture } from './recovery-fixture.ts';
 import type { Mirror, SyncProgress } from '../core/ports.ts';
 const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null };
 function fixture(root = '/tmp/synthetic-root', limit?: number) {
@@ -12,7 +13,13 @@ function fixture(root = '/tmp/synthetic-root', limit?: number) {
     if (method === 'config/listremotes') return { remotes: [] };
     if (method === 'operations/list') return { list: [{ IsDir: true, Name: 'Test Vault' }] };
     return result;
-  }, async args => { commands.push(args); return args[0] === 'size' ? '{"bytes":4}' : ''; }, async () => {}, async () => {}, limit);
+  }, async (args, _capture, report) => {
+    commands.push(args);
+    if (args[0] === 'lsjson') return '[{"Path":"note.md","Size":4,"ModTime":"2020-01-01T00:00:00Z","IsDir":false}]';
+    if (args[0] === 'copy') { await writeFile(args[2].replace(/^:local,encoding=0x2018002:/, '') + '/note.md', 'note'); report?.({ bytes: 1, totalBytes: 4, files: 0, totalFiles: 1 }); }
+    if (args[0] === 'bisync' && args.includes('--resync')) await writeFile(args[2] + '/note.md', 'note');
+    return '';
+  }, async () => {}, async () => {}, limit);
   return { provider, calls, commands, respond: (value: any) => { result = value; } };
 }
 test('Apple configuration maps to domain challenge and keeps secrets in private request bodies only', async () => {
@@ -46,13 +53,14 @@ test('preparation backs up both sides before establishing a fresh baseline and c
   const root = await mkdtemp('/tmp/icloud-backup-'); const f = fixture(root);
   try {
     await f.provider.prepareMirror(mirror);
-    assert.deepEqual(f.commands.map(c => c[0]), ['size', 'copy', 'copy', 'bisync']);
+    assert.deepEqual(f.commands.map(c => c[0]), ['lsjson', 'copy', 'lsjson', 'bisync']);
     assert.equal(await readFile(root + '/baselines/mirror-1/initialized', 'utf8'), '1');
     await assert.rejects(f.provider.prepareMirror(mirror), /recovery_required/);
     f.commands.length = 0; await f.provider.synchronize({ ...mirror, initialized: true });
-    assert.deepEqual(f.commands.map(c => c[0]), ['size', 'copy', 'copy', 'bisync']);
+    assert.deepEqual(f.commands.map(c => c[0]), ['lsjson', 'copy', 'lsjson', 'bisync']);
     assert.ok(!f.commands.at(-1)!.includes('--resync'));
-    assert.equal((await readdir(root + '/backups/snapshots')).length, 1);
+    const snapshots = await Promise.all((await readdir(root + '/backups/snapshots')).map(name => readFile(root + '/backups/snapshots/' + name, 'utf8').then(JSON.parse)));
+    assert.deepEqual(snapshots.map(s => s.entries.map((e: any) => e.side)).sort((a, b) => a.length - b.length), [['cloud'], ['cloud', 'local']]);
   } finally { await rm(root, { recursive: true }); }
 });
 test('capacity exhaustion pauses before bisync and never prunes unexpired recovery data', async () => {
@@ -62,13 +70,14 @@ test('capacity exhaustion pauses before bisync and never prunes unexpired recove
     await mkdir(root + '/backups/blobs', { recursive: true }); await mkdir(root + '/backups/snapshots'); await writeFile(previous, '12345678');
     await writeFile(`${root}/backups/snapshots/${'b'.repeat(64)}.json`, JSON.stringify({ captured: Date.now(), mirror: 'mirror-1', entries: [{ side: 'local', path: 'note', blob: digest }] }));
     await assert.rejects(f.provider.prepareMirror(mirror), /capacity/);
-    assert.equal(await readFile(previous, 'utf8'), '12345678'); assert.deepEqual(f.commands.map(c => c[0]), ['size']);
+    assert.equal(await readFile(previous, 'utf8'), '12345678'); assert.deepEqual(f.commands.map(c => c[0]), ['lsjson']);
   } finally { await rm(root, { recursive: true }); }
 });
 test('provider reports both recovery copies and only finishes after the sync command', async () => {
   const root = await mkdtemp('/tmp/icloud-progress-provider-'); const stages: SyncProgress[] = [];
   const provider = new RcloneCloudProvider(root, async () => ({}), async (args, _capture, report) => {
-    if (args[0] === 'size') return '{"bytes":4,"count":1}';
+    if (args[0] === 'lsjson') return '[{"Path":"note.md","Size":4,"ModTime":"2020-01-01T00:00:00Z","IsDir":false}]';
+    if (args[0] === 'copy') await writeFile(args[2].replace(/^:local,encoding=0x2018002:/, '') + '/note.md', 'note');
     report?.({ bytes: 1, totalBytes: 2, files: 0, totalFiles: 1 });
     if (args[0] === 'bisync') report?.({ bytes: 4, totalBytes: 4, files: 1, totalFiles: 1 });
     return '';
@@ -80,6 +89,20 @@ test('provider reports both recovery copies and only finishes after the sync com
     assert.equal(stages.at(-1)!.stage, 'verifying');
     assert.equal(await readFile(root + '/baselines/mirror-1/initialized', 'utf8'), '1');
   } finally { await rm(root, { recursive: true }); }
+});
+test('source changes during backup cannot start bisync or modify the existing baseline', async () => {
+  const f = await recoveryFixture(); let bisyncs = 0;
+  const provider = new RcloneCloudProvider(f.root + '/worker', async () => ({}), async (args, capture, report) => {
+    if (args[0] === 'bisync') { bisyncs++; return ''; }
+    return f.run(args.map(arg => arg === 'icloud:Test Vault' ? f.cloud : arg), capture, report);
+  }, async () => {}, async () => {});
+  try {
+    await f.put('cloud', 'note.md', 'AA'); await mkdir(provider.localFolder(mirror), { recursive: true });
+    await mkdir(f.root + '/worker/baselines/mirror-1', { recursive: true }); await writeFile(f.root + '/worker/baselines/mirror-1/initialized', '1');
+    f.afterCopy(() => f.put('cloud', 'note.md', 'BB', 1_000_001));
+    await assert.rejects(provider.synchronize({ ...mirror, initialized: true }), /source_changed/);
+    assert.equal(bisyncs, 0); assert.equal(await readFile(f.root + '/worker/baselines/mirror-1/initialized', 'utf8'), '1');
+  } finally { await rm(f.root, { recursive: true }); }
 });
 test('account binding prevents sending retained mirrors to a different Apple account', async () => {
   const methods: string[] = [];

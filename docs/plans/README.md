@@ -12,6 +12,7 @@ Plans are numbered in delivery order as `NNN-<iteration-name>.md`. Keep the numb
 | [004 — iCloud folder sync](004-icloud-sync.md) | Built; live Apple verification pending | TypeScript hexagonal core, 19 passing Cucumber scenarios including stock-rclone file safety, protected setup, persistent two-way sync and rendered isolated-BB review. |
 | [005 — iCloud folder picker](005-icloud-folder-picker.md) | Installed; sync recovered | Native icons and navigation with clear selection buttons; approved recovery after a deployment interruption, successful normal sync and live rendered review. |
 | [006 — Obsidian vault reading](006-obsidian-vault-reading.md) | Planned | Guided iCloud-first onboarding with distinct setup/recovery messages; one explicitly authorized synced vault, read-only note search/reads, link resolution, task discovery and citations. Live dependency navigation/handoff, sync/read safety and rendered UX are release gates. |
-| [007 — iCloud sync progress](007-icloud-sync-progress.md) | In progress | Per-folder measured transfers and honest checking/backup/finishing activity, with private bounded provider statistics. |
+| [007 — iCloud sync progress](007-icloud-sync-progress.md) | Installed; live verified | Per-folder measured transfers and honest checking/backup/finishing activity, with private bounded provider statistics. |
+| [008 — Incremental iCloud recovery](008-incremental-icloud-recovery.md) | Implemented; deployment pending | Reuse verified unchanged versions, download only affected cloud files, and preserve deletion/conflict protection with fail-closed stability checks. |
 
 See the [roadmap](../roadmap.md) for the proposed order beyond these iterations.

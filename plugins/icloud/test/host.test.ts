@@ -55,17 +55,17 @@ test('reload verifies saved authorization with a real provider read and fails cl
     const logs = JSON.stringify(host.harness.inspection.logEntries); assert.match(logs, /restore_connection unknown/); assert.doesNotMatch(logs, /sentinel/);
   } finally { await host.harness.lifecycle.dispose(); }
 });
-test('failed progress identifies a bounded operation stage and clears private counters', async () => {
+for (const failure of ['sync_failed', 'source_changed'] as const) test(`${failure} progress identifies a bounded operation stage and clears private counters`, async () => {
   const host = createFakePluginHost({ pluginId: 'icloud' }); const provider = new FakeCloudProvider(); const repository = new MemoryState(); repository.value.connected = true;
   await plugin(host.bb, { provider, repository });
   try {
     await host.harness.behavior.callRpc('browse', { parent: null }); await host.harness.behavior.callRpc('select', { folderId: 'test' });
     const id = statusSchema.parse(await host.harness.behavior.callRpc('status', null)).mirrors[0].id;
     await host.harness.behavior.callRpc('enable', { id });
-    provider.synchronize = async (_mirror, report) => { report?.({ ...activity('backing_up_cloud'), msg: 'sentinel-private', lastError: 'sentinel-token' } as any); throw new CloudError('sync_failed'); };
+    provider.synchronize = async (_mirror, report) => { report?.({ ...activity('backing_up_cloud'), msg: 'sentinel-private', lastError: 'sentinel-token' } as any); throw new CloudError(failure); };
     await host.harness.behavior.runSchedule('selected-folder-sync');
     const state = statusSchema.parse(await host.harness.behavior.callRpc('status', null)); assert.equal(state.mirrors[0].phase, 'failed'); assert.equal(state.mirrors[0].progress, null);
-    const logs = JSON.stringify(host.harness.inspection.logEntries); assert.match(logs, /iCloud sync\/backing_up_cloud sync_failed/); assert.doesNotMatch(logs + JSON.stringify(state), /sentinel/);
+    const logs = JSON.stringify(host.harness.inspection.logEntries); assert.ok(logs.includes(`iCloud sync/backing_up_cloud ${failure}`)); assert.doesNotMatch(logs + JSON.stringify(state), /sentinel/);
   } finally { await host.harness.lifecycle.dispose(); }
 });
 test('controlled provider and form failures have bounded diagnostics with no sentinel leaks', async () => {
