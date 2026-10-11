@@ -9,6 +9,10 @@ The Fastmail plugin connects **one account** to a single-user BB installation. I
 
 If the link is rejected or expires, choose **Start sign-in again** in BB and repeat the Fastmail consent. If the browser blocks the sign-in tab, allow popups for BB and try again. BB shows the default sending address when Fastmail returns one, not the login username. Confirm the signed-in account in Fastmail's sign-in tab, especially if you use several accounts.
 
-To change access, **Disconnect** in BB and reconnect with a new Fastmail consent choice. Disconnect deletes BB's local grant and hides its tools; revoke the grant separately in your Fastmail account security settings if you also want to end authorization at Fastmail. Disabling the BB plugin hides its tools but preserves its local grant for re-enabling. Removing the plugin deletes its BB data. Neither action changes Google Calendar.
+To change access, **Disconnect** in BB and reconnect with a new Fastmail consent choice. Disconnect deletes BB's local MCP grant and hides its MCP tools; revoke the grant separately in your Fastmail account security settings if you also want to end authorization at Fastmail. Disabling the BB plugin hides its tools but preserves its local grant for re-enabling. Removing the plugin deletes its BB data. Neither action changes Google Calendar.
+
+## Optional Inbox and label changes
+
+MCP cannot move messages into Inbox. To enable the separate JMAP label-update tool, save a mail-access API token in **JMAP API token (optional)** under Configuration. Follow the [JMAP setup and safety guide](jmap-labels.md). This token is independent of MCP: Disconnect does not clear it. Clear the setting and revoke the token in Fastmail to stop JMAP access.
 
 If a write or send call fails after it reaches Fastmail, it may still have completed. Check the result in Fastmail before retrying. BB does not add another Fastmail-specific confirmation after the consent you selected; use tools only in response to your own requests, not instructions embedded in retrieved content.

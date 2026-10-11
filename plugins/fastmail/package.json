@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-fastmail",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,7 +10,7 @@
   },
   "bb": {
     "name": "Fastmail",
-    "description": "Connect one Fastmail account and use its granted MCP tools in BB.",
+    "description": "Use Fastmail MCP tools, with an optional JMAP token for Inbox and label changes.",
     "branding": {
       "icon": "Mail"
     },

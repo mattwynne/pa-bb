@@ -48,7 +48,7 @@ function FastmailSettings() {
     finally { setBusy(false); }
   }
   async function disconnect() {
-    if (!window.confirm('Disconnect Fastmail from this BB installation? Its tools will stop working here. To revoke Fastmail’s grant too, use Fastmail’s account security settings.')) return;
+    if (!window.confirm('Disconnect the Fastmail MCP connection? Its tools will stop working here. Any separately configured JMAP token remains active; clear it in Configuration to stop label-update access. Revoke credentials in Fastmail’s security settings too if needed.')) return;
     setBusy(true); setError(''); setCallback('');
     try { await rpc.call('disconnect', null); await reload(); }
     catch { setError('Could not disconnect Fastmail. Check the connection and try again.'); }
@@ -87,7 +87,7 @@ function FastmailSettings() {
     </>}
     <ConnectionFooter>
       <ConnectionButton onClick={() => void reload()} disabled={busy}>Refresh status</ConnectionButton>
-      {status?.connected && <ConnectionGuide href={GUIDE} />}
+      {(!status || status.pending || status.connected) && <ConnectionGuide href={GUIDE} />}
     </ConnectionFooter>
   </section>;
 }
