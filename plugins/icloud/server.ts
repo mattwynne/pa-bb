@@ -4,14 +4,16 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { rpcContract } from './contract.js';
 import { ICloudSync } from './core/service.ts';
-import { CloudError, category } from './core/ports.ts';
+import { CloudError, category, evidence } from './core/ports.ts';
 import type { CloudProvider, StateRepository } from './core/ports.ts';
-import { bbState } from './adapters/bb-state.ts';
+import type { RunHistoryRepository } from './core/diagnostics.ts';
+import { bbState, bbRunHistory } from './adapters/bb-state.ts';
+import { diagnosticLogger } from './adapters/diagnostic-log.ts';
 import { RcloneProcess } from './adapters/rclone-process.ts';
 import { RcloneCloudProvider } from './adapters/rclone-cloud-provider.ts';
 
-export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudProvider; repository?: StateRepository }) {
-  const diagnose = (stage: string, failure: string) => bb.log.warn(`iCloud ${stage} ${failure}`);
+export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudProvider; repository?: StateRepository; history?: RunHistoryRepository }) {
+  const diagnose = diagnosticLogger(message => bb.log.warn(message));
   let provider = dependencies?.provider;
   if (!provider) {
     // Derive persistent storage from the scoped host database, never home or plugin code.
@@ -21,10 +23,10 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudPr
     const process = new RcloneProcess(root);
     provider = new RcloneCloudProvider(root, (method, body) => process.call(method, body), (args, capture, report) => process.run(args, capture, report), () => process.checkAvailability(), () => process.stop());
   }
-  const sync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose);
+  const sync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose, dependencies?.history ?? bbRunHistory(bb));
   await sync.start();
   let available = false;
-  try { await sync.checkAvailability(); available = true; } catch (error) { diagnose('prerequisite', category(error)); }
+  try { await sync.checkAvailability(); available = true; } catch (error) { diagnose('prerequisite', category(error), { evidence: evidence(error) }); }
   const status = () => ({ ...sync.status(), available, prerequisite: available ? null : 'The host needs stock rclone v1.75.2, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' });
   const clientOnly = (context: { experimental_caller: { kind: string } }) => {
     if (context.experimental_caller.kind !== 'client') throw new Error('Use iCloud settings for this action.');
@@ -42,6 +44,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudPr
     async pause({ id }, context) { clientOnly(context); return action(() => sync.pause(id)); },
     async disconnect(_input, context) { clientOnly(context); return action(() => sync.disconnect()); },
     inventory() { return sync.inventory(); },
+    diagnostics() { return sync.diagnostics(); },
   });
   // Credentials use authenticated HTTP forms, not agent-callable or discoverable RPC.
   // Never throw schema/provider errors with form values back into BB's handler logger.
@@ -68,7 +71,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudPr
     }
   }, { auth: 'local' });
   bb.background.schedule('selected-folder-sync', '* * * * *', async () => {
-    try { await sync.tick(); } catch (error) { diagnose('schedule', category(error)); }
+    try { await sync.tick(); } catch (error) { diagnose('schedule', category(error), { evidence: evidence(error) }); }
   });
   bb.onDispose(() => sync.stop());
   bb.agents.registerTool({ name: 'icloud_list_local_folders', description: 'List previously enabled iCloud folders, their host-managed local locations and last successful sync. A paused or failed mirror may be stale. This is not permission to edit files. Never ask for Apple credentials in chat.', parameters: z.object({}),

@@ -4,6 +4,7 @@ import { createFakePluginHost, makePluginAgentConfigurationContext } from '@get-
 import { plugin } from '../server.ts';
 import { FakeCloudProvider, MemoryState } from './fakes.ts';
 import { statusSchema } from '../contract.ts';
+import { diagnosticsSchema } from '../core/diagnostics.ts';
 import { CloudError, activity } from '../core/ports.ts';
 import type { CloudFolder } from '../core/ports.ts';
 const setup = async () => {
@@ -66,6 +67,22 @@ for (const failure of ['sync_failed', 'source_changed'] as const) test(`${failur
     await host.harness.behavior.runSchedule('selected-folder-sync');
     const state = statusSchema.parse(await host.harness.behavior.callRpc('status', null)); assert.equal(state.mirrors[0].phase, 'failed'); assert.equal(state.mirrors[0].progress, null);
     const logs = JSON.stringify(host.harness.inspection.logEntries); assert.ok(logs.includes(`iCloud sync/backing_up_cloud ${failure}`)); assert.doesNotMatch(logs + JSON.stringify(state), /sentinel/);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+test('read-only diagnostics persist in scoped KV and safely correlate a failed command with its run', async () => {
+  const host = createFakePluginHost({ pluginId: 'icloud' }); const provider = new FakeCloudProvider(); const repository = new MemoryState(); repository.value.connected = true;
+  await plugin(host.bb, { provider, repository });
+  try {
+    const caller = { experimental_caller: { kind: 'plugin' as const, pluginId: 'fastmail' } };
+    const empty = diagnosticsSchema.parse(await host.harness.behavior.callRpc('diagnostics', null, caller)); assert.equal(empty.persistent, true); assert.deepEqual(empty.runs, []);
+    await host.harness.behavior.callRpc('browse', { parent: null }); await host.harness.behavior.callRpc('select', { folderId: 'test' });
+    const id = statusSchema.parse(await host.harness.behavior.callRpc('status', null)).mirrors[0].id; await host.harness.behavior.callRpc('enable', { id });
+    provider.synchronize = async (_mirror, report) => { report!({ ...activity('backing_up_cloud'), object: 'sentinel-file', lastError: 'sentinel-token' } as any); throw new CloudError('sync_failed', { kind: 'command_exit', exitCode: 4, message: 'sentinel-body' } as any); };
+    await host.harness.behavior.runSchedule('selected-folder-sync'); const history = diagnosticsSchema.parse(await host.harness.behavior.callRpc('diagnostics', null, caller));
+    assert.equal(history.runs.at(-1)!.sequence, 2); assert.deepEqual(history.runs.at(-1)!.evidence, { kind: 'command_exit', exitCode: 4 });
+    const stored = await host.bb.storage.kv.get<{ runs: unknown[] }>('sync-diagnostics'); assert.deepEqual(stored!.runs, history.runs);
+    const logs = JSON.stringify(host.harness.inspection.logEntries); assert.match(logs, /iCloud sync\/backing_up_cloud sync_failed run=2 evidence=command_exit exit=4/);
+    assert.doesNotMatch(JSON.stringify(history) + JSON.stringify(stored) + logs, /sentinel|Test Vault|synthetic\/mirrors/);
   } finally { await host.harness.lifecycle.dispose(); }
 });
 test('controlled provider and form failures have bounded diagnostics with no sentinel leaks', async () => {

@@ -145,7 +145,7 @@ export class RecoveryCopies {
     for (const side of ['cloud', 'local']) await mkdir(join(staging, side), { mode: 0o700 });
     const copy = async (side: 'cloud' | 'local', source: string, selected: { path: string; size: number }[]) => {
       const stage = side === 'cloud' ? 'backing_up_cloud' : 'backing_up_local'; const bytes = selected.reduce((sum, f) => sum + f.size, 0);
-      const update = (stats: TransferProgress) => report?.({ ...stats, stage, totalBytes: Math.max(stats.totalBytes ?? 0, bytes) || null, totalFiles: Math.max(stats.totalFiles ?? 0, selected.length) || null });
+      const update = (stats: TransferProgress) => report?.({ ...stats, stage, totalBytes: Math.max(stats.totalBytes ?? 0, bytes) || null, totalFiles: Math.max(stats.totalFiles ?? 0, selected.length) || null, reusedFiles: side === 'cloud' ? cloud.length - selectedCloud.length : locals.length - selectedLocal.length });
       update({ bytes: 0, totalBytes: null, files: 0, totalFiles: null }); if (!selected.length) return;
       const budget = () => Math.max(1, Math.floor((this.limit - used - reserve) / 2));
       if (selected.every(f => !/[\r\n]/.test(f.path))) {
@@ -162,11 +162,19 @@ export class RecoveryCopies {
         }
       }
     };
+    const validate = async (side: 'cloud' | 'local', selected: { path: string; size: number }[]) => {
+      if (JSON.stringify(await files(join(staging, side))) !== JSON.stringify(selected.map(f => f.path).sort())) throw new CloudError('source_changed');
+      for (const f of selected) if ((await lstat(join(staging, side, f.path))).size !== f.size) throw new CloudError('source_changed');
+    };
     await copy('cloud', remote, selectedCloud);
+    // Short commands can complete between stats samples. Only validated staging proves their final counts.
+    await validate('cloud', selectedCloud);
+    const cloudTotal = selectedCloud.reduce((sum, f) => sum + f.size, 0);
+    report?.({ stage: 'backing_up_cloud', bytes: cloudTotal, totalBytes: cloudTotal || null, files: selectedCloud.length, totalFiles: selectedCloud.length || null, reusedFiles: cloud.length - selectedCloud.length });
     // Native local names need no reimplementation of rclone's filename encoder.
     // Limit each read to its planned size so a growing source cannot exhaust storage.
     const localTotal = selectedLocal.reduce((sum, f) => sum + f.size, 0); let localBytes = 0; let localFiles = 0;
-    report?.({ ...activity('backing_up_local'), totalBytes: localTotal || null, totalFiles: selectedLocal.length || null });
+    report?.({ ...activity('backing_up_local'), totalBytes: localTotal || null, totalFiles: selectedLocal.length || null, reusedFiles: locals.length - selectedLocal.length });
     for (const f of selectedLocal) {
       const target = join(staging, 'local', f.path); await mkdir(join(target, '..'), { recursive: true, mode: 0o700 });
       const source = await open(join(local, f.path), constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -175,17 +183,14 @@ export class RecoveryCopies {
         try {
           if (f.size) for await (const chunk of source.createReadStream({ start: 0, end: f.size - 1, autoClose: false })) {
             await output.writeFile(chunk); localBytes += chunk.length;
-            report?.({ bytes: localBytes, totalBytes: localTotal || null, files: localFiles, totalFiles: selectedLocal.length || null, stage: 'backing_up_local' });
+            report?.({ bytes: localBytes, totalBytes: localTotal || null, files: localFiles, totalFiles: selectedLocal.length || null, stage: 'backing_up_local', reusedFiles: locals.length - selectedLocal.length });
           }
         } finally { await output.close(); }
       } finally { await source.close(); }
-      localFiles++; report?.({ bytes: localBytes, totalBytes: localTotal || null, files: localFiles, totalFiles: selectedLocal.length || null, stage: 'backing_up_local' });
+      localFiles++; report?.({ bytes: localBytes, totalBytes: localTotal || null, files: localFiles, totalFiles: selectedLocal.length || null, stage: 'backing_up_local', reusedFiles: locals.length - selectedLocal.length });
     }
     // No invented catalogue entries, truncated files, or extra selected paths may be sealed.
-    for (const [side, selected] of [['cloud', selectedCloud], ['local', selectedLocal]] as const) {
-      if (JSON.stringify(await files(join(staging, side))) !== JSON.stringify(selected.map(f => f.path).sort())) throw new CloudError('source_changed');
-      for (const f of selected) if ((await lstat(join(staging, side, f.path))).size !== f.size) throw new CloudError('source_changed');
-    }
+    await validate('local', selectedLocal);
     report?.(activity('saving_recovery'));
     const entries: Entry[] = [];
     for (const f of cloud) entries.push({ side: 'cloud', path: f.path, blob: downloaded.has(f.path) ? await hashFile(join(staging, 'cloud', f.path)) : cloudIndex.get(f.path)!.blob, version: f.version });

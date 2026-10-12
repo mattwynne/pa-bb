@@ -58,4 +58,18 @@ A stale worker lock or a failed staging tree requires operator inspection while 
 
 ## Diagnostics
 
-BB logs bounded lines such as `iCloud connect authentication`, `iCloud sync/checking capacity`, `iCloud sync/backing_up_cloud sync_failed`, `iCloud sync/saving_recovery source_changed`, `iCloud sync/verifying recovery_required` or `iCloud restart interrupted`. An unrecognized error is `unknown`; raw provider messages, bodies, account addresses, filenames, tokens and exception stacks are excluded. A generic sync failure cannot establish that no provider write happened, which exact file failed, or whether Apple authorization expired. Inspect state and use protected settings, not raw provider logs in chat.
+BB logs failures, not routine success or every status poll. Lines identify an operation/stage and safe category, for example `iCloud connect authentication`, `iCloud sync/checking capacity`, `iCloud sync/backing_up_cloud sync_failed run=12 evidence=command_exit exit=4` or `iCloud sync/saving_recovery source_changed run=13`. The run number is generated inside the plugin, not an account or folder identifier. Command evidence distinguishes an exit, timeout, output limit, signal, startup failure or deliberate shutdown; unknown exit codes are reported as unknown. No raw stderr is retained or parsed for provider messages.
+
+Stock-rclone exit codes have bounded meanings: 2 is usage error, 3 directory missing, 4 file missing, 5 temporary error, 6 non-retry error, 7 fatal error, 8 transfer limit, 9 no transfer and 10 duration limit; 1 is otherwise uncategorized. These codes do not identify a private file, establish Apple's underlying HTTP response, or prove a provider write was unapplied. The earlier generic backup error cannot be diagnosed retrospectively from them.
+
+A separate scoped history keeps at most 20 completed runs. Entries older than seven days are omitted when read and pruned on subsequent writes or restart. It includes initial-versus-normal sync, timestamps, monotonic duration, outcome, stage durations/counters, reused-file counts and safe failure evidence. Folder/account names, paths, provider identifiers, credentials, content and arbitrary exceptions are excluded. Cloud-backup completion counts come from validated staging, including commands too short for a stats sample; other counters are observed transfer statistics, not a provider audit trail. Reused files are not counted as downloaded files.
+
+Operators can read the history without starting or retrying a sync:
+
+```sh
+bb plugin rpc call icloud diagnostics --json
+```
+
+`active` contains only a pending-run marker, not persisted live progress. After an unclean restart, its summary is `interrupted` with unknown duration/stage; it is not proof that sync writes were rolled back or never applied. `persistent: false` means history could not be read or saved, or is in memory only; the plugin logs a fixed `history_read`/`history_write unavailable` warning, preserves malformed stored history, and does not retry or fail a provider operation merely to repair diagnostics. Failed runs still require the normal recovery review.
+
+An unrecognized error is `unknown`; raw provider messages, bodies, account addresses, filenames, tokens and exception stacks are excluded from both logs and history. Use protected settings and safe diagnostics, not raw provider logs in chat.

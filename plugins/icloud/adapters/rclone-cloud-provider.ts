@@ -83,7 +83,9 @@ export class RcloneCloudProvider implements CloudProvider {
     report?.(activity('checking'));
     await this.run(syncArguments(this.remote(mirror), this.localFolder(mirror), join(this.root, 'baselines', mirror.id), initial), false, report ? stats => {
       const complete = stats.totalFiles !== null && stats.files >= stats.totalFiles && (stats.totalBytes === null || stats.bytes >= stats.totalBytes);
-      report(complete ? activity('verifying') : { ...stats, stage: stats.bytes || stats.totalBytes || stats.totalFiles ? 'transferring' : 'checking' });
+      // Preserve measured completion counters for diagnostics before returning to finishing activity.
+      report({ ...stats, stage: stats.bytes || stats.totalBytes || stats.totalFiles ? 'transferring' : 'checking' });
+      if (complete) report(activity('verifying'));
     } : undefined);
     report?.(activity('verifying'));
   }

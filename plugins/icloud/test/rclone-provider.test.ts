@@ -87,6 +87,7 @@ test('provider reports both recovery copies and only finishes after the sync com
     for (const stage of ['checking', 'backing_up_cloud', 'backing_up_local', 'saving_recovery', 'transferring', 'verifying']) assert.ok(stages.some(value => value.stage === stage), stage);
     assert.ok(stages.some(value => value.stage === 'backing_up_cloud' && value.bytes === 1 && value.totalBytes === 4));
     assert.equal(stages.at(-1)!.stage, 'verifying');
+    assert.ok(stages.some(s => s.stage === 'transferring' && s.bytes === 4 && s.files === 1));
     assert.equal(await readFile(root + '/baselines/mirror-1/initialized', 'utf8'), '1');
   } finally { await rm(root, { recursive: true }); }
 });

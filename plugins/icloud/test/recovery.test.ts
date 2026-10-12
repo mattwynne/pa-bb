@@ -4,10 +4,27 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile, readFile, readdir, rm, rename, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { RecoveryCopies, treeSize } from '../adapters/recovery-copies.ts';
+import type { SyncProgress } from '../core/ports.ts';
 import { recoveryFixture } from './recovery-fixture.ts';
 const blobs = async (root: string) => Promise.all((await readdir(root + '/backups/blobs')).map(name => readFile(root + '/backups/blobs/' + name, 'utf8')));
 const captures = async (root: string) => Promise.all((await readdir(root + '/backups/snapshots')).map(name => readFile(root + '/backups/snapshots/' + name, 'utf8').then(JSON.parse)));
 const transfers = (commands: string[][]) => commands.filter(args => ['copy', 'copyto'].includes(args[0]));
+test('validated short cloud copies and zero-download runs report exact final counts without stats samples', async () => {
+  const f = await recoveryFixture(); const progress: SyncProgress[] = []; const copies = new RecoveryCopies(f.root + '/backups', (args, capture) => f.run(args, capture));
+  try {
+    await f.put('cloud', 'note.md', 'tiny'); await copies.capture('mirror-1', f.cloud, f.local, p => progress.push(p));
+    assert.deepEqual(progress.filter(p => p.stage === 'backing_up_cloud').at(-1), { stage: 'backing_up_cloud', bytes: 4, totalBytes: 4, files: 1, totalFiles: 1, reusedFiles: 0 });
+    progress.length = 0; await copies.capture('mirror-1', f.cloud, f.local, p => progress.push(p));
+    assert.deepEqual(progress.filter(p => p.stage === 'backing_up_cloud').at(-1), { stage: 'backing_up_cloud', bytes: 0, totalBytes: null, files: 0, totalFiles: null, reusedFiles: 1 });
+  } finally { await rm(f.root, { recursive: true }); }
+});
+test('an incomplete cloud staging copy cannot report invented successful final counts', async () => {
+  const f = await recoveryFixture(); const progress: SyncProgress[] = []; const copies = new RecoveryCopies(f.root + '/backups', (args, capture) => args[0] === 'copy' ? Promise.resolve('') : f.run(args, capture));
+  try {
+    await f.put('cloud', 'note.md', 'tiny'); await assert.rejects(copies.capture('mirror-1', f.cloud, f.local, p => progress.push(p)), /source_changed/);
+    assert.ok(progress.filter(p => p.stage === 'backing_up_cloud').every(p => p.bytes === 0 && p.files === 0));
+  } finally { await rm(f.root, { recursive: true }); }
+});
 test('warm unchanged snapshots verify blobs, reference local content, and download no file bodies', async () => {
   const f = await recoveryFixture(); let now = Date.now(); const copies = new RecoveryCopies(f.root + '/backups', f.run, 1024 * 1024, () => now);
   try {

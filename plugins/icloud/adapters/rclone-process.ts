@@ -125,11 +125,14 @@ export class RcloneProcess {
       const timer = setTimeout(() => { timedOut = true; child.kill('SIGINT'); }, timeout); timer.unref();
       const hard = setTimeout(() => child.kill('SIGKILL'), timeout + 95_000); hard.unref();
       const cleanup = () => { clearTimeout(timer); clearTimeout(hard); this.children.delete(child); };
-      child.on('error', () => { cleanup(); reject(new CloudError('unavailable')); });
+      child.on('error', () => { cleanup(); reject(new CloudError('unavailable', { kind: 'command_start' })); });
       child.on('close', (code, signal) => {
         stats?.end(); cleanup();
         if (code === 0 && !overflow && !timedOut && !this.stopping) resolve(output);
-        else reject(new CloudError(this.stopping || timedOut || signal ? 'interrupted' : code === 7 ? 'recovery_required' : 'sync_failed'));
+        else {
+          const proof = this.stopping ? { kind: 'command_stopped' as const } : overflow ? { kind: 'command_output_limit' as const } : timedOut ? { kind: 'command_timeout' as const } : signal ? { kind: 'command_signal' as const } : { kind: 'command_exit' as const, exitCode: code };
+          reject(new CloudError(this.stopping || timedOut || signal ? 'interrupted' : code === 7 ? 'recovery_required' : 'sync_failed', proof));
+        }
       });
     });
   }

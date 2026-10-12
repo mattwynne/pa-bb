@@ -1,6 +1,8 @@
-import { CloudError, category, emptyState, activity } from './ports.ts';
-import type { CloudProvider, StateRepository, State, CloudFolder, Mirror, SyncProgress, ProgressReporter } from './ports.ts';
+import { CloudError, category, evidence, emptyState, activity } from './ports.ts';
+import type { CloudProvider, StateRepository, State, CloudFolder, Mirror, SyncProgress, ProgressReporter, Diagnose, Failure, FailureEvidence } from './ports.ts';
 import { progressSnapshot } from './progress.ts';
+import { SyncDiagnostics } from './diagnostics.ts';
+import type { RunHistoryRepository } from './diagnostics.ts';
 
 export class ICloudSync {
   private state: State = emptyState();
@@ -9,11 +11,15 @@ export class ICloudSync {
   private stopped = false;
   private current: Promise<unknown> | null = null;
   private discovered = new Map<string, CloudFolder>();
+  private history: SyncDiagnostics;
   constructor(private provider: CloudProvider, private repository: StateRepository,
     private clock: () => string, private id: () => string,
-    private diagnose: (stage: string, failure: string) => void) {}
+    private diagnose: Diagnose, history?: RunHistoryRepository, elapsed = () => performance.now()) {
+    this.history = new SyncDiagnostics(history, clock, elapsed, diagnose);
+  }
   async start() {
     this.state = await this.repository.load() ?? emptyState();
+    await this.history.start();
     // Authentication continuations live only inside the provider instance.
     this.state.challenge = null;
     for (const mirror of this.state.mirrors) if (mirror.phase === 'running') {
@@ -25,12 +31,13 @@ export class ICloudSync {
       catch (error) {
         this.state.connected = false;
         for (const mirror of this.state.mirrors) { mirror.enabled = false; if (mirror.phase === 'ready') mirror.phase = 'paused'; }
-        this.diagnose('restore_connection', category(error));
+        this.diagnose('restore_connection', category(error), { evidence: evidence(error) });
       }
     }
     await this.save();
   }
   status() { return { ...structuredClone(this.state), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), progress: mirror.phase === 'running' ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
+  diagnostics() { return this.history.snapshot(); }
   private save() { return this.repository.save(structuredClone(this.state)); }
   private folder(id: string) {
     const folder = this.state.mirrors.find(item => item.id === id);
@@ -50,14 +57,14 @@ export class ICloudSync {
       for (const mirror of this.state.mirrors) { mirror.enabled = false; if (mirror.phase !== 'failed' && mirror.phase !== 'retained') mirror.phase = 'paused'; }
       await this.save();
       try { return await this.applyConnection(await this.provider.connect(credentials)); }
-      catch (error) { this.diagnose('connect', category(error)); throw new CloudError(category(error)); }
+      catch (error) { this.diagnose('connect', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
     });
   }
   answerChallenge(answer: string) {
     return this.exclusive(async () => {
       if (!this.state.challenge) throw new CloudError('authentication');
       try { return await this.applyConnection(await this.provider.answerChallenge(answer)); }
-      catch (error) { this.diagnose('challenge', category(error)); throw new CloudError(category(error)); }
+      catch (error) { this.diagnose('challenge', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
     });
   }
   private async applyConnection(result: Awaited<ReturnType<CloudProvider['connect']>>) {
@@ -72,7 +79,7 @@ export class ICloudSync {
         const folders = await this.provider.listFolders(parent);
         for (const folder of folders) this.discovered.set(folder.id, folder);
         return folders;
-      } catch (error) { this.diagnose('browse', category(error)); throw new CloudError(category(error)); }
+      } catch (error) { this.diagnose('browse', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
     });
   }
   select(folderId: string) {
@@ -125,10 +132,11 @@ export class ICloudSync {
   }
   private async run(mirror: Mirror, initial: boolean) {
     mirror.phase = 'running'; this.progress.set(mirror.id, activity('checking'));
-    let reporting = true;
+    await this.history.begin(initial ? 'initial' : 'sync'); this.history.update(activity('checking'));
+    let reporting = true; let completed = false; let failure: Failure | null = null; let proof: FailureEvidence | null = null;
     const report: ProgressReporter = value => {
       if (!reporting || mirror.phase !== 'running') return;
-      const safe = progressSnapshot(value); if (safe) this.progress.set(mirror.id, safe);
+      const safe = progressSnapshot(value); if (safe) { this.progress.set(mirror.id, safe); this.history.update(safe); }
     };
     try {
       await this.save();
@@ -138,19 +146,25 @@ export class ICloudSync {
         if (this.stopped) throw new CloudError('interrupted');
         mirror.initialized = true; mirror.lastSuccess = this.clock(); mirror.failure = null; mirror.phase = 'ready';
       } catch (error) {
-        mirror.enabled = false; mirror.phase = 'failed'; mirror.failure = category(error);
+        mirror.enabled = false; mirror.phase = 'failed'; mirror.failure = category(error); failure = mirror.failure; proof = evidence(error);
         if (mirror.failure === 'authentication') this.state.connected = false;
-        this.diagnose(`${initial ? 'prepare' : 'sync'}/${this.progress.get(mirror.id)?.stage ?? 'checking'}`, mirror.failure);
+        this.diagnose(`${initial ? 'prepare' : 'sync'}/${this.progress.get(mirror.id)?.stage ?? 'checking'}`, mirror.failure, this.history.context(proof));
       }
-      await this.save();
-    } finally { reporting = false; this.progress.delete(mirror.id); }
+      await this.save(); completed = true;
+    } catch (error) { failure = category(error); proof = evidence(error); throw error; }
+    finally {
+      reporting = false;
+      const failed = !completed || failure !== null;
+      await this.history.finish(failed ? 'failed' : 'succeeded', failed ? failure ?? 'unknown' : null, proof, failed ? this.progress.get(mirror.id)?.stage ?? 'checking' : null);
+      this.progress.delete(mirror.id);
+    }
   }
   disconnect() {
     return this.exclusive(async () => {
       this.state.connected = false; this.state.challenge = null; this.discovered.clear();
       for (const mirror of this.state.mirrors) { mirror.enabled = false; if (mirror.phase !== 'failed' && mirror.phase !== 'retained') mirror.phase = 'paused'; }
       await this.save();
-      try { await this.provider.disconnect(); } catch (error) { this.diagnose('disconnect', category(error)); throw new CloudError(category(error)); }
+      try { await this.provider.disconnect(); } catch (error) { this.diagnose('disconnect', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
       return this.status();
     });
   }

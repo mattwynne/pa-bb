@@ -4,7 +4,14 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, utimes, rename } from 'node:fs/promises';
 import { RcloneProcess } from '../../adapters/rclone-process.ts';
 import { RcloneCloudProvider } from '../../adapters/rclone-cloud-provider.ts';
+import { category, evidence } from '../../core/ports.ts';
 import type { Mirror } from '../../core/ports.ts';
+async function trace<T>(operation: string, task: () => Promise<T>): Promise<T> {
+  if (!process.env.RCLONE_TEST_TRACE) return task();
+  const started = performance.now(); process.stderr.write(JSON.stringify({ boundary: operation, outcome: 'started' }) + '\n');
+  try { const result = await task(); process.stderr.write(JSON.stringify({ boundary: operation, outcome: 'completed', durationMs: Math.round(performance.now() - started) }) + '\n'); return result; }
+  catch (error) { process.stderr.write(JSON.stringify({ boundary: operation, outcome: 'failed', category: category(error), evidence: evidence(error), durationMs: Math.round(performance.now() - started) }) + '\n'); throw error; }
+}
 interface SafetyWorld extends World { real?: { root: string; cloud: string; local: string; process: RcloneProcess; provider: RcloneCloudProvider; mirror: Mirror; cloudDownloads: string[] } }
 Given('two disposable filesystem folders and stock rclone', async function(this: SafetyWorld) {
   if (!process.env.RCLONE_TEST_BINARY) return 'skipped';
@@ -14,10 +21,10 @@ Given('two disposable filesystem folders and stock rclone', async function(this:
   const cloudDownloads: string[] = [];
   const provider = new RcloneCloudProvider(root + '/worker', (method, body) => worker.call(method, body), async (args, capture, report) => {
     if (args[0] === 'copy' && args[1].startsWith('icloud:')) cloudDownloads.push(...(await readFile(args[args.indexOf('--files-from-raw') + 1], 'utf8')).trimEnd().split('\n'));
-    return worker.run(args, capture, report);
+    return trace(['lsjson', 'copy', 'copyto', 'bisync'].includes(args[0]) ? args[0] : 'command', () => worker.run(args, capture, report));
   }, () => worker.checkAvailability(), () => worker.stop());
   this.real = { root, cloud, local: provider.localFolder(mirror), process: worker, provider, mirror, cloudDownloads };
-  await worker.call('config/create', { name: 'icloud', type: 'alias', parameters: { remote: root + '/cloud' }, opt: { nonInteractive: true } });
+  await trace('configure', () => worker.call('config/create', { name: 'icloud', type: 'alias', parameters: { remote: root + '/cloud' }, opt: { nonInteractive: true } }));
 });
 Given('an initialized two-way mirror with five notes', async function(this: SafetyWorld) {
   const r = this.real!; for (const name of ['cloud.md', 'stable1.md', 'stable2.md', 'stable3.md', 'stable4.md']) await writeFile(r.cloud + '/' + name, 'original note');
@@ -70,4 +77,4 @@ Then('recovery copies contain both new note versions', async function(this: Safe
   const root = this.real!.root + '/worker/backups/blobs'; const values = await Promise.all((await readdir(root)).map(name => readFile(root + '/' + name, 'utf8')));
   assert.ok(values.includes('a cloud version of the note')); assert.ok(values.includes('a different BB version of the note'));
 });
-After(async function(this: SafetyWorld) { if (this.real) { await this.real.process.stop(); await rm(this.real.root, { recursive: true }); } });
+After(async function(this: SafetyWorld) { if (this.real) { await trace('stop', () => this.real!.process.stop()); await rm(this.real.root, { recursive: true }); } });
