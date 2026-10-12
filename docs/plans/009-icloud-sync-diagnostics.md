@@ -2,7 +2,7 @@ Drafted by Matt's robot
 
 # 009 — Private, bounded iCloud sync diagnostics
 
-Status: verified for iCloud 0.1.5; paused production deployment pending.
+Status: iCloud 0.1.5 installed from `9df3718`; persistent live history and controlled running-BB failure diagnostics verified.
 
 ## Contract
 
@@ -22,4 +22,8 @@ Write Gherkin and tests for successful/failed runs, exact short-copy counters, s
 - Running isolated BB passed all 60 rendered regression cases at 1280px/390px. Transfer completion still returns to finishing activity; the diagnostic counters do not turn a 100% transfer into a completed sync.
 - Tests prove scoped-KV persistence and read-only RPC access, retention limits/expiry, monotonic timing through wall-clock changes, interrupted pending runs, short-copy final counts and reused references. Malformed history and read/write failures produce fixed warnings without overwriting unknown history, failing successful syncs or retrying provider operations. Synthetic names/content/credential sentinels do not reach logs or history.
 - A full validation command hung and a later generated-data initialization step exceeded Cucumber's five-second timeout. Isolated file-safety and full-scenario reruns passed; three consecutive instrumented full-scenario runs then passed, with the slowest measured command boundary under 300 ms, followed by a passing complete suite. No timeout was relaxed or sync policy changed. The intermittent delay remains unexplained; optional `RCLONE_TEST_TRACE=1` now reports only bounded command/configuration/shutdown boundaries and timings for the generated-data suite.
-- Phone-to-consumer and expired Apple-session checks from earlier iterations remain separate, unverified gates. Deployment and live history evidence will be added after observation.
+- A generated-data fixture in a running isolated BB used the release's actual server/core/logger with an injected missing-file failure. Its log contained exactly `iCloud sync/backing_up_cloud sync_failed run=1 evidence=command_exit exit=4`; its persistent summary reported the same failure/stage, and synthetic private folder/file/body/credential sentinels were absent. The folder paused without retry. The fixture never contacted Apple and was removed after review.
+- Updated only iCloud after its normal Pause control prevented future runs and any active run finished. The installed version/commit, baseline and last successful timestamp were verified while paused, then only the previously enabled folder was resumed normally. Apple access and other integration versions remained intact; no baseline, lock or failure repair was performed.
+- Production history was checked against the scoped SQLite KV value, not just the in-memory RPC. Seventeen completed runs were retained and all succeeded; the last inspected run lasted 104,717 ms, with about 68 seconds checking and 36 seconds saving/revalidating recovery. Both recovery-copy stages recorded zero downloaded/copied files and 1,499 reused references. The original three bounded warning messages remained, without new routine success log lines. Current production UI still loaded at desktop/phone widths with keyboard focus and no overflow; private folder names were masked.
+- The initial shipping helper stopped during observation without identifying its exception. Fresh read-only checks subsequently confirmed successful runs, actual persisted summaries and healthy syncing; no update/recovery was retried. No claim is made about the helper's underlying cause or an Apple failure that did not occur.
+- Phone-to-consumer and expired Apple-session checks from earlier iterations remain separate, unverified gates.
