@@ -44,7 +44,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudPr
     async pause({ id }, context) { clientOnly(context); return action(() => sync.pause(id)); },
     async disconnect(_input, context) { clientOnly(context); return action(() => sync.disconnect()); },
     inventory() { return sync.inventory(); },
-    diagnostics() { return sync.diagnostics(); },
+    diagnostics(input) { return sync.diagnostics(input ?? {}); }
   });
   // Credentials use authenticated HTTP forms, not agent-callable or discoverable RPC.
   // Never throw schema/provider errors with form values back into BB's handler logger.

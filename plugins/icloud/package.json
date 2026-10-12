@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-icloud",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "engines": {
@@ -23,6 +23,7 @@
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.1",
     "@get-bb/plugin-sdk": "0.6.15",
+    "@types/better-sqlite3": "7.6.13",
     "@types/node": "^22.0.0",
     "@types/react": "19.2.7",
     "bb-app": "0.45.0",

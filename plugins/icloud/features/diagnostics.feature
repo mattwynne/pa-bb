@@ -22,3 +22,14 @@ Feature: Private, useful sync diagnostics without changing file safety
     And a measured diagnostic sync succeeds
     Then the diagnostic folder still records sync success
     And diagnostic persistence is reported unavailable without leaking its error
+
+  Scenario: The latest twenty summaries do not evict earlier healthy runs
+    When 25 more diagnostic syncs succeed
+    Then the latest 20 summaries are a page and older summaries remain available
+
+  Scenario: Failed summaries outlast healthy summaries without continued activity
+    When a diagnostic cloud copy fails with exit code 4
+    And 8 days pass without diagnostic activity
+    Then only the failed diagnostic summary remains visible
+    When 23 days pass without diagnostic activity
+    Then the expired diagnostic summary is no longer visible

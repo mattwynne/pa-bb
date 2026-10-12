@@ -2,7 +2,7 @@ import { CloudError, category, evidence, emptyState, activity } from './ports.ts
 import type { CloudProvider, StateRepository, State, CloudFolder, Mirror, SyncProgress, ProgressReporter, Diagnose, Failure, FailureEvidence } from './ports.ts';
 import { progressSnapshot } from './progress.ts';
 import { SyncDiagnostics } from './diagnostics.ts';
-import type { RunHistoryRepository } from './diagnostics.ts';
+import type { RunHistoryRepository, HistoryInput } from './diagnostics.ts';
 
 export class ICloudSync {
   private state: State = emptyState();
@@ -37,7 +37,7 @@ export class ICloudSync {
     await this.save();
   }
   status() { return { ...structuredClone(this.state), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), progress: mirror.phase === 'running' ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
-  diagnostics() { return this.history.snapshot(); }
+  diagnostics(query: HistoryInput = {}) { return this.history.snapshot(query); }
   private save() { return this.repository.save(structuredClone(this.state)); }
   private folder(id: string) {
     const folder = this.state.mirrors.find(item => item.id === id);

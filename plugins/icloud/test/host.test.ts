@@ -69,7 +69,7 @@ for (const failure of ['sync_failed', 'source_changed'] as const) test(`${failur
     const logs = JSON.stringify(host.harness.inspection.logEntries); assert.ok(logs.includes(`iCloud sync/backing_up_cloud ${failure}`)); assert.doesNotMatch(logs + JSON.stringify(state), /sentinel/);
   } finally { await host.harness.lifecycle.dispose(); }
 });
-test('read-only diagnostics persist in scoped KV and safely correlate a failed command with its run', async () => {
+test('read-only diagnostics persist in scoped SQLite and safely correlate a failed command with its run', async () => {
   const host = createFakePluginHost({ pluginId: 'icloud' }); const provider = new FakeCloudProvider(); const repository = new MemoryState(); repository.value.connected = true;
   await plugin(host.bb, { provider, repository });
   try {
@@ -80,10 +80,27 @@ test('read-only diagnostics persist in scoped KV and safely correlate a failed c
     provider.synchronize = async (_mirror, report) => { report!({ ...activity('backing_up_cloud'), object: 'sentinel-file', lastError: 'sentinel-token' } as any); throw new CloudError('sync_failed', { kind: 'command_exit', exitCode: 4, message: 'sentinel-body' } as any); };
     await host.harness.behavior.runSchedule('selected-folder-sync'); const history = diagnosticsSchema.parse(await host.harness.behavior.callRpc('diagnostics', null, caller));
     assert.equal(history.runs.at(-1)!.sequence, 2); assert.deepEqual(history.runs.at(-1)!.evidence, { kind: 'command_exit', exitCode: 4 });
-    const stored = await host.bb.storage.kv.get<{ runs: unknown[] }>('sync-diagnostics'); assert.deepEqual(stored!.runs, history.runs);
+    const stored = host.bb.storage.database().prepare('SELECT body FROM icloud_sync_runs ORDER BY sequence').all().map(row => JSON.parse((row as { body: string }).body)); assert.deepEqual(stored, history.runs);
+    assert.equal(await host.bb.storage.kv.get('sync-diagnostics'), undefined);
+    const errors = diagnosticsSchema.parse(await host.harness.behavior.callRpc('diagnostics', { outcome: 'errors', limit: 100 }, caller)); assert.equal(errors.runs.length, 1); assert.equal(errors.runs[0].sequence, 2);
     const logs = JSON.stringify(host.harness.inspection.logEntries); assert.match(logs, /iCloud sync\/backing_up_cloud sync_failed run=2 evidence=command_exit exit=4/);
     assert.doesNotMatch(JSON.stringify(history) + JSON.stringify(stored) + logs, /sentinel|Test Vault|synthetic\/mirrors/);
   } finally { await host.harness.lifecycle.dispose(); }
+});
+test('SDK-native SQLite paging retains more than twenty summaries and validates page inputs', async () => {
+  const { bb, harness, provider } = await setup();
+  try {
+    await harness.behavior.fetchHttp('POST', '/connect', { headers: { 'Content-Type': 'application/json' }, body: '{"account":"synthetic@example.test","password":"synthetic"}' });
+    await harness.behavior.fetchHttp('POST', '/challenge', { headers: { 'Content-Type': 'application/json' }, body: '{"answer":"123456"}' });
+    await harness.behavior.callRpc('browse', { parent: null }); await harness.behavior.callRpc('select', { folderId: 'test' });
+    const id = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].id; await harness.behavior.callRpc('enable', { id });
+    for (let i = 0; i < 25; i++) await harness.behavior.runSchedule('selected-folder-sync');
+    const first = diagnosticsSchema.parse(await harness.behavior.callRpc('diagnostics', null)); assert.equal(first.retained.successes, 26); assert.equal(first.runs.length, 20); assert.equal(first.nextBefore, 7);
+    const older = diagnosticsSchema.parse(await harness.behavior.callRpc('diagnostics', { before: first.nextBefore })); assert.deepEqual(older.runs.map(r => r.sequence), [1, 2, 3, 4, 5, 6]);
+    assert.equal((bb.storage.database().prepare('SELECT COUNT(*) AS count FROM icloud_sync_runs').get() as { count: number }).count, 26);
+    await assert.rejects(harness.behavior.callRpc('diagnostics', { limit: 101 })); assert.equal(provider.synced, 25);
+    assert.doesNotMatch(JSON.stringify(first) + JSON.stringify(older), /Test Vault|synthetic|password/);
+  } finally { await harness.lifecycle.dispose(); }
 });
 test('controlled provider and form failures have bounded diagnostics with no sentinel leaks', async () => {
   const host = createFakePluginHost({ pluginId: 'icloud' }); const provider = new FakeCloudProvider();
