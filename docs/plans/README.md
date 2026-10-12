@@ -15,6 +15,6 @@ Plans are numbered in delivery order as `NNN-<iteration-name>.md`. Keep the numb
 | [007 — iCloud sync progress](007-icloud-sync-progress.md) | Installed; live verified | Per-folder measured transfers and honest checking/backup/finishing activity, with private bounded provider statistics. |
 | [008 — Incremental iCloud recovery](008-incremental-icloud-recovery.md) | Installed; unchanged-run verified | Approved recovery and two successful live syncs; unchanged recovery downloaded zero file bodies while retaining fail-closed conflict/deletion protection. |
 | [009 — iCloud sync diagnostics](009-icloud-sync-diagnostics.md) | Installed; live verified | Bounded private run history, stage timings and downloaded/reused counts, correlated command failure evidence, and fail-independent diagnostic storage. |
-| [010 — iCloud history retention](010-icloud-history-retention.md) | Verified; deployment pending | Seven-day success / 30-day error history, independent budgets, indexed SQLite rows, safe legacy import and bounded paginated reads. |
+| [010 — iCloud history retention](010-icloud-history-retention.md) | Installed; live verified | Seven-day success / 30-day error history, independent budgets, indexed SQLite rows, safe legacy import and bounded paginated reads. |
 
 See the [roadmap](../roadmap.md) for the proposed order beyond these iterations.

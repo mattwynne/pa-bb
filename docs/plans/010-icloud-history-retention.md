@@ -2,7 +2,7 @@ Drafted by Matt's robot
 
 # 010 — Longer iCloud history, with errors kept separately
 
-Status: verified for iCloud 0.1.6; paused production deployment pending.
+Status: iCloud 0.1.6 installed from `ed592d3`; legacy import and completed persistent live run verified.
 
 ## Contract
 
@@ -21,4 +21,6 @@ Test errors surviving more than 20 healthy runs, distinct seven/30-day expiry, i
 - Typecheck/build/shared checks passed. Full stock-rclone v1.75.2 suite passed: 51 scenarios / 447 steps and 76 tests, no skips. Native SQLite tests cover TTL, independent row/byte caps, transaction failures, pending-marker import, private malformed rows and a 1,600-row history larger than BB's KV limit. Storage failure keeps a separate temporary last-20 cache for each outcome class, so healthy traffic does not erase its remembered errors either.
 - All 60 rendered BB regression cases passed at desktop/phone widths. The interface and file-safety controls are unchanged.
 - In an isolated running BB, a generated eight-day-old error survived 25 healthy summaries, while an eight-day-old success and 31-day-old error expired. The default latest-20 page retained an older seven-entry page; the errors-only query still found the old error. The actual server/core/logger captured a newly injected failure as `iCloud sync/backing_up_cloud sync_failed run=29 evidence=command_exit exit=4`. Synthetic names, messages, causes, credentials and provider-body sentinels were absent from logs/history; the folder paused without retry. The fixture contacted no Apple account and was removed after review.
-- Production migration, preserved baseline/connection evidence and completed live-run observation remain pending. Existing phone-to-consumer and expired-session checks remain separate.
+- Production update was quiesced through normal Pause controls without interrupting a run; a protected state/credential/database checkpoint was saved. Installed only iCloud 0.1.6 from `ed592d3`. While still paused, baseline hashes, encryption-key/config bytes, connection and last-success timestamp were unchanged; other integration versions/statuses were preserved. All 20 available legacy summaries and their sequence were imported exactly into schema-2 SQLite, and the old KV value remained intact. No baseline/lock/failure repair was attempted.
+- Resumed only the previously enabled folder normally. New run 61 completed successfully in 108,239 ms; its RPC summary matched the actual SQLite row. History retained 21 successes, and the oldest imported summary remained available through the older-page cursor rather than being evicted. Recovery reused 1,499 cloud and 1,499 local references with no downloaded/copied file bodies. The three existing warning messages were bounded; no routine success log spam appeared. Updated production UI loaded at desktop/phone widths with visible keyboard focus and no errors/overflow; private folder names were masked.
+- Longer retention starts with the available migrated records; previously evicted summaries cannot be backfilled. Error retention/failure formatting was verified using generated data in running BB, not by manufacturing an Apple failure in the production account. Existing phone-to-consumer and expired-session checks remain separate.
