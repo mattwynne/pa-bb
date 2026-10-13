@@ -32,7 +32,7 @@ The independently installable [Google Drive/Docs read-only first slice](plans/00
 
 ### 4. Personal knowledge and Obsidian
 
-[Iteration 006 — Obsidian vault reading](plans/006-obsidian-vault-reading.md) plans one explicitly authorized vault supplied by the iCloud plugin, with read-only note search, reads, link resolution, task discovery and source citations. Prove the live inventory handoff and safe reads during sync; distinguish local read time from last successful cloud sync. Keep vault scope under the owner's control and personal layouts or policies out of the public package. Note edits, daily-note capture and task completion come later. If vault access is the gating dependency for the next useful ability, move this item ahead of Drive/Docs.
+[Iteration 006 — Obsidian vault reading and editing](plans/006-obsidian-vault-reading.md) plans one explicitly authorized vault supplied by iCloud, with note search/reads, metadata, links, tasks, source citations, note creation, targeted edits and structured property updates. Offer read-only or scoped read-and-edit access. Prove consent, version-conflict refusal, recovery and coordination with sync; distinguish local saves from cloud/phone delivery. Keep vault scope under the owner's control and personal layouts or policies out of the public package. Renames/deletes, bulk editing and automatic daily-note/template workflows come later. If vault access is the gating dependency for the next useful ability, move this item ahead of Drive/Docs.
 
 ### 5. Outcome abilities
 
