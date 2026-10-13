@@ -90,13 +90,17 @@ for (const problem of ['missing', 'corrupt', 'symlink'] as const) test(`${proble
     f.commands.length = 0; await assert.rejects(copies.capture('mirror-1', f.cloud, f.local), /recovery_required/); assert.equal(transfers(f.commands).length, 0);
   } finally { await rm(f.root, { recursive: true }); }
 });
-for (const side of ['cloud', 'local'] as const) test(`changing ${side} during capture preserves staging and prevents a complete snapshot`, async () => {
+for (const side of ['cloud', 'local'] as const) test(`changing ${side} during capture retains incomplete blobs and permits the next capture`, async () => {
   const f = await recoveryFixture(); const copies = new RecoveryCopies(f.root + '/backups', f.run);
   try {
     await f.put('cloud', 'note.md', 'AA'); await f.put('local', 'note.md', 'AA');
     f.afterCopy(async () => { await f.put(side, 'note.md', 'BB', 1_000_001); });
     await assert.rejects(copies.capture('mirror-1', f.cloud, f.local), /source_changed/);
     assert.equal((await readdir(f.root + '/backups/snapshots')).length, 0); assert.ok((await readdir(f.root + '/backups')).some(n => n.startsWith('staging-')));
+    f.afterCopy(undefined); await copies.capture('mirror-1', f.cloud, f.local);
+    assert.ok((await captures(f.root)).some(snapshot => snapshot.complete === false));
+    assert.ok((await captures(f.root)).some(snapshot => snapshot.complete === true));
+    assert.ok(!(await readdir(f.root + '/backups')).some(n => n.startsWith('staging-')));
   } finally { await rm(f.root, { recursive: true }); }
 });
 test('encoding-sensitive filenames use exact standard paths and never unsafe cache matches', async () => {
@@ -125,6 +129,8 @@ test('a growing local source cannot write beyond its planned staging budget', as
     const stage = (await readdir(f.root + '/backups')).find(n => n.startsWith('staging-'))!;
     assert.equal((await readFile(f.root + '/backups/' + stage + '/local/note.md', 'utf8')).length, content.length);
     assert.equal((await readdir(f.root + '/backups/snapshots')).length, 0);
+    await f.put('local', 'note.md', content); await copies.capture('mirror-1', f.cloud, f.local);
+    assert.ok((await captures(f.root)).some(snapshot => snapshot.complete === false));
   } finally { await rm(f.root, { recursive: true }); }
 });
 test('capacity includes index metadata but a warm run need not reserve full-folder downloads', async () => {
@@ -137,11 +143,65 @@ test('capacity includes index metadata but a warm run need not reserve full-fold
     await assert.rejects(new RecoveryCopies(f.root + '/backups', f.run, limit).capture('mirror-1', f.cloud, f.local), /capacity/); assert.equal(transfers(f.commands).length, 0);
   } finally { await rm(f.root, { recursive: true }); }
 });
-test('interrupted backup staging is retained and blocks new snapshots', async () => {
+test('ambiguous legacy staging is retained and remains an actionable stop', async () => {
   const f = await recoveryFixture(); await mkdir(f.root + '/backups'); await mkdir(f.root + '/backups/staging-interrupted'); await writeFile(f.root + '/backups/staging-interrupted/kept', 'private-recovery');
   try {
     await assert.rejects(new RecoveryCopies(f.root + '/backups', f.run).capture('mirror-1', f.cloud, f.local), /recovery_required/);
     assert.equal(await readFile(f.root + '/backups/staging-interrupted/kept', 'utf8'), 'private-recovery'); assert.equal(f.commands.length, 0);
+  } finally { await rm(f.root, { recursive: true }); }
+});
+test('a failure at the second cloud listing retains verified staging and a normal later attempt succeeds', async () => {
+  const f = await recoveryFixture(); let failSecond = true; let listings = 0;
+  const copies = new RecoveryCopies(f.root + '/backups', async (args, capture, report) => {
+    if (args[0] === 'lsjson' && ++listings === 2 && failSecond) throw new Error('sentinel-private-provider-error');
+    return f.run(args, capture, report);
+  });
+  try {
+    await f.put('cloud', 'note.md', 'AA');
+    await assert.rejects(copies.capture('mirror-1', f.cloud, f.local));
+    assert.ok((await readdir(f.root + '/backups')).some(name => name.startsWith('staging-')));
+    failSecond = false; listings = 0; await copies.capture('mirror-1', f.cloud, f.local);
+    const snapshots = await captures(f.root);
+    assert.ok(snapshots.some(snapshot => snapshot.complete === false));
+    assert.ok(snapshots.some(snapshot => snapshot.complete === true));
+    assert.ok((await blobs(f.root)).includes('AA'));
+    assert.ok(await treeSize(f.root + '/backups') <= 1024 * 1024 * 1024);
+  } finally { await rm(f.root, { recursive: true }); }
+});
+test('staging for another mirror is retained by its own validated metadata and does not block this mirror', async () => {
+  const f = await recoveryFixture(); const stage = f.root + '/backups/staging-aaaaaaaa';
+  try {
+    await mkdir(f.root + '/backups', { recursive: true }); await mkdir(stage); await mkdir(stage + '/cloud'); await mkdir(stage + '/local');
+    await writeFile(stage + '/incomplete.json', JSON.stringify({ mirror: 'mirror-2', captured: Date.now() })); await writeFile(stage + '/cloud/other.md', 'other-version');
+    await f.put('cloud', 'note.md', 'current-version'); await new RecoveryCopies(f.root + '/backups', f.run).capture('mirror-1', f.cloud, f.local);
+    const snapshots = await captures(f.root); assert.ok(snapshots.some(snapshot => snapshot.mirror === 'mirror-2' && snapshot.complete === false));
+    assert.ok(snapshots.some(snapshot => snapshot.mirror === 'mirror-1' && snapshot.complete === true)); assert.ok((await blobs(f.root)).includes('other-version'));
+  } finally { await rm(f.root, { recursive: true }); }
+});
+test('a valid complete manifest left before its atomic rename is recovered conservatively', async () => {
+  const f = await recoveryFixture(); const copies = new RecoveryCopies(f.root + '/backups', f.run);
+  try {
+    await f.put('cloud', 'note.md', 'complete-version'); await copies.capture('mirror-1', f.cloud, f.local);
+    const snapshotName = (await readdir(f.root + '/backups/snapshots'))[0]; const manifest = JSON.parse(await readFile(f.root + '/backups/snapshots/' + snapshotName, 'utf8'));
+    const stage = f.root + '/backups/staging-bbbbbbbb'; await mkdir(stage); await mkdir(stage + '/cloud'); await mkdir(stage + '/local');
+    await writeFile(stage + '/incomplete.json', JSON.stringify({ mirror: 'mirror-1', captured: manifest.captured }));
+    await rename(f.root + '/backups/snapshots/' + snapshotName, stage + '/manifest.json');
+    await copies.capture('mirror-1', f.cloud, f.local);
+    assert.ok((await captures(f.root)).every(snapshot => snapshot.complete === true)); assert.ok(!(await readdir(f.root + '/backups')).some(name => name.startsWith('staging-')));
+  } finally { await rm(f.root, { recursive: true }); }
+});
+test('a completed manifest with an extra unique staged entry is refused without discarding its bytes', async () => {
+  const f = await recoveryFixture(); const copies = new RecoveryCopies(f.root + '/backups', f.run);
+  try {
+    await f.put('cloud', 'note.md', 'manifest-version'); await copies.capture('mirror-1', f.cloud, f.local);
+    const snapshotName = (await readdir(f.root + '/backups/snapshots'))[0]; const manifest = JSON.parse(await readFile(f.root + '/backups/snapshots/' + snapshotName, 'utf8'));
+    const stage = f.root + '/backups/staging-cccccccc'; await mkdir(stage); await mkdir(stage + '/cloud'); await mkdir(stage + '/local');
+    await writeFile(stage + '/incomplete.json', JSON.stringify({ mirror: 'mirror-1', captured: manifest.captured }));
+    await rename(f.root + '/backups/snapshots/' + snapshotName, stage + '/manifest.json');
+    await writeFile(stage + '/cloud/extra.md', 'unique-unreferenced-version'); f.commands.length = 0;
+    await assert.rejects(copies.capture('mirror-1', f.cloud, f.local), /recovery_required/);
+    assert.equal(await readFile(stage + '/cloud/extra.md', 'utf8'), 'unique-unreferenced-version');
+    assert.ok((await blobs(f.root)).includes('unique-unreferenced-version')); assert.equal(f.commands.length, 0);
   } finally { await rm(f.root, { recursive: true }); }
 });
 test('unsafe, duplicate and malformed provider listings fail with fixed categories only', async () => {

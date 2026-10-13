@@ -19,6 +19,11 @@ host running BB, separately from the plugin.
 
 - Pin the release and architecture-specific checksum, initially v1.75.2.
 - Provide a root-owned executable at a stable path, runnable by BB's service user.
+- Use Linux and provide util-linux `flock` at `/usr/bin/flock`; the plugin uses
+  its inherited file-descriptor lock to prevent old and restarted workers from
+  overlapping.
+- Mount procfs with child-process metadata readable by BB's service user so a
+  replacement plugin generation can defer safely to its live predecessor.
 - Make installation repeatable and upgrades reversible. Coordinate upgrades with
   active workers; preserve sync state.
 

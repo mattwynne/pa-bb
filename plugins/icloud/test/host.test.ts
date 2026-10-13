@@ -43,16 +43,102 @@ test('other plugins cannot invoke sync consent or account controls', async () =>
   const { harness } = await setup();
   try {
     const context = { experimental_caller: { kind: 'plugin' as const, pluginId: 'fastmail' } };
-    for (const [method, input] of [['disconnect', null], ['browse', { parent: null }], ['select', { folderId: 'test' }], ['enable', { id: 'mirror-1' }], ['pause', { id: 'mirror-1' }]] as const) await assert.rejects(harness.behavior.callRpc(method, input, context), /settings/);
+    for (const [method, input] of [['disconnect', null], ['browse', { parent: null }], ['select', { folderId: 'test' }], ['enable', { id: 'mirror-1' }], ['retry', { id: 'mirror-1' }], ['pause', { id: 'mirror-1' }]] as const) await assert.rejects(harness.behavior.callRpc(method, input, context), /settings/);
   } finally { await harness.lifecycle.dispose(); }
 });
-test('reload verifies saved authorization with a real provider read and fails closed safely', async () => {
+test('the real schedule retries an enabled initialized failure and preserves failed history', async () => {
+  const { harness, provider } = await setup();
+  try {
+    await harness.behavior.fetchHttp('POST', '/connect', { headers: { 'Content-Type': 'application/json' }, body: '{"account":"synthetic@example.test","password":"synthetic"}' });
+    await harness.behavior.fetchHttp('POST', '/challenge', { headers: { 'Content-Type': 'application/json' }, body: '{"answer":"123456"}' });
+    await harness.behavior.callRpc('browse', { parent: null }); await harness.behavior.callRpc('select', { folderId: 'test' });
+    const id = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].id; await harness.behavior.callRpc('enable', { id });
+    provider.fail = 'sync_failed'; await harness.behavior.runSchedule('selected-folder-sync');
+    let mirror = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0];
+    assert.equal(mirror.enabled, true); assert.equal(mirror.retryPending, true); assert.equal(mirror.blocker, null);
+    provider.fail = null; await harness.behavior.runSchedule('selected-folder-sync');
+    mirror = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0]; assert.equal(mirror.phase, 'ready'); assert.equal(mirror.failure, null);
+    const history = diagnosticsSchema.parse(await harness.behavior.callRpc('diagnostics', null));
+    assert.deepEqual(history.runs.map(run => run.outcome), ['succeeded', 'failed', 'succeeded']);
+  } finally { await harness.lifecycle.dispose(); }
+});
+test('pause cancels a pending scheduled retry without clearing its last failure', async () => {
+  const { harness, provider } = await setup();
+  try {
+    await harness.behavior.fetchHttp('POST', '/connect', { headers: { 'Content-Type': 'application/json' }, body: '{"account":"synthetic@example.test","password":"synthetic"}' });
+    await harness.behavior.fetchHttp('POST', '/challenge', { headers: { 'Content-Type': 'application/json' }, body: '{"answer":"123456"}' });
+    await harness.behavior.callRpc('browse', { parent: null }); await harness.behavior.callRpc('select', { folderId: 'test' });
+    const id = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].id; await harness.behavior.callRpc('enable', { id });
+    provider.fail = 'sync_failed'; await harness.behavior.runSchedule('selected-folder-sync'); const attempts = provider.synced;
+    await harness.behavior.callRpc('pause', { id }); provider.fail = null; await harness.behavior.runSchedule('selected-folder-sync');
+    const mirror = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0];
+    assert.equal(provider.synced, attempts); assert.equal(mirror.enabled, false); assert.equal(mirror.phase, 'failed'); assert.equal(mirror.failure, 'sync_failed'); assert.equal(mirror.retryPending, false);
+  } finally { await harness.lifecycle.dispose(); }
+});
+test('reconnect requires explicit Resume before the scheduler restarts an authorized mirror', async () => {
+  const { harness, provider } = await setup();
+  try {
+    await harness.behavior.fetchHttp('POST', '/connect', { headers: { 'Content-Type': 'application/json' }, body: '{"account":"synthetic@example.test","password":"synthetic"}' });
+    await harness.behavior.fetchHttp('POST', '/challenge', { headers: { 'Content-Type': 'application/json' }, body: '{"answer":"123456"}' });
+    await harness.behavior.callRpc('browse', { parent: null }); await harness.behavior.callRpc('select', { folderId: 'test' });
+    const id = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].id; await harness.behavior.callRpc('enable', { id });
+    provider.fail = 'authentication'; await harness.behavior.runSchedule('selected-folder-sync'); const attempts = provider.synced;
+    let mirror = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0]; assert.equal(mirror.blocker, 'reconnect'); assert.equal(mirror.enabled, true);
+    await harness.behavior.fetchHttp('POST', '/connect', { headers: { 'Content-Type': 'application/json' }, body: '{"account":"synthetic@example.test","password":"synthetic"}' });
+    await harness.behavior.fetchHttp('POST', '/challenge', { headers: { 'Content-Type': 'application/json' }, body: '{"answer":"123456"}' }); provider.fail = null;
+    await harness.behavior.runSchedule('selected-folder-sync'); assert.equal(provider.synced, attempts);
+    mirror = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0]; assert.equal(mirror.blocker, 'reconnect'); assert.equal(mirror.enabled, true);
+    await harness.behavior.callRpc('enable', { id }); assert.equal(provider.synced, attempts + 1);
+    mirror = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0]; assert.equal(mirror.phase, 'ready'); assert.equal(mirror.blocker, null);
+  } finally { await harness.lifecycle.dispose(); }
+});
+test('actionable failures stop scheduling while only repaired capacity and configuration allow explicit safe retry', async () => {
+  for (const [failure, blocker, retryable] of [['recovery_required', 'rebuild', false], ['configuration', 'configuration', true], ['capacity', 'capacity', true], ['invalid_selection', 'configuration', true]] as const) {
+    const { harness, provider } = await setup();
+    try {
+      await harness.behavior.fetchHttp('POST', '/connect', { headers: { 'Content-Type': 'application/json' }, body: '{"account":"synthetic@example.test","password":"synthetic"}' });
+      await harness.behavior.fetchHttp('POST', '/challenge', { headers: { 'Content-Type': 'application/json' }, body: '{"answer":"123456"}' });
+      await harness.behavior.callRpc('browse', { parent: null }); await harness.behavior.callRpc('select', { folderId: 'test' });
+      const id = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].id; await harness.behavior.callRpc('enable', { id });
+      provider.fail = failure; await harness.behavior.runSchedule('selected-folder-sync'); const attempts = provider.synced; provider.fail = null;
+      await harness.behavior.runSchedule('selected-folder-sync'); assert.equal(provider.synced, attempts);
+      let mirror = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0]; assert.equal(mirror.blocker, blocker); assert.equal(mirror.retryPending, false);
+      if (!retryable) await assert.rejects(harness.behavior.callRpc('retry', { id }), /recovery/);
+      else {
+        provider.fail = failure; mirror = statusSchema.parse(await harness.behavior.callRpc('retry', { id })).mirrors[0];
+        assert.equal(provider.synced, attempts + 1); assert.equal(mirror.blocker, blocker); assert.equal(mirror.failure, failure);
+        provider.fail = null; mirror = statusSchema.parse(await harness.behavior.callRpc('retry', { id })).mirrors[0];
+        assert.equal(provider.synced, attempts + 2); assert.equal(mirror.phase, 'ready'); assert.equal(mirror.blocker, null);
+      }
+    } finally { await harness.lifecycle.dispose(); }
+  }
+});
+test('legacy failed initialized mirrors have an explicit ordinary retry RPC', async () => {
+  const host = createFakePluginHost({ pluginId: 'icloud' }); const provider = new FakeCloudProvider(); const repository = new MemoryState();
+  repository.value.connected = true; repository.value.mirrors.push({ id: 'legacy', folder: { id: 'test', name: 'Test Vault', ancestors: [] }, initialized: true, enabled: false, phase: 'failed', lastSuccess: '2026-01-01T00:00:00.000Z', failure: 'sync_failed' } as any);
+  await plugin(host.bb, { provider, repository });
+  try {
+    const before = statusSchema.parse(await host.harness.behavior.callRpc('status', null)).mirrors[0]; assert.equal(before.failure, 'sync_failed'); assert.equal(before.blocker, null);
+    const after = statusSchema.parse(await host.harness.behavior.callRpc('retry', { id: 'legacy' }));
+    assert.equal(provider.prepared, 0); assert.equal(provider.synced, 1); assert.equal(after.mirrors[0].phase, 'ready'); assert.equal(after.mirrors[0].enabled, true);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+test('a disconnected restored failure never promises an automatic retry', async () => {
+  const host = createFakePluginHost({ pluginId: 'icloud' }); const provider = new FakeCloudProvider(); const repository = new MemoryState();
+  repository.value.connected = false; repository.value.mirrors.push({ id: 'offline', folder: { id: 'test', name: 'Test Vault', ancestors: [] }, initialized: true, enabled: true, phase: 'failed', lastSuccess: '2026-01-01T00:00:00.000Z', failure: 'sync_failed', blocker: null });
+  await plugin(host.bb, { provider, repository });
+  try {
+    const mirror = statusSchema.parse(await host.harness.behavior.callRpc('status', null)).mirrors[0];
+    assert.equal(mirror.enabled, true); assert.equal(mirror.retryPending, false); assert.equal(mirror.stale, true);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+test('reload verifies saved authorization without treating an unknown read failure as expired authorization', async () => {
   const host = createFakePluginHost({ pluginId: 'icloud' }); const provider = new FakeCloudProvider(); const repository = new MemoryState();
   repository.value.connected = true;
   provider.verifyConnection = async () => { throw new Error('sentinel-private-session'); };
   await plugin(host.bb, { provider, repository });
   try {
-    assert.equal(statusSchema.parse(await host.harness.behavior.callRpc('status', null)).connected, false);
+    assert.equal(statusSchema.parse(await host.harness.behavior.callRpc('status', null)).connected, true);
     const logs = JSON.stringify(host.harness.inspection.logEntries); assert.match(logs, /restore_connection unknown/); assert.doesNotMatch(logs, /sentinel/);
   } finally { await host.harness.lifecycle.dispose(); }
 });

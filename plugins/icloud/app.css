@@ -50,3 +50,4 @@
 .pa-icloud__current-folder span { overflow-wrap: anywhere; }
 .pa-icloud .pa-connection__footer { flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; justify-content: flex-start; }
 .pa-icloud .pa-connection__footer .pa-connection__button { margin-left: 0; }
+.pa-icloud .pa-connection__disclosure .pa-connection__button { margin-right: 0.5rem; }

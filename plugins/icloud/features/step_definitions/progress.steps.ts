@@ -49,5 +49,5 @@ When('the progress test provider fails', async function(this: ProgressWorld) { t
 When('the progress test installation restarts', async function(this: ProgressWorld) {
   this.progressService = new ICloudSync(new FakeCloudProvider(), this.progressRepository, () => 'unused', () => 'unused', () => {}); await this.progressService.start();
 });
-Then('the progress test folder needs recovery with no progress', function(this: ProgressWorld) { const mirror = this.progressService!.status().mirrors[0]; assert.equal(mirror.phase, 'failed'); assert.equal(mirror.enabled, false); assert.equal(mirror.progress, null); });
+Then('the progress test folder needs recovery with no progress', function(this: ProgressWorld) { const mirror = this.progressService!.status().mirrors[0]; assert.equal(mirror.phase, 'failed'); assert.equal(mirror.progress, null); });
 After(async function(this: ProgressWorld) { this.progressRelease?.(); await this.progressTask; });

@@ -1,5 +1,5 @@
 // Domain ports: no command flags, config keys, remote syntax or raw errors.
-export const FAILURES = ['unavailable', 'authentication', 'capacity', 'interrupted', 'sync_failed', 'source_changed', 'busy', 'invalid_selection', 'recovery_required', 'unknown'] as const;
+export const FAILURES = ['unavailable', 'authentication', 'configuration', 'capacity', 'interrupted', 'sync_failed', 'source_changed', 'busy', 'invalid_selection', 'recovery_required', 'unknown'] as const;
 export type Failure = typeof FAILURES[number];
 export type FailureEvidence = { kind: 'command_exit'; exitCode: number | null } | { kind: 'command_timeout' | 'command_output_limit' | 'command_signal' | 'command_start' | 'command_stopped' };
 export function failureEvidence(value: unknown): FailureEvidence | null {
@@ -17,7 +17,10 @@ export class CloudError extends Error {
 export type Challenge = 'verification_code' | 'trusted_device';
 export type Connection = { connected: true } | { connected: false; challenge: Challenge };
 export type CloudFolder = { id: string; name: string; ancestors: string[] };
-export type Mirror = { id: string; folder: CloudFolder; initialized: boolean; enabled: boolean; phase: 'paused' | 'ready' | 'running' | 'failed' | 'retained'; lastSuccess: string | null; failure: Failure | null };
+export const BLOCKERS = ['reconnect', 'configuration', 'capacity', 'initialization', 'rebuild'] as const;
+export type Blocker = typeof BLOCKERS[number];
+export type Mirror = { id: string; folder: CloudFolder; initialized: boolean; enabled: boolean; phase: 'paused' | 'ready' | 'running' | 'failed' | 'retained'; lastSuccess: string | null; failure: Failure | null; blocker: Blocker | null };
+export type MirrorStatus = Mirror & { retryPending: boolean; stale: boolean; recovering: boolean };
 export type SyncStage = 'checking' | 'backing_up_cloud' | 'backing_up_local' | 'saving_recovery' | 'transferring' | 'verifying';
 export type TransferProgress = { bytes: number; totalBytes: number | null; files: number; totalFiles: number | null };
 export type SyncProgress = TransferProgress & { stage: SyncStage; reusedFiles?: number };

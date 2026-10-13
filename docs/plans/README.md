@@ -16,6 +16,6 @@ Plans are numbered in delivery order as `NNN-<iteration-name>.md`. Keep the numb
 | [008 — Incremental iCloud recovery](008-incremental-icloud-recovery.md) | Installed; unchanged-run verified | Approved recovery and two successful live syncs; unchanged recovery downloaded zero file bodies while retaining fail-closed conflict/deletion protection. |
 | [009 — iCloud sync diagnostics](009-icloud-sync-diagnostics.md) | Installed; live verified | Bounded private run history, stage timings and downloaded/reused counts, correlated command failure evidence, and fail-independent diagnostic storage. |
 | [010 — iCloud history retention](010-icloud-history-retention.md) | Installed; live verified | Seven-day success / 30-day error history, independent budgets, indexed SQLite rows, safe legacy import and bounded paginated reads. |
-| [011 — Rclone-first iCloud recovery](011-rclone-first-icloud-recovery.md) | Planned | Unattended recovery from ordinary failures using native rclone retries, bisync recovery and locks; fewer wrapper lockouts and self-service BB actions. |
+| [011 — Rclone-first iCloud recovery](011-rclone-first-icloud-recovery.md) | Implemented; awaiting production verification | Generated ordinary-failure recovery, safe reload handoff and self-service Retry/Reconnect/Resume/fresh-mirror actions; live Apple recovery and deployment remain unverified. |
 
 See the [roadmap](../roadmap.md) for the proposed order beyond these iterations.

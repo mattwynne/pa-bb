@@ -2,7 +2,7 @@ Drafted by Matt's robot
 
 # 011 — Unattended iCloud sync, with rclone owning recovery
 
-Status: Planned; no runtime or production recovery changes made.
+Status: Implemented; awaiting production verification. Live Apple recovery and production deployment remain unverified.
 
 ## Goal
 
@@ -85,3 +85,13 @@ Update the setup/recovery guide, plugin README and scenarios that currently requ
 ## Out of scope
 
 A generic recovery framework, new retry scheduler, backup-store rewrite, automatic forced resync, automatic merging of old/new mirrors, broad rclone upgrades and Obsidian features. Genuine damage may still require specialist help; ordinary service interruptions must not.
+
+## Implementation evidence
+
+- The final combined main-branch suite passed 95 unit/adapter/host tests and 56 Cucumber scenarios (522 steps), without skips, against stock rclone v1.75.2. This includes the natural-duration lock renewal/expiry and graceful/abrupt recovery proof, legacy-worker handoff, same-generation reacquisition, and refusal to discard extra or mismatched completed-capture data.
+- A separate isolated BB scheduler run against generated local/alias data recovered a first-listing failure automatically, recovered repeated second-listing failures without unbounded staging growth, and recovered a source change on the next scheduled attempt. Pause followed by reload stayed stopped. Persistent history retained four failures, and bounded `checking`/`saving_recovery` diagnostics excluded the synthetic private sentinel. This is actual one-minute BB scheduler evidence, not Apple-provider evidence.
+- An isolated BB 0.45.0 instance rendered 39 controlled states at both 1280px and 390px (78 screenshots). The review exercised first-run, pending, connected, folder browsing, retry-pending, repeated stale failure, interrupted recovery, reconnect/Resume, capacity, configuration, critical stop, eligible legacy Retry, initialization block, fresh-mirror confirmation, progress lifecycles and keyboard focus. The final screenshots were inspected against the existing Fastmail connection layout; no section overflow was found.
+- The final shared connection UI drift check, TypeScript check against BB SDK 0.6.15 and plugin build passed. All 78 rendered cases were rerun after the final UI edit, including the explicit post-reconnect “Resume required” state. The iCloud package version is 0.1.7; the comparison Fastmail installation remained unchanged at 0.1.6.
+- Temporary failures retain enabled intent and use only the ordinary schedule. Pause cancels future attempts while preserving the outcome. Reconnect requires explicit Resume. Capacity and configuration blockers never auto-retry; after the condition is fixed, explicit Retry rechecks the ordinary capture/rclone path, restores the blocker on failure and clears it on success. Invalid selections use the configuration blocker. Critical and ambiguous-initialization states remain unretryable and alone expose the confirmed fresh-mirror path.
+- Generated enabled-plugin hot reload now defers to a live same-parent daemon before and after flock acquisition without signalling it, unlinking live paths or replacing the lock inode. A legacy predecessor without flock is preserved too. After a transient busy run, the same replacement generation completed the next ordinary one-minute scheduled run successfully. Linux procfs and util-linux `/usr/bin/flock` are therefore explicit host requirements.
+- The rendered review used controlled RPC fixtures and no provider accounts. Live Apple authorization, Apple session expiry, real provider outage/recovery, a phone-to-BB round trip, production deployment and post-deployment persistent sync were not verified in this iteration. Production access was unavailable, so deployment and post-deployment feedback remain blocked. Production credentials, files, baselines, grants and failure state were not changed.

@@ -48,6 +48,75 @@ async function hashFile(path: string) {
 }
 export class RecoveryCopies {
   constructor(private root: string, private run: CommandRunner, private limit = BACKUP_LIMIT, private now = () => Date.now()) {}
+  private async retainIncomplete() {
+    for (const name of await readdir(this.root)) {
+      if (!name.startsWith('staging-')) continue;
+      if (!/^staging-[a-f0-9-]{8,}$/.test(name)) throw new CloudError('recovery_required');
+      const staging = join(this.root, name); const info = await lstat(staging);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new CloudError('recovery_required');
+      let metadata: { mirror: string; captured: number };
+      try { metadata = JSON.parse(await readFile(join(staging, 'incomplete.json'), 'utf8')); }
+      catch { throw new CloudError('recovery_required'); }
+      if (!/^[a-zA-Z0-9-]{1,64}$/.test(metadata?.mirror) || !Number.isSafeInteger(metadata?.captured) || metadata.captured <= 0) throw new CloudError('recovery_required');
+      const names = await readdir(staging);
+      if (names.some(item => !['cloud', 'local', 'cloud-files', 'local-files', 'incomplete.json', 'incomplete-retained.json', 'manifest.json'].includes(item))) throw new CloudError('recovery_required');
+      let completed: Snapshot | null = null;
+      if (names.includes('manifest.json')) {
+        try { completed = JSON.parse(await readFile(join(staging, 'manifest.json'), 'utf8')); }
+        catch { throw new CloudError('recovery_required'); }
+        if (!completed || completed.mirror !== metadata.mirror || completed.schema !== 2 || completed.complete !== true || completed.cloudPathEncoding !== 'rclone-standard' || !Number.isSafeInteger(completed.captured) || completed.captured <= 0 || !Number.isSafeInteger(completed.generation) || completed.generation! < 1 || !Array.isArray(completed.entries)) throw new CloudError('recovery_required');
+        const indexed = new Set<string>();
+        for (const entry of completed.entries) {
+          safePath(entry?.path);
+          if (!['cloud', 'local'].includes(entry?.side) || !isHash(entry?.blob) || (entry.version !== null && !isHash(entry.version))) throw new CloudError('recovery_required');
+          const key = `${entry.side}\0${entry.path}`; if (indexed.has(key)) throw new CloudError('recovery_required'); indexed.add(key);
+        }
+      }
+      const entries: Entry[] = [];
+      for (const side of ['cloud', 'local'] as const) {
+        try {
+          for (const path of await files(join(staging, side))) {
+            const source = join(staging, side, path); const blob = await hashFile(source); const target = join(this.root, 'blobs', blob);
+            try {
+              const targetInfo = await lstat(target);
+              if (!targetInfo.isFile() || targetInfo.isSymbolicLink() || await hashFile(target) !== blob) throw new CloudError('recovery_required');
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+              const bytes = (await lstat(source)).size;
+              if (await treeSize(this.root) + bytes > this.limit) throw new CloudError('capacity');
+              await copyFile(source, target, constants.COPYFILE_EXCL);
+              if (await hashFile(target) !== blob) throw new CloudError('recovery_required');
+            }
+            entries.push({ side, path, blob, version: null });
+          }
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      }
+      if (completed) {
+        const completedEntries = new Map(completed.entries.map(entry => [`${entry.side}\0${entry.path}`, entry]));
+        for (const entry of entries) {
+          const expected = completedEntries.get(`${entry.side}\0${entry.path}`);
+          if (!expected || expected.blob !== entry.blob) throw new CloudError('recovery_required');
+        }
+        for (const entry of completed.entries) {
+          const target = join(this.root, 'blobs', entry.blob);
+          try { const targetInfo = await lstat(target); if (!targetInfo.isFile() || targetInfo.isSymbolicLink() || await hashFile(target) !== entry.blob) throw new Error(); }
+          catch { throw new CloudError('recovery_required'); }
+        }
+        const identity = sha({ mirror: completed.mirror, schema: 2, entries: completed.entries });
+        await rename(join(staging, 'manifest.json'), join(this.root, 'snapshots', `${identity}.json`));
+        await rm(staging, { recursive: true }); continue;
+      }
+      const snapshot: Snapshot = { mirror: metadata.mirror, captured: metadata.captured, schema: 2, complete: false, cloudPathEncoding: 'rclone-standard', entries };
+      const manifest = JSON.stringify(snapshot); const identity = sha({ mirror: metadata.mirror, schema: 2, complete: false, entries });
+      if (await treeSize(this.root) + Buffer.byteLength(manifest) > this.limit) throw new CloudError('capacity');
+      const temporary = join(staging, 'incomplete-retained.json');
+      await writeFile(temporary, manifest, { mode: 0o600 });
+      await rename(temporary, join(this.root, 'snapshots', `${identity}.json`));
+      await rm(staging, { recursive: true });
+    }
+  }
   private async prune(): Promise<Snapshot[]> {
     const referenced = new Set<string>(); const retained: Snapshot[] = [];
     for (const name of await readdir(join(this.root, 'snapshots'))) {
@@ -106,7 +175,8 @@ export class RecoveryCopies {
   async capture(mirror: string, remote: string, local: string, report?: ProgressReporter) {
     report?.(activity('checking'));
     for (const dir of ['blobs', 'snapshots']) await mkdir(join(this.root, dir), { recursive: true, mode: 0o700 });
-    if ((await readdir(this.root)).some(name => !['blobs', 'snapshots'].includes(name))) throw new CloudError('recovery_required');
+    if ((await readdir(this.root)).some(name => !['blobs', 'snapshots'].includes(name) && !name.startsWith('staging-'))) throw new CloudError('recovery_required');
+    await this.retainIncomplete();
     const retained = await this.prune();
     const indexed = retained.filter(s => s.mirror === mirror && s.schema === 2 && s.complete === true && s.cloudPathEncoding === 'rclone-standard');
     if (indexed.some(s => !Number.isSafeInteger(s.generation) || s.generation! < 1) || new Set(indexed.map(s => s.generation)).size !== indexed.length) throw new CloudError('recovery_required');
@@ -142,6 +212,7 @@ export class RecoveryCopies {
     const used = await treeSize(this.root); const disk = await statfs(this.root);
     if (!Number.isSafeInteger(incoming) || used + incoming * 2 + reserve > this.limit || disk.bavail * disk.bsize < incoming * 2 + reserve + 16 * 1024 * 1024) throw new CloudError('capacity');
     const staging = join(this.root, `staging-${randomUUID()}`); await mkdir(staging, { mode: 0o700 });
+    await writeFile(join(staging, 'incomplete.json'), JSON.stringify({ mirror, captured: this.now() }), { mode: 0o600, flag: 'wx' });
     for (const side of ['cloud', 'local']) await mkdir(join(staging, side), { mode: 0o700 });
     const copy = async (side: 'cloud' | 'local', source: string, selected: { path: string; size: number }[]) => {
       const stage = side === 'cloud' ? 'backing_up_cloud' : 'backing_up_local'; const bytes = selected.reduce((sum, f) => sum + f.size, 0);

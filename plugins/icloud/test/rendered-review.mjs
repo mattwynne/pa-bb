@@ -8,15 +8,34 @@ if (!base) throw new Error('Set BB_REVIEW_BASE to an isolated BB instance.');
 const artifacts = process.env.BB_REVIEW_ARTIFACTS ?? '/tmp/icloud-rendered-review';
 await mkdir(artifacts, { recursive: true });
 const browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : {}) });
-const mirror = { id: 'review-mirror', folder: { id: 'review-folder', name: 'Test Vault', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-10-10T12:00:00.000Z', failure: null };
+const mirror = { id: 'review-mirror', folder: { id: 'review-folder', name: 'Test Vault', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-10-10T12:00:00.000Z', failure: null, blocker: null, retryPending: false, stale: false, recovering: false, progress: null };
 try {
-  for (const view of ['first', 'prerequisite', 'pending', 'empty', 'connected', 'paused', 'running', 'failed', 'source-changed', 'retained', 'error']) for (const width of [1280, 390]) {
+  const statusViews = ['first', 'prerequisite', 'pending', 'empty', 'connected', 'paused', 'running', 'retry-pending', 'repeated-stale', 'source-changed', 'recovering', 'reconnect-needed', 'reconnected-resume', 'capacity', 'configuration', 'critical', 'legacy-retry', 'initial-block', 'retained', 'error'];
+  for (const view of statusViews) for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
+    const methods = [];
     const state = { available: view !== 'prerequisite', prerequisite: view === 'prerequisite' ? 'The host needs stock rclone v1.75.2.' : null,
-      connected: !['first', 'prerequisite', 'pending'].includes(view), challenge: view === 'pending' ? 'verification_code' : null,
-      mirrors: ['first', 'prerequisite', 'pending', 'empty', 'error'].includes(view) ? [] : [{ ...mirror, phase: view === 'source-changed' ? 'failed' : view === 'connected' ? 'ready' : view, enabled: ['connected', 'running'].includes(view), failure: view === 'source-changed' ? 'source_changed' : view === 'failed' ? 'capacity' : null }] };
+      connected: !['first', 'prerequisite', 'pending', 'reconnect-needed'].includes(view), challenge: view === 'pending' ? 'verification_code' : null,
+      mirrors: ['first', 'prerequisite', 'pending', 'empty', 'error'].includes(view) ? [] : [{ ...mirror }] };
+    const item = state.mirrors[0];
+    if (item) {
+      if (view === 'paused') Object.assign(item, { initialized: false, enabled: false, phase: 'paused', lastSuccess: null });
+      if (view === 'running') Object.assign(item, { phase: 'running' });
+      if (view === 'retry-pending') Object.assign(item, { phase: 'failed', failure: 'sync_failed', retryPending: true, stale: true });
+      if (view === 'repeated-stale') Object.assign(item, { phase: 'failed', failure: 'sync_failed', retryPending: true, stale: true, lastSuccess: '2026-10-08T12:00:00.000Z' });
+      if (view === 'source-changed') Object.assign(item, { phase: 'failed', failure: 'source_changed', retryPending: true, stale: true });
+      if (view === 'recovering') Object.assign(item, { phase: 'running', failure: 'interrupted', recovering: true, stale: true });
+      if (view === 'reconnect-needed' || view === 'reconnected-resume') Object.assign(item, { phase: 'failed', failure: 'authentication', blocker: 'reconnect', stale: true });
+      if (view === 'capacity') Object.assign(item, { phase: 'failed', failure: 'capacity', blocker: 'capacity', stale: true });
+      if (view === 'configuration') Object.assign(item, { phase: 'failed', failure: 'configuration', blocker: 'configuration', stale: true });
+      if (view === 'critical') Object.assign(item, { phase: 'failed', failure: 'recovery_required', blocker: 'rebuild', stale: true });
+      if (view === 'legacy-retry') Object.assign(item, { phase: 'failed', enabled: false, failure: 'sync_failed', stale: true });
+      if (view === 'initial-block') Object.assign(item, { initialized: false, enabled: false, phase: 'failed', lastSuccess: null, failure: 'interrupted', blocker: 'initialization' });
+      if (view === 'retained') Object.assign(item, { enabled: false, phase: 'retained', stale: true });
+    }
     await page.route('**/api/v1/plugins/icloud/rpc/**', route => {
       const method = new URL(route.request().url()).pathname.split('/').at(-1);
+      methods.push(method);
       const result = method === 'browse' ? [{ id: 'review-folder', name: 'Test Vault', ancestors: [] }, { id: 'other', name: 'Other Vault', ancestors: [] }] : state;
       return route.fulfill({ json: view === 'error' ? { ok: false, error: { code: 'synthetic_failure', message: 'Controlled review failure' } } : { ok: true, result } });
     });
@@ -25,7 +44,7 @@ try {
     await page.waitForFunction(() => [...document.styleSheets].some(sheet => {
       try { return [...sheet.cssRules].some(rule => rule.selectorText === '.pa-icloud__form'); } catch { return false; }
     }));
-    await section.getByText(view === 'error' ? 'Connection status unavailable.' : view === 'pending' ? 'Finish connecting' : view === 'first' || view === 'prerequisite' ? 'Get started' : 'Connected', { exact: true }).waitFor();
+    await section.getByText(view === 'error' ? 'Connection status unavailable.' : view === 'pending' ? 'Finish connecting' : ['first', 'prerequisite', 'reconnect-needed'].includes(view) ? 'Get started' : 'Connected', { exact: true }).waitFor();
     assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
     if (['first', 'prerequisite', 'pending'].includes(view)) {
       if (view !== 'pending') assert.equal(await section.locator('ol').evaluate(element => getComputedStyle(element).listStyleType), 'decimal');
@@ -47,23 +66,62 @@ try {
       assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
     }
     if (view === 'paused') {
-      const enableState = { ...state, mirrors: [{ ...mirror, initialized: false, enabled: false, phase: 'paused' }] };
-      await page.route('**/api/v1/plugins/icloud/rpc/status', route => route.fulfill({ json: { ok: true, result: enableState } }));
-      await section.getByRole('button', { name: 'Refresh status', exact: true }).click();
       const enable = section.getByRole('button', { name: 'Enable sync for Test Vault', exact: true }); await enable.waitFor();
       const dialogPromise = page.waitForEvent('dialog'); const click = enable.click(); const dialog = await dialogPromise;
       assert.match(dialog.message(), /two-way sync/); assert.match(dialog.message(), /deletions/); await dialog.dismiss(); await click;
     }
-    if (view === 'failed') {
+    if (['retry-pending', 'repeated-stale', 'source-changed'].includes(view)) {
+      await section.getByText('Retry pending', { exact: true }).waitFor();
+      const pause = section.getByRole('button', { name: 'Pause Test Vault', exact: true }); await pause.focus();
+      assert.equal(await pause.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+      assert.equal(await section.getByRole('button', { name: 'Create fresh mirror' }).count(), 0);
+    }
+    if (view === 'recovering') {
+      await section.getByText('Recovering…', { exact: true }).waitFor();
+      await section.getByText(/Rclone is attempting normal recovery/).waitFor();
+      assert.equal(await section.getByRole('button', { name: /Pause|Retry|Create fresh mirror/ }).count(), 0);
+    }
+    if (view === 'reconnect-needed') {
+      await section.getByText('Reconnect required', { exact: true }).waitFor();
+      assert.equal(await section.getByRole('button', { name: 'Resume Test Vault', exact: true }).count(), 0);
+    }
+    if (view === 'reconnected-resume') {
+      await section.getByText('Resume required', { exact: true }).waitFor();
+      await section.getByText(/Apple is connected again/).waitFor();
+      assert.equal(await section.getByText('Reconnect required', { exact: true }).count(), 0);
       await section.getByText('Recovery steps', { exact: true }).click();
-      const dialogPromise = page.waitForEvent('dialog'); const click = section.getByRole('button', { name: 'Create fresh mirror' }).click(); const dialog = await dialogPromise;
+      const resume = section.getByRole('button', { name: 'Resume Test Vault', exact: true }); await page.keyboard.press('Tab'); await resume.focus();
+      assert.equal(await resume.evaluate(element => element === document.activeElement), true);
+      assert.equal(await resume.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+      assert.equal(await section.getByRole('button', { name: 'Create fresh mirror' }).count(), 0);
+    }
+    if (['capacity', 'configuration'].includes(view)) {
+      await section.getByText('Recovery steps', { exact: true }).click();
+      await section.getByText(/Fix .* first\. Ask the host operator if needed, then Retry\./).waitFor();
+      const retry = section.getByRole('button', { name: 'Retry Test Vault', exact: true }); await page.keyboard.press('Tab'); await retry.focus();
+      assert.equal(await retry.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+      assert.equal(await section.getByRole('button', { name: 'Create fresh mirror' }).count(), 0);
+      await retry.click(); await section.getByText(view === 'capacity' ? 'Storage blocked' : 'Configuration blocked', { exact: true }).waitFor();
+      assert.equal(methods.includes('retry'), true);
+      assert.equal(await section.getByText(/Sync resumed|Initial preparation finished|Check the new mirror/).count(), 0);
+      await page.keyboard.press('Tab'); await retry.focus();
+    }
+    if (['critical', 'initial-block'].includes(view)) {
+      await section.getByText('Recovery steps', { exact: true }).click();
+      const fresh = section.getByRole('button', { name: 'Create fresh mirror' }); await page.keyboard.press('Tab'); await fresh.focus();
+      assert.equal(await fresh.evaluate(element => element === document.activeElement), true);
+      assert.equal(await fresh.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+      const dialogPromise = page.waitForEvent('dialog'); const click = fresh.click(); const dialog = await dialogPromise;
       assert.match(dialog.message(), /not merged or uploaded/); await dialog.dismiss(); await click;
     }
-    if (view === 'source-changed') {
-      await section.getByText('Recovery steps', { exact: true }).click();
-      await section.getByText('Ask the host operator to review the unfinished recovery copies and the next safe sync attempt. No automatic repair or retry has been attempted.').waitFor();
-      assert.equal(await section.getByRole('button', { name: 'Create fresh mirror' }).count(), 0);
-      assert.equal(await section.getByRole('button', { name: 'Resume Test Vault' }).count(), 0);
+    if (view === 'legacy-retry') {
+      const retry = section.getByRole('button', { name: 'Retry Test Vault', exact: true }); await retry.focus();
+      assert.equal(await retry.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+      assert.equal(await section.getByText(/does not force resync/).count(), 1);
+      await retry.click(); await section.getByText('Sync unsuccessful', { exact: true }).waitFor();
+      assert.equal(methods.includes('retry'), true);
+      assert.equal(await section.getByText(/Sync resumed|Initial preparation finished|Check the new mirror/).count(), 0);
+      await page.keyboard.press('Tab'); await retry.focus();
     }
     if (view === 'retained') assert.equal(await section.getByRole('button', { name: 'Resume Test Vault' }).count(), 0);
     await page.screenshot({ path: `${artifacts}/${view}-${width}.png` });
@@ -166,7 +224,8 @@ try {
     await page.waitForFunction(() => document.querySelector('.pa-icloud__progress-track')?.clientHeight > 0);
     assert.equal(await bar.getAttribute('aria-valuenow'), fixture.percent === null ? null : String(fixture.percent));
     assert.equal(await section.getByText('Last successful sync:', { exact: false }).textContent(), `Last successful sync: ${await page.evaluate(value => new Date(value).toLocaleString(), mirror.lastSuccess)}`);
-    assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).isDisabled(), true);
+    assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).count(), 0);
+    await section.getByText('Sync controls are available when this run finishes.', { exact: true }).waitFor();
     assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
     await page.keyboard.press('Tab'); const focus = section.getByRole('button', { name: 'Reconnect', exact: true }); await focus.focus();
     assert.equal(await focus.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');

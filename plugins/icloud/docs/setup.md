@@ -4,7 +4,7 @@ Drafted by Matt's robot
 
 ## Before connecting
 
-Ask the host operator to provision stock rclone v1.75.2 and persistent storage according to the [host requirements](../../../docs/reference/bb-host-requirements.md). BB reports a missing executable; it does not install one. The first release supports Unix hosts and selected Drive folders, not Photos or whole Drive.
+Ask the host operator to provision stock rclone v1.75.2, `/usr/bin/flock` from util-linux, mounted procfs exposing child-process metadata to BB's service user and persistent storage on Linux according to the [host requirements](../../../docs/reference/bb-host-requirements.md). BB reports a missing prerequisite; it does not install one. The first release supports Linux hosts and selected Drive folders, not Photos or whole Drive.
 
 On a trusted Apple device, open **Settings → Apple Account → iCloud** and enable **Access iCloud Data on the Web**. Use a disposable folder or Obsidian vault for the first test. Supported app libraries appear through rclone's Drive backend; their visibility must be checked on the actual account.
 
@@ -24,21 +24,23 @@ The **Last successful sync** time changes only after successful completion. “S
 
 ## Everyday controls
 
-- **Pause** stops future scheduled runs, preserving local files and the baseline. A running operation must finish before controls can change it.
-- **Resume** enables an intact paused mirror. It does not resume failed or retained previous mirrors.
-- **Reconnect** repeats Apple authorization and pauses selected folders. Rclone's documented trust-token lifetime is about 30 days. Reconnecting does not automatically resume any folder.
+- **Pause** stops future scheduled runs or a pending retry, preserving local files, the baseline and the last failed outcome. A running operation must finish before controls can change it.
+- **Resume** enables an intact paused mirror. For a failed mirror waiting after Reconnect, it runs the ordinary recovery-copy and bisync path; it never forces resync. Retained previous mirrors cannot resume.
+- **Retry sync** is available for an initialized failed mirror whose automatic retry is paused, including conservatively upgraded legacy records. It uses the ordinary path and does not clear the old outcome before the attempt.
+- **Reconnect** repeats Apple authorization. A folder blocked on authorization does not restart merely because authorization succeeds; choose **Resume** afterward. Rclone's documented trust-token lifetime is about 30 days.
 - **Disconnect** removes local password/session credentials and pauses sync. Local files and recovery copies remain. It does not revoke authorization at Apple. Remove/uninstall behaviour is governed by BB's host data policy; archive local data before asking BB to remove plugin data.
 
 ## Recovery
 
-If files change while recovery copies are being made, BB pauses before applying sync changes and keeps unfinished copies for review. Ask the host operator to review them before retrying; a changed-source warning is not evidence that the existing sync baseline is damaged.
+A temporary read, transfer, interruption or changed-source failure remains visible and retains the last successful timestamp. If the folder is still enabled, BB retries on its ordinary schedule. A changed-source result means the capture no longer matched; it is not by itself evidence that the baseline is damaged, and it never offers a fresh mirror. Choose **Pause** to cancel future attempts while keeping the failure visible.
 
-A failed or interrupted sync pauses. Do not try to bypass a lock, force deletion checks, erase baselines or run an automatic resync. The phone or iCloud may already have received some changes.
+An interrupted initialized bisync may already have changed either side. Rclone's normal `--resilient --recover` path decides what it can continue; BB never claims rollback, bypasses deletion checks or adds `--resync`. While that next run is active the UI says **Recovering**, and it advances the last-success time only after full completion.
 
-1. Keep the previous local folder and recovery copies. If Apple access expired, reconnect first.
-2. In **Recovery steps**, choose **Create fresh mirror** only if you want a new local view downloaded from current iCloud. The confirmation explains that old unsent edits remain separately and are not merged or uploaded. The previous local folder stays in the read-only folder inventory with phase `retained`. A new mirror receives a different identifier and local location; consumers must explicitly select it rather than silently switching.
-3. Review old unsent edits before editing the new mirror. Ask the host operator to restore/merge wanted versions only after checking their scope and obtaining consent.
-4. If capacity is the problem, have the operator inspect space and retention first. A fresh mirror does not bypass capacity checks or an interrupted recovery-copy staging tree.
+1. If Apple authorization needs attention, use **Reconnect**, finish authorization, then choose **Resume** for the affected folder. Reconnect alone does not revive explicitly paused, disconnected or retained mirrors.
+2. If an initialized failed mirror is paused and has no safety blocker, choose **Retry sync**. This is the supported path for eligible legacy failures too; it performs fresh recovery capture and ordinary bisync safety checks.
+3. If capacity or host/rclone configuration is blocking the folder, do not create a fresh mirror. Fix the reported condition first, asking the operator if needed, then choose **Retry sync**. Retry performs a fresh recovery capture and ordinary rclone checks. A failed retry restores its blocker; these states never enter the automatic retry loop.
+4. For a critical recovery-data failure or ambiguous initial preparation, choose **Create fresh mirror** only if you want a new local view downloaded from current iCloud. The confirmation explains that old unsent edits remain separately and are not merged or uploaded. The previous local folder stays in the inventory; consumers must explicitly select the new mirror.
+5. Review old unsent edits before editing a new mirror. Restoring or merging wanted versions remains an operator-assisted action requiring scope review and consent.
 
 ### Operator inspection
 
@@ -46,7 +48,7 @@ All locations are allocated under the plugin's own persistent directory, derived
 
 - `mirrors/<id>/`: local files; retained previous mirrors are not deleted automatically.
 - `baselines/<id>/`: preparation/initialization markers and bisync listings/locks.
-- `backups/snapshots/`: JSON manifests mapping mirror identifier, capture time, side (`cloud`/`local`), relative filename and SHA-256 blob identifier. Complete schema-2 manifests also hold opaque version fingerprints and an ordered generation. Incomplete retained captures are not reusable indexes.
+- `backups/snapshots/`: JSON manifests mapping mirror identifier, capture time, side (`cloud`/`local`), relative filename and SHA-256 blob identifier. Complete schema-2 manifests also hold opaque version fingerprints and an ordered generation. Metadata-valid incomplete captures are retained in this format and counted toward capacity but are not reusable indexes; malformed old staging without trustworthy metadata remains blocked.
 - `backups/blobs/`: immutable file copies shared across identical snapshots.
 - `state/`: encrypted rclone configuration. `secrets/` holds its separately protected encryption key and key-reader helper. Protect both; a backup of ciphertext without its key cannot recover the connection.
 
@@ -54,7 +56,9 @@ For a recovery copy, find the chosen mirror/time/side in a manifest, then copy i
 
 Schema-2 cloud filenames use the pinned rclone standard encoding, marked by `cloudPathEncoding: "rclone-standard"`; local filenames and legacy manifests use native filesystem names. For unusual cloud filenames, reconstruct an isolated encoded review directory and let stock rclone translate into a separate empty native review directory, for example `rclone copy ':local,encoding=0x2018002:/absolute/review-encoded' /absolute/review-native`. Do not decode paths by hand or restore into an active mirror. The numeric encoding is the pinned standard `Slash,Del,Ctl,Dot` mask, not an account setting.
 
-A stale worker lock or a failed staging tree requires operator inspection while BB's plugin and any child rclone process are stopped. Confirm no worker is alive before changing locks; preserve baseline/staging/recovery files and inspect possible partial mutations. The plugin will not clear these automatically, including when creating a fresh mirror.
+An operating-system flock at `/usr/bin/flock` prevents worker overlap. Command children inherit the lock, so it stays held across a parent crash until the last old child exits. Mounted procfs lets a replacement plugin generation identify and defer to a live same-parent daemon without signalling it or replacing its lock/socket paths. Never bypass the lock; confirm no child is alive before operator inspection. Preserve baseline, staging and recovery files and inspect possible partial mutations.
+
+After an abrupt native transfer termination, rclone may retain a non-empty bounded `<name>.<8-hex>.partial` file alongside the subsequently recovered full object. That partial can contain unique evidence. The plugin does not delete it automatically; inspect it separately before any operator cleanup.
 
 ## Diagnostics
 
@@ -76,4 +80,4 @@ The first upgrade imports the available old KV summaries once and leaves that bo
 
 `active` contains only a pending-run marker, not persisted live progress. After an unclean restart, its summary is `interrupted` with unknown duration/stage; it is not proof that sync writes were rolled back or never applied. `persistent: false` means history could not be read or saved, or is in memory only. After a storage failure, reads use a partial temporary cache of up to 20 successes and 20 errors, kept separately; those counts do not establish full disk coverage. The plugin logs a fixed `history_read`/`history_write unavailable` warning, does not overwrite an invalid legacy value or malformed row encountered on read, and does not retry or fail a provider operation merely to repair diagnostics. Failed runs still require the normal recovery review.
 
-An unrecognized error is `unknown`; raw provider messages, bodies, account addresses, filenames, tokens and exception stacks are excluded from both logs and history. Use protected settings and safe diagnostics, not raw provider logs in chat.
+An unrecognized error is `unknown`; raw provider messages, bodies, account addresses, filenames, tokens and exception stacks are excluded from both logs and history. Use protected settings and safe diagnostics, not raw provider logs in chat. A progress stage is display and diagnostic context, not proof that a failed command made no writes.

@@ -15,7 +15,8 @@ function decode(id: string): string {
 export function syncArguments(remote: string, local: string, baseline: string, initial: boolean): string[] {
   return ['bisync', remote, local, '--workdir', baseline, '--conflict-resolve', 'none', '--conflict-loser', 'num',
     '--conflict-suffix', 'icloud-conflict,bb-conflict', '--compare', 'size,modtime', '--max-delete', '50',
-    '--check-sync=true', '--create-empty-src-dirs', '--max-transfer', '256M', '--cutoff-mode', 'hard', ...(initial ? ['--resync'] : [])];
+    '--check-sync=true', '--create-empty-src-dirs', '--max-transfer', '256M', '--cutoff-mode', 'hard',
+    '--resilient', '--recover', '--max-lock', '2m', ...(initial ? ['--resync'] : [])];
 }
 export class RcloneCloudProvider implements CloudProvider {
   private continuation: string | null = null;

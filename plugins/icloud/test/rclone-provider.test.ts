@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promis
 import { RcloneCloudProvider, syncArguments } from '../adapters/rclone-cloud-provider.ts';
 import { recoveryFixture } from './recovery-fixture.ts';
 import type { Mirror, SyncProgress } from '../core/ports.ts';
-const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null };
+const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null, blocker: null };
 function fixture(root = '/tmp/synthetic-root', limit?: number) {
   const calls: { method: string; body: any }[] = []; const commands: string[][] = [];
   let result: any = { State: 'sensitive-private-state', Option: { Name: 'config_2fa', Help: 'sentinel-password-and-phone', Default: 'sentinel-secret' }, Error: '' };
@@ -43,10 +43,12 @@ test('browse creates domain IDs and rejects path traversal before any provider r
   await assert.rejects(f.provider.listFolders(Buffer.from('../secrets').toString('base64url')), /invalid_selection/);
   assert.equal(f.calls.length, before);
 });
-test('bisync preserves both conflicts and retains default deletion check without automatic recovery', () => {
+test('normal bisync preserves conflicts and deletion checks while enabling native recovery without forced resync', () => {
   const normal = syncArguments('icloud:Test Vault', '/mirror', '/baseline', false);
   assert.ok(normal.includes('none')); assert.ok(normal.includes('num')); assert.ok(normal.includes('--max-delete'));
-  for (const unsafe of ['--resync', '--force', '--max-lock', '--recover', '--resilient', '--inplace']) assert.ok(!normal.includes(unsafe));
+  for (const flag of ['--resilient', '--recover', '--max-lock']) assert.ok(normal.includes(flag));
+  assert.equal(normal[normal.indexOf('--max-lock') + 1], '2m');
+  for (const unsafe of ['--resync', '--force', '--inplace']) assert.ok(!normal.includes(unsafe));
   assert.ok(syncArguments('icloud:Test Vault', '/mirror', '/baseline', true).includes('--resync'));
 });
 test('preparation backs up both sides before establishing a fresh baseline and cannot repeat', async () => {

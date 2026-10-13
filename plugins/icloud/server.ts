@@ -27,7 +27,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudPr
   await sync.start();
   let available = false;
   try { await sync.checkAvailability(); available = true; } catch (error) { diagnose('prerequisite', category(error), { evidence: evidence(error) }); }
-  const status = () => ({ ...sync.status(), available, prerequisite: available ? null : 'The host needs stock rclone v1.75.2, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' });
+  const status = () => ({ ...sync.status(), available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' });
   const clientOnly = (context: { experimental_caller: { kind: string } }) => {
     if (context.experimental_caller.kind !== 'client') throw new Error('Use iCloud settings for this action.');
   };
@@ -40,6 +40,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudPr
     async browse({ parent }, context) { clientOnly(context); try { return await sync.browse(parent); } catch { throw new Error('Could not browse iCloud folders. Reconnect Apple or try again after the current operation finishes.'); } },
     async select({ folderId }, context) { clientOnly(context); return action(() => sync.select(folderId)); },
     async enable({ id }, context) { clientOnly(context); return action(() => sync.enable(id)); },
+    async retry({ id }, context) { clientOnly(context); return action(() => sync.retry(id)); },
     async rebuild({ id }, context) { clientOnly(context); return action(() => sync.rebuild(id)); },
     async pause({ id }, context) { clientOnly(context); return action(() => sync.pause(id)); },
     async disconnect(_input, context) { clientOnly(context); return action(() => sync.disconnect()); },

@@ -17,7 +17,7 @@ Given('two disposable filesystem folders and stock rclone', async function(this:
   if (!process.env.RCLONE_TEST_BINARY) return 'skipped';
   const root = await mkdtemp('/tmp/icloud-safety-'); const cloud = root + '/cloud/Test Vault'; await mkdir(cloud, { recursive: true });
   const worker = new RcloneProcess(root + '/worker', process.env.RCLONE_TEST_BINARY);
-  const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null };
+  const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null, blocker: null };
   const cloudDownloads: string[] = [];
   const provider = new RcloneCloudProvider(root + '/worker', (method, body) => worker.call(method, body), async (args, capture, report) => {
     if (args[0] === 'copy' && args[1].startsWith('icloud:')) cloudDownloads.push(...(await readFile(args[args.indexOf('--files-from-raw') + 1], 'utf8')).trimEnd().split('\n'));
