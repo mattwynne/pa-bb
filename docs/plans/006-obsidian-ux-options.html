@@ -1,0 +1,497 @@
+<!-- Drafted by Matt's robot -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Obsidian for BB — UX options for discussion</title>
+  <style>
+    :root { --background: #f6f6f4; --foreground: #242627; --card: #fff; --muted: #eeeeeb; --muted-foreground: #555b5f; --border: #d5d9d7; --primary: #234d43; --primary-foreground: #fff; --ring: #297467; --accent: #e9f2ee; --warning: #715018; --warning-bg: #fbf2df; --danger: #852f3d; --radius: 12px; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 1rem; }
+    body { margin: 0; background: var(--background); color: var(--foreground); font: 16px/1.65 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    a { color: var(--primary); text-underline-offset: 3px; }
+    a:hover { text-decoration-thickness: 2px; }
+    :focus-visible { outline: 3px solid var(--ring); outline-offset: 4px; }
+    .skip { position: absolute; top: -100px; left: 1rem; z-index: 5; padding: .6rem; background: var(--card); }
+    .skip:focus { top: 1rem; }
+    header, main, footer { max-width: 1160px; margin: auto; padding: 0 32px; }
+    header { padding-top: 52px; padding-bottom: 32px; }
+    .byline, .eyebrow, .caption, .small { color: var(--muted-foreground); font-size: .85rem; }
+    .byline { margin: 0 0 24px; font-style: italic; }
+    .eyebrow { text-transform: uppercase; letter-spacing: .1em; font-weight: 650; margin: 0 0 8px; }
+    h1 { max-width: 850px; font-size: clamp(2rem, 5vw, 3.6rem); letter-spacing: -.045em; line-height: 1.1; margin: 0 0 20px; }
+    h2 { font-size: clamp(1.5rem, 3vw, 2rem); letter-spacing: -.025em; line-height: 1.2; margin: 0 0 16px; }
+    h3 { font-size: 1.1rem; line-height: 1.4; margin: 0 0 12px; }
+    p { margin: 0 0 12px; }
+    ul, ol { margin: 8px 0 16px; padding-left: 24px; }
+    li + li { margin-top: 6px; }
+    .intro { font-size: 1.1rem; max-width: 810px; }
+    .notice { border-left: 3px solid var(--ring); padding: 14px 18px; background: var(--accent); border-radius: 0 8px 8px 0; margin: 20px 0; }
+    nav { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 24px; }
+    nav a { background: var(--card); border: 1px solid var(--border); padding: 7px 12px; border-radius: 999px; text-decoration: none; font-size: .85rem; }
+    section { padding: 36px 0; border-top: 1px solid var(--border); }
+    .columns, .options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .panel, .option { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; min-width: 0; }
+    .panel > :last-child, .option > :last-child { margin-bottom: 0; }
+    .scenario { color: var(--muted-foreground); max-width: 900px; margin-bottom: 24px; }
+    .scenario strong { color: var(--foreground); }
+    fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+    legend { font-weight: 600; margin-bottom: 12px; }
+    .option { display: flex; flex-direction: column; gap: 14px; }
+    .option:has(input:checked) { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); }
+    .pick { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; font-weight: 650; line-height: 1.4; }
+    input[type="radio"] { width: 18px; height: 18px; flex: 0 0 18px; margin: 3px 0 0; accent-color: var(--primary); }
+    .option p { margin: 0; }
+    .option .cost { font-size: .9rem; color: var(--muted-foreground); }
+    .mock { background: var(--background); border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin: 0; font-size: .88rem; line-height: 1.55; min-width: 0; }
+    figcaption { color: var(--muted-foreground); font-size: .75rem; margin: 0 0 14px; }
+    .host { padding-bottom: 12px; border-bottom: 1px solid var(--border); margin-bottom: 14px; font-weight: 600; }
+    .host span { display: block; color: var(--muted-foreground); font-size: .8rem; font-weight: 400; }
+    .mock p { margin-bottom: 10px; }
+    .mock p:last-child { margin-bottom: 0; }
+    .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+    .row > * { min-width: 0; overflow-wrap: anywhere; }
+    .row:last-child { border-bottom: 0; }
+    .pill { border-radius: 5px; padding: 2px 7px; background: var(--muted); font-size: .78rem; white-space: nowrap; }
+    .sample-action { display: inline-block; padding: 6px 11px; margin: 8px 5px 0 0; border: 1px solid var(--border); border-radius: 6px; font-weight: 600; font-size: .8rem; }
+    .sample-action.primary { color: var(--primary-foreground); background: var(--primary); border-color: var(--primary); }
+    .message { padding: 12px 14px; border-radius: 8px; background: var(--card); border: 1px solid var(--border); margin: 10px 0; }
+    .message.user { background: var(--muted); }
+    .speaker { display: block; color: var(--muted-foreground); font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+    .warn { padding: 12px 14px; background: var(--warning-bg); color: var(--warning); border-radius: 6px; margin: 10px 0; }
+    .decision-footer { margin-top: 20px; padding: 18px 22px; background: var(--accent); border-radius: 8px; }
+    .decision-footer p:last-of-type { margin-bottom: 14px; }
+    .other { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; }
+    .notes-label { display: block; font-size: .9rem; font-weight: 600; margin-bottom: 6px; }
+    textarea { width: 100%; min-height: 84px; padding: 10px 12px; background: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: .9rem; resize: vertical; }
+    code { font-size: .86em; overflow-wrap: anywhere; }
+    pre { max-width: 100%; overflow-x: auto; padding: 14px; border: 1px solid var(--border); background: var(--card); border-radius: 6px; font-size: .8rem; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; vertical-align: top; padding: 12px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+    th { font-size: .8rem; color: var(--muted-foreground); font-weight: 650; }
+    .table-wrap { overflow-x: auto; }
+    .table-wrap table { min-width: 540px; }
+    details { margin-top: 14px; }
+    summary { cursor: pointer; color: var(--primary); font-weight: 600; padding: 6px 0; }
+    button { cursor: pointer; background: var(--primary); color: var(--primary-foreground); border: 1px solid var(--primary); border-radius: 6px; padding: 10px 14px; font: inherit; font-weight: 600; font-size: .9rem; }
+    button.secondary { background: var(--card); color: var(--foreground); border-color: var(--border); }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
+    #progress { color: var(--muted-foreground); font-size: .85rem; }
+    #export-preview { min-height: 200px; }
+    footer { padding-top: 24px; padding-bottom: 40px; font-size: .85rem; color: var(--muted-foreground); }
+    @media (prefers-color-scheme: dark) { :root { --background: #181d1c; --foreground: #edf1ef; --card: #212827; --muted: #303936; --muted-foreground: #b6c1bc; --border: #46514d; --primary: #a9d7c4; --primary-foreground: #132a20; --ring: #a9d7c4; --accent: #243b32; --warning: #f0d395; --warning-bg: #3c3320; --danger: #f2aeb5; } }
+    @media (max-width: 720px) { header, main, footer { padding-left: 18px; padding-right: 18px; } header { padding-top: 30px; } .columns, .options { grid-template-columns: 1fr; } .panel, .option { padding: 18px; } .mock { padding: 14px; } section { padding: 28px 0; } }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    @media print { :root { --background: #fff; --foreground: #000; --card: #fff; --muted: #eee; --muted-foreground: #444; --border: #aaa; --primary: #222; --primary-foreground: #fff; --accent: #f5f5f5; --warning-bg: #f5f5f5; --warning: #222; } body { font-size: 11pt; } header, main, footer { max-width: none; padding-left: 0; padding-right: 0; } .skip, nav, .actions, #export-area { display: none; } .option, .mock, .decision-footer { break-inside: avoid; } .columns, .options { grid-template-columns: 1fr; } details > :not(summary) { display: block !important; } textarea { min-height: 60px; } }
+  </style>
+</head>
+<body>
+<a class="skip" href="#discussion">Skip to discussion</a>
+<header>
+  <p class="byline">Drafted by Matt's robot</p>
+  <p class="eyebrow">Obsidian for BB · Interview draft</p>
+  <h1>What should reading and editing your notes feel like?</h1>
+  <p class="intro">Six decisions, concrete examples, and a few alternatives. Use this document to react to the experience before we settle the design.</p>
+  <div class="notice"><strong>Proposals, not agreed requirements.</strong> All notes, folders, times and outcomes below are synthetic. The mockups are illustrations, not a working plugin or proof of BB support. Only the preference selectors, notes and export controls work.</div>
+  <p class="small"><strong>Keep your reactions:</strong> choices and notes are not autosaved. <a href="#interview">Download interview notes</a> before closing or reloading.</p>
+  <p class="small">Based on the <a href="006-obsidian-vault-reading.md">reading-and-editing plan</a> and its UX review at revision <code>1eefc6a</code>. The plan has not been revised by this document. BB-style cards and spacing follow existing iCloud settings; the page itself is a standalone discussion aid.</p>
+  <nav aria-label="Discussion topics">
+    <a href="#setup">Starting point</a><a href="#scope">1. Access</a><a href="#consent">2. Approval</a><a href="#uncertain">3. Lost response</a><a href="#recovery">4. Recovery</a><a href="#properties">5. Properties</a><a href="#delivery">6. Sync wording</a><a href="#interview">Interview notes</a>
+  </nav>
+</header>
+<main id="discussion">
+<section id="setup" aria-labelledby="setup-title">
+  <p class="eyebrow">Shared starting point</p>
+  <h2 id="setup-title">One vault. Explicit access. No Apple login in chat.</h2>
+  <div class="columns">
+    <div class="panel">
+      <h3>The route to the first useful action</h3>
+      <ol>
+        <li><strong>In BB's iCloud settings:</strong> connect Apple, choose the vault folder, enable sync and finish its first successful sync.</li>
+        <li><strong>In Obsidian settings:</strong> choose the eligible vault by name. Choose which notes BB can read and edit, then save that authorization.</li>
+        <li><strong>In chat:</strong> ask “Find my notes about the launch.” BB returns permitted sources, not just an answer without evidence.</li>
+      </ol>
+      <p>Initial sync still running? Explain that and refresh while the settings page is open. No eligible mirror is not automatically “no folders selected.”</p>
+    </div>
+    <figure class="mock">
+      <figcaption>Connected settings · illustrative, noninteractive</figcaption>
+      <div class="host">Obsidian <span>Configuration — supplied by BB</span></div>
+      <h3>Example Vault</h3>
+      <div class="row"><span>Can read</span><strong>Projects, Meetings</strong></div>
+      <div class="row"><span>Can edit</span><strong>Projects only</strong></div>
+      <div class="row"><span>Last successful iCloud sync</span><span>Today, 10:42</span></div>
+      <span class="sample-action">Change access</span><span class="sample-action">Switch to read-only</span>
+      <p class="caption" style="margin-top:12px">Forget vault · Setup guide</p>
+      <p class="small">Forgetting removes Obsidian's access, not the notes or iCloud sync.</p>
+    </figure>
+  </div>
+  <details><summary>Safety rules that are not up for trade-off</summary>
+    <ul>
+      <li>Installing or syncing does not grant Obsidian permission. Whole-vault access is an explicit choice; edits stay within readable scope.</li>
+      <li>An explicit request supplies intent, but a model's assertion of approval is not authorization. No unconditional extra approval step is assumed.</li>
+      <li>Proposals are tied to the whole-note version. Changed notes require a fresh proposal and any required renewed authorization.</li>
+      <li>Uncertain saves are inspected, not blindly retried. Local save, cloud availability and phone receipt are different claims.</li>
+      <li>Creation and edits are included. Renames, deletes, bulk transactions, multiple vaults and community-plugin execution are not.</li>
+    </ul>
+  </details>
+</section>
+
+<section id="scope" data-decision="1. Read and edit access" aria-labelledby="scope-title">
+  <p class="eyebrow">Decision 01 · Setup and everyday settings</p>
+  <h2 id="scope-title">How do you choose what BB may read and edit?</h2>
+  <p class="scenario"><strong>Scenario:</strong> let BB read Projects and Meetings, change Projects, and leave Journal alone. The result should be easy to understand before access is saved.</p>
+  <fieldset><legend>Your tentative preference</legend>
+    <div class="options">
+      <article class="option">
+        <label class="pick"><input type="radio" name="scope" value="A — separate read and edit steps"><span>A · Choose reading first, then editing</span></label>
+        <p>Pick readable folders by name. Keep read-only, or separately enable editing for a subset of those folders.</p>
+        <figure class="mock"><figcaption>Setup · illustrative, noninteractive</figcaption>
+          <h3>Which notes can BB read?</h3>
+          <div class="row"><span>Projects</span><span class="pill">Selected</span></div>
+          <div class="row"><span>Meetings</span><span class="pill">Selected</span></div>
+          <div class="row"><span>Journal</span><span class="pill">Not selected</span></div>
+          <p style="margin-top:12px"><strong>Editing:</strong> Projects only</p>
+          <p>BB cannot edit Meetings or read Journal.</p>
+          <span class="sample-action primary">Save access</span>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> reading and editing feel like separate grants. <strong>Cost:</strong> more steps; the same folder may appear in two pickers.</p>
+      </article>
+      <article class="option">
+        <label class="pick"><input type="radio" name="scope" value="B — one permission list"><span>B · Set one access level per folder</span></label>
+        <p>One list of folders, each with No access, Read, or Read and edit. Show the effective permission before saving.</p>
+        <figure class="mock"><figcaption>Setup · illustrative, noninteractive</figcaption>
+          <h3>Choose access</h3>
+          <div class="row"><span>Projects</span><span class="pill">Read and edit</span></div>
+          <div class="row"><span>Meetings</span><span class="pill">Read</span></div>
+          <div class="row"><span>Journal</span><span class="pill">No access</span></div>
+          <p style="margin-top:12px">Read: Projects, Meetings<br>Edit: Projects only</p>
+          <span class="sample-action primary">Save access</span>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> easier to compare permissions. <strong>Cost:</strong> nested folders and inherited access need especially clear labels.</p>
+      </article>
+    </div>
+    <label class="other"><input type="radio" name="scope" value="Other / combine / defer"><span>Neither, combine them, or decide later</span></label>
+  </fieldset>
+  <div class="decision-footer">
+    <p><strong>Working proposal:</strong> start with A and a names-only folder picker. Offer an explicit “Entire vault” choice; suggest read-only, but authorize nothing until Save. Show exclusions and the effective read/edit summary together.</p>
+    <p><strong>Interview:</strong> “Show me how you'd keep Journal private. What would you expect if you selected a parent folder but excluded one of its children?”</p>
+    <p class="small">Proposed rule: a selected folder includes descendants, exclusions win, and edit access cannot cross an exclusion. Listing folder names for setup needs an explicit permission boundary; it is not permission to index note bodies.</p>
+    <label class="notes-label" for="scope-notes">Reaction, concerns, or a different proposal</label><textarea id="scope-notes" data-notes></textarea>
+  </div>
+</section>
+
+<section id="consent" data-decision="2. Intent and approval" aria-labelledby="consent-title">
+  <p class="eyebrow">Decision 02 · Making a change</p>
+  <h2 id="consent-title">When should BB stop and show you the change?</h2>
+  <p class="scenario"><strong>Scenario:</strong> “Mark the ‘Send agenda’ task in Projects/Launch.md complete” is different from “Write up the decision and add it to the project note.” The second request leaves BB to compose text.</p>
+  <div class="panel" style="margin-bottom:20px">
+    <h3>Proposed rule for both options</h3>
+    <div class="table-wrap"><table><thead><tr><th scope="col">Request</th><th scope="col">Proposed response</th></tr></thead><tbody>
+      <tr><td>Complete one identified task; append exact supplied text to an identified note</td><td>Save without a second approval only if BB can verify authorization for that exact change. Then show what changed.</td></tr>
+      <tr><td>Compose a paragraph, select a destination, or replace a list with assistant-chosen values</td><td>Show the exact destination and change; obtain any authorization still missing.</td></tr>
+      <tr><td>Ambiguous note or task</td><td>Ask which target before preparing or saving.</td></tr>
+      <tr><td>Note changes while approval is pending</td><td>Save nothing from the old proposal. Reread and show a fresh proposal.</td></tr>
+      <tr><td>Create a meeting note and link it from another note</td><td>Explain both edits. Each has its own authorization, save result and receipt; no all-or-nothing promise.</td></tr>
+    </tbody></table></div>
+    <p class="small" style="margin-top:12px">These are proposed examples, not proof that BB exposes trustworthy prior-intent evidence. If that evidence cannot be established, use exact-proposal approval. No option trusts a model-supplied “approved” flag.</p>
+  </div>
+  <fieldset><legend>For a change that still needs approval, which interaction feels right?</legend>
+    <div class="options">
+      <article class="option">
+        <label class="pick"><input type="radio" name="consent" value="A — BB approval card when needed"><span>A · A compact BB approval card</span></label>
+        <p>Use the host's enforced approval interaction when needed. Lead with the note and readable change; keep the exact diff available.</p>
+        <figure class="mock"><figcaption>Required approval · illustrative, noninteractive</figcaption>
+          <h3>Add decision to Projects/Launch.md</h3>
+          <p><strong>Append under “Decisions”:</strong></p>
+          <div class="message">Run a small pilot before the public launch.</div>
+          <p>The rest of the note stays unchanged.</p>
+          <span class="sample-action primary">Save this change</span><span class="sample-action">Don't save</span>
+          <p class="caption" style="margin-top:10px">View exact diff</p>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> a clear, enforceable save decision. <strong>Cost:</strong> a separate interaction can interrupt the conversation. Calendar is precedent, not proof this works for every Obsidian session.</p>
+      </article>
+      <article class="option">
+        <label class="pick"><input type="radio" name="consent" value="B — review in chat with verified exact follow-up"><span>B · Review in the conversation</span></label>
+        <p>Show the draft in chat. A follow-up request to save that exact proposal supplies authorization only if the host can verify and bind it.</p>
+        <figure class="mock"><figcaption>Conversation · illustrative, noninteractive</figcaption>
+          <div class="message"><span class="speaker">BB</span>I'd append this under Decisions in Projects/Launch.md:<br><br>“Run a small pilot before the public launch.”<br><br>Nothing else changes.</div>
+          <div class="message user"><span class="speaker">You</span>Save that exact addition to Projects/Launch.md.</div>
+          <p class="small">Conditional on verifiable host evidence. Otherwise BB presents the bound approval card from A.</p>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> feels like continuing a conversation. <strong>Cost:</strong> conversational approval is not yet proven enforceable; references like “that” must identify an unchanged proposal.</p>
+      </article>
+    </div>
+    <label class="other"><input type="radio" name="consent" value="Other / combine / defer"><span>Neither, combine them, or decide later</span></label>
+  </fieldset>
+  <div class="decision-footer">
+    <p><strong>Working proposal:</strong> A where approval is required; no blanket popup for every edit. Explore B in the host spike, not as a promised shortcut.</p>
+    <p><strong>Interview:</strong> “Which of those requests would you expect to save immediately? If BB writes the wording, what would you need to see before it saves?”</p>
+    <label class="notes-label" for="consent-notes">Reaction and examples of acceptable direct saves</label><textarea id="consent-notes" data-notes></textarea>
+  </div>
+</section>
+
+<section id="uncertain" data-decision="3. An uncertain save" aria-labelledby="uncertain-title">
+  <p class="eyebrow">Decision 03 · The reply never arrives</p>
+  <h2 id="uncertain-title">How do you find out whether an edit happened?</h2>
+  <p class="scenario"><strong>Scenario:</strong> you ask BB to append a decision. The connection drops before its reply. You return in a new chat, with no operation ID. “Try again” could append it twice.</p>
+  <fieldset><legend>Where would you look first?</legend>
+    <div class="options">
+      <article class="option">
+        <label class="pick"><input type="radio" name="uncertain" value="A — inspect through chat"><span>A · Ask in chat</span></label>
+        <p>Ask about the note or recent edit. BB finds bounded, permitted receipts and asks you to identify the edit if there is more than one.</p>
+        <figure class="mock"><figcaption>Fresh session · illustrative, noninteractive</figcaption>
+          <div class="message user"><span class="speaker">You</span>Did you save the decision to Projects/Launch.md?</div>
+          <div class="message"><span class="speaker">BB</span>I found the edit from 10:43. Its receipt confirms a local save. The current note still matches that saved version.<br><br>iCloud delivery is not confirmed. I won't append it again.</div>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> no new screen to learn. <strong>Cost:</strong> you need to know you can ask; exact receipt interpretation must not depend on the model guessing.</p>
+      </article>
+      <article class="option">
+        <label class="pick"><input type="radio" name="uncertain" value="B — bounded recent edits in settings"><span>B · A small “Recent edits” disclosure</span></label>
+        <p>Keep the same chat lookup, plus a bounded receipt list in Obsidian settings. This is an operation lookup, not a permanent note-history browser.</p>
+        <figure class="mock"><figcaption>Settings disclosure · illustrative, noninteractive</figcaption>
+          <h3>Recent edits</h3>
+          <div class="row"><span>10:43 · Projects/Launch.md<br>Append decision</span><strong>Check outcome</strong></div>
+          <p style="margin-top:12px">The connection ended before the result was confirmed. Don't repeat this edit yet.</p>
+          <span class="sample-action primary">Inspect saved outcome</span>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> discoverable without remembering an ID or wording. <strong>Cost:</strong> another UI surface, with retention, empty and unavailable states to design.</p>
+      </article>
+    </div>
+    <label class="other"><input type="radio" name="uncertain" value="Other / combine / defer"><span>Neither, combine them, or decide later</span></label>
+  </fieldset>
+  <details><summary>The inspection must distinguish these outcomes</summary>
+    <ul>
+      <li><strong>Saved locally:</strong> the durable receipt confirms commit. Later note changes do not erase that historical fact.</li>
+      <li><strong>Confirmed not saved:</strong> evidence establishes non-commit. Prepare a fresh proposal against the current note if you still want the change.</li>
+      <li><strong>Still uncertain:</strong> evidence cannot establish what happened. Do not replay the edit; arrange inspection of the journal and available file state.</li>
+      <li><strong>Saved, but the note changed afterward:</strong> say both. Don't treat matching text or an old hash as proof of the current version.</li>
+      <li><strong>Source unavailable:</strong> proposed policy is to allow bounded receipt facts while the same selection and scope remain authorized; refuse content reads and current-version claims. Forgetting or excluding a note revokes receipt access too. This policy still needs a decision and implementation proof.</li>
+    </ul>
+  </details>
+  <div class="decision-footer">
+    <p><strong>Working proposal:</strong> A first. Every uncertain outcome tells you “Ask me to check the recent edit to this note.” Keep the human-visible note/time and a technical operation ID available, without making the ID the only route.</p>
+    <p><strong>Interview:</strong> “After losing the reply, where would you go? What would convince you it had saved? What should happen if BB still can't tell?”</p>
+    <label class="notes-label" for="uncertain-notes">Reaction and expected next steps</label><textarea id="uncertain-notes" data-notes></textarea>
+  </div>
+</section>
+
+<section id="recovery" data-decision="4. Restoring an earlier version" aria-labelledby="recovery-title">
+  <p class="eyebrow">Decision 04 · A confirmed edit was unwanted</p>
+  <h2 id="recovery-title">How much recovery should be self-service?</h2>
+  <p class="scenario"><strong>Scenario:</strong> BB saved the requested paragraph, but later you decide it was wrong. You have also added a task in Obsidian since that save. Restoring the old whole note must not quietly remove the new task.</p>
+  <fieldset><legend>What is enough for the first release?</legend>
+    <div class="options">
+      <article class="option">
+        <label class="pick"><input type="radio" name="recovery" value="A — explicit operator-assisted recovery"><span>A · A clear operator-assisted procedure</span></label>
+        <p>BB identifies the edit and explains recovery. The host operator retrieves the protected copy; restoration requires a comparison and owner authorization.</p>
+        <figure class="mock"><figcaption>Recovery guidance · illustrative, noninteractive</figcaption>
+          <div class="message"><span class="speaker">BB</span>The pre-edit version is retained for the 10:43 edit to Projects/Launch.md.<br><br>Ask the host operator to compare it with the current note. Newer changes must be kept or explicitly reviewed before restoration.</div>
+          <p class="small">No automatic restore. If the copy has expired or is unavailable, say so explicitly.</p>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> smaller release scope and consistent with today's iCloud recovery guidance. <strong>Cost:</strong> a mistake is not immediately reversible without technical help.</p>
+      </article>
+      <article class="option">
+        <label class="pick"><input type="radio" name="recovery" value="B — owner-reviewed restoration in BB"><span>B · Review and restore through BB</span></label>
+        <p>Offer a bounded comparison against the retained pre-edit version. Owner-authorized restoration uses the same scope, version, recovery and coordinated save checks.</p>
+        <figure class="mock"><figcaption>Recovery proposal · illustrative, noninteractive</figcaption>
+          <h3>Review earlier version · Projects/Launch.md</h3>
+          <div class="warn">This note changed after BB's edit. Replacing the whole note would also remove your newer task.</div>
+          <p>Nothing has been restored. Review the differences and prepare a targeted correction instead, if it can be made safely.</p>
+          <span class="sample-action primary">Review differences</span>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> useful recovery without calling an operator. <strong>Cost:</strong> additional private-copy access and restoration behavior are not in the current tool surface; they need explicit scope and safety design. No automatic merge.</p>
+      </article>
+    </div>
+    <label class="other"><input type="radio" name="recovery" value="Other / combine / defer"><span>Neither, combine them, or decide later</span></label>
+  </fieldset>
+  <div class="decision-footer">
+    <p><strong>Working proposal:</strong> A as the minimum; choose B if operator dependence would make editing unacceptable. Recovery copies are mandatory either way. Retention and capacity limits must be stated before editing is enabled; no duration is promised here.</p>
+    <p><strong>Interview:</strong> “Would you use editing if recovery needed a host operator? Do you mean ‘undo just BB's change’ or ‘restore the complete old version’?”</p>
+    <label class="notes-label" for="recovery-notes">Required level of recovery and tolerable friction</label><textarea id="recovery-notes" data-notes></textarea>
+  </div>
+</section>
+
+<section id="properties" data-decision="5. Property previews" aria-labelledby="properties-title">
+  <p class="eyebrow">Decision 05 · Structured metadata</p>
+  <h2 id="properties-title">What makes a property change easy to review?</h2>
+  <p class="scenario"><strong>Scenario:</strong> “Add ‘Launch plan’ as an alias and replace the tags with project and active.” The alias should be added, not replace the existing alias. Replacing tags removes an existing draft tag.</p>
+  <fieldset><legend>How much detail should be visible first?</legend>
+    <div class="options">
+      <article class="option">
+        <label class="pick"><input type="radio" name="properties" value="A — value comparison first, source diff on demand"><span>A · Before/after values, with a quiet source diff</span></label>
+        <p>Show named property changes in ordinary terms. Call out additions and removals. Keep the exact YAML diff in a disclosure.</p>
+        <figure class="mock"><figcaption>Property proposal · illustrative, noninteractive</figcaption>
+          <h3>Projects/Launch.md</h3>
+          <div class="row"><strong>aliases</strong><span>Before: Release plan<br>After: Release plan, Launch plan</span></div>
+          <div class="row"><strong>tags</strong><span>Before: project, draft<br>After: project, active</span></div>
+          <p style="margin-top:12px"><strong>Add:</strong> alias Launch plan; tag active.<br><strong>Remove:</strong> tag draft.</p>
+          <p>Other properties and the note body stay unchanged.</p>
+          <p class="caption">View exact YAML diff</p>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> readable without YAML knowledge. <strong>Cost:</strong> the summary must remain faithful to the exact source change, including value types.</p>
+      </article>
+      <article class="option">
+        <label class="pick"><input type="radio" name="properties" value="B — values and source diff together"><span>B · Values and exact diff together</span></label>
+        <p>Keep the same readable summary, with the exact source changes expanded by default for every property preview.</p>
+        <figure class="mock"><figcaption>Property proposal · illustrative, noninteractive</figcaption>
+          <p><strong>Add alias:</strong> Launch plan; keep Release plan.<br><strong>Tags:</strong> add active; remove draft.</p>
+          <pre aria-label="Illustrative YAML diff"> aliases:
+   - Release plan
++  - Launch plan
+ tags:
+   - project
+-  - draft
++  - active</pre>
+          <p>Other properties and the note body stay unchanged.</p>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> source fidelity is always visible. <strong>Cost:</strong> noisier, especially on a phone or for frequent small edits.</p>
+      </article>
+    </div>
+    <label class="other"><input type="radio" name="properties" value="Other / combine / defer"><span>Neither, combine them, or decide later</span></label>
+  </fieldset>
+  <details><summary>Other previews and refusals we need</summary>
+    <ul>
+      <li><strong>Remove a property:</strong> name the key and current value; do not imply removing one list entry.</li>
+      <li><strong>No header exists:</strong> “Add a properties header; the body stays unchanged.”</li>
+      <li><strong>Dates and links:</strong> preserve the stored date/date-time string; show the link value, with safe YAML quoting. Do not invent timezone conversions.</li>
+      <li><strong>Malformed or duplicate YAML:</strong> “The properties header is malformed or ambiguous. No change was saved. Fix it in Obsidian, or ask for an explicit repair preview.” Repairs still need a safely validated result.</li>
+      <li><strong>Unsupported construct:</strong> explain that this property cannot be changed without rewriting unrelated formatting; save nothing rather than normalize the whole note.</li>
+      <li><strong>Type expectations:</strong> say “stored value,” not “changed the vault's property type.” Private Obsidian type configuration is not available to this plugin.</li>
+    </ul>
+  </details>
+  <div class="decision-footer">
+    <p><strong>Working proposal:</strong> A. Always make removals visible; leave the exact diff accessible. The choice affects previews when shown, not whether every exact property request needs another approval.</p>
+    <p><strong>Interview:</strong> “What changed in this example? Would you notice that draft was removed? When would you open the YAML diff?”</p>
+    <label class="notes-label" for="properties-notes">Preview preference and examples to add</label><textarea id="properties-notes" data-notes></textarea>
+  </div>
+</section>
+
+<section id="delivery" data-decision="6. Save and sync feedback" aria-labelledby="delivery-title">
+  <p class="eyebrow">Decision 06 · After saving</p>
+  <h2 id="delivery-title">How much sync information belongs in the conversation?</h2>
+  <p class="scenario"><strong>Scenario:</strong> the edit is saved locally. A later iCloud sync completes. That alone does not prove these exact bytes reached iCloud, and verified cloud bytes would not prove your phone downloaded them.</p>
+  <fieldset><legend>Which amount of feedback is useful?</legend>
+    <div class="options">
+      <article class="option">
+        <label class="pick"><input type="radio" name="delivery" value="A — concise receipt, more detail when asked"><span>A · A short receipt, details when asked</span></label>
+        <p>Say what changed and where it was saved. Keep technical IDs and hashes behind inspection. Later status is available when you ask, not a stream of chat notifications.</p>
+        <figure class="mock"><figcaption>Successful local save · illustrative, noninteractive</figcaption>
+          <div class="message"><span class="speaker">BB</span>Marked “Send agenda” complete in Projects/Launch.md.<br><br><strong>Saved locally; pending iCloud sync.</strong></div>
+          <p class="small">“Has it synced?” inspects available evidence. It does not repeat the edit or force a resync.</p>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> light enough for routine edits. <strong>Cost:</strong> progress is not visible unless you ask or revisit the relevant status surface.</p>
+      </article>
+      <article class="option">
+        <label class="pick"><input type="radio" name="delivery" value="B — persistent inspectable status card"><span>B · A compact status card you can revisit</span></label>
+        <p>Keep the same receipt, plus a per-edit card whose status can be refreshed from recorded evidence. Do not promise automatic updates until the host supports them.</p>
+        <figure class="mock"><figcaption>Inspected after a later sync · illustrative, noninteractive</figcaption>
+          <h3>Projects/Launch.md</h3>
+          <div class="row"><span>Local save</span><strong>Confirmed at 10:43</strong></div>
+          <div class="row"><span>Later sync run</span><strong>Completed at 10:44</strong></div>
+          <div class="row"><span>This version in iCloud</span><span>Not verified</span></div>
+          <div class="row"><span>Phone receipt</span><span>Not verified</span></div>
+          <span class="sample-action">Check recorded status</span>
+        </figure>
+        <p class="cost"><strong>Strength:</strong> evidence is easy to revisit. <strong>Cost:</strong> more visual weight and host integration; the displayed state must not become a stale success claim.</p>
+      </article>
+    </div>
+    <label class="other"><input type="radio" name="delivery" value="Other / combine / defer"><span>Neither, combine them, or decide later</span></label>
+  </fieldset>
+  <details><summary>Exact wording for success, failure and uncertainty</summary>
+    <div class="table-wrap"><table><thead><tr><th scope="col">Evidence / condition</th><th scope="col">Proposed wording and next step</th></tr></thead><tbody>
+      <tr><td>Proposed, not committed</td><td>“Here is the proposed change. Nothing has been saved.”</td></tr>
+      <tr><td>Declined, cancelled or expired</td><td>“Nothing was saved.” A new request needs current scope and version checks.</td></tr>
+      <tr><td>Busy before commit</td><td>“iCloud is syncing this vault. No edit was saved; try again after it finishes.” Revalidate any later attempt.</td></tr>
+      <tr><td>Note version conflict</td><td>“This note changed. No edit was saved; reread it before proposing a new change.”</td></tr>
+      <tr><td>Local commit confirmed</td><td>“Saved locally; pending iCloud sync.”</td></tr>
+      <tr><td>Later sync completed; no content-specific evidence</td><td>“A later sync completed. Delivery of this version is still unverified.”</td></tr>
+      <tr><td>This version verified in iCloud, if supported</td><td>“This version was verified in iCloud. Phone receipt is not verified.” Cloud verification is not promised by this document.</td></tr>
+      <tr><td>Sync fails after confirmed local save</td><td>“The edit is saved locally, but sync needs attention. Open iCloud settings. Don't repeat the edit.”</td></tr>
+      <tr><td>Connection lost around commit</td><td>“I can't confirm whether the edit was saved. Ask me to check the recent edit to this note before trying again.”</td></tr>
+    </tbody></table></div>
+  </details>
+  <div class="decision-footer">
+    <p><strong>Working proposal:</strong> A for the first release. Use truthful destination-specific wording in either design; no “on your phone” claim without device evidence. Automatic notifications and forced sync are not part of this proposal.</p>
+    <p><strong>Interview:</strong> “After ‘saved locally,’ would you expect the note on your phone immediately? Would you prefer to ask about sync, or keep a visible status card?”</p>
+    <label class="notes-label" for="delivery-notes">Desired feedback and interpretation of the wording</label><textarea id="delivery-notes" data-notes></textarea>
+  </div>
+</section>
+
+<section id="interview" aria-labelledby="interview-title">
+  <p class="eyebrow">Next · A conversation, not a questionnaire</p>
+  <h2 id="interview-title">Interview outline and a record of your reactions</h2>
+  <div class="columns">
+    <div class="panel">
+      <h3>Suggested interview flow</h3>
+      <ol>
+        <li><strong>Start with real work:</strong> which note edits would you ask BB to make most often? Describe them; no private note content is needed.</li>
+        <li><strong>Walk through setup:</strong> choose read/edit scopes and explain what access you think you granted.</li>
+        <li><strong>Walk through an edit:</strong> exact task completion, then assistant-written prose. Identify where you expect a pause.</li>
+        <li><strong>Break the happy path:</strong> lose a reply, encounter a changed note, then recover an unwanted edit.</li>
+        <li><strong>Check the details:</strong> interpret a property replacement and a sync receipt.</li>
+        <li><strong>Prioritize:</strong> what must work before you trust editing, and what can wait?</li>
+      </ol>
+      <p class="small">Ask one question at a time. The choices here are prompts, not a vote: we can combine them or discover a better option. Start with the scenario before showing a working recommendation.</p>
+    </div>
+    <div class="panel">
+      <h3>Provisional first-release bundle</h3>
+      <p>Separate reading and editing grants; exact-request consent with host-enforced approval where needed; chat-based save inspection; explicit operator-assisted recovery; readable property comparisons; short local-save receipts.</p>
+      <p><strong>The two highest-risk assumptions:</strong> direct intent can be verified, and operator-assisted recovery is acceptable. Neither is settled.</p>
+      <p><strong>Before building:</strong> settle these journeys and prove the consent/commit boundaries in BB. Measure whether minute-based sync repeatedly interrupts normal edits; do not change scheduling just because it might.</p>
+      <p><strong>Before releasing:</strong> verify real BB desktop/narrow/keyboard states and synthetic save, conflict, uncertain-save and recovery behavior. This standalone document does not pass those gates.</p>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:20px">
+    <label class="notes-label" for="overall-notes">Overall priorities, deal-breakers and questions</label>
+    <textarea id="overall-notes" placeholder="What must be true before you would trust BB to edit your notes?"></textarea>
+    <p class="small" style="margin-top:12px">No options are selected by default. Preferences and notes stay in this page; there is no network access or automatic storage. Export before closing or reloading if you want to keep them. Export records tentative reactions, not authorization to implement or edit a vault.</p>
+    <p id="progress" role="status" aria-live="polite">0 of 6 topics have a tentative preference.</p>
+    <div class="actions"><button id="download" type="button">Download interview notes</button><button id="preview" type="button" class="secondary">Show copyable notes</button><button id="print" type="button" class="secondary">Print document</button></div>
+    <noscript><p>JavaScript is disabled. You can read the proposals and write notes, but export controls need JavaScript. Use your browser's Print command to keep a copy.</p></noscript>
+    <div id="export-area" hidden><label class="notes-label" for="export-preview">Copyable Markdown — refresh this after changing your notes</label><textarea id="export-preview" readonly></textarea></div>
+  </div>
+</section>
+<section id="references" aria-labelledby="references-title">
+  <h2 id="references-title">References and limits</h2>
+  <p>Source requirements: <a href="006-obsidian-vault-reading.md">Obsidian reading-and-editing plan</a>, <a href="../ux-standards.md">UX standards</a>, <a href="../o11y-standards.md">observability standards</a>, and <a href="../../plugins/obsidian/docs/reference/help/en/Editing%20and%20formatting/Properties.md">pinned Obsidian Properties documentation</a>.</p>
+  <p class="small">The review produced one completed GPT report plus main-agent verification; Claude and Gemini did not complete. Current iCloud settings provide comparable host layout and operator-assisted recovery guidance, not proof of the proposed Obsidian experience. Navigation, folder discovery, prior-consent evidence, receipt inspection, recovery access and status-card rendering need host validation. No accounts, vaults or provider services are connected to this document.</p>
+</section>
+</main>
+<footer>Discussion draft · Choices remain open until the interview and an explicit plan revision.</footer>
+<script>
+  'use strict';
+  const topics = [...document.querySelectorAll('[data-decision]')];
+  const progress = document.getElementById('progress');
+  function notes() {
+    const lines = ["Drafted by Matt's robot", '', '# Obsidian UX interview — tentative reactions', '', 'Discussion only. These notes are not vault authorization or agreed implementation requirements.', ''];
+    for (const topic of topics) {
+      const selected = topic.querySelector('input[type="radio"]:checked');
+      lines.push('## ' + topic.dataset.decision, '', 'Preference: ' + (selected ? selected.value : 'Not decided'), '', topic.querySelector('[data-notes]').value.trim() || '(No notes yet.)', '');
+    }
+    lines.push('## Overall priorities', '', document.getElementById('overall-notes').value.trim() || '(No notes yet.)', '');
+    return lines.join('\n');
+  }
+  function update() {
+    const count = topics.filter(topic => topic.querySelector('input[type="radio"]:checked')).length;
+    progress.textContent = count + ' of 6 topics have a tentative preference.';
+  }
+  for (const topic of topics) topic.addEventListener('change', update);
+  document.getElementById('download').addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([notes()], { type: 'text/markdown;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url; link.download = 'obsidian-ux-interview-notes.md';
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  document.getElementById('preview').addEventListener('click', () => {
+    document.getElementById('export-area').hidden = false;
+    const preview = document.getElementById('export-preview');
+    preview.value = notes(); preview.focus(); preview.select();
+  });
+  document.getElementById('print').addEventListener('click', () => window.print());
+  // Deliberately no network calls, storage, vault access, or executable note content.
+</script>
+</body>
+</html>
