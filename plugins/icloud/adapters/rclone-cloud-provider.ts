@@ -104,8 +104,21 @@ export class RcloneCloudProvider implements CloudProvider {
     const baseline = join(this.root, 'baselines', mirror.id);
     try { if (!mirror.initialized || await readFile(join(baseline, 'initialized'), 'utf8') !== '1') throw new Error(); }
     catch { throw new CloudError('recovery_required'); }
-    await this.backup(mirror, report);
-    await this.bisync(mirror, false, report);
+    try {
+      await this.backup(mirror, report);
+      await this.bisync(mirror, false, report);
+    } catch (error) {
+      // CLI exit 1 cannot distinguish an outage from expired authorization.
+      // A harmless RC read can prove the latter without parsing stderr or
+      // retrying a possibly-applied write. Critical/capacity stops stay intact.
+      if (error instanceof CloudError && error.category === 'sync_failed') {
+        try { await this.verifyConnection(); }
+        catch (check) {
+          if (check instanceof CloudError && check.category === 'authentication') throw new CloudError('authentication', error.evidence ?? undefined);
+        }
+      }
+      throw error;
+    }
   }
   async disconnect() {
     this.continuation = null;

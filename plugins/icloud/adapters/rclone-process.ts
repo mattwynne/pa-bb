@@ -151,7 +151,16 @@ export class RcloneProcess {
         res.on('data', chunk => { size += chunk.length; if (size > 4 * 1024 * 1024) { req.destroy(); fail(); } else data += chunk; });
         res.on('error', fail);
         res.on('end', () => {
-          if (res.statusCode !== 200) return reject(new CloudError(res.statusCode === 401 || res.statusCode === 403 ? 'authentication' : 'sync_failed'));
+          if (res.statusCode !== 200) {
+            // Stock v1.75.2 wraps backend errors in RC HTTP 500. Recognize
+            // only its exact native expiry marker, not Apple error prose,
+            // substrings, or HTTP 500 alone. Never retain the private envelope.
+            let expired = false;
+            if (res.statusCode === 500 && method === 'operations/list' && body.fs === 'icloud:') {
+              try { expired = JSON.parse(data)?.error === 'trust token expired, please reauth'; } catch { /* Unknown failure stays retryable. */ }
+            }
+            return reject(new CloudError(expired ? 'authentication' : 'sync_failed'));
+          }
           try { resolve(JSON.parse(data)); } catch { fail(); }
         });
       });

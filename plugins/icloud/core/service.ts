@@ -39,9 +39,7 @@ export class ICloudSync {
         const failure = category(error);
         if (failure === 'authentication') {
           this.state.connected = false;
-          for (const mirror of this.state.mirrors) if (mirror.enabled && mirror.phase !== 'retained') {
-            mirror.phase = 'failed'; mirror.failure = 'authentication'; mirror.blocker = 'reconnect';
-          }
+          this.requireResume();
         }
         this.diagnose('restore_connection', failure, { evidence: evidence(error) });
       }
@@ -63,8 +61,17 @@ export class ICloudSync {
     this.current = task; return task;
   }
   async checkAvailability() { return this.provider.checkAvailability(); }
+  private requireResume() {
+    // Authorization belongs to the account, not just the first folder that
+    // encountered expiry. Preserve Pause/Disconnect and stronger safety stops.
+    for (const mirror of this.state.mirrors) {
+      if (!mirror.enabled || !mirror.initialized || mirror.phase === 'retained' || mirror.blocker !== null) continue;
+      mirror.phase = 'failed'; mirror.failure = 'authentication'; mirror.blocker = 'reconnect';
+    }
+  }
   connect(credentials: { account: string; password: string }) {
     return this.exclusive(async () => {
+      this.requireResume();
       this.state.connected = false; this.state.challenge = null; this.discovered.clear();
       await this.save();
       try { return await this.applyConnection(await this.provider.connect(credentials)); }
@@ -186,7 +193,7 @@ export class ICloudSync {
       } catch (error) {
         mirror.phase = 'failed'; mirror.failure = category(error); mirror.blocker = this.blockerFor(mirror.failure, initial); failure = mirror.failure; proof = evidence(error);
         if (initial) mirror.enabled = false;
-        if (mirror.failure === 'authentication') this.state.connected = false;
+        if (mirror.failure === 'authentication') { this.state.connected = false; this.requireResume(); }
         this.diagnose(`${initial ? 'prepare' : 'sync'}/${this.progress.get(mirror.id)?.stage ?? 'checking'}`, mirror.failure, this.history.context(proof));
       }
       await this.save(); completed = true;

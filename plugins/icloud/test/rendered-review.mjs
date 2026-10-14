@@ -10,7 +10,7 @@ await mkdir(artifacts, { recursive: true });
 const browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : {}) });
 const mirror = { id: 'review-mirror', folder: { id: 'review-folder', name: 'Test Vault', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-10-10T12:00:00.000Z', failure: null, blocker: null, retryPending: false, stale: false, recovering: false, progress: null };
 try {
-  const statusViews = ['first', 'prerequisite', 'pending', 'empty', 'connected', 'paused', 'running', 'retry-pending', 'repeated-stale', 'source-changed', 'recovering', 'reconnect-needed', 'reconnected-resume', 'capacity', 'configuration', 'critical', 'legacy-retry', 'initial-block', 'retained', 'error'];
+  const statusViews = ['first', 'prerequisite', 'pending', 'empty', 'connected', 'paused', 'running', 'retry-pending', 'repeated-stale', 'source-changed', 'recovering', 'reconnect-needed', 'reconnected-resume', 'multi-reconnected-resume', 'capacity', 'configuration', 'critical', 'legacy-retry', 'initial-block', 'retained', 'error'];
   for (const view of statusViews) for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
     const methods = [];
@@ -25,7 +25,8 @@ try {
       if (view === 'repeated-stale') Object.assign(item, { phase: 'failed', failure: 'sync_failed', retryPending: true, stale: true, lastSuccess: '2026-10-08T12:00:00.000Z' });
       if (view === 'source-changed') Object.assign(item, { phase: 'failed', failure: 'source_changed', retryPending: true, stale: true });
       if (view === 'recovering') Object.assign(item, { phase: 'running', failure: 'interrupted', recovering: true, stale: true });
-      if (view === 'reconnect-needed' || view === 'reconnected-resume') Object.assign(item, { phase: 'failed', failure: 'authentication', blocker: 'reconnect', stale: true });
+      if (['reconnect-needed', 'reconnected-resume', 'multi-reconnected-resume'].includes(view)) Object.assign(item, { phase: 'failed', failure: 'authentication', blocker: 'reconnect', stale: true });
+      if (view === 'multi-reconnected-resume') state.mirrors.push({ ...item, id: 'review-second', folder: { ...item.folder, name: 'Other Vault' } });
       if (view === 'capacity') Object.assign(item, { phase: 'failed', failure: 'capacity', blocker: 'capacity', stale: true });
       if (view === 'configuration') Object.assign(item, { phase: 'failed', failure: 'configuration', blocker: 'configuration', stale: true });
       if (view === 'critical') Object.assign(item, { phase: 'failed', failure: 'recovery_required', blocker: 'rebuild', stale: true });
@@ -94,6 +95,17 @@ try {
       assert.equal(await resume.evaluate(element => element === document.activeElement), true);
       assert.equal(await resume.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
       assert.equal(await section.getByRole('button', { name: 'Create fresh mirror' }).count(), 0);
+    }
+    if (view === 'multi-reconnected-resume') {
+      assert.equal(await section.getByText('Resume required', { exact: true }).count(), 2);
+      const steps = section.getByText('Recovery steps', { exact: true });
+      for (let i = 0; i < 2; i++) await steps.nth(i).click();
+      for (const folder of ['Test Vault', 'Other Vault']) {
+        const resume = section.getByRole('button', { name: `Resume ${folder}`, exact: true }); await page.keyboard.press('Tab'); await resume.focus();
+        assert.equal(await resume.evaluate(element => element === document.activeElement), true);
+        assert.equal(await resume.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+      }
+      assert.equal(await section.getByRole('button', { name: /Pause|Create fresh mirror/ }).count(), 0);
     }
     if (['capacity', 'configuration'].includes(view)) {
       await section.getByText('Recovery steps', { exact: true }).click();
