@@ -2,7 +2,7 @@ Drafted by Matt's robot
 
 # 011 — Unattended iCloud sync, with rclone owning recovery
 
-Status: Implemented; awaiting production verification. Live Apple recovery and production deployment remain unverified.
+Status: Implemented and deployed. Live Apple authorization-expiry recovery and a completed persistent production sync remain unverified.
 
 ## Goal
 
@@ -86,7 +86,7 @@ Update the setup/recovery guide, plugin README and scenarios that currently requ
 
 A generic recovery framework, new retry scheduler, backup-store rewrite, automatic forced resync, automatic merging of old/new mirrors, broad rclone upgrades and Obsidian features. Genuine damage may still require specialist help; ordinary service interruptions must not.
 
-## Implementation evidence
+## Initial implementation evidence (0.1.7)
 
 - The final combined main-branch suite passed 95 unit/adapter/host tests and 56 Cucumber scenarios (522 steps), without skips, against stock rclone v1.75.2. This includes the natural-duration lock renewal/expiry and graceful/abrupt recovery proof, legacy-worker handoff, same-generation reacquisition, and refusal to discard extra or mismatched completed-capture data.
 - A separate isolated BB scheduler run against generated local/alias data recovered a first-listing failure automatically, recovered repeated second-listing failures without unbounded staging growth, and recovered a source change on the next scheduled attempt. Pause followed by reload stayed stopped. Persistent history retained four failures, and bounded `checking`/`saving_recovery` diagnostics excluded the synthetic private sentinel. This is actual one-minute BB scheduler evidence, not Apple-provider evidence.
@@ -95,3 +95,11 @@ A generic recovery framework, new retry scheduler, backup-store rewrite, automat
 - Temporary failures retain enabled intent and use only the ordinary schedule. Pause cancels future attempts while preserving the outcome. Reconnect requires explicit Resume. Capacity and configuration blockers never auto-retry; after the condition is fixed, explicit Retry rechecks the ordinary capture/rclone path, restores the blocker on failure and clears it on success. Invalid selections use the configuration blocker. Critical and ambiguous-initialization states remain unretryable and alone expose the confirmed fresh-mirror path.
 - Generated enabled-plugin hot reload now defers to a live same-parent daemon before and after flock acquisition without signalling it, unlinking live paths or replacing the lock inode. A legacy predecessor without flock is preserved too. After a transient busy run, the same replacement generation completed the next ordinary one-minute scheduled run successfully. Linux procfs and util-linux `/usr/bin/flock` are therefore explicit host requirements.
 - The rendered review used controlled RPC fixtures and no provider accounts. Live Apple authorization, Apple session expiry, real provider outage/recovery, a phone-to-BB round trip, production deployment and post-deployment persistent sync were not verified in this iteration. Production access was unavailable, so deployment and post-deployment feedback remain blocked. Production credentials, files, baselines, grants and failure state were not changed.
+
+## Release-review follow-up (0.1.8)
+
+- Stock rclone wraps backend failures in control-socket HTTP 500. The adapter now recognizes only its exact native `trust token expired, please reauth` marker for an iCloud listing, not arbitrary provider messages, HTTP status alone or stderr. Unknown failures remain retryable. After a normal command reports `sync_failed`, a harmless control-socket read can prove expiry while preserving the original bounded command evidence. Capacity, configuration, critical and interrupted outcomes are not downgraded by that check.
+- Expiry and manual Reconnect now require explicit Resume for every enabled, recoverable folder. Paused and retained folders stay stopped, and stronger storage/configuration/critical blockers are preserved. Regression tests cover reload, failed reconnect, independent per-folder Resume and synthetic private data in error envelopes.
+- The Linux suite passed 102 tests and all 56 scenarios (522 steps), with no skips, against stock rclone v1.75.2. Typecheck, build and shared UI checks passed. The isolated rendered-BB review passed 80 desktop/narrow cases; the affected reconnect and two-folder Resume screenshots were inspected against the existing Fastmail layout, including visible keyboard focus.
+- Only iCloud was updated to 0.1.8 from commit `962156e`. A harmless live Apple folder read succeeded, persistent history remained available, and other plugins' versions and enabled states were unchanged. The existing initialized failed folder remained disabled with its last-success timestamp and failure intact. Recent attributable plugin diagnostics contained only bounded fields.
+- No consent to retry that pre-existing production failure was assumed. A completed persistent sync and real Apple authorization-expiry recovery therefore remain unverified; the expiry checks above use controlled native-error fixtures, not an induced personal-account outage.
