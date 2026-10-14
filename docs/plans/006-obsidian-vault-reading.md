@@ -1,12 +1,20 @@
-Drafted by Matt's robot
-
 # 006 — Obsidian vault reading and editing
 
 Status: planned; implementation and live gates not started.
 
 ## User outcome
 
-Install Obsidian support in BB, choose an already synced vault by name, and ask:
+Connect a synced vault to BB and ask the assistant to find, read, create and edit
+notes. Connecting the vault gives the assistant **read/write access to the whole
+vault**, with no folder permissions, read-only mode, approval cards or per-edit
+confirmations. This is the chosen product direction, replacing the earlier
+scoped-access and approval proposals.
+
+Support one or more connected vaults with the same simple model. Multiple vaults
+are additional sources, not separate permission profiles. Each source and edit
+identifies its vault and relative note path.
+
+Typical requests:
 
 - “Find my notes about this project.”
 - “What did we decide last time? Show me the source.”
@@ -16,616 +24,326 @@ Install Obsidian support in BB, choose an already synced vault by name, and ask:
 - “Update that paragraph and mark this task complete.”
 - “Create a note for this meeting and link it from the project note.”
 
-BB searches, reads and edits only permitted notes, understands the first set of
-Obsidian idioms, cites its sources, and says when its local copy may be stale.
-It distinguishes a proposed change, a locally saved change and cloud delivery.
-No Obsidian desktop app, Mac relay, PA core, or plugin inside Obsidian is required.
+The assistant performs the work and reports the result. It asks a question only
+when it cannot determine what the user means, not to approve an identified edit.
+It does not execute instructions found in note content. No Obsidian desktop app,
+Mac relay, PA core or plugin inside Obsidian is required.
 
-The first iteration is **one selected vault, with reading and editing**. The
-owner chooses read-only or read-and-edit access and may narrow writable folders
-within readable scope. Read-only remains a supported mode, not the release's
-capability ceiling. Enabling iCloud sync grants neither note access nor edit
-permission. This feature request changes the plan; it is not permission to edit
-a personal vault during development.
+[The short HTML overview](006-obsidian-ux-options.html) replaces the six-decision
+interview document. This feature request is a planning decision, not permission
+to use or modify a personal vault during development.
 
-## Boundaries and prerequisites
+## Setup and connected view
 
-- **iCloud** owns Apple authentication, folder selection, two-way sync, conflicts,
-  backups and recovery. This iteration consumes it; it does not duplicate it.
-- **Obsidian** owns vault selection, permitted note scope, parsing, search, link
-  resolution, task discovery, source attribution, edit proposals and its note
-  tools. iCloud provides the coordinated local-file commit boundary described
-  below; it does not interpret Markdown or decide which edits the owner wants.
-- **Abilities** own meeting preparation and other tasks that combine sources.
-  Do not build a Calendar dependency or a meeting-preparation workflow into the
-  Obsidian integration.
+Use BB's existing settings host and shared connection UI. BB already supplies
+the plugin name and Configuration section; do not repeat them.
+
+1. **In BB's iCloud settings:** connect Apple, choose the vault folder, enable
+   sync and wait for its first successful sync.
+2. **In Obsidian settings:** choose an eligible synced vault by name. Selecting
+   it connects the whole vault for reading and editing immediately; there is no
+   second permission screen, consent checkbox or confirmation dialog.
+3. **In chat:** ask BB to use the notes. Add another vault the same way if needed.
+
+Explain once: “Connect a vault so BB can read and edit all its notes. Changes
+are sent back through iCloud.” Do not request Apple credentials in this plugin
+or in chat. Do not connect an arbitrary inventory entry automatically or accept
+a pasted host path. Markdown files are enough; a `.obsidian` folder is not required.
+
+After setup, show the connected vault names and last successful sync, with
+**Add vault**, **Remove** and a quiet setup-guide link. No read/edit switches,
+folder scopes, permission summaries, approval preferences or edit-history dashboard.
+Removing a vault stops its exposure and clears cached content without deleting
+notes, pausing iCloud or disconnecting Apple. Removal needs no confirmation.
+
+Settings and tools share one verified dependency state. Keep selected vaults and
+pending selections on failed checks; ignore late responses after removal. Refresh
+on returning to the page and poll boundedly only while pending setup is visible.
+Offer eligible vaults even if another folder is syncing or failed. Distinguish
+an empty inventory during initial sync from no folder having been selected.
+
+| Verified condition | Next step |
+| --- | --- |
+| iCloud not installed or disabled | Install or enable iCloud through BB's plugin screens. |
+| iCloud starting | Explain that it is starting; check again without reloading it. |
+| Incompatible iCloud or unavailable host prerequisites | Open verified plugin/update or prerequisite guidance. |
+| Plugin-list/RPC check failed | “Could not check iCloud setup. Your connected vaults have been kept.” Offer Check again, not a guessed reconnect/reinstall. |
+| No eligible vault and Apple disconnected/verification pending | Connect or finish verification in iCloud settings. |
+| Connected but no vault folder selected | Choose the vault folder in iCloud settings. |
+| Folder selected but sync never enabled | Enable sync there; selection alone does not start syncing. |
+| Initial sync running | Show verified status and wait for completion; no invented percentage or ETA. |
+| Initial sync failed | Open iCloud recovery guidance; do not automatically rebuild or resync. |
+| Eligible mirrors exist | Offer Connect by vault name. |
+| Connected mirror missing, retained or replaced | Explain source unavailability; review in iCloud and connect the intended mirror. Never switch identities just because the name matches. |
+
+Expected setup gaps are calm guidance, not red exception banners. Actual failures
+have accessible messages and a useful next step. Confirm install/details/settings
+navigation in running BB; if no stable route exists, give exact navigation
+instructions instead of a broken button. Publish a complete portable setup guide.
+
+## Boundaries
+
+- **iCloud** owns Apple authentication, folder sync, conflicts, backups and
+  recovery. It also owns the coordinated local-file commit boundary below.
+- **Obsidian** owns connected-vault selection, note parsing, search, metadata,
+  link/task discovery, citations and note mutations. No separate permission or
+  approval subsystem belongs here.
+- **Abilities** combine notes with other sources; do not add a Calendar dependency
+  or meeting-preparation workflow to this integration.
 
 Use the [vision](../vision.md), [UX standards](../ux-standards.md),
-[observability standards](../o11y-standards.md),
-[iCloud plan](004-icloud-sync.md), and
-[pinned Obsidian references](../../plugins/obsidian/docs/reference/README.md).
-This remains a trusted plugin for a single-user BB installation, not a sandbox
-that prevents other trusted plugins or unrestricted filesystem tools reading
-host files.
+[observability standards](../o11y-standards.md), [iCloud plan](004-icloud-sync.md)
+and [pinned Obsidian references](../../plugins/obsidian/docs/reference/README.md).
+The standing whole-vault choice supplies prior consent for note tools; do not
+turn the shared trust policy into another approval flow. The plugin remains
+trusted code in a single-user BB installation, not a sandbox for other plugins.
 
-The planning assumption is that iCloud can supply the vault. Its actual live
-Apple and disposable-vault gates remain recorded in iteration 004; this plan does
-not mark them passed. Obsidian can be installed before iCloud, but usable note
-access requires an explicitly selected mirror with a successful initial sync.
-Installing iCloud or connecting Apple alone is not sufficient. Dependency checks
-and guided onboarding are part of this iteration, not a documentation fallback.
+## Reading, metadata and links
 
-## First slice
+All Markdown notes under each connected root are readable and editable, including
+nested and hidden folders; there is no configurable exclusion list. File-format
+coverage is not a permission system: this slice handles regular `.md` notes.
+Images, PDFs, Canvas/Bases and plugin/configuration code are not interpreted or
+executed as note content. Report unsupported formats honestly. Reject symlinks,
+absolute paths and traversal so a vault cannot expose unrelated host files.
 
-### Select and authorize a vault
+- Search literal text in note paths/titles, aliases and bodies, with optional
+  tags. No arbitrary regex or claim of Obsidian's complete Search language.
+- Read notes in bounded pages or resolved heading/block sections. Preserve
+  Markdown and return parsed metadata separately. Never render executable note
+  HTML, queries, templates or scripts.
+- Return compact properties, aliases, tags, headings, blocks and outgoing links,
+  with source locations, whole-note version and parse/completeness warnings.
+  File metadata is separate from frontmatter properties.
+- Every source includes stable vault ID/name, relative path, line span, local read
+  time, mirror state and last successful sync. Never expose host paths. Optional
+  `obsidian://` links require a verified client vault name.
+- Make limits visible through pagination and incomplete/truncated results. Bind
+  cursors to connected-vault identity and index revision; invalidate them when
+  sources change. Never turn unreadable notes or malformed YAML into empty success.
+- Search may span connected vaults. Report partial source failures explicitly
+  rather than hiding the results of usable vaults or pretending the search was
+  complete. Failed vaults do not make healthy ones unusable.
 
-Treat one initialized iCloud mirror as the vault root. The owner chooses it from
-an inventory by name; do not accept a pasted host path or silently select the
-first folder. Markdown files are sufficient: do not require a `.obsidian` folder,
-which may have a custom name or be absent from the mirror.
+Support YAML properties, aliases, inline/property tags, nested and
+case-insensitive tag matching, wikilinks, Markdown links, embeds, headings,
+`#^block` references and source-owned task checkboxes. Preserve LF/CRLF offsets
+and nonblank completion markers; do not invent community-plugin task states,
+dates or recurrence. Handle standalone block identifiers after structured blocks.
 
-The settings flow explains what BB may read and change, and that local edits
-will be sent to iCloud by the existing two-way sync. Offer read-only or
-read-and-edit access, with literal vault-relative included/excluded folders and
-writable folders restricted to readable scope. Selecting the entire vault is
-explicit; no content is scanned before selection and scope are saved. Persist
-the mirror ID, access mode and scopes, not a host path or Apple credentials.
+Exclude fences, inline code, `%%` comments and HTML regions from ordinary
+body-link/tag/task extraction, not from file access. Real callout content can
+contain tasks and links. Handle links in properties separately. Bound YAML
+expansion/depth and prohibit executable tags.
 
-Exclude hidden files/directories, including `.obsidian`, `.git` and `.trash`;
-reject symlinks rather than following them. Read regular `.md` files only. Custom
-configuration folders can be excluded explicitly. Images, PDFs, plugin code,
-Canvas and Bases content are not readable note content in this slice.
+Resolve links inside their source vault: explicit paths first, then unique bare
+names/aliases under tested rules. Do not choose an arbitrary duplicate or search
+another vault implicitly for a missing link. Missing and ambiguous targets are
+honest outcomes; external URLs are references, not fetched resources. Embeds do
+not recursively load everything. Record tested compatibility cases, not full
+Obsidian resolver parity.
 
-Changing scope invalidates cached results and pending edit proposals immediately.
-Switching to read-only revokes writes without losing read access. Forgetting the
-vault revokes plugin access and clears cached content without deleting notes,
-pausing iCloud, disconnecting Apple or changing any other plugin. Recheck current
-access at commit time; an old proposal or approval never restores revoked access.
+## Editing without confirmations
 
-### Search, read and cite
+Provide creation in existing folders, appends, bounded exact-text replacements,
+task-checkbox edits and structured property updates throughout a connected vault.
+The assistant may compose the text and choose an unambiguous destination as part
+of the user's task, without a separate preview/approval step. There is no
+`Approval` port, approval flag, approval interaction or prior-intent verification
+spike. Prove normal tools can run without required host confirmation before
+promising the experience; a host incompatibility is a blocker, not a reason to
+quietly add our own confirmation flow.
 
-Search permitted note paths/titles, aliases and body text, with an optional tag
-filter. Use literal text queries, not arbitrary regular expressions or a promise
-to support Obsidian's full Search language. Return bounded snippets and stable,
-vault-relative source paths with line spans.
+Each targeted tool call specifies a stable vault ID and relative path. Search and
+status expose the IDs so the assistant can target the right vault without asking
+the user to handle opaque identifiers. Ask for clarification only if the intended
+vault, note or change is genuinely ambiguous. Do not silently write every matching
+note across multiple vaults.
 
-Read a whole note in bounded pages, or a resolved heading/block. Preserve original
-Markdown and expose parsed properties, tags and outgoing links separately. Do not
-render or execute note HTML, queries, templates or scripts. Return structured
-warnings for malformed properties and unsupported constructs; a malformed YAML
-header must not make every other note disappear or turn a partial index into a
-successful empty search.
+Read the complete current note within the file-size budget and bind the edit to
+its expected whole-note hash and a stable operation ID. Require unique exact
+replacement matches and reject overlaps. A task edit identifies its original
+location, marker and text, not the first similar checkbox found. Creation refuses
+an existing destination. Never replace a whole note from a truncated read.
 
-Every content result includes selected vault identity, source path, line span,
-local read time, observed mirror phase, and last successful iCloud sync. A
-vault-relative citation is required. An `obsidian://` open link is optional only
-if its client vault name has been configured and verified; do not invent one
-from an opaque local mirror directory.
+Preserve untouched text, YAML comments/spacing, links, block identifiers and line
+endings. Check the version inside the coordinated commit. If another writer
+changed it, save nothing from the stale patch: reread before preparing a fresh
+edit, without asking for confirmation. Do not silently merge or replay an append.
+An edit touching two notes is two separately reported saves, not a transaction.
 
-Pagination and size limits must be visible. Use `nextCursor`, `truncated` and
-`incomplete`/bounded issue categories as applicable; never claim “no matches” or
-“no tasks” when unreadable or skipped notes could change that answer. A cursor is
-bound to the selected vault, scope and index revision; reject it after those
-change rather than continuing against a different dataset.
+Properties use bounded `set`/`remove` operations on explicit top-level keys.
+Preserve unrelated keys and body bytes; a missing header may be created. Support
+scalar/list values, validate reserved `tags`/`aliases` shapes, preserve date/time
+strings without invented conversion and quote link values safely. Adding an alias
+retains existing aliases; replacing a tag list does what the request says.
 
-### Understand a defined set of idioms
+Use a source-preserving YAML tree and verify unchanged bytes outside edited spans.
+Do not infer vault-wide property types from private app configuration. Reject
+malformed/duplicate keys, executable tags, unsafe expansion or unsupported
+structural edits rather than rewrite unrelated content. General frontmatter text
+edits cannot bypass validation. An explicitly requested repair needs a validated
+result, not a confirmation UI. Property edits use the same whole-note hash and
+commit path as body edits; a metadata read is not evidence that the body is unchanged.
 
-- YAML properties at the beginning of a note, including `aliases` and `tags`;
-  preserve ordinary values without guessing property types from private app
-  configuration. Disable custom YAML execution and bound alias expansion/depth.
-- Inline and property tags, including documented case-insensitive and nested-tag
-  matching. Do not mistake numeric-only strings, headings or code for tags.
-- Wikilinks and Markdown internal links, including optional `.md`, display text,
-  embeds, URL-encoded paths, same-note headings and `#^block` references.
-- Heading and block locations, including identifiers on their own line after
-  structured blocks. Preserve source offsets for LF and CRLF files.
-- Task checkboxes, nested tasks and their exact source location. Per the pinned
-  basic-formatting docs, a blank marker is incomplete and a nonblank marker is
-  complete; preserve the marker rather than inventing community-plugin status,
-  due-date or recurrence semantics.
+### Persistence and outcomes
 
-Exclude code fences, inline code, `%%` comments and HTML regions from ordinary
-body-link/tag/task extraction. Handle supported links in properties separately.
-Callout content can contain real links and tasks, but examples in fenced blocks
-cannot. Embeds are references, not instructions to recursively load everything;
-follow-up reads always pass through the same scope checks.
+Retain a protected, durable pre-edit recovery copy outside the synced vault before
+replacing a note. Define retention/capacity bounds before implementing commits;
+fail before changing bytes if safe recovery cannot be retained. Keep copies and
+journal content out of logs and ordinary tool output. Document an operator-assisted
+restoration procedure that compares with current bytes and preserves newer changes.
+No new recovery dashboard or undo tool is required in this slice.
 
-Resolve explicit paths first. A bare name or alias may resolve only to a unique
-permitted candidate under the tested rules. Return ambiguity instead of choosing
-an arbitrary file. A missing or excluded target must not leak excluded candidate
-names or excerpts. External URLs are references, not fetched resources.
+Persist operation identity and receipts so transport retries cannot double-append
+or double-create. Bind retries to the original invocation, not a new ID. Stage
+outside the mirror on the same filesystem and atomically replace after saving the
+recovery copy and journal state. Reconcile crashes before sync can upload partial
+notes or staging files. Test exclusive creation, disk-full, permissions,
+cancellation, disposal, restart and symlink-swap behavior.
 
-The API's `getFirstLinkpathDest` description does not specify all tie-breaking
-rules. Record tested compatibility cases; do not claim to reproduce Obsidian's
-complete resolver. Community-plugin semantics are deliberately unsupported.
+Report the actual change and **saved locally, pending iCloud sync** after a
+confirmed commit. A later sync timestamp proves a run occurred, not delivery of
+those bytes. Say “verified in iCloud” only with content-specific cloud evidence;
+phone receipt needs separate device evidence and is not promised. Sync failure
+after local save is a saved edit with pending/failed delivery, not an edit to repeat.
 
-### Make targeted changes
+For a lost response, allow bounded recent receipt inspection through
+`obsidian_status`, identified by vault/note/time rather than requiring a remembered
+operation ID. Distinguish confirmed save, confirmed non-commit, later note changes
+and unresolved outcome. Receipt facts can remain available while the same vault
+is connected even if its source is temporarily unavailable; do not claim current
+file state without reading it. Removed vaults expose neither content nor receipts.
+Never blindly retry an uncertain commit. Clear the index and old cursors after saves.
 
-Include creation of a Markdown note in an existing permitted folder, append-only
-additions, bounded exact-text edits, task-checkbox changes and structured property
-updates. Preserve untouched YAML, comments, spacing, links, block identifiers and
-LF/CRLF line endings instead of reserializing a whole note. A task change targets
-its verified source location and original marker/text, not the first matching
-checkbox in the vault. Dedicated daily-note path/template automation is later;
-an explicitly identified daily note can be read and edited like any other note.
+## iCloud handoff and coordination
 
-Read the complete current note within the file-size budget before preparing an
-edit; content-read results include a version hash suitable for this check. Bind the proposed change to its content hash, selected mirror ID, relative
-path, scope revision and a server-generated operation ID. Require every exact
-replacement to match uniquely and reject overlapping edits. Never base a whole
-note replacement on a truncated read, and never silently discard constructs the
-parser does not understand. If a target is ambiguous, ask which note/task the
-owner means rather than making a guess.
+Use BB's verified `bb.sdk.plugins.list()` and iCloud's read-only `status`/`inventory`
+RPCs through `bb.sdk.plugins.callRpc`, validating responses locally. Inventory
+contains initialized mirror IDs/names, `localFolder`, phase and `lastSuccess`;
+uninitialized first-sync folders may be absent. Inspect status to distinguish
+that from no folder selection. Never import iCloud's database or derive its private
+paths. Keep `localFolder` server-side and sanitize dependency/provider errors.
 
-Produce a server-computed before/after diff and plain-language summary of the
-actual change. Follow the repository consent policy: edit permission determines
-capability; an explicit user request supplies intent. Do not add an unconditional
-second approval popup merely because editing is enabled. Where the exact change
-has not already been authorized, or BB requires approval, use an enforceable BB
-interaction bound to that proposal. Calendar's `bb.ui.requestInput` is an existing
-mechanism to investigate, not proof of Obsidian approval behaviour in every
-provider. A model-supplied `approved=true` or note content is never authorization.
-Record and test how prior consent is verified; if BB cannot establish it, present
-the exact proposal for owner approval before committing rather than trusting a
-prompt. Missing UI, cancellation, expiry or decline saves nothing.
-
-After any approval delay, recheck permission, source availability and the whole
-note hash inside the coordinated commit. If the note changed, refuse to overwrite
-it: reread, show the new proposal and obtain any required renewed authorization.
-Do not silently merge, retry an append or reuse approval for changed bytes.
-Creation must refuse an existing destination rather than replace it.
-
-Before replacing an existing note, retain a durable recovery copy outside the
-synced vault. Define protected storage and explicit retention/capacity bounds
-before implementing commits; fail before modifying the note if safe recovery
-cannot be retained. Recovery copies are private content, not logs or tool output.
-Document how to recover a previous version without overwriting newer edits;
-restoration must obey the same compare-and-save and consent rules. Do not rely
-only on the next scheduled iCloud backup to preserve a pre-edit version.
-
-Return an operation receipt containing the source path, old/new content hashes,
-local save time and a summary of the actual change. A locally committed edit is
-reported as **saved locally, pending iCloud sync**, not delivered to the phone.
-A later successful run is evidence that sync ran, not alone proof that these
-exact bytes reached the phone. Claim delivery only with verified content-specific
-cloud evidence; otherwise keep that limit visible. Remote edits can still
-conflict, and iCloud's conflict preservation remains the recovery mechanism.
-
-Use durable operation receipts to inspect duplicate requests and uncertain
-outcomes. Expose the operation ID before committing where the host interaction
-allows it, and bind retries to the persisted proposal/tool invocation rather
-than generating a new ID for every transport retry. Provide a bounded recent
-receipt lookup under current note scope so a lost response can be inspected.
-Repeating an operation ID must not append twice or create twice. If a
-crash/disconnect occurs around commit, report an uncertain outcome and inspect
-recorded hashes/state; do not blindly retry. Invalidate the note index and old
-cursors after a confirmed save. A request spanning two notes is two separately
-reported edits, not an atomic whole-vault transaction.
-
-### Treat properties as structured data
-
-Add `obsidian_get_note_metadata` for a compact view of properties, aliases, tags,
-headings, blocks and outgoing links without returning the entire body. Include
-source locations, note version and parse/completeness warnings; do not substitute
-an empty property object for malformed YAML. File metadata and parsed frontmatter
-are separate fields, not invented properties written into the header.
-
-Add `obsidian_update_properties` with bounded `set` and `remove` operations on
-explicit top-level property names. Examples: set `status` to `active`, replace the
-`tags` list, add an alias, or remove a specific property. A missing frontmatter
-header may be created without changing the body. Preserve unrelated keys and
-comments; never interpret a set operation as replacing the whole property map.
-
-Support documented scalar/list values; preserve date/date-time strings rather
-than inventing timezone conversions. Validate reserved `tags`/`aliases` shapes
-and quote link-valued strings safely. Do not infer vault-wide property types from
-private `.obsidian` configuration. Reject duplicate/ambiguous YAML keys, custom
-executable tags, unsupported structural mutations and unsafe expansion limits.
-Malformed headers cannot be silently replaced with an empty one. General text
-edits touching frontmatter must not bypass these validation/safety checks; a
-requested repair needs an explicit preview and validated result.
-
-Use a source-preserving YAML document/tree approach and verify unchanged bytes
-outside the edited property spans. If the chosen library cannot preserve a
-particular construct safely, return an unsupported-edit explanation rather than
-normalizing the entire note. These are stronger formatting requirements than
-Obsidian's object-based API promises; prove them with adapter fixtures.
-
-Property updates use the same complete-note version check, proposal/diff,
-consent, scope, recovery, coordinated commit and operation receipt as body edits.
-A metadata read followed by a property update is not permission to overwrite a
-body edit that happened in between.
-
-### Align with Obsidian's SDK concepts, not its runtime
-
-Use official APIs as a semantic guide, not a one-to-one tool catalogue. BB inputs
-are bounded data, never arbitrary functions, and the official npm declarations
-still provide no runtime implementations outside Obsidian.
-
-| BB operation | Closest official Obsidian API | Deliberate difference |
-| --- | --- | --- |
-| Read a note | `Vault.read` / `Vault.cachedRead` | Always enforce selected scope, local version and mirror provenance; do not blindly trust cached content. |
-| Read metadata | `MetadataCache.getFileCache` and `CachedMetadata` | Parse our permitted local copy, not Obsidian's app cache; document the supported fields/subset. |
-| Resolve a link or section | `parseLinktext`, `MetadataCache.getFirstLinkpathDest`, `resolveSubpath` | Return ambiguous or excluded targets safely; do not claim full app tie-breaking parity. |
-| Create a note | `Vault.create` | Refuse overwrite and require authorized scope plus coordinated sync-safe persistence. |
-| Targeted body/task edit | `Vault.process` | Bounded patch against an expected content hash, not an agent-supplied callback; explicit recovery and operation receipts. |
-| Set/remove properties | `FileManager.processFrontMatter` | Structured operations instead of a JS callback, with source-preserving YAML edits and whole-note conflict checks. |
-| Search notes / list tasks | Metadata extraction plus search over vault files | Useful BB-level queries, not a claim that the SDK has identical standalone methods. |
-
-The relevant [properties mutation contract](../../plugins/obsidian/docs/reference/developer/en/Reference/TypeScript%20API/FileManager/processFrontMatter.md)
-explicitly describes atomic frontmatter read/modify/save and YAML parse failure.
-The [metadata contract](../../plugins/obsidian/docs/reference/developer/en/Reference/TypeScript%20API/CachedMetadata.md)
-separates frontmatter, frontmatter links, headings, blocks, links, embeds, tags
-and list items. Keep similar distinctions in our parser and result shapes.
-`FileManager.generateMarkdownLink` is a useful reference when generating links,
-but reproducing all app link preferences and `renameFile` cross-note rewrites
-remains outside this iteration.
-
-## BB/iCloud handoff and freshness
-
-The existing integration boundary is:
-
-- BB's `bb.sdk.plugins.list()`: verified installation, enabled state and host
-  runtime status; filter to iCloud server-side and discard host paths/details.
-- `plugins/icloud/server.ts`: the read-only `status` and `inventory` RPCs.
-- `plugins/icloud/contract.ts`: `status` includes prerequisite availability,
-  connection/challenge state and all selected mirrors; `inventory` supplies
-  initialized mirror IDs, names, `localFolder`, phase and `lastSuccess`.
-- `plugins/icloud/core/service.ts`: uninitialized mirrors are absent from
-  inventory, including an active first sync. Rebuilt mirrors receive new IDs
-  while previous copies become `retained`.
-
-Use `bb.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'status' | 'inventory',
-... })` with local validated output schemas. The installed SDK supports this
-pattern; Calendar/Drive already use cross-plugin RPC. Prove actual loaded-plugin
-calls and shared filesystem access in a small host spike before building the UI.
-An empty inventory is not proof that no folders are selected: inspect `status`
-to distinguish an unselected folder, sync not yet enabled, an active initial sync
-and failed preparation. A failed RPC is not proof that iCloud is uninstalled or
-Apple disconnected. If responses disagree across a transition, recheck within a
-bounded budget or report that status is temporarily unavailable.
-
-Map those observations to a single dependency/onboarding state in the core;
-settings and agent tools use that same state, not independent guesses. Retain
-only the fields needed for this decision. Do not import iCloud's database, derive
-its private storage paths or call its agent tool through a language model. Keep
-`localFolder` in the server adapter; never expose it in Obsidian tools, browser
-responses, citations or diagnostics. Never pass through arbitrary host
-`statusDetail`, provider errors or iCloud failure text as a safe explanation.
-
-Policy for the selected, previously initialized mirror:
-
-| Observed state | Read behaviour |
+| Mirror state | Behavior |
 | --- | --- |
-| `ready`, successful sync recorded | Read local notes; include the last successful sync, not a claim of current cloud state. |
-| `paused`, successful sync recorded | Allow local reads with a prominent stale-copy warning. |
-| `running` | Return a bounded busy response; do not scan while sync is known to be modifying the mirror. |
-| `failed` or `retained` | Refuse normal content reads and direct the owner to iCloud recovery/selection. |
-| Missing inventory, removed/disabled iCloud, missing mirror/root, unknown phase or no successful baseline | Fail closed; never serve a cached copy as though the source were available. |
+| Ready with a successful baseline | Read locally with provenance; allow coordinated writes when connected/enabled. |
+| Paused/disconnected with a successful baseline | Allow stale local reads with a visible warning; explain that editing needs working sync. This is source availability, not an owner-selected read-only mode. |
+| Running | Bounded busy response; no normal scan or commit while sync modifies the mirror. |
+| Failed/retained/missing/unknown, or no successful baseline | Refuse normal content operations with a specific source-recovery/setup action; do not serve cached roots as though current. |
 
-Check inventory before and after each bounded content operation. If sync state
-or last success changes during it, discard the result and return a retryable
-source-changed/busy outcome. Check file identity and metadata around reads;
-changed or replaced notes are not silently accepted as a stable index entry.
+Check inventory before/after bounded reads and file identity around each read.
+Discard unstable results. Polling is not an atomic snapshot or a lock on rclone:
+exercise the start-during-read race with the real adapter and add a narrow
+coordinated read boundary if testing shows one is needed. Do not assume repeated
+polls prove stability or change scheduling merely to avoid measuring the race.
 
-**These checks are not an atomic whole-vault snapshot or a lock on rclone.**
-Answers can span notes read at different times. Exercise the start-during-read
-race with the real sync adapter. If the tested host behaviour cannot provide
-stable individual reads under this policy, stop and design a narrow coordinated
-read boundary with iCloud before releasing; do not claim status polling solves
-that race. Do not modify sync scheduling or invent a lease protocol without
-recording and testing that decision.
+Writes require an additional iCloud-owned, server-to-server conditional commit
+boundary sharing exclusive coordination with sync, pause/recovery and disposal.
+Restrict callers to the host-verified Obsidian plugin. Validate connected mirror
+identity, vault-relative regular-file containment, expected hash and create/edit
+semantics inside the transaction. Serialize all participating writers and vault
+removal with commit admission; once removal is acknowledged, queued operations
+cannot still gain access. This is not an OS-wide lock against other trusted code.
 
-A recovery-created mirror must be selected and authorized explicitly. Never
-switch to a new ID merely because it has the same display name.
+Existing status/inventory RPCs do not implement that boundary. Prove the port,
+caller verification and crash behavior in a host spike; never fall back to unsafe
+filesystem writes. Older iCloud versions may support reads while edits explain
+that safe editing needs an update. Keep sync coordination short; do not simulate
+it with Pause/Resume calls or force a resync as part of an edit. Measure a normal
+read–edit–save workflow with scheduled sync so routine use is practical.
 
-### Coordinate writes with syncing
+## Implementation shape and tools
 
-Status polling is not sufficient for writes. Add a narrow, verified
-server-to-server conditional file-commit boundary owned by iCloud, using the same
-exclusive coordination as its scheduled runs, pause/recovery and disposal.
-Obsidian computes and authorizes the patch; iCloud resolves the mirror root and
-commits bounded file bytes without learning Markdown semantics. Never acquire a
-long-lived sync lock while waiting for human approval, or simulate one with
-separate Pause/Resume calls that might alter the owner's chosen sync state.
+Use a TypeScript hexagonal core, cucumber-js scenarios and fake ports, following
+existing plugins without a new shared integration framework:
 
-The spike must establish the exact port/RPC and crash behaviour before tools are
-enabled. Restrict commit callers to the host-verified Obsidian plugin; direct
-browser/CLI/agent and unrelated-plugin calls are denied. Obsidian rechecks its
-write scope and proposal authorization, and the commit boundary independently
-validates mirror identity, relative path, regular-file/no-symlink containment,
-expected content hash and create-versus-edit semantics. Serialization must cover
-all Obsidian commits and iCloud filesystem modification, not just each plugin's
-own mutex. Also serialize Obsidian scope/access revocation with commit admission:
-when revocation is acknowledged, no previously queued proposal may still gain
-permission to write. Recheck authorization within this bounded transaction, not
-only before an asynchronous cross-plugin call. Do not hold either guard while
-waiting for human input. This coordinates these participating writers; it is not an OS-wide
-lock against unrelated trusted code bypassing the boundary.
+- **MirrorCatalog:** verified availability, setup, inventory and source state.
+- **VaultFiles:** bounded enumeration/stable reads and coordinated conditional saves.
+- **NoteParser:** Markdown/metadata/source locations and source-preserving edits.
+- **StateRepository:** connected mirror IDs, configuration revision and operation
+  journal/receipts. No permission profiles or approval records.
+- **BB adapters:** client-only Connect/Remove settings RPCs, note tools, shared
+  connection UI, persistent configuration and lifecycle/disposal handling.
 
-First-release writes require a connected, available, initialized, enabled mirror
-in `ready` state. Paused/disconnected copies remain readable under the policy
-above but are not editable; busy/failed/retained/missing mirrors refuse commits
-with a specific next step. A busy result before commit can be retried only after
-revalidation; an uncertain result after commit requires inspection, not replay.
-No forced resync or provider-recovery action is part of an edit.
-
-Stage replacements outside the synced mirror on the same filesystem, persist
-the recovery copy and operation state, then use an atomic replacement with
-verified permissions. Define crash reconciliation before the next sync so partial
-notes and staging files are never uploaded. Preserve the owner-visible note name
-and original line endings. Prove exclusive creation without overwriting an
-existing destination and safe behaviour on disk-full, permission errors,
-cancellation, plugin disposal and restart. A successful local commit followed by
-sync failure is still a saved edit with failed/pending delivery, not a failed edit
-to repeat. The existing read-only `inventory`/`status` RPCs do not already provide
-this safety boundary; it is explicit additional work in this iteration. Verify
-its installed compatibility/capability explicitly. An older iCloud plugin may
-support reading while editing reports “Safe editing needs an iCloud plugin
-update. Open iCloud's plugin details in BB.” Never fall back to uncoordinated
-filesystem writes when that boundary is missing.
-
-## Implementation shape
-
-Use a TypeScript hexagonal core, cucumber-js acceptance scenarios and fake ports,
-following the existing plugins rather than introducing a shared integration
-framework.
-
-- **MirrorCatalog port:** verified plugin availability, iCloud setup state,
-  inventory and current source state. Production adapter uses the host plugin
-  list and read-only iCloud RPCs; fake models each onboarding state, disappearance,
-  replacement and sync transitions.
-- **VaultFiles port:** bounded enumeration, stable scoped regular-file reads and
-  conditional create/edit operations through the coordinated iCloud boundary.
-  Validate root/scope and reject traversal, absolute paths and symlink components.
-  Fake ports model conflicts, capacity failures and uncertain saves; real adapter
-  tests prove coordination, atomic persistence and recovery.
-- **NoteParser port:** original text plus properties, aliases, tags, headings,
-  blocks, links and tasks with source locations and parse warnings; construct
-  source-preserving property edits without executing arbitrary callbacks.
-- **StateRepository port:** selected mirror ID, readable/writable scope, access
-  mode, configuration revision and private edit proposals/operation receipts.
-- **Approval port:** exact server-owned proposal authorization using verified
-  prior consent or BB interaction; fake covers approval, decline and expiry.
-- **BB adapters:** client-only access/scope/revocation RPC, note tools, approval
-  interaction, persistent configuration, shared connection UI and disposal hooks.
-
-Evaluate a CommonMark/GFM-capable Markdown parser and a maintained YAML library
-against the fixtures; add only the Obsidian-specific tokenization and resolution
-we need. The official `obsidian` npm package is declarations, not this runtime.
-Record the parser choice and compatibility limits before building the tools.
-
-Start with an on-demand in-memory index, not embeddings or a database containing
-another persistent copy of the vault. Bounded per-edit recovery copies and private
-proposal/operation state are separate safety records, not a search database.
-Revalidate files and inventory before use; clear caches on scope/selection changes
-and disposal. Derived content stays out
-of synced folders. Centralize and test note-byte, scan-count/byte/time, result,
-output and parser-depth budgets. Record concrete ceilings in the plugin README;
-any budget exhaustion produces an explicit incomplete/truncated outcome.
-
-Proposed tool surface, subject to final schemas in the acceptance tests:
+Start with an on-demand in-memory index, not embeddings or a persistent search
+copy. Revalidate before use and clear caches on vault removal/disposal. Bound
+note bytes, scan count/bytes/time, output, pagination and parser complexity;
+document concrete ceilings and report exhaustion as incomplete. Evaluate maintained
+CommonMark/GFM and YAML libraries against fixtures before selecting them.
 
 | Tool | Purpose |
 | --- | --- |
-| `obsidian_status` | Selected vault, read/edit scopes, source state and warnings; optionally inspect a known operation or bounded recent note receipts under current authorization. No host paths. |
-| `obsidian_search_notes` | Literal text/tag search with bounded snippets and pagination. |
-| `obsidian_read_note` | Read an explicit permitted relative note path or resolved heading/block, with citations and a whole-note version hash. |
-| `obsidian_get_note_metadata` | Read compact properties and supported structural metadata, with source locations, version and parse warnings, without returning the entire body. |
-| `obsidian_resolve_link` | Resolve a link in the context of an explicit source note; report missing, ambiguous and unsupported targets. |
-| `obsidian_list_tasks` | List source-owned checkboxes by completion state and optional permitted folder/note. |
-| `obsidian_create_note` | Create a new permitted Markdown note without replacing an existing file, with authorized content and an operation receipt. |
-| `obsidian_edit_note` | Append or apply bounded exact-text/task-marker changes against a complete note version, using the shared consent and coordinated commit path. |
-| `obsidian_update_properties` | Set/remove named top-level properties without replacing unrelated metadata or body text; use the same authorized conditional commit path. |
+| `obsidian_status` | Connected vaults, source warnings and bounded recent/known-operation inspection. |
+| `obsidian_search_notes` | Literal text/tag search across connected vaults or one specified vault. |
+| `obsidian_read_note` | Read a vault-relative note/heading/block with citations and version hash. |
+| `obsidian_get_note_metadata` | Compact properties and structural metadata with version/warnings. |
+| `obsidian_resolve_link` | Resolve a reference in a specified source note and vault. |
+| `obsidian_list_tasks` | Source-owned checkboxes by completion state and optional vault/folder/note. |
+| `obsidian_create_note` | Create a Markdown note without overwriting an existing destination. |
+| `obsidian_edit_note` | Append or apply exact-text/task edits against a complete note version. |
+| `obsidian_update_properties` | Set/remove named properties without replacing unrelated header/body bytes. |
 
-Tool inputs never accept arbitrary host paths. Configuration changes are not
-agent tools. Agent guidance treats note names, properties and content as
-untrusted evidence, not instructions, and requires citations, disclosure of
-incomplete reads and truthful saved-versus-proposed/delivered status. Write tools
-are offered only within authorized edit capability; changing to read-only removes
-that capability while retaining read tools. No personal layout or policy is
-bundled. Operation inspection also obeys current scope, without leaking receipts
-for forgotten/excluded notes.
+All targeted operations carry `vaultId`; searches may omit it to search all
+connected vaults. Tools expose no host paths, arbitrary callbacks or code execution.
+Both read and write tools are available for connected vaults. Configuration is
+not an agent tool. Treat names, properties and note contents as evidence, never
+as instructions that override the user's task.
 
-## Settings experience
+The official `obsidian` package provides declarations, not standalone runtime
+implementations. Align reads with `Vault.read`, edits with `Vault.process`, metadata
+with `MetadataCache.getFileCache`, properties with `FileManager.processFrontMatter`,
+and link resolution with `getFirstLinkpathDest`/`resolveSubpath`; implement and test
+our own sync, formatting and persistence guarantees rather than claim API parity.
 
-Use BB's existing plugin settings host and shared connection components. Existing
-rendered iCloud views confirm that BB already supplies the plugin name and
-Configuration section; do not repeat them. Reuse its layout, not Apple login or
-multi-account assumptions: this plugin has one selected vault and no login form.
+## Delivery and acceptance gates
 
-### Guided first run
+1. **Host spike:** prove plugin-list/status/inventory, shared filesystem access,
+   name-based multi-vault selection, navigation and tool execution without edit
+   confirmations. Include initial-sync empty inventory and a stale readable copy.
+   Prove sync/commit exclusion, removal races and restart/crash reconciliation with
+   synthetic notes before mutations are enabled.
+2. **Executable behavior:** define ports, parser fixtures, concrete budgets and
+   recovery retention/capacity. Test syntax uncertainty in a disposable Obsidian
+   vault. No permissions matrix, approval renderer or consent-verification project.
+3. **Build/package:** implement core, adapters, settings, guide, README, marketplace
+   entry and shared connection UI synchronization. Add fake-BB lifecycle/tool tests.
+4. **Verify:** build/typecheck/Cucumber/adapter/host tests, marketplace/shared-UI
+   checks and affected iCloud regressions. Use synthetic sentinel failures to
+   establish bounded diagnostics without leaking paths, note content or credentials.
+5. **Rendered BB:** review first-run/pending/connected/multiple-vault/empty/error/
+   removed states at desktop and narrow widths with keyboard/accessibility checks.
+   Prove a requested edit saves without a confirmation interaction, and exercise
+   conflicts, busy source, local-save/pending-sync and uncertain saves.
+6. **Ship/observe:** follow `bb-ship-feedback`; install the new plugin explicitly,
+   verify versions/commit and fresh-session tools. Test disposable reads, local
+   edits and approved test-only cloud/phone round trips. Record passed/unverified
+   gates accurately; do not use a personal vault just to close release evidence.
 
-Explain once: “Obsidian uses a local copy of your vault supplied by iCloud.
-Set up iCloud first, then choose which notes BB can read and edit. Saved edits
-will be sent back through iCloud.” Show the sequence:
+Essential acceptance cases: no access before a vault is connected; whole-vault
+read/write persists over restart; hidden/nested Markdown is accessible without
+permissions prompts; two vaults with identical note names remain correctly targeted;
+removal prevents queued writes and clears content exposure without deleting files;
+healthy vaults remain usable while another fails; traversal/symlink escapes fail;
+malformed/oversized data yields explicit incompleteness; source citations retain
+vault/path/line identity; reads have no side effects; edits preserve unrelated
+bytes; version conflicts never overwrite newer notes; retries never duplicate
+appends; unknown outcomes are inspected; sync timestamps never imply phone delivery.
 
-1. Install/enable iCloud and connect Apple in **BB's iCloud settings**.
-2. Select the vault folder there, enable sync and wait for its first successful
-   sync. Merely choosing a folder does not start syncing.
-3. Return to **Obsidian settings**, select that vault and choose read-only or
-   read-and-edit access with permitted folders.
+Documentation-only changes need no plugin deployment. The HTML is a concept
+summary, not rendered-BB release evidence. Actual Apple/synced-vault gates remain
+unverified until exercised with specifically authorized disposable data.
 
-Mark progress only from verified state. Keep the Obsidian selection unavailable
-until an eligible initialized mirror exists. When multiple folders have different
-states, offer eligible mirrors with their status rather than blocking them
-because an unrelated folder is syncing or failed. Never select one automatically.
+## Later and release evidence
 
-Expected setup gaps are calm guidance, not red exception banners. A real check,
-save or sync failure gets an accessible error with a recovery action. First-run
-copy and the full guide must say which actions happen in iCloud and which happen
-in Obsidian; Obsidian never asks for Apple passwords or verification codes.
+Renames/deletes, cross-note link rewrites, bulk transactions, daily-note/template
+automation, other sync sources, attachment extraction, embeddings, recursive
+transclusion, community-plugin execution and Canvas/Bases evaluation remain later.
+Explicit daily notes/templates can be read and edited as Markdown; scripts are
+not executed. Multiple connected vaults are part of the planned source model,
+not a reason to introduce permissions or another setup workflow.
 
-### Dependency messages and recovery actions
-
-Use verified conditions to select the following copy; examples are planned copy,
-not claims that the routes or rendered UI are already tested. Check installation
-and RPC availability first, then assess any saved selection and eligible mirrors
-before first-run connection guidance. An initial `failed`/`running` phase takes
-precedence over “sync not enabled”; `enabled=false` alone proves neither. Provider
-prerequisite/connection warnings do not revoke a previously authorized local copy
-that the freshness policy still permits reading.
-
-| Verified condition | Explanation | Primary next action |
-| --- | --- | --- |
-| Plugin list confirms iCloud is not installed | “Set up iCloud first so BB can access your Obsidian vault.” | Find/install iCloud through BB's marketplace. |
-| iCloud is installed but disabled | “iCloud is turned off. Enable it in BB to continue.” | Open its BB plugin details; do not enable it automatically. |
-| Host reports iCloud starting | “iCloud is starting. We'll check again shortly.” | Bounded status refresh; never reload it to hurry setup. |
-| Host reports incompatible iCloud | “This iCloud version cannot run with the current BB installation.” | Open its plugin details for the host's update guidance. |
-| Plugin-list/RPC check failed or host reports an unavailable/error state | “Could not check iCloud setup. Your Obsidian settings have been kept.” | Check again; offer iCloud details as a secondary action, not a guessed reinstall/reconnect. |
-| iCloud reports unavailable host prerequisites | “iCloud needs host setup before it can sync your vault.” | Open iCloud's prerequisite guidance; ask the host operator to complete it. |
-| No eligible mirror and Apple verification is pending | “Finish Apple verification in iCloud settings.” | Open iCloud settings; never request the code here or in chat. |
-| No eligible mirror and Apple is disconnected | “Connect your Apple account in iCloud settings to sync a vault.” | Open iCloud settings. |
-| Connected, no vault folder selected | “Choose your Obsidian vault folder in iCloud settings.” | Open the iCloud folder selection. |
-| Folder selected, never initialized, paused and not enabled | “Enable sync for your vault in iCloud settings. Obsidian needs its first successful sync.” | Open iCloud settings; no automatic Enable sync call. |
-| Initial sync is running | “Your vault's first sync is still running. Obsidian will be available after it finishes.” | Show verified folder status and refresh while this page is open; no invented percentage, ETA or success. |
-| Initial sync failed | “The first sync did not finish. Review recovery in iCloud before continuing.” | Open iCloud recovery guidance; do not retry/resync/rebuild automatically. |
-| Eligible mirror exists, no Obsidian selection | “Choose the synced vault BB may read and, if you allow it, edit.” | Select vault, access mode and scopes, then explicitly save authorization. |
-| Saved mirror ID is absent or retained/replaced | “The selected vault is no longer available for normal reads. Review it in iCloud, then choose a vault again.” | Open iCloud; preserve the previous selection without silently granting access to a replacement. |
-
-For previously authorized mirrors, retain the freshness policy above: paused or
-Apple-disconnected copies with a successful baseline can be read with a visible
-stale-copy warning; running sync produces a busy response; failed/retained copies
-require recovery. Do not force an otherwise permitted stale read through first-run
-onboarding merely because Apple is disconnected. Conversely, a folder with no
-successful baseline must never be presented as a stale-but-readable vault.
-
-An edit refused because access is read-only says “Editing is not enabled for this
-note. Review its writable scope in Obsidian settings.” A paused/disconnected
-source says “This local copy can be read, but editing needs working, enabled
-iCloud sync. Open iCloud settings to resume or reconnect.” A busy source says
-“iCloud is syncing this vault. No edit has been saved; try again after it finishes”
-only when refusal happened before commit. Conflicts say “This note changed since
-it was read. No edit was saved; reread it before proposing a new change.” Unknown
-post-commit outcomes instead say to inspect the operation; never claim no save
-when it may already have happened. These distinctions apply in chat and settings.
-
-Use one primary action appropriate to the current state, plus a quiet full-guide
-link. Confirm BB's actual catalog/details/settings navigation in running BB. The
-existing `/plugins/icloud?configure=icloud` review route is a candidate for an
-installed plugin, not a proven install/catalog deep link. If the host offers no
-stable route for a step, give exact BB navigation instructions rather than a
-broken button or an automatic install command.
-
-Refresh on returning to Obsidian and use bounded polling only while its setup
-page is visible for pending states. Completing initial sync makes the selection
-available without reinstalling Obsidian or starting a new chat. Preserve unsaved
-scope choices on failed saves; ignore late responses after scope change/forget.
-After setup, lead with the vault, read/edit scope and last successful sync; keep
-the setup checklist behind a quiet guide. Distinguish an empty permitted vault
-from an incomplete or failed scan. Make switching to read-only and revoking
-access straightforward without changing iCloud's sync state.
-
-### Agent-facing errors
-
-`obsidian_status` exposes the same bounded setup code and useful next step.
-Blocked note tools return an error result with that code and explanation,
-never `[]`, “vault empty”, a raw RPC exception or a generic “read failed”. For
-example: “Obsidian is not ready: the vault's first iCloud sync is still running.
-Wait for it to finish in iCloud settings, then choose the vault in Obsidian.”
-Keep installation/verification/sync actions in settings, not agent tools. The
-assistant must not ask for credentials, recommend a reset for a transient check
-failure, or imply it searched notes when setup prevented the search.
-
-Write a complete portable setup guide. Inspect the running host again before
-finalizing controls, then review every dependency state above plus configured,
-empty, save-error and revoked states at desktop and narrow widths with keyboard
-navigation and accessible announcements. Exercise read-only/read-and-edit setup,
-exact edit previews, approval where required, decline/cancel/expiry, conflict,
-revocation, local-save/pending-sync and uncertain-save states in running BB.
-Escape note text in previews; never render it as executable HTML. Tests must
-establish that authorization is tied to the shown proposal, not a chat assertion.
-
-## Delivery steps and gates
-
-1. **Prove the handoff.** In an isolated running BB, install iCloud and a minimal
-   Obsidian package; prove server-to-server inventory, filesystem readability,
-   plugin-list/status/inventory classification, dependency navigation and
-   name-based selection using synthetic mirrors. Include empty inventory during
-   an active initial sync and a previously successful disconnected copy. Record
-   the supported host/SDK versions and race limitations. Do not proceed on the
-   strength of SDK types alone. Prove the shared sync/write exclusion, conditional
-   commit, permission-revocation race and disposal/restart semantics with synthetic
-   notes before enabling mutations; this step may require a narrow iCloud change.
-2. **Specify behaviour.** Write Gherkin features for the outcomes below; define
-   ports and fixtures before implementation. Compare uncertain syntax/resolution
-   cases with a disposable vault in Obsidian. Choose parser libraries and record
-   supported cases, unsupported cases and resource budgets. Record the consent
-   verification mechanism, per-edit recovery retention/capacity, operation journal
-   and crash reconciliation decisions.
-3. **Build the note core and adapters.** Implement scope enforcement, parser,
-   index invalidation, citations, conditional create/edit/property updates,
-   consent/approval, recovery copies, operation receipts and safe diagnostics. Test real temporary
-   filesystem trees and stock-rclone concurrency as well as fake ports.
-4. **Wire settings and package.** Add `plugins/obsidian/` package files, contract,
-   server, app, setup guide, README and marketplace entry. Add `obsidian` to
-   `scripts/sync-connection-ui.mjs`; keep generated copies self-contained. Include
-   fake-BB tool/lifecycle tests and rendered review automation.
-5. **Verify before shipping.** Run Obsidian build/typecheck/Cucumber/adapter/host
-   tests, shared UI drift and marketplace checks, and iCloud regression tests;
-   run other affected suites if shared code changes. Exercise safe synthetic
-   failure diagnostics and review rendered BB, not just screenshots in isolation.
-6. **Ship and observe.** Follow `bb-ship-feedback`: commit/push, install the new
-   plugin explicitly from the marketplace (an update cannot install it), verify
-   running version/commit and fresh provider-session tool visibility. Update
-   iCloud only if this iteration actually changed it. Use a narrowly scoped
-   read-only call against an explicitly authorized disposable vault. Test local
-   edits and sync round trips on synthetic/disposable data; any live cloud or
-   phone mutation needs specific approval for the test, not this feature request.
-   Record exactly which local-save, approval and cloud/phone-delivery gates passed
-   or remain unverified, then seek feedback in running BB.
-
-Documentation-only planning requires no plugin deployment. Implementation must
-not access a personal vault merely to close a test gate. If live Apple/iCloud
-access is unavailable, synthetic host/UX checks can proceed, but the actual
-synced-vault end-to-end gate remains unverified.
-
-## Acceptance coverage
-
-| Area | Executable examples |
-| --- | --- |
-| Authorization | No content before explicit selection/scope; read-only and read-and-edit capability persist over restart; write scope is a subset of read scope; revocation invalidates cached results, cursors and proposals and cannot race a queued commit. |
-| Dependency | Plugin-list/status/inventory failures are not guessed to mean missing iCloud, disconnected Apple or an empty vault; no cached-root fallback. |
-| Onboarding | Installed-before-iCloud, disabled/starting/incompatible plugin, missing host prerequisites, Apple verification/disconnection, no folder, sync not enabled, active/failed initial sync and ready-to-select states have distinct verified messages/actions. |
-| Onboarding transitions | Empty inventory during first sync never says “no folders selected”; completion unlocks selection without reinstall/new chat; eligible folders remain offered while unrelated folders are pending/failed; late responses cannot restore revoked access. |
-| Recovery/navigation | Every advertised install/details/settings action reaches the correct BB screen; returning refreshes status; no automatic install, enable, sync, reconnect or destructive recovery; saved selection/scope survives unavailable checks. |
-| Agent errors | Blocked reads/search/tasks return the same actionable setup code as settings, not empty success; no credentials requested and no claim that notes were searched. |
-| Identity | Duplicate display names remain distinguishable; replacement/retained mirror never silently inherits authorization. |
-| Filesystem | Include/exclude scope applies to search, read, tasks and followed links; absolute paths, traversal, encoded traversal, symlink escape and symlink-swap attempts fail safely. |
-| Syntax | Properties, aliases, nested/case-insensitive tags, links/embeds, heading/block references, nested tasks and nonblank completion markers; Unicode, spaces, LF and CRLF fixtures. |
-| False positives | No links/tags/tasks extracted from fences, inline code, comments or HTML; property parsing is handled separately. |
-| Resolution | Unique relative/root paths, aliases and same-note references; missing/ambiguous targets and external URLs; excluded targets reveal no excluded candidates. |
-| Partial results | Malformed YAML, unreadable notes, unsupported/oversized inputs, parser limits, deadlines and scan/result budgets produce explicit warnings/incompleteness. |
-| Freshness | Ready/paused/running/failed/retained policies; inventory change during reads, note replacement and a real sync/read race do not produce a falsely stable result. |
-| Source attribution | Every snippet, read and task has the permitted note path/line span and observed sync provenance; no local host paths. |
-| Read-only | Read-only mode rejects every mutation; reads create no vault files, execute no note code and never enable sync. Hash fixture vaults before/after reads. |
-| Targeted edits | Only intended bytes change on create/append/replace/task/property edits; duplicate or overlapping targets fail; YAML comments, unknown idioms, links, block IDs and LF/CRLF are preserved; no edits from truncated reads. |
-| Properties/metadata | Compact metadata reads match the documented subset and expose parse failure; named sets/removals preserve untouched header/body bytes; absent headers, lists, quoted links and date strings are handled deliberately; malformed/duplicate/unsupported YAML is never silently rewritten. Body changes since metadata read invalidate the entire property update. |
-| Consent | Verified requested edits use the established policy, not a blanket extra gate; where approval is required it is bound to exact server-owned path/version/diff. Decline, cancellation, missing UI, expiry and forged approval save nothing. |
-| Version conflicts | A change while proposing/approving refuses the old edit; file creation never replaces an existing note; a changed proposal cannot inherit stale authorization. |
-| Write coordination | Busy/paused/disconnected/failed/retained/missing source blocks commits; absent/incompatible commit capability has an update action, not an unsafe fallback. Real rclone/commit races never overwrite newer local bytes or upload staging/partial files. |
-| Durable safety | Pre-edit recovery capacity is checked before changes; disk-full, process crash, disposal/restart and symlink swaps have inspected outcomes. Partial multi-note success is reported per note. |
-| Idempotency | Repeating one operation ID cannot double-create/append; reconnect/restart can inspect receipts; an unknown commit outcome is never blindly retried. |
-| Delivery | Proposed, declined, conflict, saved-local/pending-sync and sync-failed-after-save outcomes are distinct. Sync timestamps alone cannot prove exact edit delivery to the phone. |
-| Diagnostics | Fixed `Obsidian <stage> <category>` messages at handled failures; sentinels in paths, note bodies, parser exceptions, RPC responses and causes never leak to logs/errors. |
-| Host lifecycle | Installation alone grants no note access; fresh sessions discover tools; disable/remove stops exposure without changing iCloud, notes or other integrations. |
-| UI | Rendered dependency/onboarding matrix, read/edit access controls, exact proposals/required approval, conflict, decline/expiry, saved-local/pending-sync and uncertain-save states at desktop/narrow widths; working navigation, focus and safe accessible messages. |
-
-## Deliberately later
-
-Renames/deletes and cross-note link rewrites; dedicated daily-note location,
-date/template automation; bulk editing or whole-vault transactions; multiple
-vaults; other sync sources; attachment extraction; embeddings; recursive
-transclusion; Dataview, Tasks and other community-plugin execution; Canvas/Bases
-evaluation; a full Obsidian search-language clone or exact app-wide resolution
-parity. Daily notes and templates can be read/edited as explicit Markdown notes,
-but their configuration and scripts are not executed.
-
-## Release evidence
-
-Record parser decisions and compatibility checks, concrete resource limits,
-build/typecheck/test results, installed versions/commit, consent verification,
-coordinated commit/recovery evidence, safe failure diagnostics, rendered UX
-observations, scoped live reads, specifically authorized disposable edit tests
-and sync-delivery evidence here. Until those gates pass, this is a plan, not
-delivered Obsidian support.
+Record parser choices, resource bounds, host/SDK compatibility, build/test results,
+installed versions/commit, coordinated commit/recovery diagnostics, rendered UX
+observations and disposable sync evidence here. Until those gates pass, this is
+planned Obsidian support, not a delivered plugin.
