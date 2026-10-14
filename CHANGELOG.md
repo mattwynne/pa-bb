@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # Changelog
 
 ## [Unreleased]

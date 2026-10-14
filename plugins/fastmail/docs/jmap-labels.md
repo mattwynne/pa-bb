@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # Move messages to Inbox with JMAP
 
 Fastmail's MCP `update_email` tool excludes system labels, including Inbox, and currently offers no move-to-Inbox tool. This plugin adds `fastmail_update_email_labels`, adapted to TypeScript from PA's direct-JMAP email integration. MCP sign-in and permissions remain unchanged.

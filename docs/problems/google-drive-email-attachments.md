@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # Google Drive files cannot become email attachments
 
 Status: open capability gap. Reported 2026-10-10; observed in BB on 2026-10-08.

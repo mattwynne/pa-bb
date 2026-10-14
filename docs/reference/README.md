@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # Developer references
 
 - [BB host requirements for iCloud sync](bb-host-requirements.md) — portable runtime,

@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # 011 — Unattended iCloud sync, with rclone owning recovery
 
 Status: Implemented and deployed; a completed persistent live sync is verified. Live Apple authorization-expiry recovery remains unverified.

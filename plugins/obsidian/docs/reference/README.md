@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # Obsidian reference snapshots
 
 Selected official Obsidian documentation for implementing a BB plugin that reads

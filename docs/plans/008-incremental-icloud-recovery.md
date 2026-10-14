@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # 008 — Incremental iCloud recovery copies
 
 Status: iCloud 0.1.4 installed from `d7c79de`; approved recovery, bootstrap and unchanged-run verification complete.

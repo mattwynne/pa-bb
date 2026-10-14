@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # Rclone documentation snapshot
 
 Complete upstream `docs/` source and licence from **rclone v1.75.2**, the release

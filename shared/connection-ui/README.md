@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # Connection UI
 
 This is the source of the small shared settings UI used by service plugins: headings, account rows, status, buttons, onboarding, alerts, and footer. Google Calendar supplies the established visual pattern; each plugin keeps its provider-specific form and connection logic.

@@ -4,8 +4,6 @@ description: Review a bounded plan, design, code change or document using a supp
 disable-model-invocation: true
 ---
 
-Drafted by Matt's robot
-
 # Ensemble review
 
 Adapted from [Memba's generic ensemble-review skill](https://github.com/mattwynne/memba/blob/3c6cb44e24e81a162d6c1a175cd56fa1387e8074/.pi/skills/ensemble-review/SKILL.md).
@@ -161,8 +159,7 @@ Return a concise decision-oriented synthesis:
 - feedback route and follow-up checks;
 - source report locations, if saved.
 
-Prefix any saved report with `Drafted by Matt's robot`. Keep complete source
-reports available rather than pasting all of them into chat. Explain failures in
+Keep complete source reports available rather than pasting all of them into chat. Explain failures in
 safe bounded terms; redact credentials/content rather than copying raw errors.
 The caller and user retain ownership of scope, architecture, wording and
 acceptance decisions. Applying recommendations requires a separate instruction.

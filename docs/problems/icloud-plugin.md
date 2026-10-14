@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # iCloud Drive support for BB
 
 Status: first implementation built; live Apple/disposable-vault verification pending. See [plan 004](../plans/004-icloud-sync.md) and the [plugin README](../../plugins/icloud/README.md) for delivered behaviour and limits.

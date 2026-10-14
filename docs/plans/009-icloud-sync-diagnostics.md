@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # 009 — Private, bounded iCloud sync diagnostics
 
 Status: iCloud 0.1.5 installed from `9df3718`; persistent live history and controlled running-BB failure diagnostics verified.

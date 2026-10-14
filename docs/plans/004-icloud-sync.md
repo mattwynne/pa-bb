@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # 004 — iCloud folder sync
 
 Status: installed; live Apple connection and scheduled sync verified in follow-up iterations, with phone-to-consumer and expired-session checks still pending.

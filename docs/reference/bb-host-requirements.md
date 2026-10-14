@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # BB host requirements for iCloud sync
 
 The plugin must detect and explain these prerequisites rather than assume a

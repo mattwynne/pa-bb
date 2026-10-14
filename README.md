@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # PA for BB
 
 A **BB plugin marketplace** for a personal work assistant and optional service integrations. Add the PA marketplace to BB, then install only the connections you want: Google Drive/Docs, Calendar, Fastmail, and eventually PA core and task-focused abilities. BB is the user-facing product; useful parts of Matt's [PA project](https://github.com/mattwynne/pa) and [Pi extensions](https://github.com/mattwynne/pi-extensions) will move over case by case.

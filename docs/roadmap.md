@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # PA for BB roadmap
 
 PA for BB should be a useful assistant assembled from independently installed service connections and task-focused abilities. **A service is a plugin; a task that spans services is an ability.** Installing the marketplace installs neither. Users choose which accounts and capabilities to connect.

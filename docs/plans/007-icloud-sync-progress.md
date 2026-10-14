@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # 007 — Honest per-folder sync progress
 
 Status: installed as iCloud 0.1.3; live progress and successful normal completion verified.

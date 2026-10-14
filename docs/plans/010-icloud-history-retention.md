@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # 010 — Longer iCloud history, with errors kept separately
 
 Status: iCloud 0.1.6 installed from `ed592d3`; legacy import and completed persistent live run verified.

@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # Iteration ledger
 
 Plans are numbered in delivery order as `NNN-<iteration-name>.md`. Keep the number when a plan becomes historical; record the current outcome in the ledger rather than rewriting its original starting conditions.

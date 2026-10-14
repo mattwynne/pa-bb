@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # 1. Provision rclone as a BB host dependency
 
 Date: 2026-10-10

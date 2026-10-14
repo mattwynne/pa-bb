@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # iCloud for BB
 
 An independent iCloud Drive connection with protected Apple login/2FA, folder browsing, host-managed local mirrors and one-minute two-way background sync. It does not require a Mac relay or Obsidian desktop. Install it separately:

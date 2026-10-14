@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # 005 — Make the iCloud folder picker feel like a file browser
 
 Status: iCloud 0.1.2 installed; deployment interruption recovered with explicit approval and a successful normal sync.

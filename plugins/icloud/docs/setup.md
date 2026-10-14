@@ -1,5 +1,3 @@
-Drafted by Matt's robot
-
 # Set up iCloud folders in BB
 
 ## Before connecting
