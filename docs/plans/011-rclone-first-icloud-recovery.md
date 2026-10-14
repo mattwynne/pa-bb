@@ -2,7 +2,7 @@ Drafted by Matt's robot
 
 # 011 — Unattended iCloud sync, with rclone owning recovery
 
-Status: Implemented and deployed. Live Apple authorization-expiry recovery and a completed persistent production sync remain unverified.
+Status: Implemented and deployed; a completed persistent live sync is verified. Live Apple authorization-expiry recovery remains unverified.
 
 ## Goal
 
@@ -102,4 +102,13 @@ A generic recovery framework, new retry scheduler, backup-store rewrite, automat
 - Expiry and manual Reconnect now require explicit Resume for every enabled, recoverable folder. Paused and retained folders stay stopped, and stronger storage/configuration/critical blockers are preserved. Regression tests cover reload, failed reconnect, independent per-folder Resume and synthetic private data in error envelopes.
 - The Linux suite passed 102 tests and all 56 scenarios (522 steps), with no skips, against stock rclone v1.75.2. Typecheck, build and shared UI checks passed. The isolated rendered-BB review passed 80 desktop/narrow cases; the affected reconnect and two-folder Resume screenshots were inspected against the existing Fastmail layout, including visible keyboard focus.
 - Only iCloud was updated to 0.1.8 from commit `962156e`. A harmless live Apple folder read succeeded, persistent history remained available, and other plugins' versions and enabled states were unchanged. The existing initialized failed folder remained disabled with its last-success timestamp and failure intact. Recent attributable plugin diagnostics contained only bounded fields.
-- No consent to retry that pre-existing production failure was assumed. A completed persistent sync and real Apple authorization-expiry recovery therefore remain unverified; the expiry checks above use controlled native-error fixtures, not an induced personal-account outage.
+- At the end of the 0.1.8 delivery, no consent to retry that pre-existing production failure was assumed. A completed persistent sync and real Apple authorization-expiry recovery were therefore still unverified; the expiry checks above use controlled native-error fixtures, not an induced personal-account outage.
+
+## Empty-staging follow-up (0.1.9)
+
+- The old failed capture had left metadata-free staging containing only empty side directories. A crash after creating staging but before writing its metadata can leave the same shape. The adapter now removes only valid staging names with no entries, or only empty `cloud`/`local` directories. It uses atomic non-recursive directory removal: zero-byte files, partials, selectors, nested entries, symlinks, malformed metadata and entries arriving at either removal boundary are never treated as empty.
+- A local control-socket no-op acquires worker ownership before any recovery-copy retention/pruning begins, rather than waiting for the first cloud listing. A regression test proves that a busy worker leaves staging untouched. Recovery warnings refer honestly to sync records or recovery copies rather than claiming rclone caused every stop.
+- The Linux suite passed 120 tests and all 56 scenarios (522 steps), with no skips, against stock rclone v1.75.2. Typecheck, build and shared UI checks passed. The 80 rendered-BB cases passed at desktop/narrow widths; the changed recovery warning was visually inspected against the existing connection layout and its keyboard focus checked.
+- Only iCloud was updated to 0.1.9 from commit `7a0f455`. With explicit consent, a separate one-off inspection confirmed the legacy staging was empty and the stopped attempt had not reached bisync. The reviewed saved blocker was corrected offline while retaining the failed outcome, history, mirror and last-success timestamp. Protected-file fingerprints were unchanged by that repair; no lock, baseline or account credentials were reset.
+- Supported Retry then exercised the new guarded cleanup. The first ordinary listing hit its five-minute timeout and remained failed in history; the next scheduled attempt completed successfully and advanced the last-success timestamp. The original mirror stayed enabled, all previously retained recovery blobs were checksum-verified, and other plugins' versions/enabled states stayed unchanged. No fresh mirror, forced resync or synthetic personal-account write was used. Harmless root/folder reads succeeded and recent plugin diagnostics contained only bounded fields.
+- This verifies recovery of the inspected empty-staging case and a subsequent persistent live sync, not lossless recovery of every ambiguous backup or critical bisync failure. Real Apple authorization expiry and a phone-to-BB edit round trip remain unverified.
