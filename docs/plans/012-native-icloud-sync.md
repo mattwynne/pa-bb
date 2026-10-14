@@ -1,6 +1,6 @@
 # 012 — Native iCloud sync without whole-folder recovery copies
 
-Status: verified; deployment in progress. A pre-existing critical native-sync blocker prevents a live completion check.
+Status: iCloud 0.1.10 installed and read-verified. A pre-existing critical native-sync blocker prevents a completed live sync check.
 
 ## Decision
 
@@ -35,6 +35,8 @@ This supersedes the whole-folder backup policy in plans 004, 008 and 011. Their 
 - The first Linux scenario run passed 52 of 56 cases. Four strict no-backup-store assertions exposed an old worker-startup directory list that still created an empty `backups` directory. That directory initialization was removed at the source; the tests were not weakened.
 - A host interruption removed the disposable test workspace. After an authorized restart, it was recreated and the full Linux gate passed. Supported Pause then confirmed the existing mirror was stopped; protected mirror, baseline, credential-key and recovery files were privately fingerprinted.
 - Before this update, the latest sync had failed with native exit 7 after recovery capture, with `recovery_required` and a saved critical blocker. The initialization marker and two baseline listings remain present, but their presence does not authorize clearing that stop. Deployment must preserve this failure and stay paused; a subsequent completed live sync is unverified until the native failure is separately reviewed.
+- Runtime commit `3bde0fc` was pushed and only iCloud was updated to 0.1.10. BB reports the plugin running. The original mirror identity, paused failure, last-success timestamp and exit-7 history entry were unchanged. Fingerprints of mirrors, baselines, recovery archives and credential-key files matched the pre-update inspection, and other plugins' versions/enabled states were unchanged.
+- A harmless live root-folder browse succeeded after deployment. Recent diagnostics matched the bounded operation/category/evidence format without account content or credentials. The mirror remains stopped for its pre-existing native critical blocker; it was not resumed, rebuilt or forced through resync merely to complete release evidence. A post-update successful persistent sync remains unverified.
 - Attribution-banner removal was independently committed and pushed as `4b18a70`; it requires no plugin update.
 
-Record installed-version and preservation checks after deployment. Removing extra backup work is not proof that every remaining native listing is fast, nor proof of real Apple authorization-expiry recovery or a phone-to-BB edit round trip.
+The native critical failure needs a separate review before restarting the existing mirror. Removing extra backup work is not proof that every remaining native listing is fast, nor proof of real Apple authorization-expiry recovery or a phone-to-BB edit round trip.
