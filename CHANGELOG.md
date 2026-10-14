@@ -4,6 +4,9 @@ Drafted by Matt's robot
 
 ## [Unreleased]
 
+- iCloud safely removes metadata-free staging only when it contains nothing except empty cloud/local directories. Cleanup takes the worker lock first and uses non-recursive directory removal; files, partials, selectors and ambiguous state remain protected.
+- Recovery warnings no longer blame rclone when the stop may come from recovery-copy validation.
+
 - iCloud recognizes stock rclone's exact trust-token expiry error through its private control socket, including after a failed scheduled read. Other provider errors remain retryable rather than being mistaken for expired authorization.
 - Reconnect requires explicit Resume for each enabled, recoverable iCloud folder. Paused and retained folders stay stopped, and storage/configuration/critical blockers are preserved.
 

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, constants } from 'node:fs';
-import { mkdir, readdir, lstat, readFile, writeFile, rename, rm, statfs, copyFile, open } from 'node:fs/promises';
+import { mkdir, readdir, lstat, readFile, writeFile, rename, rm, rmdir, statfs, copyFile, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CloudError, activity } from '../core/ports.ts';
 import type { ProgressReporter, TransferProgress } from '../core/ports.ts';
@@ -48,12 +48,30 @@ async function hashFile(path: string) {
 }
 export class RecoveryCopies {
   constructor(private root: string, private run: CommandRunner, private limit = BACKUP_LIMIT, private now = () => Date.now()) {}
+  private async discardEmptyStaging(staging: string) {
+    // A legacy capture, or a crash before incomplete.json is written, may
+    // leave only empty side directories. Files (even zero-byte files),
+    // metadata, selectors, nested entries and symlinks are not this case.
+    // Called under worker exclusivity; use only atomic non-recursive rmdir
+    // so a late-arriving entry is retained rather than recursively deleted.
+    try {
+      const names = await readdir(staging);
+      if (names.some(name => name !== 'cloud' && name !== 'local')) return false;
+      for (const name of names) {
+        const side = join(staging, name); const info = await lstat(side);
+        if (!info.isDirectory() || info.isSymbolicLink() || (await readdir(side)).length !== 0) return false;
+      }
+      for (const name of names) await rmdir(join(staging, name));
+      await rmdir(staging); return true;
+    } catch { throw new CloudError('recovery_required'); }
+  }
   private async retainIncomplete() {
     for (const name of await readdir(this.root)) {
       if (!name.startsWith('staging-')) continue;
       if (!/^staging-[a-f0-9-]{8,}$/.test(name)) throw new CloudError('recovery_required');
       const staging = join(this.root, name); const info = await lstat(staging);
       if (!info.isDirectory() || info.isSymbolicLink()) throw new CloudError('recovery_required');
+      if (await this.discardEmptyStaging(staging)) continue;
       let metadata: { mirror: string; captured: number };
       try { metadata = JSON.parse(await readFile(join(staging, 'incomplete.json'), 'utf8')); }
       catch { throw new CloudError('recovery_required'); }

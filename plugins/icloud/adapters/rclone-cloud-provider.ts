@@ -77,6 +77,9 @@ export class RcloneCloudProvider implements CloudProvider {
   }
   private remote(mirror: Mirror) { return `icloud:${decode(mirror.folder.id)}`; }
   private async backup(mirror: Mirror, report?: ProgressReporter) {
+    // Acquire the process's OS lock before retaining/pruning staging, not
+    // merely when the first cloud-listing command eventually starts.
+    await this.rc('rc/noop', {});
     const copies = new RecoveryCopies(join(this.root, 'backups'), this.run, this.limit);
     await copies.capture(mirror.id, this.remote(mirror), this.localFolder(mirror), report);
   }

@@ -14,6 +14,39 @@ import { diagnosticsSchema } from '../core/diagnostics.ts';
 const binary = process.env.RCLONE_TEST_BINARY;
 const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null, blocker: null };
 
+test('an explicit ordinary retry passes empty legacy staging through the stock adapter without replacing the mirror', { skip: !binary, timeout: 90_000 }, async () => {
+  const root = await mkdtemp('/tmp/icloud-empty-stage-adapter-'); const cloud = root + '/cloud/Test Vault'; const workerRoot = root + '/worker';
+  await mkdir(cloud, { recursive: true }); await writeFile(cloud + '/note.md', 'kept cloud version');
+  const process = new RcloneProcess(workerRoot, binary); const repository = new MemoryState(); const host = createFakePluginHost({ pluginId: 'icloud' });
+  const selected: Mirror = { ...mirror, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null, blocker: null };
+  let failNextListing = false; const commands: string[][] = [];
+  const provider = new RcloneCloudProvider(workerRoot, (method, body) => process.call(method, body), async (args, capture, report) => {
+    commands.push(args);
+    if (args[0] === 'lsjson' && failNextListing) { failNextListing = false; throw new CloudError('sync_failed', { kind: 'command_exit', exitCode: 1 }); }
+    return process.run(args, capture, report);
+  }, () => process.checkAvailability(), () => process.stop());
+  try {
+    await process.call('config/create', { name: 'icloud', type: 'alias', parameters: { remote: root + '/cloud' }, opt: { nonInteractive: true } });
+    await provider.prepareMirror(selected);
+    repository.value = { connected: true, challenge: null, mirrors: [{ ...selected, initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-01-01T00:00:00.000Z' }] };
+    await plugin(host.bb, { provider, repository });
+    failNextListing = true; await host.harness.behavior.runSchedule('selected-folder-sync');
+    await host.harness.behavior.callRpc('pause', { id: selected.id });
+    const stage = workerRoot + '/backups/staging-aaaaaaaa'; await mkdir(stage); await mkdir(stage + '/cloud'); await mkdir(stage + '/local');
+    commands.length = 0;
+    const status = statusSchema.parse(await host.harness.behavior.callRpc('retry', { id: selected.id }));
+    assert.equal(status.mirrors.length, 1); assert.equal(status.mirrors[0].id, selected.id); assert.equal(status.mirrors[0].phase, 'ready');
+    assert.equal(status.mirrors[0].enabled, true); assert.equal(status.mirrors[0].failure, null);
+    assert.equal(await readFile(workerRoot + '/mirrors/' + selected.id + '/note.md', 'utf8'), 'kept cloud version');
+    assert.equal(await readFile(workerRoot + '/baselines/' + selected.id + '/initialized', 'utf8'), '1');
+    assert.ok(!(await readdir(workerRoot + '/backups')).some(name => name.startsWith('staging-')));
+    assert.ok(commands.some(args => args[0] === 'bisync')); assert.ok(commands.every(args => !args.includes('--resync')));
+    const history = diagnosticsSchema.parse(await host.harness.behavior.callRpc('diagnostics', null));
+    assert.deepEqual(history.runs.map(run => run.outcome), ['failed', 'succeeded']); assert.equal(history.runs[0].failure, 'sync_failed');
+    assert.deepEqual(history.runs[0].evidence, { kind: 'command_exit', exitCode: 1 });
+  } finally { await host.harness.lifecycle.dispose().catch(() => {}); await process.stop(); await rm(root, { recursive: true }); }
+});
+
 test('whole plugin scheduler and stock adapter recover bounded capture failures and restored running state', { skip: !binary, timeout: 90_000 }, async () => {
   const root = await mkdtemp('/tmp/icloud-scheduler-adapter-'); const cloud = root + '/cloud/Test Vault'; const workerRoot = root + '/worker'; await mkdir(cloud, { recursive: true });
   const repository = new MemoryState(); let process = new RcloneProcess(workerRoot, binary); let listing = 0; let failListing = 0; let mutateAfterCloudCopy: (() => Promise<void>) | null = null;

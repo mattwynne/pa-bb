@@ -118,6 +118,10 @@ try {
       assert.equal(await section.getByText(/Sync resumed|Initial preparation finished|Check the new mirror/).count(), 0);
       await page.keyboard.press('Tab'); await retry.focus();
     }
+    if (view === 'critical') {
+      await section.getByText(/The sync records or recovery copies need review before this mirror can continue/).waitFor();
+      assert.equal(await section.getByText(/Rclone cannot safely continue/).count(), 0);
+    }
     if (['critical', 'initial-block'].includes(view)) {
       await section.getByText('Recovery steps', { exact: true }).click();
       const fresh = section.getByRole('button', { name: 'Create fresh mirror' }); await page.keyboard.press('Tab'); await fresh.focus();

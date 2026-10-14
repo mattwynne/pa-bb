@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { RcloneCloudProvider, syncArguments } from '../adapters/rclone-cloud-provider.ts';
 import { recoveryFixture } from './recovery-fixture.ts';
+import { CloudError } from '../core/ports.ts';
 import type { Mirror, SyncProgress } from '../core/ports.ts';
 const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null, blocker: null };
 function fixture(root = '/tmp/synthetic-root', limit?: number) {
@@ -106,6 +107,20 @@ test('source changes during backup cannot start bisync or modify the existing ba
     await assert.rejects(provider.synchronize({ ...mirror, initialized: true }), /source_changed/);
     assert.equal(bisyncs, 0); assert.equal(await readFile(f.root + '/worker/baselines/mirror-1/initialized', 'utf8'), '1');
   } finally { await rm(f.root, { recursive: true }); }
+});
+test('backup staging is not touched before acquiring exclusive worker ownership', async () => {
+  const root = await mkdtemp('/tmp/icloud-staging-owner-'); const stage = root + '/backups/staging-aaaaaaaa';
+  let commands = 0;
+  const provider = new RcloneCloudProvider(root, async method => {
+    assert.equal(method, 'rc/noop'); throw new CloudError('busy');
+  }, async () => { commands++; return '[]'; }, async () => {}, async () => {});
+  try {
+    await mkdir(stage, { recursive: true }); await mkdir(stage + '/cloud'); await mkdir(stage + '/local');
+    await mkdir(root + '/mirrors/mirror-1', { recursive: true });
+    await mkdir(root + '/baselines/mirror-1', { recursive: true }); await writeFile(root + '/baselines/mirror-1/initialized', '1');
+    await assert.rejects(provider.synchronize({ ...mirror, initialized: true }), /busy/);
+    assert.deepEqual((await readdir(stage)).sort(), ['cloud', 'local']); assert.equal(commands, 0);
+  } finally { await rm(root, { recursive: true }); }
 });
 test('account binding prevents sending retained mirrors to a different Apple account', async () => {
   const methods: string[] = [];

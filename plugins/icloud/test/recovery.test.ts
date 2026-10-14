@@ -1,5 +1,7 @@
 import test from 'node:test';
 import { appendFileSync } from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, readFile, readdir, rm, rename, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -149,6 +151,67 @@ test('ambiguous legacy staging is retained and remains an actionable stop', asyn
     await assert.rejects(new RecoveryCopies(f.root + '/backups', f.run).capture('mirror-1', f.cloud, f.local), /recovery_required/);
     assert.equal(await readFile(f.root + '/backups/staging-interrupted/kept', 'utf8'), 'private-recovery'); assert.equal(f.commands.length, 0);
   } finally { await rm(f.root, { recursive: true }); }
+});
+for (const sides of [[], ['cloud'], ['cloud', 'local']] as const) test(`metadata-free staging with ${sides.length} empty side directories does not block a protected capture`, async () => {
+  const f = await recoveryFixture(); const copies = new RecoveryCopies(f.root + '/backups', f.run);
+  const stage = f.root + '/backups/staging-aaaaaaaa';
+  try {
+    await f.put('cloud', 'note.md', 'kept-cloud'); await f.put('local', 'note.md', 'kept-local');
+    await copies.capture('mirror-1', f.cloud, f.local);
+    const before = (await blobs(f.root)).sort();
+    await mkdir(stage); for (const side of sides) await mkdir(stage + '/' + side);
+    f.commands.length = 0; await copies.capture('mirror-1', f.cloud, f.local);
+    assert.ok(!(await readdir(f.root + '/backups')).some(name => name.startsWith('staging-')));
+    assert.deepEqual((await blobs(f.root)).sort(), before);
+    assert.equal(transfers(f.commands).length, 0);
+    assert.equal(await readFile(f.local + '/note.md', 'utf8'), 'kept-local');
+    assert.equal(await readFile(f.cloud + '/note.md', 'utf8'), 'kept-cloud');
+    assert.ok((await captures(f.root)).every(snapshot => snapshot.complete === true));
+  } finally { await rm(f.root, { recursive: true }); }
+});
+for (const problem of ['cloud-file', 'local-partial', 'zero-byte-file', 'nested-directory', 'selector', 'unknown-entry', 'malformed-metadata', 'manifest-without-metadata', 'side-symlink', 'root-symlink', 'invalid-name'] as const) test(`metadata-free staging with ${problem} remains untouched and blocks before provider reads`, async () => {
+  const f = await recoveryFixture(); const stage = f.root + '/backups/' + (problem === 'invalid-name' ? 'staging-unknown' : 'staging-bbbbbbbb');
+  try {
+    await mkdir(f.root + '/backups');
+    if (problem === 'root-symlink') await symlink(f.local, stage);
+    else {
+      await mkdir(stage); await mkdir(stage + '/cloud');
+      if (problem === 'side-symlink') await symlink(f.local, stage + '/local'); else await mkdir(stage + '/local');
+      if (problem === 'cloud-file') await writeFile(stage + '/cloud/kept.md', 'sentinel-unique-version');
+      if (problem === 'local-partial') await writeFile(stage + '/local/kept.partial', 'sentinel-partial-version');
+      if (problem === 'zero-byte-file') await writeFile(stage + '/local/empty.md', '');
+      if (problem === 'nested-directory') await mkdir(stage + '/cloud/nested');
+      if (problem === 'selector') await writeFile(stage + '/cloud-files', 'sentinel-private-selector\n');
+      if (problem === 'unknown-entry') await mkdir(stage + '/unknown');
+      if (problem === 'malformed-metadata') await writeFile(stage + '/incomplete.json', '');
+      if (problem === 'manifest-without-metadata') await writeFile(stage + '/manifest.json', 'sentinel-manifest');
+    }
+    const before = await readdir(stage);
+    await assert.rejects(new RecoveryCopies(f.root + '/backups', f.run).capture('mirror-1', f.cloud, f.local), error => {
+      assert.match(String(error), /recovery_required/); assert.doesNotMatch(String(error), /sentinel/); return true;
+    });
+    assert.deepEqual(await readdir(stage), before); assert.equal(f.commands.length, 0);
+    if (problem === 'cloud-file') assert.equal(await readFile(stage + '/cloud/kept.md', 'utf8'), 'sentinel-unique-version');
+    if (problem === 'local-partial') assert.equal(await readFile(stage + '/local/kept.partial', 'utf8'), 'sentinel-partial-version');
+    if (problem === 'zero-byte-file') assert.equal(await readFile(stage + '/local/empty.md', 'utf8'), '');
+    if (problem === 'selector') assert.equal(await readFile(stage + '/cloud-files', 'utf8'), 'sentinel-private-selector\n');
+  } finally { await rm(f.root, { recursive: true }); }
+});
+for (const boundary of ['side', 'root'] as const) test(`an entry arriving at the ${boundary} rmdir boundary is never recursively discarded`, async context => {
+  const f = await recoveryFixture(); const stage = f.root + '/backups/staging-cccccccc';
+  const boundaryPath = boundary === 'side' ? stage + '/cloud' : stage; const late = boundaryPath + '/late.md';
+  const removeDirectory = fsPromises.rmdir; let injected = false;
+  try {
+    await mkdir(stage, { recursive: true }); await mkdir(stage + '/cloud'); await mkdir(stage + '/local');
+    context.mock.method(fsPromises, 'rmdir', async (path: Parameters<typeof fsPromises.rmdir>[0]) => {
+      if (String(path) === boundaryPath && !injected) { injected = true; await writeFile(late, boundary === 'side' ? '' : 'sentinel-late-version'); }
+      return removeDirectory(path);
+    });
+    syncBuiltinESMExports();
+    await assert.rejects(new RecoveryCopies(f.root + '/backups', f.run).capture('mirror-1', f.cloud, f.local), /recovery_required/);
+    assert.equal(injected, true); assert.equal(f.commands.length, 0);
+    assert.equal(await readFile(late, 'utf8'), boundary === 'side' ? '' : 'sentinel-late-version');
+  } finally { context.mock.restoreAll(); syncBuiltinESMExports(); await rm(f.root, { recursive: true }); }
 });
 test('a failure at the second cloud listing retains verified staging and a normal later attempt succeeds', async () => {
   const f = await recoveryFixture(); let failSecond = true; let listings = 0;

@@ -30,7 +30,7 @@ function failureMessage(mirror: Mirror, connected: boolean) {
   if (mirror.blocker === 'capacity') return 'Sync stopped because recovery storage or host free space is insufficient. A fresh mirror is not a capacity fix. The local copy may be stale.';
   if (mirror.blocker === 'configuration') return 'Sync stopped because the host or rclone configuration needs attention. The local copy may be stale.';
   if (mirror.blocker === 'initialization') return 'Initial preparation did not complete. This folder will not sync until you choose a supported recovery path.';
-  if (mirror.blocker === 'rebuild') return 'Rclone cannot safely continue this mirror automatically. The local folder, unsent edits and recovery copies are kept; the local copy may be stale.';
+  if (mirror.blocker === 'rebuild') return 'The sync records or recovery copies need review before this mirror can continue. The local folder, unsent edits and recovery copies are kept; the local copy may be stale.';
   if (mirror.retryPending && mirror.failure === 'interrupted') return 'Sync was interrupted. Rclone will attempt recovery on the next scheduled run. The local copy may be stale.';
   if (mirror.retryPending && mirror.failure === 'source_changed') return 'Files changed while recovery copies were being made. BB will make fresh recovery copies and retry on the next schedule. The local copy may be stale.';
   if (mirror.retryPending) return 'The last sync did not complete. BB will retry the ordinary protected sync on the next schedule. The local copy may be stale.';

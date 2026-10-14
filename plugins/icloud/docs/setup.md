@@ -32,6 +32,8 @@ The **Last successful sync** time changes only after successful completion. “S
 
 ## Recovery
 
+An old capture or a crash before staging metadata is written can leave an empty staging directory. On the next permitted attempt, BB removes only a valid staging directory containing no entries, or only empty `cloud`/`local` directories. It acquires the worker lock first and uses non-recursive directory removal, so a file arriving during cleanup is not deleted. Zero-byte files count as files; partials, selectors, metadata, nested entries, symlinks and unknown entries are not assumed disposable. Unidentified non-empty or ambiguous staging still requires review. Removing an empty leftover does not automatically clear a previously saved recovery blocker.
+
 A temporary read, transfer, interruption or changed-source failure remains visible and retains the last successful timestamp. If the folder is still enabled, BB retries on its ordinary schedule. A changed-source result means the capture no longer matched; it is not by itself evidence that the baseline is damaged, and it never offers a fresh mirror. Choose **Pause** to cancel future attempts while keeping the failure visible.
 
 An interrupted initialized bisync may already have changed either side. Rclone's normal `--resilient --recover` path decides what it can continue; BB never claims rollback, bypasses deletion checks or adds `--resync`. While that next run is active the UI says **Recovering**, and it advances the last-success time only after full completion.
