@@ -41,7 +41,7 @@ BB tracks the default branch and periodically refreshes the catalog. `bb marketp
 
 `plugins/google-drive/` adds read-only file search, folder browsing, file metadata/links and Google Docs text reads under a separate Google Web OAuth grant. Synthetic tests cover the grant, API and BB host; live authorization and provider-session reads still need verification. See its [README](plugins/google-drive/README.md).
 
-`plugins/icloud/` adds protected Apple login/2FA, selected folders, persistent one-minute two-way syncing and independent recovery copies. Its TypeScript core uses a need-shaped cloud port with Cucumber-js specs. Generated stock-rclone recovery, safe reload handoff and rendered isolated-BB checks passed; live Apple recovery and the 0.1.7 production deployment remain unverified. See its [setup and recovery guide](plugins/icloud/docs/setup.md).
+`plugins/icloud/` adds protected Apple login/2FA, selected folders and persistent one-minute two-way syncing. Its TypeScript core uses a need-shaped cloud port with Cucumber-js specs. From 0.1.10, sync delegates directly to native bisync without whole-folder backups or extra recovery listings; previously saved versions remain untouched. Native safeguards and safe reload handoff remain. See its [setup and recovery guide](plugins/icloud/docs/setup.md) and [current verification record](docs/plans/012-native-icloud-sync.md).
 
 The repository root is a marketplace catalog, not an installable BB plugin.
 

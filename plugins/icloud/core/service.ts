@@ -130,7 +130,7 @@ export class ICloudSync {
       const mirror = this.folder(id);
       if (!mirror.initialized || mirror.phase !== 'failed' || ![null, 'capacity', 'configuration'].includes(mirror.blocker)) throw new CloudError('recovery_required');
       // Explicit retry is also the conservative upgrade path for a legacy
-      // failed initialized mirror. It always takes the ordinary capture +
+      // failed initialized mirror. It always takes the ordinary native
       // bisync path; it never resyncs or clears the old outcome in advance.
       mirror.enabled = true; mirror.blocker = null; await this.save();
       await this.run(mirror, false);

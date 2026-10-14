@@ -55,6 +55,11 @@ try {
       await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => document.activeElement !== document.body), true);
       if (view === 'prerequisite') assert.equal(await section.getByRole('button', { name: 'Connect account', exact: true }).isDisabled(), true);
     }
+    if (view === 'connected') {
+      await section.getByText('Sync and file safety', { exact: true }).click();
+      await section.getByText(/BB does not create whole-folder backups or provide undo/).waitFor();
+      assert.equal(await section.getByText(/1 GiB|30 days|reusing unchanged/).count(), 0);
+    }
     if (view === 'connected' || view === 'empty') {
       assert.equal(await section.getByLabel('Apple password', { exact: true }).count(), 0);
       await section.getByRole('button', { name: 'Choose a folder', exact: true }).click();
@@ -69,17 +74,20 @@ try {
     if (view === 'paused') {
       const enable = section.getByRole('button', { name: 'Enable sync for Test Vault', exact: true }); await enable.waitFor();
       const dialogPromise = page.waitForEvent('dialog'); const click = enable.click(); const dialog = await dialogPromise;
-      assert.match(dialog.message(), /two-way sync/); assert.match(dialog.message(), /deletions/); await dialog.dismiss(); await click;
+      assert.match(dialog.message(), /two-way sync/); assert.match(dialog.message(), /deletions/); assert.match(dialog.message(), /does not back up/); await dialog.dismiss(); await click;
     }
     if (['retry-pending', 'repeated-stale', 'source-changed'].includes(view)) {
       await section.getByText('Retry pending', { exact: true }).waitFor();
+      assert.equal(await section.getByRole('alert').count(), 0);
+      await section.getByRole('status').filter({ hasText: /previous attempt|last sync/ }).waitFor();
       const pause = section.getByRole('button', { name: 'Pause Test Vault', exact: true }); await pause.focus();
       assert.equal(await pause.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
       assert.equal(await section.getByRole('button', { name: 'Create fresh mirror' }).count(), 0);
     }
     if (view === 'recovering') {
-      await section.getByText('Recovering…', { exact: true }).waitFor();
-      await section.getByText(/Rclone is attempting normal recovery/).waitFor();
+      await section.getByText('Retrying…', { exact: true }).waitFor();
+      await section.getByRole('status').filter({ hasText: /Retrying with rclone’s normal checks/ }).waitFor();
+      assert.equal(await section.getByRole('alert').count(), 0);
       assert.equal(await section.getByRole('button', { name: /Pause|Retry|Create fresh mirror/ }).count(), 0);
     }
     if (view === 'reconnect-needed') {
@@ -119,7 +127,7 @@ try {
       await page.keyboard.press('Tab'); await retry.focus();
     }
     if (view === 'critical') {
-      await section.getByText(/The sync records or recovery copies need review before this mirror can continue/).waitFor();
+      await section.getByRole('alert').getByText(/This mirror is stopped for recovery review/).waitFor();
       assert.equal(await section.getByText(/Rclone cannot safely continue/).count(), 0);
     }
     if (['critical', 'initial-block'].includes(view)) {
@@ -217,9 +225,6 @@ try {
   }
   const progressCases = [
     { key: 'checking', stage: 'checking', percent: null },
-    { key: 'cloud-backup', stage: 'backing_up_cloud', bytes: 3 * 1024 * 1024, totalBytes: 4 * 1024 * 1024, files: 10, totalFiles: 20, percent: 75 },
-    { key: 'local-backup', stage: 'backing_up_local', bytes: 2 * 1024 * 1024, totalBytes: 4 * 1024 * 1024, files: 5, totalFiles: 10, percent: 50 },
-    { key: 'save-recovery', stage: 'saving_recovery', files: 7, totalFiles: 10, percent: 70 },
     { key: 'transfer', stage: 'transferring', bytes: 1024, totalBytes: 4096, files: 1, totalFiles: 4, percent: 25 },
     { key: 'zero-byte-files', stage: 'transferring', files: 2, totalFiles: 4, percent: 50 },
     { key: 'unknown-total', stage: 'transferring', bytes: 4096, files: 1, percent: null },

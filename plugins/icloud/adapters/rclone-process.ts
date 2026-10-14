@@ -85,7 +85,7 @@ export class RcloneProcess {
     if (!isAbsolute(this.root) || Buffer.byteLength(this.socket) > 100) throw new CloudError('unavailable');
     await this.checkAvailability();
     await this.secureDirectory(this.root);
-    for (const dir of ['state', 'secrets', 'cache', 'mirrors', 'baselines', 'backups']) await this.secureDirectory(join(this.root, dir));
+    for (const dir of ['state', 'secrets', 'cache', 'mirrors', 'baselines']) await this.secureDirectory(join(this.root, dir));
     // BB loads the replacement generation before disposing its predecessor.
     // A same-parent daemon is therefore live ownership, not an orphan to kill.
     if (await this.hasLiveParentDaemon()) throw new CloudError('busy');

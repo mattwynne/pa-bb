@@ -38,9 +38,12 @@ installed plugin code. Keep credentials and sync state separate from mirrored fi
 - **Useful controls:** show connection state, last successful sync, errors and
   recovery actions. Support pause, resume, reconnect and disconnect without
   deleting local files. Do not equate worker activity with successful sync.
-- **File safety:** retain recoverable conflicting versions and independent,
-  bounded backups. Define rename and deletion behaviour. Pause on failures;
-  never automatically resync or clear locks to bypass an error.
+- **File safety:** use native conflict preservation, maximum-deletion checks and
+  interrupted-sync recovery. Define rename and deletion behaviour. Whole-folder
+  backups and undo for changes from arbitrary devices are not required; see
+  [plan 012](../plans/012-native-icloud-sync.md). Future BB editing tools retain
+  the individual file's previous version at their write boundary. Keep stronger
+  blockers stopped; never automatically resync or clear locks to bypass an error.
 - **Private credentials:** use encrypted persistent storage with separately
   protected keys. Keep secrets out of synced folders, agent context, arguments,
   environment values and logs. Use BB's protected form/backend boundary.

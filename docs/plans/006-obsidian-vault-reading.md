@@ -83,8 +83,11 @@ instructions instead of a broken button. Publish a complete portable setup guide
 
 ## Boundaries
 
-- **iCloud** owns Apple authentication, folder sync, conflicts, backups and
-  recovery. It also owns the coordinated local-file commit boundary below.
+- **iCloud** owns Apple authentication, folder sync, conflicts and native sync
+  recovery. Whole-folder recovery copies are not required; see [plan 012](012-native-icloud-sync.md).
+  It also owns the coordinated local-file commit boundary below. That future
+  boundary saves the previous version of the individual note being edited; it
+  does not scan or back up all cloud files.
 - **Obsidian** owns connected-vault selection, note parsing, search, metadata,
   link/task discovery, citations and note mutations. No separate permission or
   approval subsystem belongs here.

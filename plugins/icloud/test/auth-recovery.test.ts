@@ -82,7 +82,7 @@ test('stock RC expiry at reload blocks all enabled recoverable folders with boun
   } finally { await host.harness.lifecycle.dispose(); await fixture.close(); }
 });
 
-test('a failed scheduled CLI read verifies expiry through harmless RC without losing command evidence', async () => {
+test('a failed scheduled bisync verifies expiry through harmless RC without losing command evidence', async () => {
   const fixture = await rcFixture(); const host = createFakePluginHost({ pluginId: 'icloud' });
   const repository = new MemoryState(); repository.value.connected = true; repository.value.mirrors = [mirror('one'), mirror('two')];
   const commands: string[] = [];
@@ -97,7 +97,7 @@ test('a failed scheduled CLI read verifies expiry through harmless RC without lo
     await host.harness.behavior.runSchedule('selected-folder-sync');
     const status = statusSchema.parse(await host.harness.behavior.callRpc('status', null));
     assert.equal(status.connected, false); assert.deepEqual(status.mirrors.map(m => m.blocker), ['reconnect', 'reconnect']);
-    assert.deepEqual(commands, ['lsjson']);
+    assert.deepEqual(commands, ['bisync']);
     const history = diagnosticsSchema.parse(await host.harness.behavior.callRpc('diagnostics', null));
     assert.equal(history.runs.at(-1)!.failure, 'authentication');
     assert.deepEqual(history.runs.at(-1)!.evidence, { kind: 'command_exit', exitCode: 1 });
@@ -124,7 +124,7 @@ test('a failed CLI command remains its original failure unless the read probe pr
           } else assert.equal(error, original);
           return true;
         });
-        assert.equal(reads, category === 'sync_failed' ? 1 : 0); assert.equal(bisyncs, 0);
+        assert.equal(reads, category === 'sync_failed' ? 1 : 0); assert.equal(bisyncs, 1);
       }
     }
   } finally { await rm(root, { recursive: true }); }

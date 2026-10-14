@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- iCloud 0.1.10 delegates sync directly to native bisync. It no longer takes whole-folder backups, runs extra cloud listings or blocks on legacy recovery archives. Overwrites/deletions no longer have an independent sync-time recovery copy; previously saved copies remain untouched. Rclone's conflict, maximum-deletion, locking and normal recovery checks remain in place, and saved stronger blockers are not automatically cleared.
+- Pending/active iCloud retries use neutral status text rather than red error banners; stopped conditions still show actionable errors. Setup and file-safety guidance describe the reduced backup policy honestly.
+- Removed robot-attribution banners from repository documentation and report templates.
+
+## Earlier deliveries
+
 - iCloud safely removes metadata-free staging only when it contains nothing except empty cloud/local directories. Cleanup takes the worker lock first and uses non-recursive directory removal; files, partials, selectors and ambiguous state remain protected.
 - Recovery warnings no longer blame rclone when the stop may come from recovery-copy validation.
 
