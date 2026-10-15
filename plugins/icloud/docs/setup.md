@@ -2,7 +2,7 @@
 
 ## Before connecting
 
-Ask the host operator to provision stock rclone v1.75.2, `/usr/bin/flock` from util-linux, mounted procfs exposing child-process metadata to BB's service user and persistent storage on Linux according to the [host requirements](../../../docs/reference/bb-host-requirements.md). BB reports a missing prerequisite; it does not install one. The first release supports Linux hosts and selected Drive folders, not Photos or whole Drive.
+Ask the host operator to provision stock rclone v1.75.2, `/usr/bin/flock` from util-linux, mounted procfs exposing child-process metadata to BB's service user and persistent storage on Linux according to the [host requirements](../../../docs/references/bb-host-requirements.md). BB reports a missing prerequisite; it does not install one. The first release supports Linux hosts and selected Drive folders, not Photos or whole Drive.
 
 On a trusted Apple device, open **Settings → Apple Account → iCloud** and enable **Access iCloud Data on the Web**. Use a disposable folder or Obsidian vault for the first test. Supported app libraries appear through rclone's Drive backend; their visibility must be checked on the actual account.
 

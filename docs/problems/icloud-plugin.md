@@ -22,7 +22,7 @@ the ordinary Apple password and 2FA. Rclone's default password storage is
 obscured, not encrypted; protect the configuration as described below.
 No terminal or SSH setup should be required from the user.
 
-Use the [pinned rclone documentation](../reference/rclone/README.md) for the
+Use the [pinned rclone documentation](../references/rclone/README.md) for the
 configuration interface and `bisync` options. Allocate configuration, cache,
 baselines and mirrored folders in persistent host-provided storage, outside
 installed plugin code. Keep credentials and sync state separate from mirrored files.
@@ -53,4 +53,4 @@ installed plugin code. Keep credentials and sync state separate from mirrored fi
 Follow repository instructions and [UX](../ux-standards.md) and
 [observability](../o11y-standards.md) standards. Ship through the marketplace and
 verify setup, recovery and folder selection in running BB. See
-[host requirements](../reference/bb-host-requirements.md) for runtime prerequisites.
+[host requirements](../references/bb-host-requirements.md) for runtime prerequisites.

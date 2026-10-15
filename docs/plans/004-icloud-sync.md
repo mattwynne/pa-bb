@@ -6,7 +6,7 @@ Status: installed; live Apple connection and scheduled sync verified in follow-u
 
 An independently installable iCloud plugin connects one Apple account through protected BB settings, lets people browse and select folders by name, and supplies persistent local mirrors to other integrations. Enable two-way background sync explicitly; poll once per minute. The first live target is a disposable vault, never a personal vault or whole Drive without separate approval. Advanced Data Protection is off for the initial test, not a general requirement.
 
-Follow the [brief](../problems/icloud-plugin.md), [host requirements](../reference/bb-host-requirements.md), [rclone ADR](../adrs/0001-provision-rclone-on-the-pa-host.md), [UX standards](../ux-standards.md), and [observability standards](../o11y-standards.md).
+Follow the [brief](../problems/icloud-plugin.md), [host requirements](../references/bb-host-requirements.md), [rclone ADR](../adrs/0001-provision-rclone-on-the-pa-host.md), [UX standards](../ux-standards.md), and [observability standards](../o11y-standards.md).
 
 ## Architecture
 

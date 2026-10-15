@@ -25,7 +25,7 @@ This iteration deliberately revises the blanket fail-closed/manual-review policy
 - Repeated failures must remain visible as stale/unsuccessful syncing, with the last successful timestamp unchanged. Do not imply that all future attempts will succeed or turn a failed attempt into successful history.
 - Never add automatic `--resync`, bypass deletion checks, change conflict policy or use `--inplace`. Keep both conflicting versions, existing transfer/deletion bounds, retained local folders and independent recovery copies.
 
-Rclone's documented mechanisms are the starting design, not an assumption that flags alone fix the wrapper. See [bisync recovery and locking](../reference/rclone/docs/content/bisync.md#resilient), [bisync exit codes](../reference/rclone/docs/content/bisync.md#exit-codes) and [rclone retries](../reference/rclone/docs/content/docs.md#retries-int).
+Rclone's documented mechanisms are the starting design, not an assumption that flags alone fix the wrapper. See [bisync recovery and locking](../references/rclone/docs/content/bisync.md#resilient), [bisync exit codes](../references/rclone/docs/content/bisync.md#exit-codes) and [rclone retries](../references/rclone/docs/content/docs.md#retries-int).
 
 ## Small implementation sequence
 

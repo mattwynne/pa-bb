@@ -1,4 +1,11 @@
-# BB marketplace references
+# Developer references
+
+- [BB host requirements for iCloud sync](bb-host-requirements.md) — portable runtime,
+  storage, permission and background-worker prerequisites.
+- [Pinned rclone documentation](rclone/README.md) — complete v1.75.2 upstream docs
+  and licence, including iCloud Drive, Google Drive, configuration, and bisync.
+
+## BB marketplace references
 
 Local, unmodified snapshots of the upstream documents consulted for the PA-for-BB marketplace. Retrieved 2026-10-05 (UTC). These are references, not configuration files used by this repository.
 
