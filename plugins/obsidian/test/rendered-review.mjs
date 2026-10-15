@@ -47,25 +47,36 @@ try {
       await page.keyboard.press('Enter'); await section.getByText('Vault connected.', { exact: true }).waitFor(); assert.ok(methods.includes('connect'));
     }
     if (view === 'multiple') { assert.equal(await section.getByText('Launch', { exact: true }).count(), 2); await page.screenshot({ path: `${artifacts}/multiple-connected-${width}.png` }); await section.getByRole('button', { name: 'Remove Launch · one', exact: true }).click(); await section.getByText('Vault removed. Notes and iCloud sync are unchanged.', { exact: true }).waitFor(); assert.equal(await section.getByRole('button', { name: 'Remove Launch · one', exact: true }).count(), 0); }
-    if (view === 'removed') await section.getByText(/Source unavailable/).waitFor();
+    if (view === 'removed') await section.getByText('Local access unverified · check iCloud settings', { exact: true }).waitFor();
     if (view === 'paused') await section.getByText('Local notes available · cloud paused', { exact: true }).waitFor();
     if (view === 'local_blocked') await section.getByText(/Local notes unavailable/).waitFor();
     if (view === 'unconfirmed') await section.getByText(/not been confirmed by iCloud/).waitFor();
     if (view === 'recovery') await section.getByText(/need exact receipt inspection/).waitFor();
-    if (view === 'running') { await section.getByRole('button', { name: 'Add vault' }).click(); await section.getByText('Local notes available · iCloud syncing', { exact: true }).waitFor(); await section.getByRole('button', { name: 'Connect Launch' }).waitFor(); }
+    if (view === 'running') {
+      await section.getByRole('button', { name: 'Add vault' }).click();
+      await section.getByText('Local notes available · iCloud syncing', { exact: true }).waitFor();
+      const connect = section.getByRole('button', { name: 'Connect Launch' }); await connect.waitFor();
+      assert.equal(await connect.isEnabled(), true);
+      assert.equal(await section.getByText(/wait for note tools/i).count(), 0);
+      await connect.click(); await section.getByText('Vault connected.', { exact: true }).waitFor();
+    }
     if (setups[view]) await section.getByText(setups[view], { exact: true }).waitFor();
     const check = section.getByRole('button', { name: 'Check again', exact: true }); await page.keyboard.press('Tab'); await check.focus(); assert.equal(await check.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
     assert.equal(dialogs, 0); assert.equal(await section.evaluate(el => el.scrollWidth > el.clientWidth), false);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.screenshot({ path: `${artifacts}/${view}-${width}.png` }); console.log(`${view} ${width}: rendered, keyboard, no overflow or confirmations`); await page.close();
   }
   for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
     const first = { revision: 1, conflict: null, conflictFailure: null, configurationUnconfirmed: false, setup: 'ready', nextAction: null, vaults: [{ vaultId: 'one', name: 'Launch', source: source('one') }], eligible: [], receipts: [], receiptFailures: [], uncertainOperations: [], uncertainOperationCount: 0, uncertainOperationsIncomplete: false, evidenceOnly: true };
-    let checks = 0; let release; let entered; const waiting = new Promise(resolve => { entered = resolve; });
+    let checks = 0; let release; let entered; let current = first;
+    const waiting = new Promise(resolve => { entered = resolve; });
     await page.route('**/api/v1/plugins/obsidian/rpc/**', async route => {
       const method = new URL(route.request().url()).pathname.split('/').at(-1);
+      const snapshot = current;
       if (method === 'status' && ++checks === 2) { entered(); await new Promise(resolve => { release = resolve; }); }
-      return route.fulfill({ json: { ok: true, result: method === 'remove' ? { ...first, revision: 2, vaults: [] } : first } });
+      if (method === 'remove') current = { ...first, revision: 2, vaults: [] };
+      return route.fulfill({ json: { ok: true, result: method === 'remove' ? current : snapshot } });
     });
     await page.goto(base + '/plugins/obsidian?configure=obsidian'); const section = page.locator('.pa-obsidian');
     await section.getByRole('button', { name: 'Remove Launch', exact: true }).waitFor();
@@ -73,7 +84,13 @@ try {
     await section.getByRole('button', { name: 'Remove Launch', exact: true }).click(); await section.getByText('Vault removed. Notes and iCloud sync are unchanged.', { exact: true }).waitFor();
     const late = page.waitForResponse(response => response.url().endsWith('/rpc/status')); release(); await late; await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     assert.equal(await section.getByRole('button', { name: 'Remove Launch', exact: true }).count(), 0);
-    await section.getByRole('link', { name: 'iCloud settings', exact: true }).click(); await page.locator('.pa-icloud').waitFor();
-    console.log(`late status/removal and actual iCloud settings navigation ${width}: passed`); await page.close();
+    await page.reload(); await section.getByRole('button', { name: 'Check again', exact: true }).waitFor();
+    await page.waitForFunction(() => !document.querySelector('.pa-obsidian')?.textContent.includes('Checking vaults…'));
+    assert.equal(await section.getByRole('button', { name: 'Remove Launch', exact: true }).count(), 0);
+    await section.getByRole('link', { name: 'iCloud settings', exact: true }).click();
+    await page.waitForURL('**/plugins/icloud?configure=icloud');
+    // The target plugin can fail its platform prerequisite in a UI-only fixture.
+    // Assert host navigation here, not a mounted iCloud runtime/settings view.
+    console.log(`late status/removal and host navigation to iCloud route ${width}: passed`); await page.close();
   }
 } finally { await browser.close(); }
