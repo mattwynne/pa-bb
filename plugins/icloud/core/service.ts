@@ -12,7 +12,6 @@ export class ICloudSync {
   private current: Promise<unknown> | null = null;
   private discovered = new Map<string, CloudFolder>();
   private history: SyncDiagnostics;
-  private noteConfiguration: { revision: number; mirrorIds: string[] } | null = null;
   constructor(private provider: CloudProvider, private repository: StateRepository,
     private clock: () => string, private id: () => string,
     private diagnose: Diagnose, history?: RunHistoryRepository, elapsed = () => performance.now()) {
@@ -34,18 +33,23 @@ export class ICloudSync {
         this.diagnose('restart', 'interrupted');
       }
     }
-    if (this.state.connected) {
-      try { await this.provider.verifyConnection(); }
-      catch (error) {
-        const failure = category(error);
-        if (failure === 'authentication') {
-          this.state.connected = false;
-          this.requireResume();
-        }
-        this.diagnose('restore_connection', failure, { evidence: evidence(error) });
-      }
-    }
     await this.save();
+    // Remote Apple listing must not hold startup or ordinary local note admission.
+  }
+  restoreConnection() {
+    if (this.state.connected) setImmediate(() => {
+      if (this.stopped) return;
+      void this.exclusive(async () => {
+        try { await this.provider.verifyConnection(); }
+        catch (error) {
+          const failure = category(error);
+          if (failure === 'authentication') {
+            this.state.connected = false; this.requireResume(); await this.save();
+          }
+          this.diagnose('restore_connection', failure, { evidence: evidence(error) });
+        }
+      }).catch(error => this.diagnose('restore_connection', category(error), { evidence: evidence(error) }));
+    });
   }
   status() { return { ...structuredClone(this.state), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), retryPending: this.state.connected && mirror.enabled && mirror.initialized && mirror.phase === 'failed' && mirror.blocker === null, stale: mirror.lastSuccess !== null && mirror.phase !== 'ready', recovering: mirror.phase === 'running' && mirror.failure !== null, progress: mirror.phase === 'running' ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
   diagnostics(query: HistoryInput = {}) { return this.history.snapshot(query); }
@@ -215,37 +219,6 @@ export class ICloudSync {
       return this.status();
     });
   }
-  configureNotes(revision: number, mirrorIds: string[]) {
-    return this.exclusive(async () => {
-      const previous = this.noteConfiguration;
-      if (previous && (revision < previous.revision || (revision === previous.revision && JSON.stringify([...mirrorIds].sort()) !== JSON.stringify([...previous.mirrorIds].sort())))) throw new CloudError('invalid_selection');
-      this.noteConfiguration = { revision, mirrorIds: [...new Set(mirrorIds)] }; return { revision };
-    });
-  }
-  private checkNoteAdmission(id: string, revision: number) {
-    if (!this.noteConfiguration || this.noteConfiguration.revision !== revision || !this.noteConfiguration.mirrorIds.includes(id)) throw new CloudError('invalid_selection');
-  }
-  noteReceipts<T>(id: string, revision: number, operation: () => Promise<T>) {
-    return this.exclusive(async () => {
-      this.checkNoteAdmission(id, revision);
-      const mirror = this.state.mirrors.find(m => m.id === id);
-      // Resolve crash/lost-reply journals under the native owner when possible.
-      // A blocked/disappeared source still permits historical receipt facts,
-      // never a fallback content read or a claim about current bytes.
-      if (mirror?.initialized && mirror.lastSuccess && !mirror.failure && ['ready', 'paused'].includes(mirror.phase) && this.provider.withMirrorFiles) return this.provider.withMirrorFiles(structuredClone(mirror), () => operation());
-      return operation();
-    });
-  }
-  accessNote<T>(id: string, revision: number, write: boolean, operation: (root: string, signal: AbortSignal) => Promise<T>) {
-    return this.exclusive(async () => {
-      this.checkNoteAdmission(id, revision);
-      const mirror = this.folder(id);
-      if (!mirror.initialized || !mirror.lastSuccess || !['ready', 'paused'].includes(mirror.phase) || mirror.failure !== null) throw new CloudError('source_changed');
-      if (write && (!this.state.connected || !mirror.enabled || mirror.phase !== 'ready')) throw new CloudError('source_changed');
-      if (!this.provider.withMirrorFiles) throw new CloudError('unavailable');
-      return this.provider.withMirrorFiles(structuredClone(mirror), signal => operation(this.provider.localFolder(mirror), signal));
-    });
-  }
-  inventory() { return this.state.mirrors.filter(m => m.initialized || m.phase === 'retained').map(m => ({ id: m.id, name: m.folder.name, localFolder: this.provider.localFolder(m), phase: m.phase, lastSuccess: m.lastSuccess })); }
-  async stop() { this.stopped = true; await this.provider.stop(); await this.current?.catch(() => {}); }
+  inventory() { return this.state.mirrors.filter(m => m.initialized || m.phase === 'retained').map(m => ({ id: m.id, name: m.folder.name, phase: m.phase, lastSuccess: m.lastSuccess })); }
+  async stop() { this.stopped = true; await this.current?.catch(() => {}); await this.provider.stop(); }
 }

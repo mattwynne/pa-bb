@@ -22,7 +22,9 @@ export class RcloneCloudProvider implements CloudProvider {
     private readonly run: CommandRunner, private readonly availability: () => Promise<void>,
     private readonly shutdown: () => Promise<void>,
     private readonly files?: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>,
-    private readonly reconcileNotes?: (mirror: Mirror) => Promise<void>) {}
+    private readonly reconcileNotes?: (mirror: Mirror) => Promise<void>,
+    private readonly registerNotes?: (mirror: Mirror) => Promise<void>,
+    private readonly idleFiles?: <T>(action: () => Promise<T>) => Promise<T>) {}
   async withMirrorFiles<T>(mirror: Mirror, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (!this.files) throw new CloudError('unavailable');
     return this.files(async signal => {
@@ -99,12 +101,16 @@ export class RcloneCloudProvider implements CloudProvider {
     const local = this.localFolder(mirror); const baseline = join(this.root, 'baselines', mirror.id);
     // Own the worker before creating records that would block another initial attempt.
     await this.rc('rc/noop', {});
-    await mkdir(local, { recursive: true, mode: 0o700 }); await mkdir(baseline, { recursive: true, mode: 0o700 });
-    // Never use initial resync to recover existing data or a partial attempt.
-    if ((await readdir(local)).length || (await readdir(baseline)).length || mirror.initialized) throw new CloudError('recovery_required');
-    await writeFile(join(baseline, 'preparing'), '', { flag: 'wx', mode: 0o600 });
+    const prepare = async () => {
+      await mkdir(local, { recursive: true, mode: 0o700 }); await mkdir(baseline, { recursive: true, mode: 0o700 });
+      // Never use initial resync to recover existing data or a partial attempt.
+      if ((await readdir(local)).length || (await readdir(baseline)).length || mirror.initialized) throw new CloudError('recovery_required');
+      await writeFile(join(baseline, 'preparing'), '', { flag: 'wx', mode: 0o600 });
+    };
+    if (this.idleFiles) await this.idleFiles(prepare); else await prepare();
     await this.bisync(mirror, true, report);
     await writeFile(join(baseline, 'initialized'), '1', { mode: 0o600 });
+    await this.registerNotes?.(mirror);
   }
   async synchronize(mirror: Mirror, report?: ProgressReporter) {
     // Reconcile only bounded per-note journals, under the same native owner,

@@ -32,7 +32,9 @@ export class RcloneProcess {
   private config: string;
   private helper: string;
   private key: string;
-  constructor(readonly root: string, private explicitBinary?: string) {
+  // Constructor-only generated-fixture control. Never supplied by server/RPC/env.
+  constructor(readonly root: string, private explicitBinary?: string, private testBandwidth?: string) {
+    if (testBandwidth && !/^[1-9][0-9]{0,6}[kM]$/.test(testBandwidth)) throw new CloudError('configuration');
     this.socket = join(root, 'control.sock'); this.config = join(root, 'state', 'rclone.conf');
     this.helper = join(root, 'secrets', 'read-key.cjs'); this.key = join(root, 'secrets', 'config.key');
   }
@@ -62,7 +64,7 @@ export class RcloneProcess {
     const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
     return ['--config', this.config, '--password-command', [process.execPath, this.helper, this.key].map(quote).join(' '),
       '--ask-password=false', '--cache-dir', join(this.root, 'cache'), '--log-level', 'ERROR',
-      '--transfers', '2', '--checkers', '2', '--buffer-size', '4M', '--bwlimit', '8M', '--timeout', '30s', '--contimeout', '15s'];
+      '--transfers', '2', '--checkers', '2', '--buffer-size', '4M', '--bwlimit', '8M', '--timeout', '30s', '--contimeout', '15s', ...(this.testBandwidth ? ['--bwlimit', this.testBandwidth] : [])];
   }
   async ensure() {
     if (this.stopping) throw new CloudError('interrupted');

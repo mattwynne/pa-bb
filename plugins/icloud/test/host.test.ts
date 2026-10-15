@@ -139,6 +139,7 @@ test('reload verifies saved authorization without treating an unknown read failu
   await plugin(host.bb, { provider, repository });
   try {
     assert.equal(statusSchema.parse(await host.harness.behavior.callRpc('status', null)).connected, true);
+    for (let i = 0; i < 100 && !JSON.stringify(host.harness.inspection.logEntries).includes('restore_connection'); i++) await new Promise(resolve => setTimeout(resolve, 5));
     const logs = JSON.stringify(host.harness.inspection.logEntries); assert.match(logs, /restore_connection unknown/); assert.doesNotMatch(logs, /sentinel/);
   } finally { await host.harness.lifecycle.dispose(); }
 });

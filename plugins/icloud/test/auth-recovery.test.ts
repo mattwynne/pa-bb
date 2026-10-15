@@ -73,6 +73,8 @@ test('stock RC expiry at reload blocks all enabled recoverable folders with boun
   const provider = new RcloneCloudProvider(fixture.root, fixture.process.call.bind(fixture.process), async () => '', async () => {}, async () => {});
   try {
     await plugin(host.bb, { provider, repository });
+    // Apple verification is deliberately deferred past local startup.
+    for (let i = 0; i < 100 && repository.value.connected; i++) await new Promise(resolve => setTimeout(resolve, 5));
     const status = statusSchema.parse(await host.harness.behavior.callRpc('status', null));
     assert.equal(status.connected, false);
     assert.deepEqual(status.mirrors.map(m => m.blocker), ['reconnect', 'reconnect', null]);

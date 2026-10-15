@@ -1,5 +1,5 @@
-// Single-path durable lifecycle prototype. Not wired to RPC/native scheduling until
-// generation ownership, crash recovery and conflict admission are proven together.
+// Generation-owned durable note overlay. The caller owns the inherited native flock
+// before start and supplies the admission predicate for each pointer publication.
 import type Database from 'better-sqlite3';
 import { constants } from 'node:fs';
 import { mkdir, open, lstat, readdir, unlink, link } from 'node:fs/promises';
@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { NoteStore, NoteError, NOTE_LIMITS, validateNotePath } from './note-store.ts';
+import { CloudError } from '../core/ports.ts';
 import type { CommitInput, NoteReceipt } from './note-store.ts';
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
 const validId = (value: string) => /^[a-zA-Z0-9-]{1,64}$/.test(value);
@@ -16,7 +17,7 @@ type Observation = Awaited<ReturnType<NoteStore['observe']>>;
 type Proof = { hash: string; info: NonNullable<Observation>['info'] } | null;
 type Conflict = { token: string; incomingHash: string | null; incoming: Proof; canonical: Proof; incomingCopyNumber: number | null };
 type Journal = { generation: number; hash: string; stage: string; stageDev: number; stageIno: number; expected: Proof };
-type Head = { mirror_id: string; path: string; generation: number; hash: string; bytes: number; base: string; applied: string | null; journal: string | null; conflict: string | null; copies: string };
+type Head = { mirror_id: string; path: string; generation: number; hash: string; bytes: number; base: string; applied: string | null; journal: string | null; conflict: string | null; copies: string; queue_order: number; queued_at: number };
 const proof = (observation: Observation): Proof => observation ? { hash: observation.hash, info: { dev: observation.info.dev, ino: observation.info.ino, size: observation.info.size, mtimeMs: observation.info.mtimeMs, ctimeMs: observation.info.ctimeMs } } : null;
 const same = (a: Proof, b: Proof) => a === null || b === null ? a === b : a.hash === b.hash && a.info.dev === b.info.dev && a.info.ino === b.info.ino && a.info.size === b.info.size && a.info.mtimeMs === b.info.mtimeMs && a.info.ctimeMs === b.info.ctimeMs;
 const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
@@ -32,16 +33,22 @@ const parse = <T>(value: string, schema: z.ZodType<T>): T => { try { return sche
 type CopyProof = { side: 'icloud' | 'bb'; number: number; evidence: Proof };
 const copiesOf = (copies: Awaited<ReturnType<NoteStore['conflictCopies']>>): CopyProof[] => copies.map(copy => ({ side: copy.side, number: copy.number, evidence: proof(copy.observation) })).sort((a, b) => a.side.localeCompare(b.side) || a.number - b.number);
 const sameCopies = (a: CopyProof[], b: CopyProof[]) => a.length === b.length && a.every((copy, i) => copy.side === b[i].side && copy.number === b[i].number && same(copy.evidence, b[i].evidence));
-const translate = (error: unknown) => error instanceof NoteError ? error : new NoteError(['ENOSPC', 'SQLITE_FULL'].includes((error as NodeJS.ErrnoException)?.code ?? '') ? 'capacity' : 'unavailable');
+const translate = (error: unknown) => error instanceof NoteError || error instanceof CloudError ? error : new NoteError(['ENOSPC', 'SQLITE_FULL'].includes((error as NodeJS.ErrnoException)?.code ?? '') ? 'capacity' : 'unavailable');
 const migrations = `
-CREATE TABLE IF NOT EXISTS icloud_note_overlay_heads (mirror_id TEXT NOT NULL, path TEXT NOT NULL, generation INTEGER NOT NULL, hash TEXT NOT NULL, bytes INTEGER NOT NULL CHECK(bytes >= 0), base TEXT NOT NULL, applied TEXT, journal TEXT, conflict TEXT, copies TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(mirror_id, path));
+CREATE TABLE IF NOT EXISTS icloud_note_overlay_heads (mirror_id TEXT NOT NULL, path TEXT NOT NULL, generation INTEGER NOT NULL, hash TEXT NOT NULL, bytes INTEGER NOT NULL CHECK(bytes >= 0), base TEXT NOT NULL, applied TEXT, journal TEXT, conflict TEXT, copies TEXT NOT NULL DEFAULT '[]', queue_order INTEGER NOT NULL DEFAULT 0, queued_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(mirror_id, path));
+CREATE INDEX IF NOT EXISTS icloud_note_overlay_queue ON icloud_note_overlay_heads(queue_order, mirror_id, path);
 CREATE TABLE IF NOT EXISTS icloud_note_overlay_receipts (operation_id TEXT PRIMARY KEY, mirror_id TEXT NOT NULL, path TEXT NOT NULL, digest TEXT NOT NULL, at TEXT NOT NULL, outcome TEXT NOT NULL, hash TEXT NOT NULL, previous_hash TEXT, quota_bytes INTEGER NOT NULL CHECK(quota_bytes >= 0), checked_at INTEGER);
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_receipts_expiry ON icloud_note_overlay_receipts(at, checked_at);
+CREATE INDEX IF NOT EXISTS icloud_note_overlay_receipts_scope ON icloud_note_overlay_receipts(mirror_id, at DESC, operation_id);
+CREATE INDEX IF NOT EXISTS icloud_note_overlay_receipts_path ON icloud_note_overlay_receipts(mirror_id, path, at DESC);
 CREATE TABLE IF NOT EXISTS icloud_note_overlay_recovery (operation_id TEXT PRIMARY KEY, hash TEXT NOT NULL, bytes INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS icloud_note_overlay_resolutions (operation_id TEXT PRIMARY KEY, mirror_id TEXT NOT NULL, path TEXT NOT NULL, digest TEXT NOT NULL, outcome TEXT NOT NULL, hash TEXT, quota_bytes INTEGER NOT NULL CHECK(quota_bytes >= 0), checked_at INTEGER);
+CREATE TABLE IF NOT EXISTS icloud_note_overlay_resolutions (operation_id TEXT PRIMARY KEY, mirror_id TEXT NOT NULL, path TEXT NOT NULL, at TEXT NOT NULL, digest TEXT NOT NULL, outcome TEXT NOT NULL, hash TEXT, quota_bytes INTEGER NOT NULL CHECK(quota_bytes >= 0), checked_at INTEGER);
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_resolutions_maintenance ON icloud_note_overlay_resolutions(checked_at, operation_id);
+CREATE INDEX IF NOT EXISTS icloud_note_overlay_resolutions_scope ON icloud_note_overlay_resolutions(mirror_id, at DESC, operation_id);
+CREATE INDEX IF NOT EXISTS icloud_note_overlay_resolutions_path ON icloud_note_overlay_resolutions(mirror_id, path, at DESC);
 CREATE TABLE IF NOT EXISTS icloud_note_overlay_legacy (operation_id TEXT PRIMARY KEY, mirror_id TEXT NOT NULL, path TEXT NOT NULL, kind TEXT NOT NULL, expected_hash TEXT, hash TEXT NOT NULL, request_digest TEXT NOT NULL, receipt TEXT NOT NULL, uncertain INTEGER NOT NULL, previous_bytes INTEGER NOT NULL, checked_at INTEGER);
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_legacy_uncertain ON icloud_note_overlay_legacy(mirror_id, path, uncertain);
+CREATE INDEX IF NOT EXISTS icloud_note_overlay_legacy_scope ON icloud_note_overlay_legacy(mirror_id, path, operation_id);
 CREATE TABLE IF NOT EXISTS icloud_note_overlay_legacy_admission (mirror_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS icloud_note_overlay_usage (scope TEXT PRIMARY KEY, paths INTEGER NOT NULL, bytes INTEGER NOT NULL, staged_paths INTEGER NOT NULL DEFAULT 0, staged_bytes INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS icloud_note_overlay_totals (id INTEGER PRIMARY KEY CHECK(id = 1), receipts INTEGER NOT NULL, receipt_bytes INTEGER NOT NULL, recovery_bytes INTEGER NOT NULL, staged_receipts INTEGER NOT NULL DEFAULT 0, staged_receipt_bytes INTEGER NOT NULL DEFAULT 0, staged_recovery_bytes INTEGER NOT NULL DEFAULT 0);
@@ -62,7 +69,7 @@ CREATE INDEX IF NOT EXISTS icloud_note_overlay_orphans ON icloud_note_overlay_bl
 export type Resolution = { operationId: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: 'keep_local' | 'accept_incoming' | 'replace'; text?: string };
 export class NoteOverlay {
   private barriers = new Map<string, Promise<void>>();
-  constructor(private root: string, private db: Database.Database, private mirror: NoteStore, private clock = () => Date.now(), private fault?: (stage: string) => void | Promise<void>) {}
+  constructor(private root: string, private db: Database.Database, private mirror: NoteStore, private clock = () => Date.now(), private fault?: (stage: string) => void | Promise<void>, private admission?: (mirrorId: string) => void) {}
   private head(id: string, path: string) { return this.db.prepare('SELECT * FROM icloud_note_overlay_heads WHERE mirror_id = ? AND path = ?').get(id, path) as Head | undefined; }
   private key(id: string, path: string) { return JSON.stringify([id, path]); }
   private async locked<T>(id: string, path: string, action: () => Promise<T>): Promise<T> {
@@ -177,7 +184,7 @@ export class NoteOverlay {
     const heads = this.db.prepare('SELECT * FROM icloud_note_overlay_heads').all() as Head[];
     for (const head of heads) {
       const generation = byGeneration.get(head.generation);
-      if (!generation || generation.mirror_id !== head.mirror_id || generation.path !== head.path || generation.hash !== head.hash || generation.bytes !== head.bytes) throw new NoteError('uncertain');
+      if (!generation || generation.mirror_id !== head.mirror_id || generation.path !== head.path || generation.hash !== head.hash || generation.bytes !== head.bytes || !Number.isSafeInteger(head.queue_order) || head.queue_order < 1 || head.queue_order > head.generation || !Number.isSafeInteger(head.queued_at) || head.queued_at < 1 || head.queued_at > this.clock() + 300000) throw new NoteError('uncertain');
       if (!this.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE class = 'pending' AND kind = 'head' AND owner = ? AND mirror_id = ? AND hash = ? AND bytes = ?").get(String(head.generation), head.mirror_id, head.hash, head.bytes)) throw new NoteError('uncertain');
       if (!validId(head.mirror_id)) throw new NoteError('uncertain'); validateNotePath(head.path);
       if (!Number.isSafeInteger(head.bytes) || head.bytes < 0 || Buffer.byteLength(await this.loadBlob(head.hash)) !== head.bytes || !Number.isSafeInteger(head.generation) || head.generation < 1) throw new NoteError('uncertain');
@@ -213,8 +220,8 @@ export class NoteOverlay {
         if (!previous || previous.hash !== row.previous_hash || Buffer.byteLength(await this.loadBlob(previous.hash)) !== previous.bytes || !this.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE class = 'recovery' AND kind = 'previous' AND owner = ? AND mirror_id = ? AND hash = ? AND bytes = ?").get(row.operation_id, row.mirror_id, previous.hash, previous.bytes)) throw new NoteError('uncertain');
       }
     }
-    for (const row of this.db.prepare('SELECT * FROM icloud_note_overlay_resolutions').all() as Array<{ operation_id: string; mirror_id: string; path: string; hash: string | null }>) {
-      if (!validOperation(row.operation_id) || !validId(row.mirror_id)) throw new NoteError('uncertain'); validateNotePath(row.path);
+    for (const row of this.db.prepare('SELECT * FROM icloud_note_overlay_resolutions').all() as Array<{ operation_id: string; mirror_id: string; path: string; hash: string | null; at: string }>) {
+      if (!Number.isFinite(Date.parse(row.at)) || !validOperation(row.operation_id) || !validId(row.mirror_id)) throw new NoteError('uncertain'); validateNotePath(row.path);
       if (row.hash) {
         const size = Buffer.byteLength(await this.loadBlob(row.hash));
         if (!this.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE class = 'recovery' AND kind = 'receipt' AND owner = ? AND mirror_id = ? AND hash = ? AND bytes = ?").get(row.operation_id, row.mirror_id, row.hash, size)) throw new NoteError('uncertain');
@@ -406,7 +413,7 @@ export class NoteOverlay {
   }
   private operation(id: string) {
     const save = this.db.prepare('SELECT digest FROM icloud_note_overlay_receipts WHERE operation_id = ?').get(id) as { digest: string } | undefined;
-    const resolution = this.db.prepare('SELECT digest, outcome, hash FROM icloud_note_overlay_resolutions WHERE operation_id = ?').get(id) as { digest: string; outcome: string; hash: string | null } | undefined;
+    const resolution = this.db.prepare('SELECT digest, outcome, hash FROM icloud_note_overlay_resolutions WHERE operation_id = ?').get(id) as { digest: string; outcome: 'saved_locally_pending_sync' | 'adopted_content' | 'adopted_absence'; hash: string | null } | undefined;
     const legacy = this.db.prepare('SELECT mirror_id, path, kind, expected_hash, hash, receipt, uncertain FROM icloud_note_overlay_legacy WHERE operation_id = ?').get(id) as { mirror_id: string; path: string; kind: string; expected_hash: string | null; hash: string; receipt: string; uncertain: number } | undefined;
     if (Number(!!save) + Number(!!resolution) + Number(!!legacy) > 1) throw new NoteError('uncertain');
     return { save, resolution, legacy };
@@ -469,6 +476,7 @@ export class NoteOverlay {
         const receipt: NoteReceipt = { operationId: input.operationId, mirrorId: input.mirrorId, path: input.path, at, outcome: 'saved_locally_pending_sync', hash, previousHash: current?.hash ?? null };
         this.db.transaction(() => {
           if (this.operation(input.operationId).resolution || this.operation(input.operationId).legacy) throw new NoteError('operation_reused');
+          this.admission?.(input.mirrorId);
           const inserted = this.db.prepare('INSERT INTO icloud_note_overlay_generations(operation_id, mirror_id, path, parent_generation, hash, bytes, published_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(input.operationId, input.mirrorId, input.path, previous?.generation ?? null, hash, nextBytes, this.clock(), previous?.conflict ? 'conflicted' : 'pending');
           const next = Number(inserted.lastInsertRowid);
           if (previous) this.db.prepare("UPDATE icloud_note_overlay_generations SET superseded_by = ?, state = CASE WHEN state = 'applied' THEN state ELSE 'superseded' END WHERE generation_id = ?").run(next, previous.generation);
@@ -480,7 +488,7 @@ export class NoteOverlay {
             this.ref('pending', 'incoming', collision.token, input.mirrorId, collision.incomingHash, size, true);
             this.ref('pending', 'incoming', oldConflict.token, input.mirrorId, oldConflict.incomingHash, size, false);
           }
-          this.db.prepare('INSERT INTO icloud_note_overlay_heads(mirror_id, path, generation, hash, bytes, base, applied, journal, conflict, copies) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?) ON CONFLICT(mirror_id, path) DO UPDATE SET generation = excluded.generation, hash = excluded.hash, bytes = excluded.bytes, conflict = excluded.conflict').run(input.mirrorId, input.path, next, hash, nextBytes, base, previous?.applied ?? null, collision && JSON.stringify(collision), copies);
+          this.db.prepare('INSERT INTO icloud_note_overlay_heads(mirror_id, path, generation, hash, bytes, base, applied, journal, conflict, copies, queue_order, queued_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?) ON CONFLICT(mirror_id, path) DO UPDATE SET generation = excluded.generation, hash = excluded.hash, bytes = excluded.bytes, conflict = excluded.conflict, queue_order = CASE WHEN json_extract(icloud_note_overlay_heads.applied, \'$.generation\') = icloud_note_overlay_heads.generation THEN excluded.queue_order ELSE icloud_note_overlay_heads.queue_order END, queued_at = CASE WHEN json_extract(icloud_note_overlay_heads.applied, \'$.generation\') = icloud_note_overlay_heads.generation THEN excluded.queued_at ELSE icloud_note_overlay_heads.queued_at END').run(input.mirrorId, input.path, next, hash, nextBytes, base, previous?.applied ?? null, collision && JSON.stringify(collision), copies, next, this.clock());
           this.db.prepare('INSERT INTO icloud_note_overlay_receipts(operation_id, mirror_id, path, digest, at, outcome, hash, previous_hash, quota_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(input.operationId, input.mirrorId, input.path, this.digest(input), at, receipt.outcome, hash, receipt.previousHash, this.digest(input).length + Buffer.byteLength(input.path) + input.mirrorId.length + 200);
           if (current) this.db.prepare('INSERT INTO icloud_note_overlay_recovery(operation_id, hash, bytes) VALUES (?, ?, ?)').run(input.operationId, current.hash, recoveryBytes);
           this.ref('pending', 'head', String(next), input.mirrorId, hash, nextBytes, true);
@@ -610,6 +618,25 @@ export class NoteOverlay {
       return 'applied';
     });
   }
+  pending(limit = 256): Array<{ mirrorId: string; path: string; queued: number }> {
+    return (this.db.prepare('SELECT mirror_id, path, queue_order FROM icloud_note_overlay_heads WHERE conflict IS NULL AND (applied IS NULL OR json_extract(applied, \'$.generation\') != generation) ORDER BY queue_order, mirror_id, path LIMIT ?').all(limit) as Array<{ mirror_id: string; path: string; queue_order: number }>).map(row => ({ mirrorId: row.mirror_id, path: row.path, queued: row.queue_order }));
+  }
+  hasUnresolvedJournals(id: string) {
+    return !!this.db.prepare('SELECT 1 FROM icloud_note_overlay_heads WHERE mirror_id = ? AND journal IS NOT NULL LIMIT 1').get(id);
+  }
+  pendingAgeMs(id?: string) {
+    const row = this.db.prepare('SELECT MIN(queued_at) AS oldest FROM icloud_note_overlay_heads WHERE (? IS NULL OR mirror_id = ?)').get(id ?? null, id ?? null) as { oldest: number | null };
+    return row.oldest === null ? null : Math.max(0, this.clock() - row.oldest);
+  }
+  async receipts(query: { mirrorId: string; operationId?: string; path?: string; since?: string; limit: number }) {
+    if (!validId(query.mirrorId) || !Number.isInteger(query.limit) || query.limit < 1 || query.limit > 100 || (query.operationId && !validOperation(query.operationId))) throw new NoteError('invalid_path');
+    if (query.path) validateNotePath(query.path);
+    if (query.since && !Number.isFinite(Date.parse(query.since))) throw new NoteError('invalid_path');
+    const rows = this.db.prepare(`SELECT operation_id, mirror_id, path, at, outcome, hash, previous_hash FROM icloud_note_overlay_receipts WHERE mirror_id = ? AND (? IS NULL OR operation_id = ?) AND (? IS NULL OR path = ?) AND (? IS NULL OR at >= ?)
+      UNION ALL SELECT operation_id, mirror_id, path, json_extract(receipt, '$.at'), json_extract(receipt, '$.outcome'), hash, json_extract(receipt, '$.previousHash') FROM icloud_note_overlay_legacy WHERE mirror_id = ? AND (? IS NULL OR operation_id = ?) AND (? IS NULL OR path = ?) AND (? IS NULL OR json_extract(receipt, '$.at') >= ?) ORDER BY at DESC, operation_id LIMIT ?`).all(query.mirrorId, query.operationId ?? null, query.operationId ?? null, query.path ?? null, query.path ?? null, query.since ?? null, query.since ?? null, query.mirrorId, query.operationId ?? null, query.operationId ?? null, query.path ?? null, query.path ?? null, query.since ?? null, query.since ?? null, query.limit) as Array<{ operation_id: string; mirror_id: string; path: string; at: string; outcome: NoteReceipt['outcome']; hash: string; previous_hash: string | null }>;
+    const resolutions = this.db.prepare('SELECT operation_id, mirror_id, path, at, outcome, hash FROM icloud_note_overlay_resolutions WHERE mirror_id = ? AND (? IS NULL OR operation_id = ?) AND (? IS NULL OR path = ?) AND (? IS NULL OR at >= ?) ORDER BY at DESC, operation_id LIMIT ?').all(query.mirrorId, query.operationId ?? null, query.operationId ?? null, query.path ?? null, query.path ?? null, query.since ?? null, query.since ?? null, query.limit) as Array<{ operation_id: string; mirror_id: string; path: string; at: string; outcome: 'saved_locally_pending_sync' | 'adopted_content' | 'adopted_absence'; hash: string | null }>;
+    return [...rows.map(row => ({ kind: 'save' as const, operationId: row.operation_id, mirrorId: row.mirror_id, path: row.path, at: row.at, outcome: row.outcome, hash: row.hash, previousHash: row.previous_hash })), ...resolutions.map(row => ({ kind: 'resolution' as const, operationId: row.operation_id, mirrorId: row.mirror_id, path: row.path, at: row.at, outcome: row.outcome, hash: row.hash }))].sort((a, b) => b.at.localeCompare(a.at) || a.operationId.localeCompare(b.operationId)).slice(0, query.limit);
+  }
   beforeRun(id: string) {
     // Called by the arbiter immediately before native invocation. A successor
     // published during that command cannot inherit this snapshot's evidence.
@@ -661,7 +688,7 @@ export class NoteOverlay {
       return conflict.incomingHash ? this.loadBlob(conflict.incomingHash) : null;
     });
   }
-  async resolve(root: string, id: string, path: string, input: Resolution) {
+  async resolve(root: string, id: string, path: string, input: Resolution): Promise<{ outcome: 'saved_locally_pending_sync' | 'adopted_content' | 'adopted_absence'; hash: string | null }> {
     this.validateResolution(id, path, input);
     return this.locked('operation', input.operationId, () => this.locked(id, path, async () => {
       this.requireIndexed(id);
@@ -693,7 +720,9 @@ export class NoteOverlay {
         if (hash && receiptHashBytes === undefined) throw new NoteError('uncertain');
         const outcome = input.choice === 'accept_incoming' ? hash ? 'adopted_content' : 'adopted_absence' : 'saved_locally_pending_sync';
         const awaitedCopies = await this.mirror.conflictCopies(root, path);
+        await this.fault?.('before_resolution_head');
         this.db.transaction(() => {
+          this.admission?.(id);
           if (this.operation(input.operationId).save || this.operation(input.operationId).legacy) throw new NoteError('operation_reused');
           let nextGeneration: number | null = null;
           if (adoptedMirror) {
@@ -703,7 +732,7 @@ export class NoteOverlay {
             const inserted = this.db.prepare('INSERT INTO icloud_note_overlay_generations(operation_id, mirror_id, path, parent_generation, hash, bytes, published_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(input.operationId, id, path, row.generation, hash, nextBytes, this.clock(), 'pending');
             const next = Number(inserted.lastInsertRowid); nextGeneration = next;
             this.db.prepare("UPDATE icloud_note_overlay_generations SET state = 'resolved', superseded_by = ? WHERE generation_id = ?").run(next, row.generation);
-            this.db.prepare('UPDATE icloud_note_overlay_heads SET generation = ?, hash = ?, bytes = ?, base = ?, applied = NULL, conflict = NULL, copies = ? WHERE mirror_id = ? AND path = ? AND generation = ? AND conflict = ?').run(next, hash, nextBytes, JSON.stringify(proof(current)), JSON.stringify(copiesOf(awaitedCopies)), id, path, row.generation, row.conflict);
+            this.db.prepare('UPDATE icloud_note_overlay_heads SET generation = ?, hash = ?, bytes = ?, base = ?, applied = NULL, conflict = NULL, copies = ?, queue_order = ?, queued_at = ? WHERE mirror_id = ? AND path = ? AND generation = ? AND conflict = ?').run(next, hash, nextBytes, JSON.stringify(proof(current)), JSON.stringify(copiesOf(awaitedCopies)), next, this.clock(), id, path, row.generation, row.conflict);
           }
           if (nextGeneration && hash) this.ref('pending', 'head', String(nextGeneration), id, hash, nextBytes, true);
           if (hash) this.ref('recovery', 'receipt', input.operationId, id, hash, receiptHashBytes!, true);
@@ -721,7 +750,7 @@ export class NoteOverlay {
           this.release(input.operationId);
           this.db.prepare('UPDATE icloud_note_overlay_usage SET paths = paths - ? WHERE scope IN (?, ?)').run(Number(adoptedMirror), '*', id);
           this.db.prepare('INSERT INTO icloud_note_overlay_recovery(operation_id, hash, bytes) VALUES (?, ?, ?)').run(input.operationId, row.hash, row.bytes);
-          this.db.prepare('INSERT INTO icloud_note_overlay_resolutions(operation_id, mirror_id, path, digest, outcome, hash, quota_bytes) VALUES (?, ?, ?, ?, ?, ?, ?)').run(input.operationId, id, path, request, outcome, hash, receiptBytes);
+          this.db.prepare('INSERT INTO icloud_note_overlay_resolutions(operation_id, mirror_id, path, at, digest, outcome, hash, quota_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(input.operationId, id, path, new Date(this.clock()).toISOString(), request, outcome, hash, receiptBytes);
           this.db.prepare('UPDATE icloud_note_overlay_totals SET receipts = receipts + 1, receipt_bytes = receipt_bytes + ? WHERE id = 1').run(receiptBytes);
         })();
         return { outcome, hash };
