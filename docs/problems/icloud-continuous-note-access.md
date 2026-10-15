@@ -1,6 +1,6 @@
 # Background iCloud sync interrupts note access
 
-Status: open problem, recorded 2026-10-15 after live feedback on Obsidian 0.1.0 and iCloud 0.1.12. No correction has shipped. This note is a basis for a future implementation plan, not a chosen architecture.
+Status: open problem, recorded 2026-10-15 after live feedback on Obsidian 0.1.0 and iCloud 0.1.12. No correction has shipped. [Plan 015](../plans/015-icloud-continuous-note-access.md) is a revised draft with implementation held; its [review record](../plans/015-icloud-continuous-note-access-review.md) distinguishes independent GPT reports from the requested multi-family ensemble. This problem note does not select an architecture.
 
 ## Problem
 

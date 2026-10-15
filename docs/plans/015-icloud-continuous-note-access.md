@@ -1,0 +1,202 @@
+# 015 — Continuous iCloud note access
+
+Status: **revised draft / implementation held**. The first draft received three independent GPT reviews, not the requested multi-family ensemble: explicit Claude/Gemini model selections did not take effect. See the [review record](015-icloud-continuous-note-access-review.md). The parent has corrected the verified design gaps below but has not approved implementation or completed another review round.
+
+Starting points: [problem and live evidence](../problems/icloud-continuous-note-access.md), [iteration 006](006-obsidian-vault-reading.md), source baseline `1baa405`, and the [pinned rclone v1.75.2 bisync reference](../references/rclone/docs/content/bisync.md). No runtime code, production migration or device test has been delivered by this plan.
+
+## Outcome and scope
+
+Once initialized, a vault remains discoverable and supports useful local reads and prompt, durable local saves during ordinary background sync. Consumers do not poll sync phase, time requests or receive routine sync-busy errors. A 40-second cloud run must not become a 40-second local save.
+
+Local success means durable note bytes and a recoverable logical commit, not an in-memory queue entry or cloud delivery. Sequential supported reads use those bytes immediately. Missing files, storage/capacity failures, initialization, lost ownership and genuine recovery blockers remain real outcomes.
+
+Keep:
+
+- Whole-vault standing read/write after explicit connection, including nested/hidden Markdown; multiple stable vault IDs; no automatic connections.
+- Conditional saves, full-note read proofs before edits, bounded parsing/scanning, path/symlink containment, per-note previous versions and durable operation identities.
+- Stock recursive bisync, native ownership, numbered conflict preservation, deletion checks, resilient recovery and critical stops. No forced resync or clearing locks/baselines to bypass a failure.
+- The distinction between **saved locally, pending iCloud sync**, application to the mirror, a completed native run and independently verified cloud/device bytes.
+
+Do not add folder permissions, read-only switches, per-edit approvals, an editor/browser/graph, whole-folder copies/backups, subfolder partitioning or a second remote reconciliation engine.
+
+## Recommended architecture
+
+Use a bounded, iCloud-owned **per-note durable overlay** outside the native mirror and baseline directories. It is the authoritative local view only while an acknowledged edit is pending, awaiting a following native run, or retained by a conflict. Native bisync remains the only cloud reconciler.
+
+Supported note consumers use coordinated RPC. The native mirror is not advertised as a continuously authoritative filesystem view. Direct OS reads cannot see an unapplied overlay.
+
+### Ownership and scheduling
+
+One generation-owned arbiter controls native commands and mirror application. Preserve the existing inherited `worker.lock` flock; do not substitute an expiring lease or a JavaScript flag. The service-wide exclusion currently supplies serialization that `RcloneProcess.run()` does not enforce by itself: removing it requires this explicit replacement.
+
+A generation acquires actual ownership before accepting overlay publications or performing migration. The current owner may publish overlay bytes while **its own** native child runs; publication does not require native idle. A replacement cannot write the same store while its predecessor or an inherited command child still owns the flock. A surviving RC daemon is not evidence of mirror ownership; preserve existing orphan checks and retirement rules.
+
+The arbiter has separate paths:
+
+1. Short local operations: note reads, durable overlay commits, receipt queries and configuration transactions. Serialize publication per note and quota reservation globally, without awaiting remote work.
+2. A single native-command/application queue: at most one command or direct mirror mutation at a time, with the current native generation and file guard held throughout application. Schedule authentication/configuration RC work deliberately too; removing the old global lock must not permit concurrent command/config races.
+3. Lifecycle fences: before disposal, close admission, wait for already-entered local publications to finish or resolve their journals, then stop children/release ownership. Candidate startup may remain unavailable until takeover; it must not migrate early or admit a second writer. This exceptional maintenance boundary is not normal sync contention.
+
+Persist the host-verified Obsidian configuration revision and membership. Commit/configuration/removal transactions use a fixed lock order and revalidate the admission epoch at logical publication. Removal revokes **new** operations; no stale-revision publication may commit after revocation. Replies already in flight are not proof of a later commit.
+
+An edit acknowledged before Obsidian removal remains a completed local edit. Removal does not undo it: background application may continue for its original enabled iCloud mirror/account, just as an already-written native file would continue syncing today. Application validates mirror/account/baseline identity and ownership, not an obsolete consumer revision. Removing a consumer grants no further reads or writes. A retained/rebuilt mirror is different: never retarget its pending edits to a replacement ID.
+
+### Durable records and version identity
+
+Use one scoped durable index with transactions and immutable per-note blobs; a SQLite transaction with fully durable commit is the recommended index. Respect BB's scoped storage APIs. Files live in private 0700 directories with 0600 contents outside `mirrors/` and `baselines/`. Fsync content and parent directory **before** committing a pointer that can acknowledge success. Startup validates referenced content.
+
+Persist, at minimum:
+
+| Record | Purpose |
+| --- | --- |
+| Generation | Mirror/path, sequence, parent sequence, immutable blob/hash, operation ID/request digest, admission epoch and local receipt |
+| Active head | The current logical generation, or no overlay authority |
+| Original base | First external mirror observation: absence or exact bytes/hash plus validated file identity/stat evidence |
+| Last applied checkpoint | Separately proved mirror generation, destination inode/hash and application journal; advances after each owned application |
+| Run eligibility | The applied generation present before a particular native invocation; later saves cannot borrow that run's evidence |
+| Conflict | Token tied to logical head and captured incoming bytes/absence, with collision evidence |
+| Retired/archive state | Reader-safe handoff, retained receipts and previous versions, without continued overlay authority |
+
+SHA-256 of exact UTF-8 bytes remains the consumer CAS hash. Native size/modtime comparison is not a content hash. Mirror application also checks stored identity/stat evidence; unexplained same-hash replacement is conservatively a collision, not proof of ownership. Do not equate content equality with proof that an operation ID ran.
+
+Validate all paths and Linux fd-relative traversal with `O_NOFOLLOW`; preserve bounded reads and regular-file checks. Index keys and blob names do not authorize arbitrary path traversal.
+
+### Local commit
+
+For every request:
+
+1. Validate caller, generation, membership/revision, target and limits. Look up operation ID across **legacy and new** stores before current-version CAS. An exact duplicate returns its immutable original receipt, even after later edits; changed payload returns `operation_reused`.
+2. Under the per-path publication barrier, resolve the current logical version. Create requires absence; replacement requires the expected logical hash and the consumer's complete-read proof. If there is no overlay, capture a validated stable mirror observation as the base.
+3. Reserve pending, receipt and previous-version capacity before acceptance. Persist the new immutable bytes and previous logical bytes where required. Publish the generation/head and receipt transactionally, with admission rechecked at that boundary.
+4. Return `saved_locally_pending_sync` only after durable publication. An uncertain transport reply is inspected by operation ID, never blindly replayed under a new ID.
+
+An exact duplicate does not repeat append/task/property preparation. Obsidian keeps its persisted transport-pending IDs, not a second content queue. A definitely published journal can be resolved after restart; corrupt or inconclusive publication is `uncertain`, not `not_saved`. Do not admit a successor on an uncertain path until recovery establishes its head.
+
+## Normal single-path lifecycle
+
+| State | Consumer authority | Next transition |
+| --- | --- | --- |
+| No active overlay | Validated native mirror | Successful local commit publishes generation G |
+| Pending G | Immutable logical G | Idle application captures G; a later save may become the new head |
+| Applying G | Current logical head, which may be G or a successor | Durable application proof becomes applied checkpoint G, or collision/uncertainty blocks application |
+| Applied G awaiting run | Current logical head | A **following** eligible native run finishes; examine G and any successor |
+| Conflict | Latest sound logical head, plus explicitly inspectable incoming version/absence | Explicit guarded resolution creates a new base/head or adopts incoming authority |
+| Retired G | Native mirror | Receipts/recovery remain retained independently; future remote changes are visible normally |
+
+### Applying without aliasing authoritative bytes
+
+At a reserved native-idle boundary, reconcile old/new application journals and validate the mirror baseline. Choose the latest complete head under its short path barrier. Compare the current mirror against:
+
+- the last proved owned application checkpoint, if one exists; otherwise
+- the original external base.
+
+This distinction matters: starting with A, applying local B, then saving C must recognize B as our own mirror write, not compare B to A and invent a remote conflict. Preserve A as historical collision/recovery evidence, not the permanent apply target.
+
+Copy the selected blob into a **distinct, separately fsynced mirror-application inode**. Never hard-link the authoritative blob or recovery copy into the mirror, and never rename away its only immutable copy. For create, publish that independent apply-stage inode exclusively; for replace, atomically rename it after the final guarded comparison. Fsync the destination directory and application journal. Retain authoritative content independently.
+
+A prepared/applying/applied journal records the **apply-stage** inode and intended generation. After crash, destination identity/hash and journal evidence establish applied/not-applied/uncertain under the native owner before another command starts. Ambiguous application retains both versions and stops unsafe mirror work; it does not erase the successful logical save or guess that a rename failed.
+
+### Following run, successors and retirement
+
+Before starting bisync, record which proved applied generation is eligible for that invocation. A save made during that run cannot count it as its following run.
+
+After success, under native ownership and the path barrier:
+
+1. Reconcile application proof and inspect the canonical path, exact local bytes/identity and native conflict artifacts. A failure, missing/changed canonical path, conflict or uncertainty prevents retirement.
+2. If the active head is a successor of G, keep that successor authoritative. Advance/retain G's proved owned checkpoint as the basis for the next application; do not overwrite it with the original base or retire the successor.
+3. If the active head is still G, the same eligible G survived the successful following run, and there is no unresolved state, atomically CAS the active pointer to **mirror authority**. The reader fence prevents a later save from being retired accidentally.
+4. Retain the immutable receipt and bounded recovery bytes separately. Garbage collection cannot invalidate an already-open reader or remove pending/uncertain content.
+
+Required trace: A → local B → apply B → following successful run → retire B → independent remote C → native download → consumer reads C. Also test B → C before application, after application, during the following run and during retirement. An overlay must not shadow phone edits forever.
+
+A completed run plus local matching bytes is a bounded native observation, **not verified cloud/device delivery**.
+
+## Collisions and usable recovery
+
+### Collision detection and native policy
+
+Before application, a changed/deleted base or a remote create at a locally-created path is a collision. Do not overwrite it. Capture incoming bytes or absence under the native guard; preserve the acknowledged logical version and expose a conflict token. After application, preserve rclone's renamed conflict copies and detect canonical-path changes before retiring authority.
+
+Do not promise more than stock bisync provides. Its unusual-sync rules retain a changed file against a deletion on the other side; after application, this can recreate a remotely deleted file without a renamed conflict copy. Preserve and test that native policy. A successful run and matching local path cannot prove that no remote deletion was overridden. No outbox-driven cloud delete detection, semantic merge or second reconciliation engine is proposed.
+
+### Supported resolution protocol
+
+Existing Retry/Rebuild controls do not settle one note. Add a bounded, caller-restricted protocol alongside note access:
+
+- `noteInspectConflict`: metadata/token for the exact logical head and captured incoming version/absence. Existing `noteRead` gains an explicit guarded version selector for logical versus incoming content. Incoming absence is represented explicitly, not as an empty note. Reads retain ordinary output limits and complete-read evidence.
+- `noteResolveConflict`: UUID operation ID/digest, conflict token, expected logical hash, expected incoming hash/absence, and an explicit choice: **keep local**, **accept incoming**, or **replacement content**. Compare the token/head and a fresh stable incoming observation before publication. Stale evidence returns conflict; no mutation or guessed overwrite occurs.
+- Keep local/replacement publishes a new durable logical generation rebased on the observed incoming version/absence. Preserve incoming and previous acknowledged bytes. Normal guarded application handles subsequent races; choosing local against incoming absence explicitly authorizes recreating that path, rather than doing so automatically.
+- Accept incoming content publishes/adopts that durable version while preserving the previous local bytes. Accept incoming absence durably archives the pending local version and hands authority back to the currently absent mirror; it does **not** issue a general file-delete operation. Future native changes can appear normally. If the incoming observation changed, require fresh inspection instead of deleting anything.
+- Resolution has an immutable, deduplicated **resolution receipt**, distinct from a note-save receipt. Its outcome states adopted content or adopted absence honestly; do not fabricate a saved-note hash for deletion. Retain old content by recorded recovery identity within the documented recovery policy.
+
+Expose inspection through Obsidian status/read and the explicit resolution intent through its edit handler and a narrowly scoped recovery RPC. The host sees Obsidian as the verified iCloud caller; client recovery routes have their own existing client boundary. Do not tell the operator to call an iCloud RPC that rejects that caller. No general editor UI, new permission switches or routine save confirmation.
+
+Further complete local edits to a **sound** conflicted overlay are allowed with CAS: they produce a new head/token, retain collision evidence and remain locally visible, but application stays blocked until resolution. Inconclusive/corrupt local publication is different and stops new edits. Genuine conflicts may require the user to choose content; that is not an approval for every write.
+
+This protocol is an engineering recommendation requiring implementation proof. If its interface or preservation semantics cannot be provided within this slice, stop rather than ship a permanently stranded queue.
+
+## Reads, discovery and compatibility
+
+### Continuous local view
+
+Overlay reads never touch the worker-owned mirror. Otherwise use bounded stable fd/stat/name validation against native publication. Production omits `--inplace`; verify actual pinned native download/replacement/interruption behavior before allowing concurrent mirror reads. Stat equality alone is not proof against every possible in-place writer. Genuinely unstable files get safe per-note failure/incompleteness, not a service-wide sync-busy error.
+
+Merge native listing and validated overlay keys, deduplicate, and resolve the current logical head on every read. Save followed by read/metadata/task parsing/link resolution for that path sees the new bytes, including a create not yet present in the mirror.
+
+Search/task scans remain bounded: currently 500 notes, 16 MiB, three seconds, 500 rows; native enumeration caps 10k entries. The guarantee is **fresh logical bytes for every path actually scanned**, not a hit for every saved note in an arbitrarily large vault. No post-save stale cache may override the new head. Over-limit/time-limited no-hit results must explicitly be incomplete, never evidence of absence. Any overlay-first ordering must be bounded and not starve unedited paths. Existing cursors remain explicitly point-in-time; new scans use the current view. Sync progress/phase/last-success changes alone do not expire cursors; configuration/revocation does.
+
+### Source states
+
+Recommended policy: initialized, intact local vaults support reads and durable local saves while syncing, paused or Apple-disconnected. Pause means **cloud delivery paused**, not loss of standing local write access. Retain account binding; never silently resume or drain cloud work after disconnect. A retryable network failure is not local unavailability.
+
+Initialization, retained/rebuilt IDs, missing/invalid baseline, corrupt content, uncertain ownership and destructive recovery remain safety boundaries. A sound acknowledged overlay may remain readable while mirror application is stopped. Define each admission condition explicitly rather than equating cloud freshness with filesystem health.
+
+### Version negotiation and raw paths
+
+Advertise note-access v2 and require a matching negotiated capability at **eligibility, connect, configure, read, write, receipt and recovery admission**, including producer enforcement. Keep configured identities visible with an incompatibility explanation; they are not eligible choices or empty success. Merely returning `setup: incompatible` alongside usable sources is insufficient. Version both copied contracts together; test both mixed-upgrade orders.
+
+Remove `localFolder` from the supported public inventory/tool output and update documentation and Obsidian parsing. The source audit found Obsidian as the only in-repo consuming plugin; it currently validates then discards that path. Record that audit at delivery. Do not claim unknown external raw-folder consumers migrated or that OS reads share overlay visibility. If a supported outside consumer cannot migrate, this is a compatibility blocker, not permission to weaken the contract. No operator-only raw endpoint is needed unless an actual consumer justifies one.
+
+## Bounds, progress and retention
+
+Initial engineering budgets, to validate before approval:
+
+- Existing 1 MiB/note and 10k enumeration limits.
+- Pending content: 64 MiB / 256 active paths globally; 16 MiB / 128 paths per vault. Count staged reservations, active versions and unreconciled generations without double-counting shared immutable content.
+- Definite compact operation receipts: separate from hot pending capacity, retain the existing 30-day time-bearing UUID replay fence. Propose 32,768 rows / 64 MiB, with explicit pre-acceptance refusal on exhaustion. Do not inherit the old 512-directory limit as an unnoticed cap on a month of ordinary small edits.
+- Previous-version bytes: a separate bounded 64 MiB recovery budget, with documented retention and pre-acceptance reservation. Legacy archives are preserved. Pending and uncertain versions/IDs are never silently evicted. Definite expired receipts may be pruned only consistently with the UUID expiry fence; uncertain records remain inspectable and can force honest capacity refusal.
+
+Look up legacy and new operation identities together before CAS; an old ID cannot become a fresh write after migration. Index/archival work must not scan every note or take a native-run lock on the save path. Test physical ENOSPC separately from logical quotas.
+
+After each native command and on idle wake-up, reserve a finite application quantum: initially at most one second and 16 paths, round-robin over mirrors/paths. Native work receives its turn after the quantum; new writes do not indefinitely extend it. Coalesce application to the latest head while retaining earlier receipts/recovery. Local publication waits only for short local critical sections, not the command queue.
+
+Measure the minimum successful drain per quantum under the declared healthy workload. The target is 16 ordinary paths per one-second quantum; failure to achieve it requires revising the scheduling/budget **before approval**, not silently relaxing progress. For P already-pending ordinary paths, quantum drain q, healthy maximum command duration D and quantum Q, record the conservative application bound `ceil(P/q) * (D + Q)`, plus scheduler wake-up. A later native observation also depends on that mirror's measured cadence. New arrivals go behind existing work; coalescing a hot path must not move another path backwards.
+
+Acceptance workload: two mirrors, native runs lasting at least 40 seconds each, up to 16 dirty ordinary paths per mirror and 100 saves over five minutes including repeated edits. Under measured D ≤ 40 seconds plus the fixture's recorded tolerance, q ≥ 16 and Q ≤ one second, those 32 existing paths should apply within two idle opportunities (about 82 seconds plus tolerance/wake-up), without delaying save acknowledgments. Scale tests to the full 20-mirror limit with deterministic scheduling and report the general bound; do not pretend a serial 20×40-second pass still gives each mirror one-minute freshness. Arrival rates beyond service capacity receive pre-acceptance backpressure, never acknowledged data loss.
+
+## Migration and rollback
+
+Additive migration validates actual generation ownership, legacy journals, baselines and new content before admitting v2 writes. Do not delete/move old recovery data or rewrite immutable old receipts. Mixed versions fail closed, with identities/settings preserved. A new scoped index must not let an uninitialized candidate race its predecessor.
+
+Verified drain for rollback requires **no active authority, pending, applying, applied-awaiting-run, conflicted or uncertain generation**, no unresolved legacy application journal, and proof that every acknowledged current version is safely represented by the native view or deliberately archived by a recorded resolution. Empty pending counters alone are insufficient.
+
+Old binaries cannot enforce a v2 marker. The deployment procedure must prohibit downgrade while this drain is unmet and retain the compatible binary and content. A failed upgrade with active data needs forward recovery, not automatic rollback onto a stale mirror. Test the actual updater behavior; inability to prevent an unsafe automatic rollback blocks rollout.
+
+## Implementation slices and evidence gates
+
+All gates below remain **unverified** for this design. Complete the single-path lifecycle before adding scheduling and UI complexity.
+
+1. **Executable contract and native publication probe.** Reproduce the empty picker and source busy state synthetically. Establish the incompatible-catalog admission regression. Verify actual pinned native temporary-file publication and stable reads. Use a real rate-limited native transfer of generated data held active ≥40 seconds; allow test-only bandwidth control without changing production settings or triggering transfer limits. A delayed JavaScript promise is not native evidence.
+2. **One-path durable lifecycle.** Implement publication, exact dedup, independent apply inode, owned checkpoint advancement, following-run eligibility, retirement and later remote-edit visibility. Exercise A→B→C around every boundary and explicit conflict resolution before adding multi-vault orchestration. Stop if the store cannot recover a clear old/new/uncertain result.
+3. **Crash and ownership proofs.** Real child-process SIGKILL immediately before/after blob fsync, blob-parent fsync, journal/index commit, logical pointer/receipt commit, reply loss, apply-stage fsync, mirror publish, destination-directory fsync and retirement. Assert pointer/receipt consistency, immutable blob isolation, no duplicate append/create and no unsafe replay. Start a replacement while an inherited native child owns the flock; prove no overlapping overlay writer or premature command/migration. Include admission/removal/disposal races.
+4. **Native races and progress.** Real stock bisync covers remote creates/edits/deletes before and after local application, rename-both-sides conflict, the native changed-versus-deleted policy, interrupted downloads, deletion threshold and retryable/critical recovery. Prove no direct mirror mutation during active commands. Run repeated real long cycles on two mirrors, with competing reads and writes, application/drain timing and refusal tests; test deterministic full-cap scheduling separately.
+5. **Integration and compatibility.** Update iCloud services/ports, note store/overlay, native worker/provider, contracts/server; update Obsidian adapter/service/ports/contracts/server and copied contract drift tests. Exercise every supported note/recovery path, all nine existing assistant tools, complete-read/CAS proofs, partial results, bounded oversized scans, legacy IDs and both mixed-version update orders. Remove sync-phase gates and raw-path publication. Keep caller restrictions and configuration revocation.
+6. **Latency, retention and failures.** At least 100 accepted 1–64 KiB note saves over the five-minute two-mirror workload, including ≥30 during actual native activity and samples during idle application and receipt maintenance. Measure client-observed coordinated-RPC p50/p95/max plus local commit/fsync time separately. Target p95 <1 second, max <2 seconds excluding deliberate disk failure; no 40-second-tail saves or routine sync-busy results. Replay a month-equivalent 3,000 small-note edits with no pending backlog; show compact receipts/previous bytes, not 512 retained directories, determine admission. Explicitly test quotas, ENOSPC, corrupt blobs, inaccessible paths, symlinks, cancellation and sentinels in failure logs/results.
+7. **BB and UX evidence.** Real BB/provider tools on generated data establish caller and durability boundaries; rendered desktop/narrow/keyboard/focus review establishes settings behavior. Test first-run/pending/connected/empty/incompatible/error/recovery states, long sync with picker open, refresh/navigation/removal races and clear paused/disconnected freshness. Reuse BB connection UI. No normal-save approval dialog. A synthetic rendered RPC fixture is not proof of real note access, nor is a provider call proof of rendered UX.
+8. **Controlled delivery.** Follow [ship-feedback](../../.agents/skills/bb-ship-feedback/SKILL.md): package tests/typechecks/shared checks, review diff, commit/push, supported Pause **before update preparation**, finish active work, preserve credentials and prior enabled identities, update affected iCloud/Obsidian only, restore exactly prior enabled sources and observe a completed scheduled run. Generation/rollback gates must be proved first. No personal-note reads or cloud/device mutations merely to pass a test; stop if safe quiescence or any required gate is unavailable. Verify versions and a bounded read-only call/log check; report local latency, pending age and limits of cloud/device evidence independently.
+
+## Approval status
+
+The parent recommends the continuously available local-service contract. The overlay and recovery protocol above are a proposed engineering implementation of it, not a claim that the user selected those internals.
+
+Implementation is held pending parent inspection of this revision and resolution of the requested ensemble's model-routing failure. No second review round or runtime implementation has been dispatched. Supported outside raw-folder consumers, unsafe updater rollback behavior, native publication assumptions or an unusable conflict protocol are release blockers if found—not details to waive after a passing unit suite.
