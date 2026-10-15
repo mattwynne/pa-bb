@@ -84,7 +84,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     noteRead(input, context) { obsidianOnly(context); return noteAction('note_read', () => runtime!.read(input.mirrorId, input.revision, input.path, input.selector?.token)); },
     noteCommit(input, context) { obsidianOnly(context); return noteAction('note_commit', () => runtime!.commit(input.revision, input)); },
     noteReceipts(input, context) { obsidianOnly(context); return noteAction('note_receipts', () => runtime!.receipts(input.mirrorId, input.revision, input)); },
-    noteInspectConflict(input, context) { obsidianOnly(context); return noteAction('note_inspect_conflict', () => runtime!.access(input.mirrorId, input.revision, () => runtime!.overlay.inspect(input.mirrorId, input.path))); },
+    noteInspectConflict(input, context) { obsidianOnly(context); return noteAction('note_inspect_conflict', () => runtime!.access(input.mirrorId, input.revision, root => runtime!.overlay.inspect(input.mirrorId, input.path, root))); },
     noteResolveConflict(input, context) { obsidianOnly(context); return noteAction('note_resolve_conflict', () => runtime!.resolve(input.mirrorId, input.revision, input.path, input)); },
     status() { return status(); },
     async browse({ parent }, context) { clientOnly(context); try { return await sync.browse(parent); } catch { throw new Error('Could not browse iCloud folders. Reconnect Apple or try again after the current operation finishes.'); } },

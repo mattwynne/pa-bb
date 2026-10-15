@@ -10,6 +10,7 @@ import { NoteStore, NoteError, NOTE_LIMITS, validateNotePath } from './note-stor
 import { CloudError } from '../core/ports.ts';
 import type { CommitInput, NoteReceipt } from './note-store.ts';
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+const INCOMING_ARCHIVE_LIMIT = 32768; // separate metadata bound; shared/empty bytes cannot exhaust the byte quota
 const validId = (value: string) => /^[a-zA-Z0-9-]{1,64}$/.test(value);
 const validOperation = (value: string) => /^[a-f0-9]{8}-[a-f0-9]{4}-7[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
 const issuedAt = (id: string) => Number.parseInt(id.replaceAll('-', '').slice(0, 12), 16);
@@ -42,6 +43,10 @@ CREATE INDEX IF NOT EXISTS icloud_note_overlay_receipts_expiry ON icloud_note_ov
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_receipts_scope ON icloud_note_overlay_receipts(mirror_id, at DESC, operation_id);
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_receipts_path ON icloud_note_overlay_receipts(mirror_id, path, at DESC);
 CREATE TABLE IF NOT EXISTS icloud_note_overlay_recovery (operation_id TEXT PRIMARY KEY, hash TEXT NOT NULL, bytes INTEGER NOT NULL);
+-- A captured incoming version is neither a save receipt nor a previous local
+-- version. Its original conflict token is its durable recovery identity.
+CREATE TABLE IF NOT EXISTS icloud_note_overlay_incoming_archive (token TEXT PRIMARY KEY, mirror_id TEXT NOT NULL, path TEXT NOT NULL, hash TEXT NOT NULL, bytes INTEGER NOT NULL, captured_at INTEGER NOT NULL, resolution_operation_id TEXT);
+CREATE INDEX IF NOT EXISTS icloud_note_overlay_incoming_expiry ON icloud_note_overlay_incoming_archive(captured_at, token);
 CREATE TABLE IF NOT EXISTS icloud_note_overlay_resolutions (operation_id TEXT PRIMARY KEY, mirror_id TEXT NOT NULL, path TEXT NOT NULL, at TEXT NOT NULL, digest TEXT NOT NULL, outcome TEXT NOT NULL, hash TEXT, quota_bytes INTEGER NOT NULL CHECK(quota_bytes >= 0), checked_at INTEGER);
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_resolutions_maintenance ON icloud_note_overlay_resolutions(checked_at, operation_id);
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_resolutions_scope ON icloud_note_overlay_resolutions(mirror_id, at DESC, operation_id);
@@ -207,9 +212,20 @@ export class NoteOverlay {
       }
     }
     for (const ref of this.db.prepare('SELECT class, kind, owner, mirror_id, hash, bytes FROM icloud_note_overlay_blob_refs').all() as Array<{ class: string; kind: string; owner: string; mirror_id: string; hash: string; bytes: number }>) {
-      if (!validId(ref.mirror_id) || !/^[a-f0-9]{64}$/.test(ref.hash) || !Number.isSafeInteger(ref.bytes) || ref.bytes < 0 || ![['pending', 'head'], ['pending', 'checkpoint'], ['pending', 'incoming'], ['recovery', 'receipt'], ['recovery', 'previous']].some(([cls, kind]) => cls === ref.class && kind === ref.kind)) throw new NoteError('uncertain');
+      if (!validId(ref.mirror_id) || !/^[a-f0-9]{64}$/.test(ref.hash) || !Number.isSafeInteger(ref.bytes) || ref.bytes < 0 || ![['pending', 'head'], ['pending', 'checkpoint'], ['pending', 'incoming'], ['recovery', 'receipt'], ['recovery', 'previous'], ['recovery', 'incoming-archive']].some(([cls, kind]) => cls === ref.class && kind === ref.kind)) throw new NoteError('uncertain');
       const catalog = this.db.prepare('SELECT bytes, orphan_at FROM icloud_note_overlay_blob_catalog WHERE hash = ?').get(ref.hash) as { bytes: number; orphan_at: number | null } | undefined;
       if (!catalog || catalog.bytes !== ref.bytes || catalog.orphan_at !== null) throw new NoteError('uncertain');
+    }
+    const archived = this.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_incoming_archive').get() as { count: number };
+    if (archived.count > INCOMING_ARCHIVE_LIMIT) throw new NoteError('uncertain');
+    for (const row of this.db.prepare('SELECT * FROM icloud_note_overlay_incoming_archive').all() as Array<{ token: string; mirror_id: string; path: string; hash: string; bytes: number; captured_at: number; resolution_operation_id: string | null }>) {
+      if (!z.string().uuid().safeParse(row.token).success || !validId(row.mirror_id) || !Number.isSafeInteger(row.bytes) || row.bytes < 0 || !Number.isSafeInteger(row.captured_at) || row.captured_at < 0 || row.captured_at > this.clock() + 300000) throw new NoteError('uncertain');
+      validateNotePath(row.path);
+      if (row.resolution_operation_id && (!validOperation(row.resolution_operation_id) || !this.db.prepare('SELECT 1 FROM icloud_note_overlay_resolutions WHERE operation_id = ? AND mirror_id = ? AND path = ?').get(row.resolution_operation_id, row.mirror_id, row.path))) throw new NoteError('uncertain');
+      if (Buffer.byteLength(await this.loadBlob(row.hash)) !== row.bytes || !this.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE class = 'recovery' AND kind = 'incoming-archive' AND owner = ? AND mirror_id = ? AND hash = ? AND bytes = ?").get(row.token, row.mirror_id, row.hash, row.bytes)) throw new NoteError('uncertain');
+    }
+    for (const ref of this.db.prepare("SELECT owner, mirror_id, hash, bytes FROM icloud_note_overlay_blob_refs WHERE kind = 'incoming-archive'").all() as Array<{ owner: string; mirror_id: string; hash: string; bytes: number }>) {
+      if (!this.db.prepare('SELECT 1 FROM icloud_note_overlay_incoming_archive WHERE token = ? AND mirror_id = ? AND hash = ? AND bytes = ?').get(ref.owner, ref.mirror_id, ref.hash, ref.bytes)) throw new NoteError('uncertain');
     }
     for (const row of this.db.prepare('SELECT * FROM icloud_note_overlay_receipts').all() as Array<{ operation_id: string; mirror_id: string; path: string; hash: string; previous_hash: string | null }>) {
       if (!validOperation(row.operation_id) || !validId(row.mirror_id)) throw new NoteError('uncertain'); validateNotePath(row.path);
@@ -304,6 +320,20 @@ export class NoteOverlay {
       if (!left) this.db.prepare('UPDATE icloud_note_overlay_blob_catalog SET orphan_at = ? WHERE hash = ?').run(this.clock(), hash);
     }
   }
+  // Must run inside the same transaction that releases the live incoming ref.
+  // A distinct incoming version consumes the separate 64 MiB recovery budget;
+  // existing recovery references to identical bytes are counted only once.
+  private archiveIncoming(id: string, path: string, conflict: Conflict, resolutionId: string | null = null) {
+    if (!conflict.incomingHash) return;
+    const bytes = (this.db.prepare('SELECT bytes FROM icloud_note_overlay_blob_catalog WHERE hash = ?').get(conflict.incomingHash) as { bytes: number } | undefined)?.bytes;
+    if (bytes === undefined || !this.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE class = 'pending' AND kind = 'incoming' AND owner = ? AND mirror_id = ? AND hash = ? AND bytes = ?").get(conflict.token, id, conflict.incomingHash, bytes)) throw new NoteError('uncertain');
+    const already = this.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE class = 'recovery' AND hash = ? LIMIT 1").get(conflict.incomingHash);
+    const total = this.db.prepare('SELECT recovery_bytes FROM icloud_note_overlay_totals WHERE id = 1').get() as { recovery_bytes: number };
+    const count = this.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_incoming_archive').get() as { count: number };
+    if (count.count >= INCOMING_ARCHIVE_LIMIT || (!already && total.recovery_bytes + bytes > NOTE_LIMITS.recoveryBytes)) throw new NoteError('capacity');
+    this.db.prepare('INSERT INTO icloud_note_overlay_incoming_archive(token, mirror_id, path, hash, bytes, captured_at, resolution_operation_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(conflict.token, id, path, conflict.incomingHash, bytes, this.clock(), resolutionId);
+    this.ref('recovery', 'incoming-archive', conflict.token, id, conflict.incomingHash, bytes, true);
+  }
   private reserve(id: string, mirrorId: string, hash: string | null, bytes: number, paths: number, recoveryHash: string | null, recovery: number, receiptBytes: number, receiptHash: string | null, receiptContentBytes: number) {
     this.db.transaction(() => {
       this.db.prepare('INSERT OR IGNORE INTO icloud_note_overlay_usage(scope, paths, bytes) VALUES (?, 0, 0)').run(mirrorId);
@@ -384,9 +414,22 @@ export class NoteOverlay {
         if (row.hash) { const size = (this.db.prepare('SELECT bytes FROM icloud_note_overlay_blob_catalog WHERE hash = ?').get(row.hash) as { bytes: number }).bytes; this.ref('recovery', 'receipt', row.operation_id, row.mirror_id, row.hash, size, false); }
         const old = this.db.prepare('SELECT hash, bytes FROM icloud_note_overlay_recovery WHERE operation_id = ?').get(row.operation_id) as { hash: string; bytes: number } | undefined;
         if (old) { this.ref('recovery', 'previous', row.operation_id, row.mirror_id, old.hash, old.bytes, false); this.db.prepare('DELETE FROM icloud_note_overlay_recovery WHERE operation_id = ?').run(row.operation_id); }
+        this.db.prepare('UPDATE icloud_note_overlay_incoming_archive SET resolution_operation_id = NULL WHERE resolution_operation_id = ?').run(row.operation_id);
         this.db.prepare('DELETE FROM icloud_note_overlay_resolutions WHERE operation_id = ?').run(row.operation_id);
         this.db.prepare('UPDATE icloud_note_overlay_totals SET receipts = receipts - 1, receipt_bytes = receipt_bytes - ? WHERE id = 1').run(row.quota_bytes);
       })(); receipts++;
+    }
+    const archives = this.db.prepare('SELECT token, mirror_id, path, hash, bytes FROM icloud_note_overlay_incoming_archive WHERE captured_at < ? ORDER BY captured_at, token LIMIT ?').all(cutoff, limit - examined) as Array<{ token: string; mirror_id: string; path: string; hash: string; bytes: number }>;
+    for (const row of archives) {
+      if (!budget()) break; examined++;
+      // The current conflict and its readers cannot lose their only incoming
+      // reference. Old captures expire after 30 days, even if a receipt lives on.
+      const active = this.head(row.mirror_id, row.path)?.conflict;
+      if (active && parse(active, conflictSchema).token === row.token) continue;
+      this.db.transaction(() => {
+        this.ref('recovery', 'incoming-archive', row.token, row.mirror_id, row.hash, row.bytes, false);
+        this.db.prepare('DELETE FROM icloud_note_overlay_incoming_archive WHERE token = ?').run(row.token);
+      })();
     }
     const orphans = this.db.prepare('SELECT hash, bytes FROM icloud_note_overlay_blob_catalog WHERE orphan_at IS NOT NULL AND orphan_at <= ? ORDER BY orphan_at, hash LIMIT ?').all(now, limit - examined) as Array<{ hash: string; bytes: number }>;
     for (const row of orphans) {
@@ -675,10 +718,91 @@ export class NoteOverlay {
     });
     return retired;
   }
-  async inspect(id: string, path: string) {
-    const row = this.head(id, path); if (!row?.conflict) return null;
-    const conflict = parse(row.conflict, conflictSchema);
-    return { token: conflict.token, logicalHash: row.hash, incomingHash: conflict.incomingHash, incomingAbsent: conflict.incomingHash === null };
+  // Two bounded stable observations, not a native-command turn. The baseline
+  // and the selected pair remain historical evidence; only one genuinely new
+  // numbered pair may supersede a captured incoming copy.
+  private async incomingEvidence(root: string, path: string, row: Head, captured: Conflict) {
+    const observe = async () => ({ canonical: await this.mirror.observe(root, path), copies: await this.mirror.conflictCopies(root, path) });
+    const first = await observe(), second = await observe();
+    if (!same(proof(first.canonical), proof(second.canonical)) || !sameCopies(copiesOf(first.copies), copiesOf(second.copies))) throw new NoteError('conflict');
+    const baseline = parse(row.copies, copiesSchema);
+    for (const old of baseline) {
+      const found = first.copies.find(copy => copy.side === old.side && copy.number === old.number);
+      if (!found || !same(proof(found.observation), old.evidence)) throw new NoteError('uncertain');
+    }
+    const priorNumber = captured.incomingCopyNumber;
+    const selected = priorNumber === null ? null : first.copies.find(copy => copy.side === 'icloud' && copy.number === priorNumber);
+    if (priorNumber !== null && !selected) throw new NoteError('uncertain');
+    const fresh = first.copies.filter(copy => !baseline.some(old => old.side === copy.side && old.number === copy.number) && copy.number !== priorNumber);
+    let incoming = selected?.observation ?? first.canonical;
+    let number = priorNumber;
+    if (fresh.length) {
+      const remote = fresh.filter(copy => copy.side === 'icloud'), local = fresh.filter(copy => copy.side === 'bb');
+      const checkpoint = row.applied ? parse(row.applied, appliedSchema) : null;
+      const expected = checkpoint?.hash ?? parse(row.base, proofSchema)?.hash;
+      if (fresh.length !== 2 || remote.length !== 1 || local.length !== 1 || remote[0].number !== local[0].number || local[0].observation.hash !== expected) throw new NoteError('uncertain');
+      incoming = remote[0].observation; number = remote[0].number;
+    }
+    // A disappearing canonical file does not prove remote absence when an
+    // earlier preserved remote copy remains. Without a selected fresh pair,
+    // its relationship to this change is uncertain, not an absent version.
+    if (!incoming && captured.incomingHash !== null && first.copies.some(copy => copy.side === 'icloud')) throw new NoteError('uncertain');
+    return { canonical: proof(first.canonical), incoming, number, copies: copiesOf(first.copies) };
+  }
+  async inspect(id: string, path: string, ownedRoot?: string) {
+    if (!validId(id)) throw new NoteError('invalid_path'); validateNotePath(path);
+    return this.locked(id, path, async () => {
+      const row = this.head(id, path); if (!row?.conflict) return null;
+      const captured = parse(row.conflict, conflictSchema);
+      if (ownedRoot) {
+        const observed = await this.incomingEvidence(ownedRoot, path, row, captured);
+        const changed = !same(observed.canonical, captured.canonical) || !same(proof(observed.incoming), captured.incoming) || observed.number !== captured.incomingCopyNumber;
+        if (changed) {
+          const publish = async () => {
+            if (observed.incoming) await this.blobLocked(observed.incoming.text);
+            // An awaited blob fsync may overlap native publication. Never
+            // publish a token for bytes that have already moved again.
+            const latest = await this.incomingEvidence(ownedRoot, path, row, captured);
+            if (!same(latest.canonical, observed.canonical) || !same(proof(latest.incoming), proof(observed.incoming)) || latest.number !== observed.number || !sameCopies(latest.copies, observed.copies)) throw new NoteError('conflict');
+            const next: Conflict = { token: randomUUID(), canonical: observed.canonical, incoming: proof(observed.incoming), incomingHash: observed.incoming?.hash ?? null, incomingCopyNumber: observed.number };
+            // A replaced numbered pair becomes historical evidence, not a
+            // second candidate incoming pair on the next inspection/restart.
+            const history = parse(row.copies, copiesSchema);
+            if (captured.incomingCopyNumber !== null && observed.number !== captured.incomingCopyNumber) {
+              const oldPair = observed.copies.filter(copy => copy.number === captured.incomingCopyNumber);
+              if (oldPair.length !== 2 || !oldPair.some(copy => copy.side === 'icloud' && same(copy.evidence, captured.incoming))) throw new NoteError('uncertain');
+              history.push(...oldPair);
+            }
+            this.db.transaction(() => {
+              this.admission?.(id);
+              if (this.head(id, path)?.conflict !== row.conflict) throw new NoteError('conflict');
+              // Reserve archival capacity before the old incoming token is
+              // released. A failed transaction leaves the entire head intact.
+              this.archiveIncoming(id, path, captured);
+              if (observed.incoming) {
+                const bytes = Buffer.byteLength(observed.incoming.text);
+                const usage = this.db.prepare("SELECT scope, bytes FROM icloud_note_overlay_usage WHERE scope IN ('*', ?)").all(id) as Array<{ scope: string; bytes: number }>;
+                for (const usageRow of usage) {
+                  const exists = this.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE class = 'pending' AND hash = ? AND (? = '*' OR mirror_id = ?) LIMIT 1").get(observed.incoming.hash, usageRow.scope, id);
+                  if (usageRow.bytes + (exists ? 0 : bytes) > (usageRow.scope === '*' ? 64 : 16) * 1024 * 1024) throw new NoteError('capacity');
+                }
+                this.ref('pending', 'incoming', next.token, id, observed.incoming.hash, bytes, true);
+              }
+              if (captured.incomingHash) {
+                const bytes = (this.db.prepare('SELECT bytes FROM icloud_note_overlay_blob_catalog WHERE hash = ?').get(captured.incomingHash) as { bytes: number }).bytes;
+                this.ref('pending', 'incoming', captured.token, id, captured.incomingHash, bytes, false);
+              }
+              this.db.prepare('UPDATE icloud_note_overlay_heads SET conflict = ?, copies = ? WHERE mirror_id = ? AND path = ? AND generation = ? AND conflict = ?').run(JSON.stringify(next), JSON.stringify(history), id, path, row.generation, row.conflict);
+            })();
+          };
+          if (observed.incoming) await this.locked('blob', observed.incoming.hash, publish);
+          else await publish();
+        }
+      }
+      const current = this.head(id, path)!;
+      const conflict = parse(current.conflict!, conflictSchema);
+      return { token: conflict.token, logicalHash: current.hash, incomingHash: conflict.incomingHash, incomingAbsent: conflict.incomingHash === null };
+    });
   }
   async readIncoming(id: string, path: string, token: string): Promise<string | null> {
     if (!validId(id)) throw new NoteError('invalid_path'); validateNotePath(path);
@@ -700,13 +824,8 @@ export class NoteOverlay {
       const row = this.head(id, path); if (!row?.conflict) throw new NoteError('conflict');
       const conflict = parse(row.conflict, conflictSchema);
       if (conflict.token !== input.token || row.hash !== input.expectedLogicalHash || conflict.incomingHash !== input.expectedIncomingHash) throw new NoteError('conflict');
-      const current = await this.mirror.observe(root, path);
-      if (!same(proof(current), conflict.canonical)) throw new NoteError('conflict');
-      if (conflict.incomingCopyNumber !== null) {
-        const copies = await this.mirror.conflictCopies(root, path);
-        const selected = copies.filter(copy => copy.side === 'icloud' && copy.number === conflict.incomingCopyNumber);
-        if (selected.length !== 1 || !same(proof(selected[0].observation), conflict.incoming)) throw new NoteError('conflict');
-      }
+      const observation = await this.incomingEvidence(root, path, row, conflict);
+      if (!same(observation.canonical, conflict.canonical) || !same(proof(observation.incoming), conflict.incoming) || observation.number !== conflict.incomingCopyNumber) throw new NoteError('conflict');
       const adoptedMirror = input.choice === 'accept_incoming' && conflict.incomingCopyNumber === null;
       let hash: string | null = input.choice === 'replace' ? sha(input.text!) : input.choice === 'keep_local' ? row.hash : conflict.incomingHash;
       const nextBytes = adoptedMirror ? 0 : hash === row.hash ? row.bytes : hash ? input.choice === 'replace' ? Buffer.byteLength(input.text!) : Buffer.byteLength(await this.loadBlob(hash)) : 0;
@@ -719,11 +838,16 @@ export class NoteOverlay {
         const receiptHashBytes = hash ? (this.db.prepare('SELECT bytes FROM icloud_note_overlay_blob_catalog WHERE hash = ?').get(hash) as { bytes: number } | undefined)?.bytes : 0;
         if (hash && receiptHashBytes === undefined) throw new NoteError('uncertain');
         const outcome = input.choice === 'accept_incoming' ? hash ? 'adopted_content' : 'adopted_absence' : 'saved_locally_pending_sync';
-        const awaitedCopies = await this.mirror.conflictCopies(root, path);
         await this.fault?.('before_resolution_head');
+        // Last stable evidence boundary after every awaited preparation step.
+        // No more awaited preparation occurs before the pointer transaction;
+        // this is a bounded observation, not a native cloud-delivery proof.
+        const final = await this.incomingEvidence(root, path, row, conflict);
+        if (!same(final.canonical, conflict.canonical) || !same(proof(final.incoming), conflict.incoming) || final.number !== conflict.incomingCopyNumber || !sameCopies(final.copies, observation.copies)) throw new NoteError('conflict');
         this.db.transaction(() => {
           this.admission?.(id);
           if (this.operation(input.operationId).save || this.operation(input.operationId).legacy) throw new NoteError('operation_reused');
+          this.archiveIncoming(id, path, conflict, input.operationId);
           let nextGeneration: number | null = null;
           if (adoptedMirror) {
             this.db.prepare('DELETE FROM icloud_note_overlay_heads WHERE mirror_id = ? AND path = ? AND generation = ? AND conflict = ?').run(id, path, row.generation, row.conflict);
@@ -732,7 +856,7 @@ export class NoteOverlay {
             const inserted = this.db.prepare('INSERT INTO icloud_note_overlay_generations(operation_id, mirror_id, path, parent_generation, hash, bytes, published_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(input.operationId, id, path, row.generation, hash, nextBytes, this.clock(), 'pending');
             const next = Number(inserted.lastInsertRowid); nextGeneration = next;
             this.db.prepare("UPDATE icloud_note_overlay_generations SET state = 'resolved', superseded_by = ? WHERE generation_id = ?").run(next, row.generation);
-            this.db.prepare('UPDATE icloud_note_overlay_heads SET generation = ?, hash = ?, bytes = ?, base = ?, applied = NULL, conflict = NULL, copies = ?, queue_order = ?, queued_at = ? WHERE mirror_id = ? AND path = ? AND generation = ? AND conflict = ?').run(next, hash, nextBytes, JSON.stringify(proof(current)), JSON.stringify(copiesOf(awaitedCopies)), next, this.clock(), id, path, row.generation, row.conflict);
+            this.db.prepare('UPDATE icloud_note_overlay_heads SET generation = ?, hash = ?, bytes = ?, base = ?, applied = NULL, conflict = NULL, copies = ?, queue_order = ?, queued_at = ? WHERE mirror_id = ? AND path = ? AND generation = ? AND conflict = ?').run(next, hash, nextBytes, JSON.stringify(final.canonical), JSON.stringify(final.copies), next, this.clock(), id, path, row.generation, row.conflict);
           }
           if (nextGeneration && hash) this.ref('pending', 'head', String(nextGeneration), id, hash, nextBytes, true);
           if (hash) this.ref('recovery', 'receipt', input.operationId, id, hash, receiptHashBytes!, true);
