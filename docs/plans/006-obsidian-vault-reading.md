@@ -1,7 +1,7 @@
 # 006 — Obsidian support
 
-Status: planned. Reference material and a concept overview exist; the plugin and
-its coordinated write boundary are not implemented.
+Status: implemented and verified with generated data. Installed-release checks
+are pending; Apple and device round trips remain unverified.
 
 ## Outcome
 
@@ -283,7 +283,71 @@ browser/editor/graph or permission UI has appeared along the way.
 
 ## Release evidence
 
-Not started. Record parser/resource/recovery decisions, supported versions, test
-results, native coordination/crash checks, rendered BB observations, installed
-commit and disposable read/edit/sync evidence here. Mark unavailable live gates
-unverified. Documentation-only planning needs no plugin deployment.
+### Implementation and verification
+
+Obsidian **0.1.0** and iCloud **0.1.12** implement the nine-tool, whole-vault
+connection model. Tested with BB **0.45.0**, Plugin SDK **0.6.15**, Node **24**,
+Linux native rclone **1.75.2**, and Chrome-rendered BB settings. Installation
+connects no vaults. There is no approval or read-only mode.
+
+- **Obsidian:** build/typecheck, eight Cucumber scenarios (38 steps), and 39
+  parser/core/adapter/host tests passed without skips. Examples cover hidden and
+  duplicate-named vaults, CRLF/Unicode, unsafe properties, precise task/property
+  edits, complete-read requirements, cancellation, lost replies and removal races,
+  including revoked metadata and stale search continuations.
+- **Affected iCloud regressions:** build/typecheck, 46 Cucumber scenarios and 76
+  local tests passed; ten native scenarios and 39 platform/opt-in tests were skipped
+  on the non-Linux development host. On Linux, all **56 Cucumber scenarios
+  (520 steps)** passed. Separate Linux boundary/worker/process runs passed
+  **41 tests without skips**, including inherited-flock contention, orphan
+  command ownership, disposal, conditional/exclusive saves, capacity, symlink/parent
+  swaps, expiry/pruning and SIGKILL at five journal/commit stages.
+- **Actual BB/native integration:** all nine production handlers passed through
+  schema-validated, caller-checked plugin RPC and the actual native worker against
+  generated local-to-local sources. Two vaults, hidden notes, links/tasks, separate
+  create/link receipts, byte preservation and removal were checked. Forged/client
+  calls were denied. The test-only invoke RPC is not provider-session evidence.
+- **Actual provider session:** a fresh Pi/OpenRouter session in isolated Linux BB
+  invoked create, complete reads, append, task completion and property update.
+  Four distinct receipts reported `saved_locally_pending_sync`; there were no
+  confirmation interactions or filesystem-tool calls. The final generated file
+  was independently compared with the returned content and hash.
+- **Scheduled access:** two real one-minute native bisync runs over 252 generated
+  notes took 91.10/85.61 ms. Of 596 sampled reads, 595 succeeded and one returned
+  bounded busy; maximum successful access was 8.18 ms and the busy reply took
+  0.37 ms. Editing succeeded afterward. A separate forced long transfer proved
+  busy rather than overlapping access. These are synthetic measurements, not a
+  cloud-service latency promise.
+- **Rendered BB:** 42 desktop/narrow state combinations plus late-response/removal
+  and actual iCloud-settings navigation at both widths passed. Screenshots were
+  reviewed for first run, duplicate names, pending verification, failed checks,
+  connected and removed sources. Keyboard focus, ordered steps, no overflow and
+  no confirmation dialogs were checked against the existing iCloud layout.
+- **Packaging:** shared connection-UI drift, independent boundary-contract drift,
+  and marketplace-v2 checks passed. Runtime dependency audit reported no known
+  vulnerabilities. The pinned BB development toolchain reports nine advisories
+  (one moderate, seven high, one critical), all through `bb-app`; these are not
+  silently fixed by downgrading BB or changing the host contract. Treat build and
+  installation inputs as trusted; upstream toolchain remediation remains open.
+
+### Decisions and limits
+
+The maintained Markdown/YAML parsers preserve offsets and unrelated source bytes;
+unsupported structures refuse writes rather than rewrite a note. Read, parser,
+scan, output, pagination and recovery budgets are documented in the
+[plugin README](../../plugins/obsidian/README.md#resource-and-recovery-limits).
+
+The iCloud boundary owns file work under its actual native generation/flock.
+Journals reconcile before native sync; settled journals are not rescanned on each
+ordinary note access. Previous/staged bytes remain outside mirrors with a combined
+64 MiB/512-operation budget. Timestamp-fenced UUIDv7 identities permit 30-day
+pruning of definite receipts without replaying old transport retries; uncertain
+entries are never pruned automatically. Restoration requires inspection and a
+fresh conditional operation, not clearing journals or overwriting newer changes.
+
+### Installed release and remaining checks
+
+Commit/push, affected-plugin installation and read-only production observation
+are pending. No personal vault was connected or read for these tests. Apple/cloud
+writes and phone round trips were not authorized or attempted. Synthetic native
+sync and local receipts do not establish exact delivery to iCloud or a device.

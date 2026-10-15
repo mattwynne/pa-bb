@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import type { BbPluginApi } from '@get-bb/plugin-sdk';
+import { readFile } from 'node:fs/promises';
+import { ICloud } from '../adapters/icloud.ts';
+const mirror = { id: 'one', folder: { name: 'Generated' }, initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-01-01T00:00:00Z', failure: null };
+function fixture() {
+  let plugins: any[] = [{ id: 'icloud', enabled: true, status: 'running' }]; const state: any = { noteAccessVersion: 1, available: true, connected: true, challenge: null, mirrors: [structuredClone(mirror)] }; let failed = false;
+  const logs: string[] = []; const calls: string[] = [];
+  const sdk = { plugins: { async list() { if (failed) throw new Error('sentinel-private token /private/path'); return { plugins }; }, async callRpc(request: any) { calls.push(request.method); const value = request.method === 'status' ? state : request.method === 'inventory' ? state.mirrors.filter((m: any) => m.initialized).map((m: any) => ({ id: m.id, name: m.folder.name, localFolder: '/private/sentinel-root', phase: m.phase, lastSuccess: m.lastSuccess })) : { ok: false, category: 'busy', nextAction: 'Try again after sync.' }; return request.outputSchema.parse(value); } } } as unknown as BbPluginApi['sdk'];
+  return { adapter: new ICloud(sdk, (stage, category) => logs.push(`Obsidian ${stage} ${category}`)), state, logs, calls, setPlugins(value: any[]) { plugins = value; }, fail() { failed = true; } };
+}
+test('schema-validated catalog never propagates server-local roots', async () => { const f = fixture(); const result = await f.adapter.snapshot(); assert.equal(result.sources[0].id, 'one'); assert.doesNotMatch(JSON.stringify(result), /private|sentinel|localFolder/); assert.deepEqual(f.calls, ['status', 'inventory']); });
+for (const [setup, mutate] of [
+  ['missing', (f: ReturnType<typeof fixture>) => f.setPlugins([])], ['disabled', (f: ReturnType<typeof fixture>) => f.setPlugins([{ id: 'icloud', enabled: false }])], ['starting', (f: ReturnType<typeof fixture>) => f.setPlugins([{ id: 'icloud', enabled: true, status: 'starting' }])],
+  ['incompatible', (f: ReturnType<typeof fixture>) => { delete f.state.noteAccessVersion; }], ['host_prerequisite', (f: ReturnType<typeof fixture>) => { f.state.available = false; }], ['apple_verification', (f: ReturnType<typeof fixture>) => { f.state.challenge = 'verification_code'; }], ['apple_disconnected', (f: ReturnType<typeof fixture>) => { f.state.connected = false; }],
+  ['no_folder', (f: ReturnType<typeof fixture>) => { f.state.mirrors = []; }], ['sync_disabled', (f: ReturnType<typeof fixture>) => Object.assign(f.state.mirrors[0], { initialized: false, enabled: false, lastSuccess: null, phase: 'paused' })], ['initial_sync_running', (f: ReturnType<typeof fixture>) => Object.assign(f.state.mirrors[0], { initialized: false, lastSuccess: null, phase: 'running' })], ['initial_sync_failed', (f: ReturnType<typeof fixture>) => Object.assign(f.state.mirrors[0], { initialized: false, lastSuccess: null, phase: 'failed' })],
+] as const) test(`source setup distinguishes ${setup}`, async () => { const f = fixture(); mutate(f); const result = await f.adapter.snapshot(); assert.equal(result.setup, setup); assert.ok(result.nextAction); });
+test('failed checks are not guessed missing/reset and errors never disclose raw provider data', async () => { const f = fixture(); f.fail(); const result = await f.adapter.snapshot(); assert.equal(result.setup, 'check_failed'); assert.deepEqual(f.logs, ['Obsidian catalog unavailable']); assert.doesNotMatch(JSON.stringify([result, f.logs]), /sentinel|private|token/); });
+test('known RPC failure is handled once at its boundary with safe guidance', async () => { const f = fixture(); await assert.rejects(f.adapter.configure({ revision: 1, vaultIds: ['one'] }), (e: any) => e.category === 'busy' && e.diagnosticReported === true); assert.deepEqual(f.logs, ['Obsidian rpc busy']); });
+test('the independent boundary contract copy has no drift', async () => { assert.equal(await readFile(new URL('../adapters/icloud-note-contract.ts', import.meta.url), 'utf8'), await readFile(new URL('../../icloud/core/note-contract.ts', import.meta.url), 'utf8')); });

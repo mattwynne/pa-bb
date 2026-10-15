@@ -6,12 +6,13 @@ This is a proposed order of work, not a promise to port every PA package. The [v
 
 ## Where we are
 
-**Four independent plugins are listed in the marketplace: Google Calendar, Fastmail, read-only Google Drive/Docs, and iCloud folder sync.** PA core, Obsidian tools and Gmail are not delivered.
+**Five independent plugins are listed in the marketplace: Google Calendar, Fastmail, read-only Google Drive/Docs, iCloud folder sync, and Obsidian.** Obsidian's installed-release checks are pending; PA core and Gmail are not delivered.
 
 - **Google Calendar:** managed installation and multiple account connections verified; end-to-end Calendar tool use and live write approval still need verification.
 - **Fastmail:** standalone official MCP connection installed, with session recovery and stable tool IDs. A [recorded BB workflow](problems/google-drive-email-attachments.md) includes a completed email-draft call, superseding the earlier blanket “no live writes” status. This is not proof of sending or every mail/calendar/contacts operation. Optional [JMAP Inbox and label updates](../plugins/fastmail/docs/jmap-labels.md) are built and synthetically tested; live JMAP writes remain unverified.
 - **Google Drive/Docs:** read-only search, folder browsing, metadata and Docs text tools are built. The same workflow records live account discovery, search and browsing; a complete consent/Docs-read verification record is still missing. Downloads and exports are not implemented.
-- **iCloud:** native sync/recovery work is delivered through [iteration 013](plans/013-icloud-bisync-retry-classification.md), including a completed live scheduled sync. Sync no longer takes whole-folder backups. Coordinated note writes and per-note previous versions are not delivered; phone round trips and real authorization-expiry recovery remain unverified.
+- **iCloud:** native sync/recovery work is delivered through [iteration 013](plans/013-icloud-bisync-retry-classification.md), including a completed live scheduled sync. Sync no longer takes whole-folder backups. [Iteration 006](plans/006-obsidian-vault-reading.md#release-evidence) adds coordinated note access, conditional saves and private per-note recovery; installed-release checks are pending. Phone round trips and real authorization-expiry recovery remain unverified.
+- **Obsidian:** independent multi-vault settings and nine assistant tools are built. Generated-data tests prove native ownership/crash recovery and practical scheduled access; actual BB/provider local saves and rendered review passed. Connecting grants whole-vault read/write without confirmations. Local receipts are not proof of cloud/device delivery.
 
 See the [iteration ledger](plans/README.md) and plugin READMEs for delivery history and setup. Earlier plans retain their original verification limits; the later evidence linked above qualifies those limits.
 
@@ -19,11 +20,11 @@ See the [iteration ledger](plans/README.md) and plugin READMEs for delivery hist
 
 ### 1. Personal knowledge and Obsidian — immediate focus
 
-Deliver [iteration 006 — Obsidian vault reading and editing](plans/006-obsidian-vault-reading.md) on the existing iCloud foundation. First prove the BB/iCloud boundary with generated vaults: plugin discovery/RPC, practical reads during scheduled sync, and conditional note commits coordinated with the native worker. Prove version checks, per-note previous versions, operation receipts and crash recovery before enabling edits. A prototype or passing local test does not establish a delivered boundary.
+Finish installed-release checks for [iteration 006 — Obsidian vault reading and editing](plans/006-obsidian-vault-reading.md#release-evidence), then seek feedback on a specifically authorized task. The generated-data boundary, multiple-vault tools, conditional writes, source-preserving parser and connection settings are implemented; local, Linux native, actual host/provider and rendered gates have passed.
 
-Then connect multiple vaults, add search/reads/metadata/links/tasks, implement creation/targeted edits/property updates, package simple settings, and verify in installed BB. Connecting a vault grants whole-vault read/write access: no folder permissions, read-only switches or per-edit confirmations. Keep version checks and sync-safe saves underneath; report **saved locally, pending iCloud sync** rather than claiming cloud/phone delivery. Personal layouts and policies stay out of the public package.
+Keep the whole-vault connection model: no folder permissions, read-only switches or per-edit confirmations. Report **saved locally, pending iCloud sync**, not verified cloud/phone delivery. Personal-vault access and device mutation checks need separate authorization; production installation must not connect a vault automatically.
 
-The six-step plan is the delivery checklist. No Obsidian desktop app, Mac relay or PA core is required. Note browser/editor and graph UI are parked; renames/deletes, bulk editing and automatic daily-note/template workflows come later.
+No Obsidian desktop app, Mac relay or PA core is required. Note browser/editor and graph UI remain parked; renames/deletes, bulk editing and automatic daily-note/template workflows are outside this release.
 
 ### 2. Close verification gaps in existing connections
 

@@ -1,26 +1,27 @@
 # PA for BB
 
-A **BB plugin marketplace** for a personal work assistant and optional service integrations. Add the PA marketplace to BB, then install only the connections you want: Google Drive/Docs, Calendar, Fastmail, and eventually PA core and task-focused abilities. BB is the user-facing product; useful parts of Matt's [PA project](https://github.com/mattwynne/pa) and [Pi extensions](https://github.com/mattwynne/pi-extensions) will move over case by case.
+A **BB plugin marketplace** for a personal work assistant and optional service integrations. Add the PA marketplace to BB, then install only the connections you want: Google Drive/Docs, Calendar, Fastmail, iCloud, Obsidian, and eventually PA core and task-focused abilities. BB is the user-facing product; useful parts of Matt's [PA project](https://github.com/mattwynne/pa) and [Pi extensions](https://github.com/mattwynne/pi-extensions) will move over case by case.
 
-Read [the vision](docs/vision.md) for the intended experience and plugin boundaries. The marketplace lists independent [Google Calendar](plugins/google-calendar/README.md), [Fastmail](plugins/fastmail/README.md), read-only [Google Drive](plugins/google-drive/README.md), and [iCloud folder sync](plugins/icloud/README.md) plugins. **Each Calendar installation supplies its own Google Web OAuth client**; Fastmail uses its own MCP OAuth flow. The marketplace provides no shared credentials. PA core and the other planned integrations are not built yet. Adding the marketplace to BB **does not install any plugin**. The PA container provisioner registers the public GitHub repository as a Git-backed marketplace so BB can refresh the catalog without a local checkout.
+Read [the vision](docs/vision.md) for the intended experience and plugin boundaries. The marketplace lists independent [Google Calendar](plugins/google-calendar/README.md), [Fastmail](plugins/fastmail/README.md), read-only [Google Drive](plugins/google-drive/README.md), [iCloud folder sync](plugins/icloud/README.md), and [Obsidian](plugins/obsidian/README.md) plugins. **Each Calendar installation supplies its own Google Web OAuth client**; Fastmail uses its own MCP OAuth flow. The marketplace provides no shared credentials. PA core and the other planned integrations are not built yet. Adding the marketplace to BB **does not install any plugin**. The PA container provisioner registers the public GitHub repository as a Git-backed marketplace so BB can refresh the catalog without a local checkout.
 
 ## Intended shape
 
 BB supports custom Git-hosted marketplace catalogs. The intended repository layout is roughly:
 
 ```text
-marketplace.json         # BB catalog: independent Calendar, Fastmail and Drive entries
+marketplace.json         # BB catalog: independently installed connections
 plugins/
   google-calendar/       # BB-native Calendar plugin (Web OAuth + nine tools)
   fastmail/              # BB-native MCP plugin (dynamic granted tools)
   google-drive/          # BB-native read-only Drive/Docs connection
   icloud/                # BB-native protected Apple setup and selected folder sync
+  obsidian/              # connected iCloud vault tools and conditional note saves
   pa-core/               # planned assistant guidance and shared behaviour
 shared/connection-ui/   # shared connection-screen source
 scripts/sync-connection-ui.mjs  # generate self-contained plugin copies
 ```
 
-Google Calendar, Fastmail, Google Drive, and iCloud are separate BB packages; the other directory is a future possibility, not a committed release list. Adding the catalog does not install plugins. Each listed plugin needs its own BB package; an optional `.bb/plugins.json` is a *monorepo plugin index*, not the marketplace catalog. The marketplace and plugins can live in the same Git repository. See the pinned [BB configuration guide](docs/references/bb-configuration.md) and [marketplace v2 schema](docs/references/bb-marketplace-v2.schema.json); validate behavior against the BB version in use before building on it.
+Google Calendar, Fastmail, Google Drive, iCloud, and Obsidian are separate BB packages; the other directory is a future possibility, not a committed release list. Adding the catalog does not install plugins. Each listed plugin needs its own BB package; an optional `.bb/plugins.json` is a *monorepo plugin index*, not the marketplace catalog. The marketplace and plugins can live in the same Git repository. See the pinned [BB configuration guide](docs/references/bb-configuration.md) and [marketplace v2 schema](docs/references/bb-marketplace-v2.schema.json); validate behavior against the BB version in use before building on it.
 
 ## Register the catalog on a BB host
 
@@ -43,6 +44,8 @@ BB tracks the default branch and periodically refreshes the catalog. `bb marketp
 
 `plugins/icloud/` adds protected Apple login/2FA, selected folders and persistent one-minute two-way syncing. Its TypeScript core uses a need-shaped cloud port with Cucumber-js specs. From 0.1.10, sync delegates directly to native bisync without whole-folder backups or extra recovery listings; previously saved versions remain untouched. Native safeguards and safe reload handoff remain. See its [setup and recovery guide](plugins/icloud/docs/setup.md) and [current verification record](docs/plans/012-native-icloud-sync.md).
 
+`plugins/obsidian/` connects multiple initialized iCloud vaults and supplies search, reads, metadata, links, tasks, creation, targeted edits and property updates. Connecting grants whole-vault read/write without per-edit confirmations. iCloud owns native coordination, conditional atomic saves, private previous versions and durable receipts; a local save does not verify cloud or device delivery. Generated-data native/BB/provider and rendered checks passed; see the [setup guide](plugins/obsidian/docs/setup.md) and [release evidence](docs/plans/006-obsidian-vault-reading.md#release-evidence) for installed status and remaining limits.
+
 The repository root is a marketplace catalog, not an installable BB plugin.
 
 ```sh
@@ -58,16 +61,20 @@ npm --prefix plugins/google-drive run typecheck
 npm install --prefix plugins/icloud
 npm --prefix plugins/icloud test
 npm --prefix plugins/icloud run typecheck
+npm install --prefix plugins/obsidian
+npm --prefix plugins/obsidian test
+npm --prefix plugins/obsidian run typecheck
 node scripts/sync-connection-ui.mjs --check    # generated UI copies match shared source
 ```
 
 ## Documents
 
-- [`marketplace.json`](marketplace.json) — BB catalog listing Calendar, Fastmail, Drive and iCloud separately.
+- [`marketplace.json`](marketplace.json) — BB catalog listing Calendar, Fastmail, Drive, iCloud and Obsidian separately.
 - [Fastmail plugin](plugins/fastmail/README.md) — single-account MCP setup, grant semantics, security and test limits.
 - [Google Calendar plugin](plugins/google-calendar/README.md) — installation, Web OAuth, tool coverage, and current verification limits.
 - [Google Drive plugin](plugins/google-drive/README.md) — read-only Drive/Docs setup, tool coverage and verification limits.
 - [iCloud plugin](plugins/icloud/README.md) — selected folder sync, protected Apple setup, recovery and verification limits.
+- [Obsidian plugin](plugins/obsidian/README.md) — whole-vault tools, coordinated writes, setup and recovery limits.
 - [Shared connection UI](shared/connection-ui/README.md) — common account/status/onboarding components and generated-package workflow.
 - [Observability standards](docs/o11y-standards.md) — safe diagnostics, partial failures, and verification gates for plugins.
 - [Google OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md) — step-by-step instructions for a new installer.

@@ -41,12 +41,23 @@
     {
       "id": "icloud",
       "displayName": "iCloud",
-      "description": "Sync selected iCloud Drive folders with persistent local folders, with protected Apple setup and recovery copies.",
+      "description": "Sync selected iCloud Drive folders with persistent local folders, with protected Apple setup and coordinated note saves.",
       "icon": "Cloud",
       "tags": ["icloud", "sync", "files", "productivity"],
       "author": { "name": "Matt Wynne", "github": "mattwynne" },
       "source": {
         "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/icloud", "ref": "main" }
+      }
+    },
+    {
+      "id": "obsidian",
+      "displayName": "Obsidian",
+      "description": "Read and edit whole connected iCloud vaults with attributed assistant tools, without per-edit confirmations.",
+      "icon": "Notebook",
+      "tags": ["obsidian", "notes", "icloud", "productivity"],
+      "author": { "name": "Matt Wynne", "github": "mattwynne" },
+      "source": {
+        "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/obsidian", "ref": "main" }
       }
     }
   ]

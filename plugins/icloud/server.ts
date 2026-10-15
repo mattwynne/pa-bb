@@ -11,23 +11,26 @@ import { bbState, bbRunHistory } from './adapters/bb-state.ts';
 import { diagnosticLogger } from './adapters/diagnostic-log.ts';
 import { RcloneProcess } from './adapters/rclone-process.ts';
 import { RcloneCloudProvider } from './adapters/rclone-cloud-provider.ts';
+import { NoteStore, NoteError } from './adapters/note-store.ts';
 
-export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudProvider; repository?: StateRepository; history?: RunHistoryRepository }) {
+export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudProvider; repository?: StateRepository; history?: RunHistoryRepository; notes?: NoteStore }) {
   const diagnose = diagnosticLogger(message => bb.log.warn(message));
   let provider = dependencies?.provider;
+  let notes = dependencies?.notes;
   if (!provider) {
     // Derive persistent storage from the scoped host database, never home or plugin code.
     const database = bb.storage.database();
     if (!isAbsolute(database.name)) throw new CloudError('unavailable');
     const root = join(dirname(database.name), 'sync');
     const process = new RcloneProcess(root);
-    provider = new RcloneCloudProvider(root, (method, body) => process.call(method, body), (args, capture, report) => process.run(args, capture, report), () => process.checkAvailability(), () => process.stop());
+    notes = new NoteStore(join(root, 'note-operations'));
+    provider = new RcloneCloudProvider(root, (method, body) => process.call(method, body), (args, capture, report) => process.run(args, capture, report), () => process.checkAvailability(), () => process.stop(), operation => process.withFiles(operation), mirror => notes!.reconcile(mirror.id, provider!.localFolder(mirror)));
   }
   const sync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose, dependencies?.history ?? bbRunHistory(bb));
   await sync.start();
   let available = false;
   try { await sync.checkAvailability(); available = true; } catch (error) { diagnose('prerequisite', category(error), { evidence: evidence(error) }); }
-  const status = () => ({ ...sync.status(), available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' });
+  const status = () => ({ ...sync.status(), noteAccessVersion: notes ? 1 as const : null, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' });
   const clientOnly = (context: { experimental_caller: { kind: string } }) => {
     if (context.experimental_caller.kind !== 'client') throw new Error('Use iCloud settings for this action.');
   };
@@ -35,7 +38,24 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider: CloudPr
     try { await operation(); return status(); }
     catch (error) { throw new Error(category(error) === 'recovery_required' ? 'Sync is paused for recovery. Preserve local files and ask the host operator to inspect the baseline and recovery copies. No automatic repair is performed.' : category(error) === 'busy' ? 'An iCloud operation is still running. Wait for it to finish.' : 'The iCloud action did not complete. Refresh status and check the connection or folder selection.'); }
   };
+  const obsidianOnly = (context: { experimental_caller: { kind: string; pluginId?: string } }) => {
+    if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'obsidian') throw new Error('Only the host-verified Obsidian plugin can use note access.');
+  };
+  const noteAction = async <T>(stage: string, operation: () => Promise<T>) => {
+    try { if (!notes) throw new NoteError('unavailable'); return { ok: true as const, value: await operation() }; }
+    catch (error) {
+      const failure = error instanceof NoteError ? error.category : category(error) === 'busy' ? 'busy' : category(error) === 'invalid_selection' ? 'not_connected' : ['source_changed', 'recovery_required'].includes(category(error)) ? 'source_unavailable' : 'unavailable';
+      diagnose(stage, failure);
+      const nextAction = failure === 'operation_expired' ? 'The old operation identity expired. No new change was attempted. Review current bytes and retained receipts; never replay the old request.' : failure === 'busy' ? 'iCloud is working. Try again after this run finishes.' : failure === 'conflict' ? 'Reread the complete note and prepare a fresh change.' : failure === 'uncertain' ? 'Inspect recent operation receipts; do not repeat the edit.' : failure === 'not_connected' ? 'Check connected vaults in Obsidian settings.' : failure === 'capacity' ? 'Ask the operator to inspect note recovery capacity. Do not repeat an uncertain edit.' : 'Check iCloud source status and the note path. No uncoordinated fallback is available.';
+      return { ok: false, category: failure, nextAction } as const;
+    }
+  };
   bb.rpc.register(rpcContract, {
+    noteConfigure(input, context) { obsidianOnly(context); return noteAction('note_configure', () => sync.configureNotes(input.revision, input.mirrorIds)); },
+    noteList(input, context) { obsidianOnly(context); return noteAction('note_list', () => sync.accessNote(input.mirrorId, input.revision, false, root => notes!.list(root))); },
+    noteRead(input, context) { obsidianOnly(context); return noteAction('note_read', () => sync.accessNote(input.mirrorId, input.revision, false, root => notes!.read(root, input.path))); },
+    noteCommit(input, context) { obsidianOnly(context); return noteAction('note_commit', () => sync.accessNote(input.mirrorId, input.revision, true, (root, signal) => notes!.commit(root, input, signal))); },
+    noteReceipts(input, context) { obsidianOnly(context); return noteAction('note_receipts', () => sync.noteReceipts(input.mirrorId, input.revision, () => notes!.receipts(input))); },
     status() { return status(); },
     async browse({ parent }, context) { clientOnly(context); try { return await sync.browse(parent); } catch { throw new Error('Could not browse iCloud folders. Reconnect Apple or try again after the current operation finishes.'); } },
     async select({ folderId }, context) { clientOnly(context); return action(() => sync.select(folderId)); },

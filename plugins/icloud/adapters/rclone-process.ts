@@ -23,6 +23,7 @@ export class RcloneProcess {
   private binary: string | null = null;
   private child: ChildProcess | null = null;
   private children = new Set<ChildProcess>();
+  private fileWork: { controller: AbortController; task: Promise<unknown> } | null = null;
   private started: Promise<void> | null = null;
   private stopping = false;
   private lock: Awaited<ReturnType<typeof open>> | null = null;
@@ -169,9 +170,21 @@ export class RcloneProcess {
       req.end(JSON.stringify(body));
     });
   }
-  async call(method: string, body: Record<string, unknown>) { await this.ensure(); return this.rawCall(method, body); }
+  async call(method: string, body: Record<string, unknown>) { await this.ensure(); if (this.fileWork) throw new CloudError('busy'); return this.rawCall(method, body); }
+  // Same native generation and inherited flock as run(), not a second mutex
+  // claiming to exclude rclone. No native command may start during this work.
+  async withFiles<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    await this.ensure();
+    if (this.stopping || this.fileWork || this.children.size) throw new CloudError('busy');
+    if (!this.ownsLock || !this.lock) throw new CloudError('unavailable');
+    const controller = new AbortController();
+    const task = Promise.resolve().then(() => operation(controller.signal));
+    this.fileWork = { controller, task };
+    try { return await task; } finally { this.fileWork = null; }
+  }
   async run(args: string[], capture = false, report?: (stats: TransferProgress) => void) {
     await this.ensure();
+    if (this.fileWork || this.stopping) throw new CloudError('busy');
     const command = args[0];
     const stats = report ? ['--use-json-log', '--stats', '1s', '--stats-log-level', 'NOTICE', '--log-level', 'NOTICE'] : command === 'bisync' ? ['--use-json-log'] : [];
     const timeout = command === 'bisync' ? COMMAND_TIMEOUTS.bisync : command === 'lsjson' ? COMMAND_TIMEOUTS.listing : COMMAND_TIMEOUTS.transfer;
@@ -212,6 +225,8 @@ export class RcloneProcess {
   }
   async stop() {
     this.stopping = true;
+    this.fileWork?.controller.abort();
+    await this.fileWork?.task.catch(() => {});
     const children = [...this.children, ...(this.child ? [this.child] : [])];
     await Promise.all(children.map(child => new Promise<void>(resolve => {
       if (child.exitCode !== null || child.signalCode !== null) return resolve();

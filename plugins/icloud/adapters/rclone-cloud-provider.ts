@@ -20,7 +20,18 @@ export class RcloneCloudProvider implements CloudProvider {
   private continuation: string | null = null;
   constructor(private readonly root: string, private readonly rc: RcCall,
     private readonly run: CommandRunner, private readonly availability: () => Promise<void>,
-    private readonly shutdown: () => Promise<void>) {}
+    private readonly shutdown: () => Promise<void>,
+    private readonly files?: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>,
+    private readonly reconcileNotes?: (mirror: Mirror) => Promise<void>) {}
+  async withMirrorFiles<T>(mirror: Mirror, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (!this.files) throw new CloudError('unavailable');
+    return this.files(async signal => {
+      try { if (!mirror.initialized || await readFile(join(this.root, 'baselines', mirror.id, 'initialized'), 'utf8') !== '1') throw new Error(); }
+      catch { throw new CloudError('recovery_required'); }
+      await this.reconcileNotes?.(mirror);
+      return operation(signal);
+    });
+  }
   checkAvailability() { return this.availability(); }
   async verifyConnection() {
     await this.rc('fscache/clear', {});
@@ -96,6 +107,9 @@ export class RcloneCloudProvider implements CloudProvider {
     await writeFile(join(baseline, 'initialized'), '1', { mode: 0o600 });
   }
   async synchronize(mirror: Mirror, report?: ProgressReporter) {
+    // Reconcile only bounded per-note journals, under the same native owner,
+    // before any native sync may enumerate or upload the mirror.
+    if (this.reconcileNotes) await this.withMirrorFiles(mirror, async () => {});
     const baseline = join(this.root, 'baselines', mirror.id);
     try { if (!mirror.initialized || await readFile(join(baseline, 'initialized'), 'utf8') !== '1') throw new Error(); }
     catch { throw new CloudError('recovery_required'); }

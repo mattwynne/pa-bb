@@ -41,6 +41,8 @@ export interface CloudProvider {
   stop(): Promise<void>;
   // Explicit consuming-integration boundary, never settings path selection.
   localFolder(mirror: Mirror): string;
+  // Executes under the existing native generation's inherited worker flock.
+  withMirrorFiles?<T>(mirror: Mirror, operation: (signal: AbortSignal) => Promise<T>): Promise<T>;
 }
 export interface StateRepository { load(): Promise<State | undefined>; save(state: State): Promise<void> }
 export const emptyState = (): State => ({ connected: false, challenge: null, mirrors: [] });

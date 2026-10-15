@@ -1,0 +1,17 @@
+.pa-obsidian { display: grid; gap: 1rem; color: var(--foreground); font-size: 0.85rem; line-height: 1.5; min-width: 0; }
+.pa-obsidian .pa-connection__heading { margin-bottom: 0; }
+.pa-obsidian p { margin: 0 0 0.7rem; }
+.pa-obsidian ol { list-style-type: decimal; }
+.pa-obsidian .pa-connection__footer { gap: 0.5rem; }
+.pa-obsidian__source-help { padding: 0.75rem; border-left: 2px solid var(--border); color: var(--muted-foreground); }
+.pa-obsidian .pa-connection__account { flex-wrap: wrap; }
+.pa-obsidian .pa-connection__identity { flex-basis: calc(100% - 3rem); }
+.pa-obsidian .pa-connection__badge { margin-left: 2.75rem; max-width: 100%; white-space: normal; }
+.pa-obsidian .pa-connection__badge::before { flex-shrink: 0; }
+.pa-obsidian .pa-connection__account > button { margin-left: auto; }
+.pa-obsidian__picker { display: grid; gap: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; background: var(--card); }
+.pa-obsidian__picker > ul { list-style: none; margin: 0; padding: 0; }
+.pa-obsidian__picker li { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 0; }
+.pa-obsidian__picker li + li { border-top: 1px solid var(--border); }
+.pa-obsidian__picker li > span { min-width: 0; overflow-wrap: anywhere; }
+.pa-obsidian__picker small { display: block; color: var(--muted-foreground); }
