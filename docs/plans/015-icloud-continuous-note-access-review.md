@@ -1,6 +1,6 @@
 # Review record — continuous iCloud note access
 
-Status: **revised draft; implementation not approved**. This record accompanies [plan 015](015-icloud-continuous-note-access.md). Design corrections below are not implemented or verified release claims.
+Status: **GPT-only coverage accepted; revised plan approved for implementation**. This record accompanies [plan 015](015-icloud-continuous-note-access.md). The user explicitly selected accepting GPT-only coverage and continuing. The parent then inspected and approved the corrected design for one sequential implementation agent. Design corrections below are not implemented or verified release claims.
 
 ## Artifact and actual coverage
 
@@ -54,4 +54,6 @@ There was no material reviewer disagreement on the main lifecycle defects. Their
 
 The revised plan recommends local writes while paused/disconnected, bounded explicit conflict recovery, and API-only authority for supported note consumers. These are documented recommendations under the continuous-local-service requirement, not unrecorded user decisions. Actual outside raw consumers, native publication behavior, updater rollback behavior and measured budgets remain to be established.
 
-The parent has **not dispatched implementation**. The requested multi-family review remains blocked by model routing. The revised design also needs parent inspection; documenting a state machine is not proof it is safe. No second review round or provider configuration changes are implied by this record.
+After the user explicitly accepted GPT-only coverage, the parent completed the approval check. Additional clarifications cover fresh-base capture after retirement, short Obsidian state barriers/concurrent mutations, legacy semantic-digest compatibility, iCloud-owned local availability and remote-check independence. The parent approves sequential implementation beginning with the real-native publication probe and one-path lifecycle, with explicit stop-and-report conditions for failed assumptions or gates.
+
+The multi-family ensemble did **not** complete; user acceptance does not change that fact. No further reviewers or provider configuration changes were launched. Documenting the state machine is not proof it is safe, and approval to implement is not approval to release without native, crash, latency, BB/provider, privacy and rendered evidence.

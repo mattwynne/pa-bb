@@ -1,6 +1,6 @@
 # 015 — Continuous iCloud note access
 
-Status: **revised draft / implementation held**. The first draft received three independent GPT reviews, not the requested multi-family ensemble: explicit Claude/Gemini model selections did not take effect. See the [review record](015-icloud-continuous-note-access-review.md). The parent has corrected the verified design gaps below but has not approved implementation or completed another review round.
+Status: **approved for implementation; release gates pending**. The first draft received three independent GPT reviews, not the requested multi-family ensemble: explicit Claude/Gemini model selections did not take effect. The user accepted that coverage and authorized continuing with parent approval. The parent corrected and inspected the revised lifecycle below and approved sequential implementation, not production readiness. See the [review record](015-icloud-continuous-note-access-review.md). No second review round completed.
 
 Starting points: [problem and live evidence](../problems/icloud-continuous-note-access.md), [iteration 006](006-obsidian-vault-reading.md), source baseline `1baa405`, and the [pinned rclone v1.75.2 bisync reference](../references/rclone/docs/content/bisync.md). No runtime code, production migration or device test has been delivered by this plan.
 
@@ -37,7 +37,9 @@ The arbiter has separate paths:
 2. A single native-command/application queue: at most one command or direct mirror mutation at a time, with the current native generation and file guard held throughout application. Schedule authentication/configuration RC work deliberately too; removing the old global lock must not permit concurrent command/config races.
 3. Lifecycle fences: before disposal, close admission, wait for already-entered local publications to finish or resolve their journals, then stop children/release ownership. Candidate startup may remain unavailable until takeover; it must not migrate early or admit a second writer. This exceptional maintenance boundary is not normal sync contention.
 
-Persist the host-verified Obsidian configuration revision and membership. Commit/configuration/removal transactions use a fixed lock order and revalidate the admission epoch at logical publication. Removal revokes **new** operations; no stale-revision publication may commit after revocation. Replies already in flight are not proof of a later commit.
+Persist the host-verified Obsidian configuration revision and membership. Commit/configuration/removal transactions use a fixed lock order and revalidate the admission epoch at logical publication. Removal revokes **new** operations; no stale-revision publication may commit after revocation. Replies already in flight are not proof of a later commit. Configuration removal cannot acknowledge completion until the iCloud admission barrier has accepted its revision; a lost configuration reply remains an unconfirmed change, not proof of revocation.
+
+Obsidian also needs short serialized state updates for pending IDs/configuration without holding that lock over note RPCs. Queue ordinary concurrent mutations rather than leaking its existing global `busy` flag as a new bottleneck. Scope complete-read proofs to the affected path/version/configuration: an unrelated save must not erase another note's valid proof, while removal/configuration changes still revoke affected access. Test overlapping different-note writes and same-note CAS rather than relying only on sequential calls.
 
 An edit acknowledged before Obsidian removal remains a completed local edit. Removal does not undo it: background application may continue for its original enabled iCloud mirror/account, just as an already-written native file would continue syncing today. Application validates mirror/account/baseline identity and ownership, not an obsolete consumer revision. Removing a consumer grants no further reads or writes. A retained/rebuilt mirror is different: never retarget its pending edits to a replacement ID.
 
@@ -70,7 +72,7 @@ For every request:
 3. Reserve pending, receipt and previous-version capacity before acceptance. Persist the new immutable bytes and previous logical bytes where required. Publish the generation/head and receipt transactionally, with admission rechecked at that boundary.
 4. Return `saved_locally_pending_sync` only after durable publication. An uncertain transport reply is inspected by operation ID, never blindly replayed under a new ID.
 
-An exact duplicate does not repeat append/task/property preparation. Obsidian keeps its persisted transport-pending IDs, not a second content queue. A definitely published journal can be resolved after restart; corrupt or inconclusive publication is `uncertain`, not `not_saved`. Do not admit a successor on an uncertain path until recovery establishes its head.
+An exact duplicate does not repeat append/task/property preparation. Define the new immutable request digest over the semantic target/kind/expected version/content/operation identity; changing only current transport authorization or negotiated protocol does not turn the same operation into a new mutation. Current authorization is still checked separately. Legacy request digests included the old serialized input: reconcile/index their stored semantic fields and exact content hash, test legacy replay explicitly, and never guess compatibility by recomputing the new digest against an old journal. Obsidian keeps its persisted transport-pending IDs, not a second content queue. A definitely published journal can be resolved after restart; corrupt or inconclusive publication is `uncertain`, not `not_saved`. Do not admit a successor on an uncertain path until recovery establishes its head.
 
 ## Normal single-path lifecycle
 
@@ -105,7 +107,7 @@ After success, under native ownership and the path barrier:
 1. Reconcile application proof and inspect the canonical path, exact local bytes/identity and native conflict artifacts. A failure, missing/changed canonical path, conflict or uncertainty prevents retirement.
 2. If the active head is a successor of G, keep that successor authoritative. Advance/retain G's proved owned checkpoint as the basis for the next application; do not overwrite it with the original base or retire the successor.
 3. If the active head is still G, the same eligible G survived the successful following run, and there is no unresolved state, atomically CAS the active pointer to **mirror authority**. The reader fence prevents a later save from being retired accidentally.
-4. Retain the immutable receipt and bounded recovery bytes separately. Garbage collection cannot invalidate an already-open reader or remove pending/uncertain content.
+4. Retain the immutable receipt and bounded recovery bytes separately. Retiring authority also closes that overlay cycle: clear its **active** original-base/application checkpoint, retaining archival evidence separately. A later save after retirement captures the then-current mirror as a fresh base; it must not compare against an archived checkpoint from an earlier cycle. Garbage collection cannot invalidate an already-open reader or remove pending/uncertain content.
 
 Required trace: A → local B → apply B → following successful run → retire B → independent remote C → native download → consumer reads C. Also test B → C before application, after application, during the following run and during retirement. An overlay must not shadow phone edits forever.
 
@@ -153,13 +155,15 @@ Initialization, retained/rebuilt IDs, missing/invalid baseline, corrupt content,
 
 ### Version negotiation and raw paths
 
-Advertise note-access v2 and require a matching negotiated capability at **eligibility, connect, configure, read, write, receipt and recovery admission**, including producer enforcement. Keep configured identities visible with an incompatibility explanation; they are not eligible choices or empty success. Merely returning `setup: incompatible` alongside usable sources is insufficient. Version both copied contracts together; test both mixed-upgrade orders.
+Advertise note-access v2 with per-source **local availability** computed and enforced by iCloud. Obsidian consumes that capability instead of deriving local read/write eligibility from sync phase, account connection or last-success timestamps. Diagnostic freshness remains separate. Establish local readiness from intact local storage, baseline and actual generation ownership; a remote authorization/listing check must not sit on the ordinary local read/write path.
+
+Require a matching negotiated capability at **eligibility, connect, configure, read, write, receipt and recovery admission**, including producer enforcement. Keep configured identities visible with an incompatibility explanation; they are not eligible choices or empty success. Merely returning `setup: incompatible` alongside usable sources is insufficient. Version both copied contracts together; test both mixed-upgrade orders.
 
 Remove `localFolder` from the supported public inventory/tool output and update documentation and Obsidian parsing. The source audit found Obsidian as the only in-repo consuming plugin; it currently validates then discards that path. Record that audit at delivery. Do not claim unknown external raw-folder consumers migrated or that OS reads share overlay visibility. If a supported outside consumer cannot migrate, this is a compatibility blocker, not permission to weaken the contract. No operator-only raw endpoint is needed unless an actual consumer justifies one.
 
 ## Bounds, progress and retention
 
-Initial engineering budgets, to validate before approval:
+Initial engineering acceptance budgets, to validate before delivery; changes require recorded parent approval:
 
 - Existing 1 MiB/note and 10k enumeration limits.
 - Pending content: 64 MiB / 256 active paths globally; 16 MiB / 128 paths per vault. Count staged reservations, active versions and unreconciled generations without double-counting shared immutable content.
@@ -170,7 +174,7 @@ Look up legacy and new operation identities together before CAS; an old ID canno
 
 After each native command and on idle wake-up, reserve a finite application quantum: initially at most one second and 16 paths, round-robin over mirrors/paths. Native work receives its turn after the quantum; new writes do not indefinitely extend it. Coalesce application to the latest head while retaining earlier receipts/recovery. Local publication waits only for short local critical sections, not the command queue.
 
-Measure the minimum successful drain per quantum under the declared healthy workload. The target is 16 ordinary paths per one-second quantum; failure to achieve it requires revising the scheduling/budget **before approval**, not silently relaxing progress. For P already-pending ordinary paths, quantum drain q, healthy maximum command duration D and quantum Q, record the conservative application bound `ceil(P/q) * (D + Q)`, plus scheduler wake-up. A later native observation also depends on that mirror's measured cadence. New arrivals go behind existing work; coalescing a hot path must not move another path backwards.
+Measure the minimum successful drain per quantum under the declared healthy workload. The target is 16 ordinary paths per one-second quantum; failure to achieve it requires revising the scheduling/budget **before delivery with parent approval**, not silently relaxing progress. For P already-pending ordinary paths, quantum drain q, healthy maximum command duration D and quantum Q, record the conservative application bound `ceil(P/q) * (D + Q)`, plus scheduler wake-up. A later native observation also depends on that mirror's measured cadence. New arrivals go behind existing work; coalescing a hot path must not move another path backwards.
 
 Acceptance workload: two mirrors, native runs lasting at least 40 seconds each, up to 16 dirty ordinary paths per mirror and 100 saves over five minutes including repeated edits. Under measured D ≤ 40 seconds plus the fixture's recorded tolerance, q ≥ 16 and Q ≤ one second, those 32 existing paths should apply within two idle opportunities (about 82 seconds plus tolerance/wake-up), without delaying save acknowledgments. Scale tests to the full 20-mirror limit with deterministic scheduling and report the general bound; do not pretend a serial 20×40-second pass still gives each mirror one-minute freshness. Arrival rates beyond service capacity receive pre-acceptance backpressure, never acknowledged data loss.
 
@@ -197,6 +201,6 @@ All gates below remain **unverified** for this design. Complete the single-path 
 
 ## Approval status
 
-The parent recommends the continuously available local-service contract. The overlay and recovery protocol above are a proposed engineering implementation of it, not a claim that the user selected those internals.
+The user explicitly accepted GPT-only review coverage and requested continuation. The parent approves this revised architecture for one sequential implementation agent, beginning with the native publication probe and single-path lifecycle. The overlay internals are the parent's engineering decision under the service contract, not a claim that the user selected a particular storage mechanism.
 
-Implementation is held pending parent inspection of this revision and resolution of the requested ensemble's model-routing failure. No second review round or runtime implementation has been dispatched. Supported outside raw-folder consumers, unsafe updater rollback behavior, native publication assumptions or an unusable conflict protocol are release blockers if found—not details to waive after a passing unit suite.
+This approval is **not** permission to waive a release gate or assert cloud/device delivery. Supported outside raw-folder consumers, unsafe updater rollback behavior, native publication assumptions, an unusable conflict protocol or missed latency/progress targets are stop-and-report conditions. Prove or revise the affected design before delivery; do not silently weaken it. Routine verified shipping follows repository policy, with no unapproved personal-data reads or cloud/device test writes. No further review agents or parallel implementation are authorized by this plan.
