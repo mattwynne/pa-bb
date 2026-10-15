@@ -736,6 +736,12 @@ export class NoteOverlay {
     const fresh = first.copies.filter(copy => !baseline.some(old => old.side === copy.side && old.number === copy.number) && copy.number !== priorNumber);
     let incoming = selected?.observation ?? first.canonical;
     let number = priorNumber;
+    const newCanonical = first.canonical !== null && !same(proof(first.canonical), captured.canonical);
+    // A canonical note recreated after a rename-both conflict is a new incoming
+    // version, not permission to overwrite it using the older preserved copy.
+    // Simultaneous new canonical and numbered versions are ambiguous.
+    if (newCanonical && fresh.length) throw new NoteError('uncertain');
+    if (newCanonical && priorNumber !== null) { incoming = first.canonical; number = null; }
     if (fresh.length) {
       const remote = fresh.filter(copy => copy.side === 'icloud'), local = fresh.filter(copy => copy.side === 'bb');
       const checkpoint = row.applied ? parse(row.applied, appliedSchema) : null;

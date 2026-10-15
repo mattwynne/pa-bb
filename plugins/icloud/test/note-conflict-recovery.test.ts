@@ -92,6 +92,42 @@ test('numbered incoming copy changes at the last boundary; preserved pairs remai
   } finally { await f.close(); }
 });
 
+test('a recreated canonical note supersedes a preserved numbered incoming copy without discarding either version', { skip: !enabled }, async () => {
+  const f = await fixture();
+  try {
+    await (await import('node:fs/promises')).unlink(join(f.mirror, 'Note.md'));
+    await writeFile(join(f.mirror, 'Note.md.icloud-conflict1'), 'Numbered C');
+    await writeFile(join(f.mirror, 'Note.md.bb-conflict1'), 'A');
+    const numbered = (await f.store.inspect('generated', 'Note.md', f.mirror))!;
+    assert.equal(numbered.incomingHash, hash('Numbered C'));
+    await writeFile(join(f.mirror, 'Note.md'), 'Later canonical D');
+    const current = (await f.store.inspect('generated', 'Note.md', f.mirror))!;
+    assert.notEqual(current.token, numbered.token);
+    assert.equal(current.incomingHash, hash('Later canonical D'), 'a historical numbered copy must not hide a new canonical edit');
+    assert.equal(await f.store.readIncoming('generated', 'Note.md', current.token), 'Later canonical D');
+    assert.ok(f.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE class='recovery' AND hash=?").get(hash('Numbered C')));
+    await f.store.resolve(f.mirror, 'generated', 'Note.md', { operationId: operationId(), token: current.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Later canonical D'), choice: 'accept_incoming' });
+    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).text, 'Later canonical D');
+    await new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))).start();
+  } finally { await f.close(); }
+});
+
+test('simultaneous new canonical and numbered incoming versions do not silently choose one', { skip: !enabled }, async () => {
+  const f = await fixture();
+  try {
+    await (await import('node:fs/promises')).unlink(join(f.mirror, 'Note.md'));
+    await writeFile(join(f.mirror, 'Note.md.icloud-conflict1'), 'Numbered C');
+    await writeFile(join(f.mirror, 'Note.md.bb-conflict1'), 'A');
+    const before = (await f.store.inspect('generated', 'Note.md', f.mirror))!;
+    await writeFile(join(f.mirror, 'Note.md'), 'New canonical D');
+    await writeFile(join(f.mirror, 'Note.md.icloud-conflict2'), 'New numbered E');
+    await writeFile(join(f.mirror, 'Note.md.bb-conflict2'), 'A');
+    await assert.rejects(f.store.inspect('generated', 'Note.md', f.mirror), (error: any) => error.category === 'uncertain');
+    assert.equal((await f.store.inspect('generated', 'Note.md'))?.token, before.token);
+    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).text, 'Local B');
+  } finally { await f.close(); }
+});
+
 test('incoming archives share one recovery charge per hash, including repeated captures and resolution', { skip: !enabled }, async () => {
   const f = await fixture();
   try {
