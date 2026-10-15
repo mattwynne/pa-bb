@@ -9,7 +9,7 @@ const integer = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const stages = z.enum(['checking', 'backing_up_cloud', 'backing_up_local', 'saving_recovery', 'transferring', 'verifying']);
 const timestamp = z.iso.datetime().max(40).refine(value => Number.isFinite(Date.parse(value)));
 const evidenceSchema = z.union([
-  z.object({ kind: z.literal('command_exit'), exitCode: z.number().int().min(1).max(10).nullable() }).strict(),
+  z.object({ kind: z.literal('command_exit'), exitCode: z.number().int().min(1).max(10).nullable(), native: z.enum(['retryable_abort', 'resync_required_abort', 'unknown_fatal']).optional(), reason: z.literal('listing_failure').optional() }).strict(),
   z.object({ kind: z.enum(['command_timeout', 'command_output_limit', 'command_signal', 'command_start', 'command_stopped']) }).strict(),
 ]);
 const stageSchema = z.object({ stage: stages, durationMs: integer, bytes: integer, totalBytes: integer.positive().nullable(), files: integer, totalFiles: integer.positive().nullable(), reusedFiles: integer.nullable() }).strict();

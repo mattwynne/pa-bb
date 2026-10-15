@@ -1,11 +1,13 @@
 // Domain ports: no command flags, config keys, remote syntax or raw errors.
 export const FAILURES = ['unavailable', 'authentication', 'configuration', 'capacity', 'interrupted', 'sync_failed', 'source_changed', 'busy', 'invalid_selection', 'recovery_required', 'unknown'] as const;
 export type Failure = typeof FAILURES[number];
-export type FailureEvidence = { kind: 'command_exit'; exitCode: number | null } | { kind: 'command_timeout' | 'command_output_limit' | 'command_signal' | 'command_start' | 'command_stopped' };
+export type FailureEvidence = { kind: 'command_exit'; exitCode: number | null; native?: 'retryable_abort' | 'resync_required_abort' | 'unknown_fatal'; reason?: 'listing_failure' } | { kind: 'command_timeout' | 'command_output_limit' | 'command_signal' | 'command_start' | 'command_stopped' };
 export function failureEvidence(value: unknown): FailureEvidence | null {
   if (!value || typeof value !== 'object') return null;
   const input = value as Record<string, unknown>;
-  if (input.kind === 'command_exit') return { kind: 'command_exit', exitCode: typeof input.exitCode === 'number' && Number.isInteger(input.exitCode) && input.exitCode >= 1 && input.exitCode <= 10 ? input.exitCode : null };
+  if (input.kind === 'command_exit') return { kind: 'command_exit', exitCode: typeof input.exitCode === 'number' && Number.isInteger(input.exitCode) && input.exitCode >= 1 && input.exitCode <= 10 ? input.exitCode : null,
+    ...(['retryable_abort', 'resync_required_abort', 'unknown_fatal'].includes(input.native as string) ? { native: input.native as 'retryable_abort' | 'resync_required_abort' | 'unknown_fatal' } : {}),
+    ...(input.reason === 'listing_failure' ? { reason: 'listing_failure' as const } : {}) };
   if (['command_timeout', 'command_output_limit', 'command_signal', 'command_start', 'command_stopped'].includes(input.kind as string)) return { kind: input.kind as Exclude<FailureEvidence['kind'], 'command_exit'> };
   return null;
 }

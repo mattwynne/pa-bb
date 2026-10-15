@@ -58,6 +58,21 @@ test('failure history and log context contain only whitelisted exit evidence and
   assert.deepEqual(f.logs, [{ stage: 'sync/backing_up_cloud', failure: 'sync_failed', details: { run: 2, evidence: { kind: 'command_exit', exitCode: 4 } } }]);
   assert.equal(f.sync.status().mirrors[0].lastSuccess, prior); assert.doesNotMatch(JSON.stringify(run) + JSON.stringify(f.logs), /sentinel/);
 });
+test('native abort decision and reason survive reload, preserve a safe log, and retry only the ordinary path', async () => {
+  const f = fixture(); await f.setup(); let attempts = 0;
+  f.provider.synchronize = async (_mirror, report) => {
+    attempts++; report!({ stage: 'checking', bytes: 0, totalBytes: null, files: 0, totalFiles: null });
+    if (attempts === 1) throw new CloudError('sync_failed', { kind: 'command_exit', exitCode: 7, native: 'retryable_abort', reason: 'listing_failure', msg: 'sentinel-private-body' } as any);
+    if (attempts === 2) throw new CloudError('recovery_required', { kind: 'command_exit', exitCode: 7, native: 'resync_required_abort', msg: 'sentinel-private-body' } as any);
+  };
+  await f.sync.tick(); assert.equal(f.sync.status().mirrors[0].blocker, null); assert.equal(f.sync.status().mirrors[0].retryPending, true);
+  assert.deepEqual((await f.sync.diagnostics()).runs.at(-1)!.evidence, { kind: 'command_exit', exitCode: 7, native: 'retryable_abort', reason: 'listing_failure' });
+  const reloaded = f.service(); await reloaded.start(); assert.deepEqual((await reloaded.diagnostics()).runs.at(-1)!.evidence, { kind: 'command_exit', exitCode: 7, native: 'retryable_abort', reason: 'listing_failure' });
+  await reloaded.tick(); assert.equal(attempts, 2); assert.equal(reloaded.status().mirrors[0].blocker, 'rebuild');
+  await reloaded.tick(); assert.equal(attempts, 2); await assert.rejects(reloaded.retry('sentinel-private-mirror'), /recovery_required/);
+  assert.deepEqual((await reloaded.diagnostics()).runs.at(-1)!.evidence, { kind: 'command_exit', exitCode: 7, native: 'resync_required_abort' });
+  assert.doesNotMatch(JSON.stringify(f.logs) + JSON.stringify(f.stored()), /sentinel-private-body/);
+});
 test('latest-20 is a page rather than a retention limit, and expiry does not reset sequence', async () => {
   const f = fixture(); await f.setup();
   for (let i = 0; i < 25; i++) { f.advance(60_000); await f.sync.tick(); }

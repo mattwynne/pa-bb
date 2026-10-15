@@ -10,7 +10,7 @@ export function transferStats(record: unknown): TransferProgress | null {
 export class RcloneStatsStream {
   private pending = Buffer.alloc(0);
   private dropping = false;
-  constructor(private report: (stats: TransferProgress) => void) {}
+  constructor(private report?: (stats: TransferProgress) => void, private observe?: (record: unknown | null) => void) {}
   write(chunk: Buffer) {
     let start = 0;
     while (start < chunk.length) {
@@ -19,13 +19,29 @@ export class RcloneStatsStream {
       if (this.pending.length + part.length > MAX_LINE) { this.pending = Buffer.alloc(0); this.dropping = true; }
       if (!this.dropping) this.pending = Buffer.concat([this.pending, part]);
       if (newline < 0) return;
-      this.end(); start = newline + 1;
+      this.line(); start = newline + 1;
     }
   }
+  private line() {
+    if (this.dropping || !this.pending.length) this.observe?.(null);
+    else {
+      try {
+        const record: unknown = JSON.parse(this.pending.toString('utf8'));
+        this.observe?.(record);
+        const safe = transferStats(record); if (safe) this.report?.(safe);
+      } catch { this.observe?.(null); /* Bad records and callback errors never break a file operation. */ }
+    }
+    this.pending = Buffer.alloc(0); this.dropping = false;
+  }
   end() {
-    if (!this.dropping && this.pending.length) {
-      try { const safe = transferStats(JSON.parse(this.pending.toString('utf8'))); if (safe) this.report(safe); }
-      catch { /* Bad records and callback errors never break a file operation. */ }
+    // Keep the historical stats-only EOF behavior, but never trust a final
+    // unterminated record as native proof: the child could have truncated it.
+    if (this.pending.length || this.dropping) {
+      this.observe?.(null);
+      if (!this.dropping) {
+        try { const safe = transferStats(JSON.parse(this.pending.toString('utf8'))); if (safe) this.report?.(safe); }
+        catch { /* Bad stats and callbacks cannot break the command. */ }
+      }
     }
     this.pending = Buffer.alloc(0); this.dropping = false;
   }

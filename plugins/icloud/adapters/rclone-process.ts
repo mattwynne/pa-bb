@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { CloudError } from '../core/ports.ts';
 import type { TransferProgress } from '../core/ports.ts';
 import { RcloneStatsStream } from './rclone-stats.ts';
+import { RcloneBisyncObservation } from './rclone-bisync-observation.ts';
 
 export const COMMAND_TIMEOUTS = { listing: 5 * 60_000, transfer: 15 * 60_000, bisync: 20 * 60_000 } as const;
 export const FLOCK_BINARY = '/usr/bin/flock';
@@ -171,17 +172,18 @@ export class RcloneProcess {
   async call(method: string, body: Record<string, unknown>) { await this.ensure(); return this.rawCall(method, body); }
   async run(args: string[], capture = false, report?: (stats: TransferProgress) => void) {
     await this.ensure();
-    const stats = report ? ['--use-json-log', '--stats', '1s', '--stats-log-level', 'NOTICE', '--log-level', 'NOTICE'] : [];
     const command = args[0];
+    const stats = report ? ['--use-json-log', '--stats', '1s', '--stats-log-level', 'NOTICE', '--log-level', 'NOTICE'] : command === 'bisync' ? ['--use-json-log'] : [];
     const timeout = command === 'bisync' ? COMMAND_TIMEOUTS.bisync : command === 'lsjson' ? COMMAND_TIMEOUTS.listing : COMMAND_TIMEOUTS.transfer;
     return this.execute(this.binary!, [...args, ...this.flags(), ...stats], capture, timeout, report, command === 'bisync' ? 'bisync' : 'generic');
   }
   private execute(binary: string, args: string[], capture: boolean, timeout: number, report?: (stats: TransferProgress) => void, context: 'bisync' | 'generic' = 'generic'): Promise<string> {
     return new Promise((resolve, reject) => {
-      const stdio: any[] = ['ignore', capture ? 'pipe' : 'ignore', report ? 'pipe' : 'ignore'];
+      const observer = context === 'bisync' ? new RcloneBisyncObservation() : null;
+      const stdio: any[] = ['ignore', capture ? 'pipe' : 'ignore', report || observer ? 'pipe' : 'ignore'];
       if (this.lock) stdio.push(this.lock.fd);
       const child = spawn(binary, args, { env: safeEnvironment(), stdio });
-      const stats = report ? new RcloneStatsStream(report) : null;
+      const stats = report || observer ? new RcloneStatsStream(report, record => observer?.observe(record)) : null;
       child.stderr?.on('data', chunk => stats?.write(chunk));
       this.children.add(child); let output = ''; let overflow = false; let timedOut = false;
       child.stdout?.on('data', chunk => { if (output.length + chunk.length > 4 * 1024 * 1024) { overflow = true; child.kill('SIGKILL'); } else output += chunk; });
@@ -193,10 +195,12 @@ export class RcloneProcess {
         stats?.end(); cleanup();
         if (code === 0 && !overflow && !timedOut && !this.stopping) resolve(output);
         else {
-          const proof = this.stopping ? { kind: 'command_stopped' as const } : overflow ? { kind: 'command_output_limit' as const } : timedOut ? { kind: 'command_timeout' as const } : signal ? { kind: 'command_signal' as const } : { kind: 'command_exit' as const, exitCode: code };
+          const native = context === 'bisync' && code === 7 && !this.stopping && !overflow && !timedOut && !signal ? observer?.decision() : undefined;
+          const proof = this.stopping ? { kind: 'command_stopped' as const } : overflow ? { kind: 'command_output_limit' as const } : timedOut ? { kind: 'command_timeout' as const } : signal ? { kind: 'command_signal' as const } : { kind: 'command_exit' as const, exitCode: code, ...(native ? { native, ...(observer?.reason() ? { reason: observer.reason() } : {}) } : {}) };
           let failure: 'interrupted' | 'recovery_required' | 'configuration' | 'capacity' | 'sync_failed';
           if (this.stopping || timedOut || signal) failure = 'interrupted';
-          else if (context === 'bisync' && (code === 2 || code === 7)) failure = 'recovery_required';
+          else if (context === 'bisync' && code === 7) failure = native === 'retryable_abort' ? 'sync_failed' : 'recovery_required';
+          else if (context === 'bisync' && code === 2) failure = 'recovery_required';
           else if (context === 'generic' && code === 2) failure = 'configuration';
           else if (context === 'generic' && code === 8) failure = 'capacity';
           else if (context === 'generic' && code === 7) failure = 'recovery_required';

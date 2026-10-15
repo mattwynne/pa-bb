@@ -4,6 +4,8 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, chmod, stat, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { syncArguments } from '../adapters/rclone-cloud-provider.ts';
+import { RcloneProcess } from '../adapters/rclone-process.ts';
+import { CloudError } from '../core/ports.ts';
 
 const binary = process.env.RCLONE_TEST_BINARY;
 type Result = { code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string };
@@ -44,6 +46,20 @@ async function contents(root: string) {
   return result.sort();
 }
 
+test('pinned native JSON distinguishes recoverable listing abort from critical transfer lockout', { skip: !binary, timeout: 40_000 }, async () => {
+  const f = await setup(); const runner = new RcloneProcess(f.root + '/unused', binary) as unknown as { execute(binary: string, args: string[], capture: boolean, timeout: number, report?: undefined, context?: 'bisync'): Promise<string> };
+  const bisync = (initial = false) => runner.execute(binary!, [...f.args(initial), '--use-json-log', '--log-level', 'NOTICE'], false, 30_000, undefined, 'bisync');
+  try {
+    await put(join(f.cloud, 'generated.txt'), 'generated'); await bisync(true);
+    await chmod(f.cloud, 0o000);
+    try { await assert.rejects(bisync(), error => { assert.ok(error instanceof CloudError); assert.equal(error.category, 'sync_failed'); assert.deepEqual(error.evidence, { kind: 'command_exit', exitCode: 7, native: 'retryable_abort', reason: 'listing_failure' }); return true; }); }
+    finally { await chmod(f.cloud, 0o700); }
+    await bisync(); assert.equal(await readFile(join(f.local, 'generated.txt'), 'utf8'), 'generated');
+    await put(join(f.cloud, 'new.txt'), 'generated-critical'); await chmod(f.local, 0o500);
+    try { await assert.rejects(bisync(), error => { assert.ok(error instanceof CloudError); assert.equal(error.category, 'recovery_required'); assert.deepEqual(error.evidence, { kind: 'command_exit', exitCode: 7, native: 'resync_required_abort' }); return true; }); }
+    finally { await chmod(f.local, 0o700); }
+  } finally { await chmod(f.cloud, 0o700).catch(() => {}); await chmod(f.local, 0o700).catch(() => {}); await rm(f.root, { recursive: true }); }
+});
 test('stock rclone retries transfers three times but lsjson has no whole-command retry loop', { skip: !binary, timeout: 20_000 }, async () => {
   const root = await mkdtemp('/tmp/icloud-native-retries-'); const source = join(root, 'source'); const target = join(root, 'target'); await mkdir(source); await mkdir(target);
   try {

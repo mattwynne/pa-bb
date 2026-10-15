@@ -5,7 +5,7 @@ export function diagnosticMessage(stage: string, failure: string, details?: Diag
   const safeFailure = FAILURES.includes(failure as Failure) ? failure : 'unknown';
   const run = typeof details?.run === 'number' && Number.isSafeInteger(details.run) && details.run > 0 ? ` run=${details.run}` : '';
   const evidence = failureEvidence(details?.evidence);
-  const proof = evidence ? ` evidence=${evidence.kind}${evidence.kind === 'command_exit' ? ` exit=${evidence.exitCode ?? 'unknown'}` : ''}` : '';
+  const proof = evidence ? ` evidence=${evidence.kind}${evidence.kind === 'command_exit' ? ` exit=${evidence.exitCode ?? 'unknown'}${evidence.native ? ` native=${evidence.native}` : ''}${evidence.reason ? ` reason=${evidence.reason}` : ''}` : ''}` : '';
   return `iCloud ${safeStage} ${safeFailure}${run}${proof}`;
 }
 export function diagnosticLogger(warn: (message: string) => void): Diagnose {

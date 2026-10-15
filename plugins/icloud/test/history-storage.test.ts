@@ -35,6 +35,17 @@ test('pages are bounded, cursor-stable and filterable without discarding older h
     assert.throws(() => query({ limit: 101 })); assert.throws(() => query({ before: -1 }));
   } finally { f.db.close(); }
 });
+test('SQLite persists safe native abort vocabulary alongside older strict evidence rows', async () => {
+  const f = fixture(); const repo = f.make();
+  try {
+    await repo.load(); await append(repo, run(1, 'failed'));
+    const newer = { ...run(2, 'failed'), failure: 'recovery_required' as const, evidence: { kind: 'command_exit' as const, exitCode: 7, native: 'unknown_fatal' as const } };
+    await append(repo, newer);
+    const reloaded = f.make(); await reloaded.load();
+    assert.deepEqual((await reloaded.read(query(), day(0))).runs.map(row => row.evidence), [run(1, 'failed').evidence, newer.evidence]);
+    assert.doesNotMatch(JSON.stringify(await reloaded.read(query(), day(0))), /sentinel-private/);
+  } finally { f.db.close(); }
+});
 test('valid legacy KV summaries and sequence migrate exactly once without changing their evidence', async () => {
   const legacy = { schema: 1, sequence: 2, active: null, runs: [run(1, 'failed'), run(2)] }; const f = fixture(legacy);
   try {
