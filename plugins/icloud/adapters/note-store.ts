@@ -19,6 +19,7 @@ const issuedAt = (id: string) => Number.parseInt(id.replaceAll('-', '').slice(0,
 const fdPath = (fd: number) => `/proc/self/fd/${fd}`;
 const same = (a: any, b: any) => a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
 const identity = (a: any, b: any) => a.dev === b.dev && a.ino === b.ino;
+const equivalent = (a: { hash: string; info: any } | null, b: { hash: string; info: any } | null) => a === null || b === null ? a === b : a.hash === b.hash && same(a.info, b.info);
 const missing = (e: unknown) => (e as NodeJS.ErrnoException)?.code === 'ENOENT';
 export type CommitInput = { operationId: string; mirrorId: string; path: string; kind: 'create' | 'replace'; expectedHash: string | null; text: string };
 export type NoteReceipt = { operationId: string; mirrorId: string; path: string; at: string; outcome: 'saved_locally_pending_sync' | 'not_saved' | 'uncertain'; hash: string; previousHash: string | null };
@@ -59,16 +60,98 @@ export class NoteStore {
       return { text, hash: digest(content), info: after };
     } finally { await file.close(); }
   }
-  async read(root: string, path: string) {
+  // Exact identity is internal collision evidence, never a consumer CAS hash.
+  async observe(root: string, path: string) {
     let parent: Awaited<ReturnType<NoteStore['parent']>> | undefined;
     try {
-      parent = await this.parent(root, path); const result = await this.readAt(parent.path);
+      parent = await this.parent(root, path);
+      let result: Awaited<ReturnType<NoteStore['readAt']>> | null;
+      try { result = await this.readAt(parent.path); }
+      catch (e) { if (!missing(e)) throw e; result = null; }
       const fresh = await this.parent(root, path);
-      try { if (!identity(await parent.folder.stat(), await fresh.folder.stat())) throw new NoteError('conflict'); }
-      finally { await fresh.close(); }
-      return { text: result.text, hash: result.hash, readAt: new Date(this.now()).toISOString(), complete: true as const };
+      try {
+        if (!identity(await parent.folder.stat(), await fresh.folder.stat())) throw new NoteError('conflict');
+        if (result && !same(result.info, await lstat(fresh.path))) throw new NoteError('conflict');
+        if (!result) {
+          try { await lstat(fresh.path); throw new NoteError('conflict'); }
+          catch (e) { if (!missing(e)) throw e; }
+        }
+      } finally { await fresh.close(); }
+      return result ? { text: result.text, hash: result.hash, info: { dev: result.info.dev, ino: result.info.ino, size: result.info.size, mtimeMs: result.info.mtimeMs, ctimeMs: result.info.ctimeMs } } : null;
     } catch (e) { throw e instanceof NoteError ? e : new NoteError('unavailable'); }
     finally { await parent?.close(); }
+  }
+  async read(root: string, path: string) {
+    const result = await this.observe(root, path);
+    if (!result) throw new NoteError('unavailable');
+    return { text: result.text, hash: result.hash, readAt: new Date(this.now()).toISOString(), complete: true as const };
+  }
+  // Only the generation's command/application arbiter may call this. Stage is
+  // an independent fsynced inode, never the sole authoritative overlay blob.
+  async publishStage(root: string, path: string, stage: string, expected: { hash: string; info: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number } } | null) {
+    const parent = await this.parent(root, path);
+    try {
+      const current = await this.observe(root, path);
+      if (!equivalent(current, expected)) throw new NoteError('conflict');
+      const staged = await lstat(stage);
+      if (!staged.isFile() || staged.isSymbolicLink() || staged.dev !== (await parent.folder.stat()).dev) throw new NoteError('unavailable');
+      const fresh = await this.parent(root, path);
+      try {
+        if (!identity(await parent.folder.stat(), await fresh.folder.stat()) || !equivalent(await this.observe(root, path), expected)) throw new NoteError('conflict');
+        await this.fault('before_mirror_publish');
+        if (expected) await rename(stage, fresh.path);
+        else await link(stage, fresh.path); // exclusive creation; stage can be removed after directory fsync
+        await this.fault('after_mirror_rename');
+        await this.fault('before_destination_dirsync');
+        await fresh.folder.sync();
+        await this.fault('after_destination_dirsync');
+      } finally { await fresh.close(); }
+      const result = await this.observe(root, path);
+      if (!result || !identity(result.info, staged)) throw new NoteError('uncertain');
+      return result;
+    } catch (e) { throw e instanceof NoteError ? e : new NoteError((e as NodeJS.ErrnoException)?.code === 'ENOSPC' ? 'capacity' : 'uncertain'); }
+    finally { await parent.close(); }
+  }
+  async provePublishedStage(root: string, path: string, expected: { hash: string; info: { dev: number; ino: number } }) {
+    const parent = await this.parent(root, path);
+    try {
+      const before = await this.observe(root, path);
+      if (!before || before.hash !== expected.hash || !identity(before.info, expected.info)) throw new NoteError('uncertain');
+      // If a crash occurred after rename/link but before directory fsync, the
+      // surviving destination inode is evidence, not yet a durable checkpoint.
+      await parent.folder.sync();
+      const after = await this.observe(root, path);
+      if (!after || !equivalent(before, after)) throw new NoteError('uncertain');
+      return after;
+    } catch (e) { throw e instanceof NoteError ? e : new NoteError('uncertain'); }
+    finally { await parent.close(); }
+  }
+  // Bisync with --conflict-resolve none and --conflict-loser num appends the
+  // configured suffix and a number. Inspect exact siblings under the anchored
+  // parent; an unbounded/ambiguous set is uncertainty, never incoming absence.
+  async conflictCopies(root: string, path: string) {
+    const parent = await this.parent(root, path);
+    try {
+      const name = path.split('/').at(-1)!;
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`^${escaped}\\.(icloud-conflict|bb-conflict)([1-9][0-9]*)$`);
+      const found: Array<{ side: 'icloud' | 'bb'; number: number; observation: NonNullable<Awaited<ReturnType<NoteStore['readAt']>>> }> = [];
+      const folder = await opendir(fdPath(parent.folder.fd), { bufferSize: 32 });
+      let count = 0;
+      for await (const entry of folder) {
+        if (++count > NOTE_LIMITS.entries) throw new NoteError('uncertain');
+        const match = pattern.exec(entry.name); if (!match) continue;
+        if (!entry.isFile() || found.length >= 32) throw new NoteError('uncertain');
+        const number = Number(match[2]); if (!Number.isSafeInteger(number)) throw new NoteError('uncertain');
+        const observed = await this.readAt(join(fdPath(parent.folder.fd), entry.name));
+        found.push({ side: match[1] === 'icloud-conflict' ? 'icloud' : 'bb', number, observation: observed });
+      }
+      const fresh = await this.parent(root, path);
+      try { if (!identity(await parent.folder.stat(), await fresh.folder.stat())) throw new NoteError('uncertain'); }
+      finally { await fresh.close(); }
+      return found;
+    } catch (e) { throw e instanceof NoteError ? e : new NoteError('uncertain'); }
+    finally { await parent.close(); }
   }
   async list(root: string) {
     const paths: string[] = []; let count = 0; const started = this.now(); let incomplete = false; const warnings = new Set<string>();
@@ -179,6 +262,30 @@ export class NoteStore {
       if (this.reconciledRoots.size >= 64) this.reconciledRoots.delete(this.reconciledRoots.keys().next().value!);
       this.reconciledRoots.set(mirrorId, root); this.dirty.delete(mirrorId);
     } catch (e) { throw e instanceof NoteError ? e : new NoteError('uncertain'); }
+  }
+  // Migration-only enumeration under the real worker owner. The old digest
+  // encoded JSON transport input; its validated semantic fields are indexed
+  // separately by v2 before admitting any new publication.
+  async legacyRecords(mirrorId: string, root: string) {
+    await this.reconcile(mirrorId, root);
+    const records: Array<{ receipt: NoteReceipt; kind: 'create' | 'replace'; requestDigest: string; uncertain: boolean; previousBytes: number }> = [];
+    for (const dir of await this.directories()) {
+      const record = await this.load(dir);
+      if (record.mirrorId === mirrorId) {
+        if (record.phase !== 'finished') throw new NoteError('uncertain');
+        let previousBytes = 0, previousFound = false;
+        try {
+          const prior = await lstat(join(dir, 'previous'));
+          if (!prior.isFile() || prior.isSymbolicLink() || prior.uid !== process.getuid?.() || prior.size > NOTE_LIMITS.bytes || prior.size < 0) throw new NoteError('uncertain');
+          previousBytes = prior.size; previousFound = true;
+          const observed = await this.readAt(join(dir, 'previous'));
+          if (!record.previousHash || observed.hash !== record.previousHash) throw new NoteError('uncertain');
+        } catch (error) { if (!missing(error)) throw new NoteError('uncertain'); }
+        if (record.previousHash && record.outcome === 'saved_locally_pending_sync' && !previousFound) throw new NoteError('uncertain');
+        records.push({ receipt: this.receipt(record), kind: record.kind, requestDigest: record.requestDigest, uncertain: record.outcome === 'uncertain', previousBytes });
+      }
+    }
+    return records;
   }
   async receipts(query: { mirrorId: string; operationId?: string; path?: string; since?: string; limit: number }) {
     try {
