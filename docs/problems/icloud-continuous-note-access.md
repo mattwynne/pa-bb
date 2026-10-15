@@ -1,6 +1,12 @@
 # Background iCloud sync interrupts note access
 
-Status: open problem, recorded 2026-10-15 after live feedback on Obsidian 0.1.0 and iCloud 0.1.12. No correction has shipped. [Plan 015](../plans/015-icloud-continuous-note-access.md) is approved for implementation with an owner-authorized offline update: stop both plugins, update while disabled, then start the new versions and fix forward if needed. This avoids the initial automatic-rollback concern without rollout features; no overlay implementation has shipped. Its [review record](../plans/015-icloud-continuous-note-access-review.md) records the user's acceptance of GPT-only coverage, not a completed multi-family ensemble. This problem note does not select an architecture.
+Status: **correction shipped 2026-10-15**, iCloud **0.2.0** and Obsidian **0.2.0**, code commit `1182129ba50c3765154d77253cc8f988f34a97ea`. [Plan 015](../plans/015-icloud-continuous-note-access.md) records implementation, tests and the owner-authorized offline update. Its [review record](../plans/015-icloud-continuous-note-access-review.md) records accepted GPT-only coverage, not a completed multi-family ensemble. The original incident and requirements below concern 0.1.x.
+
+## Shipped correction and evidence limits
+
+Both plugins stayed disabled through both managed update completions. The initialized source identity and original enablement were preserved; iCloud started with local access ready before Obsidian, and only the previously enabled source was resumed. A normal scheduled sync completed in **42,689 ms**. During native activity, read-only status showed the source still locally available and discoverable by Obsidian. No vault was connected automatically; the previous zero connected vaults remained zero. Desktop/narrow live settings rendered with Add vault enabled, keyboard focus and no overflow. Bounded log tails contained no new plugin failures.
+
+Generated installed-BB workloads separately proved prompt durable local saves, read-after-save and following-run retirement: the enhanced five-minute run accepted 110 saves, 78 during native children, with client p95/max **105.49/122.88 ms** and 24 exact final logical/alias/mirror hashes. Those are disposable local alias results, not personal-note or Apple/device delivery evidence. Production verification read no personal note content and performed no test note writes. Exact cloud/phone delivery and owner feedback after explicit connection remain outstanding.
 
 ## Problem
 
@@ -48,9 +54,9 @@ The initialized/running mirror, empty eligible list and code path below establis
 
 **No 40-second write was measured.** The current code rejects access as busy; waiting for the active run to finish was a proposed remedy. The live run durations show why that remedy alone would produce unacceptable write latency.
 
-## Current implementation and responsibility
+## Affected 0.1.x implementation and responsibility
 
-The affected installed implementation came from commit `092bb6ce8d8a2a5ad93f9bc17788107118ca4b08`. Relevant boundaries are:
+The affected installed implementation came from commit `092bb6ce8d8a2a5ad93f9bc17788107118ca4b08`. The descriptions below refer to [that historical revision](https://github.com/mattwynne/pa-bb/tree/092bb6ce8d8a2a5ad93f9bc17788107118ca4b08/plugins), not the corrected v2 code; relative file links navigate to current sources. Relevant boundaries were:
 
 - [Obsidian service](../../plugins/obsidian/core/service.ts): `status()` includes only `ready` or `paused` sources in `eligible`. `connect()` has the same phase restriction. `source()` rejects a running source as `busy`, before reads or writes reach iCloud. Write admission also requires the source to be enabled and ready. Search/task scans can therefore return incomplete results with source failures. Pagination fingerprints include the source catalog, so sync-state changes can also expire a cursor.
 - [Obsidian settings](../../plugins/obsidian/app.tsx): the picker renders the returned eligible list; an empty list tells the user to finish iCloud setup even when initial sync has already succeeded. Settings refresh on mount, focus/visibility return and, in waiting states, a ten-second timer. **Add vault** itself only opens the existing list. Connected-source copy explicitly tells users to try tools after a sync run.
@@ -65,7 +71,7 @@ The current exclusion must not simply be removed. A native download could otherw
 
 ## Required consumer experience
 
-These are requirements for the future plan, not claims about the installed release:
+These requirements motivated Plan 015. The shipped correction's measured scope and remaining limits are recorded above:
 
 1. **Stable discovery:** initialized vaults remain discoverable and connected during ordinary background runs. Empty-success output must not stand in for an access failure. No visit to iCloud settings is needed to refresh availability.
 2. **Continuous reads:** consumers obtain a stable local version during sync. Routine worker activity does not produce `busy`, false empty search results or a requirement to poll sync phase. A file changing underneath a read needs safe internal handling. Do not imply that a whole-vault search is an atomic snapshot unless that is actually provided.
@@ -104,15 +110,15 @@ A candidate discussed after rejecting long write waits:
 2. Make that version authoritative for subsequent consumer reads.
 3. Reconcile it into the native mirror and iCloud in the background.
 
-This would decouple the consumer's local save from the worker's current run without allowing uncoordinated writes to the worker-owned mirror. It is **not yet designed or selected**. A queue alone is insufficient if reads still return old mirror bytes or a restart loses acknowledged edits.
+This would decouple the consumer's local save from the worker's current run without allowing uncoordinated writes to the worker-owned mirror. At incident recording it was **not yet designed or selected**; Plan 015 subsequently selected the generation-owned overlay. A queue alone is insufficient if reads still return old mirror bytes or a restart loses acknowledged edits.
 
 A plan considering this option must address conditional versions, repeated edits to the same note, creates racing remote creates, incoming edits/deletes, operation ordering and deduplication, crash recovery, bounded capacity, reconciliation fairness and eventual progress, removal/disconnect with pending edits, and compatibility with existing receipts and per-note previous versions. Never discard an acknowledged edit or blindly replay an uncertain operation. Avoid bringing back whole-folder backups or building a second general-purpose cloud sync engine.
 
-## Verification gap and future acceptance evidence
+## Original verification gap and acceptance criteria
 
-The release's generated-data scheduled test sampled 596 reads: 595 succeeded and one returned bounded busy. Its two native sync runs took **91.10 ms and 85.61 ms**. That demonstrated exclusion with fast synthetic syncs, not usable access during a 40-second live run. Earlier passing evidence remains valid within that scope; it does not establish the new consumer contract.
+The original 0.1.x release's generated-data scheduled test sampled 596 reads: 595 succeeded and one returned bounded busy. Its two native sync runs took **91.10 ms and 85.61 ms**. That demonstrated exclusion with fast synthetic syncs, not usable access during a 40-second live run. Earlier passing evidence remains valid within that scope; it does not establish the new consumer contract.
 
-A future plan should prove, using generated data:
+The follow-up acceptance criteria were to prove, using generated data:
 
 - A worker held active for at least 40 seconds does not hide an initialized vault or expose routine sync busyness to read/write consumers.
 - Reads, searches, tasks and metadata remain usable throughout; a save completes within the agreed local latency budget and is immediately visible through every supported consumer path.

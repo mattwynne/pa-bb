@@ -1,8 +1,8 @@
 # iCloud Drive support for BB
 
-Status: first implementation built; live Apple/disposable-vault verification pending. See [plan 004](../plans/004-icloud-sync.md) and the [plugin README](../../plugins/icloud/README.md) for delivered behaviour and limits.
+Status: native folder sync and continuous local note access delivered through iCloud **0.2.0**. Live scheduled sync and discovery during native activity are verified; exact cloud/device bytes and real authorization-expiry recovery remain unverified. See the [iteration ledger](../plans/README.md) and [plugin README](../../plugins/icloud/README.md) for delivered behaviour and limits. The original requirements below remain historical context.
 
-Live Obsidian feedback exposed a separate service-contract problem: routine sync blocks note access and hides initialized vaults. See [continuous note access during background sync](icloud-continuous-note-access.md) for the evidence and requirements for a follow-up plan.
+Live Obsidian feedback exposed routine sync blocking note access and hiding initialized vaults. The paired 0.2.0 correction is shipped; see [continuous note access during background sync](icloud-continuous-note-access.md) and [plan 015](../plans/015-icloud-continuous-note-access.md) for separate generated-data and read-only production evidence.
 
 ## Need
 
