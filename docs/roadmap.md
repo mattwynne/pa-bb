@@ -6,53 +6,72 @@ This is a proposed order of work, not a promise to port every PA package. The [v
 
 ## Where we are
 
-**Google Calendar, Fastmail, and a read-only Google Drive first slice are built** as independently installable BB plugins. Calendar and Drive connect Google accounts using separate OAuth callbacks and plugin-owned grants; Fastmail uses its official MCP service. See each plugin README for setup and verification limits. Drive's live consent and provider reads are not yet verified.
+**Four independent plugins are listed in the marketplace: Google Calendar, Fastmail, read-only Google Drive/Docs, and iCloud folder sync.** PA core, Obsidian tools and Gmail are not delivered.
+
+- **Google Calendar:** managed installation and multiple account connections verified; end-to-end Calendar tool use and live write approval still need verification.
+- **Fastmail:** standalone official MCP connection installed, with session recovery and stable tool IDs. A [recorded BB workflow](problems/google-drive-email-attachments.md) includes a completed email-draft call, superseding the earlier blanket “no live writes” status. This is not proof of sending or every mail/calendar/contacts operation. Optional [JMAP Inbox and label updates](../plugins/fastmail/docs/jmap-labels.md) are built and synthetically tested; live JMAP writes remain unverified.
+- **Google Drive/Docs:** read-only search, folder browsing, metadata and Docs text tools are built. The same workflow records live account discovery, search and browsing; a complete consent/Docs-read verification record is still missing. Downloads and exports are not implemented.
+- **iCloud:** native sync/recovery work is delivered through [iteration 013](plans/013-icloud-bisync-retry-classification.md), including a completed live scheduled sync. Sync no longer takes whole-folder backups. Coordinated note writes and per-note previous versions are not delivered; phone round trips and real authorization-expiry recovery remain unverified.
+
+See the [iteration ledger](plans/README.md) and plugin READMEs for delivery history and setup. Earlier plans retain their original verification limits; the later evidence linked above qualifies those limits.
 
 ## Priorities
 
-### 1. Fastmail: one connection, several capabilities
+### 1. Personal knowledge and Obsidian — immediate focus
 
-The [connection spike](plans/002-fastmail-mcp-findings.md#follow-up-isolated-live-proof) proved read-only MCP access through an Agent Plugins bridge. Fastmail accepted a localhost redirect pasted back into BB, but its dynamic registration rejected the tested public HTTPS callbacks. A standalone Fastmail plugin is now listed alongside Google Calendar and connected on production PA; the bridge pilot was removed. The standalone plugin has not yet passed live tool calls in a fresh provider session or live write verification.
+Deliver [iteration 006 — Obsidian vault reading and editing](plans/006-obsidian-vault-reading.md) on the existing iCloud foundation. First prove the BB/iCloud boundary with generated vaults: plugin discovery/RPC, practical reads during scheduled sync, and conditional note commits coordinated with the native worker. Prove version checks, per-note previous versions, operation receipts and crash recovery before enabling edits. A prototype or passing local test does not establish a delivered boundary.
 
-Build **one Fastmail plugin** that connects an account and makes the official Fastmail MCP service's mail, calendar, and contacts capabilities available in BB. A user should not have to install separate Fastmail Mail and Fastmail Calendar plugins. Own connection setup, status, and account choice at the Fastmail boundary; keep task workflows elsewhere.
+Then connect multiple vaults, add search/reads/metadata/links/tasks, implement creation/targeted edits/property updates, package simple settings, and verify in installed BB. Connecting a vault grants whole-vault read/write access: no folder permissions, read-only switches or per-edit confirmations. Keep version checks and sync-safe saves underneath; report **saved locally, pending iCloud sync** rather than claiming cloud/phone delivery. Personal layouts and policies stay out of the public package.
 
-BB should discover and offer the tools Fastmail exposes under the user's MCP login grant, **including mutation tools when the user selects those permissions**. Do not impose a Fastmail-specific read-only allowlist or an extra plugin approval step. The standalone connection uses whichever grant the user selected in Fastmail; do not infer its scopes from a tool count. If BB needs an adapter, keep it thin: do not copy provider tool schemas or rebuild the calendar protocol. PA [chose the official MCP service](https://github.com/mattwynne/pa/blob/main/docs/adrs/0006-use-official-fastmail-mcp-for-calendar-access.md) and removed its native CalDAV path because recurrence, timezones, and lossless edits were too risky to maintain locally. Test how write calls, provider interactions, precise targeting, and uncertain outcomes behave without requiring a live mutation merely to release the connection. PA's recorded live validation covered calendar reads, not mutations.
+The six-step plan is the delivery checklist. No Obsidian desktop app, Mac relay or PA core is required. Note browser/editor and graph UI are parked; renames/deletes, bulk editing and automatic daily-note/template workflows come later.
 
-### 2. PA core: compose without assuming a provider
+### 2. Close verification gaps in existing connections
+
+Verify the installed plugins in fresh target-provider sessions, recording each operation separately rather than calling a connection wholly verified. Cover Google Calendar reads and source attribution; Fastmail mail/calendar/contacts reads, session rotation and stale-tool handling; and Drive consent, search and Docs reads. Carry forward the recorded live draft/search evidence without treating it as proof of every capability. Check real Apple expiry recovery and phone-to-BB delivery only through separately authorized tests; neither blocks synthetic Obsidian boundary work.
+
+Keep **one Fastmail plugin** for the official MCP service's mail, calendar and contacts capabilities. Discover provider schemas at runtime and offer tools allowed by the selected grant, including mutations, without an extra MCP-specific approval gate. Do not infer scopes from tool count, rebuild CalDAV, or copy the provider catalog. Preserve the [official-MCP decision](https://github.com/mattwynne/pa/blob/main/docs/adrs/0006-use-official-fastmail-mcp-for-calendar-access.md). Test provider interactions, precise targeting and uncertain outcomes synthetically; do not require a live mutation merely to release a connection.
+
+### 3. PA core: compose without assuming a provider
 
 Keep the core small. It should explain installed capabilities and missing connections, attribute facts to their sources, distinguish a proposed action from a completed one, and apply shared approval and untrusted-content rules. It should work with no connected service and should not own provider credentials or absorb every workflow.
 
-The first cross-provider use case is **calendar awareness**: answer a question across connected Google and Fastmail calendars, preserve each event's provider/account/calendar identity, and report partial failures instead of silently treating one provider as complete. Calendar interpretation and availability reasoning belong above the providers. Do not invent a shared calendar write API merely to support a combined read.
+The first cross-provider use case remains **calendar awareness**: answer across connected Google and Fastmail calendars, preserve each event's provider/account/calendar identity, and report partial failures instead of silently treating one provider as complete. Calendar interpretation and availability reasoning belong above the providers. Do not invent a shared calendar write API merely to support a combined read.
 
-### 3. Google Drive and Docs
+### 4. Google Drive and Docs: finish useful file workflows
 
-The independently installable [Google Drive/Docs read-only first slice](plans/003-google-drive-discovery.md) uses the Pi extension as a behavioral starting point. Verify its live consent and reads, then add approved creation, editing, sharing, and filing. The Pi extension has extensive Docs operations but its folder-finding tools do not amount to general file search, so design this around actual document-finding tasks rather than copying its tool list. Add Sheets and Slides when demonstrated workflows need them, not as a prerequisite to useful Drive access.
+Extend the [read-only first slice](plans/003-google-drive-discovery.md) around demonstrated tasks, not the Pi extension's tool list. The [Drive-to-email attachment gap](problems/google-drive-email-attachments.md) is concrete: the assistant can find files but cannot retrieve their bytes, so it substitutes links or asks for manual uploads. Add bounded downloads and explicit Google-native export formats, with safe backend transfer to the mail provider and temporary-file cleanup. Keep binary content and credentials out of agent context. Preparing attachments must not imply permission to send.
 
-### 4. Personal knowledge and Obsidian
-
-The iCloud foundations are delivered through [iteration 013](plans/013-icloud-bisync-retry-classification.md): native sync/retry handling, conflict/deletion safeguards and a completed live scheduled run. [Iteration 012](plans/012-native-icloud-sync.md) removed whole-folder backups. Obsidian still needs a coordinated conditional-write boundary with previous versions of the individual notes it edits; that boundary is part of iteration 006, not existing iCloud capability.
-
-[Iteration 006 — Obsidian vault reading and editing](plans/006-obsidian-vault-reading.md) connects one or more iCloud-synced vaults for whole-vault reading and editing: search, metadata, links, tasks, source citations, note creation, targeted edits and structured property updates. No folder permissions, read-only switches or per-edit confirmations. Choose vaults once, then let the assistant use them. Keep version checks, recovery and sync-safe saves underneath; distinguish local saves from cloud/phone delivery. Personal layouts and policies stay out of the public package. The iteration has six delivery steps, ending in installed-BB verification; note browser/editor and graph UI are parked. Renames/deletes, bulk editing and automatic daily-note/template workflows come later. If vault access is the gating dependency for the next useful ability, move this item ahead of Drive/Docs.
+Add approved document creation, editing, sharing and filing with an explicit scope-upgrade path when needed. Add Sheets and Slides for demonstrated workflows, not as prerequisites to useful Drive access.
 
 ### 5. Outcome abilities
 
 Once sources are connected, package the work people ask PA to do. Begin with **meeting preparation / Get Perspective** across available calendars and context; follow with a daily briefing, saved email drafting, inbox triage, and weekly planning where their dependencies are ready. Adapt PA's existing abilities rather than copying Pi-specific commands, subagents, private policies, or filesystem assumptions verbatim. Each ability should remain useful with a subset of integrations and be explicit about what it could not inspect.
 
-### 6. Fill gaps in provider support
+### 6. Gmail — investigated, scope not yet agreed
 
-Add Fastmail-specific operations inside the Fastmail plugin when the official MCP service cannot support a proven PA workflow safely—for example, PA's guarded editable saved drafts or precise mailbox changes. Conservative contact-group membership changes and Msgvault's local historical email archive are further candidates. Keep those additions narrow; do not make them prerequisites for the initial Fastmail connection or conflate archive evidence with live mailbox state.
+The [Gmail investigation](problems/gmail-plugin.md) recommends an independent provider plugin using the Gmail REST API and existing Calendar/Drive OAuth patterns. Start with multi-account search, message and thread reads; add drafts next and approved sending only as a separately agreed capability. Reuse an installation's Web OAuth client through caller-checked backend copying, never its account tokens. Gmail still needs its own consent and verified scopes; shared Google projects do not guarantee independent provider-side revocation.
 
-### 7. Specialist integrations
+Before implementation, agree the first release's scope, applicable Google verification/deployment model, encrypted storage and BB-to-model data handling. Gmail reading and drafting use restricted scopes; Google's draft scope also permits sending, so a draft-only release must expose no send path. No Gmail plugin or live Gmail access has been delivered. Mailbox mutations, attachments and background synchronization stay deferred until needed.
 
-Consider Xero, meeting capture and transcripts, Discord, DNSimple, and other PA integrations one at a time when there is a clear BB task to serve. Keep Red Donkey accounting policy, local recorder dependencies, and other personal deployment state outside general-purpose plugins. Gmail can be a separate provider plugin if demand justifies it; Fastmail's mail access should not imply that every mail provider is supported.
+### 7. Fill remaining provider gaps
 
-## First milestone after Google Calendar
+The optional Fastmail JMAP tool already supplies precise Inbox/user-label changes with preview, conditional writes and read-back verification. It is not a replacement for the official MCP connection, and its separate token is not proof of the same account or successful live access. Verify and extend that narrow path only for demonstrated needs.
 
-Install **Fastmail and PA core alongside Google Calendar**, then ask: “What's on across all my calendars tomorrow, and what do I need to prepare?” A successful answer identifies which provider and account supplied each event, uses only connected services, and says when one source could not be read. It does not require Drive, Obsidian, or email to be installed, though those connections can improve the preparation advice later.
+Other candidates include PA's guarded editable saved drafts, conservative contact-group membership changes and Msgvault's local historical email archive. Keep additions narrow and distinguish archive evidence from live mailbox state.
+
+### 8. Specialist integrations
+
+Consider Xero, meeting capture and transcripts, Discord, DNSimple, and other PA integrations one at a time when there is a clear BB task to serve. Keep Red Donkey accounting policy, local recorder dependencies, and other personal deployment state outside general-purpose plugins.
+
+## Next milestones
+
+1. **Obsidian:** in installed BB, connect two disposable iCloud-synced vaults; search/read notes, follow links, list tasks, create a note and make targeted text/property edits without confirmation prompts. Preserve unrelated bytes, reject stale edits, inspect lost-response saves without duplicating them, and remove a vault without deleting notes or changing sync. Record local saves separately from any authorized device-delivery check.
+2. **First composed assistant task:** install PA core alongside Google Calendar and Fastmail, then ask: “What's on across all my calendars tomorrow, and what do I need to prepare?” Identify each event's provider/account/calendar, use only connected services, and report partial failures. Drive, Obsidian and email may improve the answer but must not be required.
 
 ## Gates that apply throughout
 
 - **Consent determines capability; user intent determines action.** Offer the tools allowed by each service grant, including writes, without an extra Fastmail-specific gate. Do not treat connected services or untrusted provider content as instructions to mutate data. Honor BB and provider interaction/permission flows, describe consequential changes clearly, and inspect uncertain write outcomes instead of retrying blindly.
 - **Do not promise multi-user privacy without an enforceable boundary.** The current Google Calendar plugin is explicitly single-user because BB agent tools and plugin routes do not supply a user identity. Keep new connections scoped to single-user installations until BB can enforce per-user account and data isolation. BB plugins run as trusted server code, not as security-isolated providers.
-- **Validate in BB, not just in Pi.** Prove installation, connection, tool visibility, and approval behavior in the target BB provider sessions. A Pi extension or an MCP tool working elsewhere does not establish that it works through BB.
+- **Validate in BB, not just in Pi.** Prove installation, connection, tool visibility, and the intended approval behavior in target BB provider sessions. Review changed UI in rendered BB at desktop/narrow widths with keyboard navigation. Record installed versions/commits and distinguish synthetic tests, host checks, provider calls and device delivery; none substitutes for the others.
+- **Make failures diagnosable without exposing content.** Follow the [observability standards](o11y-standards.md) and test handled failures with synthetic private sentinels. Keep credentials, note/mail bodies, account details, host paths and raw provider errors out of diagnostics.
 - **Keep integrations independent.** Removing Fastmail must not break Google Calendar; removing an ability must not delete a user's account or provider data. Avoid a mandatory shared plugin framework before real composition requires one.
