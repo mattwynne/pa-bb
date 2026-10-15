@@ -13,11 +13,11 @@ try {
   for (const view of ['first', 'eligible', 'connected', 'multiple', 'paused', 'running', 'removed', 'recovery', 'local_blocked', 'unconfirmed', 'error', ...Object.keys(setups)]) for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
     let dialogs = 0; page.on('dialog', dialog => { dialogs++; void dialog.dismiss(); });
-    const state = { revision: 0, conflict: null, conflictFailure: null, configurationUnconfirmed: false, setup: setups[view] ? view : 'ready', nextAction: setups[view] ?? null, vaults: [], eligible: [], receipts: [], receiptFailures: [], uncertainOperations: [], evidenceOnly: true };
+    const state = { revision: 0, conflict: null, conflictFailure: null, configurationUnconfirmed: false, setup: setups[view] ? view : 'ready', nextAction: setups[view] ?? null, vaults: [], eligible: [], receipts: [], receiptFailures: [], uncertainOperations: [], uncertainOperationCount: 0, uncertainOperationsIncomplete: false, evidenceOnly: true };
     if (['eligible', 'connected', 'multiple', 'running'].includes(view)) state.eligible = [source('two')];
     if (['connected', 'multiple', 'paused', 'running', 'removed', 'check_failed'].includes(view)) state.vaults = [{ vaultId: 'one', name: 'Launch', source: source('one') }];
     if (view === 'multiple') { state.vaults.push({ vaultId: 'two', name: 'Launch', source: source('two') }); state.eligible = []; }
-    if (view === 'recovery') { state.vaults = [{ vaultId: 'one', name: 'Launch', source: source('one') }]; state.uncertainOperations = [{ operationId: '12345678-1234-7123-8123-123456789abc', vaultId: 'one', path: 'Conflict.md', at: '2026-10-10T12:00:00Z', kind: 'resolution' }]; }
+    if (view === 'recovery') { state.vaults = [{ vaultId: 'one', name: 'Launch', source: source('one') }]; state.uncertainOperations = [{ operationId: '12345678-1234-7123-8123-123456789abc', vaultId: 'one', path: 'Conflict.md', at: '2026-10-10T12:00:00Z', kind: 'resolution' }]; state.uncertainOperationCount = 1; }
     if (view === 'local_blocked' || view === 'unconfirmed') { state.vaults = [{ vaultId: 'one', name: 'Launch', source: source('one') }]; if (view === 'local_blocked') state.vaults[0].source.local = { available: false, reason: 'recovery_required', pendingAgeMs: null, applicationBlocker: null }; else state.configurationUnconfirmed = true; }
     if (view === 'paused') Object.assign(state.vaults[0].source, { enabled: false, phase: 'paused' });
     if (view === 'running') { state.vaults[0].source.phase = 'running'; state.eligible[0].phase = 'running'; }
@@ -60,7 +60,7 @@ try {
   }
   for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
-    const first = { revision: 1, conflict: null, conflictFailure: null, configurationUnconfirmed: false, setup: 'ready', nextAction: null, vaults: [{ vaultId: 'one', name: 'Launch', source: source('one') }], eligible: [], receipts: [], receiptFailures: [], uncertainOperations: [], evidenceOnly: true };
+    const first = { revision: 1, conflict: null, conflictFailure: null, configurationUnconfirmed: false, setup: 'ready', nextAction: null, vaults: [{ vaultId: 'one', name: 'Launch', source: source('one') }], eligible: [], receipts: [], receiptFailures: [], uncertainOperations: [], uncertainOperationCount: 0, uncertainOperationsIncomplete: false, evidenceOnly: true };
     let checks = 0; let release; let entered; const waiting = new Promise(resolve => { entered = resolve; });
     await page.route('**/api/v1/plugins/obsidian/rpc/**', async route => {
       const method = new URL(route.request().url()).pathname.split('/').at(-1);

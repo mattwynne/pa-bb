@@ -85,6 +85,9 @@ export class Obsidian {
   async status(input: { vaultId?: string; operationId?: string; path?: string; since?: string; limit?: number } = {}) {
     if (input.path) { validPath(input.path); if (!input.vaultId) throw new VaultError('invalid_query', 'Select an exact vault ID for path inspection.'); }
     if (input.vaultId && !this.state.vaultIds.includes(input.vaultId)) throw new VaultError('not_connected');
+    const matchesPending = (pending: NonNullable<Configuration['pending']>[number]) => this.state.vaultIds.includes(pending.vaultId)
+      && (!input.vaultId || pending.vaultId === input.vaultId) && (!input.path || pending.path === input.path)
+      && (!input.operationId || pending.operationId === input.operationId);
     const catalog = await this.catalog.snapshot(); const revision = this.state.revision;
     if (catalog.compatible) await this.remember(catalog);
     const vaults = this.state.vaultIds.map(id => ({ vaultId: id, name: this.state.names?.[id] ?? null, source: catalog.sources.find(s => s.id === id) ?? null }));
@@ -102,7 +105,7 @@ export class Obsidian {
           try {
             receipts.push(...await this.files.receipts({ mirrorId: id, revision, operationId: input.operationId, path: input.path, since: input.since, limit: Math.min(input.limit ?? 20, 100) }));
             // Recent pages are not a recovery index. Inspect each persisted ID in its own scope.
-            for (const pending of (this.state.pending ?? []).filter(p => p.vaultId === id && (!input.operationId || p.operationId === input.operationId))) {
+            for (const pending of (this.state.pending ?? []).filter(p => p.vaultId === id && matchesPending(p))) {
               if (receipts.some(r => r.operationId === pending.operationId)) continue;
               receipts.push(...await this.files.receipts({ mirrorId: id, revision, path: pending.path, operationId: pending.operationId, limit: 1 }));
             }
@@ -114,7 +117,9 @@ export class Obsidian {
     const resolved = new Set(receipts.filter(r => r.outcome !== 'uncertain').map(r => r.operationId));
     if (resolved.size) await this.update(async () => { if (this.state.revision === revision) await this.save({ ...this.state, pending: this.state.pending?.filter(p => !resolved.has(p.operationId)) }); });
     this.checkRevision(revision);
-    return { revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations: (this.state.pending ?? []).filter(p => this.state.vaultIds.includes(p.vaultId)), configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
+    const uncertain = (this.state.pending ?? []).filter(matchesPending);
+    const uncertainOperations = uncertain.slice(0, Math.min(input.limit ?? 20, 100));
+    return { revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
   }
   private checkRevision(revision: number) { if (this.stopped || this.state.revision !== revision) throw new VaultError('not_connected'); }
   async read(input: { vaultId: string; path: string; heading?: string; blockId?: string; selector?: { version: 'incoming'; token: string } }) {

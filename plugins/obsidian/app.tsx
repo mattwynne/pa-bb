@@ -60,7 +60,7 @@ function ObsidianSettings() {
         <ConnectionGuide href={GUIDE}>Step-by-step setup guide ↗</ConnectionGuide>
       </ConnectionSetup>}
       {state.configurationUnconfirmed && <ConnectionAlert>A connection change has not been confirmed by iCloud. Check again before relying on removal or adding another vault.</ConnectionAlert>}
-      {!!state.uncertainOperations.length && <ConnectionAlert>{state.uncertainOperations.length} local operation{state.uncertainOperations.length === 1 ? '' : 's'} need exact receipt inspection with obsidian_status before retrying. No edit is replayed automatically.</ConnectionAlert>}
+      {!!state.uncertainOperationCount && <ConnectionAlert>{state.uncertainOperationCount} local operation{state.uncertainOperationCount === 1 ? '' : 's'} need exact receipt inspection with obsidian_status before retrying. No edit is replayed automatically.</ConnectionAlert>}
       {!!state.receiptFailures.length && <ConnectionAlert>Local receipt inspection is unavailable. Check iCloud and try again; an uncertain change must not be repeated.</ConnectionAlert>}
       {state.nextAction && <div className="pa-obsidian__source-help" role="status"><p>{state.nextAction}</p>{state.setup !== 'check_failed' && <a className="pa-connection__guide" href={ICLOUD}>Open iCloud settings</a>}</div>}
       {!!state.vaults.length && <ConnectionAccounts>{state.vaults.map(vault => {
