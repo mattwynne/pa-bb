@@ -51,6 +51,7 @@ CREATE INDEX IF NOT EXISTS icloud_note_overlay_generations_path ON icloud_note_o
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_generations_maintenance ON icloud_note_overlay_generations(published_at, checked_at, state);
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_heads_generation ON icloud_note_overlay_heads(generation);
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_generations_parent ON icloud_note_overlay_generations(parent_generation);
+CREATE INDEX IF NOT EXISTS icloud_note_overlay_generations_successor ON icloud_note_overlay_generations(superseded_by);
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_generations_expiry ON icloud_note_overlay_generations(state, published_at);
 CREATE TABLE IF NOT EXISTS icloud_note_overlay_blob_refs (class TEXT NOT NULL CHECK(class IN ('pending','recovery')), kind TEXT NOT NULL, owner TEXT NOT NULL, mirror_id TEXT NOT NULL, hash TEXT NOT NULL, bytes INTEGER NOT NULL CHECK(bytes >= 0), PRIMARY KEY(kind, owner, mirror_id, hash));
 CREATE INDEX IF NOT EXISTS icloud_note_overlay_blob_hash ON icloud_note_overlay_blob_refs(class, hash, mirror_id);
@@ -345,9 +346,15 @@ export class NoteOverlay {
     for (const row of genRows) {
       if (!budget()) break; examined++;
       const pinned = this.db.prepare('SELECT 1 FROM icloud_note_overlay_heads WHERE generation = ? LIMIT 1').get(row.generation_id) || this.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE kind = 'checkpoint' AND owner = ? LIMIT 1").get(String(row.generation_id));
-      const child = this.db.prepare('SELECT 1 FROM icloud_note_overlay_generations WHERE parent_generation = ? LIMIT 1').get(row.generation_id);
-      if (!expired(row.operation_id) || pinned || child) { this.db.prepare('UPDATE icloud_note_overlay_generations SET checked_at = ? WHERE generation_id = ?').run(now, row.generation_id); continue; }
-      generations += this.db.prepare('DELETE FROM icloud_note_overlay_generations WHERE generation_id = ?').run(row.generation_id).changes;
+      if (!expired(row.operation_id) || pinned) { this.db.prepare('UPDATE icloud_note_overlay_generations SET checked_at = ? WHERE generation_id = ?').run(now, row.generation_id); continue; }
+      generations += this.db.transaction(() => {
+        // These history links are not active ownership proofs. Compact an
+        // expired intermediate version without retaining an endless chain
+        // behind a still-pending descendant; checkpoint refs remain pinned.
+        this.db.prepare('UPDATE icloud_note_overlay_generations SET parent_generation = NULL WHERE parent_generation = ?').run(row.generation_id);
+        this.db.prepare('UPDATE icloud_note_overlay_generations SET superseded_by = NULL WHERE superseded_by = ?').run(row.generation_id);
+        return this.db.prepare('DELETE FROM icloud_note_overlay_generations WHERE generation_id = ?').run(row.generation_id).changes;
+      })();
     }
     const saved = this.db.prepare('SELECT * FROM icloud_note_overlay_receipts WHERE at < ? AND (checked_at IS NULL OR checked_at < ?) ORDER BY at LIMIT ?').all(new Date(cutoff).toISOString(), now - 60000, limit - examined) as Array<{ operation_id: string; mirror_id: string; path: string; digest: string; hash: string; previous_hash: string | null; outcome: string; quota_bytes: number }>;
     for (const row of saved) {
@@ -508,7 +515,7 @@ export class NoteOverlay {
         }
         this.db.prepare('UPDATE icloud_note_overlay_heads SET applied = ?, journal = NULL WHERE mirror_id = ? AND path = ? AND generation = ?').run(applied, id, path, row.generation);
         this.db.prepare("UPDATE icloud_note_overlay_generations SET applied = ?, state = 'applied' WHERE generation_id = ?").run(applied, journal.generation);
-        if (previous && previous.generation !== journal.generation) this.db.prepare("UPDATE icloud_note_overlay_generations SET state = 'superseded' WHERE generation_id = ? AND superseded_by IS NOT NULL").run(previous.generation);
+        if (previous && previous.generation !== journal.generation) this.db.prepare("UPDATE icloud_note_overlay_generations SET state = 'superseded' WHERE generation_id = ?").run(previous.generation);
       })();
       await unlink(join(this.root, 'stages', journal.stage)).catch(error => { if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error; });
       await this.syncDir(join(this.root, 'stages'));
@@ -606,7 +613,13 @@ export class NoteOverlay {
   beforeRun(id: string) {
     // Called by the arbiter immediately before native invocation. A successor
     // published during that command cannot inherit this snapshot's evidence.
-    return (this.db.prepare('SELECT path, generation, applied FROM icloud_note_overlay_heads WHERE mirror_id = ? AND applied IS NOT NULL AND conflict IS NULL AND journal IS NULL').all(id) as Array<{ path: string; generation: number; applied: string }>).filter(row => parse(row.applied, appliedSchema).generation <= row.generation);
+    return (this.db.prepare('SELECT path, generation, applied FROM icloud_note_overlay_heads WHERE mirror_id = ? AND applied IS NOT NULL AND conflict IS NULL AND journal IS NULL').all(id) as Array<{ path: string; generation: number; applied: string }>).map(row => {
+      const checkpoint = parse(row.applied, appliedSchema);
+      if (checkpoint.generation > row.generation) throw new NoteError('uncertain');
+      // The native command can observe only the applied predecessor, not a
+      // successor that has been saved locally but has not reached the mirror.
+      return { ...row, generation: checkpoint.generation };
+    });
   }
   async afterRun(root: string, id: string, eligible: ReturnType<NoteOverlay['beforeRun']>, succeeded: boolean) {
     let retired = 0;

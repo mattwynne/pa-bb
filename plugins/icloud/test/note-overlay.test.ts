@@ -73,6 +73,34 @@ test('cancellation after immutable publication leaves no receipt and bounded GC 
     assert.equal((f.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_blob_catalog WHERE hash = ?').get(hash('B')) as { count: number }).count, 1);
   } finally { await f.close(); }
 });
+test('expired intermediate history does not grow indefinitely behind a protected checkpoint and pending successor', { skip: !enabled }, async () => {
+  let now = Date.now(); const f = await fixture(() => now);
+  try {
+    const b = { operationId: operationId(), mirrorId: 'generated', path: 'Note.md', kind: 'replace' as const, expectedHash: hash('A'), text: 'B' };
+    await f.store.commit(f.mirror, b); await f.store.apply(f.mirror, 'generated', 'Note.md');
+    const c = { ...b, operationId: operationId(), expectedHash: hash('B'), text: 'C' };
+    await f.store.commit(f.mirror, c);
+    const d = { ...b, operationId: operationId(), expectedHash: hash('C'), text: 'D' };
+    const pending = await f.store.commit(f.mirror, d);
+    now += 31 * 86400000;
+    for (let i = 0; i < 8; i++) await f.store.maintain(128);
+    assert.equal((f.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_generations').get() as { count: number }).count, 2);
+    assert.equal(await f.store.receipt(c.operationId), null);
+    assert.ok(await f.store.receipt(b.operationId));
+    assert.deepEqual(await f.store.receipt(d.operationId), pending);
+    const restarted = new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy')), () => now);
+    await restarted.start();
+    assert.equal((await restarted.read(f.mirror, 'generated', 'Note.md')).text, 'D');
+    await assert.rejects(restarted.commit(f.mirror, c), (error: any) => error.category === 'operation_expired');
+    assert.equal(await restarted.apply(f.mirror, 'generated', 'Note.md'), 'applied');
+    assert.equal(await restarted.afterRun(f.mirror, 'generated', restarted.beforeRun('generated'), true), 1);
+    now += 60001;
+    for (let i = 0; i < 8; i++) await restarted.maintain(128);
+    assert.equal((f.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_generations').get() as { count: number }).count, 0);
+    assert.equal((await restarted.read(f.mirror, 'generated', 'Note.md')).text, 'D');
+    await new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy')), () => now).start();
+  } finally { await f.close(); }
+});
 test('bounded maintenance keeps pending IDs and prunes only expired definite retired generations', { skip: !enabled }, async () => {
   let now = Date.now(); const f = await fixture(() => now);
   try {
@@ -390,6 +418,23 @@ test('shared immutable bytes count once globally and once per vault in pending a
     const recovery = f.db.prepare('SELECT recovery_bytes AS bytes FROM icloud_note_overlay_totals WHERE id = 1').get() as { bytes: number };
     assert.equal(recovery.bytes, content.length);
     assert.equal((f.db.prepare("SELECT COUNT(*) AS count FROM icloud_note_overlay_blob_refs WHERE class = 'recovery'").get() as { count: number }).count, 3);
+  } finally { await f.close(); }
+});
+test('a successor saved before native invocation cannot retire on its predecessor checkpoint', { skip: !enabled }, async () => {
+  const f = await fixture();
+  try {
+    await f.store.commit(f.mirror, { operationId: operationId(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('A'), text: 'B' });
+    await f.store.apply(f.mirror, 'generated', 'Note.md');
+    const bRun = f.store.beforeRun('generated');
+    await f.store.commit(f.mirror, { operationId: operationId(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('B'), text: 'Unapplied local C' });
+    const nextRun = f.store.beforeRun('generated');
+    assert.equal(await f.store.afterRun(f.mirror, 'generated', nextRun, true), 0);
+    assert.equal(nextRun[0].generation, bRun[0].generation);
+    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).text, 'Unapplied local C');
+    assert.equal(await readFile(join(f.mirror, 'Note.md'), 'utf8'), 'B');
+    assert.equal(await f.store.apply(f.mirror, 'generated', 'Note.md'), 'applied');
+    assert.equal(await f.store.afterRun(f.mirror, 'generated', f.store.beforeRun('generated'), true), 1);
+    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).text, 'Unapplied local C');
   } finally { await f.close(); }
 });
 test('an applied checkpoint remains observable when its successor predates the next native run', { skip: !enabled }, async () => {
