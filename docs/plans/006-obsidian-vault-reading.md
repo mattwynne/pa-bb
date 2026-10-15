@@ -1,7 +1,7 @@
 # 006 — Obsidian support
 
-Status: implemented and verified with generated data. Installed-release checks
-are pending; Apple and device round trips remain unverified.
+Status: installed. Generated-data, actual BB/provider, rendered and read-only
+production checks passed; exact Apple/device delivery remains unverified.
 
 ## Outcome
 
@@ -347,7 +347,30 @@ fresh conditional operation, not clearing journals or overwriting newer changes.
 
 ### Installed release and remaining checks
 
-Commit/push, affected-plugin installation and read-only production observation
-are pending. No personal vault was connected or read for these tests. Apple/cloud
-writes and phone round trips were not authorized or attempted. Synthetic native
-sync and local receipts do not establish exact delivery to iCloud or a device.
+Implementation commit **`092bb6ce8d8a2a5ad93f9bc17788107118ca4b08`** was pushed
+to `main`. Managed installation confirmed Obsidian **0.1.0** and iCloud **0.1.12**
+running from that exact commit. The catalog lists five independent plugins.
+
+- Remembered enabled sources and quiesced them through supported Pause controls
+  before candidate preparation; no active sync was interrupted. Updated only
+  iCloud, then explicitly installed Obsidian. Other installed plugins retained
+  their versions, sources and enabled choices.
+- Restored only the previously enabled source through normal Resume. Apple
+  connection state survived and a subsequent scheduled sync completed without
+  failure. No locks, baselines, recovery copies or failed state were cleared.
+- Read-only Obsidian status confirmed **zero connected vaults**, no unresolved
+  saves and working iCloud note-access version 1. The installed host advertises
+  all nine tools. Fresh provider execution is the separate isolated-BB proof
+  above, not a claim that a production provider turn accessed a vault.
+- Reviewed the actual installed first-run page at desktop/narrow widths with
+  visible keyboard focus and no overflow. The broader synthetic rendered states
+  remain separate evidence. Production logs contained no new Obsidian warnings
+  or iCloud failures during observation; the controlled removed-vault read in
+  isolated BB logged only `Obsidian tool not_connected`.
+
+No personal vault was connected or read for these tests. No new live note/cloud
+mutation was attempted; the pre-existing enabled sync was merely resumed after
+installation. Exact Apple/cloud and phone round trips were not authorized or
+verified. Synthetic native sync, a completed scheduled run and local receipts do
+not establish exact note delivery to iCloud or a device. Feedback on a real note
+task awaits an owner's explicit vault connection and request.

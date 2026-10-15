@@ -6,13 +6,13 @@ This is a proposed order of work, not a promise to port every PA package. The [v
 
 ## Where we are
 
-**Five independent plugins are listed in the marketplace: Google Calendar, Fastmail, read-only Google Drive/Docs, iCloud folder sync, and Obsidian.** Obsidian's installed-release checks are pending; PA core and Gmail are not delivered.
+**Five independent plugins are listed in the marketplace: Google Calendar, Fastmail, read-only Google Drive/Docs, iCloud folder sync, and Obsidian.** All five are installed; PA core and Gmail are not delivered. Verification limits differ by plugin.
 
 - **Google Calendar:** managed installation and multiple account connections verified; end-to-end Calendar tool use and live write approval still need verification.
 - **Fastmail:** standalone official MCP connection installed, with session recovery and stable tool IDs. A [recorded BB workflow](problems/google-drive-email-attachments.md) includes a completed email-draft call, superseding the earlier blanket “no live writes” status. This is not proof of sending or every mail/calendar/contacts operation. Optional [JMAP Inbox and label updates](../plugins/fastmail/docs/jmap-labels.md) are built and synthetically tested; live JMAP writes remain unverified.
 - **Google Drive/Docs:** read-only search, folder browsing, metadata and Docs text tools are built. The same workflow records live account discovery, search and browsing; a complete consent/Docs-read verification record is still missing. Downloads and exports are not implemented.
-- **iCloud:** native sync/recovery work is delivered through [iteration 013](plans/013-icloud-bisync-retry-classification.md), including a completed live scheduled sync. Sync no longer takes whole-folder backups. [Iteration 006](plans/006-obsidian-vault-reading.md#release-evidence) adds coordinated note access, conditional saves and private per-note recovery; installed-release checks are pending. Phone round trips and real authorization-expiry recovery remain unverified.
-- **Obsidian:** independent multi-vault settings and nine assistant tools are built. Generated-data tests prove native ownership/crash recovery and practical scheduled access; actual BB/provider local saves and rendered review passed. Connecting grants whole-vault read/write without confirmations. Local receipts are not proof of cloud/device delivery.
+- **iCloud:** native sync/recovery work is delivered through [iteration 013](plans/013-icloud-bisync-retry-classification.md), including a completed live scheduled sync. Sync no longer takes whole-folder backups. [Iteration 006](plans/006-obsidian-vault-reading.md#release-evidence) adds installed coordinated note access, conditional saves and private per-note recovery. A scheduled sync completed after its controlled update. Phone round trips and real authorization-expiry recovery remain unverified.
+- **Obsidian:** independent multi-vault settings and nine assistant tools are installed, with no vault connected automatically. Generated-data tests prove native ownership/crash recovery and practical scheduled access; actual BB/provider local saves and rendered review passed. Connecting grants whole-vault read/write without confirmations. Local receipts are not proof of cloud/device delivery.
 
 See the [iteration ledger](plans/README.md) and plugin READMEs for delivery history and setup. Earlier plans retain their original verification limits; the later evidence linked above qualifies those limits.
 
@@ -20,7 +20,7 @@ See the [iteration ledger](plans/README.md) and plugin READMEs for delivery hist
 
 ### 1. Personal knowledge and Obsidian — immediate focus
 
-Finish installed-release checks for [iteration 006 — Obsidian vault reading and editing](plans/006-obsidian-vault-reading.md#release-evidence), then seek feedback on a specifically authorized task. The generated-data boundary, multiple-vault tools, conditional writes, source-preserving parser and connection settings are implemented; local, Linux native, actual host/provider and rendered gates have passed.
+Seek feedback on a specifically authorized task using [iteration 006 — Obsidian vault reading and editing](plans/006-obsidian-vault-reading.md#release-evidence). The generated-data boundary, multiple-vault tools, conditional writes, source-preserving parser and connection settings are installed. Local, Linux native, actual host/provider, rendered and read-only production gates passed; a scheduled iCloud run completed after the update.
 
 Keep the whole-vault connection model: no folder permissions, read-only switches or per-edit confirmations. Report **saved locally, pending iCloud sync**, not verified cloud/phone delivery. Personal-vault access and device mutation checks need separate authorization; production installation must not connect a vault automatically.
 
@@ -66,7 +66,7 @@ Consider Xero, meeting capture and transcripts, Discord, DNSimple, and other PA 
 
 ## Next milestones
 
-1. **Obsidian:** in installed BB, connect two disposable iCloud-synced vaults; search/read notes, follow links, list tasks, create a note and make targeted text/property edits without confirmation prompts. Preserve unrelated bytes, reject stale edits, inspect lost-response saves without duplicating them, and remove a vault without deleting notes or changing sync. Record local saves separately from any authorized device-delivery check.
+1. **Obsidian feedback:** after an owner explicitly connects a vault, try a real note task and report usefulness or ambiguity. Generated two-vault reads/writes, stale edits, lost-response inspection and removal are already verified. Any disposable cloud/device round trip needs specific authorization; local receipts and sync timestamps remain separate evidence.
 2. **First composed assistant task:** install PA core alongside Google Calendar and Fastmail, then ask: “What's on across all my calendars tomorrow, and what do I need to prepare?” Identify each event's provider/account/calendar, use only connected services, and report partial failures. Drive, Obsidian and email may improve the answer but must not be required.
 
 ## Gates that apply throughout
