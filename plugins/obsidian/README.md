@@ -10,7 +10,9 @@ bb plugin install obsidian@pa-for-bb
 ```
 
 Follow the [setup guide](docs/setup.md). This is an independent BB plugin, not a
-plugin inside Obsidian. It needs no Obsidian app, Mac relay or PA core. It supplies
+plugin inside Obsidian. Version **0.2.0** requires iCloud **0.2.0** for coordinated
+note access v2; use the [paired offline upgrade procedure](../icloud/README.md#upgrading-from-01x)
+when upgrading from 0.1.x. It needs no Obsidian app, Mac relay or PA core. It supplies
 assistant tools and connection settings, not a note browser, editor or graph.
 Use only on single-user BB installations; BB plugins are full-trust server code,
 not a per-user security boundary.
