@@ -2,6 +2,8 @@
 
 Status: first implementation built; live Apple/disposable-vault verification pending. See [plan 004](../plans/004-icloud-sync.md) and the [plugin README](../../plugins/icloud/README.md) for delivered behaviour and limits.
 
+Live Obsidian feedback exposed a separate service-contract problem: routine sync blocks note access and hides initialized vaults. See [continuous note access during background sync](icloud-continuous-note-access.md) for the evidence and requirements for a follow-up plan.
+
 ## Need
 
 Obsidian is the driver: notes edited on the phone must reach BB, and edits made

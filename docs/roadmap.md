@@ -22,6 +22,8 @@ See the [iteration ledger](plans/README.md) and plugin READMEs for delivery hist
 
 Seek feedback on a specifically authorized task using [iteration 006 — Obsidian vault reading and editing](plans/006-obsidian-vault-reading.md#release-evidence). The generated-data boundary, multiple-vault tools, conditional writes, source-preserving parser and connection settings are installed. Local, Linux native, actual host/provider, rendered and read-only production gates passed; a scheduled iCloud run completed after the update.
 
+Live feedback has since exposed [background sync interrupting note access](problems/icloud-continuous-note-access.md): healthy runs take about 40 seconds per minute, hide available vaults and block note operations. Plan continuous reads and prompt durable local saves behind the iCloud service boundary; making writes wait for an entire sync is not sufficient. This is an open problem, not a shipped fix; the earlier fast synthetic-sync measurements do not establish usability under these live timings.
+
 Keep the whole-vault connection model: no folder permissions, read-only switches or per-edit confirmations. Report **saved locally, pending iCloud sync**, not verified cloud/phone delivery. Personal-vault access and device mutation checks need separate authorization; production installation must not connect a vault automatically.
 
 No Obsidian desktop app, Mac relay or PA core is required. Note browser/editor and graph UI remain parked; renames/deletes, bulk editing and automatic daily-note/template workflows are outside this release.
