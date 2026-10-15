@@ -12,6 +12,11 @@ import { NoteStore } from '../adapters/note-store.ts';
 import type Database from 'better-sqlite3';
 import { syncArguments } from '../adapters/rclone-cloud-provider.ts';
 import { MemoryState } from './fakes.ts';
+import { ICloud as ObsidianICloud } from '../../obsidian/adapters/icloud.ts';
+import { Obsidian } from '../../obsidian/core/service.ts';
+import { MarkdownNotes } from '../../obsidian/adapters/markdown-notes.ts';
+import { MemoryState as ObsidianState } from '../../obsidian/test/fakes.ts';
+import type { BbPluginApi } from '@get-bb/plugin-sdk';
 const enabled = process.platform === 'linux' && !!process.env.RCLONE_TEST_BINARY && process.env.ICLOUD_RUNTIME_NATIVE === '1';
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const operationId = () => { const time = Date.now().toString(16).padStart(12, '0'); return `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`; };
@@ -73,6 +78,29 @@ test('wired BB v2 RPC remains local throughout a real >=40s owned native command
     await waitFor(async () => (await host.harness.behavior.callRpc('status', null) as any).mirrors[0].phase === 'running');
     await new Promise(resolve => setTimeout(resolve, 400));
     const localAt = performance.now();
+    // Real producer registration and copied consumer adapter/service, not a
+    // note-file fake. The bridge supplies BB's verified Obsidian caller.
+    const sdk = { plugins: {
+      async list() { return { plugins: [{ id: 'icloud', enabled: true, status: 'running' }] }; },
+      async callRpc(request: { method: string; input: unknown; outputSchema: { parse(value: unknown): unknown } }) {
+        const result = await host.harness.behavior.callRpc(request.method, request.input, request.method.startsWith('note') ? caller : undefined);
+        return request.outputSchema.parse(result);
+      },
+    } } as unknown as BbPluginApi['sdk'];
+    const consumerAdapter = new ObsidianICloud(sdk, () => {});
+    const consumerState = new ObsidianState(); consumerState.value = { revision: 1, vaultIds: ['one', 'two'], names: { one: 'Generated', two: 'Other' }, pending: [] };
+    const consumer = new Obsidian(consumerAdapter, consumerAdapter, new MarkdownNotes(), consumerState, randomUUID, Date.now, () => {});
+    await consumer.start();
+    assert.equal((await consumer.status()).vaults[0].source?.local.available, true);
+    const consumerSaved = await consumer.create({ vaultId: 'one', path: '.hidden/Consumer.md', text: '# Consumer\n- [ ] Verify\n[[Note]]\n' });
+    assert.equal(consumerSaved.receipt.kind, 'save');
+    assert.equal((await consumer.read({ vaultId: 'one', path: '.hidden/Consumer.md' })).complete, true);
+    assert.equal((await consumer.search({ vaultId: 'one', text: 'Consumer' })).results.some((row: any) => row.path === '.hidden/Consumer.md'), true);
+    assert.equal((await consumer.tasks({ vaultId: 'one', path: '.hidden/Consumer.md' })).results.length, 1);
+    assert.equal((await consumer.metadata({ vaultId: 'one', path: '.hidden/Consumer.md' })).headings[0].title, 'Consumer');
+    assert.equal((await consumer.resolve({ vaultId: 'one', path: '.hidden/Consumer.md', link: 'Note' })).status, 'resolved');
+    assert.equal((await consumer.status({ vaultId: 'one', path: '.hidden/Consumer.md', operationId: consumerSaved.operationId })).receipts[0].kind, 'save');
+
     // Generated native-side change after capture: the real host-authorized
     // inspection must issue a new usable token without joining the 40s turn.
     await writeFile(join(secondLocal, '.hidden/Conflict.md'), 'Incoming version newer');
@@ -82,6 +110,11 @@ test('wired BB v2 RPC remains local throughout a real >=40s owned native command
     (runtime.overlay as any).fault = undefined;
     assert.equal((await rpc('noteConfigure', { version: 2, revision: 1, mirrorIds: ['one', 'two'] })).value.revision, 1);
     const conflict = (await rpc('noteInspectConflict', conflictTarget)).value;
+    const inspected = await consumer.status({ vaultId: 'two', path: '.hidden/Conflict.md' });
+    assert.ok(inspected.conflict?.inspection?.token);
+    const incoming = await consumer.read({ vaultId: 'two', path: '.hidden/Conflict.md', selector: { version: 'incoming', token: inspected.conflict!.inspection!.token } });
+    assert.equal(incoming.text, 'Incoming version newer');
+
     assert.notEqual(conflict.token, captured.token);
     assert.equal(conflict.incomingHash, hash('Incoming version newer'));
     assert.equal((await rpc('noteRead', { ...conflictTarget, selector: { version: 'incoming', token: captured.token } })).category, 'conflict');
@@ -116,6 +149,20 @@ test('wired BB v2 RPC remains local throughout a real >=40s owned native command
     const rpcMs = performance.now() - localAt;
     assert.ok(rpcMs < 2000, `all local RPCs should finish promptly (${rpcMs}ms)`);
     await running; running = undefined;
+    // An inspectable collision exists only after the owned application turn
+    // detects it. Do not mistake an arbitrary pending overlay for a conflict.
+    const saveWake = runtime.wake.bind(runtime); (runtime as any).wake = () => {};
+    await consumer.create({ vaultId: 'one', path: '.hidden/ConsumerConflict.md', text: 'Local candidate' });
+    await writeFile(join(local, '.hidden/ConsumerConflict.md'), 'Incoming consumer');
+    await runtime.call('rc/noop', {});
+    (runtime as any).wake = saveWake;
+    const consumerConflict = (await consumer.status({ vaultId: 'one', path: '.hidden/ConsumerConflict.md' })).conflict?.inspection;
+    assert.ok(consumerConflict?.token);
+    assert.equal((await consumer.read({ vaultId: 'one', path: '.hidden/ConsumerConflict.md', selector: { version: 'incoming', token: consumerConflict.token } })).text, 'Incoming consumer');
+    const consumerResolution = await consumer.recover({ vaultId: 'one', path: '.hidden/ConsumerConflict.md', token: consumerConflict.token, expectedLogicalHash: consumerConflict.logicalHash, expectedIncomingHash: consumerConflict.incomingHash, choice: 'accept_incoming' });
+    assert.equal(consumerResolution.receipt.kind, 'resolution');
+    assert.equal(consumerResolution.receipt.outcome, 'adopted_content');
+    assert.equal((await consumer.status({ vaultId: 'one', path: '.hidden/ConsumerConflict.md', operationId: consumerResolution.operationId })).receipts[0].kind, 'resolution');
     const nativeMs = performance.now() - at; assert.ok(nativeMs >= 40000, `native command ran ${nativeMs}ms`);
     await waitFor(async () => await readFile(join(local, '.hidden/Note.md'), 'utf8') === 'B');
     stage = 'following'; await host.harness.behavior.runSchedule('selected-folder-sync');
@@ -131,9 +178,11 @@ test('wired BB v2 RPC remains local throughout a real >=40s owned native command
     const paused = await rpc('noteCommit', { ...target, operationId: operationId(), kind: 'replace', expectedHash: hash('Remote C'), text: 'Paused D' });
     assert.equal(paused.value.hash, hash('Paused D'));
     assert.equal((await rpc('noteRead', target)).value.text, 'Paused D');
+    assert.equal((await consumer.read({ vaultId: 'one', path: '.hidden/Note.md' })).text, 'Paused D');
     await host.harness.behavior.callRpc('disconnect', null);
     const disconnected = await host.harness.behavior.callRpc('status', null) as any;
     assert.equal(disconnected.connected, false); assert.equal(disconnected.mirrors[0].local.available, true);
+    assert.equal((await consumer.status()).vaults[0].source?.local.available, true);
     assert.equal((await rpc('noteRead', target)).value.text, 'Paused D');
     assert.equal((await rpc('noteCommit', { ...second, operationId: operationId(), kind: 'replace', expectedHash: hash('B2'), text: 'Disconnected C2' })).value.hash, hash('Disconnected C2'));
     await host.harness.behavior.runSchedule('selected-folder-sync');

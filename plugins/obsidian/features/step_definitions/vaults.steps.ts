@@ -29,5 +29,5 @@ Then('vault {string} cannot be read or inspected', async function(this: World, i
 Then('the generated source notes still exist', function(this: World) { assert.equal(this.files.notes.size, 3); });
 When('the plugin restarts', async function(this: World) { this.service.stop(); this.service = this.make(); await this.service.start(); });
 Then('both vaults remain connected', async function(this: World) { assert.equal((await this.service.status()).vaults.length, 2); });
-When('vault {string} fails', function(this: World, id: string) { this.catalog.value.sources.find(s => s.id === id)!.phase = 'failed'; });
+When('vault {string} fails', function(this: World, id: string) { const source = this.catalog.value.sources.find(s => s.id === id)!; source.phase = 'failed'; source.local = { ...source.local, available: false, reason: 'recovery_required' }; });
 Then('vault {string} has results with a partial failure for {string}', function(this: World, good: string, failed: string) { assert.equal(this.result.results[0].vaultId, good); assert.equal(this.result.incomplete, true); assert.equal(this.result.failures[0].vaultId, failed); });

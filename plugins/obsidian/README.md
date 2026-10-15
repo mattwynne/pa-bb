@@ -19,14 +19,14 @@ not a per-user security boundary.
 
 | Tool | Purpose |
 | --- | --- |
-| `obsidian_status` | Connected sources, setup guidance, recent/known save receipts and unresolved operations. Filter by vault, note, operation ID or time. |
+| `obsidian_status` | Connected sources, setup guidance, recent/exact save and resolution receipts plus exact-path conflict metadata and unresolved operations. Filter by vault, note, operation ID or time. |
 | `obsidian_search_notes` | Literal case-insensitive text and/or nested, case-insensitive tags; one vault or all connected vaults. |
-| `obsidian_read_note` | Whole note, exact heading or block; original source lines and whole-note hash. |
+| `obsidian_read_note` | Logical whole note, guarded incoming version/absence, exact heading or block; original source lines and whole-note hash. |
 | `obsidian_get_note_metadata` | Properties, aliases, tags, headings, blocks, references and task markers. |
 | `obsidian_resolve_link` | A reference in its source vault; missing/ambiguous results rather than guessed targets. |
 | `obsidian_list_tasks` | Original task locations and completion markers, with optional vault/folder/note filters. |
 | `obsidian_create_note` | Create in an existing folder without replacing anything. |
-| `obsidian_edit_note` | Append, uniquely replace nonoverlapping exact text, or change one task marker at its precise line. |
+| `obsidian_edit_note` | Append, uniquely replace exact text, update one task marker, or explicitly resolve an inspected conflict. |
 | `obsidian_update_properties` | Explicit top-level property set/remove; add aliases without dropping existing aliases. |
 
 Targeted tools require a stable `vaultId` and relative `.md` path. Names alone
@@ -39,38 +39,41 @@ fetch external links, rename/delete notes or recursively expand embeds.
 
 - iCloud owns Apple setup, mirror storage and native sync. Obsidian uses
   schema-validated, host-caller-checked iCloud RPCs; local filesystem roots never
-  enter Obsidian settings or tool results. iCloud must advertise note access v1.
+  enter Obsidian settings or tool results. iCloud must advertise matching note access v2.
   There is no uncoordinated filesystem fallback.
-- Initialized ready sources can be read. Successful paused/disconnected copies
-  can be read with a stale-copy warning. Writes require working, enabled sync.
-  Running sync returns bounded **busy**, not cached content. Failed, retained,
-  disappeared or uninitialized sources refuse normal content operations. Rebuilt
-  mirrors have new IDs and need an explicit connection.
+- Initialized sound local sources can be read and saved while native sync runs,
+  cloud sync is paused, or Apple is disconnected. iCloud owns local availability;
+  cloud phase, connection and last-success timestamp indicate delivery/freshness,
+  not local authorization. Genuine local safety blockers refuse operations.
+  Retained/rebuilt mirrors require new IDs and explicit connections.
 - Reads and saves share iCloud's actual native worker generation and inherited
-  operating-system flock. An admitted note operation excludes native command
-  children; disposal aborts admission and waits before releasing ownership.
+  operating-system flock. Logical publications may occur during the owner's own
+  native child, while mirror mutations wait for a native-idle turn. Disposal
+  stops admission and waits before releasing ownership.
   This does not promise a vault-wide snapshot or an OS transaction against
   unrelated trusted writers with the same filesystem access.
 - An edit requires a prior complete whole-note read and its SHA-256 hash. Section,
   metadata and truncated reads are insufficient. iCloud rechecks source admission,
   parent/file identity and expected bytes under its worker owner. A conflict writes
   nothing from the stale patch; reread and prepare a fresh change.
-- iCloud durably saves only the affected previous note outside the mirror, stages
-  the replacement on the same filesystem, then atomically renames it. Creation
-  uses exclusive linking and cannot overwrite. No whole-folder backup or separate
-  cloud inventory scan precedes sync.
+- iCloud durably publishes an immutable per-note logical generation and receipt
+  outside the mirror before acknowledging the save. Bounded native-idle application
+  later copies bytes to the mirror under the owner. Creates cannot overwrite and
+  conditional replacements cannot bypass expected-byte checks. No whole-folder
+  backup or separate cloud sync engine is used.
 - UUIDv7 operation identities are persisted before submission. Durable journals
-  and receipts deduplicate retries; crash recovery uses the staged inode and hash,
-  not matching text or timestamps alone. Uncertain operations block another edit
+  and immutable receipts deduplicate operation IDs; crash recovery does not infer
+  success from matching text or timestamps alone. Uncertain operations block another edit
   to that note until inspected. Cancellation before submission saves nothing;
   after submission, the atomic operation may complete and must be inspected.
 - A confirmed result means **saved locally, pending iCloud sync**. A later sync
   timestamp does not verify those bytes in iCloud or on a phone. Never repeat an
   edit just because its later sync failed. Use `obsidian_status` to inspect a lost
-  reply by vault/note/time without remembering its operation ID.
+  reply by its persisted exact ID, vault and path, independently of the recent page.
 - Remove invalidates content proofs/cursors and revokes content/receipt exposure.
-  An in-flight write must settle before removal can be acknowledged; a busy removal
-  must be checked again. Removal does not delete notes, pause sync or disconnect Apple.
+  The producer must accept the revoking revision before removal is confirmed. A
+  lost configuration reply stays unconfirmed and must be checked again. A local
+  save accepted before revocation is not undone. Removal does not delete notes, pause sync or disconnect Apple.
 
 ## Supported Markdown subset
 
@@ -110,11 +113,11 @@ property tags are named in the change result. This does not infer vault-wide typ
 | Directory discovery | 10,000 entries or 2 seconds; nested/hidden folders included; incomplete results are explicit |
 | One on-demand scan | 500 notes, 16 MiB plus at most the final 1 MiB note, or 3 seconds checked between file operations; at most 500 rows |
 | Output | 48,000-character read/page budget; final serialized tool result capped at 64,000 characters; metadata collections capped at 100 items |
-| Pagination | Default 20, maximum 50 rows; ten in-memory cursors, expiring after 60 seconds or source/configuration changes |
-| Complete-read proofs | 256 in-memory note versions; cleared on save, removal and restart |
+| Pagination | Default 20, maximum 50 rows; ten in-memory cursors, expiring after 60 seconds or configuration/local safety changes, not cloud progress |
+| Complete-read proofs | 256 in-memory note versions; invalidated on the affected note save, configuration change and restart |
 | Pending saves | 100 persisted unresolved operations |
-| Private iCloud note recovery | 64 MiB combined previous/staged bytes; 512 operation directories; one active operation |
-| Receipts / previous versions | 30-day retention window; definite finished entries become eligible for pruning during later write admission; uncertain entries are never pruned automatically |
+| Private iCloud note recovery | 64 MiB / 256 active paths globally (16 MiB / 128 paths per vault); separate bounded recovery and receipt quotas |
+| Receipts / previous versions | 30-day definite replay/previous-version window; 32,768 receipt rows / 64 MiB and separate 64 MiB recovery; uncertain entries stay protected |
 
 Capacity stops new writes **before** replacing notes. Expired timestamp-bearing
 operation identities cannot commit again even after receipt pruning; identities
@@ -125,16 +128,18 @@ current file contents. Files changed outside these tools have no new per-note ba
 
 ### Operator-assisted restoration
 
-1. Preserve the current note and the relevant private operation directory before
+1. Preserve the current note and the relevant private operation record before
    investigating. Keep these copies outside all synced mirrors and private to the
    service account; do not print their contents or paths in public diagnostics.
-2. Review the receipt, expected hashes, saved `previous` bytes and current complete
+2. Review the receipt, expected hashes, archived previous-version bytes and current complete
    note. An uncertain outcome needs journal/inode inspection, not replay.
 3. Ask which version or merge should be restored. Preserve newer changes separately.
    Prepare the desired content against a fresh complete read and its current hash.
-4. Restore through the normal conditional edit boundary as a **new** operation.
-   A conflict requires rereading and a fresh merge; never copy over a live mirror
-   blindly or change a receipt to make it appear successful.
+4. For an active conflict, inspect the exact path/token and guarded incoming
+   content or absence with `obsidian_status` / `obsidian_read_note`. Choose keep
+   local, accept incoming or an explicit replacement through `obsidian_edit_note`
+   with the expected logical/incoming versions. A stale token needs fresh inspection.
+   No choice silently deletes cloud files or changes an old receipt.
 5. Report the new local-save receipt separately from sync/device delivery. Do not
    reset native baselines, clear locks or force resync merely to restore a note.
 

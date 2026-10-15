@@ -7,18 +7,20 @@ if (!base) throw new Error('Set BB_REVIEW_BASE to an isolated BB instance.');
 const artifacts = process.env.BB_REVIEW_ARTIFACTS ?? '/tmp/obsidian-rendered-review';
 await mkdir(artifacts, { recursive: true });
 const browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : {}) });
-const source = id => ({ id, name: 'Launch', initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-10-10T12:00:00Z', failure: null });
-const setups = { icloud_error: 'Open iCloud settings and check its startup status.', apple_disconnected: 'Connect Apple in iCloud settings. Existing successful paused copies may be stale.', missing: 'Install iCloud from Plugins, then open its settings.', disabled: 'Enable iCloud in Plugins.', starting: 'Open iCloud settings and check its startup status.', incompatible: 'Update iCloud to a version with coordinated Obsidian note access.', host_prerequisite: 'Ask the operator to check the host requirements shown in iCloud settings.', apple_verification: 'Finish Apple verification in iCloud settings, never in chat.', no_folder: 'Choose a vault folder in iCloud settings.', sync_disabled: 'Enable sync for the selected folder in iCloud settings and finish initial sync.', initial_sync_running: 'Wait for initial sync to finish in iCloud settings.', initial_sync_failed: 'Inspect the initial-sync failure in iCloud settings.', check_failed: 'Could not check iCloud. Keep your settings and choose Check again.' };
+const source = id => ({ id, name: 'Launch', initialized: true, enabled: true, cloudConnected: true, phase: 'ready', lastSuccess: '2026-10-10T12:00:00Z', failure: null, local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null } });
+const setups = { icloud_error: 'Open iCloud settings and check its startup status.', apple_disconnected: 'Apple is disconnected; sound local notes remain accessible but cloud delivery is stopped.', missing: 'Install iCloud from Plugins, then open its settings.', disabled: 'Enable iCloud in Plugins.', starting: 'Open iCloud settings and check its startup status.', incompatible: 'Update iCloud and Obsidian together for coordinated note access v2. No filesystem fallback is available.', host_prerequisite: 'Ask the operator to check the host requirements shown in iCloud settings.', apple_verification: 'Finish Apple verification in iCloud settings; sound local notes remain accessible.', no_folder: 'Choose a vault folder in iCloud settings.', sync_disabled: 'Enable sync for the selected folder in iCloud settings and finish initial sync.', initial_sync_running: 'Wait for initial sync to finish in iCloud settings.', initial_sync_failed: 'Inspect the initial-sync failure in iCloud settings.', check_failed: 'Could not check iCloud. Keep your settings and choose Check again.' };
 try {
-  for (const view of ['first', 'eligible', 'connected', 'multiple', 'paused', 'running', 'removed', 'error', ...Object.keys(setups)]) for (const width of [1280, 390]) {
+  for (const view of ['first', 'eligible', 'connected', 'multiple', 'paused', 'running', 'removed', 'recovery', 'local_blocked', 'unconfirmed', 'error', ...Object.keys(setups)]) for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
     let dialogs = 0; page.on('dialog', dialog => { dialogs++; void dialog.dismiss(); });
-    const state = { revision: 0, setup: setups[view] ? view : 'ready', nextAction: setups[view] ?? null, vaults: [], eligible: [], receipts: [], receiptFailures: [], uncertainOperations: [], evidenceOnly: true };
-    if (['eligible', 'connected', 'multiple'].includes(view)) state.eligible = [source('two')];
-    if (['connected', 'multiple', 'paused', 'running', 'removed', 'check_failed'].includes(view)) state.vaults = [{ vaultId: 'one', source: source('one') }];
-    if (view === 'multiple') { state.vaults.push({ vaultId: 'two', source: source('two') }); state.eligible = []; }
+    const state = { revision: 0, conflict: null, conflictFailure: null, configurationUnconfirmed: false, setup: setups[view] ? view : 'ready', nextAction: setups[view] ?? null, vaults: [], eligible: [], receipts: [], receiptFailures: [], uncertainOperations: [], evidenceOnly: true };
+    if (['eligible', 'connected', 'multiple', 'running'].includes(view)) state.eligible = [source('two')];
+    if (['connected', 'multiple', 'paused', 'running', 'removed', 'check_failed'].includes(view)) state.vaults = [{ vaultId: 'one', name: 'Launch', source: source('one') }];
+    if (view === 'multiple') { state.vaults.push({ vaultId: 'two', name: 'Launch', source: source('two') }); state.eligible = []; }
+    if (view === 'recovery') { state.vaults = [{ vaultId: 'one', name: 'Launch', source: source('one') }]; state.uncertainOperations = [{ operationId: '12345678-1234-7123-8123-123456789abc', vaultId: 'one', path: 'Conflict.md', at: '2026-10-10T12:00:00Z', kind: 'resolution' }]; }
+    if (view === 'local_blocked' || view === 'unconfirmed') { state.vaults = [{ vaultId: 'one', name: 'Launch', source: source('one') }]; if (view === 'local_blocked') state.vaults[0].source.local = { available: false, reason: 'recovery_required', pendingAgeMs: null, applicationBlocker: null }; else state.configurationUnconfirmed = true; }
     if (view === 'paused') Object.assign(state.vaults[0].source, { enabled: false, phase: 'paused' });
-    if (view === 'running') state.vaults[0].source.phase = 'running';
+    if (view === 'running') { state.vaults[0].source.phase = 'running'; state.eligible[0].phase = 'running'; }
     if (view === 'removed' || view === 'check_failed') state.vaults[0].source = null;
     const methods = [];
     await page.route('**/api/v1/plugins/obsidian/rpc/**', route => {
@@ -46,8 +48,11 @@ try {
     }
     if (view === 'multiple') { assert.equal(await section.getByText('Launch', { exact: true }).count(), 2); await page.screenshot({ path: `${artifacts}/multiple-connected-${width}.png` }); await section.getByRole('button', { name: 'Remove Launch · one', exact: true }).click(); await section.getByText('Vault removed. Notes and iCloud sync are unchanged.', { exact: true }).waitFor(); assert.equal(await section.getByRole('button', { name: 'Remove Launch · one', exact: true }).count(), 0); }
     if (view === 'removed') await section.getByText(/Source unavailable/).waitFor();
-    if (view === 'paused') await section.getByText('Paused · local copy may be stale', { exact: true }).waitFor();
-    if (view === 'running') await section.getByText('Syncing · try note tools after this run', { exact: true }).waitFor();
+    if (view === 'paused') await section.getByText('Local notes available · cloud paused', { exact: true }).waitFor();
+    if (view === 'local_blocked') await section.getByText(/Local notes unavailable/).waitFor();
+    if (view === 'unconfirmed') await section.getByText(/not been confirmed by iCloud/).waitFor();
+    if (view === 'recovery') await section.getByText(/need exact receipt inspection/).waitFor();
+    if (view === 'running') { await section.getByRole('button', { name: 'Add vault' }).click(); await section.getByText('Local notes available · iCloud syncing', { exact: true }).waitFor(); await section.getByRole('button', { name: 'Connect Launch' }).waitFor(); }
     if (setups[view]) await section.getByText(setups[view], { exact: true }).waitFor();
     const check = section.getByRole('button', { name: 'Check again', exact: true }); await page.keyboard.press('Tab'); await check.focus(); assert.equal(await check.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
     assert.equal(dialogs, 0); assert.equal(await section.evaluate(el => el.scrollWidth > el.clientWidth), false);
@@ -55,7 +60,7 @@ try {
   }
   for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
-    const first = { revision: 1, setup: 'ready', nextAction: null, vaults: [{ vaultId: 'one', source: source('one') }], eligible: [], receipts: [], receiptFailures: [], uncertainOperations: [], evidenceOnly: true };
+    const first = { revision: 1, conflict: null, conflictFailure: null, configurationUnconfirmed: false, setup: 'ready', nextAction: null, vaults: [{ vaultId: 'one', name: 'Launch', source: source('one') }], eligible: [], receipts: [], receiptFailures: [], uncertainOperations: [], evidenceOnly: true };
     let checks = 0; let release; let entered; const waiting = new Promise(resolve => { entered = resolve; });
     await page.route('**/api/v1/plugins/obsidian/rpc/**', async route => {
       const method = new URL(route.request().url()).pathname.split('/').at(-1);
