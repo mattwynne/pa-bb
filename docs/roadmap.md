@@ -47,11 +47,11 @@ Add approved document creation, editing, sharing and filing with an explicit sco
 
 Once sources are connected, package the work people ask PA to do. Begin with **meeting preparation / Get Perspective** across available calendars and context; follow with a daily briefing, saved email drafting, inbox triage, and weekly planning where their dependencies are ready. Adapt PA's existing abilities rather than copying Pi-specific commands, subagents, private policies, or filesystem assumptions verbatim. Each ability should remain useful with a subset of integrations and be explicit about what it could not inspect.
 
-### 6. Gmail — investigated, scope not yet agreed
+### 6. Gmail — read-only iteration planned
 
 The [Gmail investigation](problems/gmail-plugin.md) recommends an independent provider plugin using the Gmail REST API and existing Calendar/Drive OAuth patterns. Start with multi-account search, message and thread reads; add drafts next and approved sending only as a separately agreed capability. Reuse an installation's Web OAuth client through caller-checked backend copying, never its account tokens. Gmail still needs its own consent and verified scopes; shared Google projects do not guarantee independent provider-side revocation.
 
-Before implementation, agree the first release's scope, applicable Google verification/deployment model, encrypted storage and BB-to-model data handling. Gmail reading and drafting use restricted scopes; Google's draft scope also permits sending, so a draft-only release must expose no send path. No Gmail plugin or live Gmail access has been delivered. Mailbox mutations, attachments and background synchronization stay deferred until needed.
+[Iteration 014 — Gmail search and message reading](plans/014-gmail-search-and-read.md) defines the first release: read-only multi-account search and message/thread text, with no drafts or sending. Before live access, establish the applicable Google verification/deployment model, encrypted storage and BB-to-model data handling. Gmail reading and drafting use restricted scopes; Google's draft scope also permits sending, so a future draft-only release must expose no send path. No Gmail plugin or live Gmail access has been delivered. Mailbox mutations, attachments and background synchronization stay deferred until needed.
 
 ### 7. Fill remaining provider gaps
 

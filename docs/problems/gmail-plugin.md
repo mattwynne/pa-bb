@@ -1,6 +1,7 @@
 # Gmail support for BB
 
-Status: open capability gap; implementation approach investigated, scope not yet agreed.
+Status: open capability gap; read-only search and message/thread reading planned in
+[iteration 014](../plans/014-gmail-search-and-read.md). No Gmail plugin delivered yet.
 
 ## Problem
 
@@ -163,9 +164,10 @@ plain-text drafts next, then approved sending if wanted. Defer mailbox
 mutations, attachments and background mailbox synchronization until a concrete
 workflow needs them; ordinary on-demand reads need neither IMAP nor Pub/Sub.
 
-Still to decide: whether the first useful release must include drafts or
-sending, which deployment/verification model applies, and how encrypted storage
-and the BB-to-model data path will be established.
+[Iteration 014](../plans/014-gmail-search-and-read.md) defines the first release:
+search and message/thread reads only, without drafts or sending. Before live
+access, establish the applicable deployment/verification model, encrypted
+storage and the BB-to-model data path. Drafts and sending remain later decisions.
 
 This investigation inspected repository code and Google's documentation. No
 Gmail implementation, live account access or rendered Gmail UI review was done.
