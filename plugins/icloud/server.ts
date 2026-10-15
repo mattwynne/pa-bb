@@ -34,8 +34,22 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body), (args, capture, report) => runtime!.run(args, capture, report), () => process.checkAvailability(), () => runtime!.stop(), undefined, undefined, mirror => runtime!.registerMirror(mirror), operation => runtime!.idleFiles(operation));
   }
   const sync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose, dependencies?.history ?? bbRunHistory(bb));
-  await sync.start();
-  if (runtime) await runtime.start();
+  let bootStage = 'note_owner';
+  try {
+    // State recovery and history migration also belong to the native owner.
+    // A rejected replacement must not rewrite its predecessor's running state.
+    await runtime?.worker.ensure();
+    bootStage = 'startup';
+    await sync.start();
+    bootStage = 'note_start';
+    if (runtime) await runtime.start();
+  } catch (error) {
+    const failure = category(error);
+    // Runtime startup handles its own diagnostic; earlier boundaries do not.
+    if (bootStage !== 'note_start') diagnose(bootStage, failure, { evidence: evidence(error) });
+    try { await runtime?.stop(); } catch { diagnose('note_owner', 'unknown'); }
+    throw new CloudError(failure === 'unknown' ? 'unavailable' : failure);
+  }
   sync.restoreConnection();
   let available = false;
   try { await sync.checkAvailability(); available = true; } catch (error) { diagnose('prerequisite', category(error), { evidence: evidence(error) }); }

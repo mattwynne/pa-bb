@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { diagnosticMessage } from '../adapters/diagnostic-log.ts';
 import { CloudError, category, evidence } from '../core/ports.ts';
+test('v2 ownership, startup, application, maintenance and conflict failures name their fixed boundaries', () => {
+  for (const stage of ['startup', 'note_owner', 'note_start', 'note_apply', 'note_maintenance', 'note_inspect_conflict', 'note_resolve_conflict']) {
+    assert.equal(diagnosticMessage(stage, 'unavailable'), `iCloud ${stage} unavailable`);
+  }
+});
 test('diagnostic log fields whitelist stages, categories, sequences and exit evidence', () => {
   assert.equal(diagnosticMessage('sync/backing_up_cloud', 'sync_failed', { run: 12, evidence: { kind: 'command_exit', exitCode: 4 } }), 'iCloud sync/backing_up_cloud sync_failed run=12 evidence=command_exit exit=4');
   assert.equal(diagnosticMessage('sync/checking', 'interrupted', { run: 13, evidence: { kind: 'command_timeout' } }), 'iCloud sync/checking interrupted run=13 evidence=command_timeout');
