@@ -1,6 +1,7 @@
 // Mac Chrome via a private tunnel to disposable installed Linux BB; no routes
 // are intercepted. BB_REVIEW_BASE, BB_REVIEW_CHROME, BB_REVIEW_ARTIFACTS required.
-import { chromium } from 'playwright';
+// Resolve the already-installed plugin-local Playwright; root-level installs are not required.
+import { chromium } from '../../plugins/obsidian/node_modules/playwright/index.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 const base = process.env.BB_REVIEW_BASE, chrome = process.env.BB_REVIEW_CHROME, dir = process.env.BB_REVIEW_ARTIFACTS;

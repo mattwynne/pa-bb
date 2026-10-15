@@ -156,6 +156,9 @@ test('incoming absence has a distinct durable resolution receipt without a fabri
 test('pause/disconnect preserve local saves; retained and changed source binding refuse access', { skip: !enabled, timeout: 20000 }, async () => {
   const f = await fixture(2);
   try {
+    // This admission test checks retained/rebuilt refusal, not the separate
+    // permitted idle mirror-application turn; keep that turn deterministic.
+    (f.runtime as any).wake = () => {};
     const mirror = f.state.mirrors[0]; f.state.connected = false; mirror.enabled = false; mirror.phase = 'paused';
     assert.equal((await f.runtime.availability(mirror.id)).available, true);
     const savedId = op();
@@ -242,5 +245,49 @@ test('idle quantum drains 16 ordinary paths within one second and cycles 20 mirr
     await f.runtime.call('rc/noop', {});
     assert.equal(f.runtime.overlay.pending().length, 0);
     console.log(JSON.stringify({ fixture: '20-mirror-native-arbiter', firstQuantumMs: Math.round(first), firstApplied: firstApplied.filter(Boolean).length, mirrors: 20 }));
+  } finally { await f.close(); }
+});
+
+test('global 256-path admission cap applies fairly across all 20 mirrors in bounded idle quanta', { skip: !enabled, timeout: 120000 }, async () => {
+  const f = await fixture(20);
+  try {
+    // Hold ordinary idle wakes only in this fixture: each rc/noop gives the
+    // actual owned arbiter exactly one observable quantum, not a fake applier.
+    (f.runtime as any).wake = () => {};
+    const accepted: { id: string; path: string; operationId: string; text: string }[] = [];
+    for (let i = 0; i < 256; i++) {
+      const id = `mirror-${i % 20}`, path = `Cap-${Math.floor(i / 20)}.md`, operationId = op(), text = `Generated ${i}`;
+      await f.runtime.access(id, 1, root => f.runtime.overlay.commit(root, { mirrorId: id, path, operationId, kind: 'create', expectedHash: null, text }));
+      accepted.push({ id, path, operationId, text });
+    }
+    assert.equal(f.runtime.overlay.pending().length, 256);
+    const refusedId = op();
+    await assert.rejects(f.runtime.access('mirror-19', 1, root => f.runtime.overlay.commit(root, {
+      mirrorId: 'mirror-19', path: 'Cap-extra.md', operationId: refusedId, kind: 'create', expectedHash: null, text: 'Refused',
+    })), (error: any) => error.category === 'capacity');
+    assert.equal(await f.runtime.overlay.receipt(refusedId), null);
+    assert.equal(f.runtime.overlay.pending().length, 256, 'refusal cannot alter accepted rows');
+    const seen = new Set<string>(), durations: number[] = [];
+    for (let turn = 0; turn < 16; turn++) {
+      const before = f.runtime.overlay.pending().length, start = performance.now();
+      await f.runtime.call('rc/noop', {});
+      const ms = performance.now() - start, after = f.runtime.overlay.pending().length;
+      durations.push(ms);
+      assert.ok(ms < 1000, `turn ${turn} exceeded one second: ${ms}ms`);
+      assert.equal(before - after, 16, `turn ${turn} failed to apply 16 ordinary paths`);
+      for (const item of accepted) if (!seen.has(`${item.id}/${item.path}`)) {
+        const contents = await readFile(join(f.workerRoot, 'mirrors', item.id, item.path), 'utf8').catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        });
+        if (contents !== null) { assert.equal(contents, item.text); seen.add(`${item.id}/${item.path}`); }
+      }
+      if (turn === 1) assert.equal(new Set([...seen].map(key => key.split('/')[0])).size, 20, 'no mirror starves behind the first two quanta');
+    }
+    assert.equal(seen.size, 256); assert.equal(f.runtime.overlay.pending().length, 0);
+    for (const item of accepted) assert.equal((await f.runtime.overlay.receipt(item.operationId))?.hash, hash(item.text));
+    // rc/noop applies; it is not a following successful bisync and cannot retire.
+    assert.equal((f.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_heads').get() as { count: number }).count, 256);
+    console.log(JSON.stringify({ fixture: '20-mirror-full-cap-native-arbiter', applied: seen.size, retired: 0, quanta: durations.length, maxQuantumMs: Math.round(Math.max(...durations)) }));
   } finally { await f.close(); }
 });

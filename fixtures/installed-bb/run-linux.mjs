@@ -101,10 +101,14 @@ try {
   assert.equal(bad.isError, true); record.observations.push({ name: 'controlled-cas-error', category: bad.value.category });
   await save();
   stage = 'workload';
-  // Details of the long wall-clock workload are kept in a second module so
-  // this orchestration stays limited to package/install/lifecycle concerns.
   const { workload } = await import('./workload.mjs');
   await workload({ root, env, record, save, rpc, invoke, wait, delay, serverPid: processes[0].pid });
+  if (process.env.BB_FIXTURE_PROVIDER_GATE === '1') {
+    stage = 'provider handoff'; await save(); console.log('DRAINED_PROVIDER_READY', port);
+    // The owner authorizes ONE separate provider conversation only after this
+    // exact workload/drain gate. Never time out into an unverified "success".
+    await wait(async () => { try { await stat(join(artifacts, 'provider-done')); return true; } catch { return false; } }, 600000, 'provider evidence handoff');
+  }
   stage = 'complete'; await save(); console.log('INSTALLED_COMPLETE', join(artifacts, 'result.json'));
 } catch (error) {
   record.failure = { stage, kind: error?.name ?? 'Error', message: String(error?.message ?? error).slice(0, 600) };
