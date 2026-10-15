@@ -1,6 +1,6 @@
 # Background iCloud sync interrupts note access
 
-Status: open problem, recorded 2026-10-15 after live feedback on Obsidian 0.1.0 and iCloud 0.1.12. No correction has shipped. [Plan 015](../plans/015-icloud-continuous-note-access.md) is approved for implementation, with release gates pending; its [review record](../plans/015-icloud-continuous-note-access-review.md) records the user's acceptance of GPT-only coverage, not a completed multi-family ensemble. This problem note does not select an architecture.
+Status: open problem, recorded 2026-10-15 after live feedback on Obsidian 0.1.0 and iCloud 0.1.12. No correction has shipped. [Plan 015](../plans/015-icloud-continuous-note-access.md) has an approved design, but execution stopped at an unsafe automatic-updater-rollback boundary before overlay implementation or deployment. Its [review record](../plans/015-icloud-continuous-note-access-review.md) records the user's acceptance of GPT-only coverage, not a completed multi-family ensemble. This problem note does not select an architecture.
 
 ## Problem
 
