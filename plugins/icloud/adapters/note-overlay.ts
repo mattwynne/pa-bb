@@ -555,6 +555,14 @@ export class NoteOverlay {
     const journal = parse(row.journal, journalSchema);
     const observed = await this.mirror.observe(root, path);
     if (observed && observed.info.dev === journal.stageDev && observed.info.ino === journal.stageIno && observed.hash === journal.hash) {
+      // Exclusive creation links the stage into the mirror. Removing its extra
+      // link changes that inode's ctime: finish and durably fence the cleanup
+      // BEFORE capturing the exact checkpoint. Keep the journal until then so
+      // recovery can repeat cleanup/proof after a crash at either boundary.
+      await unlink(join(this.root, 'stages', journal.stage)).catch(error => { if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error; });
+      await this.fault?.('after_apply_stage_unlink');
+      await this.syncDir(join(this.root, 'stages'));
+      await this.fault?.('after_apply_stage_cleanup');
       const durable = await this.mirror.provePublishedStage(root, path, { hash: journal.hash, info: { dev: journal.stageDev, ino: journal.stageIno } });
       const applied = JSON.stringify({ generation: journal.generation, ...proof(durable) });
       this.db.transaction(() => {
@@ -568,8 +576,6 @@ export class NoteOverlay {
         this.db.prepare("UPDATE icloud_note_overlay_generations SET applied = ?, state = 'applied' WHERE generation_id = ?").run(applied, journal.generation);
         if (previous && previous.generation !== journal.generation) this.db.prepare("UPDATE icloud_note_overlay_generations SET state = 'superseded' WHERE generation_id = ?").run(previous.generation);
       })();
-      await unlink(join(this.root, 'stages', journal.stage)).catch(error => { if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error; });
-      await this.syncDir(join(this.root, 'stages'));
       return this.head(id, path)!;
     }
     const stagePath = join(this.root, 'stages', journal.stage);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, stat, readdir } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
@@ -200,7 +200,7 @@ for (const stage of ['before_blob_fsync', 'after_blob_fsync', 'after_blob_parent
     assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).text, 'B');
   } finally { await f.close(); }
 });
-for (const stage of ['before_apply_stage_fsync', 'after_apply_stage_fsync', 'after_apply_journal', 'before_mirror_publish', 'after_mirror_rename', 'before_destination_dirsync', 'after_destination_dirsync', 'after_mirror_publish', 'after_apply_checkpoint']) test(`SIGKILL ${stage}: independent blob and apply journal recover`, { skip: !enabled }, async () => {
+for (const stage of ['before_apply_stage_fsync', 'after_apply_stage_fsync', 'after_apply_journal', 'before_mirror_publish', 'after_mirror_rename', 'before_destination_dirsync', 'after_destination_dirsync', 'after_mirror_publish', 'after_apply_stage_unlink', 'after_apply_stage_cleanup', 'after_apply_checkpoint']) test(`SIGKILL ${stage}: independent blob and apply journal recover`, { skip: !enabled }, async () => {
   const f = await fixture();
   try {
     const input = { operationId: operationId(), mirrorId: 'generated', path: 'Note.md', kind: 'replace' as const, expectedHash: hash('A'), text: 'B' };
@@ -213,6 +213,22 @@ for (const stage of ['before_apply_stage_fsync', 'after_apply_stage_fsync', 'aft
     assert.ok(['applied', 'idle'].includes(result));
     assert.equal(await readFile(join(f.mirror, 'Note.md'), 'utf8'), 'B');
     assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).text, 'B');
+  } finally { await f.close(); }
+});
+for (const stage of ['after_mirror_rename', 'before_destination_dirsync', 'after_destination_dirsync', 'after_mirror_publish', 'after_apply_stage_unlink', 'after_apply_stage_cleanup', 'after_apply_checkpoint']) test(`SIGKILL ${stage}: exclusive create recovers a final exact checkpoint`, { skip: !enabled }, async () => {
+  const f = await fixture();
+  try {
+    const input = { operationId: operationId(), mirrorId: 'generated', path: 'Fresh.md', kind: 'create' as const, expectedHash: null, text: 'B' };
+    const receipt = await f.store.commit(f.mirror, input);
+    await killed(f, stage, `await store.apply(${JSON.stringify(f.mirror)}, 'generated', 'Fresh.md');`);
+    await f.store.start();
+    assert.equal((await f.store.read(f.mirror, 'generated', 'Fresh.md')).text, 'B');
+    assert.deepEqual(await f.store.commit(f.mirror, input), receipt);
+    assert.ok(['applied', 'idle'].includes(await f.store.apply(f.mirror, 'generated', 'Fresh.md')));
+    assert.equal(await f.store.apply(f.mirror, 'generated', 'Fresh.md'), 'idle');
+    assert.deepEqual(await readdir(join(f.root, 'overlay', 'stages')), []);
+    assert.equal(await f.store.afterRun(f.mirror, 'generated', f.store.beforeRun('generated'), true), 1);
+    assert.equal(await f.store.inspect('generated', 'Fresh.md'), null);
   } finally { await f.close(); }
 });
 for (const stage of ['before_retirement', 'after_retirement']) test(`SIGKILL ${stage}: no stale overlay after eligible run`, { skip: !enabled }, async () => {

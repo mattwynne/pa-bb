@@ -43,13 +43,9 @@ test('stock bisync both-side edit preserves numbered copies as inspectable incom
     stage = 'resolve_first';
     await store.resolve(local, 'generated', 'Note.md', { operationId: op(), token: collision.token, expectedLogicalHash: hash('B'), expectedIncomingHash: hash('Remote C'), choice: 'accept_incoming' });
     assert.equal(await store.apply(local, 'generated', 'Note.md'), 'applied');
-    const settle = store.beforeRun('generated'); assert.equal(await command(false), 0); await store.afterRun(local, 'generated', settle, true);
-    const extra = await store.inspect('generated', 'Note.md');
-    if (extra) {
-      assert.equal(extra.incomingHash, hash('Remote C'));
-      await store.resolve(local, 'generated', 'Note.md', { operationId: op(), token: extra.token, expectedLogicalHash: hash('Remote C'), expectedIncomingHash: hash('Remote C'), choice: 'accept_incoming' });
-      await store.apply(local, 'generated', 'Note.md');
-    }
+    const settle = store.beforeRun('generated'); assert.equal(await command(false), 0);
+    assert.equal(await store.afterRun(local, 'generated', settle, true), 1);
+    assert.equal(await store.inspect('generated', 'Note.md'), null, 'resolution must settle without a second fabricated conflict');
     const historical = await files.conflictCopies(local, 'Note.md');
     assert.ok(historical.some(c => c.observation.hash === hash('Remote C')));
     stage = 'second_conflict';
@@ -93,6 +89,9 @@ test('real >=40s native transfer permits a promptly durable local save, then app
     assert.ok(child && child.exitCode === null, 'native process must be active during save');
     const started = performance.now();
     const b = await overlay.commit(local, { operationId: op(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('A'), text: 'B' });
+    const created = await overlay.commit(local, { operationId: op(), mirrorId: 'generated', path: 'Created.md', kind: 'create', expectedHash: null, text: 'Created B' });
+    assert.equal(created.outcome, 'saved_locally_pending_sync');
+    assert.equal((await overlay.read(local, 'generated', 'Created.md')).text, 'Created B');
     const saveMs = performance.now() - started;
     assert.equal(b.outcome, 'saved_locally_pending_sync');
     assert.equal((await overlay.read(local, 'generated', 'Note.md')).text, 'B');
@@ -100,13 +99,19 @@ test('real >=40s native transfer permits a promptly durable local save, then app
     assert.ok(child && child.exitCode === null, 'native child still active after local commit');
     const long = await active; assert.equal(long.code, 0); assert.ok(long.duration >= 40000);
     stage = 'application'; assert.equal(await overlay.apply(local, 'generated', 'Note.md'), 'applied');
+    assert.equal(await overlay.apply(local, 'generated', 'Created.md'), 'applied');
+    assert.equal(await overlay.apply(local, 'generated', 'Created.md'), 'idle');
     const eligible = overlay.beforeRun('generated'); const following = await command(false);
-    assert.equal(following.code, 0); assert.equal(await overlay.afterRun(local, 'generated', eligible, true), 1);
+    assert.equal(following.code, 0); assert.equal(await overlay.afterRun(local, 'generated', eligible, true), 2);
+    assert.equal(await readFile(join(remote, 'Created.md'), 'utf8'), 'Created B');
     await writeFile(join(remote, 'Note.md'), 'Remote C');
-    const when = new Date(Date.now() + 10000); await utimes(join(remote, 'Note.md'), when, when);
+    await writeFile(join(remote, 'Created.md'), 'Created remote C');
+    const when = new Date(Date.now() + 10000);
+    await utimes(join(remote, 'Note.md'), when, when); await utimes(join(remote, 'Created.md'), when, when);
     stage = 'later_remote'; assert.equal((await command(false)).code, 0);
     assert.equal((await overlay.read(local, 'generated', 'Note.md')).text, 'Remote C');
-    console.log(JSON.stringify({ outcome: 'pass', nativeDurationMs: Math.round(long.duration), localSaveMs: Math.round(saveMs), retired: 1, laterRemoteVisible: true }));
+    assert.equal((await overlay.read(local, 'generated', 'Created.md')).text, 'Created remote C');
+    console.log(JSON.stringify({ outcome: 'pass', nativeDurationMs: Math.round(long.duration), localSaveGroupMs: Math.round(saveMs), retired: 2, laterRemoteVisible: true }));
   } catch (e) { console.error('OVERLAY_NATIVE_FAILED', stage, e instanceof assert.AssertionError ? 'assertion' : 'execution'); throw new Error(`overlay native fixture failed at ${stage}`); }
   finally { child?.kill('SIGKILL'); db?.close(); await rm(root, { recursive: true, force: true }); }
 });
