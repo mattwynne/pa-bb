@@ -6,7 +6,7 @@ Baseline: repository `d802645`; installed iCloud **0.2.0** and Obsidian **0.2.0*
 
 ## Outcome
 
-A question such as “how many project notes have status active?” can search the complete requested scope and return a supported total, not the number found before an alphabetical cutoff. Use **ripgrep**, not a new persistent search index. Measure it on realistic generated vaults before considering another architecture.
+A question such as “how many project notes have status active?” can search the complete requested scope and return a supported total, not the number found before an alphabetical cutoff. Use **ripgrep**, not a new persistent search index. **Per owner direction, there are no performance release gates. The owner will assess responsiveness in use.** Keep automated correctness, containment, lifecycle and data-safety checks; do not add a benchmark programme before delivery.
 
 The vault is a collection of notes. Search must not infer Git branches, a main workspace, archive status or project identity from directory names. A hidden directory is still part of the vault unless the query explicitly excludes it. A folder containing copies is not evidence that the whole vault is an old snapshot.
 
@@ -109,7 +109,7 @@ Invoke with asynchronous `spawn`, an argv array, no shell, `--no-config`, machin
 
 Drain stdout incrementally with backpressure; bound individual JSON records, snippets and stderr capture, including a one-MiB single-line note and escaping expansion. Kill/await children on cancellation or quota violations. Never log raw stdout/stderr or ripgrep exceptions: matches, patterns and paths can be private. Candidate data returned to the authorized consumer is not diagnostic data.
 
-The first Linux spike must show descriptor inheritance, Unicode/multiline matching, unchanged safety and competitive end-to-end performance. If this approach fails, stop and revise the mechanism. Do not silently weaken containment, copy the whole vault or substitute a persistent index to pass a benchmark.
+The first Linux mechanism check must show descriptor inheritance, Unicode/multiline matching and unchanged safety. If it cannot preserve those properties, stop and revise the mechanism. No throughput or latency threshold blocks delivery. Do not weaken containment, copy the whole vault or substitute a persistent index.
 
 ### 4. Real continuation with bounded resources
 
@@ -123,17 +123,17 @@ Initial resource envelope to validate, not a measured guarantee:
 | --- | --- |
 | Active sessions | 4 globally; at most 2 running ripgrep children, one bounded-thread child per active batch |
 | Batch readers | Start at 64 note descriptors; account separately for bounded directory handles and verify cleanup at OS descriptor limits |
-| RPC work slice | Target at most 2 seconds; yield a continuation, not terminal truncation; watchdog aborts a wedged child |
-| RPC candidate payload | At most 1 MiB serialized; use bounded frontmatter/full-Markdown projections within their parser budgets and compact text hits for larger notes; freeze escaping/framing behaviour in the spike, never silently drop a valid candidate |
+| RPC work slice | Yield cooperatively with a real continuation; a watchdog aborts a wedged child. Slice length is a resource-management choice, not a latency release gate |
+| RPC candidate payload | At most 1 MiB serialized; use bounded frontmatter/full-Markdown projections within their parser budgets and compact text hits for larger notes; check escaping/framing behaviour in the mechanism tests, never silently drop a valid candidate |
 | Tool result | Preserve the existing 48,000-character page / 64,000-character final response bounds and maximum 50 delivered rows |
 | Session memory | Aim for 32 MiB per session, 128 MiB aggregate incremental budget; include path/frontier/dedup/JSON buffers, not only rows |
 | Lifetime | 5-minute idle expiry, 30-minute absolute lifetime; disclose expiry, cancel/reclaim eagerly and never pretend expired work completed |
 
-These are scheduling/storage bounds, **not** 500-note, three-second or 10,000-entry scope caps. Genuine resource exhaustion can still produce a terminal partial result with a fixed reason. The ordinary-scale acceptance fixtures below must finish; a benchmark that merely reports `partial` safely does not pass. Calibrate the envelope from measured Linux costs and publish any revised bounds before release; do not weaken the fixture or hide dropped coverage.
+These are scheduling/storage protections, **not** performance gates or 500-note, three-second or 10,000-entry scope caps. Genuine resource exhaustion can still produce a terminal partial result with a fixed reason. The correctness fixtures below must finish, without a completion-time target; safe truncation alone does not prove complete search. Check that the limits are enforced and cleanup works, and disclose any changed bounds. No profiling or benchmark pass is required.
 
 ## Host dependency, compatibility and UI
 
-Ripgrep must be available to BB's service user, not just an interactive coding agent. A read-only command lookup as the service user found **no `rg` on its PATH**. Confirm the daemon's actual executable environment in the Linux spike before declaring provisioning necessary. No package was installed. Plan operator provisioning of stock ripgrep following the separation used for [rclone host prerequisites](../references/bb-host-requirements.md); do not make the plugin invoke sudo, download an executable at runtime or depend on an agent's private tool path. Existing restrictions on global package changes remain: obtain permission for provisioning if needed before that delivery step. Pin/document the supported version range after Linux validation, not from an untested guess.
+Ripgrep must be available to BB's service user, not just an interactive coding agent. A read-only command lookup as the service user found **no `rg` on its PATH**. Confirm the daemon's actual executable environment in the Linux mechanism check before declaring provisioning necessary. No package was installed. Plan operator provisioning of stock ripgrep following the separation used for [rclone host prerequisites](../references/bb-host-requirements.md); do not make the plugin invoke sudo, download an executable at runtime or depend on an agent's private tool path. Existing restrictions on global package changes remain: obtain permission for provisioning if needed before that delivery step. Pin/document the supported version range after Linux validation, not from an untested guess.
 
 Add explicit search capability/version and prerequisite state without changing note access v2's read/write negotiation. Missing/unsupported ripgrep disables **search only**, not sync, saves, exact reads, discovery or existing vault connections. A new consumer on an old producer reports an actionable search incompatibility; it does not silently fall back to the defective scanner. An old consumer on a new producer keeps its existing RPCs. This is an additive search interface, no storage migration or new activation switch. Verify both mixed orders and strict schema handling before relying on that claim.
 
@@ -143,7 +143,7 @@ Use the existing Obsidian `ConnectionAlert` for one quiet connected-state warnin
 
 Work sequentially on `main` under repository instructions; no parallel implementation agents or worktrees.
 
-1. **Linux mechanism/scale spike and failing regressions.** Generated roots only. Prove descriptor-based ripgrep and containment, plus the performance targets below. Capture the current scanner's incomplete large-vault result as a red test. Freeze query/coverage schema, exact process flags, byte framing and resource bounds before wiring production. Stop if a secure fast mechanism has not been demonstrated.
+1. **Linux mechanism check and failing regressions.** Generated roots only. Prove descriptor-based ripgrep and containment. Capture the current scanner's incomplete result beyond its old cutoffs as a red test. Set query/coverage schema, process flags, byte framing and resource bounds before wiring production. Stop only if the mechanism cannot meet correctness or safety requirements; do not require a performance spike.
 2. **Producer search reader and engine.** Add `adapters/note-search.ts` (proposed), bounded safe enumeration/reader helpers in `note-store.ts`, logical-head reader pins in `note-overlay.ts`, and search session admission/cancellation in `note-runtime.ts`. Preserve all durable-write paths. Add lifecycle/process/security tests before RPC wiring.
 3. **Capability and batch transport.** Extend `core/note-contract.ts`, public `contract.ts` and the identical consumer copy in `plugins/obsidian/adapters/icloud-note-contract.ts`. Register caller-verified search RPCs in iCloud `server.ts`. Add safe `note_search` diagnostics and sentinel tests in `adapters/diagnostic-log.ts` and affected core types. Keep failure fields fixed; never expose an executable path or raw error.
 4. **Consumer semantics and true paging.** Add a typed search port to `plugins/obsidian/core/ports.ts` and implement it in `adapters/icloud.ts`. Replace search's use of `scan()`/row-only cursor state in `core/service.ts`; do not accidentally change task parsing or grant complete-read proofs. Extract the frontmatter reader in `adapters/markdown-notes.ts`. Extend only the existing search tool's schema/description and agent instructions in `contract.ts`/`server.ts`; keep object-root provider schemas and reject ambiguous cursor/filter combinations. Update fake, host, service, boundary and feature tests.
@@ -154,9 +154,9 @@ Planning can be committed/pushed as documentation. It does not authorize startin
 
 ## Acceptance tests: usefulness as well as safety
 
-### Complete search at ordinary scale
+### Complete search beyond the old cutoffs
 
-Use deterministic generated Markdown, including hidden folders and duplicate copies. Before testing, independently compute expected path sets and typed-property counts from the fixture generator—not from the search implementation. Generate a primary fixture of **20,000 notes / approximately 256 MiB**, including at least **10,000 matches** and more than 10,000 directory entries; include an unmatched and matched final note beyond every former cutoff. Add a **100,000-small-note** fixture to expose enumeration-only and no-hit costs. Include 20-source coverage and a source with no matches.
+Use deterministic generated Markdown, including hidden folders and duplicate copies. Independently compute expected path sets and typed-property counts from the fixture generator—not from the search implementation. A correctness fixture of **12,000 small notes**, more than **16 MiB** total and at least **600 matches** crosses the former entry, byte, note and result cutoffs; put matched and unmatched notes at the end. Force work-slice yields in unit tests so continuation correctness does not depend on machine timing. Cover 20 sources with small fixtures and include a source with no matches. There is no 100,000-note benchmark or timed acceptance run.
 
 Required correctness:
 
@@ -166,23 +166,16 @@ Required correctness:
 - Text/property distinction: body prose, YAML comments or `inactive` must not satisfy `{status: active}`. Cover quoted keys, scalar types, multiline scalars, CRLF, BOM, empty/malformed headers, unsupported YAML features, and long bodies with small valid headers. Preserve tag/comment/code semantics.
 - Multiline and Unicode literal text, option-like patterns, large single lines, 1-MiB notes, unsupported files, output escaping and more matches than result buffer capacity.
 
-Performance targets, measured from the **installed public tool handler**, not just `rg` command time:
+### Owner performance feedback
 
-| Fixture / operation | Target |
-| --- | --- |
-| 20,000-note / 256-MiB literal count or no-hit coverage | p95 complete within 5 seconds total active query time |
-| Same fixture, exact frontmatter property count | p95 complete within 10 seconds total active query time |
-| Results mode | first bounded page p95 under 1 second; subsequent work slices p95 under 2 seconds |
-| 100,000-small-note no-hit query | complete within 15 seconds total active query time, with genuine continuations as needed |
-| Search under long native sync | same correctness; no waiting for native idle or routine `busy` |
-| Saves while searching | preserve iteration 015's p95 <1 second / max <2 seconds acceptance budget |
+The owner will test responsiveness after delivery. Do not require p95/max latency thresholds, completion deadlines, repeated-query measurements, cache comparisons, a profiling report or a large-vault performance fixture. Do not query personal notes to benchmark the change. If the owner reports a speed problem, investigate that concrete problem then.
 
-Report end-to-end elapsed wall time across all continuations, handler time, traversal, ripgrep, validation/hashing, semantic parsing, plugin RPC counts, process count, bytes, peak memory and FD cleanup separately. A test driver must not hide slow completion by excluding sleeps, transport or pauses between its immediate continuations; “active query time” excludes only deliberate external user think time. Run at least 20 queries of each ordinary-scale kind, disclose warm/cold cache conditions, actual fixture sizes, hardware/runtime and any outlier. Do not promise these budgets for every storage device. If targets fail, diagnose and revise the plan explicitly rather than ship a timed-out prefix as the completed feature.
+Keep resource limits, cancellation, safe cleanup, complete coverage and truthful totals as correctness requirements. Search and saves must remain usable during native activity rather than explicitly waiting for native idle, but there is no additional timed workload gate for this iteration.
 
 ### Logical edits, concurrency and lifecycle
 
 - A saved overlay-only create matches immediately; an unapplied edit can add or remove a hit despite opposite mirror bytes. Count mode and mixed filters see the same logical version.
-- Saves during a genuine >=40-second native child; search during application, retirement, conflict retention and maintenance; no temporary loss or duplication of a logical path. Incoming/recovery/old generations are not searchable as current notes.
+- Search and saves during a real native run, plus application, retirement, conflict retention and maintenance; no temporary loss or duplication of a logical path. Reuse existing native regression coverage rather than add a timed long-sync benchmark. Incoming/recovery/old generations are not searchable as current notes.
 - Concurrent directory/file publication: stable returned hashes/citations or explicit bounded omissions, no fabricated atomic snapshot. Complete-read/CAS requirements remain unchanged.
 - Cancellation, abandoned cursors, result backpressure, zero-result continuations, expiry, process death, restart, disposal, removal and source replacement; no surviving children or leaked descriptors, no responses after revocation. Configuration fences remain effective at cached-page delivery too.
 - Directory/file symlink swaps between discovery/open/child execution, special files, traversal attempts, malicious patterns/config, stderr sentinels and nonexistent/unsupported executables. Assert no bytes outside selected logical note readers reach either results or logs.
@@ -192,10 +185,10 @@ Report end-to-end elapsed wall time across all continuations, handler time, trav
 
 Run affected typechecks, build/spec/package tests, copied-contract equality, shared UI checks, existing Linux ownership/storage/crash/CAS suites and new real-ripgrep Linux tests with zero skips in the targeted acceptance run. Retain Mac platform skips as separate evidence. Compare actual BB original-handler results to the independent generator oracle, record exact installed versions/commit and inspect desktop/narrow screenshots. Failure diagnostics must use only fixed categories with no generated private sentinel leakage.
 
-Release is **not** complete on a fast command benchmark, safe truncation, synthetic RPC interception, a passing build or a provider-schema catalog alone. Record precisely which layer was exercised. Exact Apple/device delivery is outside this search change.
+Release still needs functional installed-handler evidence, safe diagnostics and applicable rendered review; a passing build or safe truncation alone does not establish correctness. Record precisely which layer was exercised. Performance acceptance belongs to the owner. Exact Apple/device delivery is outside this search change.
 
 ## Design evidence and remaining decisions
 
 A local generated two-file descriptor probe with ripgrep 15.2.0 passed case-insensitive literal matching, literal multiline matching, option-like input treated as text, and exit-1 no-match handling. It also exposed shared descriptor-offset reuse; fresh readers corrected the probe. These are feasibility observations, not Linux security, large-vault performance or installed-handler proof. Scratch roots were removed. No personal note content was read.
 
-At the start of approved implementation, resolve through the first spike: actual supported Linux ripgrep version, safely bounded discovery frontier/directory handles, descriptor validation/hashing costs, semantic candidate byte framing, end-to-end cancellation supported by BB's actual SDK, and measured resource limits. These are explicit gates, not permission to bypass ownership or quietly reinstate the old scanner.
+At the start of approved implementation, resolve the actual supported Linux ripgrep version, safely bounded discovery frontier/directory handles, reader validation/hash correctness, semantic candidate byte framing and end-to-end cancellation supported by BB's actual SDK. These correctness/safety decisions do not require a performance spike and do not permit bypassing ownership or quietly reinstating the old scanner.
