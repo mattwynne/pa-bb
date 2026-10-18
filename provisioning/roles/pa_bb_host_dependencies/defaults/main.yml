@@ -1,0 +1,5 @@
+---
+# Acknowledges that the caller has stopped dependent services/supervisors and
+# drained native work. The role also refuses replacement while rclone runs.
+# A correct existing binary needs no replacement and no acknowledgement.
+pa_bb_allow_rclone_replacement: false

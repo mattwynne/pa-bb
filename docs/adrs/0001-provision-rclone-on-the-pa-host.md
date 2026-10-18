@@ -28,7 +28,11 @@ host running BB, separately from the plugin.
 The iCloud plugin owns login/2FA, protected credentials, folder selection,
 automatically managed local storage, worker lifecycle, status and recovery.
 It checks rclone compatibility but does not install packages or invoke sudo.
-Other BB hosts must provision the documented dependency too.
+Other BB hosts must provision the documented dependency too. The reusable
+[Ansible role and dependency manifest](../../provisioning/README.md) live in this
+repository. Infrastructure projects consume a pinned revision and own their
+inventory, VM/container setup, service users, storage and service lifecycle.
+Keep private deployment details in those projects, not in this manifest.
 
 Provisioning installs the executable only: no Apple credentials, account
 connection or automatic syncing.

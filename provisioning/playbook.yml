@@ -1,0 +1,8 @@
+---
+# Optional standalone entry point. Callers supply inventory and transport.
+- name: Provision PA for BB host dependencies
+  hosts: bb_hosts
+  become: true
+  gather_facts: true
+  roles:
+    - role: pa_bb_host_dependencies

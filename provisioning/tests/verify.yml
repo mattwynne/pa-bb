@@ -1,0 +1,10 @@
+---
+- name: Verify already provisioned host dependencies without installing anything
+  hosts: bb_hosts
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read-only dependency verification
+      ansible.builtin.include_role:
+        name: pa_bb_host_dependencies
+        tasks_from: verify

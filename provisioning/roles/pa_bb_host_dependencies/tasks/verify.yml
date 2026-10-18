@@ -1,0 +1,62 @@
+---
+# Read-only verification. No provider connections, account configuration or
+# note contents are read. This task file can also be called by the test play.
+- name: Verify the installed rclone bytes and ownership
+  ansible.builtin.stat:
+    path: '{{ pa_bb_host_manifest.rclone.executable }}'
+    follow: false
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: pa_bb_verified_rclone
+
+- name: Require the declared protected rclone binary
+  ansible.builtin.assert:
+    that:
+      - pa_bb_verified_rclone.stat.isreg | default(false)
+      - pa_bb_verified_rclone.stat.uid == 0
+      - pa_bb_verified_rclone.stat.mode == '0755'
+      - pa_bb_verified_rclone.stat.checksum == pa_bb_host_manifest.rclone.binary_sha256
+
+- name: Check the stock rclone version without inherited configuration
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/env
+      - -i
+      - PATH=/usr/local/bin:/usr/bin:/bin
+      - '{{ pa_bb_host_manifest.rclone.executable }}'
+      - version
+  register: pa_bb_rclone_version
+  changed_when: false
+  failed_when: pa_bb_rclone_version.rc != 0 or ('rclone v' + pa_bb_host_manifest.rclone.version) not in pa_bb_rclone_version.stdout_lines
+  check_mode: false
+
+- name: Check ripgrep without inherited configuration
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/env
+      - -i
+      - PATH=/usr/local/bin:/usr/bin:/bin
+      - '{{ pa_bb_host_manifest.ripgrep.executable }}'
+      - --no-config
+      - --version
+  register: pa_bb_ripgrep_version
+  changed_when: false
+  failed_when: pa_bb_ripgrep_version.rc != 0 or ('ripgrep ' + pa_bb_host_manifest.ripgrep.version) not in pa_bb_ripgrep_version.stdout_lines
+  check_mode: false
+
+- name: Check the ordinary util-linux flock executable
+  ansible.builtin.command:
+    argv: [/usr/bin/flock, --version]
+  changed_when: false
+  check_mode: false
+
+- name: Inspect the mounted procfs descriptor interface
+  ansible.builtin.stat:
+    path: /proc/self/fd
+    follow: true
+  register: pa_bb_procfs
+
+- name: Require the Linux descriptor interface
+  ansible.builtin.assert:
+    that: pa_bb_procfs.stat.isdir | default(false)
+    fail_msg: Mount procfs and let the BB service user inspect its own processes and inherited descriptors.

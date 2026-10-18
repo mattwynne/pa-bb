@@ -1,0 +1,163 @@
+---
+- name: Require a supported host and privileged provisioning
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['system'] == pa_bb_host_manifest.platform.system
+      - ansible_facts['architecture'] == pa_bb_host_manifest.platform.architecture
+      - ansible_facts['distribution'] == pa_bb_host_manifest.platform.distribution
+      - ansible_facts['distribution_version'] == pa_bb_host_manifest.platform.distribution_version
+      - ansible_facts['user_uid'] == 0
+    fail_msg: >-
+      This dependency manifest supports Ubuntu 24.04 on x86_64 Linux.
+      Run provisioning as root or with become; review the manifest before
+      adding another platform.
+
+- name: Inspect the root-owned executable directory
+  ansible.builtin.stat:
+    path: /usr/local/bin
+    follow: false
+  register: pa_bb_binary_directory
+
+- name: Require a protected executable directory
+  ansible.builtin.assert:
+    that:
+      - pa_bb_binary_directory.stat.isdir | default(false)
+      - not (pa_bb_binary_directory.stat.islnk | default(false))
+      - pa_bb_binary_directory.stat.uid == 0
+      - pa_bb_binary_directory.stat.mode is match('^[0-7][0-7][0145][0145]$')
+    fail_msg: /usr/local/bin must be a root-owned directory without group or other write access.
+
+- name: Inspect the installed rclone without following a symlink
+  ansible.builtin.stat:
+    path: '{{ pa_bb_host_manifest.rclone.executable }}'
+    follow: false
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: pa_bb_existing_rclone
+
+- name: Refuse an untrusted existing rclone path
+  ansible.builtin.assert:
+    that:
+      - not pa_bb_existing_rclone.stat.exists or (pa_bb_existing_rclone.stat.isreg | default(false))
+      - not pa_bb_existing_rclone.stat.exists or pa_bb_existing_rclone.stat.uid == 0
+    fail_msg: The existing rclone path must be a root-owned regular file; inspect it before provisioning.
+
+- name: Determine whether rclone installation is required
+  ansible.builtin.set_fact:
+    pa_bb_rclone_install_required: >-
+      {{ (pa_bb_existing_rclone.stat.checksum | default('')) != pa_bb_host_manifest.rclone.binary_sha256 }}
+
+- name: Require deliberate coordination for a changed rclone binary
+  ansible.builtin.assert:
+    that:
+      - not pa_bb_existing_rclone.stat.exists or not pa_bb_rclone_install_required or pa_bb_allow_rclone_replacement | bool
+    fail_msg: >-
+      Stop dependent services and supervisors, drain native workers, then set
+      pa_bb_allow_rclone_replacement=true for this coordinated replacement.
+      Provisioning never stops a worker or changes sync state for you.
+
+- name: Check for live rclone processes before changing its executable
+  ansible.builtin.command:
+    argv:
+      - '{{ ansible_facts.python.executable }}'
+      - -c
+      - |
+        import pathlib, sys
+        for entry in pathlib.Path('/proc').glob('[0-9]*/comm'):
+            try:
+                if entry.read_text().strip() == 'rclone':
+                    sys.exit(1)
+            except FileNotFoundError:
+                pass
+        sys.exit(0)
+  changed_when: false
+  check_mode: false
+  register: pa_bb_rclone_process_check
+  failed_when: false
+  when: pa_bb_rclone_install_required
+
+- name: Refuse to change rclone while a worker is alive
+  ansible.builtin.assert:
+    that: pa_bb_rclone_process_check.rc == 0
+    fail_msg: A live rclone process or unreadable process metadata prevents safe installation. Keep services stopped and retry after native work exits.
+  when: pa_bb_rclone_install_required
+
+- name: Install only the declared operating-system dependencies
+  ansible.builtin.apt:
+    name: '{{ pa_bb_host_manifest.packages }}'
+    state: present
+    update_cache: false
+    allow_downgrade: false
+    force_apt_get: true
+
+- name: Report a required rclone installation in check mode
+  ansible.builtin.debug:
+    msg: The checksum-pinned rclone executable would be installed.
+  changed_when: true
+  when: pa_bb_rclone_install_required and ansible_check_mode
+
+- name: Install the checksum-pinned official rclone release
+  when: pa_bb_rclone_install_required and not ansible_check_mode
+  block:
+    - name: Create a private temporary installer directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: pa-bb-host-install-
+      register: pa_bb_rclone_temporary
+
+    - name: Download the verified official archive
+      ansible.builtin.get_url:
+        url: '{{ pa_bb_host_manifest.rclone.archive_url }}'
+        dest: '{{ pa_bb_rclone_temporary.path }}/release.zip'
+        checksum: 'sha256:{{ pa_bb_host_manifest.rclone.archive_sha256 }}'
+        mode: '0600'
+        timeout: 60
+
+    - name: Extract the verified archive
+      ansible.builtin.unarchive:
+        src: '{{ pa_bb_rclone_temporary.path }}/release.zip'
+        dest: '{{ pa_bb_rclone_temporary.path }}'
+        remote_src: true
+
+    - name: Inspect the extracted binary
+      ansible.builtin.stat:
+        path: '{{ pa_bb_rclone_temporary.path }}/{{ pa_bb_host_manifest.rclone.archive_binary }}'
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+      register: pa_bb_extracted_rclone
+
+    - name: Verify the exact binary before installation
+      ansible.builtin.assert:
+        that:
+          - pa_bb_extracted_rclone.stat.isreg | default(false)
+          - pa_bb_extracted_rclone.stat.checksum == pa_bb_host_manifest.rclone.binary_sha256
+
+    - name: Publish the root-owned executable atomically
+      ansible.builtin.copy:
+        src: '{{ pa_bb_rclone_temporary.path }}/{{ pa_bb_host_manifest.rclone.archive_binary }}'
+        dest: '{{ pa_bb_host_manifest.rclone.executable }}'
+        remote_src: true
+        unsafe_writes: false
+        owner: root
+        group: root
+        mode: '0755'
+  always:
+    - name: Remove only temporary installer files
+      ansible.builtin.file:
+        path: '{{ pa_bb_rclone_temporary.path }}'
+        state: absent
+      when: pa_bb_rclone_temporary is defined and pa_bb_rclone_temporary.path is defined
+
+- name: Keep the verified existing rclone executable protected
+  ansible.builtin.file:
+    path: '{{ pa_bb_host_manifest.rclone.executable }}'
+    owner: root
+    group: root
+    mode: '0755'
+    follow: false
+  when: not pa_bb_rclone_install_required
+
+- name: Verify installed executable versions and Linux prerequisites
+  ansible.builtin.include_tasks: verify.yml
+  when: not ansible_check_mode

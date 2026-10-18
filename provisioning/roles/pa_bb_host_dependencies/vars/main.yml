@@ -1,0 +1,25 @@
+---
+# Project-owned dependency manifest. Host addresses, users, mounts, services and
+# credentials belong to the consuming infrastructure repository, not here.
+pa_bb_host_manifest:
+  schema: 1
+  platform:
+    system: Linux
+    architecture: x86_64
+    distribution: Ubuntu
+    distribution_version: '24.04'
+  packages:
+    - ca-certificates
+    - unzip
+    - util-linux
+    - ripgrep=14.1.0-1
+  ripgrep:
+    version: '14.1.0'
+    executable: /usr/bin/rg
+  rclone:
+    version: '1.75.2'
+    executable: /usr/local/bin/rclone
+    archive_url: https://downloads.rclone.org/v1.75.2/rclone-v1.75.2-linux-amd64.zip
+    archive_sha256: 349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702
+    archive_binary: rclone-v1.75.2-linux-amd64/rclone
+    binary_sha256: ed7ab1f17876bb006c3df3949a3044959671afd9112362dacaa5dd1647735bc1

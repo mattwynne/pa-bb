@@ -17,6 +17,7 @@ plugins/
   icloud/                # BB-native protected Apple setup and selected folder sync
   obsidian/              # connected iCloud vault tools and conditional note saves
   pa-core/               # planned assistant guidance and shared behaviour
+provisioning/           # reusable Ansible host dependency manifest and role
 shared/connection-ui/   # shared connection-screen source
 scripts/sync-connection-ui.mjs  # generate self-contained plugin copies
 ```
@@ -75,6 +76,7 @@ node scripts/sync-connection-ui.mjs --check    # generated UI copies match share
 - [Google Drive plugin](plugins/google-drive/README.md) — read-only Drive/Docs setup, tool coverage and verification limits.
 - [iCloud plugin](plugins/icloud/README.md) — selected folder sync, protected Apple setup, recovery and verification limits.
 - [Obsidian plugin](plugins/obsidian/README.md) — whole-vault tools, coordinated writes, setup and recovery limits.
+- [Host provisioning](provisioning/README.md) — pinned rclone/ripgrep requirements; inventory, services and private deployment stay in the infrastructure project.
 - [Shared connection UI](shared/connection-ui/README.md) — common account/status/onboarding components and generated-package workflow.
 - [Observability standards](docs/o11y-standards.md) — safe diagnostics, partial failures, and verification gates for plugins.
 - [Google OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md) — step-by-step instructions for a new installer.
