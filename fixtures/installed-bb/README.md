@@ -10,6 +10,24 @@ After `INSTALLED_READY`, connect a private browser tunnel to the fixture's loopb
 
 For an **independently authorized single generated-data provider conversation, only after the workload and following-run drain pass**, set `BB_FIXTURE_PROVIDER_GATE=1` on a fresh runner. It prints `DRAINED_PROVIDER_READY` and holds the successful installation until a `provider-done` file appears in its artifacts directory. Run exactly one Pi conversation with `--no-builtin-tools --no-extensions -e <private copy of provider-bridge.ts> --no-skills --no-prompt-templates --no-themes --no-context-files --offline --session <private generated session path>`, in a private generated cwd. Make `typebox` and the Pi coding-agent module available to the extension from the **existing Pi installation** (for example with a private read-only `node_modules` symlink); do not install dependencies, copy credentials or modify provider settings. Set `BB_FIXTURE_BASE` to the private loopback tunnel and `BB_FIXTURE_PROVIDER_LEDGER` to a generated private result file. The extension fetches the installed nine original JSON object schemas, registers those names without other tools, and forwards each selected invocation through the actual captured fixture RPC and original Zod parser/handler. Validate model/tool events, complete-read proof and local read-after-save before writing `provider-done`. On failure leave that marker absent: the fixture times out and retains its generated root. The bridge is **not** a normal BB host model-tool-selection API, and is never cloud/device delivery proof.
 
+## Complete ripgrep search correctness
+
+With the same disposable Linux environment variables and stock ripgrep 14.1.0
+on the fixture service PATH, run `node fixtures/installed-bb/run-search.mjs`.
+It needs no browser handoff, benchmark run or provider conversation. The original
+production factories still register/forward all nine tools through the SDK's
+verified caller transport.
+
+An independent generator supplies 12,003 notes, more than 16 MiB, hidden and
+Git-ignored files, a `.worktrees` folder and a match beyond the former cutoffs.
+The fixture checks the exact set of 604 literal matches, 603 typed-property
+matches, a two-vault total of 604, query-only folder scopes, a new logical save,
+no edit proof from search, and a malformed-YAML query with no reliable total.
+It drains every continuation, including pages after complete traversal; count
+mode stores no rows. Success stops owned children and removes its generated
+root. Failed roots are retained. This is an installed original-handler proof,
+not BB's model-selector or cloud/device evidence.
+
 ## Both-disabled managed update and short timing sample
 
 Run `run-disabled-update.mjs` **separately** in a fresh isolated Linux BB 0.45.0 installation. Archive `plugins/icloud` and `plugins/obsidian` from the deployed old-source commit `2cc7b16` into a temporary directory for `BB_FIXTURE_OLD`; stage the current candidate snapshot, including these fixture entries, as `BB_FIXTURE_SOURCE`. Supply the same `BB_FIXTURE_BB_ROOT`, `BB_FIXTURE_DEPENDENCIES`, free `BB_FIXTURE_PORT` pair and fresh `BB_FIXTURE_ARTIFACTS` as above. Never point either snapshot at a live plugin root. The runner copies the real source into a **temporary local Git repository**, builds fixture-only manifests (`0.1.13-fixture`/`0.1.1-fixture` for the candidate), and installs both by `git:<temporary-repository>@ref:main` with their respective subdirectories. The generated sentinel is a dependency-free ESM plugin: its server artifact metadata is derived from a BB-built fixture package. This is not a production version bump, a path-source reload, a simulated updater, or an `--all` update.

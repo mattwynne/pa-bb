@@ -18,9 +18,16 @@ The read-only `diagnostics` RPC keeps successful sync summaries for seven days a
 
 Other integrations can call the read-only `inventory` RPC or use `icloud_list_local_folders`. It returns names, stable mirror identifiers, local note availability and last successful cloud sync—not raw host paths. Select by name/identifier, not a user-configured path. Inventory access is not consent to edit files. Retained previous mirrors remain listed separately and never sync again. [Obsidian](../obsidian/README.md) connects initialized mirrors separately for whole-vault read/write. From 0.2.0, the v2 note contract requires the host-verified Obsidian caller and an exact negotiated revision for configure/list/read/commit/receipts/conflict recovery. Both plugins must support v2; mixed versions refuse note access rather than use a raw-folder fallback. Inventory alone grants no edit access.
 
+Version **0.3.0** adds a separately negotiated, Obsidian-only ripgrep search
+capability over logical notes, including pending overlay heads. It passes pinned
+read-only descriptors to stock host ripgrep, not raw roots to the consumer.
+Search sessions are bounded and cancellable; they do not change note access v2
+storage, receipt identities, saves or native reconciliation. Missing search
+requirements disable search only. See [search semantics and limits](../obsidian/README.md#search-and-counts).
+
 ## Upgrading from 0.1.x
 
-Update iCloud and Obsidian together to **0.2.0**. Record which plugins and sources were enabled. Disable Obsidian, use iCloud's supported Pause controls, let active sync finish, then disable iCloud. Keep **both plugins disabled until both managed updates have fully completed**, including stabilization. Enable iCloud first and check local readiness, then enable Obsidian if it was previously enabled. Resume only the sources that were enabled before maintenance. Keep previously disabled plugins disabled.
+Update iCloud and Obsidian together to **0.3.0**. Use this same stopped-update sequence when upgrading from 0.2.x. Record which plugins and sources were enabled. Disable Obsidian, use iCloud's supported Pause controls, let active sync finish, then disable iCloud. Keep **both plugins disabled until both managed updates have fully completed**, including stabilization. Enable iCloud first and check local readiness, then enable Obsidian if it was previously enabled. Resume only the sources that were enabled before maintenance. Keep previously disabled plugins disabled.
 
 Existing vault selections, source identities, baselines, receipts and recovery copies are preserved. If an update or startup fails, keep both plugins stopped and preserve their files for inspection and a corrected update. Do not clear baselines or locks, force resync, or load an old binary after the new storage format has been admitted.
 

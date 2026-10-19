@@ -6,7 +6,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 export const NOTE_LIMITS = { bytes: 1024 * 1024, entries: 10000, scanMs: 2000, operations: 512, recoveryBytes: 64 * 1024 * 1024, retentionMs: 30 * 86400000 } as const;
-export type NoteCategory = 'invalid_path' | 'unsupported' | 'unavailable' | 'conflict' | 'capacity' | 'cancelled' | 'uncertain' | 'operation_reused' | 'operation_expired' | 'busy';
+export type NoteCategory = 'invalid_path' | 'unsupported' | 'unavailable' | 'conflict' | 'capacity' | 'cancelled' | 'uncertain' | 'operation_reused' | 'operation_expired' | 'busy' | 'cursor_expired' | 'invalid_query';
 export class NoteError extends Error { constructor(readonly category: NoteCategory) { super(category); this.name = 'NoteError'; } }
 export function validateNotePath(path: string) {
   if (typeof path !== 'string' || path.length > 1024 || !path.endsWith('.md') || /[\\:\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new NoteError('invalid_path');
@@ -25,6 +25,35 @@ export type CommitInput = { operationId: string; mirrorId: string; path: string;
 export type NoteReceipt = { operationId: string; mirrorId: string; path: string; at: string; outcome: 'saved_locally_pending_sync' | 'not_saved' | 'uncertain'; hash: string; previousHash: string | null };
 type Journal = NoteReceipt & { phase: 'preparing' | 'prepared' | 'finished'; requestDigest: string; inode: { dev: number; ino: number } | null; kind: 'create' | 'replace' };
 type Options = { maxRecoveryBytes?: number; maxOperations?: number; clock?: () => number; fault?: (stage: string) => void | Promise<void> };
+export type SearchPath = { path: string } | { progress: true } | { warning: 'note_unavailable' | 'unsupported' | 'capacity' };
+export type SearchReader = { file: FileHandle; text: string; hash: string; readAt: string; verify(): Promise<void>; close(): Promise<void> };
+// Positional reads never advance a descriptor inherited by ripgrep. Recheck the
+// same pinned inode and exact bytes, not a replacement opened by its pathname.
+export async function pinSearchFile(file: FileHandle, named?: (info: import('node:fs').Stats) => Promise<void>, expectedHash?: string): Promise<SearchReader> {
+  try {
+    const before = await file.stat(), stamp = await file.stat({ bigint: true });
+    if (!before.isFile() || before.size > NOTE_LIMITS.bytes) throw new NoteError('unsupported');
+    const read = async () => {
+      const bytes = Buffer.alloc(before.size + 1); let count = 0;
+      while (count < bytes.length) { const result = await file.read(bytes, count, bytes.length - count, count); if (!result.bytesRead) break; count += result.bytesRead; }
+      if (count !== before.size) throw new NoteError('conflict');
+      return bytes.subarray(0, count);
+    };
+    const bytes = await read(), hash = digest(bytes);
+    if (expectedHash && hash !== expectedHash) throw new NoteError('uncertain');
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    if (text.includes('\0')) throw new NoteError('unsupported');
+    const verify = async () => {
+      const bytes = await read(), after = await file.stat({ bigint: true });
+      // Exact nanosecond stamps avoid rounding a fast write down to the same
+      // millisecond number. Unlinking an immutable overlay blob remains safe.
+      if (stamp.dev !== after.dev || stamp.ino !== after.ino || stamp.size !== after.size || stamp.mtimeNs !== after.mtimeNs || (named && stamp.ctimeNs !== after.ctimeNs) || digest(bytes) !== hash) throw new NoteError('conflict');
+      await named?.(before);
+    };
+    await verify(); let closed = false;
+    return { file, text, hash, readAt: new Date().toISOString(), verify, async close() { if (!closed) { closed = true; await file.close(); } } };
+  } catch (error) { await file.close(); throw error instanceof NoteError ? error : new NoteError('unavailable'); }
+}
 export class NoteStore {
   private active = false;
   private reconciledRoots = new Map<string, string>();
@@ -174,6 +203,50 @@ export class NoteStore {
     try { folder = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); await walk(folder, ''); }
     catch { throw new NoteError('unavailable'); } finally { await folder?.close(); }
     return { paths: paths.sort(), incomplete, warnings: [...warnings] };
+  }
+  async searchReader(root: string, path: string): Promise<SearchReader> {
+    const parent = await this.parent(root, path); let file: FileHandle | undefined;
+    try {
+      file = await open(parent.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      // Keep only the immediate directory pin while rg runs, not an ancestry
+      // chain per reader. Fresh traversal below still verifies containment.
+      await Promise.all(parent.handles.splice(0, parent.handles.length - 1).map(handle => handle.close()));
+      return await pinSearchFile(file, async info => {
+        const fresh = await this.parent(root, path);
+        try { if (!identity(await parent.folder.stat(), await fresh.folder.stat()) || !same(info, await lstat(fresh.path))) throw new NoteError('conflict'); }
+        finally { await fresh.close(); }
+      }).then(reader => { let closed = false; return { ...reader, async close() { if (closed) return; closed = true; try { await reader.close(); } finally { await parent.close(); } } }; });
+    } catch (error) { await file?.close().catch(() => {}); await parent.close(); throw error instanceof NoteError ? error : new NoteError('unavailable'); }
+  }
+  // Streaming discovery for search. Unlike list(), a yield is a continuation,
+  // never a terminal alphabetical prefix. Every directory is opened no-follow.
+  async *searchPaths(root: string, scope?: { file(path: string): boolean; directory(path: string): boolean }): AsyncGenerator<SearchPath> {
+    // Only one directory stream remains pinned across responses. A bounded
+    // path frontier avoids retaining a descriptor pair per nested directory.
+    const frontier = ['']; let bytes = 0;
+    while (frontier.length) {
+      const prefix = frontier.pop()!; bytes -= prefix ? Buffer.byteLength(prefix) + 128 : 0;
+      let parent: Awaited<ReturnType<NoteStore['parent']>> | undefined;
+      let directory: Awaited<ReturnType<typeof opendir>> | undefined;
+      try {
+        parent = await this.parent(root, prefix ? prefix + '/.md' : '.md');
+        await Promise.all(parent.handles.splice(0, parent.handles.length - 1).map(handle => handle.close()));
+        directory = await opendir(fdPath(parent.folder.fd), { bufferSize: 32 });
+        for await (const entry of directory) {
+          const path = (prefix ? prefix + '/' : '') + entry.name;
+          yield { progress: true }; // even no-note directories advance the slice
+          if (entry.isDirectory()) {
+            if (scope && !scope.directory(path)) continue;
+            if (path.length > 1020) { yield { warning: 'unsupported' }; continue; }
+            if (bytes + Buffer.byteLength(path) + 128 > 2 * 1024 * 1024) { yield { warning: 'capacity' }; continue; }
+            frontier.push(path); bytes += Buffer.byteLength(path) + 128;
+          } else if (path.endsWith('.md') && (!scope || scope.file(path))) {
+            try { yield { path: validateNotePath(path) }; } catch { yield { warning: 'unsupported' }; }
+          }
+        }
+      } catch { yield { warning: 'note_unavailable' }; }
+      finally { await directory?.close().catch(() => {}); await parent?.close(); }
+    }
   }
   private async writeDurable(path: string, data: string | Buffer) {
     const handle = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);

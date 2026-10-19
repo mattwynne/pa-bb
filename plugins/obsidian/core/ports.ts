@@ -2,7 +2,11 @@ export type PendingOperation = { operationId: string; vaultId: string; path: str
 export type Configuration = { revision: number; vaultIds: string[]; names?: Record<string, string>; pending?: PendingOperation[]; unconfirmedRevision?: number };
 export type LocalCapability = { available: boolean; reason: 'ownership' | 'recovery_required' | 'source_changed' | null; pendingAgeMs: number | null; applicationBlocker: 'application_uncertain' | 'native_recovery' | null };
 export type Source = { id: string; name: string; initialized: boolean; enabled: boolean; cloudConnected: boolean; phase: string; lastSuccess: string | null; failure: string | null; local: LocalCapability };
-export type Catalog = { setup: string; nextAction: string | null; sources: Source[]; connected: boolean; compatible: boolean };
+export type SearchCapability = { version: 1; available: boolean; reason: 'missing_executable' | 'unsupported_version' | 'unavailable' | null };
+export type SearchQuery = { vaultId?: string; text?: string; tag?: string; folders?: string[]; excludeFolders?: string[]; properties?: Array<{ key: string; equals: string | number | boolean | null }>; mode?: 'results' | 'count'; cursor?: string; limit?: number };
+export type SearchRequest = { mirrorId: string; revision: number; text?: string; projection: 'hits' | 'frontmatter' | 'markdown'; folders?: string[]; excludeFolders?: string[]; cursor?: string; startOnly?: boolean };
+export type SearchBatch = { candidates: Array<{ path: string; hash: string; readAt: string; line: number; snippet: string; content?: string; limited?: boolean }>; nextCursor: string | null; visited: number; warnings: Array<'note_unavailable' | 'unsupported' | 'source_changed' | 'capacity'> };
+export type Catalog = { search?: SearchCapability; setup: string; nextAction: string | null; sources: Source[]; connected: boolean; compatible: boolean };
 export interface MirrorCatalog { snapshot(): Promise<Catalog> }
 export type CompleteNote = { text: string; hash: string; readAt: string; complete: true };
 export type IncomingRead = { absent: true } | (CompleteNote & { absent: false });
@@ -13,6 +17,8 @@ export type Receipt = SaveReceipt | ResolutionReceipt;
 export type Resolution = { mirrorId: string; revision: number; path: string; operationId: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: 'keep_local' | 'accept_incoming' | 'replace'; text?: string };
 export interface VaultFiles {
   configure(configuration: Configuration): Promise<void>;
+  search(input: SearchRequest, signal?: AbortSignal): Promise<SearchBatch>;
+  closeSearch(revision: number, cursor: string): Promise<void>;
   list(vaultId: string, revision: number): Promise<{ paths: string[]; incomplete: boolean; warnings: string[] }>;
   read(vaultId: string, revision: number, path: string): Promise<CompleteNote>;
   readIncoming(vaultId: string, revision: number, path: string, token: string): Promise<IncomingRead>;
@@ -25,6 +31,7 @@ export interface StateRepository { load(): Promise<Configuration | undefined>; s
 export type Location = { line: number; endLine: number; start: number; end: number };
 export type Metadata = { properties: Record<string, unknown>; aliases: string[]; tags: Array<Location & { tag: string }>; headings: Array<Location & { title: string; depth: number }>; blocks: Array<Location & { id: string }>; links: Array<Location & { target: string; embed: boolean }>; tasks: Array<Location & { text: string; marker: string; markerOffset: number; complete: boolean }>; warnings: string[] };
 export interface NoteParser {
+  frontmatter(text: string): { properties: Record<string, unknown>; warnings: string[] };
   parse(text: string): Metadata;
   edit(text: string, replacements: Array<{ oldText: string; newText: string }>): string;
   properties(text: string, input: { set: Record<string, unknown>; remove: string[] }): string;

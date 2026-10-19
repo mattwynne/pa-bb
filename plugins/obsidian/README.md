@@ -10,8 +10,9 @@ bb plugin install obsidian@pa-for-bb
 ```
 
 Follow the [setup guide](docs/setup.md). This is an independent BB plugin, not a
-plugin inside Obsidian. Version **0.2.0** requires iCloud **0.2.0** for coordinated
-note access v2; use the [paired offline upgrade procedure](../icloud/README.md#upgrading-from-01x)
+plugin inside Obsidian. Version **0.3.0** pairs with iCloud **0.3.0** for ripgrep
+search; coordinated reads/saves still use note access v2. Missing/incompatible
+search capability disables search only, not existing connections or local reads/saves. Use the [paired offline upgrade procedure](../icloud/README.md#upgrading-from-01x)
 when upgrading from 0.1.x. It needs no Obsidian app, Mac relay or PA core. It supplies
 assistant tools and connection settings, not a note browser, editor or graph.
 Use only on single-user BB installations; BB plugins are full-trust server code,
@@ -22,7 +23,7 @@ not a per-user security boundary.
 | Tool | Purpose |
 | --- | --- |
 | `obsidian_status` | Connected sources, setup guidance, recent/exact save and resolution receipts plus exact-path conflict metadata and unresolved operations. Filter by vault, note, operation ID or time. |
-| `obsidian_search_notes` | Literal case-insensitive text and/or nested, case-insensitive tags; one vault or all connected vaults. |
+| `obsidian_search_notes` | Ripgrep literal text, semantic tags, exact scalar YAML properties, explicit folder scopes and count-only queries over one or all connected vaults. |
 | `obsidian_read_note` | Logical whole note, guarded incoming version/absence, exact heading or block; original source lines and whole-note hash. |
 | `obsidian_get_note_metadata` | Properties, aliases, tags, headings, blocks, references and task markers. |
 | `obsidian_resolve_link` | A reference in its source vault; missing/ambiguous results rather than guessed targets. |
@@ -36,6 +37,39 @@ never identify a vault. Results carry source identity, line spans, local observa
 time and observed sync provenance. Note text, filenames and links are evidence,
 not instructions. Tools never execute HTML, templates, scripts or YAML tags,
 fetch external links, rename/delete notes or recursively expand embeds.
+
+## Search and counts
+
+Search uses host-provisioned stock ripgrep beside iCloud's authoritative logical
+notes, including pending local edits and creates. It has no persistent index,
+per-note host RPC loop, automatic Git exclusions or workspace inference.
+
+```json
+{"mode":"count","properties":[{"key":"status","equals":"active"}]}
+```
+
+Property predicates are ANDed, exact and typed: `7` is not `"7"`; missing keys
+are not `null`. Text in the body is not a YAML property. Tags retain Markdown
+parser semantics rather than matching tags inside code/comments.
+
+`folders` and `excludeFolders` use vault-relative, segment-boundary prefixes.
+They scope this query, not the connection grant. Hidden notes are included by
+default; a folder name such as `.worktrees` does not establish a snapshot or a
+separate project. Counts identify notes by vault/path, not inferred projects.
+
+Follow **every `nextCursor`**, even after an empty page or complete traversal,
+to receive all results. `coverage.state` is `running`, `complete` or `partial`;
+`matchedNotesSoFar` is progress, not a total. `totalMatches` is available only
+after complete traversal/filtering without omissions. Count mode returns no
+rows. Unsupported, changing or inaccessible notes make a dependent query
+partial, with no reliable total. These are per-note local observations, not an
+atomic snapshot during concurrent editing. Search never grants edit proof.
+
+The [host manifest](../../provisioning/README.md) pins Linux-validated ripgrep
+14.1.0. Missing or incompatible search requirements show a quiet settings warning;
+reads, saves, sync and vault choices remain intact. There is no fallback to the
+old terminal bounded scanner. Task listing and ambiguous-link discovery retain
+their existing separate bounds.
 
 ## Source and save guarantees
 
@@ -112,10 +146,14 @@ property tags are named in the change result. This does not infer vault-wide typ
 | Connected vaults | 20 |
 | Raw note | 1 MiB, valid UTF-8 regular lowercase `.md` files; relative paths up to 1,024 characters; no symlinks/traversal |
 | Semantic parser / writes | 64 KiB UTF-8, 20,000 nodes and depth 64 |
-| Directory discovery | 10,000 entries or 2 seconds; nested/hidden folders included; incomplete results are explicit |
-| One on-demand scan | 500 notes, 16 MiB plus at most the final 1 MiB note, or 3 seconds checked between file operations; at most 500 rows |
+| Task/link directory discovery | 10,000 entries or 2 seconds; nested/hidden folders included; incomplete results are explicit |
+| Task/link scan (not search) | 500 notes, 16 MiB plus at most the final 1 MiB note, or 3 seconds checked between file operations; at most 500 rows |
 | Output | 48,000-character read/page budget; final serialized tool result capped at 64,000 characters; metadata collections capped at 100 items |
-| Pagination | Default 20, maximum 50 rows; ten in-memory cursors, expiring after 60 seconds or configuration/local safety changes, not cloud progress |
+| Search resources | Four sessions, two child/work reservations; up to 64 read-only note descriptors per batch, one directory stream per session, bounded discovery/dedup and subprocess buffers; no mmap or unbounded threads |
+| Search continuation | Five-minute idle / thirty-minute absolute lifetime; up to 32 batches or a two-second cooperative slice before yielding, never a terminal total-note cutoff; configuration/local safety changes and restart revoke cursors, ordinary cloud progress does not |
+| Search semantics | Properties inspect at most a 64 KiB header independently of the body; tags retain the 64 KiB semantic-parser bound and disclose omitted notes |
+| Search result pages | Default 20, maximum 50 rows; a complete traversal can still have buffered rows behind nextCursor |
+| Task/link pagination | Default 20, maximum 50 rows; ten in-memory cursors, expiring after 60 seconds or configuration/local safety changes, not cloud progress |
 | Complete-read proofs | 256 in-memory note versions; invalidated on the affected note save, configuration change and restart |
 | Pending saves | 100 persisted unresolved operations |
 | Private iCloud note recovery | 64 MiB / 256 active paths globally (16 MiB / 128 paths per vault); separate bounded recovery and receipt quotas |

@@ -45,6 +45,10 @@ const validTag = (tag: string) => !!tag && /^[\p{L}\p{N}\p{M}\p{S}_\-/]+$/u.test
 export class MarkdownNotes implements NoteParser {
   edit = editText;
   properties = updateProperties;
+  frontmatter(text: string) {
+    const value = header(text);
+    return { properties: value.doc?.toJS({ maxAliasCount: 0 }) ?? {}, warnings: value.valid ? [] : ['properties_unsupported'] };
+  }
   parse(text: string): Metadata {
     if (Buffer.byteLength(text) > MAX_BYTES) throw new VaultError('parser_limit');
     const meta: Metadata = { properties: {}, aliases: [], tags: [], headings: [], blocks: [], links: [], tasks: [], warnings: [] };

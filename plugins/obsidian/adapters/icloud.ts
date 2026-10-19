@@ -1,11 +1,11 @@
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { noteRpcContract } from './icloud-note-contract.ts';
+import { noteRpcContract, searchCapabilitySchema } from './icloud-note-contract.ts';
 import { VaultError } from '../core/ports.ts';
 import type { MirrorCatalog, VaultFiles, Diagnose, Catalog, Configuration } from '../core/ports.ts';
 const local = z.object({ available: z.boolean(), reason: z.enum(['ownership', 'recovery_required', 'source_changed']).nullable(), pendingAgeMs: z.number().int().nonnegative().nullable(), applicationBlocker: z.enum(['application_uncertain', 'native_recovery']).nullable() }).strict();
 const mirror = z.object({ id: z.string(), folder: z.object({ name: z.string() }), initialized: z.boolean(), enabled: z.boolean(), phase: z.enum(['paused', 'ready', 'running', 'failed', 'retained']), lastSuccess: z.string().nullable(), failure: z.string().nullable(), local: local.optional() });
-const status = z.object({ noteAccessVersion: z.number().int().nullable(), available: z.boolean(), connected: z.boolean(), challenge: z.string().nullable(), mirrors: z.array(mirror) });
+const status = z.object({ search: z.unknown().optional(), noteAccessVersion: z.number().int().nullable(), available: z.boolean(), connected: z.boolean(), challenge: z.string().nullable(), mirrors: z.array(mirror) });
 const unavailable = (setup: string, nextAction: string): Catalog => ({ setup, nextAction, sources: [], connected: false, compatible: false });
 export class ICloud implements MirrorCatalog, VaultFiles {
   constructor(private sdk: BbPluginApi['sdk'], private diagnose: Diagnose) {}
@@ -16,7 +16,8 @@ export class ICloud implements MirrorCatalog, VaultFiles {
       if (!plugin.enabled) return unavailable('disabled', 'Enable iCloud in Plugins.');
       if (plugin.status !== 'running') return unavailable(plugin.status === 'error' ? 'icloud_error' : 'starting', 'Open iCloud settings and check its startup status.');
       const state = await this.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'status', input: null, outputSchema: status });
-      const catalog: Catalog = { setup: 'ready', nextAction: null, connected: state.connected, compatible: state.noteAccessVersion === 2,
+      const search = searchCapabilitySchema.safeParse(state.search);
+      const catalog: Catalog = { search: search.success ? search.data : { version: 1, available: false, reason: state.search === undefined ? 'unavailable' : 'unsupported_version' }, setup: 'ready', nextAction: null, connected: state.connected, compatible: state.noteAccessVersion === 2,
         sources: state.mirrors.map(m => ({ id: m.id, name: m.folder.name, initialized: m.initialized, enabled: m.enabled, cloudConnected: state.connected, phase: m.phase, lastSuccess: m.lastSuccess, failure: m.failure, local: m.local ?? { available: false, reason: 'source_changed', pendingAgeMs: null, applicationBlocker: null } })) };
       if (catalog.compatible && state.mirrors.some(m => !m.local)) throw new Error('Invalid v2 local capability');
       if (!catalog.compatible) return { ...catalog, setup: 'incompatible', nextAction: 'Update iCloud and Obsidian together for coordinated note access v2. No filesystem fallback is available.' };
@@ -49,6 +50,18 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     }
   }
   async configure(value: Configuration) { await this.call('noteConfigure', { revision: value.revision, mirrorIds: value.vaultIds }); }
+  async search(input: import('../core/ports.ts').SearchRequest, signal?: AbortSignal): Promise<import('../core/ports.ts').SearchBatch> {
+    // The service validates the catalog once per work slice. No per-file RPCs.
+    try {
+      const result = await this.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'noteSearch', signal, input: { version: 2, searchVersion: 1, ...input }, outputSchema: noteRpcContract.noteSearch.output });
+      if (!result.ok) { this.diagnose('rpc', result.category); throw new VaultError(result.category, result.nextAction, true); }
+      return result.value;
+    } catch (error) { if (error instanceof VaultError) throw error; if (signal?.aborted) throw new VaultError('cancelled'); this.diagnose('rpc', 'unavailable'); throw new VaultError('unavailable', 'Vault search did not complete. Check the host search requirements; partial results are not a total.', true); }
+  }
+  async closeSearch(revision: number, cursor: string) {
+    const result = await this.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'noteSearchClose', input: { version: 2, revision, cursor }, outputSchema: noteRpcContract.noteSearchClose.output });
+    if (!result.ok) throw new VaultError(result.category, result.nextAction);
+  }
   list(mirrorId: string, revision: number) { return this.call('noteList', { mirrorId, revision }); }
   read(mirrorId: string, revision: number, path: string) { return this.call('noteRead', { mirrorId, revision, path }); }
   readIncoming(mirrorId: string, revision: number, path: string, token: string) { return this.call('noteRead', { mirrorId, revision, path, selector: { version: 'incoming', token } }); }

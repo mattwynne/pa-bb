@@ -1,5 +1,6 @@
 import { posix } from 'node:path';
 import { VaultError } from './ports.ts';
+import { VaultSearch } from './search.ts';
 import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution } from './ports.ts';
 export const LIMITS = { output: 48000, scanNotes: 500, scanBytes: 16 * 1024 * 1024, scanMs: 3000, rows: 500, page: 50, cursors: 10, cursorMs: 60000, proofs: 256 } as const;
 const validPath = (path: string) => { if (!path || !path.endsWith('.md') || path.length > 1024 || /[\\:\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new VaultError('invalid_path'); return path; };
@@ -9,13 +10,23 @@ export class Obsidian {
   private proofs = new Map<string, { hash: string; revision: number }>();
   private cursors = new Map<string, { rows: any[]; offset: number; at: number; revision: number; source: string; incomplete: boolean; failures: any[]; warnings: string[] }>();
   private stopped = false;
+  private readonly searcher: VaultSearch;
   private stateQueue: Promise<void> = Promise.resolve();
   private configurationQueue: Promise<void> = Promise.resolve();
-  constructor(private catalog: MirrorCatalog, private files: VaultFiles, private parser: NoteParser, private repository: StateRepository, private id: () => string, private clock: () => number, private diagnose: Diagnose) {}
+  constructor(private catalog: MirrorCatalog, private files: VaultFiles, private parser: NoteParser, private repository: StateRepository, private id: () => string, private clock: () => number, private diagnose: Diagnose) {
+    this.searcher = new VaultSearch(files, parser, id, clock, diagnose, async vaultId => {
+      const revision = this.state.revision, catalog = await this.catalog.snapshot(); this.checkRevision(revision);
+      if (!catalog.compatible) throw new VaultError('incompatible', catalog.nextAction ?? 'Update both plugins for note access v2.');
+      const ids = vaultId ? [vaultId] : [...this.state.vaultIds];
+      if (ids.some(id => !this.state.vaultIds.includes(id))) throw new VaultError('not_connected');
+      await this.confirm(this.state); this.checkRevision(revision); await this.remember(catalog); this.checkRevision(revision);
+      return { revision, ids, catalog };
+    }, revision => this.checkRevision(revision));
+  }
   async start() { this.state = await this.repository.load() ?? this.state; }
-  stop() { this.stopped = true; this.proofs.clear(); this.cursors.clear(); }
+  stop() { this.stopped = true; this.proofs.clear(); this.cursors.clear(); return this.searcher.stop(); }
   private key(vaultId: string, path: string) { return `${vaultId}/${path}`; }
-  private invalidate() { this.proofs.clear(); this.cursors.clear(); }
+  private invalidate() { this.proofs.clear(); this.cursors.clear(); this.searcher.invalidate(); }
   // Only durable state transitions enter this queue. Never await a note RPC in it.
   private update<T>(action: () => Promise<T>): Promise<T> {
     const task = this.stateQueue.then(async () => { if (this.stopped) throw new VaultError('unavailable'); return action(); });
@@ -119,7 +130,7 @@ export class Obsidian {
     this.checkRevision(revision);
     const uncertain = (this.state.pending ?? []).filter(matchesPending);
     const uncertainOperations = uncertain.slice(0, Math.min(input.limit ?? 20, 100));
-    return { revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
+    return { search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
   }
   private checkRevision(revision: number) { if (this.stopped || this.state.revision !== revision) throw new VaultError('not_connected'); }
   async read(input: { vaultId: string; path: string; heading?: string; blockId?: string; selector?: { version: 'incoming'; token: string } }) {
@@ -182,16 +193,7 @@ export class Obsidian {
     if (!nextCursor) this.cursors.delete(cursor!);
     return { results, nextCursor, incomplete: state.incomplete, failures: state.failures, warnings: state.warnings, evidenceOnly: true };
   }
-  search(input: { vaultId?: string; text?: string; tag?: string; cursor?: string; limit?: number }) {
-    if (!input.cursor && !input.text && !input.tag) throw new VaultError('invalid_query');
-    return this.page(input, () => this.scan(input.vaultId, (source, path, text, hash, at) => {
-      const needle = input.text; const index = needle ? text.toLocaleLowerCase('und').indexOf(needle.toLocaleLowerCase('und')) : 0;
-      if (index < 0) return [];
-      let line = text.slice(0, index).split('\n').length;
-      if (input.tag) { const query = input.tag.replace(/^#/, '').toLocaleLowerCase('und'); const match = this.parser.parse(text).tags.find(t => t.tag === query || t.tag.startsWith(query + '/')); if (!match) return []; if (!needle) line = match.line; }
-      return [{ ...this.provenance(source, at), path, lineStart: line, lineEnd: line, snippet: text.split('\n')[line - 1].replace(/\r$/, '').slice(0, 240), hash }];
-    }));
-  }
+  search(input: import('./ports.ts').SearchQuery, signal?: AbortSignal) { return this.searcher.next(input, signal); }
   tasks(input: { vaultId?: string; path?: string; folder?: string; complete?: boolean; cursor?: string; limit?: number }) {
     if (input.path) validPath(input.path); if (input.folder && (input.folder.startsWith('/') || input.folder.split('/').some(p => p === '..' || p === '.') || /[\\:\x00-\x1f]/.test(input.folder))) throw new VaultError('invalid_path');
     return this.page(input, () => this.scan(input.vaultId, (source, path, text, hash, at) => {

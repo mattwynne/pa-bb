@@ -18,9 +18,9 @@ const bb = join(obsidian, 'node_modules/bb-app');
 const port = Number(process.env.BB_REVIEW_PORT ?? 42988);
 assert.ok(Number.isInteger(port) && port > 1024 && port < 65535);
 // Never accidentally point the installer at an unrelated listener on this port.
-await new Promise((resolve, reject) => {
+for (const candidate of [port, port + 1]) await new Promise((resolve, reject) => {
   const probe = createServer(); probe.once('error', reject);
-  probe.listen(port, '127.0.0.1', () => probe.close(resolve));
+  probe.listen(candidate, '127.0.0.1', () => probe.close(resolve));
 });
 assert.ok(process.env.BB_REVIEW_CHROME, 'Set BB_REVIEW_CHROME to an installed Chromium executable');
 const root = await mkdtemp(join(tmpdir(), 'obsidian-bb-rendered-'));
@@ -59,7 +59,7 @@ try {
   await writeFile(join(artifacts, 'assertions.log'), rendered.stdout, { mode: 0o600 });
   result.rendered = true;
   result.screenshots = (await readdir(artifacts)).filter(file => file.endsWith('.png')).length;
-  assert.equal(result.screenshots, 50);
+  assert.equal(result.screenshots, 58);
   await writeFile(join(artifacts, 'result.json'), JSON.stringify(result, null, 2) + '\n', { mode: 0o600 });
   console.log(JSON.stringify({ ...result, artifacts }));
 } finally {

@@ -12,9 +12,10 @@ async function setup() {
 test('v2 routes refuse clients, forged identities and mixed-version inputs before accessing notes', async () => {
   const harness = await setup();
   try {
-    for (const method of ['noteConfigure', 'noteList', 'noteRead', 'noteCommit', 'noteReceipts', 'noteInspectConflict', 'noteResolveConflict'] as const) {
-      const input = { version: 2, revision: 1, mirrorId: 'one', mirrorIds: ['one'], path: 'Note.md', operationId: '12345678-1234-7123-8123-123456789abc', kind: 'replace', expectedHash: 'a'.repeat(64), text: 'sentinel-private-content', token: '12345678-1234-7123-8123-123456789abc', expectedLogicalHash: 'a'.repeat(64), expectedIncomingHash: null, choice: 'keep_local' };
+    for (const method of ['noteSearch', 'noteSearchClose', 'noteConfigure', 'noteList', 'noteRead', 'noteCommit', 'noteReceipts', 'noteInspectConflict', 'noteResolveConflict'] as const) {
+      const input = { version: 2, searchVersion: 1, projection: 'hits', cursor: '12345678-1234-7123-8123-123456789abc', revision: 1, mirrorId: 'one', mirrorIds: ['one'], path: 'Note.md', operationId: '12345678-1234-7123-8123-123456789abc', kind: 'replace', expectedHash: 'a'.repeat(64), text: 'sentinel-private-content', token: '12345678-1234-7123-8123-123456789abc', expectedLogicalHash: 'a'.repeat(64), expectedIncomingHash: null, choice: 'keep_local' };
       const fields: Record<string, string[]> = {
+        noteSearch: ['version', 'searchVersion', 'projection', 'revision', 'mirrorId', 'text'], noteSearchClose: ['version', 'revision', 'cursor'],
         noteConfigure: ['version', 'revision', 'mirrorIds'], noteList: ['version', 'revision', 'mirrorId'], noteRead: ['version', 'revision', 'mirrorId', 'path'], noteCommit: ['version', 'revision', 'mirrorId', 'path', 'operationId', 'kind', 'expectedHash', 'text'], noteReceipts: ['version', 'revision', 'mirrorId'], noteInspectConflict: ['version', 'revision', 'mirrorId', 'path'], noteResolveConflict: ['version', 'revision', 'mirrorId', 'path', 'operationId', 'token', 'expectedLogicalHash', 'expectedIncomingHash', 'choice'],
       };
       const value = Object.fromEntries(fields[method].map(field => [field, (input as any)[field]]));
@@ -29,8 +30,10 @@ test('missing native owner returns bounded failure without reflecting raw conten
   try {
     const result = await harness.behavior.callRpc('noteConfigure', { version: 2, revision: 1, mirrorIds: ['one'] }, caller) as any;
     assert.equal(result.category, 'unavailable');
+    const search = await harness.behavior.callRpc('noteSearch', { version: 2, searchVersion: 1, revision: 1, mirrorId: 'one', projection: 'hits', text: 'sentinel-private' }, caller) as any;
+    assert.equal(search.category, 'unavailable');
     const logs = JSON.stringify(harness.inspection.logEntries);
-    assert.match(logs, /iCloud note_configure unavailable/);
+    assert.match(logs, /iCloud note_configure unavailable/); assert.match(logs, /iCloud note_search unavailable/);
     assert.doesNotMatch(logs + JSON.stringify(result), /sentinel|Note.md|one|\/tmp\//);
   } finally { await harness.lifecycle.dispose(); }
 });

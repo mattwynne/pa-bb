@@ -59,6 +59,7 @@ function ObsidianSettings() {
         <ol><li>In BB’s <a className="pa-connection__guide" href={ICLOUD}>iCloud settings</a>, install or enable iCloud and connect Apple.</li><li>Choose the vault folder, enable sync and wait for its first successful sync.</li><li>Return here, choose <strong>Add vault</strong>, then connect a vault by name. Nothing is selected automatically.</li></ol>
         <ConnectionGuide href={GUIDE}>Step-by-step setup guide ↗</ConnectionGuide>
       </ConnectionSetup>}
+      {!!state.vaults.length && !state.search.available && <ConnectionAlert>Vault search is unavailable. Ask the host operator to check the <a className="pa-connection__guide" href={GUIDE + '#search-requirements'}>search requirements</a>. Your vault connections and local notes are kept.</ConnectionAlert>}
       {state.configurationUnconfirmed && <ConnectionAlert>A connection change has not been confirmed by iCloud. Check again before relying on removal or adding another vault.</ConnectionAlert>}
       {!!state.uncertainOperationCount && <ConnectionAlert>{state.uncertainOperationCount} local operation{state.uncertainOperationCount === 1 ? '' : 's'} need exact receipt inspection with obsidian_status before retrying. No edit is replayed automatically.</ConnectionAlert>}
       {!!state.receiptFailures.length && <ConnectionAlert>Local receipt inspection is unavailable. Check iCloud and try again; an uncertain change must not be repeated.</ConnectionAlert>}

@@ -5,13 +5,22 @@ const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const version = z.literal(2);
 const target = { version, mirrorId: id, revision, path };
-const failure = z.object({ ok: z.literal(false), category: z.enum(['busy', 'unavailable', 'source_unavailable', 'not_connected', 'invalid_path', 'unsupported', 'conflict', 'capacity', 'cancelled', 'uncertain', 'operation_reused', 'operation_expired']), nextAction: z.string().max(200) }).strict();
+const failure = z.object({ ok: z.literal(false), category: z.enum(['busy', 'unavailable', 'source_unavailable', 'not_connected', 'invalid_path', 'unsupported', 'conflict', 'capacity', 'cancelled', 'uncertain', 'operation_reused', 'operation_expired', 'cursor_expired', 'invalid_query']), nextAction: z.string().max(200) }).strict();
 const save = z.object({ kind: z.literal('save'), operationId: z.string().uuid(), mirrorId: id, path, at: z.string(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']), hash, previousHash: hash.nullable() }).strict();
 const resolution = z.object({ kind: z.literal('resolution'), operationId: z.string().uuid(), mirrorId: id, path, at: z.string(), outcome: z.enum(['saved_locally_pending_sync', 'adopted_content', 'adopted_absence']), hash: hash.nullable() }).strict();
 const result = <T extends z.ZodType>(value: T) => z.union([z.object({ ok: z.literal(true), value }).strict(), failure]);
 const bytes = z.object({ text: z.string().max(1024 * 1024), hash, readAt: z.string(), complete: z.literal(true) }).strict();
+export const searchCapabilitySchema = z.object({ version: z.literal(1), available: z.boolean(), reason: z.enum(['missing_executable', 'unsupported_version', 'unavailable']).nullable() }).strict();
+const prefix = z.string().min(1).max(1024).refine(value => !/[\\\\:\x00-\x1f\x7f]/.test(value) && value.split('/').every(part => !!part && part !== '.' && part !== '..'));
+export const searchInputSchema = z.object({ version, searchVersion: z.literal(1), mirrorId: id, revision, cursor: z.string().uuid().optional(), startOnly: z.boolean().optional(), text: z.string().min(1).max(256).optional(), projection: z.enum(['hits', 'frontmatter', 'markdown']), folders: z.array(prefix).min(1).max(16).optional(), excludeFolders: z.array(prefix).max(16).optional() }).strict();
+export const searchBatchSchema = z.object({ candidates: z.array(z.object({ path, hash, readAt: z.string(), line: z.number().int().positive(), snippet: z.string().max(240), content: z.string().max(65536).optional(), limited: z.boolean().optional() }).strict()).max(64), nextCursor: z.string().uuid().nullable(), visited: z.number().int().nonnegative(), warnings: z.array(z.enum(['note_unavailable', 'unsupported', 'source_changed', 'capacity'])).max(4) }).strict();
+export type SearchInput = z.infer<typeof searchInputSchema>;
+export type SearchBatch = z.infer<typeof searchBatchSchema>;
+export type SearchCapability = z.infer<typeof searchCapabilitySchema>;
 // Copied into the independent consumer package, never imported across plugin roots.
 export const noteRpcContract = {
+  noteSearch: { input: searchInputSchema, output: result(searchBatchSchema) },
+  noteSearchClose: { input: z.object({ version, revision, cursor: z.string().uuid() }).strict(), output: result(z.null()) },
   noteConfigure: { input: z.object({ version, revision, mirrorIds: z.array(id).max(20) }).strict(), output: result(z.object({ revision }).strict()) },
   noteList: { input: z.object({ version, mirrorId: id, revision }).strict(), output: result(z.object({ paths: z.array(path).max(10000), incomplete: z.boolean(), warnings: z.array(z.string().max(64)).max(10) }).strict()) },
   noteRead: { input: z.object({ ...target, selector: z.object({ version: z.literal('incoming'), token: z.string().uuid() }).strict().optional() }).strict(), output: result(z.union([bytes, z.object({ absent: z.literal(true) }).strict(), bytes.extend({ absent: z.literal(false) })])) },

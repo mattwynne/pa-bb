@@ -56,7 +56,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
   const local = async (id: string) => ({ ...(runtime ? await runtime.availability(id) : { available: false, reason: 'ownership' as const }), pendingAgeMs: runtime?.pendingAgeMs(id) ?? null, applicationBlocker: runtime?.applicationBlocker(id) ?? null });
   const status = async () => {
     const snapshot = sync.status();
-    return { ...snapshot, mirrors: await Promise.all(snapshot.mirrors.map(async mirror => ({ ...mirror, local: await local(mirror.id) }))), noteAccessVersion: runtime ? 2 as const : null, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
+    return { ...snapshot, mirrors: await Promise.all(snapshot.mirrors.map(async mirror => ({ ...mirror, local: await local(mirror.id) }))), noteAccessVersion: runtime ? 2 as const : null, search: runtime ? await runtime.search.capability() : { version: 1 as const, available: false, reason: 'unavailable' as const }, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
   };
   const inventory = async () => Promise.all(sync.inventory().map(async item => ({ ...item, local: await local(item.id) })));
   const clientOnly = (context: { experimental_caller: { kind: string } }) => {
@@ -74,12 +74,14 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     catch (error) {
       const failure = error instanceof NoteError ? error.category : category(error) === 'invalid_selection' ? 'not_connected' : ['source_changed', 'recovery_required'].includes(category(error)) ? 'source_unavailable' : 'unavailable';
       diagnose(stage, failure);
-      const nextAction = failure === 'operation_expired' ? 'The old operation identity expired. No new change was attempted. Review current bytes and retained receipts; never replay the old request.' : failure === 'conflict' ? 'Reread the complete note and prepare a fresh change.' : failure === 'uncertain' ? 'Inspect recent operation receipts; do not repeat the edit.' : failure === 'not_connected' ? 'Check connected vaults in Obsidian settings.' : failure === 'capacity' ? 'Ask the operator to inspect note recovery capacity. Do not repeat an uncertain edit.' : 'Check iCloud source status and the note path. No uncoordinated fallback is available.';
+      const nextAction = stage === 'note_search' ? (failure === 'cursor_expired' ? 'The search expired. Start a new search; the previous count is not a complete total.' : failure === 'unsupported' ? 'Vault search needs a supported stock ripgrep on the BB host. Ask the operator to check the search requirements.' : failure === 'invalid_query' ? 'Keep the original search filters when continuing, or start a new search.' : 'Search did not complete. Check local source access and the host search requirements; do not treat partial matches as a total.') : failure === 'operation_expired' ? 'The old operation identity expired. No new change was attempted. Review current bytes and retained receipts; never replay the old request.' : failure === 'conflict' ? 'Reread the complete note and prepare a fresh change.' : failure === 'uncertain' ? 'Inspect recent operation receipts; do not repeat the edit.' : failure === 'not_connected' ? 'Check connected vaults in Obsidian settings.' : failure === 'capacity' ? 'Ask the operator to inspect note recovery capacity. Do not repeat an uncertain edit.' : 'Check iCloud source status and the note path. No uncoordinated fallback is available.';
       return { ok: false, category: failure, nextAction } as const;
     }
   };
   bb.rpc.register(rpcContract, {
     noteConfigure(input, context) { obsidianOnly(context); return noteAction('note_configure', async () => { if (!runtime) throw new NoteError('unavailable'); return runtime.configure(input.revision, input.mirrorIds); }); },
+    noteSearch(input, context) { obsidianOnly(context); return noteAction('note_search', () => runtime!.searchNotes(input)); },
+    noteSearchClose(input, context) { obsidianOnly(context); return noteAction('note_search', () => runtime!.closeSearch(input.revision, input.cursor)); },
     noteList(input, context) { obsidianOnly(context); return noteAction('note_list', () => runtime!.access(input.mirrorId, input.revision, root => runtime!.overlay.list(root, input.mirrorId))); },
     noteRead(input, context) { obsidianOnly(context); return noteAction('note_read', () => runtime!.read(input.mirrorId, input.revision, input.path, input.selector?.token)); },
     noteCommit(input, context) { obsidianOnly(context); return noteAction('note_commit', () => runtime!.commit(input.revision, input)); },

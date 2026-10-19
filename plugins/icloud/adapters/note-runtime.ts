@@ -11,12 +11,15 @@ import type { CommitInput } from './note-store.ts';
 import { NoteOverlay } from './note-overlay.ts';
 import type { Resolution } from './note-overlay.ts';
 import { RcloneProcess } from './rclone-process.ts';
+import { NoteSearch } from './note-search.ts';
+import type { SearchRequest } from './note-search.ts';
 
 // The flock, not a JS timer/lease, owns the generation. All native commands,
 // RC/config calls and mirror mutations enter the same turn. Overlay publications
 // have a separate admission fence and can proceed during this generation's child.
 export class NoteRuntime {
   readonly overlay: NoteOverlay;
+  readonly search: NoteSearch;
   private readonly context = new AsyncLocalStorage<{ revision: number; mirrorId: string }>();
   private queue: Promise<void> = Promise.resolve();
   private entered = new Set<Promise<unknown>>();
@@ -36,6 +39,7 @@ export class NoteRuntime {
     private legacy: NoteStore, private state: () => State, private clock = () => Date.now(),
     private diagnose: (stage: string, category: string) => void = () => {}) {
     this.overlay = new NoteOverlay(join(root, 'overlay'), db, legacy, clock, undefined, id => this.guard(id));
+    this.search = new NoteSearch(legacy, { paths: id => this.overlay.searchPaths(id), reader: (id, path) => this.overlay.searchReader(this.localPath(this.mirror(id)!), id, path) });
   }
   async start() {
     // No overlay migration or durable admission before actual inherited-flock ownership.
@@ -138,7 +142,7 @@ export class NoteRuntime {
       this.db.prepare('INSERT INTO icloud_note_admission(id, revision, members) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, members=excluded.members').run(revision, JSON.stringify(ids));
     })();
     // A failed SQLite commit must not advance the in-memory admission epoch.
-    this.revision = revision; this.members = new Set(ids);
+    this.revision = revision; this.members = new Set(ids); this.search.invalidate(revision);
     return { revision };
   }
   private guard(id: string) {
@@ -171,6 +175,16 @@ export class NoteRuntime {
   }
   private guardWithin(id: string, revision: number) {
     if (this.closed || this.revision !== revision || !this.members.has(id)) throw new CloudError('invalid_selection');
+  }
+  async searchNotes(input: SearchRequest) {
+    return this.access(input.mirrorId, input.revision, async root => {
+      const result = await this.search.next(input, root, () => this.guard(input.mirrorId));
+      this.guard(input.mirrorId); return result;
+    });
+  }
+  async closeSearch(revision: number, cursor: string) {
+    if (this.closed || revision !== this.revision) throw new CloudError('invalid_selection');
+    await this.search.close(cursor); return null;
   }
   async read(id: string, revision: number, path: string, incomingToken?: string) {
     return this.access(id, revision, async root => {
@@ -302,6 +316,7 @@ export class NoteRuntime {
   async stop() {
     if (this.closed) return;
     this.closed = true; this.ready = false;
+    await this.search.stop();
     await Promise.allSettled([...this.entered]);
     await this.queue;
     await this.maintenance;

@@ -1,16 +1,31 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { VaultError } from '../core/ports.ts';
 import type { Configuration, MirrorCatalog, Catalog, VaultFiles, StateRepository, Receipt, SaveReceipt, ConflictInspection, Resolution } from '../core/ports.ts';
 export const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 export class MemoryState implements StateRepository { value: Configuration = { revision: 0, vaultIds: [] }; async load() { return structuredClone(this.value); } async save(value: Configuration) { this.value = structuredClone(value); } }
 export class CatalogFake implements MirrorCatalog {
-  value: Catalog = { setup: 'ready', nextAction: null, connected: true, compatible: true, sources: ['one', 'two'].map(id => ({ id, name: 'Launch', initialized: true, enabled: true, cloudConnected: true, phase: 'ready', lastSuccess: '2026-01-01T00:00:00Z', failure: null, local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null } })) };
+  value: Catalog = { search: { version: 1, available: true, reason: null }, setup: 'ready', nextAction: null, connected: true, compatible: true, sources: ['one', 'two'].map(id => ({ id, name: 'Launch', initialized: true, enabled: true, cloudConnected: true, phase: 'ready', lastSuccess: '2026-01-01T00:00:00Z', failure: null, local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null } })) };
   async snapshot() { const value = structuredClone(this.value); value.sources.forEach(source => { source.cloudConnected = value.connected; }); return value; }
 }
 export class FilesFake implements VaultFiles {
   configuration: Configuration = { revision: -1, vaultIds: [] }; notes = new Map<string, string>(); saved: Receipt[] = []; conflicts = new Map<string, { inspection: ConflictInspection; incoming: string | null }>();
   constructor() { for (const id of ['one', 'two']) this.notes.set(`${id}/Launch.md`, '# Launch\r\n- [ ] Ship\r\n[[Other]]\r\n'); this.notes.set('one/Other.md', '# Other\nSource evidence\n'); }
-  async configure(value: Configuration) { this.configuration = structuredClone(value); }
+  private searches = new Map<string, { paths: string[]; offset: number }>();
+  async configure(value: Configuration) { if (value.revision !== this.configuration.revision) this.searches.clear(); this.configuration = structuredClone(value); }
+  async closeSearch(_revision: number, cursor: string) { this.searches.delete(cursor); }
+  async search(input: import('../core/ports.ts').SearchRequest, _signal?: AbortSignal): Promise<import('../core/ports.ts').SearchBatch> {
+    this.admit(input.mirrorId, input.revision);
+    let token=input.cursor, state=token?this.searches.get(token):undefined;
+    if(token&&!state)throw new VaultError('cursor_expired');
+    if(!state){token=randomUUID();state={paths:[...this.notes.keys()].filter(p=>p.startsWith(input.mirrorId+'/')).map(p=>p.slice(input.mirrorId.length+1)).filter(p=>(!input.folders||input.folders.some(f=>p.startsWith(f+'/')))&&!input.excludeFolders?.some(f=>p.startsWith(f+'/'))),offset:0};this.searches.set(token,state);}
+    if(input.startOnly)return{candidates:[],nextCursor:token!,visited:0,warnings:[]};
+    const candidates:import('../core/ports.ts').SearchBatch['candidates']=[],warnings:import('../core/ports.ts').SearchBatch['warnings']=[];let visited=0;
+    for(const path of state.paths.slice(state.offset,state.offset+64)){visited++;try{const note=await this.read(input.mirrorId,input.revision,path);const index=input.text?note.text.toLocaleLowerCase('und').indexOf(input.text.toLocaleLowerCase('und')):0;if(index<0)continue;const line=note.text.slice(0,index).split('\n').length;let content=note.text;
+      if(input.projection==='frontmatter'){const open=/^(?:\uFEFF)?---\r?\n/.exec(content),close=/^---[ \t]*\r?$/gm;close.lastIndex=open?.[0].length??0;const end=open?close.exec(content):null;content=!open?'':end?content.slice(0,end.index+end[0].length)+'\n':content;}
+      candidates.push({path,hash:note.hash,readAt:note.readAt,line,snippet:note.text.split('\n')[line-1].replace(/\r$/,'').slice(0,240),...(input.projection==='hits'?{}:{content:Buffer.byteLength(content)>65536?'':content,limited:Buffer.byteLength(content)>65536})});
+    }catch{if(!warnings.includes('note_unavailable'))warnings.push('note_unavailable');}}
+    state.offset+=visited;const nextCursor=state.offset<state.paths.length?token!:null;if(!nextCursor)this.searches.delete(token!);return{candidates,nextCursor,visited,warnings};
+  }
   private admit(id: string, revision: number) { if (this.configuration.revision !== revision || !this.configuration.vaultIds.includes(id)) throw new VaultError('not_connected'); }
   async list(id: string, revision: number) { this.admit(id, revision); return { paths: [...this.notes.keys()].filter(k => k.startsWith(id + '/')).map(k => k.slice(id.length + 1)), incomplete: false, warnings: [] }; }
   async read(id: string, revision: number, path: string) { this.admit(id, revision); const text = this.notes.get(`${id}/${path}`); if (text === undefined) throw new VaultError('unavailable'); return { text, hash: hash(text), readAt: '2026-01-01T00:00:01Z', complete: true as const }; }

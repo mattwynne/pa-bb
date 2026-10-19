@@ -6,7 +6,7 @@ import { mkdir, open, lstat, readdir, unlink, link } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { NoteStore, NoteError, NOTE_LIMITS, validateNotePath } from './note-store.ts';
+import { NoteStore, NoteError, NOTE_LIMITS, validateNotePath, pinSearchFile } from './note-store.ts';
 import { CloudError } from '../core/ports.ts';
 import type { CommitInput, NoteReceipt } from './note-store.ts';
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -475,6 +475,24 @@ export class NoteOverlay {
       const row = this.head(id, path);
       if (!row) return this.mirror.read(root, path);
       return { text: await this.loadBlob(row.hash), hash: row.hash, readAt: new Date(this.clock()).toISOString(), complete: true as const };
+    });
+  }
+  searchPaths(id: string) {
+    return (this.db.prepare('SELECT path FROM icloud_note_overlay_heads WHERE mirror_id = ?').all(id) as Array<{ path: string }>).map(row => validateNotePath(row.path));
+  }
+  async searchReader(root: string, id: string, path: string) {
+    validateNotePath(path);
+    return this.locked(id, path, async () => {
+      const row = this.head(id, path);
+      if (!row) return this.mirror.searchReader(root, path);
+      return this.locked('blob', row.hash, async () => {
+        const file = await open(join(this.root, 'blobs', row.hash), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        try {
+          const info = await file.stat();
+          if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) throw new NoteError('uncertain');
+        } catch (error) { await file.close(); throw error; }
+        return pinSearchFile(file, undefined, row.hash);
+      });
     });
   }
   async list(root: string, id: string) {

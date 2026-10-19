@@ -13,9 +13,26 @@ are no folder permissions, read-only settings or per-edit confirmations.
 - A supported Linux iCloud host with stock rclone v1.75.2, util-linux flock,
   mounted procfs and persistent writable plugin storage. The host operator handles
   provisioning; neither plugin installs system packages. See the
-  [portable requirements](../../../docs/reference/bb-host-requirements.md).
+  [portable requirements](../../../docs/references/bb-host-requirements.md).
 - A vault folder available in iCloud Drive. No Obsidian desktop app, plugin inside
   Obsidian, Mac relay or PA core is required on the BB host.
+
+## Search requirements
+
+Ripgrep search needs iCloud and Obsidian **0.3.0** and stock ripgrep available to
+BB's service user. The [host manifest](../../../provisioning/README.md) pins the
+Linux-validated 14.1.0 release. The host operator provisions it; the plugins do
+not download or install executables.
+
+If settings says **Vault search is unavailable**, keep your vault connections,
+ask the operator to check these requirements, then choose **Check again**.
+Ordinary reads, saves and sync do not depend on search availability.
+
+Ask for YAML properties explicitly, for example: “Count notes whose `status`
+property equals `active`.” Body text is not a property, and a note count is not
+a deduplicated project count. The assistant must follow continuations until a
+reliable total is available; partial or running matches are not a final count.
+See [search and counts](../README.md#search-and-counts) for query scopes and limits.
 
 ## In BB: prepare iCloud first
 
