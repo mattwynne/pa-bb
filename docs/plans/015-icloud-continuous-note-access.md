@@ -2,7 +2,7 @@
 
 Status: **delivered 2026-10-15 — iCloud 0.2.0 and Obsidian 0.2.0**, code commit `1182129ba50c3765154d77253cc8f988f34a97ea`. Both-disabled managed delivery, local readiness, stable discovery during native activity, actual rendered settings and a completed scheduled run were observed. Generated-data save/retirement and provider-bridge evidence are separate from this read-only production verification; cloud/phone bytes remain unverified. The initial draft received three independent GPT reviews after explicit Claude/Gemini selections did not take effect; the user accepted that coverage and authorized parent approval and sequential implementation. See the [review record](015-icloud-continuous-note-access-review.md) and execution history below. No second review round completed.
 
-Historical starting points: [problem and live evidence](../problems/icloud-continuous-note-access.md), [iteration 006](006-obsidian-vault-reading.md), source baseline `1baa405`, and the [pinned rclone v1.75.2 bisync reference](../references/rclone/docs/content/bisync.md). Implementation, generated tests and delivery are recorded below; no device mutation test was performed.
+Historical starting points: [historical problem and live evidence](https://github.com/mattwynne/pa-bb/blob/d8026453a79d67f0677eaf58091956f42ec4798e/docs/problems/icloud-continuous-note-access.md), [iteration 006](006-obsidian-vault-reading.md), source baseline `1baa405`, and the [pinned rclone v1.75.2 bisync reference](../references/rclone/docs/content/bisync.md). Implementation, generated tests and delivery are recorded below; no device mutation test was performed.
 
 ## Outcome and scope
 

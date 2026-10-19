@@ -6,7 +6,7 @@ Status: accepted.
 
 ## Context
 
-The [iCloud plugin](../problems/icloud-plugin.md) needs two-way background sync
+The [iCloud plugin](../../plugins/icloud/README.md) needs two-way background sync
 between iCloud Drive and local folders, initially for Obsidian. Users should
 configure their connection in BB without managing command-line tools.
 
@@ -45,4 +45,4 @@ separate. Removing the plugin leaves rclone and synced local files intact.
 Host provisioning maintains the binary; the plugin maintains the user-facing
 connection. We do not bundle a second installer or build an Apple client.
 Apple's interface remains unofficial. Sync safety and credential handling follow
-the plugin brief.
+the plugin's documented requirements.
