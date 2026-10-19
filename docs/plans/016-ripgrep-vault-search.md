@@ -1,6 +1,6 @@
 # 016 — Ripgrep-backed vault search
 
-Status: **0.3.0 verified; paired delivery next**. The owner authorized the build, host-managed dependencies and deployment. The reusable Ansible manifest lives here; private infrastructure consumes it at a pinned revision. Generated Linux, installed original-handler and rendered review gates have passed; production delivery and owner feedback remain. The original problem was an incomplete count and matches from a hidden subfolder. This is our Obsidian plugin's search, not Obsidian's built-in search or an iCloud snapshot selection.
+Status: **0.3.0 verified; paired delivery next**. The owner authorized the build, host-managed dependencies and deployment. The reusable Ansible manifest lives here; private infrastructure consumes it at a pinned revision. Generated Linux, installed original-handler and rendered review gates have passed; production delivery and owner feedback remain. The [reported search problem](../problems/obsidian-search.md) was an incomplete count and matches from a hidden subfolder. This is our Obsidian plugin's search, not Obsidian's built-in search or an iCloud snapshot selection.
 
 Baseline: repository `d802645`; installed iCloud **0.2.0** and Obsidian **0.2.0**, code `1182129`. Preserve [iteration 015](015-icloud-continuous-note-access.md)'s continuous local access, native ownership and durable saves. Follow [observability](../o11y-standards.md), [UX](../ux-standards.md) and the [shipping skill](../../.agents/skills/bb-ship-feedback/SKILL.md).
 
