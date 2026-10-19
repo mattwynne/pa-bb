@@ -7,6 +7,8 @@ using supported BB extension points. No BB fork or upstream change is required
 for the initial design; native BB/Pi prompts remain.
 [Iteration 017](../plans/017-pa-update-discovery.md) implements release discovery and
 read-only local-work review for Google Calendar; it does not install updates.
+[Iteration 018](../plans/018-pa-platform-updates.md) plans application of reviewed
+plugin versions with local-customization choices and the accepted mock-ups.
 Session-driven source editing, Git credentials and permission to publish changes
 are a separate problem, deferred from this brief.
 
@@ -157,13 +159,13 @@ version directly in that choice, such as **Use 0.1.2**, and in the confirmation
 summary. Under **Also updating**, list the other plugins and their version
 changes without unnecessary controls. Show each plugin's declared BB icon beside
 its name in both sections and the completion summary. Offer **Keep all local**
-and **Use release
-for all** selection shortcuts; these select choices but never install by
+and **Use release for all** selection shortcuts; these select choices but never
+install by
 themselves. Summarize exactly which local versions will be retained or replaced
 before **Update PA**, and identify retained versions in the completion summary.
 If keeping a custom plugin cannot form a supported combination, explain that
-dependency rather than silently replacing it or
-claiming the complete release was installed. Dependency handling is internal;
+dependency rather than silently replacing it or claiming the complete release
+was installed. Dependency handling is internal;
 “relevant shared code” is not a user-facing category.
 
 Keep local details/source information behind a disclosure. Normal discovery
