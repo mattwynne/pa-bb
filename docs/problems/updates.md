@@ -4,6 +4,8 @@ Status: open capability gap; source investigation complete, implementation not
 started. Chosen direction: an independently installable `pa-updates` plugin,
 using supported BB extension points. No BB fork or upstream change is required
 for the initial design; native BB/Pi prompts remain.
+[Iteration 017](../plans/017-pa-update-discovery.md) plans release discovery and
+read-only local-work review for Google Calendar; it does not install updates.
 Session-driven source editing, Git credentials and permission to publish changes
 are a separate problem, deferred from this brief.
 
