@@ -145,9 +145,10 @@ Only detected local customizations introduce plugin-specific choices:
 - **Use released version:** explicitly replace that plugin's local code with
   the reviewed release. Preserve settings, credentials and account data.
 
-When several plugins are customized, list only those plugins on one exception
-screen, not a sequence of dialogs. Each defaults to **Keep local**, with an
-individual keep/use-release choice. Offer **Keep all local** and **Use release
+When several plugins are customized, show one review screen, not a sequence of
+dialogs. Put those plugins under **Local changes**; each defaults to **Keep
+local**, with an individual keep/use-release choice. Under **Also updating**,
+list the other plugins and their version changes without unnecessary controls. Offer **Keep all local** and **Use release
 for all** selection shortcuts; these select choices but never install by
 themselves. Summarize exactly which local versions will be retained or replaced
 before **Update PA**, and identify retained versions in the completion summary.
