@@ -39,7 +39,7 @@ COREPACK_HOME=/tmp/pa-bb-corepack npm_config_cache=/tmp/pa-bb-npm-cache pnpm --f
 COREPACK_HOME=/tmp/pa-bb-corepack pnpm --filter bb-plugin-agent-plugins exec vitest run src/loader.test.ts src/oauth.test.ts src/oauth-store.test.ts src/oauth.integration.test.ts src/gateway.test.ts src/mcp-fixture.test.ts
 ```
 
-The dependency install compiles native SQLite if no prebuilt binary is available. These tests use local synthetic services and grants; do not substitute real account credentials. From this repository, run `node experiments/fastmail-mcp/probe.mjs` separately for the public Fastmail check.
+The dependency install compiles native SQLite if no prebuilt binary is available. These tests use local synthetic services and grants; do not substitute real account credentials. The retired bridge fixture and public discovery probe were removed from the working tree; their [historical source](https://github.com/mattwynne/pa-bb/tree/db9e88d/experiments/fastmail-mcp) remains in Git. Use the [standalone plugin](../../plugins/fastmail/README.md) for current setup.
 
 ## Initial callback gate: failed for a remote browser without forwarding
 

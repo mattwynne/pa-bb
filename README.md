@@ -20,6 +20,7 @@ plugins/
 provisioning/           # reusable Ansible host dependency manifest and role
 shared/connection-ui/   # shared connection-screen source
 scripts/sync-connection-ui.mjs  # generate self-contained plugin copies
+fixtures/               # disposable generated-data verification, not shipped plugins
 ```
 
 Google Calendar, Fastmail, Google Drive, iCloud, and Obsidian are separate BB packages; the other directory is a future possibility, not a committed release list. Adding the catalog does not install plugins. Each listed plugin needs its own BB package; an optional `.bb/plugins.json` is a *monorepo plugin index*, not the marketplace catalog. The marketplace and plugins can live in the same Git repository. See the pinned [BB configuration guide](docs/references/bb-configuration.md) and [marketplace v2 schema](docs/references/bb-marketplace-v2.schema.json); validate behavior against the BB version in use before building on it.
@@ -78,6 +79,7 @@ node scripts/sync-connection-ui.mjs --check    # generated UI copies match share
 - [Obsidian plugin](plugins/obsidian/README.md) — whole-vault tools, coordinated writes, setup and recovery limits.
 - [Host provisioning](provisioning/README.md) — pinned rclone/ripgrep requirements; inventory, services and private deployment stay in the infrastructure project.
 - [Shared connection UI](shared/connection-ui/README.md) — common account/status/onboarding components and generated-package workflow.
+- [Verification fixtures](fixtures/README.md) — isolated native and installed-BB checks using generated data.
 - [Observability standards](docs/o11y-standards.md) — safe diagnostics, partial failures, and verification gates for plugins.
 - [Google OAuth setup guide](plugins/google-calendar/docs/google-oauth-setup.md) — step-by-step instructions for a new installer.
 - [Vision](docs/vision.md) — product direction: BB marketplace, PA core, optional integrations and abilities.

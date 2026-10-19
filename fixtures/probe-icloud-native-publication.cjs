@@ -1,5 +1,5 @@
 // Disposable Linux fixture only. RCLONE_TEST_BINARY must point to stock v1.75.2.
-// Run with node scripts/probe-icloud-native-publication.cjs; no Apple account
+// Run with node fixtures/probe-icloud-native-publication.cjs; no Apple account
 // or BB state is touched. The generated transfer is rate-limited, not slept.
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
