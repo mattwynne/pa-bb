@@ -1,7 +1,9 @@
 # PA updates are fragmented and need to preserve local work
 
 Status: open capability gap; source investigation complete, implementation not
-started. Proposed home: an independently installable `pa-updates` plugin.
+started. Chosen direction: an independently installable `pa-updates` plugin,
+using supported BB extension points. No BB fork or upstream change is required
+for the initial design; native BB/Pi prompts remain.
 Session-driven source editing, Git credentials and permission to publish changes
 are a separate problem, deferred from this brief.
 
@@ -23,12 +25,11 @@ publishes releases; it does not need credentials to push deployments onto the
 server. The browser presents the choice; the server performs the update after
 fresh safety checks and an explicit user request.
 
-Provide one **Update PA** entry near the existing sidebar update controls. It
-opens a review showing installed and proposed versions, release notes, required
-restarts, and anything blocked by local work. Ideally this replaces the BB/Pi
-update pills without disabling their underlying version checks or recovery
-controls. Keep the native prompts until replacement is supported and working;
-do not hide them with DOM manipulation or CSS selectors.
+Provide a **PA updates** footer icon alongside the existing sidebar update
+controls. It opens a review showing installed and proposed versions, release
+notes, required restarts, and anything blocked by local work. The BB/Pi update
+pills and native recovery controls remain intact. Replacing them is not part of
+this design; do not fork BB or hide controls with DOM manipulation or CSS.
 
 A PA release should identify the plugin revisions and compatible BB/Pi versions.
 This is a proposed release record, not a capability already supplied by
@@ -70,10 +71,11 @@ it does not consult a plugin replacement or visibility setting. The footer
 customization preferences cover ordinary footer items, not these update pills.
 No supported suppression hook was found in the inspected source.
 
-Prefer an upstream opt-in replacement/visibility contract. It must restore the
-native prompts when PA updates is disabled, removed or unavailable, and preserve
-unrelated machine-attention warnings. Do not turn off BB update support simply
-to remove its prompt. No upstream issue or change has been submitted.
+This is a limitation we accept, not a dependency to resolve for `pa-updates`.
+Leave the native prompts and unrelated machine-attention warnings alone. Do not
+turn off BB update support simply to remove its prompt. A future supported
+replacement hook could be evaluated separately; no upstream issue or change has
+been submitted.
 
 Sources: [native update pills](https://github.com/get-bb/bb/blob/5e7c06e637102a73ea2dba5c5e2d5d03f09c7c62/apps/app/src/components/sidebar/SidebarUpdatesBadge.tsx),
 [sidebar composition](https://github.com/get-bb/bb/blob/5e7c06e637102a73ea2dba5c5e2d5d03f09c7c62/apps/app/src/components/sidebar/AppSidebar.tsx),
@@ -113,6 +115,66 @@ restart-safe. BB explicitly does not automatically roll back application
 updates; database migrations can prevent downgrades. Plugin activation snapshots
 are not a rollback guarantee for the whole release. See upstream
 [update lifecycle](https://github.com/get-bb/bb/blob/5e7c06e637102a73ea2dba5c5e2d5d03f09c7c62/docs/configuration.md#in-app-updates).
+
+## Plugin-only design
+
+### Entry and review
+
+Register a host-rendered footer icon labelled **PA updates** through the existing
+experimental disclosure API, following `provider-usage`. Keep the entry available
+whether updates exist or not; a conditional pill or dynamic badge is not required
+for the first slice. The disclosure supplies the changing status.
+
+The panel shows:
+
+- **Checking**, **Up to date**, **Updates available**, or **Could not check**.
+  A failed or stale check must not look like a current successful result.
+- Installed and proposed versions, release notes, and the last successful check.
+- Per-plugin outcomes such as **Ready**, **Blocked by local changes**,
+  **Check unavailable**, **Updating**, **Updated** and **Failed**.
+- **Check again** and, once safe application is implemented, **Review update**.
+  The review names exactly which plugins will change and which will be left
+  alone. Confirmation is **Update selected plugins**, not an ambiguous promise
+  to update all of PA.
+
+Show a safe explanation for each blocker and the next action, such as committing
+and publishing local work. Do not expose local paths or diffs in general status
+or logs. Read-only discovery needs no installation approval. Applying an update
+requires explicit confirmation; no operation should install merely because the
+panel opened.
+
+### Backend responsibilities
+
+The plugin backend checks a configured trusted release source on a bounded
+schedule and on request. Store the last validated result and check outcome so
+browser reloads do not start competing polls. Validate release records as data,
+not executable commands, and compare only already-installed PA plugins.
+
+The backend, not browser state or an agent's assertion, owns safety checks and
+application. Associate protected development checkouts with plugin IDs, account
+for shared dependencies, serialize update jobs, and recheck at application time.
+An unknown target, failed check or unavailable safe installation mechanism blocks
+that update. Resolve exact targeting through supported installation semantics
+before enabling Apply; post-install verification alone cannot make installing
+the wrong revision safe.
+
+The panel reconnects to recorded outcomes rather than inferring success from a
+closed request. Never promise an atomic bundle or automatic rollback. Removing
+`pa-updates` leaves installed integrations and BB/Pi's native controls intact.
+
+### BB and Pi in this design
+
+Initially show BB/Pi installed and available versions where supported, with a
+route to BB's existing Updates settings for their native review and actions.
+Label these separately from PA plugin changes. This is one useful overview, not
+yet a single tested BB/Pi/plugin bundle. Failure to read BB/Pi status must not
+silently mean they are current.
+
+Coordinated BB/Pi installation can follow only when supported APIs can select
+the intended targets and safely handle active sessions and BB restarts. Do not
+work around missing APIs by modifying BB, disabling its controls or substituting
+arbitrary package-manager commands. That limitation does not block plugin
+release discovery or the subsequent guarded plugin-update slice.
 
 ## Local-work safety rules
 
@@ -155,9 +217,9 @@ up to date”; blocked components need a clear next step.
    target is untouched, a clean independent target can update, and unpublished
    commits or shared edits cannot be silently lost. Preserve credentials,
    settings, enablement and unrelated plugins.
-3. **Replace duplicate prompts.** Obtain and verify a supported upstream hook;
-   present one PA update entry with automatic native fallback. Do not make the
-   first plugin proof depend on an unsupported replacement.
+3. **Include BB/Pi status.** Show supported version information and open native
+   Updates settings for actions. Keep their existing prompts; no BB fork or
+   prompt-suppression work is needed.
 4. **Coordinate BB and Pi.** Resolve exact target selection, compatibility,
    ordering, active-session consent and durable continuation across BB restarts.
    Report partial failures without promising automatic downgrade.
@@ -179,9 +241,9 @@ up to date”; blocked components need a clear next step.
   its replacement; defer that mechanism from the first slice. Giving a PA
   session authority to edit, commit and publish its own source remains a
   separate problem, not a prerequisite for pulling laptop-authored releases.
-- No unattended installation, conflict resolution, host provisioning changes or
-  blanket `plugin update --all`. Keep private deployment configuration outside
-  this repository.
+- No BB fork, native-prompt suppression, unattended installation, conflict
+  resolution, host provisioning changes or blanket `plugin update --all`. Keep
+  private deployment configuration outside this repository.
 
 Follow [UX standards](../ux-standards.md) and
 [observability standards](../o11y-standards.md). Test unavailable release feeds,
