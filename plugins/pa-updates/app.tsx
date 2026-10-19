@@ -58,7 +58,7 @@ export function UpdatesPanel({ dismiss }: ExperimentalSidebarFooterDisclosurePro
       {release && state?.comparison !== 'no_plugin' && <details><summary>Release notes</summary><p className="pa-updates-notes">{release.plugins[0].notes || 'No release notes.'}</p></details>}
       {(installed || release) && state?.comparison !== 'no_plugin' && <details><summary>Source revisions and requirements</summary>
         {installed && <><dl><dt>Installed revision</dt><dd>{installed.revision ?? 'Installed revision unavailable'}</dd></dl>{installed.revision?.length === 12 && <p>BB reports an abbreviated revision. An exact source match cannot be confirmed from it.</p>}</>}
-        {release && <><dl><dt>Published revision</dt><dd>{release.sourceCommit}</dd><dt>Declared requirements</dt><dd>BB {release.plugins[0].engines.bb}; SDK {release.plugins[0].engines.bbPluginSdk}</dd></dl><p>Requirements are declarations, not a guarantee for every matching runtime. Verified API baseline: BB 0.45.0 / SDK 0.6.15.</p></>}
+        {release && <><dl><dt>Published revision</dt><dd>{release.sourceCommit}</dd><dt>Declared requirements</dt><dd>BB {release.plugins[0].engines.bb}; SDK {release.plugins[0].engines.bbPluginSdk}</dd></dl><p>Requirements are declarations, not a guarantee for every matching runtime. Verified minimum: BB 0.45.0 / SDK 0.6.15.</p>{observation?.runtime && <p>Checked against BB {observation.runtime.bb} / SDK {observation.runtime.sdk} (installed checker build).</p>}</>}
       </details>}
       {state?.lastSuccess && <p className="pa-updates-muted">Last successful release check: {date(state.lastSuccess)}</p>}
       {state?.lastAttempt && <p className="pa-updates-muted">Most recent attempt: {date(state.lastAttempt)}</p>}

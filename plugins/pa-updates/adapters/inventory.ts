@@ -9,8 +9,11 @@ export function installedInventory(bb: BbPluginApi, diagnose: Ports['diagnose'] 
     const listed = await bb.sdk.plugins.list({ signal: bounded });
     const plugin = listed.plugins.find(plugin => plugin.id === 'google-calendar');
     const version = await bb.sdk.system.version({ signal: bounded }).catch(() => { diagnose('inventory', 'unavailable'); return null; });
-    // SDK 0.6.15 is our verified API baseline, not a claim about arbitrary future BB.
-    const runtime = version && version.currentVersion.length <= 64 && semver.valid(version.currentVersion) ? { bb: version.currentVersion, sdk: '0.6.15' } : null;
+    // BB builds this source-installed checker's app against its own SDK shim.
+    // Read that public build marker rather than mistaking our minimum SDK pin
+    // for the actual installed surface. Missing evidence stays unknown.
+    const sdk = listed.plugins.find(item => item.id === bb.pluginId)?.app.bundle?.sdkVersion;
+    const runtime = version && version.currentVersion.length <= 64 && semver.valid(version.currentVersion) && sdk && sdk.length <= 64 && semver.valid(sdk) ? { bb: version.currentVersion, sdk } : null;
     if (!plugin) return { installed: null, runtime };
     if (plugin.version.length > 64 || !semver.valid(plugin.version)) throw new CheckError('unavailable');
     const source = await bb.sdk.plugins.getSource({ pluginId: 'google-calendar', signal: bounded }).catch(() => { diagnose('inventory', 'unavailable'); return null; });

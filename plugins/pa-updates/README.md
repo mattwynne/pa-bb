@@ -17,7 +17,10 @@ or restart BB/Pi. Other PA plugins are outside this pilot.
 Requires BB **0.45.0+**, Node **22.18+**, outbound HTTPS to GitHub, and Git only
 if a development checkout is configured. BB 0.45.0 / SDK 0.6.15 are the verified
 API baseline; engine ranges are declarations, not a compatibility guarantee for
-all later runtimes. Native BB and Pi update controls remain available.
+all later runtimes. Requirements use the BB-reported version and this source-
+installed checker's public SDK build marker, not its development dependency pin.
+Missing metadata leaves compatibility unknown. Native BB and Pi controls remain
+available.
 
 ## What the states mean
 

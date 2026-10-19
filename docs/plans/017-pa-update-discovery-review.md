@@ -2,7 +2,7 @@
 
 ## Verified implementation
 
-`pa-updates` 0.1.0 is independent of Calendar. It contributes one host-rendered
+`pa-updates` 0.1.1 is independent of Calendar. It contributes one host-rendered
 footer disclosure and two typed RPCs (`status`, `check`), with no agent tools,
 installation API calls, approval placeholders or arbitrary path/command RPCs.
 Calendar remains 0.1.1; its runtime source and behaviour were not changed.
@@ -24,7 +24,7 @@ The synthetic exact-match state is not evidence of exact live revision access.
 
 ## Automated and disposable-host checks
 
-- Checker: 20 core/adapter/schema/generator/workflow/registration tests and four
+- Checker: 21 core/adapter/schema/generator/workflow/registration tests and four
   Cucumber scenarios (23 steps).
 - Calendar regression: 76 tests and 39 scenarios (266 steps), build and
   typecheck, including BB's SDK-pin check.
@@ -68,8 +68,27 @@ correctly blocked publication on two existing Calendar timezone assertions.
 Reproduced with Node 24.21.0 / ICU 78.3 / tzdata 2026c: Vancouver has no November
 2026 fall-back in that data, unlike the local Node 24.14.1 / tzdata 2025c.
 Fixtures now test the historical November 2025 transition on both runtimes;
-no Calendar production code or version change was needed. Publication and
-independent plugin installation are pending a passing rerun.
+no Calendar production code or version change was needed.
+
+The passing rerun ([39329609854](https://github.com/mattwynne/pa-bb/actions/runs/39329609854))
+published the real Calendar 0.1.1 baseline at
+[`pa-release-7e1071ca1e452a9e73e912327b28707cb27cabc2`](https://github.com/mattwynne/pa-bb/releases/tag/pa-release-7e1071ca1e452a9e73e912327b28707cb27cabc2).
+Only Calendar is in that record; it is not an implied tested bundle.
+
+Initial independent installation of checker 0.1.0 passed: the real release was
+validated, same-version/different-source Calendar reported **Source differs**,
+and missing development mapping reported **Local work not assessed**. All 39
+existing plugin versions, enablement, source identities, roots and frontend
+hashes were unchanged. There were no integration/credential operations.
+
+The running server reports **BB 0.46.0**, while the operator CLI is 0.45.0.
+The server-built checker bundle reports SDK **0.6.37**. No BB upgrade was
+performed by this iteration. The 0.1.1 follow-up reads that supported public SDK
+build marker rather than treating the minimum development pin as the installed
+surface; missing SDK metadata leaves compatibility unknown. The minimum
+disposable-host proof remains BB 0.45.0 / SDK 0.6.15.
+
+Final 0.1.1 installation and live rendered review are pending.
 The release workflow grants write authority only after lockfile-based checks
 and generation at the exact event revision. Its append-only preflight refuses
 existing release tags. Metadata uses HTTPS and repository write controls, not
