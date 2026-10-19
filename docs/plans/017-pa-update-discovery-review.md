@@ -5,7 +5,9 @@
 `pa-updates` 0.1.0 is independent of Calendar. It contributes one host-rendered
 footer disclosure and two typed RPCs (`status`, `check`), with no agent tools,
 installation API calls, approval placeholders or arbitrary path/command RPCs.
-Calendar remains 0.1.1; its source and behaviour were not changed.
+Calendar remains 0.1.1; its runtime source and behaviour were not changed.
+Two timezone test fixtures use the historical 2025 Vancouver transition instead
+of predicting a November 2026 fall-back.
 
 The first extension gate inspected the running provider-usage footer on BB
 0.45.0, then installed a disposable minimal footer contribution. Keyboard open
@@ -61,7 +63,13 @@ was not silently upgraded to bypass the supported-version gate.
 
 ## Publication and installed delivery
 
-Pending the first trusted-main publishing run and independent plugin install.
+The first trusted-main run ([39329387507](https://github.com/mattwynne/pa-bb/actions/runs/39329387507))
+correctly blocked publication on two existing Calendar timezone assertions.
+Reproduced with Node 24.21.0 / ICU 78.3 / tzdata 2026c: Vancouver has no November
+2026 fall-back in that data, unlike the local Node 24.14.1 / tzdata 2025c.
+Fixtures now test the historical November 2025 transition on both runtimes;
+no Calendar production code or version change was needed. Publication and
+independent plugin installation are pending a passing rerun.
 The release workflow grants write authority only after lockfile-based checks
 and generation at the exact event revision. Its append-only preflight refuses
 existing release tags. Metadata uses HTTPS and repository write controls, not

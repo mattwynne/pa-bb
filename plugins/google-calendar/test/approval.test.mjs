@@ -90,7 +90,9 @@ test('delete identifies the verified event, time, calendar and exact recurring s
 
 test('event summaries preserve timezone offsets, DST changes and dates crossing midnight', () => {
   const visible = (start, end, zone) => render({ ...payload, operation: 'delete', proposed: { eventId: payload.eventId }, context: { ...payload.context, currentEvent: { id: payload.eventId, summary: 'Night event', start: { dateTime: start, ...(zone ? { timeZone: zone } : {}) }, end: { dateTime: end } } } }).split('<details')[0];
-  assert.match(visible('2026-11-01T01:30:00-07:00', '2026-11-01T01:30:00-08:00', 'America/Vancouver'), /PDT[\s\S]*PST/);
+  // Use a historical transition: tzdata 2026c no longer has a Vancouver
+  // fall-back in November 2026. Keep testing DST without predicting future law.
+  assert.match(visible('2025-11-02T01:30:00-07:00', '2025-11-02T01:30:00-08:00', 'America/Vancouver'), /PDT[\s\S]*PST/);
   assert.match(visible('2026-10-07T23:30:00-07:00', '2026-10-08T00:30:00-07:00', 'America/Vancouver'), /Oct 7, 2026[\s\S]*Oct 8, 2026/);
   for (const zone of [undefined, 'invalid/zone']) assert.match(visible('2026-10-07T08:00:00-07:00', '2026-10-07T08:30:00-07:00', zone), /2026-10-07T08:00:00-07:00/);
   assert.match(visible('2026-02-31T08:00:00-07:00', '2026-03-03T08:30:00-07:00', 'America/Vancouver'), /2026-02-31T08:00:00-07:00/);
@@ -182,6 +184,6 @@ test('time formatting preserves offsets without zones and does not silently use 
   assert.equal(formatEventTime('2026-02-31T08:00:00-07:00', 'America/Vancouver'), '2026-02-31T08:00:00-07:00');
   assert.equal(formatEventTime('2026-10-07T08:00:00', 'America/Vancouver'), '2026-10-07T08:00:00 (America/Vancouver)');
   assert.match(formatEventTime('2026-10-07T08:00:00'), /timezone not supplied/);
-  assert.match(formatEventTime('2026-11-01T01:30:00-07:00', 'America/Vancouver'), /PDT/);
-  assert.match(formatEventTime('2026-11-01T01:30:00-08:00', 'America/Vancouver'), /PST/);
+  assert.match(formatEventTime('2025-11-02T01:30:00-07:00', 'America/Vancouver'), /PDT/);
+  assert.match(formatEventTime('2025-11-02T01:30:00-08:00', 'America/Vancouver'), /PST/);
 });
