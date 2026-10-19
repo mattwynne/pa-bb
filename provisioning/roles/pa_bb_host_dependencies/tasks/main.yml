@@ -89,6 +89,9 @@
     update_cache: false
     allow_downgrade: false
     force_apt_get: true
+    policy_rc_d: 101
+  environment:
+    NEEDRESTART_MODE: l
 
 - name: Report a required rclone installation in check mode
   ansible.builtin.debug:

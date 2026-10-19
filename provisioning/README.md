@@ -29,7 +29,10 @@ The role uses Ansible's built-in modules only; use **ansible-core 2.16+** on the
 controller. The target needs Python 3 and configured Ubuntu package sources
 with the pinned package available. Repository selection, APT cache refreshes
 and operating-system updates remain infrastructure responsibilities. The role
-neither adds repositories nor runs a system-wide upgrade or downgrade.
+neither adds repositories nor runs a system-wide upgrade or downgrade. Package
+service actions are suppressed for the transaction; Ubuntu's `needrestart` is
+restricted to listing, not restarting, affected services. The role leaves
+service restart decisions to the infrastructure project.
 
 Additional platforms need reviewed package/version/checksum entries and
 validation; do not substitute an untested architecture or silently use whatever
