@@ -1,16 +1,16 @@
 # Obsidian search cannot cover the whole vault
 
-Status: open in the deployed 0.2.0 plugins. The 0.3.0 correction has passed
-generated-data, installed-BB and rendered checks; production delivery and owner
-feedback remain. See [iteration 016](../plans/016-ripgrep-vault-search.md) for
+Status: correction delivered in **0.3.0; owner confirmation pending**. Generated
+data, installed-BB, rendered and controlled production delivery checks passed.
+Personal-vault counts and responsiveness still need the owner's test. See [iteration 016](../plans/016-ripgrep-vault-search.md) for
 current implementation and delivery evidence.
 
 ## Problem
 
 Asking BB how many project notes have a particular status produces an incomplete
-count. The deployed search examines only a bounded alphabetical prefix of the
-vault. Pagination returns more matches from that same prefix, not matches from
-notes it has not visited. Asking to search the rest cannot complete the search.
+count. The 0.2.0 search examined only a bounded alphabetical prefix of the
+vault. Pagination returned more matches from that same prefix, not matches from
+notes it had not visited. Asking to search the rest could not complete the search.
 
 Results from a hidden subfolder also exposed an ambiguity about scope. Hidden
 folders belong to the connected vault; their names do not establish that they
@@ -63,8 +63,9 @@ have separate scan limits; fixing search does not make those tools complete.
 
 Iteration 016 uses ripgrep and genuine continuation to address this problem.
 Generated checks and an actual installed-BB handler test cover searches beyond
-the old cutoffs; they do not establish production delivery or responsiveness in
-personal use. The owner will assess responsiveness, without a performance
+the old cutoffs. Production now runs 0.3.0 with the existing vault connection and
+search capability preserved; these checks do not establish actual personal-vault
+counts or responsiveness in use. The owner will assess responsiveness, without a performance
 release gate. Personal-note queries or writes require separate authorization.
 
 Delete this brief once the correction is delivered and the problem is resolved;

@@ -1,6 +1,6 @@
 # 016 — Ripgrep-backed vault search
 
-Status: **0.3.0 verified; paired delivery next**. The owner authorized the build, host-managed dependencies and deployment. The reusable Ansible manifest lives here; private infrastructure consumes it at a pinned revision. Generated Linux, installed original-handler and rendered review gates have passed; production delivery and owner feedback remain. The [reported search problem](../problems/obsidian-search.md) was an incomplete count and matches from a hidden subfolder. This is our Obsidian plugin's search, not Obsidian's built-in search or an iCloud snapshot selection.
+Status: **0.3.0 delivered; owner feedback pending**. The owner authorized the build, host-managed dependencies and deployment. The reusable Ansible manifest lives here; private infrastructure consumes it at a pinned revision. Generated Linux, installed original-handler, rendered review and controlled production delivery gates passed. Personal-vault count correctness and responsiveness await the owner's test. The [reported search problem](../problems/obsidian-search.md) was an incomplete count and matches from a hidden subfolder. This is our Obsidian plugin's search, not Obsidian's built-in search or an iCloud snapshot selection.
 
 Baseline: repository `d802645`; installed iCloud **0.2.0** and Obsidian **0.2.0**, code `1182129`. Preserve [iteration 015](015-icloud-continuous-note-access.md)'s continuous local access, native ownership and durable saves. Follow [observability](../o11y-standards.md), [UX](../ux-standards.md) and the [shipping skill](../../.agents/skills/bb-ship-feedback/SKILL.md).
 
@@ -193,7 +193,7 @@ A local generated two-file descriptor probe with ripgrep 15.2.0 passed case-inse
 
 Implementation uses stock ripgrep 14.1.0 on Linux, a bounded discovery frontier and one directory stream per session, pinned read-only descriptors with exact nanosecond stamps/hash checks, and NUL-delimited generated fd/line framing. This avoids JSON submatch amplification. The SDK server handler has no cancellation signal, so the consumer acquires an opaque producer cursor before running the first batch and explicitly closes/awaits it on cancellation. Four sessions, two child reservations including probes, watchdogs and bounded buffers constrain resource use. No persistent index, raw-root handoff, per-note RPC scanner or storage migration was added.
 
-## 0.3.0 release-candidate evidence
+## 0.3.0 verification evidence
 
 - Both plugin package typechecks/builds passed; copied note-contract equality and shared connection UI checks passed. Obsidian: **67 tests, 8 scenarios / 38 steps**, zero skips. iCloud on macOS: **76 tests**, 142 platform/opt-in skips; 46 scenarios passed and ten Linux-native scenarios skipped.
 - Linux native specifications: **56 scenarios / 520 steps**, zero skips. Existing Linux storage/ownership/crash/native regression run: **126 passes, two opt-in skips**, plus the wired-native test passing separately after correcting the generated test loader's dependency links. The latter retained local RPC access during a real native command; it was not a search responsiveness benchmark.
@@ -202,3 +202,30 @@ Implementation uses stock ripgrep 14.1.0 on Linux, a bounded discovery frontier 
 - A fresh actual Linux **BB 0.45.0** installation ran both **0.3.0** original factories/handlers with verified SDK caller transport. An independent 12,003-note generator exceeded the old entry/note/byte cutoffs: **604 exact literal matches over 87 pages**, **603 typed-property matches over eight pages**, and **604 across two vaults**. Hidden/Git-ignored notes, explicit `.worktrees` scope, a pending logical create, no edit proof from search and malformed YAML yielding partial/null total all passed. A separate rerun initially encountered test-only external `.js` symlinks in a reused scratch snapshot; BB refused the escaping import. A clean snapshot passed without an application change.
 - Actual isolated macOS BB rendered Obsidian settings in **58 desktop/narrow combinations**, including missing/incompatible/recovered search, retained connections, keyboard focus and overflow checks. Search state was synthetic; iCloud was unsupported/error on that macOS host. This is rendered UI evidence, not native-note or model-provider evidence.
 - No additional provider conversation, personal-note test query/write or cloud/device delivery test was run. The owner judges responsiveness after controlled paired delivery. Private release records stay outside public documentation.
+
+## Paired delivery and live observation
+
+Implementation commit **`3ea0342`** shipped in installed source commit
+**`3b2f1fe49f7acde312d20fa415a77158a146fe1a`**; intervening commits changed
+only documentation, with identical plugin/fixture trees. The first exact-commit
+precondition safely stopped preparation when that branch advanced. After verifying
+the unchanged package trees, both managed updates completed while **both plugins
+remained disabled**, in 35,763 / 35,904 ms. No factory ran during stabilization.
+
+iCloud became locally ready before Obsidian restarted. Source restoration needed
+a separate successful retry; no failure/blocker was cleared and no downgrade was
+attempted. Both plugins now run **0.3.0** with search capability available. The
+**one existing owner-connected vault**, source identity, Apple connection and exact
+prior source/plugin enablement were preserved. Unrelated plugin versions and
+enablement were unchanged. No vault was connected automatically.
+
+A normal **393,453 ms native sync completed**, with local availability/discovery
+and search capability retained during native activity. This was deployment
+observation, not a search benchmark; the first shorter observation window was
+insufficient. Live settings at **1280 / 390 px** retained the connected row and
+Remove action, had no search warning/dialog/overflow, and showed keyboard focus.
+Each final 100-record plugin log tail had **zero new entries** since preflight.
+
+Live checks used status/capability/settings/history only: no personal-note search,
+content read or write, model conversation or cloud/device-byte verification.
+The existing search problem brief remains pending owner confirmation.
