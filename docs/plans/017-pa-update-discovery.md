@@ -1,6 +1,7 @@
 # 017 — PA update discovery and local-work review
 
-Status: planned; no plugin, publishing workflow or release record implemented.
+Status: implemented and locally verified; first publication and installed delivery
+pending. See the [verification record](017-pa-update-discovery-review.md).
 This is the read-only first slice from the
 [updates problem](../problems/updates.md), not permission to build the complete
 updater in this iteration.
@@ -36,8 +37,8 @@ not permission to patch BB or guess installed revisions.
 
 Follow the [local UX skill](../../.agents/skills/bb-plugin-ux/SKILL.md),
 [UX standards](../ux-standards.md) and
-[observability standards](../o11y-standards.md). No live rendered review has yet
-been performed for this iteration.
+[observability standards](../o11y-standards.md). The initial planning baseline had no rendered review. Implementation evidence
+and tested versions are recorded in the [verification record](017-pa-update-discovery-review.md).
 
 ## Three stories
 

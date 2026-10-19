@@ -1,10 +1,11 @@
 # PA updates are fragmented and need to preserve local work
 
-Status: open capability gap; source investigation complete, implementation not
-started. Chosen direction: an independently installable `pa-updates` plugin,
+Status: full update application remains an open capability gap. The read-only
+`pa-updates` pilot is implemented; see [verification and delivery](../plans/017-pa-update-discovery-review.md).
+Chosen direction: an independently installable `pa-updates` plugin,
 using supported BB extension points. No BB fork or upstream change is required
 for the initial design; native BB/Pi prompts remain.
-[Iteration 017](../plans/017-pa-update-discovery.md) plans release discovery and
+[Iteration 017](../plans/017-pa-update-discovery.md) implements release discovery and
 read-only local-work review for Google Calendar; it does not install updates.
 Session-driven source editing, Git credentials and permission to publish changes
 are a separate problem, deferred from this brief.
@@ -253,5 +254,6 @@ malformed records, failed checks, concurrent edits, interrupted updates and
 partial results with synthetic data and safe diagnostics. Review discovery,
 no-update, available, blocked, applying, restart and recovery states in running
 BB at desktop/narrow widths with keyboard navigation before claiming delivery.
-No plugin, release pipeline, prompt suppression or live update was implemented
-as part of this investigation.
+The investigation itself implemented no plugin or release pipeline. Iteration
+017 now supplies the read-only discovery pilot and gated metadata publisher;
+application, prompt suppression and coordinated upgrades remain excluded.

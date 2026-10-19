@@ -1,0 +1,66 @@
+name: Publish PA release metadata
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: Plain-text notes for the tested Google Calendar release
+        required: true
+        default: Google Calendar baseline. Checking for releases does not install or restart anything.
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: pa-release-publication
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'mattwynne/pa-bb' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm ci --prefix plugins/google-calendar
+      - run: npm ci --prefix plugins/pa-updates
+      - run: npm test --prefix plugins/google-calendar
+      - run: npm run typecheck --prefix plugins/google-calendar
+      - run: npm run build --prefix plugins/pa-updates
+      - run: npm test --prefix plugins/pa-updates
+      - run: npm run typecheck --prefix plugins/pa-updates
+      - run: node scripts/sync-connection-ui.mjs --check
+      - name: Generate metadata from the exact tested revision
+        env:
+          PA_RELEASE_NOTES: ${{ inputs.notes }}
+        run: node scripts/build-pa-release.mjs "$GITHUB_SHA" "$RUNNER_TEMP/pa-release.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pa-release-${{ github.sha }}
+          path: ${{ runner.temp }}/pa-release.json
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    needs: verify
+    if: github.repository == 'mattwynne/pa-bb' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: pa-release-${{ github.sha }}
+          path: release-record
+      - name: Publish once; never overwrite or retarget
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="pa-release-$GITHUB_SHA"
+          count=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$tag" --jq 'length')
+          test "$count" = 0 || { echo 'Release identity already exists; publication refused.'; exit 1; }
+          gh release create "$tag" release-record/pa-release.json --target "$GITHUB_SHA" --title "PA release $GITHUB_SHA" --notes 'Tested Google Calendar metadata; see pa-release.json. No executable artifact or automatic installation.'

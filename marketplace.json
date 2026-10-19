@@ -6,6 +6,17 @@
   "description": "Personal assistant integrations for BB, installed separately as needed.",
   "plugins": [
     {
+      "id": "pa-updates",
+      "displayName": "PA updates",
+      "description": "Discover published Google Calendar releases and review local work. Read-only: nothing installs or restarts.",
+      "icon": "RotateCcw",
+      "tags": ["updates", "calendar", "productivity"],
+      "author": { "name": "Matt Wynne", "github": "mattwynne" },
+      "source": {
+        "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/pa-updates", "ref": "main" }
+      }
+    },
+    {
       "id": "google-calendar",
       "displayName": "Google Calendar",
       "description": "Connect multiple Google accounts and use Calendar tools from BB.",

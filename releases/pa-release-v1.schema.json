@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/mattwynne/pa-bb/releases/pa-release-v1.schema.json",
+  "title": "PA release metadata v1",
+  "description": "Read-only release metadata. Identity and plugin commits must also match sourceCommit; engine ranges and versions require semantic validation.",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "identity", "sourceCommit", "plugins"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "identity": { "type": "string", "pattern": "^pa-release-[0-9a-f]{40}$" },
+    "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "plugins": {
+      "type": "array", "minItems": 1, "maxItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "version", "subdirectory", "sourceCommit", "engines", "notes"],
+        "properties": {
+          "id": { "const": "google-calendar" },
+          "version": { "type": "string", "maxLength": 64, "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$" },
+          "subdirectory": { "const": "plugins/google-calendar" },
+          "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "engines": {
+            "type": "object", "additionalProperties": false, "required": ["bb", "bbPluginSdk"],
+            "properties": { "bb": { "type": "string", "minLength": 1, "maxLength": 128 }, "bbPluginSdk": { "type": "string", "minLength": 1, "maxLength": 128 } }
+          },
+          "notes": { "type": "string", "maxLength": 8000, "pattern": "^[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]*$" }
+        }
+      }
+    }
+  }
+}

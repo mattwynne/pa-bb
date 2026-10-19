@@ -1,0 +1,16 @@
+import { Given, When, Then } from '@cucumber/cucumber';
+import assert from 'node:assert/strict';
+import { Updates } from '../core/service.ts';
+import { harness, record } from '../test/fixtures.ts';
+Given('Google Calendar is installed at the published baseline', async function () { this.h = harness(); this.service = new Updates(this.h.ports); await this.service.start(); });
+Given('Google Calendar is not installed', async function () { this.h = harness(); this.h.ports.inventory = async () => ({ installed: null, runtime: { bb: '0.45.0', sdk: '0.6.15' } }); this.service = new Updates(this.h.ports); await this.service.start(); });
+Given('a successful check has been saved', async function () { await this.service.check(); this.h.advance(); });
+Given('the release feed is now unavailable', function () { this.h.ports.feed = async () => { throw new Error('PRIVATE_SENTINEL'); }; });
+Given('relevant local files have changed', function () { this.h.ports.local = async () => ({ outcome: 'local_changes', reason: 'observed', at: '2026-10-19T12:01:01.000Z' }); });
+Given('a newer Calendar release is published', function () { this.h.ports.feed = async () => ({ text: JSON.stringify(record('0.1.2', 'b'.repeat(40))), identity: record('0.1.2', 'b'.repeat(40)).identity }); });
+Given('no development checkout is configured', function () { this.h.ports.local = async () => ({ outcome: 'not_assessed', reason: 'mapping_missing', at: '2026-10-19T12:00:00.000Z' }); });
+When('I check PA updates', async function () { this.result = await this.service.check(); });
+Then('the release result is {string}', function (expected) { assert.equal(this.result.comparison, expected); });
+Then('the last release information is stale', function () { assert.equal(this.result.stale, true); assert.ok(this.result.observation.release); });
+Then('the local-work result is {string}', function (expected) { assert.equal(this.result.observation.local.outcome, expected); });
+Then('no installation or checkout write is requested', function () { assert.deepEqual(Object.keys(this.h.ports).sort(), ['diagnose', 'feed', 'inventory', 'load', 'local', 'now', 'save']); });

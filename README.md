@@ -24,6 +24,10 @@ For a new installation, start with [host setup](#1-prepare-the-host). This repos
 
 These plugins are early-stage and intended for **single-user BB installations**, not shared servers. Listed capabilities are implemented, but not every action has been verified against a live account. In particular, live Google Drive sign-in/reads, Calendar tool/approval flows, and Fastmail writes remain unverified; each plugin guide records its limits. PA core and other [planned integrations](docs/roadmap.md) are not available yet.
 
+For a read-only review of published Calendar releases and local-work blockers,
+install the optional [PA updates](plugins/pa-updates/README.md) plugin. It adds a
+sidebar footer icon; it does not install updates or replace BB/Pi controls.
+
 ## Get started
 
 ### 1. Prepare the host
@@ -50,7 +54,7 @@ bb marketplace refresh pa-for-bb
 bb plugin install fastmail@pa-for-bb
 ```
 
-If the marketplace is already registered, skip the first command. Replace `fastmail` with `google-calendar`, `google-drive`, `icloud` or `obsidian` to install another integration. Adding or refreshing the marketplace **does not install or update plugins**.
+If the marketplace is already registered, skip the first command. Replace `fastmail` with `google-calendar`, `google-drive`, `icloud`, `obsidian` or `pa-updates` to install another integration. Adding or refreshing the marketplace **does not install or update plugins**.
 
 ### 3. Connect your services
 
