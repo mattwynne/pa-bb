@@ -138,6 +138,11 @@ platform-first: a labelled update pill opens one **Update PA** review. Normal
 users see the reviewed PA release, what is new, any required restart, and the
 update action—not a plugin checklist or development-checkout setup.
 
+**Update PA** is the product action, not a new platform-version scheme in the
+next iteration. Show individual plugin versions; do not invent a PA version in
+the UI. The reviewed release record still identifies the fixed set of targets
+internally.
+
 Only detected local customizations introduce plugin-specific choices:
 
 - **Keep local changes:** leave that plugin's local version untouched while
@@ -150,7 +155,9 @@ dialogs. Put those plugins under **Local changes**; each defaults to **Keep
 local**, with an individual keep/use-release choice. Show the target plugin
 version directly in that choice, such as **Use 0.1.2**, and in the confirmation
 summary. Under **Also updating**, list the other plugins and their version
-changes without unnecessary controls. Offer **Keep all local** and **Use release
+changes without unnecessary controls. Show each plugin's declared BB icon beside
+its name in both sections and the completion summary. Offer **Keep all local**
+and **Use release
 for all** selection shortcuts; these select choices but never install by
 themselves. Summarize exactly which local versions will be retained or replaced
 before **Update PA**, and identify retained versions in the completion summary.
