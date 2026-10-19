@@ -1,7 +1,7 @@
 # 017 — PA update discovery and local-work review
 
-Status: implemented; real baseline published and independent plugin installed.
-Final live verification of the SDK-metadata follow-up is pending. See the [verification record](017-pa-update-discovery-review.md).
+Status: delivered; real baseline published, independent checker 0.1.1 installed,
+and live read-only/rendered checks passed. Owner feedback is pending. See the [verification record](017-pa-update-discovery-review.md).
 This is the read-only first slice from the
 [updates problem](../problems/updates.md), not permission to build the complete
 updater in this iteration.

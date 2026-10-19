@@ -88,7 +88,28 @@ build marker rather than treating the minimum development pin as the installed
 surface; missing SDK metadata leaves compatibility unknown. The minimum
 disposable-host proof remains BB 0.45.0 / SDK 0.6.15.
 
-Final 0.1.1 installation and live rendered review are pending.
+Checker **0.1.1**, source **`e8bc69c`**, is installed and running. Only the
+checker was updated; Calendar remains **0.1.1** at its original installed source.
+A fresh client check validated the published baseline, reported source mismatch
+rather than a same-version upgrade, and returned the actual **BB 0.46.0 / SDK
+0.6.37** surface. Feed/storage errors were absent and last-success/attempt
+metadata were present. The last accepted record survived the checker update.
+
+Actual installed UI review passed at **1280 and 390 pixels**: footer discovery,
+readable pilot/version/local-work status, expandable source details, visible
+retry, keyboard open/Escape, focus restoration and no horizontal overflow.
+The adjacent provider-usage disclosure still opens normally. Native BB/Pi
+controls were not replaced or hidden. Final metadata comparison again confirmed
+all 39 pre-existing plugins retained their versions, enablement, sources, roots
+and frontend hashes. The checker log was empty after successful live checks;
+controlled failure attribution/redaction was demonstrated on the disposable
+installed BB, not by breaking the live feed. Provider authentication itself was
+not re-tested, and no account content or note was read to verify this delivery.
+
+No production development checkout is configured: **Local work not assessed**
+is the intentional live result, not a clean verdict. Dirty/divergent cases were
+verified against generated checkouts in disposable BB. Owner feedback is still
+needed on finding the icon and understanding the source/local-work status.
 The release workflow grants write authority only after lockfile-based checks
 and generation at the exact event revision. Its append-only preflight refuses
 existing release tags. Metadata uses HTTPS and repository write controls, not
