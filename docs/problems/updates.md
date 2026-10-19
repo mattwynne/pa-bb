@@ -38,10 +38,11 @@ footer icon remains a quiet entry when nothing is new. Native BB/Pi update pills
 and recovery controls remain intact: no BB fork or DOM/CSS-based suppression.
 
 Pin installation to the immutable release the user reviewed. If a newer release
-appears meanwhile, install the original reviewed release and notify about the
-newer one afterwards. Never silently substitute latest or require another
-review merely because a newer release now exists. This does not permit using a
-reviewed release whose original contents or integrity have changed.
+appears meanwhile, install the original reviewed release. The normal update
+pill can reappear afterwards; do not add a duplicate newer-release banner or
+action to the completion panel. Never silently substitute latest or require
+another review merely because a newer release now exists. This does not permit
+using a reviewed release whose original contents or integrity have changed.
 
 A PA release should identify the plugin revisions and compatible BB/Pi versions.
 This is a proposed release record, not a capability already supplied by
@@ -144,9 +145,14 @@ Only detected local customizations introduce plugin-specific choices:
 - **Use released version:** explicitly replace that plugin's local code with
   the reviewed release. Preserve settings, credentials and account data.
 
-Make the selected exception clear before confirming **Update PA** and in the
-completion summary. If keeping a custom plugin cannot form a supported
-combination, explain that dependency rather than silently replacing it or
+When several plugins are customized, list only those plugins on one exception
+screen, not a sequence of dialogs. Each defaults to **Keep local**, with an
+individual keep/use-release choice. Offer **Keep all local** and **Use release
+for all** selection shortcuts; these select choices but never install by
+themselves. Summarize exactly which local versions will be retained or replaced
+before **Update PA**, and identify retained versions in the completion summary.
+If keeping a custom plugin cannot form a supported combination, explain that
+dependency rather than silently replacing it or
 claiming the complete release was installed. Dependency handling is internal;
 “relevant shared code” is not a user-facing category.
 
@@ -214,9 +220,10 @@ of either cleanliness or customization.
 | --- | --- |
 | Standard installation, no customized plugin | Review one PA release and choose Update PA |
 | Calendar is customized | Ask keep local Calendar or use released Calendar; other components remain part of the platform update |
+| Several plugins are customized | One exception screen with individual keep/use-release choices and bulk shortcuts; summarize mixed choices before Update PA |
 | Owner chooses keep local Calendar | Preserve it and update the rest where compatible; report the retained customization |
 | Owner chooses released Calendar | Explicitly replace its local code, preserving settings/connections and unrelated source work |
-| New PA release appears after review | Install the original reviewed release, then notify about the newer release |
+| New PA release appears after review | Install the original reviewed release; let the normal update pill reappear, without an extra completion banner |
 | Same plugin version, unrelated repository changes | Do not invent a local customization or upgrade |
 
 Preserve the reviewed release identity and customization choices through

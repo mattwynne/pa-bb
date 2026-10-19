@@ -287,8 +287,9 @@ setup or a special “no development” declaration to update a standard install
   components, with the exception made clear. Do not silently overwrite it if a
   dependency prevents that combination.
 - Install the original reviewed release even if a newer release appears. Notify
-  about the newer release afterwards; do not substitute latest or require a
-  fresh review merely because latest advanced.
+  through the normal update pill afterwards, not a duplicate banner or action
+  on completion; do not substitute latest or require a fresh review merely
+  because latest advanced.
 - Leave connection-drop/reconnect recovery out of the next iteration's stories.
   “Relevant shared code” is an internal dependency concern, not user-facing UI.
 
