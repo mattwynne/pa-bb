@@ -120,3 +120,26 @@ installation must say **Local work not assessed**, not infer cleanliness from a
 managed installed package. Missing target objects stay unknown; this slice does
 not fetch or maintain a repository cache. No current result reserves an update
 window or proves installed-code drift protection.
+
+## Independent follow-up verification
+
+A separate reviewing session obtained the implementation handoff and reran the
+checker suite: **21 tests**, **four scenarios / 23 steps**, typecheck/SDK-pin
+check and shared generated-UI check all passed. The complete disposable BB
+rendered/typed-RPC suite also passed again with **42 captures** at 1280 and 390
+pixels, including generated dirty/divergent checkouts, unchanged bytes/index,
+joined checks, reload cooldown and bounded failure diagnostics. This is a fresh
+synthetic run, not a second production installation or an independent full
+source audit.
+
+The reviewer independently confirmed the passing public Actions run and real
+baseline asset, the running checker **0.1.1**, and the live read-only `status`
+RPC: **BB 0.46.0 / SDK 0.6.37**, source mismatch, mapping missing, and no feed,
+storage or stale-state failure. The reviewer inspected the implementer's live
+narrow-panel capture and the fresh synthetic available-update capture. The full
+live rendered/keyboard gate remains the implementer's recorded evidence above;
+it was not repeated by the reviewer. No production configuration, integration,
+checkout or installed plugin was changed during this follow-up.
+
+No rerun gate failed. Owner feedback and the exact-target/application limitations
+remain open; this review does not promote discovery into permission to install.

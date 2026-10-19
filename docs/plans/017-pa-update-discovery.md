@@ -228,3 +228,40 @@ permissions; updater self-replacement; prompt suppression and BB forks.
 A following iteration can add guarded single-plugin Apply once exact targeting,
 installed-code drift detection and concurrent edit protection are demonstrated.
 Do not mistake this iteration's advisory assessment for those guarantees.
+
+## Next planning decision after delivery
+
+Delivery and a separate verification rerun passed; see the
+[follow-up evidence](017-pa-update-discovery-review.md#independent-follow-up-verification).
+Keep this iteration delivered, with owner feedback pending. Do not expand it
+retroactively into an installer or treat the remaining unknown states as defects
+to bypass.
+
+Before committing to an Apply iteration:
+
+1. Get owner feedback on finding the footer entry and understanding **Source
+   differs** and **Local work not assessed**. The real baseline and installed
+   Calendar share version 0.1.1 but report different repository revisions;
+   neither that difference nor matching short prefixes prove a runtime-code
+   change or an exact installed build. Do not bump versions or replace Calendar
+   merely to make the display look current.
+2. Prove an exact-target, non-destructive managed-plugin update on disposable BB
+   through supported mechanisms, without a BB fork. Establish trustworthy
+   installed-source/artifact identity and drift detection; do not infer the
+   activated commit from candidate history. Repository-only changes must not
+   be confused with a new plugin version. A correct read-only report is not
+   evidence that the current apply API can install a chosen record.
+3. Define explicit checkout mapping and protection against concurrent editing
+   during application. The live host currently has no mapping, and this slice
+   deliberately has no fetch/cache, reservation or installed-code drift check.
+   Missing objects, unsupported layout or unknown safety must stay blockers.
+   Any live mapping/provisioning work is a separate operator action, not part of
+   this documentation review.
+
+If those proofs succeed, scope the next iteration to one user-approved Calendar
+update with existing state preserved and actual installed target verified. If
+supported APIs cannot enforce the target and safety rules, report the limitation
+and retain read-only discovery; do not work around it with remove/reinstall,
+checkout resets or an unpinned latest update. Keep BB/Pi and background-sync
+upgrades deferred. Detailed Apply planning should use these results and owner
+feedback, not assume the gaps are already solved.
