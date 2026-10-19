@@ -1,6 +1,6 @@
 # 016 — Ripgrep-backed vault search
 
-Status: **0.3.0 delivered; 0.3.1 colon-filename correction verified for delivery**. The owner authorized the build, host-managed dependencies and deployment. The reusable Ansible manifest lives here; private infrastructure consumes it at a pinned revision. Generated Linux, installed original-handler, rendered review and controlled production delivery gates passed. Personal-vault count correctness and responsiveness await the owner's test. The [reported search problem](../problems/obsidian-search.md) was an incomplete count and matches from a hidden subfolder. This is our Obsidian plugin's search, not Obsidian's built-in search or an iCloud snapshot selection.
+Status: **0.3.1 colon-filename correction delivered; owner count confirmation pending**. The owner authorized the build, host-managed dependencies and deployment. The reusable Ansible manifest lives here; private infrastructure consumes it at a pinned revision. Generated Linux, installed original-handler, rendered review and controlled production delivery gates passed. Personal-vault count correctness and responsiveness await the owner's test. The [reported search problem](../problems/obsidian-search.md) was an incomplete count and matches from a hidden subfolder. This is our Obsidian plugin's search, not Obsidian's built-in search or an iCloud snapshot selection.
 
 Baseline: repository `d802645`; installed iCloud **0.2.0** and Obsidian **0.2.0**, code `1182129`. Preserve [iteration 015](015-icloud-continuous-note-access.md)'s continuous local access, native ownership and durable saves. Follow [observability](../o11y-standards.md), [UX](../ux-standards.md) and the [shipping skill](../../.agents/skills/bb-ship-feedback/SKILL.md).
 
@@ -266,4 +266,22 @@ filenames hit it in the generated 12,000-file directory; neither did in the smal
 nested folder. The fixture isolates colon CAS in that small sibling set. This
 patch does not silently remove or claim to fix that unrelated save-safety bound.
 The failed generated root remains stopped for inspection. Plugin UI is unchanged;
-this is not a new rendered-state claim. Controlled paired delivery follows.
+this is not a new rendered-state claim.
+
+### 0.3.1 delivery
+
+Commit **`b6f3802e1798dc660af8a62554a863e5a7e6417b`** is installed for both
+plugins at **0.3.1**. Supported Pause/drain preceded candidate preparation. Both
+remained disabled through their managed completions (35,803 / 35,797 ms), followed
+by iCloud-first readiness and exact prior plugin/source enablement restoration.
+The existing connected vault, source/Apple connection and unrelated plugin
+versions/enablement were preserved.
+
+A normal **44,352 ms** native run completed with local availability/discovery and
+search capability retained. Live settings at **1280 / 390 px** preserved the
+connected row and Remove action, with keyboard focus and no warning, overflow or
+dialog. Both 100-record log tails contained **zero new entries since restart**.
+A metadata-only recheck found no rejected note paths or oversized notes under
+the corrected rule; it did not read note bodies or establish actual query totals.
+No personal-note writes, automatic connections, provider conversation or cloud/
+device verification occurred. The owner should retry the original queries.

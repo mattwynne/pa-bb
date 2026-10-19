@@ -1,6 +1,6 @@
 # Obsidian search cannot cover the whole vault
 
-Status: correction delivered in **0.3.0; owner confirmation pending**. Generated
+Status: correction delivered in **0.3.1; owner confirmation pending**. Generated
 data, installed-BB, rendered and controlled production delivery checks passed.
 Personal-vault counts and responsiveness still need the owner's test. See [iteration 016](../plans/016-ripgrep-vault-search.md) for
 current implementation and delivery evidence.
@@ -63,10 +63,17 @@ have separate scan limits; fixing search does not make those tools complete.
 
 Iteration 016 uses ripgrep and genuine continuation to address this problem.
 Generated checks and an actual installed-BB handler test cover searches beyond
-the old cutoffs. Production now runs 0.3.0 with the existing vault connection and
+the old cutoffs. Production now runs 0.3.1 with the existing vault connection and
 search capability preserved; these checks do not establish actual personal-vault
 counts or responsiveness in use. The owner will assess responsiveness, without a performance
 release gate. Personal-note queries or writes require separate authorization.
+
+Owner testing of 0.3.0 still returned `unsupported` partial coverage. A metadata-only
+investigation identified an overly restrictive colon filename check. Generated
+reproduction confirmed it independently of ripgrep. Paired 0.3.1 accepts legitimate
+Linux colon filenames/folders while retaining traversal, no-follow and CAS safety.
+Installed generated checks and live delivery passed; actual personal-vault totals
+still await the owner's retry. No personal note bodies were opened for diagnosis.
 
 Delete this brief once the correction is delivered and the problem is resolved;
 retain implementation and verification history in the iteration plan.
