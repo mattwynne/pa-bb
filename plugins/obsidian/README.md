@@ -10,7 +10,7 @@ bb plugin install obsidian@pa-for-bb
 ```
 
 Follow the [setup guide](docs/setup.md). This is an independent BB plugin, not a
-plugin inside Obsidian. Version **0.3.0** pairs with iCloud **0.3.0** for ripgrep
+plugin inside Obsidian. Version **0.3.1** pairs with iCloud **0.3.1** for ripgrep
 search; coordinated reads/saves still use note access v2. Missing/incompatible
 search capability disables search only, not existing connections or local reads/saves. Use the [paired offline upgrade procedure](../icloud/README.md#upgrading-from-01x)
 when upgrading from 0.1.x. It needs no Obsidian app, Mac relay or PA core. It supplies
@@ -51,6 +51,11 @@ per-note host RPC loop, automatic Git exclusions or workspace inference.
 Property predicates are ANDed, exact and typed: `7` is not `"7"`; missing keys
 are not `null`. Text in the body is not a YAML property. Tags retain Markdown
 parser semantics rather than matching tags inside code/comments.
+
+Version 0.3.1 accepts colons in Linux note and folder names for search, scopes,
+full reads and conditional saves. Such names do not require renaming. Absolute
+paths, parent/dot segments, backslashes, controls and symlink escapes remain
+refused; a colon is an ordinary character inside the explicitly selected vault.
 
 `folders` and `excludeFolders` use vault-relative, segment-boundary prefixes.
 They scope this query, not the connection grant. Hidden notes are included by
@@ -154,6 +159,7 @@ property tags are named in the change result. This does not infer vault-wide typ
 | Search semantics | Properties inspect at most a 64 KiB header independently of the body; tags retain the 64 KiB semantic-parser bound and disclose omitted notes |
 | Search result pages | Default 20, maximum 50 rows; a complete traversal can still have buffered rows behind nextCursor |
 | Task/link pagination | Default 20, maximum 50 rows; ten in-memory cursors, expiring after 60 seconds or configuration/local safety changes, not cloud progress |
+| Save conflict-copy inspection | At most 10,000 siblings; larger/ambiguous sets refuse with uncertainty. This separate save-safety bound is not a search cutoff |
 | Complete-read proofs | 256 in-memory note versions; invalidated on the affected note save, configuration change and restart |
 | Pending saves | 100 persisted unresolved operations |
 | Private iCloud note recovery | 64 MiB / 256 active paths globally (16 MiB / 128 paths per vault); separate bounded recovery and receipt quotas |

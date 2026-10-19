@@ -8,8 +8,10 @@ import { createHash } from 'node:crypto';
 export const NOTE_LIMITS = { bytes: 1024 * 1024, entries: 10000, scanMs: 2000, operations: 512, recoveryBytes: 64 * 1024 * 1024, retentionMs: 30 * 86400000 } as const;
 export type NoteCategory = 'invalid_path' | 'unsupported' | 'unavailable' | 'conflict' | 'capacity' | 'cancelled' | 'uncertain' | 'operation_reused' | 'operation_expired' | 'busy' | 'cursor_expired' | 'invalid_query';
 export class NoteError extends Error { constructor(readonly category: NoteCategory) { super(category); this.name = 'NoteError'; } }
+// On the supported Linux host ':' is an ordinary filename character, not a
+// drive/stream selector. Root containment comes from segments and no-follow fds.
 export function validateNotePath(path: string) {
-  if (typeof path !== 'string' || path.length > 1024 || !path.endsWith('.md') || /[\\:\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new NoteError('invalid_path');
+  if (typeof path !== 'string' || path.length > 1024 || !path.endsWith('.md') || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new NoteError('invalid_path');
   return path;
 }
 const digest = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');

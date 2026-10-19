@@ -25,9 +25,14 @@ Search sessions are bounded and cancellable; they do not change note access v2
 storage, receipt identities, saves or native reconciliation. Missing search
 requirements disable search only. See [search semantics and limits](../obsidian/README.md#search-and-counts).
 
+The paired **0.3.1** patch accepts legitimate colons in Linux note/folder names
+without weakening anchored no-follow traversal or conditional saves. It changes
+neither storage schema nor receipt identities. Unsupported-file warnings and
+partial/null-total semantics remain for genuine omissions.
+
 ## Upgrading from 0.1.x
 
-Update iCloud and Obsidian together to **0.3.0**. Use this same stopped-update sequence when upgrading from 0.2.x. Record which plugins and sources were enabled. Disable Obsidian, use iCloud's supported Pause controls, let active sync finish, then disable iCloud. Keep **both plugins disabled until both managed updates have fully completed**, including stabilization. Enable iCloud first and check local readiness, then enable Obsidian if it was previously enabled. Resume only the sources that were enabled before maintenance. Keep previously disabled plugins disabled.
+Update iCloud and Obsidian together to **0.3.1**. Use this same stopped-update sequence when upgrading from 0.2.x. Record which plugins and sources were enabled. Disable Obsidian, use iCloud's supported Pause controls, let active sync finish, then disable iCloud. Keep **both plugins disabled until both managed updates have fully completed**, including stabilization. Enable iCloud first and check local readiness, then enable Obsidian if it was previously enabled. Resume only the sources that were enabled before maintenance. Keep previously disabled plugins disabled.
 
 Existing vault selections, source identities, baselines, receipts and recovery copies are preserved. If an update or startup fails, keep both plugins stopped and preserve their files for inspection and a corrected update. Do not clear baselines or locks, force resync, or load an old binary after the new storage format has been admitted.
 

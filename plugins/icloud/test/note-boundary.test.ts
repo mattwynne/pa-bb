@@ -16,7 +16,7 @@ async function fixture(options = {}) {
 }
 test('only bounded relative Markdown paths are eligible', () => {
   for (const path of ['/absolute.md', '../escape.md', 'nested/../escape.md', 'nested//Note.md', 'C:\\escape.md', 'file.txt', 'nul\0.md', './Note.md', 'nested/./Note.md']) assert.throws(() => validateNotePath(path), NoteError);
-  for (const path of ['Note.md', '.hidden/nested/Note.md', 'Unicode 空白.md']) assert.equal(validateNotePath(path), path);
+  for (const path of ['Note.md', '.hidden/nested/Note.md', 'Unicode 空白.md', 'Topic: Active.md', 'Notes: 2026/Meeting: Friday.md', 'C:/relative.md']) assert.equal(validateNotePath(path), path);
 });
 test('conditional replace retains only the affected previous note and deduplicates transport retries', { skip: !native }, async () => {
   const f = await fixture();
@@ -47,7 +47,8 @@ test('symlink notes and parent directories cannot expose or replace outside byte
   try {
     await mkdir(f.root + '/outside'); await writeFile(f.root + '/outside/Secret.md', 'sentinel-private');
     await symlink(f.root + '/outside', f.vault + '/escape'); await symlink(f.root + '/outside/Secret.md', f.vault + '/Secret.md');
-    for (const path of ['escape/Secret.md', 'Secret.md']) {
+    await symlink(f.root + '/outside', f.vault + '/escape: folder'); await symlink(f.root + '/outside/Secret.md', f.vault + '/Secret: note.md');
+    for (const path of ['escape/Secret.md', 'Secret.md', 'escape: folder/Secret.md', 'Secret: note.md']) {
       await assert.rejects(f.store.read(f.vault, path));
       await assert.rejects(f.store.commit(f.vault, { operationId: randomUUID(), mirrorId: 'synthetic', path, expectedHash: hash('sentinel-private'), text: 'replacement', kind: 'replace' }, new AbortController().signal));
     }

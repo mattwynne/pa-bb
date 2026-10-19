@@ -19,7 +19,7 @@ are no folder permissions, read-only settings or per-edit confirmations.
 
 ## Search requirements
 
-Ripgrep search needs iCloud and Obsidian **0.3.0** and stock ripgrep available to
+Ripgrep search needs iCloud and Obsidian **0.3.1** and stock ripgrep available to
 BB's service user. The [host manifest](../../../provisioning/README.md) pins the
 Linux-validated 14.1.0 release. The host operator provisions it; the plugins do
 not download or install executables.

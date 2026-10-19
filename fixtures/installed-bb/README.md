@@ -24,7 +24,11 @@ The fixture checks the exact set of 604 literal matches, 603 typed-property
 matches, a two-vault total of 604, query-only folder scopes, a new logical save,
 no edit proof from search, and a malformed-YAML query with no reliable total.
 It drains every continuation, including pages after complete traversal; count
-mode stores no rows. Success stops owned children and removes its generated
+mode stores no rows. The 0.3.1 fixture includes colon filenames and a colon-named
+hidden folder without changing the independent totals. It verifies include/exclude
+scopes, complete-read/CAS saves and a pending create there. CAS uses a small
+sibling set: the separate existing 10,000-sibling conflict inspection bound is
+not lifted by this search fix. Success stops owned children and removes its generated
 root. Failed roots are retained. This is an installed original-handler proof,
 not BB's model-selector or cloud/device evidence.
 

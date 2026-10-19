@@ -1,6 +1,6 @@
 # 016 — Ripgrep-backed vault search
 
-Status: **0.3.0 delivered; owner feedback pending**. The owner authorized the build, host-managed dependencies and deployment. The reusable Ansible manifest lives here; private infrastructure consumes it at a pinned revision. Generated Linux, installed original-handler, rendered review and controlled production delivery gates passed. Personal-vault count correctness and responsiveness await the owner's test. The [reported search problem](../problems/obsidian-search.md) was an incomplete count and matches from a hidden subfolder. This is our Obsidian plugin's search, not Obsidian's built-in search or an iCloud snapshot selection.
+Status: **0.3.0 delivered; 0.3.1 colon-filename correction verified for delivery**. The owner authorized the build, host-managed dependencies and deployment. The reusable Ansible manifest lives here; private infrastructure consumes it at a pinned revision. Generated Linux, installed original-handler, rendered review and controlled production delivery gates passed. Personal-vault count correctness and responsiveness await the owner's test. The [reported search problem](../problems/obsidian-search.md) was an incomplete count and matches from a hidden subfolder. This is our Obsidian plugin's search, not Obsidian's built-in search or an iCloud snapshot selection.
 
 Baseline: repository `d802645`; installed iCloud **0.2.0** and Obsidian **0.2.0**, code `1182129`. Preserve [iteration 015](015-icloud-continuous-note-access.md)'s continuous local access, native ownership and durable saves. Follow [observability](../o11y-standards.md), [UX](../ux-standards.md) and the [shipping skill](../../.agents/skills/bb-ship-feedback/SKILL.md).
 
@@ -229,3 +229,41 @@ Each final 100-record plugin log tail had **zero new entries** since preflight.
 Live checks used status/capability/settings/history only: no personal-note search,
 content read or write, model conversation or cloud/device-byte verification.
 The existing search problem brief remains pending owner confirmation.
+
+## 0.3.1 colon-filename correction
+
+Owner testing returned matching rows but an `unsupported` warning and no total.
+A metadata-only investigation identified a legitimate colon-bearing note path
+rejected by our validator. Generated reproduction isolated the cause: stock
+ripgrep matched both ordinary/colon-named notes, while our producer omitted the
+colon-named one for both literal and frontmatter projections. No personal note
+bodies were opened or note files changed for that investigation.
+
+The paired patch accepts `:` as an ordinary character in Linux relative paths
+and query prefixes, consistently across producer, consumer and copied contracts.
+Absolute paths, empty/dot/parent segments, backslashes, controls, no-follow
+containment, version fences, full-read proofs and CAS are unchanged. A drive-like
+`C:` segment is a literal directory inside the selected Linux vault, not a drive
+selector. URL/link interpretation is unchanged; no external resource is fetched.
+No storage migration, renaming, exclusions or warning suppression was added.
+
+Verification: both typechecks/builds and shared-contract/UI drift checks passed.
+Obsidian: **69 tests, 8 scenarios / 38 steps**, zero skips. macOS iCloud:
+**76 tests**, 143 platform/opt-in skips. Linux native regression: **129 passes,
+two opt-in skips**; specifications **56 scenarios / 520 steps**, zero skips.
+Colon-specific negative tests retain traversal/control/backslash rejection and
+refuse symlink reads/replacements through colon-bearing names.
+
+Fresh installed **BB 0.45.0** / both **0.3.1** factories again matched the independent
+12,003-note oracle: **604 literal**, **603 typed-property**, **604 two-vault**
+matches, including root colon filenames and a colon-named hidden folder. Include/
+exclude scopes, full-read/CAS editing, logical creation there, no edit proof from
+search and malformed-YAML partial/null totals passed. No provider conversation.
+
+The first additional root-level CAS probe also exposed an existing, separate
+**10,000-sibling conflict-copy inspection** safety bound. Both ordinary and colon
+filenames hit it in the generated 12,000-file directory; neither did in the small
+nested folder. The fixture isolates colon CAS in that small sibling set. This
+patch does not silently remove or claim to fix that unrelated save-safety bound.
+The failed generated root remains stopped for inspection. Plugin UI is unchanged;
+this is not a new rendered-state claim. Controlled paired delivery follows.

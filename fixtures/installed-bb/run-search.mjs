@@ -20,10 +20,10 @@ const record={root,port,providerConversation:false,personalNotesRead:false,origi
 const save=()=>writeFile(join(artifacts,'result.json'),JSON.stringify(record,null,2)+'\n',{mode:0o600});
 const note=(active,body='needle',padding='')=>`---\nstatus: ${active?'active':'inactive'}\npriority: 7\napproved: true\ncategory: null\n---\n${body}\n${padding}`;
 try{
- const main=join(env.BB_GENERATED_ALIAS_ROOT,'generated'),other=join(env.BB_GENERATED_ALIAS_ROOT,'other');await mkdir(join(main,'.hidden'),{recursive:true});await mkdir(join(main,'.worktrees'));await mkdir(other,{recursive:true});
+ const main=join(env.BB_GENERATED_ALIAS_ROOT,'generated'),other=join(env.BB_GENERATED_ALIAS_ROOT,'other');await mkdir(join(main,'.hidden: generated'),{recursive:true});await mkdir(join(main,'.worktrees'));await mkdir(other,{recursive:true});
  const active=[],literal=[];
- for(let i=0;i<12000;i++){const path=String(i).padStart(5,'0')+'.md',hit=i%20===0||i===11999;await writeFile(join(main,path),note(hit,hit?'needle':'other','x'.repeat(1500)));if(hit){active.push(path);literal.push(path);}}
- for(const path of ['.hidden/Final.md','.worktrees/Copy.md']){await writeFile(join(main,path),note(true));active.push(path);literal.push(path);}
+ for(let i=0;i<12000;i++){const path=i===0?'Topic: Active.md':String(i).padStart(5,'0')+'.md',hit=i%20===0||i===11999;await writeFile(join(main,path),note(hit,hit?'needle':'other','x'.repeat(1500)));if(hit){active.push(path);literal.push(path);}}
+ for(const path of ['.hidden: generated/Final: note.md','.worktrees/Copy.md']){await writeFile(join(main,path),note(true));active.push(path);literal.push(path);}
  await writeFile(join(main,'Body.md'),note(false,'status: active is prose; needle'));literal.push('Body.md');await writeFile(join(main,'.gitignore'),'*.md\n');await writeFile(join(other,'Other.md'),note(true));
  for(const id of ['icloud','obsidian']){
   const dir=join(root,'packages',id);await mkdir(dir,{recursive:true});for(const item of await readdir(join(source,'plugins',id))){if(['server.ts','test','dist','node_modules'].includes(item))continue;if(!/\.(?:ts|tsx|css|json)$/.test(item)&&!['core','adapters'].includes(item))continue;await cp(join(source,'plugins',id,item),join(dir,item),{recursive:true});}
@@ -39,7 +39,13 @@ try{
  const properties=await collect({vaultId:'one',mode:'count',properties:[{key:'status',equals:'active'},{key:'priority',equals:7},{key:'approved',equals:true},{key:'category',equals:null}]});assert.equal(properties.last.totalMatches,active.length);assert.equal(properties.rows.length,0);record.checks.push({kind:'typed-properties-count',matches:active.length,pages:properties.pages});
  const all=await collect({mode:'count',properties:[{key:'status',equals:'active'}]});assert.equal(all.last.totalMatches,active.length+1);assert.equal(all.last.scope.vaultIds.length,2);record.checks.push({kind:'two-vault-count',matches:active.length+1});
  const scoped=await collect({vaultId:'one',mode:'count',folders:['.worktrees'],properties:[{key:'status',equals:'active'}]});assert.equal(scoped.last.totalMatches,1);
- const row=text.rows.find(r=>r.path==='00000.md');const denied=await rpc('obsidian','fixtureInvoke',{name:'obsidian_edit_note',input:{vaultId:'one',path:row.path,expectedHash:row.hash,append:'must not save'}});assert.equal(denied.isError,true);assert.equal(JSON.parse(denied.text).category,'complete_read_required');
+ const row=text.rows.find(r=>r.path==='Topic: Active.md');assert.ok(row);const denied=await rpc('obsidian','fixtureInvoke',{name:'obsidian_edit_note',input:{vaultId:'one',path:row.path,expectedHash:row.hash,append:'must not save'}});assert.equal(denied.isError,true);assert.equal(JSON.parse(denied.text).category,'complete_read_required');
+ const colonScope=await collect({vaultId:'one',mode:'count',folders:['.hidden: generated'],properties:[{key:'status',equals:'active'}]});assert.equal(colonScope.last.totalMatches,1);
+ const colonExcluded=await collect({vaultId:'one',mode:'count',excludeFolders:['.hidden: generated'],properties:[{key:'status',equals:'active'}]});assert.equal(colonExcluded.last.totalMatches,active.length-1);
+ // Save in the small sibling set: the separate 10,000-entry conflict-copy
+ // inspection bound is unchanged, including for ordinary root filenames.
+ const editPath='.hidden: generated/Final: note.md',full=await invoke('obsidian_read_note',{vaultId:'one',path:editPath});assert.equal(full.complete,true);await invoke('obsidian_edit_note',{vaultId:'one',path:editPath,expectedHash:full.hash,append:'Generated conditional colon-path save.\n'});assert.match((await invoke('obsidian_read_note',{vaultId:'one',path:editPath})).text,/Generated conditional colon-path save/);
+ await invoke('obsidian_create_note',{vaultId:'one',path:'.hidden: generated/Pending: note.md',text:note(true)});const colonPending=await collect({vaultId:'one',mode:'count',folders:['.hidden: generated'],properties:[{key:'status',equals:'active'}]});assert.equal(colonPending.last.totalMatches,2);record.checks.push({kind:'colon-filenames-folders-scopes-cas-and-logical-create',matches:2,searchDidNotGrantEditProof:true});
  await invoke('obsidian_create_note',{vaultId:'one',path:'.worktrees/Pending.md',text:note(true)});const pending=await collect({vaultId:'one',mode:'count',folders:['.worktrees'],properties:[{key:'status',equals:'active'}]});assert.equal(pending.last.totalMatches,2);record.checks.push({kind:'logical-create-and-explicit-folder',matches:2,searchDidNotGrantEditProof:true});
  await writeFile(join(main,'Bad.md'),'---\nstatus: [\n---\nneedle');
  // Publish malformed fixture bytes through the mirrored generated source only,

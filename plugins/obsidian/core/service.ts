@@ -3,7 +3,7 @@ import { VaultError } from './ports.ts';
 import { VaultSearch } from './search.ts';
 import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution } from './ports.ts';
 export const LIMITS = { output: 48000, scanNotes: 500, scanBytes: 16 * 1024 * 1024, scanMs: 3000, rows: 500, page: 50, cursors: 10, cursorMs: 60000, proofs: 256 } as const;
-const validPath = (path: string) => { if (!path || !path.endsWith('.md') || path.length > 1024 || /[\\:\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new VaultError('invalid_path'); return path; };
+const validPath = (path: string) => { if (!path || !path.endsWith('.md') || path.length > 1024 || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new VaultError('invalid_path'); return path; };
 const lines = (text: string) => Math.max(1, text.replace(/\r?\n$/, '').split('\n').length);
 export class Obsidian {
   private state: Configuration = { revision: 0, vaultIds: [], pending: [] };
@@ -195,7 +195,7 @@ export class Obsidian {
   }
   search(input: import('./ports.ts').SearchQuery, signal?: AbortSignal) { return this.searcher.next(input, signal); }
   tasks(input: { vaultId?: string; path?: string; folder?: string; complete?: boolean; cursor?: string; limit?: number }) {
-    if (input.path) validPath(input.path); if (input.folder && (input.folder.startsWith('/') || input.folder.split('/').some(p => p === '..' || p === '.') || /[\\:\x00-\x1f]/.test(input.folder))) throw new VaultError('invalid_path');
+    if (input.path) validPath(input.path); if (input.folder && (input.folder.startsWith('/') || input.folder.split('/').some(p => p === '..' || p === '.') || /[\\\x00-\x1f]/.test(input.folder))) throw new VaultError('invalid_path');
     return this.page(input, () => this.scan(input.vaultId, (source, path, text, hash, at) => {
       if ((input.path && path !== input.path) || (input.folder && !path.startsWith(input.folder.replace(/\/$/, '') + '/'))) return [];
       return this.parser.parse(text).tasks.filter(t => input.complete === undefined || input.complete === t.complete).map(t => ({ ...this.provenance(source, at), path, lineStart: t.line, lineEnd: t.endLine, text: t.text.slice(0, 240), marker: t.marker, complete: t.complete, hash }));

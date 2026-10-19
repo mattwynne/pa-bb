@@ -24,6 +24,15 @@ test('real ripgrep continues past entry, byte, note and result cutoffs without p
     assert.equal(visited, 12001); assert.equal(paths.length, 602); assert.equal(new Set(paths).size, 602); assert.ok(paths.includes('11999.md')); assert.ok(paths.includes('.hidden/Last.md'));
   } finally { await f.close(); }
 });
+test('colon filenames and folders are searched without omissions or scope-prefix leakage', { skip: !enabled }, async () => {
+  const f=await fixture();try {
+    await mkdir(join(f.vault,'Notes: 2026'));await mkdir(join(f.vault,'Notes: 2026-old'));
+    for(const path of ['Topic: Active.md','Notes: 2026/Meeting: Friday.md','Notes: 2026-old/Other.md'])await writeFile(join(f.vault,path),'---\nstatus: active\n---\nneedle\n');
+    for(const projection of ['hits','frontmatter'] as const){const result=await f.engine.next({mirrorId:'one',revision:1,projection,...(projection==='hits'?{text:'needle'}:{})},f.vault,()=>{});assert.equal(result.candidates.length,3);assert.deepEqual(result.warnings,[]);assert.equal(result.nextCursor,null);}
+    const scoped=await f.engine.next({mirrorId:'one',revision:1,projection:'hits',text:'needle',folders:['Notes: 2026']},f.vault,()=>{});assert.deepEqual(scoped.candidates.map(c=>c.path),['Notes: 2026/Meeting: Friday.md']);assert.deepEqual(scoped.warnings,[]);
+    const excluded=await f.engine.next({mirrorId:'one',revision:1,projection:'hits',text:'needle',excludeFolders:['Notes: 2026']},f.vault,()=>{});assert.equal(excluded.candidates.length,2);assert.deepEqual(excluded.warnings,[]);
+  }finally{await f.close();}
+});
 test('literal, multiline, option-like input, explicit folder boundaries and empty files', { skip: !enabled }, async () => {
   const f = await fixture(); try {
     await mkdir(join(f.vault,'Notes')); await mkdir(join(f.vault,'Notes-old'));
