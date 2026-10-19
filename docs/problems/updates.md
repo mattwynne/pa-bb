@@ -147,8 +147,10 @@ Only detected local customizations introduce plugin-specific choices:
 
 When several plugins are customized, show one review screen, not a sequence of
 dialogs. Put those plugins under **Local changes**; each defaults to **Keep
-local**, with an individual keep/use-release choice. Under **Also updating**,
-list the other plugins and their version changes without unnecessary controls. Offer **Keep all local** and **Use release
+local**, with an individual keep/use-release choice. Show the target plugin
+version directly in that choice, such as **Use 0.1.2**, and in the confirmation
+summary. Under **Also updating**, list the other plugins and their version
+changes without unnecessary controls. Offer **Keep all local** and **Use release
 for all** selection shortcuts; these select choices but never install by
 themselves. Summarize exactly which local versions will be retained or replaced
 before **Update PA**, and identify retained versions in the completion summary.
