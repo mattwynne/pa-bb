@@ -229,7 +229,11 @@ A following iteration can add guarded single-plugin Apply once exact targeting,
 installed-code drift detection and concurrent edit protection are demonstrated.
 Do not mistake this iteration's advisory assessment for those guarantees.
 
-## Next planning decision after delivery
+## Initial next-step proposal after delivery (superseded)
+
+The proposal below is retained as delivery history. Subsequent owner example
+mapping selected the platform-first flow recorded in the next section, replacing
+the per-plugin Apply/default-blocking approach here.
 
 Delivery and a separate verification rerun passed; see the
 [follow-up evidence](017-pa-update-discovery-review.md#independent-follow-up-verification).
@@ -265,3 +269,31 @@ and retain read-only discovery; do not work around it with remove/reinstall,
 checkout resets or an unpinned latest update. Keep BB/Pi and background-sync
 upgrades deferred. Detailed Apply planning should use these results and owner
 feedback, not assume the gaps are already solved.
+
+## Owner decisions from example mapping
+
+The next user outcome is **update my PA platform**, not manage each plugin.
+Most users will never customize plugins and must not need development-checkout
+setup or a special “no development” declaration to update a standard install.
+
+- Show one reviewed PA release with release notes and **Update PA**. Use the
+  accepted labelled update-pill concept, via a supported app overlay, without
+  changing native BB/Pi controls. That visual change is not deployed yet.
+- Detect actual local customizations against installed-code baselines. Only then
+  name the affected plugin and ask **keep local changes** or **use released
+  version**. Replace the earlier unconditional dirty-plugin block with an
+  explicit owner choice; preserve settings, credentials and unrelated source.
+- Keeping local means retain that plugin and update the remaining compatible
+  components, with the exception made clear. Do not silently overwrite it if a
+  dependency prevents that combination.
+- Install the original reviewed release even if a newer release appears. Notify
+  about the newer release afterwards; do not substitute latest or require a
+  fresh review merely because latest advanced.
+- Leave connection-drop/reconnect recovery out of the next iteration's stories.
+  “Relevant shared code” is an internal dependency concern, not user-facing UI.
+
+See the revised [policy and examples](../problems/updates.md#customization-policy-and-examples).
+Exact-target application, trustworthy customization detection and preservation
+of state still need technical proof. The read-only 017 implementation remains
+unchanged; these are decisions for the subsequent iteration, not new delivery
+claims or authority to modify production.

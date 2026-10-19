@@ -17,9 +17,11 @@ separate update process. There is no single answer to “is PA up to date?” or
 single place to review and install a compatible set of changes.
 
 Updates may originate from laptop development or work committed on the server.
-An incoming release must not overwrite unfinished edits or commits that have not
-been incorporated into that release. Protection should apply per plugin: local
-Obsidian work should not prevent an independent Calendar update.
+Most installations will not customize their plugins. The normal task is
+**update my PA platform**, not select and maintain each plugin separately. Local
+customizations are an exception: identify the changed plugin and ask whether to
+keep its local version or explicitly replace it with the released version.
+Never silently overwrite local work.
 
 ## Desired outcome
 
@@ -28,11 +30,18 @@ publishes releases; it does not need credentials to push deployments onto the
 server. The browser presents the choice; the server performs the update after
 fresh safety checks and an explicit user request.
 
-Provide a **PA updates** footer icon alongside the existing sidebar update
-controls. It opens a review showing installed and proposed versions, release
-notes, required restarts, and anything blocked by local work. The BB/Pi update
-pills and native recovery controls remain intact. Replacing them is not part of
-this design; do not fork BB or hide controls with DOM manipulation or CSS.
+Provide a noticeable **PA update available** pill near the left-hand footer
+when a new release exists, opening a platform-level review with release notes
+and an **Update PA** action. A supported app-wide overlay can supply the labelled
+pill; its responsive placement still needs rendered verification. The existing
+footer icon remains a quiet entry when nothing is new. Native BB/Pi update pills
+and recovery controls remain intact: no BB fork or DOM/CSS-based suppression.
+
+Pin installation to the immutable release the user reviewed. If a newer release
+appears meanwhile, install the original reviewed release and notify about the
+newer one afterwards. Never silently substitute latest or require another
+review merely because a newer release now exists. This does not permit using a
+reviewed release whose original contents or integrity have changed.
 
 A PA release should identify the plugin revisions and compatible BB/Pi versions.
 This is a proposed release record, not a capability already supplied by
@@ -123,28 +132,27 @@ are not a rollback guarantee for the whole release. See upstream
 
 ### Entry and review
 
-Register a host-rendered footer icon labelled **PA updates** through the existing
-experimental disclosure API, following `provider-usage`. Keep the entry available
-whether updates exist or not; a conditional pill or dynamic badge is not required
-for the first slice. The disclosure supplies the changing status.
+Iteration 017 supplies the icon/disclosure pilot. The next design is
+platform-first: a labelled update pill opens one **Update PA** review. Normal
+users see the reviewed PA release, what is new, any required restart, and the
+update action—not a plugin checklist or development-checkout setup.
 
-The panel shows:
+Only detected local customizations introduce plugin-specific choices:
 
-- **Checking**, **Up to date**, **Updates available**, or **Could not check**.
-  A failed or stale check must not look like a current successful result.
-- Installed and proposed versions, release notes, and the last successful check.
-- Per-plugin outcomes such as **Ready**, **Blocked by local changes**,
-  **Check unavailable**, **Updating**, **Updated** and **Failed**.
-- **Check again** and, once safe application is implemented, **Review update**.
-  The review names exactly which plugins will change and which will be left
-  alone. Confirmation is **Update selected plugins**, not an ambiguous promise
-  to update all of PA.
+- **Keep local changes:** leave that plugin's local version untouched while
+  updating the remaining compatible components.
+- **Use released version:** explicitly replace that plugin's local code with
+  the reviewed release. Preserve settings, credentials and account data.
 
-Show a safe explanation for each blocker and the next action, such as committing
-and publishing local work. Do not expose local paths or diffs in general status
-or logs. Read-only discovery needs no installation approval. Applying an update
-requires explicit confirmation; no operation should install merely because the
-panel opened.
+Make the selected exception clear before confirming **Update PA** and in the
+completion summary. If keeping a custom plugin cannot form a supported
+combination, explain that dependency rather than silently replacing it or
+claiming the complete release was installed. Dependency handling is internal;
+“relevant shared code” is not a user-facing category.
+
+Keep local details/source information behind a disclosure. Normal discovery
+needs no installation approval and opening the panel never installs anything.
+A failed or stale check must remain distinct from “up to date”.
 
 ### Backend responsibilities
 
@@ -154,12 +162,19 @@ browser reloads do not start competing polls. Validate release records as data,
 not executable commands, and compare only already-installed PA plugins.
 
 The backend, not browser state or an agent's assertion, owns safety checks and
-application. Associate protected development checkouts with plugin IDs, account
-for shared dependencies, serialize update jobs, and recheck at application time.
-An unknown target, failed check or unavailable safe installation mechanism blocks
-that update. Resolve exact targeting through supported installation semantics
-before enabling Apply; post-install verification alone cannot make installing
-the wrong revision safe.
+application. Detect installed-code customization against a trustworthy recorded
+baseline; a different whole-repository commit alone is not a customization.
+Ordinary installations need no development checkout or special opt-out setting.
+Where a checkout is explicitly associated with a local customization, preserve
+that source as well. Account for dependencies internally, serialize updates and
+recheck the reviewed choices before application. New local changes require a
+fresh choice, not an automatic overwrite. Missing checkout mapping alone is not
+a failure; an unavailable installed-code baseline is genuinely unknown and must
+not be presented as clean.
+
+Resolve exact targeting through supported installation semantics before enabling
+Apply; post-install verification alone cannot make installing the wrong revision
+safe. A newer release notification does not change a previously reviewed target.
 
 The panel reconnects to recorded outcomes rather than inferring success from a
 closed request. Never promise an atomic bundle or automatic rollback. Removing
@@ -179,34 +194,36 @@ work around missing APIs by modifying BB, disabling its controls or substituting
 arbitrary package-manager commands. That limitation does not block plugin
 release discovery or the subsequent guarded plugin-update slice.
 
-## Local-work safety rules
+## Customization policy and examples
 
-Keep the development checkout, managed installed code and persistent account
-data separate. Deployments must not update the development checkout as a side
-effect. Associate development checkouts with the plugins they protect explicitly;
-a clean managed install alone is not proof that no local work exists.
+The default is a standard PA installation with no local plugin customization.
+Check installed artifacts against their expected baseline without treating
+BB-generated builds, normal state or unrelated repository commits as hand edits.
+Do not require every owner to configure a development checkout.
 
-For each requested plugin update:
+If actual local customization is found, ask **keep local** or **use released
+version** for that exception. Uncommitted edits and unpublished custom commits
+must not be silently lost, but committing/publishing is not mandatory before an
+owner can explicitly choose to replace their local version. Keep development
+checkouts, installed code and persistent account data separate. Permission to
+replace plugin code is not permission to reset a source checkout, delete account
+data or erase unrelated changes. Unknown baseline/safety evidence is not proof
+of either cleanliness or customization.
 
-- Modified, deleted, staged or untracked source files block it. Ignore normal
-  ignored build outputs and runtime data, not arbitrary untracked source.
-- Local commits whose relevant changes are missing from the release also block
-  it. A clean working tree is not sufficient. Define comparison across branches,
-  merges and cherry-picks before implementing this check.
-- Unexpected edits to installed code block replacement and are preserved.
-  Establish the expected installed artifact without treating BB-generated build
-  output as hand edits.
-- Relevant shared-code changes block dependent plugins. A supported independent
-  update may proceed despite unrelated dirty work; a required compatible group
-  must wait together.
-- Missing checkout information or a failed safety check is not “clean”. Name the
-  blocker and leave that component untouched.
+| Example | Expected outcome |
+| --- | --- |
+| Standard installation, no customized plugin | Review one PA release and choose Update PA |
+| Calendar is customized | Ask keep local Calendar or use released Calendar; other components remain part of the platform update |
+| Owner chooses keep local Calendar | Preserve it and update the rest where compatible; report the retained customization |
+| Owner chooses released Calendar | Explicitly replace its local code, preserving settings/connections and unrelated source work |
+| New PA release appears after review | Install the original reviewed release, then notify about the newer release |
+| Same plugin version, unrelated repository changes | Do not invent a local customization or upgrade |
 
-Never automatically stash, reset, clean, force-pull, rebase or discard work.
-Recheck immediately before application and prevent concurrent editing or
-competing updates from invalidating that check. Record the target, actual
-installed revision and per-component outcome. Partial completion is not “PA is
-up to date”; blocked components need a clear next step.
+Preserve the reviewed release identity and customization choices through
+application; do not widen them when new work or releases appear. Record actual
+installed versions and retained exceptions, without an unqualified claim that
+all components match the stock release. Connection-drop/reconnect recovery is
+not a story in the next iteration.
 
 ## Stories and first slice
 
@@ -215,11 +232,13 @@ up to date”; blocked components need a clear next step.
    local-work blockers. Start with one plugin without background syncing, leave
    BB/Pi unchanged, and keep native prompts. This read-only first slice proves
    the supported UI surface and release comparison without risking local work.
-2. **Apply one plugin update safely.** Add explicit install, fresh safety checks,
-   exact-target verification and live read-only confirmation. Prove that a dirty
-   target is untouched, a clean independent target can update, and unpublished
-   commits or shared edits cannot be silently lost. Preserve credentials,
-   settings, enablement and unrelated plugins.
+2. **Update PA, with customization exceptions.** Provide one platform-release
+   review and Update PA action, pinned to that reviewed release. Prove the normal
+   no-customization path without checkout setup; ask keep/replace only for an
+   actually customized plugin. Verify the resulting release and any retained
+   local exception, preserving credentials, settings and unrelated source work.
+   Exact-target application and installed-artifact identity remain technical
+   prerequisites, not assumptions already proven by the discovery pilot.
 3. **Include BB/Pi status.** Show supported version information and open native
    Updates settings for actions. Keep their existing prompts; no BB fork or
    prompt-suppression work is needed.
@@ -244,14 +263,15 @@ up to date”; blocked components need a clear next step.
   its replacement; defer that mechanism from the first slice. Giving a PA
   session authority to edit, commit and publish its own source remains a
   separate problem, not a prerequisite for pulling laptop-authored releases.
-- No BB fork, native-prompt suppression, unattended installation, conflict
-  resolution, host provisioning changes or blanket `plugin update --all`. Keep
-  private deployment configuration outside this repository.
+- No BB fork, native-prompt suppression, unattended installation, automatic
+  source merging, host provisioning changes or unpinned blanket
+  `plugin update --all`. Explicit keep/replace choices are not automatic conflict
+  resolution. Keep private deployment configuration outside this repository.
 
 Follow [UX standards](../ux-standards.md) and
 [observability standards](../o11y-standards.md). Test unavailable release feeds,
-malformed records, failed checks, concurrent edits, interrupted updates and
-partial results with synthetic data and safe diagnostics. Review discovery,
+malformed records, failed checks, concurrent edits, explicit keep/replace choices
+and partial results with synthetic data and safe diagnostics. Review discovery,
 no-update, available, blocked, applying, restart and recovery states in running
 BB at desktop/narrow widths with keyboard navigation before claiming delivery.
 The investigation itself implemented no plugin or release pipeline. Iteration
