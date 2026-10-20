@@ -19,6 +19,30 @@ function fixture() {
   } } as unknown as BbPluginApi;
   return { app, providers, bb, calls, logs, controller, ports: runtimePorts(bb, controller.signal), setHost: (id: string | null) => { primaryHostId = id; } };
 }
+test('runtime checks publish each native result without waiting for the other read', async () => {
+  for (const slow of ['bb', 'providers']) {
+    const f = fixture(); let release!: () => void, reported!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; }), first = new Promise<void>(resolve => { reported = resolve; });
+    const seen: { id: string; state: string; reason: unknown; target: unknown }[] = [];
+    const original = f.bb.sdk.system.appUpdate;
+    if (slow === 'bb') f.bb.sdk.system.appUpdate = async input => { await gate; return original(input); };
+    else f.bb.sdk.hosts.providerCliStatus = async () => { await gate; throw new Error('PRIVATE_SENTINEL credentials'); };
+    const checking = f.ports.inspect((row, target) => {
+      seen.push({ id: row.id, state: row.state, reason: row.reason, target });
+      if (seen.length === (slow === 'bb' ? 2 : 1)) reported();
+    });
+    await first;
+    try {
+      assert.deepEqual(seen.map(row => row.id), slow === 'bb' ? ['pi', 'codex'] : ['bb']);
+      assert.ok(seen.every(row => row.state === 'ready'));
+      assert.ok(seen.every(row => JSON.stringify(row.target) === JSON.stringify({ id: 'pa-server', name: 'PA test server' })));
+    } finally { release(); }
+    const final = await checking; assert.deepEqual(final.rows.map(row => row.id), ['pi', 'codex', 'bb']);
+    if (slow === 'providers') assert.ok(seen.filter(row => row.id !== 'bb').every(row => row.state === 'unavailable' && row.reason === 'unavailable'));
+    assert.ok(!JSON.stringify([seen, final, f.logs]).includes('PRIVATE_SENTINEL'));
+    assert.ok(!f.calls.some(call => typeof call === 'object' && call !== null && ('actionKind' in call || 'confirmInterruptingThreads' in call)));
+  }
+});
 test('runtime actions bind the configured primary host and report actual managed CLI versions, never installer output', async () => {
   const f = fixture(), review = await f.ports.inspect();
   assert.deepEqual(review.target, { id: 'pa-server', name: 'PA test server' });

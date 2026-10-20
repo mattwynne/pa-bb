@@ -32,7 +32,7 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL): Appli
   const sync = (method = 'status', input: null | { updateJob: string } = null) => bb.sdk.plugins.callRpc({ pluginId: 'icloud', method, input, outputSchema: syncStatus, signal: signal() });
   return {
     inventory: () => structuredClone(lastInventory),
-    async inspect() {
+    async inspect(onResult) {
       const rows: Assessment[] = [], inventory: IntegrationInventoryRow[] = []; available.clear();
       try {
         const listed = await list();
@@ -41,7 +41,10 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL): Appli
           const id = integrationId.safeParse(plugin.id); if (!id.success) continue;
           let assessment: Awaited<ReturnType<Baselines['inspect']>> | null = null;
           const installed = plugin.version.length <= 64 && semver.valid(plugin.version) ? plugin.version : 'unknown';
-          const snapshot = (state: IntegrationInventoryRow['state'], prerequisite: IntegrationInventoryRow['prerequisite'] = null) => inventory.push({ id: id.data, installed, state, local: assessment?.local ?? 'unknown', prerequisite });
+          const snapshot = (state: IntegrationInventoryRow['state'], prerequisite: IntegrationInventoryRow['prerequisite'] = null) => {
+            const row: IntegrationInventoryRow = { id: id.data, installed, state, local: assessment?.local ?? 'unknown', prerequisite };
+            inventory.push(row); onResult?.(structuredClone(row));
+          };
           try {
             validVersion(plugin.version);
             const provenance = await bb.sdk.plugins.getSource({ pluginId: id.data, signal: signal() });

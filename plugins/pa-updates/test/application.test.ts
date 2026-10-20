@@ -66,11 +66,23 @@ test('explicit Check again joining automatic discovery promotes the same scan to
     f.ports.inspect = async () => { inspections++; if (!blockRuntime) { entered.resolve(); await gate.promise; } return f.rows; };
     if (blockRuntime) f.ports.runtime = { ...runtimeFixture().ports.runtime!, inspect: async () => { entered.resolve(); await gate.promise; return { target: null, runningThreadCount: 0, rows: [] }; } };
     const automatic = f.app.review({ automatic: true }); await entered.promise;
+    assert.equal(f.app.status().progress?.requested, false); assert.deepEqual(f.app.status().job, job);
     const explicit = f.app.review(); assert.equal(explicit, automatic);
+    assert.equal(f.app.status().progress?.requested, true);
     gate.resolve(); const result = await explicit;
     assert.equal(inspections, 1); assert.notEqual(result.review?.id, previous.id);
     assert.equal(result.review?.rows[0].available, '0.1.3'); assert.deepEqual(result.job, job);
   }
+});
+test('disposal fences late progress callbacks and never persists a partial check', async () => {
+  const f = fixture(), notifications: unknown[] = [], app = new Application(f.ports, () => notifications.push(app.status()));
+  await app.start(); await app.review(); const saved = f.stored();
+  const gate = deferred(), entered = deferred(); let report: Parameters<ApplicationPorts['inspect']>[0];
+  f.ports.inspect = async onResult => { report = onResult; entered.resolve(); await gate.promise; return f.rows; };
+  const checking = app.review(); await entered.promise; await app.dispose(); const count = notifications.length;
+  report?.({ id: 'google-calendar', installed: '1.0.0', local: 'stock', state: 'current', prerequisite: null });
+  assert.equal(app.status().progress, null); assert.equal(notifications.length, count); assert.deepEqual(f.stored(), saved);
+  gate.resolve(); await checking; assert.equal(notifications.length, count); assert.deepEqual(f.stored(), saved);
 });
 test('automatic discovery retains an active job and cannot reuse pre-apply readiness as a completion notification', async () => {
   const f = fixture(); await f.app.start(); const review = (await f.app.review()).review!;

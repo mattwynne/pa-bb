@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- PA updates 0.2.7 shows a spinner for pending checks and each component’s fresh result as it arrives. Partial results cannot authorize updates; saved reviews and receipts remain intact until the check finishes.
+
 - PA updates 0.2.6 clarifies unsuccessful version checks as “Couldn’t check” and in-progress refreshes as “Checking…”, without changing specific local, pinned or setup statuses.
 
 - PA updates 0.2.5 adds green checks beside confirmed Up to date versions. Local changes and failed, pinned or unverified checks stay neutral; a failed refresh cannot turn cached results green.

@@ -26,7 +26,7 @@ function fixture(t: TestContext) {
   const updates: string[] = [], pauses: string[][] = [];
   ports.update = async id => { updates.push(id); return { actual: '1.1.0', updated: true }; };
   ports.quiesce = async installing => { pauses.push(installing); };
-  return { ports, outcomes, locals, versions, pinned, originals, logs, updates, pauses };
+  return { ports, bb, saved: () => structuredClone(saved), outcomes, locals, versions, pinned, originals, logs, updates, pauses };
 }
 test('all five current integrations remain visible without offers, notices, writes or receipts; snapshot survives reload', async t => {
   const f = fixture(t); // A repository-only candidate is also current, not an offer.
@@ -67,6 +67,33 @@ test('current custom, pinned, failed checks and unknown baselines remain distinc
     { id: 'obsidian', state: 'unavailable', local: 'unknown', prerequisite: 'baseline_unknown' },
   ]);
   assert.ok(!f.originals.includes('icloud')); assert.ok(!JSON.stringify([state, f.logs]).includes('PRIVATE_SENTINEL'));
+});
+test('a slow integration exposes earlier fresh results without publishing a partial review or admitting apply', async t => {
+  const f = fixture(t); const observed: ReturnType<Application['status']>[] = [];
+  const app = new Application(f.ports, () => observed.push(app.status())); await app.start();
+  const previous = (await app.review()).review!, saved = f.saved(); observed.length = 0;
+  f.outcomes.set('google-calendar', 'update-available'); f.outcomes.set('fastmail', 'update-available'); f.locals.set('fastmail', 'custom');
+  f.outcomes.set('google-drive', 'unavailable'); f.locals.set('obsidian', 'unknown');
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), blocked = new Promise<void>(resolve => { entered = resolve; });
+  const check = f.bb.sdk.plugins.checkUpdates;
+  f.bb.sdk.plugins.checkUpdates = async input => { if (input?.pluginId === 'fastmail') { entered(); await gate; } return check(input); };
+  const checking = app.review(); await blocked;
+  try {
+    const partial = app.status(); assert.equal(partial.checking, true); assert.equal(partial.progress?.requested, true);
+    assert.deepEqual(partial.progress?.integrations.map(row => [row.id, row.state]), [['google-calendar', 'offered']]);
+    assert.deepEqual(partial.review, previous); assert.deepEqual(f.saved(), saved); assert.equal(hasFreshOffers(partial), false);
+    await app.apply({ reviewId: previous.id, choices: [] }); assert.equal(app.status().job, null); assert.deepEqual(f.updates, []);
+    assert.ok(observed.every(state => !state.progress || state.checking));
+    partial.progress!.integrations.length = 0; assert.equal(app.status().progress?.integrations.length, 1, 'status snapshots cannot mutate progress');
+  } finally { release(); }
+  const final = await checking; assert.equal(final.progress, null); assert.notEqual(final.review?.id, previous.id);
+  assert.equal(final.review?.inventory?.find(row => row.id === 'google-drive')?.prerequisite, 'unavailable');
+  assert.equal(final.review?.inventory?.find(row => row.id === 'obsidian')?.prerequisite, 'baseline_unknown');
+  assert.ok(!JSON.stringify([observed, f.logs, final]).includes('PRIVATE_SENTINEL'));
+  assert.ok(!Object.hasOwn(f.saved() as object, 'progress'));
+  await app.apply({ reviewId: final.review!.id, choices: [] }); await app.join();
+  assert.deepEqual(f.updates, ['google-calendar']); assert.equal(app.status().job?.receipts.find(row => row.id === 'fastmail')?.outcome, 'kept');
 });
 test('saved reviews written before the inventory addition still parse without inventing current status', () => {
   const old = { review: { id: '11111111-1111-4111-8111-111111111111', at: new Date().toISOString(), rows: [], runtime: null }, job: null };

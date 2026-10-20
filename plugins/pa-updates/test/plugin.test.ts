@@ -51,6 +51,26 @@ test('startup/scheduled discovery notifies later integration or runtime offers w
     assert.equal(inspections, 5); assert.equal(runtimeInspections, 5);
   }
 });
+test('per-component progress reaches the existing realtime channel before the review RPC completes', async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: 'pa-updates' });
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), checking = new Promise<void>(resolve => { entered = resolve; });
+  const inventory = [{ id: 'google-calendar' as const, installed: '1.0.0', local: 'stock' as const, state: 'current' as const, prerequisite: null }];
+  const application: ApplicationPorts = { ...idleApplication, inspect: async report => { report?.(inventory[0]); entered(); await gate; return []; }, inventory: () => inventory };
+  await plugin(bb, portsHarness().ports, application);
+  const pending = harness.callRpc('review', null); await checking;
+  try {
+    const partial = applicationStatusSchema.parse(await harness.callRpc('applicationStatus', null));
+    assert.equal(partial.checking, true); assert.equal(partial.review, null); assert.deepEqual(partial.progress?.integrations, inventory);
+    const signals = harness.realtimeSignals.filter(signal => signal.channel === 'application');
+    assert.ok(signals.length >= 2); assert.ok(signals.every(signal => signal.payload === null));
+    assert.equal(hasFreshOffers(partial), false);
+    const blocked = applicationStatusSchema.parse(await harness.callRpc('apply', { reviewId: '11111111-1111-4111-8111-111111111111', choices: [] }));
+    assert.equal(blocked.job, null); assert.equal(blocked.applying, false);
+  } finally { release(); }
+  const final = applicationStatusSchema.parse(await pending); assert.equal(final.progress, null); assert.deepEqual(final.review?.inventory, inventory);
+  await harness.dispose();
+});
 test('typed application RPCs retain read-only discovery and reject cross-plugin writes; diagnostics stay bounded', async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: 'pa-updates' }); const h = portsHarness();
   const { diagnose: _diagnose, ...ports } = h.ports;

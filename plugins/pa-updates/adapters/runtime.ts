@@ -51,17 +51,23 @@ export function runtimePorts(bb: BbPluginApi, stopped: AbortSignal): RuntimePort
       reason: busy ? 'busy' : status.blocked?.reason === 'fetch-failed' ? 'unavailable' : blocked ? 'unsupported_install' : null };
   };
   return {
-    async inspect() {
+    async inspect(onResult) {
       let host: RuntimeReview['target'] = null;
       try { host = await target(); } catch { diagnose('runtime_target'); /* No browser/local-machine fallback. */ }
-      if (!host) return { target: null, runningThreadCount: 0, rows: ['pi', 'codex', 'bb'].map(id => unavailable(id as RuntimeId)) };
+      const report = (row: RuntimeRow) => { if (!stopped.aborted) onResult?.(structuredClone(row), host); return row; };
+      if (!host) return { target: null, runningThreadCount: 0, rows: ['pi', 'codex', 'bb'].map(id => report(unavailable(id as RuntimeId))) };
+      const hostId = host.id;
+      // Provider status is one native read for both CLIs. Publish its two known
+      // results independently of the concurrent BB check, whichever finishes first.
       const [providers, app] = await Promise.all([
-        bb.sdk.hosts.providerCliStatus({ hostId: host.id, signal: signal() }).catch(() => { diagnose('runtime_provider'); return null; }),
-        bb.sdk.system.appUpdate({ force: true, signal: signal() }).catch(() => { diagnose('runtime_app'); return null; }),
+        bb.sdk.hosts.providerCliStatus({ hostId, signal: signal() }).catch(() => { diagnose('runtime_provider'); return null; })
+          .then(value => [report(cliRow('pi', hostId, value?.pi)), report(cliRow('codex', hostId, value?.codex))]),
+        bb.sdk.system.appUpdate({ force: true, signal: signal() }).catch(() => { diagnose('runtime_app'); return null; }).then(value => {
+          if (value?.blocked?.reason === 'fetch-failed') diagnose('runtime_app');
+          return { row: report(value ? appRow(hostId, value) : unavailable('bb')), runningThreadCount: value?.runningThreadCount ?? 0 };
+        }),
       ]);
-      if (app?.blocked?.reason === 'fetch-failed') diagnose('runtime_app');
-      return { target: host, runningThreadCount: app?.runningThreadCount ?? 0,
-        rows: [cliRow('pi', host.id, providers?.pi), cliRow('codex', host.id, providers?.codex), app ? appRow(host.id, app) : unavailable('bb')] };
+      return { target: host, runningThreadCount: app.runningThreadCount, rows: [...providers, app.row] };
     },
     async updateCli(id, review) {
       const host = await assertTarget(review);

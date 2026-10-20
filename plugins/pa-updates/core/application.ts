@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 import { ApplicationError, assessmentSchema, integrationInventorySchema, applicationSavedSchema, applyInputSchema, reviewSchema, version } from './application-model.ts';
-import type { ApplicationSaved as Saved, ApplicationStatus, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode } from './application-model.ts';
-import { runtimeReviewSchema } from './runtime-model.ts';
+import type { ApplicationSaved as Saved, ApplicationStatus, CheckProgress, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode } from './application-model.ts';
+import { runtimeReviewSchema, runtimeRowSchema } from './runtime-model.ts';
 import type { RuntimePorts } from './runtime-model.ts';
 export * from './application-model.ts';
 export type ApplicationPorts = {
-  inspect(): Promise<Assessment[]>;
+  inspect(onResult?: (row: IntegrationInventoryRow) => void): Promise<Assessment[]>;
   /** Read-only inventory from the same completed inspection; never install authority. */
   inventory?(): IntegrationInventoryRow[];
   validateMix(installing: IntegrationId[]): Promise<void>;
@@ -26,6 +26,7 @@ export class Application {
   private saved: Saved = { review: null, job: null };
   private checking: Promise<ApplicationStatus> | null = null;
   private reviewRequested = false;
+  private progress: CheckProgress | null = null;
   private offers: ApplicationStatus['offers'] = null;
   private applying = false;
   private reconciling: Promise<ApplicationStatus> | null = null;
@@ -54,7 +55,7 @@ export class Application {
       }
     } catch { if (!this.disposed) { this.failure = 'storage'; this.ports.diagnose('storage', 'storage'); } }
   }
-  status(): ApplicationStatus { return structuredClone({ ...this.saved, checking: this.checking !== null, applying: this.inFlight(), failure: this.failure, offers: this.offers }); }
+  status(): ApplicationStatus { return structuredClone({ ...this.saved, checking: this.checking !== null, applying: this.inFlight(), failure: this.failure, offers: this.offers, progress: this.progress }); }
   refresh(): Promise<ApplicationStatus> {
     if (this.reconciling) return this.reconciling;
     const job = this.saved.job;
@@ -93,7 +94,7 @@ export class Application {
     } finally { if (this.writing === writing) this.writing = null; }
   }
   async dispose() {
-    this.disposed = true; const stopping = this.ports.cancel?.();
+    this.disposed = true; this.progress = null; const stopping = this.ports.cancel?.();
     // BB may hold its registration lock while disposing us. Never await a job
     // that could need that lock. Drain ONLY already-issued KV writes so a
     // replacement instance cannot be overwritten by this instance later.
@@ -105,17 +106,36 @@ export class Application {
     if (!automatic && this.saved.job?.syncReserved) { this.failure = 'interrupted'; return Promise.resolve(this.status()); }
     // An explicit caller joining automatic discovery still asks for a new
     // review. Both callers share the same bounded inspection, not a second job.
-    if (this.checking) { if (!automatic) this.reviewRequested = true; return this.checking; }
+    if (this.checking) {
+      if (!automatic) { this.reviewRequested = true; if (this.progress) this.progress.requested = true; this.notify(); }
+      return this.checking;
+    }
     if (this.reconciling) return Promise.resolve(this.status());
     this.reviewRequested = !automatic;
-    this.checking = (async () => {
+    const progress: CheckProgress = { id: randomUUID(), requested: !automatic, integrations: [], integrationsDone: false, runtime: [], runtimeDone: !this.ports.runtime, target: null };
+    this.progress = progress;
+    // Assign checking before any callback can publish: even synchronous ports
+    // must never expose a partial check with apply admission still open.
+    this.checking = Promise.resolve().then(async () => {
       try {
-        const rows = z.array(assessmentSchema).max(5).parse(await this.ports.inspect()); this.active();
+        this.active();
+        const rows = z.array(assessmentSchema).max(5).parse(await this.ports.inspect(row => {
+          if (this.disposed || this.progress !== progress) return;
+          const result = integrationInventorySchema.parse(row);
+          progress.integrations = [...progress.integrations.filter(old => old.id !== result.id), result]; this.notify();
+        })); this.active();
         if (new Set(rows.map(row => row.id)).size !== rows.length) throw new ApplicationError('unavailable');
         const inventory = z.array(integrationInventorySchema).max(5).parse(this.ports.inventory?.() ?? []);
         if (new Set(inventory.map(row => row.id)).size !== inventory.length) throw new ApplicationError('unavailable');
-        const runtime = this.ports.runtime ? runtimeReviewSchema.parse(await this.ports.runtime.inspect()) : null; this.active();
+        progress.integrations = inventory; progress.integrationsDone = true; this.notify();
+        const runtime = this.ports.runtime ? runtimeReviewSchema.parse(await this.ports.runtime.inspect((row, target) => {
+          if (this.disposed || this.progress !== progress) return;
+          const result = runtimeRowSchema.parse(row);
+          progress.runtime = [...progress.runtime.filter(old => old.id !== result.id), result];
+          progress.target = runtimeReviewSchema.shape.target.parse(target); this.notify();
+        })) : null; this.active();
         if (runtime && new Set(runtime.rows.map(row => row.id)).size !== runtime.rows.length) throw new ApplicationError('unavailable');
+        progress.runtime = runtime?.rows ?? []; progress.runtimeDone = true; progress.target = runtime?.target ?? null;
         const previous = this.saved.review, preserve = !this.reviewRequested && this.saved.job && this.saved.job.reviewId === previous?.id;
         const checkedAt = new Date().toISOString();
         // A kept/skipped/uncertain old offer is not a newly discovered release.
@@ -131,9 +151,10 @@ export class Application {
         this.failure = null;
         if (!preserve) { this.saved.review = { id: randomUUID(), at: checkedAt, rows, runtime, inventory }; await this.persist(); }
       } catch (error) { if (!this.disposed) { this.offers = null; this.failure = category(error); this.ports.diagnose('review', this.failure); } }
-      finally { this.checking = null; this.reviewRequested = false; if (!this.disposed) this.notify(); }
+      finally { this.checking = null; this.progress = null; this.reviewRequested = false; if (!this.disposed) this.notify(); }
       return this.status();
-    })();
+    });
+    this.notify();
     return this.checking;
   }
   async apply(input: z.infer<typeof applyInputSchema>): Promise<ApplicationStatus> {

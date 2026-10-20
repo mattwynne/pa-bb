@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { runtimeReviewSchema, runtimeReceiptSchema, bbIntentSchema } from './runtime-model.ts';
+import { runtimeReviewSchema, runtimeRowSchema, runtimeReceiptSchema, bbIntentSchema } from './runtime-model.ts';
 export const integrationId = z.enum(['google-calendar', 'fastmail', 'google-drive', 'icloud', 'obsidian']);
 export type IntegrationId = z.infer<typeof integrationId>;
 export const failureCode = z.enum(['unavailable', 'baseline_unknown', 'changed', 'incompatible', 'paired_migration', 'maintenance_unavailable', 'interrupted', 'storage', 'busy', 'unsupported_install', 'not_installed', 'sync_recovery']);
@@ -29,7 +29,15 @@ const jobSchema = z.object({ id: z.string().uuid(), reviewId: z.string().uuid(),
   runtimeReceipts: z.array(runtimeReceiptSchema).max(3).default([]), bbIntent: bbIntentSchema.nullable().default(null),
   confirmInterruptingThreads: z.boolean().default(false) });
 export const applicationSavedSchema = z.object({ review: reviewSchema.nullable(), job: jobSchema.nullable() });
+/** Read-only results from the current inspection, never persisted or apply authority. */
+export const checkProgressSchema = z.object({
+  id: z.string().uuid(), requested: z.boolean(),
+  integrations: z.array(integrationInventorySchema).max(5), integrationsDone: z.boolean(),
+  runtime: z.array(runtimeRowSchema).max(3), runtimeDone: z.boolean(), target: runtimeReviewSchema.shape.target,
+});
+export type CheckProgress = z.infer<typeof checkProgressSchema>;
 export const applicationStatusSchema = applicationSavedSchema.extend({ checking: z.boolean(), applying: z.boolean(), failure: failureCode.nullable(),
+  progress: checkProgressSchema.nullable().default(null),
   offers: z.object({ available: z.boolean(), checkedAt: z.string().datetime() }).nullable().default(null) });
 export const applyInputSchema = z.object({ reviewId: z.string().uuid(), choices: z.array(z.object({ id: integrationId, choice: z.enum(['keep', 'install']) }).strict()).max(5), confirmInterruptingThreads: z.boolean().optional() }).strict();
 export type ApplicationStatus = z.infer<typeof applicationStatusSchema>;

@@ -27,7 +27,7 @@ export type RuntimeRow = z.infer<typeof runtimeRowSchema>;
 export type BbIntent = z.infer<typeof bbIntentSchema>;
 export type BbResult = { state: 'pending' | 'updated' | 'failed' | 'uncertain'; actual: string | null };
 export type RuntimePorts = {
-  inspect(): Promise<RuntimeReview>;
+  inspect(onResult?: (row: RuntimeRow, target: RuntimeReview['target']) => void): Promise<RuntimeReview>;
   updateCli(id: 'pi' | 'codex', review: RuntimeReview): Promise<{ actual: string; source: 'npmGlobal' }>;
   prepareBb(review: RuntimeReview, confirmInterruptingThreads: boolean): Promise<BbIntent>;
   applyBb(intent: BbIntent, confirmInterruptingThreads: boolean): Promise<void>;
