@@ -7,17 +7,17 @@ unless you choose **Install released version**.
 ## Use it
 
 1. Install `pa-updates@pa-for-bb` through BB’s normal plugin controls.
-2. Open **PA update available**, or the **PA updates** footer icon. The notice
-   opens a keyboard-accessible dialog; the footer also opens the review.
+2. Open **Settings → PA updates**. The update notice and **PA updates** footer
+   icon both open this page.
 3. Check the versions and the named PA server. Pi/Codex actions target BB’s
    configured primary host, never the computer displaying the browser.
 4. Keep the default **Keep local**, or choose **Install released version** for
    a customized integration. Bulk controls change choices, not installations.
 5. Choose **Update PA**. If BB has running threads, its restart requires explicit
    permission to interrupt them. Otherwise wait for those threads to finish.
-6. After a BB restart, reopen the panel to read the saved result.
+6. After a BB restart, return to **Settings → PA updates** to read the saved result.
 
-Opening the panel or checking never installs anything. The server checks every
+Opening the page or checking never installs anything. The server checks every
 six hours; repeated Apply requests join one saved job. The updater does not
 replace itself, install absent integrations, update unrelated plugins, or change
 other machines. It never executes commands supplied by a browser or release record.

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { definePluginApp, useRpc, useRealtime, useRealtimeConnectionState, experimental_Icon as Icon } from '@get-bb/plugin-sdk/app';
-import type { ExperimentalSidebarFooterDisclosureProps } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './contract.ts';
 import type { Status } from './core/model.ts';
 import type { ApplicationStatus, IntegrationId, IntegrationInventoryRow, FailureCode } from './core/application-model.ts';
@@ -35,7 +34,7 @@ function inventoryStatus(row: IntegrationInventoryRow) {
 }
 function Label({ id }: { id: IntegrationId }) { return <span className="pa-update-label"><Icon name={labels[id][1]} className="pa-update-icon" /><span>{labels[id][0]}</span></span>; }
 function RuntimeLabel({ id }: { id: RuntimeId }) { return <span className="pa-update-label"><Icon name={runtimeIcons[id]} className="pa-update-icon" /><span>{runtimeLabels[id]}</span></span>; }
-export function UpdatesPanel({ dismiss }: ExperimentalSidebarFooterDisclosureProps) {
+export function UpdatesPanel() {
   const rpc = useRpc<typeof rpcContract>(), connection = useRealtimeConnectionState();
   const [state, setState] = useState<ApplicationStatus | null>(null), [discovery, setDiscovery] = useState<Status | null>(null);
   const [error, setError] = useState(false), [busy, setBusy] = useState(false);
@@ -76,8 +75,7 @@ export function UpdatesPanel({ dismiss }: ExperimentalSidebarFooterDisclosurePro
   const installCount = ordinary.length + custom.filter(row => choices[row.id] === 'install').length + runtimeOffers.length;
   const visibleRuntimeRows = ordinary.length + custom.length + runtimeOffers.length > 0 ? runtimeRows.filter(row => row.state !== 'current') : runtimeRows;
   const failure = state?.failure ?? reviewedJob?.failure;
-  return <section className="pa-updates" aria-label="Update PA" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); dismiss(); } }}>
-    <header><strong>Update PA</strong><button type="button" aria-label="Close PA updates" onClick={dismiss}>×</button></header>
+  return <section className="pa-updates" aria-label="Update PA">
     <div className="pa-updates-body" ref={body}>
       <p role="status" aria-live="polite">{error ? 'Update status unavailable' : failure ? reviewedJob?.phase === 'attention' ? 'Update needs attention' : 'Check failed — previous results may be out of date' : state?.applying ? state.job?.phase === 'restarting' ? 'BB is updating and restarting…' : 'Updating PA…' : busy || state?.checking ? 'Checking installed versions and local changes…' : reviewedJob ? reviewedJob.phase === 'complete' ? 'Update finished' : 'Update needs attention' : !state?.review ? 'Check for PA updates' : rows.length || runtimeOffers.length ? '' : 'No updates offered' }</p>
       {error && <p role="alert">Could not read the result. Reopen this panel to check the saved job; do not assume the update failed.</p>}
@@ -108,9 +106,8 @@ export function UpdatesPanel({ dismiss }: ExperimentalSidebarFooterDisclosurePro
 }
 function UpdateNotice() {
   const rpc = useRpc<typeof rpcContract>(), connection = useRealtimeConnectionState();
-  const [available, setAvailable] = useState(false), [showReview, setShowReview] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null), mounted = useRef(true), generation = useRef(0);
-  useEffect(() => { if (showReview) dialog.current?.showModal(); else if (dialog.current?.open) dialog.current.close(); }, [showReview]);
+  const [available, setAvailable] = useState(false);
+  const mounted = useRef(true), generation = useRef(0);
   async function read() {
     const request = ++generation.current;
     try {
@@ -120,10 +117,10 @@ function UpdateNotice() {
   }
   useRealtime('application', () => { void read(); }); useRealtime('status', () => { void read(); });
   useEffect(() => { mounted.current = true; void read(); return () => { mounted.current = false; generation.current++; }; }, [connection]);
-  return <>{available && <button type="button" className="pa-update-notice" onClick={() => setShowReview(true)}><Icon name="RotateCcw" /> PA update available</button>}
-    <dialog ref={dialog} className="pa-update-dialog" aria-label="PA updates" onCancel={() => setShowReview(false)} onClose={() => setShowReview(false)}>{showReview && <UpdatesPanel dismiss={() => setShowReview(false)} />}</dialog></>;
+  return available ? <a className="pa-update-notice" href="/settings/plugins/pa-updates"><Icon name="RotateCcw" /> PA update available</a> : null;
 }
 export default definePluginApp(app => {
-  app.experimental_sidebarFooter.register({ kind: 'disclosure', id: 'updates', label: 'PA updates', icon: 'RotateCcw', component: UpdatesPanel });
+  app.slots.settingsSection({ id: 'updates', component: UpdatesPanel });
+  app.experimental_sidebarFooter.register({ kind: 'action', id: 'updates', label: 'PA updates', icon: 'RotateCcw', onActivate: context => context.openPluginDetails() });
   app.slots.experimental_appOverlay({ id: 'update-notice', component: UpdateNotice });
 });

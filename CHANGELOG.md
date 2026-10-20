@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- PA updates 0.2.4 moves the review into Settings → PA updates. The update-available notice remains, and both it and the footer shortcut open that same page. Choices, saved results and the single Update PA action are unchanged.
+
 - PA updates 0.2.3 keeps all installed PA integrations visible after checking, with current versions and honest current, local-change, pinned or unavailable status. This read-only inventory is separate from update offers: current integrations are not reinstalled or added to update receipts.
 
 - PA updates 0.2.2 uses shorter copy and compact, bordered version rows with one Update PA action. Local changes still default to Keep local; individual and bulk choices, restart consent and saved results remain available.

@@ -121,20 +121,36 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     if (await skip.isVisible()) await skip.click();
     await writeFile(join(artifacts, 'last-page.txt'), await page.locator('body').innerText());
     await page.screenshot({ path: join(artifacts, 'last-page.png') });
-    const trigger = page.getByRole('button', { name: 'PA updates', exact: true }), notice = page.getByRole('button', { name: 'PA update available', exact: true });
-    const fromNotice = laterOffer || ['normal', 'available', 'prerequisites', 'integrations_mixed'].includes(view);
-    if (fromNotice) { await notice.waitFor(); await notice.focus(); await page.keyboard.press('Enter'); }
-    else {
+    const trigger = page.getByRole('button', { name: 'PA updates', exact: true }), notice = page.getByRole('link', { name: 'PA update available', exact: true });
+    const settingsPath = '/settings/plugins/pa-updates';
+    const openFooter = async () => {
+      await page.goto(env.BB_SERVER_URL);
       if (width === 390 && await page.locator('main[data-sidebar-shelf="closed"]').count()) { await page.getByRole('button', { name: /Toggle sidebar/ }).click(); await page.locator('main[data-sidebar-shelf="open"]').waitFor(); }
       await trigger.waitFor({ timeout: 60000 }); await trigger.focus(); await page.keyboard.press('Enter');
-    }
+      await page.waitForURL('**' + settingsPath);
+    };
+    const openSettingsNav = async () => {
+      await page.goto(env.BB_SERVER_URL + '/settings');
+      const entry = page.getByRole('link', { name: 'PA updates', exact: true }); await entry.waitFor({ timeout: 60000 });
+      assert.equal(await entry.getAttribute('href'), settingsPath);
+      if (await entry.evaluate(el => !!el.closest('[inert]'))) { await page.getByRole('button', { name: /Toggle sidebar/ }).focus(); await page.keyboard.press('Enter'); await page.waitForFunction(() => !document.querySelector('a[href="/settings/plugins/pa-updates"]')?.closest('[inert]')); }
+      await entry.focus(); assert.equal(await entry.evaluate(el => document.activeElement === el), true, 'Native Settings entry must accept keyboard focus'); await page.keyboard.press('Enter');
+      await page.waitForURL('**' + settingsPath);
+    };
+    const fromNotice = laterOffer || ['normal', 'available', 'prerequisites', 'integrations_mixed'].includes(view);
+    if (fromNotice) { await notice.waitFor(); assert.equal(await notice.getAttribute('href'), settingsPath); await notice.focus(); await page.keyboard.press('Enter'); await page.waitForURL('**' + settingsPath); }
+    else if (view === 'integrations_current') await openSettingsNav();
+    else await openFooter();
     const section = page.getByRole('region', { name: 'Update PA', exact: true }); await section.waitFor();
+    assert.equal(await page.getByRole('heading', { name: 'PA updates', exact: true }).count(), 1);
+    assert.equal(await section.locator('header,dialog').count(), 0);
+    assert.equal(await section.getByRole('button', { name: 'Close PA updates' }).count(), 0);
+    assert.equal(await section.evaluate(el => getComputedStyle(el).maxHeight), 'none');
     await section.getByRole('button', { name: /Check again|Check for updates/ }).waitFor();
     await page.waitForFunction(() => document.querySelector('.pa-updates [role="status"]')?.textContent.length > 0 || !!document.querySelector('.pa-updates .pa-update-row, .pa-updates .pa-update-version'));
     assert.equal(await section.evaluate(el => el.scrollWidth > el.clientWidth), false); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.ok(!(await section.textContent()).includes('PRIVATE_SENTINEL')); assert.equal(await section.locator('script,a').count(), 0);
     assert.ok(await section.locator('[role="status"][aria-live="polite"]').count() > 0);
-    await page.waitForFunction(() => { const el = document.querySelector('.pa-updates'); const host = el.closest('dialog,[id^="plugin-sidebar-footer-disclosure-"]').getBoundingClientRect(); const own = el.getBoundingClientRect(); const check = el.querySelector('footer button').getBoundingClientRect(); return own.bottom <= host.bottom + 1 && check.bottom <= host.bottom && check.top >= host.top; });
     if (['failed', 'storage', 'checking', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'bb_failed', 'interrupted', 'rpc_error'].includes(view)) assert.equal(await notice.count(), 0);
     if (inventoryView) {
       await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = el.scrollHeight; });
@@ -207,10 +223,10 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
       assert.equal(await result.count(), view === 'updating' ? 4 : view === 'preflight' ? 5 : 1);
       await result.first().scrollIntoViewIfNeeded();
     }
-    const close = section.getByRole('button', { name: 'Close PA updates' }); await close.focus();
+    const check = section.getByRole('button', { name: /Check again|Check for updates/ });
+    if (await check.isEnabled()) { await check.focus(); assert.equal(await check.evaluate(el => getComputedStyle(el).outlineStyle), 'solid'); }
+    await page.getByRole('heading', { name: 'PA updates', exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(artifacts, 'last-open.png') });
-    await writeFile(join(artifacts, 'last-focus.json'), JSON.stringify(await close.evaluate(el => ({ focused: document.activeElement === el, outline: getComputedStyle(el).outlineStyle, active: document.activeElement.outerHTML, sidebar: document.querySelector('main')?.getAttribute('data-sidebar-shelf'), inert: !!el.closest('[inert]') })), null, 2));
-    assert.equal(await close.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
     await page.mouse.move(width - 10, 10); await page.screenshot({ path: join(artifacts, `${view}-${width}.png`) }); screenshots++;
     if (inventoryView || ['normal', 'available'].includes(view)) { await section.screenshot({ path: join(artifacts, `${view}-panel-${width}.png`) }); screenshots++; }
     if (inventoryView) { await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = el.scrollHeight; }); await section.screenshot({ path: join(artifacts, `${view}-bottom-${width}.png`) }); screenshots++; }
@@ -225,12 +241,11 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
       const saved = structuredClone(state.job);
       assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), 0, 'Opening the pill does not dismiss or reapply the old result');
       assert.ok((await section.locator('.pa-update-results').textContent()).includes(view === 'later_uncertain' ? 'Result uncertain' : 'Installed 0.1.2'));
-      await close.click(); await section.waitFor({ state: 'hidden' });
-      if (width === 390 && await page.locator('main[data-sidebar-shelf="closed"]').count()) { await page.getByRole('button', { name: /Toggle sidebar/ }).click(); await page.locator('main[data-sidebar-shelf="open"]').waitFor(); }
-      await trigger.focus(); await page.keyboard.press('Enter'); await section.waitFor();
+      await openFooter(); await section.waitFor();
       assert.ok((await section.locator('.pa-update-results').textContent()).includes(view === 'later_uncertain' ? 'Result uncertain' : 'Installed 0.1.2'));
-      await section.getByRole('button', { name: 'Close PA updates' }).click(); await section.waitFor({ state: 'hidden' });
-      await notice.focus(); await page.keyboard.press('Enter'); await section.waitFor();
+      await openSettingsNav(); await section.waitFor();
+      assert.ok((await section.locator('.pa-update-results').textContent()).includes(view === 'later_uncertain' ? 'Result uncertain' : 'Installed 0.1.2'));
+      await page.goto(env.BB_SERVER_URL); await notice.waitFor(); await notice.focus(); await page.keyboard.press('Enter'); await section.waitFor();
       assert.equal(writes.length, 0); assert.deepEqual(state.job, saved);
       await section.getByRole('button', { name: 'Check again', exact: true }).click();
       await section.getByText(view === 'later_runtime' ? '1.0.2 → 1.0.3' : '0.1.2 → 0.1.3', { exact: true }).waitFor();
@@ -247,15 +262,17 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     if (view === 'failed') { await section.getByRole('button', { name: 'Check again' }).click(); await page.waitForFunction(() => document.querySelector('.pa-updates [role="status"]')?.textContent === ''); assert.equal(writes[0].method, 'review'); }
     if (view === 'interrupted') { await section.getByRole('button', { name: 'Resume previously enabled folders' }).click(); assert.equal(writes[0].method, 'resumeSync'); }
     assert.equal(pageErrors.length, 0, 'Rendered app has JavaScript errors');
-    await section.getByRole('button', { name: 'Close PA updates' }).focus(); await page.keyboard.press('Escape'); await section.waitFor({ state: 'hidden' });
-    assert.equal(await (fromNotice ? notice : trigger).evaluate(el => document.activeElement === el), true, 'Closing restores focus to the entry button');
+    const savedJob = structuredClone(state.job), callsBeforeNavigation = writes.length;
+    await openSettingsNav(); await section.waitFor(); await openFooter(); await section.waitFor();
+    assert.deepEqual(state.job, savedJob); assert.equal(writes.length, callsBeforeNavigation, 'Navigation does not review, apply or discard a result');
+    if (savedJob && savedJob.reviewId === state.review?.id) await section.locator('.pa-update-results').waitFor();
     await page.close();
   }
   await browser.close(); browser = null;
   await cli('plugin', 'disable', 'pa-updates');
   const installed = JSON.parse(await cli('plugin', 'list', '--json')).plugins;
   assert.equal(installed.find(p => p.id === 'pa-updates').status, 'disabled'); assert.equal(installed.find(p => p.id === 'google-calendar').status, 'running');
-  const result = { evidence: 'Original app in disposable BB; synthetic RPC states, no native runtime writes', bb: bbVersion, views, screenshots, originalBundle: true, desktopAndNarrowKeyboard: true, explicitNativeConsent: views.includes('consent'), defaultKeep: views.includes('available'), laterOfferReview: ['later_plugin', 'later_runtime', 'later_uncertain'].every(view => views.includes(view)), artifacts };
+  const result = { evidence: 'Original app in disposable BB; synthetic RPC states, no native runtime writes', bb: bbVersion, views, screenshots, originalBundle: true, settingsHome: true, footerAndNoticeNavigation: true, desktopAndNarrowKeyboard: true, explicitNativeConsent: views.includes('consent'), defaultKeep: views.includes('available'), laterOfferReview: ['later_plugin', 'later_runtime', 'later_uncertain'].every(view => views.includes(view)), artifacts };
   await writeFile(join(artifacts, 'result.json'), JSON.stringify(result, null, 2)); completed = true; console.log(JSON.stringify(result));
 } finally {
   await browser?.close(); stop();
