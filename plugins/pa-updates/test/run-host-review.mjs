@@ -54,13 +54,25 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
   ], runtime: { target: { id: 'synthetic-primary-host', name: 'PA test server' }, runningThreadCount: 0, rows: ['pi', 'codex', 'bb'].map(id => ({ id, installed: '1.0.0', available: '1.0.1', source: id === 'bb' ? 'npm' : 'npmGlobal', state: 'ready', reason: null, fingerprint: id })) } } };
   const job = () => ({ id: '22222222-2222-4222-8222-222222222222', reviewId, phase: 'complete', receipts: base.review.rows.map(row => ({ id: row.id, choice: row.local === 'custom' ? 'keep' : 'install', before: row.installed, preview: row.available, actual: row.local === 'custom' ? row.installed : '0.1.2', outcome: row.local === 'custom' ? 'kept' : 'updated' })), syncReserved: false, failure: null, runtimeReceipts: base.review.runtime.rows.map(row => ({ id: row.id, before: row.installed, preview: row.available, actual: '1.0.2', source: row.source, outcome: 'updated' })), bbIntent: null, confirmInterruptingThreads: false });
   browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : { channel: 'chrome' }) });
-  const views = ['first', 'checking', 'current', 'normal', 'runtime_prerequisites', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
+  const views = ['first', 'checking', 'current', 'integrations_current', 'integrations_mixed', 'integrations_status', 'normal', 'runtime_prerequisites', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
   let screenshots = 0;
   for (const view of views) for (const width of [1280, 390]) {
     console.log(`Rendering synthetic ${view} at ${width}`);
     const page = await browser.newPage({ viewport: { width, height: 1000 } }); const pageErrors = []; page.on('pageerror', error => pageErrors.push(error.message));
     let state = structuredClone(base), notes = structuredClone(discovery); const writes = [];
-    const laterOffer = view.startsWith('later_');
+    const laterOffer = view.startsWith('later_'), inventoryView = view.startsWith('integrations_');
+    if (inventoryView) {
+      const mixed = view === 'integrations_mixed';
+      state.review.inventory = ['google-calendar', 'fastmail', 'google-drive', 'icloud', 'obsidian'].map(id => ({ id, installed: '0.1.0', state: mixed && ['google-calendar', 'fastmail'].includes(id) ? 'offered' : 'current', local: mixed && id === 'fastmail' ? 'custom' : 'stock', prerequisite: null }));
+      if (!mixed) state.review.rows = [];
+      state.offers.available = mixed; state.review.runtime.rows.forEach(row => { row.state = 'current'; row.available = null; });
+      if (view === 'integrations_status') {
+        Object.assign(state.review.inventory[1], { local: 'custom' });
+        Object.assign(state.review.inventory[2], { state: 'unavailable', prerequisite: 'unavailable' });
+        Object.assign(state.review.inventory[3], { state: 'pinned', local: 'unknown' });
+        Object.assign(state.review.inventory[4], { state: 'unavailable', local: 'unknown', prerequisite: 'baseline_unknown' });
+      }
+    }
     if (view === 'first') { state.review = null; state.offers = null; notes.comparison = 'first'; }
     if (view === 'checking') state.checking = true;
     if (view === 'current') { state.offers.available = false; state.review.rows = []; state.review.runtime.rows.forEach(row => { row.state = 'current'; row.available = null; }); notes.comparison = 'current'; }
@@ -91,7 +103,8 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
       if (['review', 'apply', 'resumeSync'].includes(method)) {
         writes.push({ method, input: route.request().postDataJSON() });
         if (method === 'review') {
-          const savedJob = state.job; state = structuredClone(base);
+          const savedJob = state.job; state = structuredClone(inventoryView ? state : base);
+          if (inventoryView) state.review.id = '33333333-3333-4333-8333-333333333333';
           if (laterOffer) {
             state.job = savedJob; state.review.id = '33333333-3333-4333-8333-333333333333';
             state.review.rows = view === 'later_runtime' ? [] : [{ ...base.review.rows[0], installed: '0.1.2', available: '0.1.3' }];
@@ -109,7 +122,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     await writeFile(join(artifacts, 'last-page.txt'), await page.locator('body').innerText());
     await page.screenshot({ path: join(artifacts, 'last-page.png') });
     const trigger = page.getByRole('button', { name: 'PA updates', exact: true }), notice = page.getByRole('button', { name: 'PA update available', exact: true });
-    const fromNotice = laterOffer || ['normal', 'available', 'prerequisites'].includes(view);
+    const fromNotice = laterOffer || ['normal', 'available', 'prerequisites', 'integrations_mixed'].includes(view);
     if (fromNotice) { await notice.waitFor(); await notice.focus(); await page.keyboard.press('Enter'); }
     else {
       if (width === 390 && await page.locator('main[data-sidebar-shelf="closed"]').count()) { await page.getByRole('button', { name: /Toggle sidebar/ }).click(); await page.locator('main[data-sidebar-shelf="open"]').waitFor(); }
@@ -123,6 +136,27 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     assert.ok(await section.locator('[role="status"][aria-live="polite"]').count() > 0);
     await page.waitForFunction(() => { const el = document.querySelector('.pa-updates'); const host = el.closest('dialog,[id^="plugin-sidebar-footer-disclosure-"]').getBoundingClientRect(); const own = el.getBoundingClientRect(); const check = el.querySelector('footer button').getBoundingClientRect(); return own.bottom <= host.bottom + 1 && check.bottom <= host.bottom && check.top >= host.top; });
     if (['failed', 'storage', 'checking', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'bb_failed', 'interrupted', 'rpc_error'].includes(view)) assert.equal(await notice.count(), 0);
+    if (inventoryView) {
+      await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = el.scrollHeight; });
+      await section.getByRole('button', { name: 'Check again', exact: true }).focus(); await page.keyboard.press('Enter');
+      await page.waitForFunction(() => !document.querySelector('.pa-updates footer button')?.disabled && document.querySelector('.pa-updates-body')?.scrollTop === 0);
+      if (view === 'integrations_current') {
+        for (const name of ['Calendar', 'Fastmail', 'Google Drive', 'iCloud', 'Obsidian']) {
+          const label = section.getByText(name, { exact: true }); await label.scrollIntoViewIfNeeded();
+          assert.ok(await label.evaluate(el => { const row = el.getBoundingClientRect(), body = el.closest('.pa-updates-body').getBoundingClientRect(); return row.top >= body.top && row.bottom <= body.bottom; }), 'Every integration is reachable in the native scroll area');
+        }
+        await section.screenshot({ path: join(artifacts, `${view}-components-${width}.png`) }); screenshots++;
+        await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = 0; });
+      }
+      for (const name of ['Calendar', 'Fastmail', 'Google Drive', 'iCloud', 'Obsidian']) assert.equal(await section.getByText(name, { exact: true }).count(), 1);
+      const mixed = view === 'integrations_mixed';
+      assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), mixed ? 1 : 0);
+      if (!mixed) assert.equal(await notice.count(), 0);
+      assert.equal(await section.locator('.pa-update-card').filter({ hasText: 'Up to date' }).count(), view === 'integrations_current' ? 5 : mixed ? 3 : 1);
+      if (mixed) assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
+      if (view === 'integrations_status') for (const status of ['Local changes', 'Could not check', 'Version pinned', 'Changes unverified']) await section.getByText(new RegExp(status)).waitFor();
+      assert.deepEqual(writes.map(entry => entry.method), ['review']);
+    }
     if (view === 'failed') await section.getByText('Check failed — previous results may be out of date', { exact: true }).waitFor();
     if (view === 'available') {
       assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
@@ -178,7 +212,8 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     await writeFile(join(artifacts, 'last-focus.json'), JSON.stringify(await close.evaluate(el => ({ focused: document.activeElement === el, outline: getComputedStyle(el).outlineStyle, active: document.activeElement.outerHTML, sidebar: document.querySelector('main')?.getAttribute('data-sidebar-shelf'), inert: !!el.closest('[inert]') })), null, 2));
     assert.equal(await close.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
     await page.mouse.move(width - 10, 10); await page.screenshot({ path: join(artifacts, `${view}-${width}.png`) }); screenshots++;
-    if (['normal', 'available'].includes(view)) { await section.screenshot({ path: join(artifacts, `${view}-panel-${width}.png`) }); screenshots++; }
+    if (inventoryView || ['normal', 'available'].includes(view)) { await section.screenshot({ path: join(artifacts, `${view}-panel-${width}.png`) }); screenshots++; }
+    if (inventoryView) { await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = el.scrollHeight; }); await section.screenshot({ path: join(artifacts, `${view}-bottom-${width}.png`) }); screenshots++; }
     if (view === 'available') {
       const detail = section.locator('summary', { hasText: 'Release notes' }); await detail.scrollIntoViewIfNeeded(); await detail.focus(); await page.keyboard.press('Enter');
       assert.equal(await detail.evaluate(el => el.parentElement.open), true); assert.equal(await section.locator('script').count(), 0);

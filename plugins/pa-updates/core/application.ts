@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
-import { ApplicationError, assessmentSchema, applicationSavedSchema, applyInputSchema, reviewSchema, version } from './application-model.ts';
-import type { ApplicationSaved as Saved, ApplicationStatus, Assessment, IntegrationId, FailureCode } from './application-model.ts';
+import { ApplicationError, assessmentSchema, integrationInventorySchema, applicationSavedSchema, applyInputSchema, reviewSchema, version } from './application-model.ts';
+import type { ApplicationSaved as Saved, ApplicationStatus, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode } from './application-model.ts';
 import { runtimeReviewSchema } from './runtime-model.ts';
 import type { RuntimePorts } from './runtime-model.ts';
 export * from './application-model.ts';
 export type ApplicationPorts = {
   inspect(): Promise<Assessment[]>;
+  /** Read-only inventory from the same completed inspection; never install authority. */
+  inventory?(): IntegrationInventoryRow[];
   validateMix(installing: IntegrationId[]): Promise<void>;
   update(id: IntegrationId, authorized: { installed: string; fingerprint: string; jobId: string }): Promise<{ actual: string; updated: boolean }>;
   quiesce(ids: IntegrationId[], jobId: string, remember: () => Promise<void>): Promise<void>;
@@ -110,6 +112,8 @@ export class Application {
       try {
         const rows = z.array(assessmentSchema).max(5).parse(await this.ports.inspect()); this.active();
         if (new Set(rows.map(row => row.id)).size !== rows.length) throw new ApplicationError('unavailable');
+        const inventory = z.array(integrationInventorySchema).max(5).parse(this.ports.inventory?.() ?? []);
+        if (new Set(inventory.map(row => row.id)).size !== inventory.length) throw new ApplicationError('unavailable');
         const runtime = this.ports.runtime ? runtimeReviewSchema.parse(await this.ports.runtime.inspect()) : null; this.active();
         if (runtime && new Set(runtime.rows.map(row => row.id)).size !== runtime.rows.length) throw new ApplicationError('unavailable');
         const previous = this.saved.review, preserve = !this.reviewRequested && this.saved.job && this.saved.job.reviewId === previous?.id;
@@ -125,7 +129,7 @@ export class Application {
             (!preserve || this.saved.job?.runtimeReceipts.some(receipt => receipt.id === row.id && receipt.outcome === 'updated') ||
               row.available !== previous?.runtime?.rows.find(old => old.id === row.id)?.available)) };
         this.failure = null;
-        if (!preserve) { this.saved.review = { id: randomUUID(), at: checkedAt, rows, runtime }; await this.persist(); }
+        if (!preserve) { this.saved.review = { id: randomUUID(), at: checkedAt, rows, runtime, inventory }; await this.persist(); }
       } catch (error) { if (!this.disposed) { this.offers = null; this.failure = category(error); this.ports.diagnose('review', this.failure); } }
       finally { this.checking = null; this.reviewRequested = false; if (!this.disposed) this.notify(); }
       return this.status();

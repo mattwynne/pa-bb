@@ -15,7 +15,12 @@ export const assessmentSchema = z.object({
   prerequisite: failureCode.nullable(),
 });
 export type Assessment = z.infer<typeof assessmentSchema>;
-export const reviewSchema = z.object({ id: z.string().uuid(), at: z.string().datetime(), rows: z.array(assessmentSchema).max(5), runtime: runtimeReviewSchema.nullable().default(null) });
+export const integrationInventorySchema = z.object({
+  id: integrationId, installed: version, local: assessmentSchema.shape.local,
+  state: z.enum(['current', 'offered', 'pinned', 'unavailable']), prerequisite: failureCode.nullable(),
+});
+export type IntegrationInventoryRow = z.infer<typeof integrationInventorySchema>;
+export const reviewSchema = z.object({ id: z.string().uuid(), at: z.string().datetime(), rows: z.array(assessmentSchema).max(5), runtime: runtimeReviewSchema.nullable().default(null), inventory: z.array(integrationInventorySchema).max(5).optional() });
 const receiptSchema = z.object({ id: integrationId, choice: z.enum(['keep', 'install']), before: version,
   preview: version, actual: version.nullable(), outcome: z.enum(['pending', 'kept', 'skipped', 'activating', 'updated', 'unchanged', 'uncertain']) });
 const jobSchema = z.object({ id: z.string().uuid(), reviewId: z.string().uuid(),

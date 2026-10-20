@@ -36,9 +36,10 @@ test('one unsupported source is isolated and unchanged trusted integrations stil
     getSource: async ({ pluginId }: { pluginId: string }) => pluginId === 'google-calendar' ? { requested: 'path:fixture-local' } : { requested: `git:${SOURCE_URL}@main`, subdirectory: 'plugins/fastmail', resolved: `${SOURCE_URL}@main (${SHA.slice(0, 12)})` },
     checkUpdates: async ({ pluginId }: { pluginId: string }) => { checked.push(pluginId); return [{ id: pluginId, outcome: 'current' }]; },
   } } } as unknown as BbPluginApi;
-  const rows = await applicationPorts(bb).inspect();
-  assert.deepEqual(checked, ['fastmail']); assert.deepEqual(inspected, ['fastmail']); assert.equal(rows.length, 1); assert.equal(rows[0].local, 'unknown');
-  assert.equal(rows[0].id, 'google-calendar'); assert.deepEqual(logs, ['pa-updates stage=review outcome=baseline_unknown']);
+  const ports = applicationPorts(bb), rows = await ports.inspect(), inventory = ports.inventory!();
+  assert.deepEqual(checked, ['google-calendar', 'fastmail']); assert.deepEqual(inspected, ['fastmail']); assert.equal(rows.length, 0);
+  assert.equal(inventory[0].id, 'google-calendar'); assert.equal(inventory[0].local, 'unknown'); assert.equal(inventory[0].state, 'unavailable');
+  assert.equal(inventory[1].state, 'current'); assert.deepEqual(logs, ['pa-updates stage=review outcome=baseline_unknown']);
 });
 test('missing checker SDK metadata never guesses compatibility from the development pin', async () => {
   const bb = { pluginId: 'pa-updates', sdk: { plugins: { async list() { return { plugins: [] }; } }, system: { async version() { return { currentVersion: '0.46.0' }; } } } } as unknown as BbPluginApi;

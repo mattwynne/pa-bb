@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- PA updates 0.2.3 keeps all installed PA integrations visible after checking, with current versions and honest current, local-change, pinned or unavailable status. This read-only inventory is separate from update offers: current integrations are not reinstalled or added to update receipts.
+
 - PA updates 0.2.2 uses shorter copy and compact, bordered version rows with one Update PA action. Local changes still default to Keep local; individual and bulk choices, restart consent and saved results remain available.
 
 - Fastmail 0.1.7 adds optional CardDAV contact-group list/inspection and preview-first membership add/remove. The MIT service is copied locally from pi-extensions, with BB secret settings, conditional writes, read-back verification and no automatic write retries. Existing MCP tools still own contact creation; message-label changes do not update future sender routing. Live CardDAV access and downstream routing remain unverified.

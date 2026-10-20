@@ -3,7 +3,7 @@ import { definePluginApp, useRpc, useRealtime, useRealtimeConnectionState, exper
 import type { ExperimentalSidebarFooterDisclosureProps } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './contract.ts';
 import type { Status } from './core/model.ts';
-import type { ApplicationStatus, IntegrationId, FailureCode } from './core/application-model.ts';
+import type { ApplicationStatus, IntegrationId, IntegrationInventoryRow, FailureCode } from './core/application-model.ts';
 import type { RuntimeId } from './core/runtime-model.ts';
 import { hasFreshOffers } from './core/notice.ts';
 import './app.css';
@@ -28,6 +28,11 @@ const prerequisites: Partial<Record<FailureCode, string>> = {
   unavailable: 'Could not check this integration. Check BB and your connection, then check again.',
   incompatible: 'The available release does not meet this integration’s requirements. This integration will not be replaced.',
 };
+function inventoryStatus(row: IntegrationInventoryRow) {
+  const status = row.state === 'current' ? row.local === 'stock' ? 'Up to date' : row.local === 'custom' ? 'Local changes' : 'Changes unverified'
+    : row.state === 'pinned' ? 'Version pinned' : row.state === 'offered' ? 'Update available' : row.prerequisite === 'baseline_unknown' ? 'Changes unverified' : row.prerequisite === 'incompatible' ? 'Update unavailable' : 'Could not check';
+  return row.local === 'custom' && row.state !== 'current' ? `Local changes · ${status}` : status;
+}
 function Label({ id }: { id: IntegrationId }) { return <span className="pa-update-label"><Icon name={labels[id][1]} className="pa-update-icon" /><span>{labels[id][0]}</span></span>; }
 function RuntimeLabel({ id }: { id: RuntimeId }) { return <span className="pa-update-label"><Icon name={runtimeIcons[id]} className="pa-update-icon" /><span>{runtimeLabels[id]}</span></span>; }
 export function UpdatesPanel({ dismiss }: ExperimentalSidebarFooterDisclosureProps) {
@@ -36,7 +41,7 @@ export function UpdatesPanel({ dismiss }: ExperimentalSidebarFooterDisclosurePro
   const [error, setError] = useState(false), [busy, setBusy] = useState(false);
   const [choices, setChoices] = useState<Partial<Record<IntegrationId, 'keep' | 'install'>>>({});
   const [confirmInterruptingThreads, setConfirmInterruptingThreads] = useState(false);
-  const generation = useRef(0), mounted = useRef(true);
+  const generation = useRef(0), mounted = useRef(true), body = useRef<HTMLDivElement>(null);
   async function read() {
     const request = ++generation.current;
     try { const [next, notes] = await Promise.all([rpc.call('applicationStatus', null), rpc.call('status', null)]); if (mounted.current && request === generation.current) { setState(next); setDiscovery(notes); setError(false); } }
@@ -45,7 +50,7 @@ export function UpdatesPanel({ dismiss }: ExperimentalSidebarFooterDisclosurePro
   useRealtime('application', () => { void read(); });
   useRealtime('status', () => { void read(); });
   useEffect(() => { mounted.current = true; void read(); return () => { mounted.current = false; generation.current++; }; }, [connection]);
-  useEffect(() => { setChoices({}); setConfirmInterruptingThreads(false); }, [state?.review?.id]);
+  useEffect(() => { setChoices({}); setConfirmInterruptingThreads(false); body.current?.scrollTo({ top: 0 }); }, [state?.review?.id]);
   useEffect(() => {
     const unresolvedBb = state?.job?.bbIntent && state.job.runtimeReceipts.some(row => row.id === 'bb' && row.outcome === 'uncertain');
     if (!busy && !state?.applying && !state?.checking && !unresolvedBb) return;
@@ -61,6 +66,7 @@ export function UpdatesPanel({ dismiss }: ExperimentalSidebarFooterDisclosurePro
     finally { if (mounted.current) setBusy(false); }
   }
   const rows = state?.review?.rows ?? [], custom = rows.filter(row => row.local === 'custom'), ordinary = rows.filter(row => row.local === 'stock'), unknown = rows.filter(row => row.local === 'unknown');
+  const inventory = (state?.review?.inventory ?? []).filter(row => !rows.some(offer => offer.id === row.id));
   const pending = busy || state?.applying || state?.checking || discovery?.checking;
   const reviewedJob = state?.job?.reviewId === state?.review?.id ? state?.job : null;
   const runtime = state?.review?.runtime, runtimeRows = runtime?.rows ?? [];
@@ -72,7 +78,7 @@ export function UpdatesPanel({ dismiss }: ExperimentalSidebarFooterDisclosurePro
   const failure = state?.failure ?? reviewedJob?.failure;
   return <section className="pa-updates" aria-label="Update PA" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); dismiss(); } }}>
     <header><strong>Update PA</strong><button type="button" aria-label="Close PA updates" onClick={dismiss}>×</button></header>
-    <div className="pa-updates-body">
+    <div className="pa-updates-body" ref={body}>
       <p role="status" aria-live="polite">{error ? 'Update status unavailable' : failure ? reviewedJob?.phase === 'attention' ? 'Update needs attention' : 'Check failed — previous results may be out of date' : state?.applying ? state.job?.phase === 'restarting' ? 'BB is updating and restarting…' : 'Updating PA…' : busy || state?.checking ? 'Checking installed versions and local changes…' : reviewedJob ? reviewedJob.phase === 'complete' ? 'Update finished' : 'Update needs attention' : !state?.review ? 'Check for PA updates' : rows.length || runtimeOffers.length ? '' : 'No updates offered' }</p>
       {error && <p role="alert">Could not read the result. Reopen this panel to check the saved job; do not assume the update failed.</p>}
       {failure && <p role="alert">{failures[failure]}</p>}
@@ -83,6 +89,7 @@ export function UpdatesPanel({ dismiss }: ExperimentalSidebarFooterDisclosurePro
           <p className="pa-updates-muted">Installing a release replaces local changes, not settings or data.</p></>}
         {ordinary.length > 0 && <div className="pa-update-ordinary">{custom.length > 0 && <h3>Also updating</h3>}{ordinary.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed} → <strong>{row.available}</strong></span></div>)}</div>}
         {unknown.map(row => <div className="pa-update-card" key={row.id}><Label id={row.id} /><p>{prerequisites[row.prerequisite ?? 'baseline_unknown'] ?? failures[row.prerequisite ?? 'baseline_unknown']}</p></div>)}
+        {inventory.length > 0 && <div className="pa-update-ordinary">{inventory.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed === 'unknown' ? 'Version unknown' : row.installed} · {inventoryStatus(row)}</span></div>)}</div>}
         {visibleRuntimeRows.length > 0 && <div className="pa-update-ordinary">{visibleRuntimeRows.map(row => <div className="pa-update-card" key={row.id}><div className="pa-update-version"><RuntimeLabel id={row.id} /><span>{row.installed ?? (row.source === 'missing' ? 'Not installed' : 'Installed version unknown')}{row.state === 'ready' ? <> → <strong>{row.available}</strong></> : row.state === 'current' ? ' · No update offered' : ' · Update unavailable'}</span></div>{row.reason && <p className="pa-updates-muted">{failures[row.reason]}</p>}</div>)}</div>}
         {installCount > 0 && <p>{bbOffered ? 'BB will restart. ' : ''}Settings and data stay.</p>}
         {needsConsent && <label className="pa-update-consent"><input type="checkbox" checked={confirmInterruptingThreads} disabled={pending} onChange={event => setConfirmInterruptingThreads(event.target.checked)} /><span>Allow the BB restart to interrupt running threads ({runtime?.runningThreadCount} currently running).</span></label>}
