@@ -54,13 +54,14 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
   ], runtime: { target: { id: 'synthetic-primary-host', name: 'PA test server' }, runningThreadCount: 0, rows: ['pi', 'codex', 'bb'].map(id => ({ id, installed: '1.0.0', available: '1.0.1', source: id === 'bb' ? 'npm' : 'npmGlobal', state: 'ready', reason: null, fingerprint: id })) } } };
   const job = () => ({ id: '22222222-2222-4222-8222-222222222222', reviewId, phase: 'complete', receipts: base.review.rows.map(row => ({ id: row.id, choice: row.local === 'custom' ? 'keep' : 'install', before: row.installed, preview: row.available, actual: row.local === 'custom' ? row.installed : '0.1.2', outcome: row.local === 'custom' ? 'kept' : 'updated' })), syncReserved: false, failure: null, runtimeReceipts: base.review.runtime.rows.map(row => ({ id: row.id, before: row.installed, preview: row.available, actual: '1.0.2', source: row.source, outcome: 'updated' })), bbIntent: null, confirmInterruptingThreads: false });
   browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : { channel: 'chrome' }) });
-  const views = ['first', 'checking', 'current', 'integrations_current', 'integrations_mixed', 'integrations_status', 'normal', 'runtime_prerequisites', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
+  const views = ['first', 'checking', 'current', 'integrations_current', 'integrations_mixed', 'integrations_status', 'integrations_failed', 'integrations_rpc_failed', 'integrations_action_failed', 'normal', 'runtime_prerequisites', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
   let screenshots = 0;
   for (const view of views) for (const width of [1280, 390]) {
     console.log(`Rendering synthetic ${view} at ${width}`);
     const page = await browser.newPage({ viewport: { width, height: 1000 } }); const pageErrors = []; page.on('pageerror', error => pageErrors.push(error.message));
     let state = structuredClone(base), notes = structuredClone(discovery); const writes = [];
     const laterOffer = view.startsWith('later_'), inventoryView = view.startsWith('integrations_');
+    const failureMode = view === 'integrations_failed' ? 'server' : view === 'integrations_rpc_failed' ? 'read' : view === 'integrations_action_failed' ? 'action' : null;
     if (inventoryView) {
       const mixed = view === 'integrations_mixed';
       state.review.inventory = ['google-calendar', 'fastmail', 'google-drive', 'icloud', 'obsidian'].map(id => ({ id, installed: '0.1.0', state: mixed && ['google-calendar', 'fastmail'].includes(id) ? 'offered' : 'current', local: mixed && id === 'fastmail' ? 'custom' : 'stock', prerequisite: null }));
@@ -102,7 +103,8 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
       const method = new URL(route.request().url()).pathname.split('/').at(-1); assert.ok(['applicationStatus', 'status', 'review', 'apply', 'resumeSync'].includes(method));
       if (['review', 'apply', 'resumeSync'].includes(method)) {
         writes.push({ method, input: route.request().postDataJSON() });
-        if (method === 'review') {
+        if (method === 'review' && failureMode === 'server') state.failure = 'unavailable';
+        if (method === 'review' && (!failureMode || failureMode !== 'server' && writes.filter(entry => entry.method === 'review').length > 2)) {
           const savedJob = state.job; state = structuredClone(inventoryView ? state : base);
           if (inventoryView) state.review.id = '33333333-3333-4333-8333-333333333333';
           if (laterOffer) {
@@ -114,7 +116,9 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
         if (method === 'apply') { state.job = job(); state.job.confirmInterruptingThreads = route.request().postDataJSON().confirmInterruptingThreads; }
         if (method === 'resumeSync') state.job.syncReserved = false;
       }
-      return route.fulfill({ json: view === 'rpc_error' ? { ok: false, error: { code: 'internal', message: 'PRIVATE_SENTINEL private response' } } : { ok: true, result: method === 'status' ? notes : state } });
+      const firstFailedCheck = writes.filter(entry => entry.method === 'review').length === 1;
+      const rpcFailed = view === 'rpc_error' || firstFailedCheck && (failureMode === 'action' && method === 'review' || failureMode === 'read' && method === 'applicationStatus');
+      return route.fulfill({ json: rpcFailed ? { ok: false, error: { code: 'internal', message: 'PRIVATE_SENTINEL private response' } } : { ok: true, result: method === 'status' ? notes : state } });
     });
     await page.goto(env.BB_SERVER_URL); await page.locator('button').first().waitFor({ timeout: 60000 });
     const skip = page.getByRole('button', { name: 'Skip setup', exact: true });
@@ -153,6 +157,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     assert.ok(await section.locator('[role="status"][aria-live="polite"]').count() > 0);
     if (['failed', 'storage', 'checking', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'bb_failed', 'interrupted', 'rpc_error'].includes(view)) assert.equal(await notice.count(), 0);
     if (inventoryView) {
+      if (failureMode) await page.waitForFunction(() => document.querySelectorAll('.pa-update-check').length === 8);
       await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = el.scrollHeight; });
       await section.getByRole('button', { name: 'Check again', exact: true }).focus(); await page.keyboard.press('Enter');
       await page.waitForFunction(() => !document.querySelector('.pa-updates footer button')?.disabled && document.querySelector('.pa-updates-body')?.scrollTop === 0);
@@ -161,14 +166,21 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
           const label = section.getByText(name, { exact: true }); await label.scrollIntoViewIfNeeded();
           assert.ok(await label.evaluate(el => { const row = el.getBoundingClientRect(), body = el.closest('.pa-updates-body').getBoundingClientRect(); return row.top >= body.top && row.bottom <= body.bottom; }), 'Every integration is reachable in the native scroll area');
         }
-        await section.screenshot({ path: join(artifacts, `${view}-components-${width}.png`) }); screenshots++;
         await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = 0; });
       }
       for (const name of ['Calendar', 'Fastmail', 'Google Drive', 'iCloud', 'Obsidian']) assert.equal(await section.getByText(name, { exact: true }).count(), 1);
       const mixed = view === 'integrations_mixed';
       assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), mixed ? 1 : 0);
       if (!mixed) assert.equal(await notice.count(), 0);
-      assert.equal(await section.locator('.pa-update-card').filter({ hasText: 'Up to date' }).count(), view === 'integrations_current' ? 5 : mixed ? 3 : 1);
+      const expectedChecks = failureMode ? 0 : view === 'integrations_current' ? 8 : mixed ? 3 : 4;
+      assert.equal(await section.locator('.pa-update-check').count(), expectedChecks);
+      assert.equal(await section.locator('.pa-update-card').filter({ hasText: 'Up to date' }).count(), expectedChecks);
+      for (const icon of await section.locator('.pa-update-check').all()) {
+        assert.equal(await icon.getAttribute('aria-hidden'), 'true');
+        assert.notEqual(await icon.evaluate(el => getComputedStyle(el).color), await icon.evaluate(el => getComputedStyle(el.parentElement).color));
+      }
+      if (mixed) for (const name of ['Calendar', 'Fastmail']) assert.equal(await section.locator('.pa-update-card,.pa-update-row').filter({ has: page.getByText(name, { exact: true }) }).locator('.pa-update-check').count(), 0);
+      if (failureMode) assert.equal(await section.getByText('Not confirmed', { exact: false }).count(), 8);
       if (mixed) assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
       if (view === 'integrations_status') for (const status of ['Local changes', 'Could not check', 'Version pinned', 'Changes unverified']) await section.getByText(new RegExp(status)).waitFor();
       assert.deepEqual(writes.map(entry => entry.method), ['review']);
@@ -207,6 +219,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     }
     if (['current', 'runtime_prerequisites'].includes(view)) for (const name of ['Pi', 'Codex', 'BB']) await section.getByText(name, { exact: true }).waitFor();
     if (view === 'runtime_prerequisites') {
+      assert.equal(await section.locator('.pa-update-check').count(), 0);
       await section.getByText(/This CLI is not installed/).waitFor();
       await section.getByText(/This installation cannot use/).waitFor();
       await section.getByText(/Could not finish this step/).waitFor();
@@ -228,8 +241,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     await page.getByRole('heading', { name: 'PA updates', exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(artifacts, 'last-open.png') });
     await page.mouse.move(width - 10, 10); await page.screenshot({ path: join(artifacts, `${view}-${width}.png`) }); screenshots++;
-    if (inventoryView || ['normal', 'available'].includes(view)) { await section.screenshot({ path: join(artifacts, `${view}-panel-${width}.png`) }); screenshots++; }
-    if (inventoryView) { await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = el.scrollHeight; }); await section.screenshot({ path: join(artifacts, `${view}-bottom-${width}.png`) }); screenshots++; }
+    if (['integrations_current', 'integrations_mixed', 'normal', 'available'].includes(view)) { await section.screenshot({ path: join(artifacts, `${view}-panel-${width}.png`) }); screenshots++; }
     if (view === 'available') {
       const detail = section.locator('summary', { hasText: 'Release notes' }); await detail.scrollIntoViewIfNeeded(); await detail.focus(); await page.keyboard.press('Enter');
       assert.equal(await detail.evaluate(el => el.parentElement.open), true); assert.equal(await section.locator('script').count(), 0);
@@ -262,6 +274,13 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     if (view === 'failed') { await section.getByRole('button', { name: 'Check again' }).click(); await page.waitForFunction(() => document.querySelector('.pa-updates [role="status"]')?.textContent === ''); assert.equal(writes[0].method, 'review'); }
     if (view === 'interrupted') { await section.getByRole('button', { name: 'Resume previously enabled folders' }).click(); assert.equal(writes[0].method, 'resumeSync'); }
     assert.equal(pageErrors.length, 0, 'Rendered app has JavaScript errors');
+    if (failureMode === 'read' || failureMode === 'action') {
+      // A successful read of the old cached review must not restore green checks.
+      await check.focus(); await page.keyboard.press('Enter'); await page.waitForFunction(() => !document.querySelector('.pa-updates footer button')?.disabled);
+      assert.equal(await section.locator('.pa-update-check').count(), 0); assert.equal(await section.getByText('Not confirmed', { exact: false }).count(), 8);
+      // A genuinely new successful review can confirm the versions again.
+      await check.focus(); await page.keyboard.press('Enter'); await page.waitForFunction(() => document.querySelectorAll('.pa-update-check').length === 8);
+    }
     const savedJob = structuredClone(state.job), callsBeforeNavigation = writes.length;
     await openSettingsNav(); await section.waitFor(); await openFooter(); await section.waitFor();
     assert.deepEqual(state.job, savedJob); assert.equal(writes.length, callsBeforeNavigation, 'Navigation does not review, apply or discard a result');

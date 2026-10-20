@@ -37,6 +37,8 @@
 .pa-update-version, .pa-update-results li { display: grid; grid-template-columns: 120px minmax(0,1fr); align-items: center; gap: 12px; }
 .pa-update-version > span:last-child { color: var(--muted-foreground); }
 .pa-update-version strong { color: var(--foreground); font-weight: 600; }
+.pa-update-current { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; white-space: nowrap; }
+.pa-update-check { color: var(--success, #27815d); width: 14px; height: 14px; flex: none; }
 .pa-update-results { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }
 .pa-update-results li { align-items: start; }
 .pa-updates button.pa-update-primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }

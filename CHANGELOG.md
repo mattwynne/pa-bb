@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- PA updates 0.2.5 adds green checks beside confirmed Up to date versions. Local changes and failed, pinned or unverified checks stay neutral; a failed refresh cannot turn cached results green.
+
 - PA updates 0.2.4 moves the review into Settings → PA updates. The update-available notice remains, and both it and the footer shortcut open that same page. Choices, saved results and the single Update PA action are unchanged.
 
 - PA updates 0.2.3 keeps all installed PA integrations visible after checking, with current versions and honest current, local-change, pinned or unavailable status. This read-only inventory is separate from update offers: current integrations are not reinstalled or added to update receipts.
