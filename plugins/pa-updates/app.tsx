@@ -29,11 +29,11 @@ const prerequisites: Partial<Record<FailureCode, string>> = {
 };
 function inventoryStatus(row: IntegrationInventoryRow) {
   const status = row.state === 'current' ? row.local === 'stock' ? 'Up to date' : row.local === 'custom' ? 'Local changes' : 'Changes unverified'
-    : row.state === 'pinned' ? 'Version pinned' : row.state === 'offered' ? 'Update available' : row.prerequisite === 'baseline_unknown' ? 'Changes unverified' : row.prerequisite === 'incompatible' ? 'Update unavailable' : 'Could not check';
+    : row.state === 'pinned' ? 'Version pinned' : row.state === 'offered' ? 'Update available' : row.prerequisite === 'baseline_unknown' ? 'Changes unverified' : row.prerequisite === 'incompatible' ? 'Update unavailable' : 'Couldn’t check';
   return row.local === 'custom' && row.state !== 'current' ? `Local changes · ${status}` : status;
 }
-function CurrentStatus({ confirmed }: { confirmed: boolean }) {
-  return confirmed ? <span className="pa-update-current"><Icon name="Check" className="pa-update-check" aria-hidden={true} />Up to date</span> : <>Not confirmed</>;
+function CurrentStatus({ confirmed, checking }: { confirmed: boolean; checking: boolean }) {
+  return confirmed ? <span className="pa-update-current"><Icon name="Check" className="pa-update-check" aria-hidden={true} />Up to date</span> : <>{checking ? 'Checking…' : 'Couldn’t check'}</>;
 }
 function Label({ id }: { id: IntegrationId }) { return <span className="pa-update-label"><Icon name={labels[id][1]} className="pa-update-icon" /><span>{labels[id][0]}</span></span>; }
 function RuntimeLabel({ id }: { id: RuntimeId }) { return <span className="pa-update-label"><Icon name={runtimeIcons[id]} className="pa-update-icon" /><span>{runtimeLabels[id]}</span></span>; }
@@ -91,8 +91,8 @@ export function UpdatesPanel() {
           <p className="pa-updates-muted">Installing a release replaces local changes, not settings or data.</p></>}
         {ordinary.length > 0 && <div className="pa-update-ordinary">{custom.length > 0 && <h3>Also updating</h3>}{ordinary.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed} → <strong>{row.available}</strong></span></div>)}</div>}
         {unknown.map(row => <div className="pa-update-card" key={row.id}><Label id={row.id} /><p>{prerequisites[row.prerequisite ?? 'baseline_unknown'] ?? failures[row.prerequisite ?? 'baseline_unknown']}</p></div>)}
-        {inventory.length > 0 && <div className="pa-update-ordinary">{inventory.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed === 'unknown' ? 'Version unknown' : row.installed} · {row.state === 'current' && row.local === 'stock' ? <CurrentStatus confirmed={currentConfirmed && row.installed !== 'unknown' && !row.prerequisite} /> : inventoryStatus(row)}</span></div>)}</div>}
-        {visibleRuntimeRows.length > 0 && <div className="pa-update-ordinary">{visibleRuntimeRows.map(row => <div className="pa-update-card" key={row.id}><div className="pa-update-version"><RuntimeLabel id={row.id} /><span>{row.installed ?? (row.source === 'missing' ? 'Not installed' : 'Installed version unknown')}{row.state === 'ready' ? <> → <strong>{row.available}</strong></> : row.state === 'current' ? <> · <CurrentStatus confirmed={currentConfirmed && !!row.installed && !row.reason} /></> : ' · Update unavailable'}</span></div>{row.reason && <p className="pa-updates-muted">{failures[row.reason]}</p>}</div>)}</div>}
+        {inventory.length > 0 && <div className="pa-update-ordinary">{inventory.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed === 'unknown' ? 'Version unknown' : row.installed} · {row.state === 'current' && row.local === 'stock' ? <CurrentStatus confirmed={currentConfirmed && row.installed !== 'unknown' && !row.prerequisite} checking={!!pending} /> : inventoryStatus(row)}</span></div>)}</div>}
+        {visibleRuntimeRows.length > 0 && <div className="pa-update-ordinary">{visibleRuntimeRows.map(row => <div className="pa-update-card" key={row.id}><div className="pa-update-version"><RuntimeLabel id={row.id} /><span>{row.installed ?? (row.source === 'missing' ? 'Not installed' : 'Installed version unknown')}{row.state === 'ready' ? <> → <strong>{row.available}</strong></> : row.state === 'current' ? <> · <CurrentStatus confirmed={currentConfirmed && !!row.installed && !row.reason} checking={!!pending} /></> : row.reason === 'unavailable' ? ' · Couldn’t check' : ' · Update unavailable'}</span></div>{row.reason && <p className="pa-updates-muted">{failures[row.reason]}</p>}</div>)}</div>}
         {installCount > 0 && <p>{bbOffered ? 'BB will restart. ' : ''}Settings and data stay.</p>}
         {needsConsent && <label className="pa-update-consent"><input type="checkbox" checked={confirmInterruptingThreads} disabled={pending} onChange={event => setConfirmInterruptingThreads(event.target.checked)} /><span>Allow the BB restart to interrupt running threads ({runtime?.runningThreadCount} currently running).</span></label>}
       </>}

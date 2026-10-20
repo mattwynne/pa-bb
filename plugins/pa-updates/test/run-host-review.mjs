@@ -99,10 +99,12 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     if (view === 'bb_failed') { state.job.phase = 'attention'; state.job.failure = 'unavailable'; state.job.runtimeReceipts[2].outcome = 'failed'; state.job.runtimeReceipts[2].actual = '1.0.0'; }
     if (view === 'interrupted') { state.offers = structuredClone(base.offers); state.job.phase = 'attention'; state.job.failure = 'interrupted'; state.job.syncReserved = true; state.job.receipts[0].outcome = 'uncertain'; state.job.receipts[0].actual = null; }
     if (view === 'storage') state.failure = 'storage';
-    await page.route('**/api/v1/plugins/pa-updates/rpc/**', route => {
+    let releaseCheck; const checkGate = new Promise(resolve => { releaseCheck = resolve; });
+    await page.route('**/api/v1/plugins/pa-updates/rpc/**', async route => {
       const method = new URL(route.request().url()).pathname.split('/').at(-1); assert.ok(['applicationStatus', 'status', 'review', 'apply', 'resumeSync'].includes(method));
       if (['review', 'apply', 'resumeSync'].includes(method)) {
         writes.push({ method, input: route.request().postDataJSON() });
+        if (method === 'review' && failureMode && writes.filter(entry => entry.method === 'review').length === 1) await checkGate;
         if (method === 'review' && failureMode === 'server') state.failure = 'unavailable';
         if (method === 'review' && (!failureMode || failureMode !== 'server' && writes.filter(entry => entry.method === 'review').length > 2)) {
           const savedJob = state.job; state = structuredClone(inventoryView ? state : base);
@@ -160,6 +162,10 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
       if (failureMode) await page.waitForFunction(() => document.querySelectorAll('.pa-update-check').length === 8);
       await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = el.scrollHeight; });
       await section.getByRole('button', { name: 'Check again', exact: true }).focus(); await page.keyboard.press('Enter');
+      if (failureMode) {
+        await page.waitForFunction(() => [...document.querySelectorAll('.pa-update-version')].filter(el => el.textContent.includes('Checking…')).length === 8);
+        assert.equal(await section.locator('.pa-update-check').count(), 0); releaseCheck();
+      }
       await page.waitForFunction(() => !document.querySelector('.pa-updates footer button')?.disabled && document.querySelector('.pa-updates-body')?.scrollTop === 0);
       if (view === 'integrations_current') {
         for (const name of ['Calendar', 'Fastmail', 'Google Drive', 'iCloud', 'Obsidian']) {
@@ -180,9 +186,9 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
         assert.notEqual(await icon.evaluate(el => getComputedStyle(el).color), await icon.evaluate(el => getComputedStyle(el.parentElement).color));
       }
       if (mixed) for (const name of ['Calendar', 'Fastmail']) assert.equal(await section.locator('.pa-update-card,.pa-update-row').filter({ has: page.getByText(name, { exact: true }) }).locator('.pa-update-check').count(), 0);
-      if (failureMode) assert.equal(await section.getByText('Not confirmed', { exact: false }).count(), 8);
+      if (failureMode) assert.equal(await section.getByText('Couldn’t check', { exact: false }).count(), 8);
       if (mixed) assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
-      if (view === 'integrations_status') for (const status of ['Local changes', 'Could not check', 'Version pinned', 'Changes unverified']) await section.getByText(new RegExp(status)).waitFor();
+      if (view === 'integrations_status') for (const status of ['Local changes', 'Couldn’t check', 'Version pinned', 'Changes unverified']) await section.getByText(new RegExp(status)).waitFor();
       assert.deepEqual(writes.map(entry => entry.method), ['review']);
     }
     if (view === 'failed') await section.getByText('Check failed — previous results may be out of date', { exact: true }).waitFor();
@@ -220,6 +226,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     if (['current', 'runtime_prerequisites'].includes(view)) for (const name of ['Pi', 'Codex', 'BB']) await section.getByText(name, { exact: true }).waitFor();
     if (view === 'runtime_prerequisites') {
       assert.equal(await section.locator('.pa-update-check').count(), 0);
+      assert.ok((await section.locator('.pa-update-card').filter({ has: page.getByText('BB', { exact: true }) }).textContent()).includes('Couldn’t check'));
       await section.getByText(/This CLI is not installed/).waitFor();
       await section.getByText(/This installation cannot use/).waitFor();
       await section.getByText(/Could not finish this step/).waitFor();
@@ -277,7 +284,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     if (failureMode === 'read' || failureMode === 'action') {
       // A successful read of the old cached review must not restore green checks.
       await check.focus(); await page.keyboard.press('Enter'); await page.waitForFunction(() => !document.querySelector('.pa-updates footer button')?.disabled);
-      assert.equal(await section.locator('.pa-update-check').count(), 0); assert.equal(await section.getByText('Not confirmed', { exact: false }).count(), 8);
+      assert.equal(await section.locator('.pa-update-check').count(), 0); assert.equal(await section.getByText('Couldn’t check', { exact: false }).count(), 8);
       // A genuinely new successful review can confirm the versions again.
       await check.focus(); await page.keyboard.press('Enter'); await page.waitForFunction(() => document.querySelectorAll('.pa-update-check').length === 8);
     }
