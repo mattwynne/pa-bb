@@ -51,7 +51,7 @@ export class ICloudSync {
       }).catch(error => this.diagnose('restore_connection', category(error), { evidence: evidence(error) }));
     });
   }
-  status() { return { ...structuredClone(this.state), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), retryPending: this.state.connected && mirror.enabled && mirror.initialized && mirror.phase === 'failed' && mirror.blocker === null, stale: mirror.lastSuccess !== null && mirror.phase !== 'ready', recovering: mirror.phase === 'running' && mirror.failure !== null, progress: mirror.phase === 'running' ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
+  status() { return { ...structuredClone(this.state), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), retryPending: this.state.connected && mirror.enabled && mirror.initialized && mirror.phase === 'failed' && mirror.blocker === null, recovering: mirror.phase === 'running' && mirror.failure !== null, progress: mirror.phase === 'running' ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
   diagnostics(query: HistoryInput = {}) { return this.history.snapshot(query); }
   private save() { return this.repository.save(structuredClone(this.state)); }
   private folder(id: string) {
@@ -194,6 +194,7 @@ export class ICloudSync {
         if (initial) await this.provider.prepareMirror(structuredClone(mirror), report);
         else await this.provider.synchronize(structuredClone(mirror), report);
         if (this.stopped) throw new CloudError('interrupted');
+        // Recorded after the provider operation returns, not proof of delivery to another device.
         mirror.initialized = true; mirror.lastSuccess = this.clock(); mirror.failure = null; mirror.blocker = null; mirror.phase = 'ready';
       } catch (error) {
         mirror.phase = 'failed'; mirror.failure = category(error); mirror.blocker = this.blockerFor(mirror.failure, initial); failure = mirror.failure; proof = evidence(error);

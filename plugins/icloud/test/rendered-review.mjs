@@ -244,7 +244,8 @@ try {
     const bar = section.getByRole('progressbar'); await bar.waitFor();
     await page.waitForFunction(() => document.querySelector('.pa-icloud__progress-track')?.clientHeight > 0);
     assert.equal(await bar.getAttribute('aria-valuenow'), fixture.percent === null ? null : String(fixture.percent));
-    assert.equal(await section.getByText('Last successful sync:', { exact: false }).textContent(), `Last successful sync: ${await page.evaluate(value => new Date(value).toLocaleString(), mirror.lastSuccess)}`);
+    assert.equal(await section.getByText(/local copy may be stale/i).count(), 0);
+    assert.equal(await section.getByText('Last successful host sync finished:', { exact: false }).textContent(), `Last successful host sync finished: ${await page.evaluate(value => new Date(value).toLocaleString(undefined, { timeZoneName: 'short' }), mirror.lastSuccess)}`);
     assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).count(), 0);
     await section.getByText('Sync controls are available when this run finishes.', { exact: true }).waitFor();
     assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);

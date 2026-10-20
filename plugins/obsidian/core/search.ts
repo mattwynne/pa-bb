@@ -1,4 +1,5 @@
 import { VaultError } from './ports.ts';
+import { provenance } from './provenance.js';
 import type { Catalog, Diagnose, NoteParser, SearchQuery, SearchRequest, Source, VaultFiles } from './ports.ts';
 type Context = { revision: number; ids: string[]; catalog: Catalog };
 type Session = { query: SearchQuery; signature: string; revision: number; ids: string[]; fingerprint: string; index: number; producer?: string; rows: any[]; matched: number; visited: number; warnings: Set<string>; failures: Array<{vaultId:string;category:string}>; created: number; at: number; busy: boolean };
@@ -82,5 +83,5 @@ export class VaultSearch {
       return response;
     }catch(error){this.sessions.delete(token!);await this.close(state);throw error;}finally{signal?.removeEventListener('abort',cancel);state.busy=false;}
   }
-  private provenance(source:Source,at:string){return{vaultId:source.id,vaultName:source.name,localObservedAt:at,lastSuccessfulSync:source.lastSuccess,stale:!source.cloudConnected||source.phase!=='ready'||!source.enabled,delivery:'Local observation only; a sync timestamp is not proof of these bytes in iCloud or on a device.'};}
+  private provenance = provenance;
 }

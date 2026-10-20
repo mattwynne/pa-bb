@@ -1,4 +1,5 @@
 import { posix } from 'node:path';
+import { provenance } from './provenance.js';
 import { VaultError } from './ports.ts';
 import { VaultSearch } from './search.ts';
 import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution } from './ports.ts';
@@ -88,7 +89,7 @@ export class Obsidian {
     return { source, revision, catalog };
   }
   private check(vaultId: string, revision: number) { if (this.stopped || this.state.revision !== revision || !this.state.vaultIds.includes(vaultId)) throw new VaultError('not_connected', 'The connected vaults changed. Check Obsidian settings.'); }
-  private provenance(source: Source, at: string) { return { vaultId: source.id, vaultName: source.name, localObservedAt: at, lastSuccessfulSync: source.lastSuccess, stale: !source.cloudConnected || source.phase !== 'ready' || !source.enabled, delivery: 'Local observation only; a sync timestamp is not proof of these bytes in iCloud or on a device.' }; }
+  private provenance = provenance;
   private async note(vaultId: string, path: string) {
     validPath(path); const context = await this.source(vaultId); const note = await this.files.read(vaultId, context.revision, path); this.check(vaultId, context.revision);
     return { ...context, note };

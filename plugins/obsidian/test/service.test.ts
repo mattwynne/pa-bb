@@ -89,7 +89,7 @@ test('local capability, not cloud phase, enables running, paused, disconnected a
     catalog.value.sources[0].enabled = phase === 'running'; catalog.value.sources[0].lastSuccess = null;
     catalog.value.sources[0].failure = phase === 'failed' ? 'sync_failed' : null;
     const status = await service.status({ vaultId: 'one' }); assert.equal(status.vaults[0].source?.local.available, true);
-    const read = await service.read({ vaultId: 'one', path: 'Launch.md' }); assert.equal(read.stale, true); await service.edit({ vaultId: 'one', path: 'Launch.md', expectedHash: read.hash!, append: phase });
+    const read = await service.read({ vaultId: 'one', path: 'Launch.md' }); assert.equal('stale' in read, false); assert.equal(read.sync.phase, phase); await service.edit({ vaultId: 'one', path: 'Launch.md', expectedHash: read.hash!, append: phase });
     assert.ok((await service.metadata({ vaultId: 'one', path: 'Launch.md' })).hash);
     assert.ok((await service.tasks({ vaultId: 'one' })).results.length);
     assert.equal((await service.resolve({ vaultId: 'one', path: 'Launch.md', link: 'Other' })).status, 'resolved');

@@ -66,7 +66,7 @@ function ObsidianSettings() {
       {state.nextAction && <div className="pa-obsidian__source-help" role="status"><p>{state.nextAction}</p>{state.setup !== 'check_failed' && <a className="pa-connection__guide" href={ICLOUD}>Open iCloud settings</a>}</div>}
       {!!state.vaults.length && <ConnectionAccounts>{state.vaults.map(vault => {
         const name = vault.source?.name ?? vault.name ?? vault.vaultId;
-        const caption = [duplicate(name) ? `Source ID: ${vault.vaultId}` : null, `Last successful sync: ${vault.source?.lastSuccess ? new Date(vault.source.lastSuccess).toLocaleString() : 'Not available'}`].filter(Boolean).join(' · ');
+        const caption = [duplicate(name) ? `Source ID: ${vault.vaultId}` : null, `Last successful host sync finished: ${vault.source?.lastSuccess ? new Date(vault.source.lastSuccess).toLocaleString(undefined, { timeZoneName: 'short' }) : 'No successful sync recorded (never synced or history unknown)'}`].filter(Boolean).join(' · ');
         return <ConnectionAccount key={vault.vaultId} initial={name[0]?.toUpperCase() ?? 'V'} label={name} caption={caption} status={sourceStatus(vault.source, state.setup)} warning={!vault.source?.local.available || state.setup === 'incompatible' || state.setup === 'check_failed'}
           action={<ConnectionButton disabled={busy} aria-label={`Remove ${label(vault.vaultId, name)}`} onClick={() => void change('remove', vault.vaultId)}>Remove</ConnectionButton>} />;
       })}</ConnectionAccounts>}

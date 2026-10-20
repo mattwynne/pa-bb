@@ -106,7 +106,7 @@ connected explicitly, even if its name is unchanged.
 | Sync not enabled / first sync running | Enable sync, then wait for its first successful run. |
 | First sync failed | Inspect iCloud's failure and supported recovery steps; do not force resync just to connect Obsidian. |
 | Running sync | Sound local notes remain available; cloud delivery is still in progress. A local safety blocker is shown separately. |
-| Cloud paused or Apple disconnected | Sound local notes remain readable and writable. Cloud delivery is paused or stopped; freshness may lag. Resume or reconnect when ready. |
+| Cloud paused or Apple disconnected | Sound local notes remain readable and writable. Cloud delivery is paused or stopped; report the last successful host sync time, not a stale/fresh judgment. Resume or reconnect when ready. |
 | Local safety unavailable, retained or missing source | Check the specific mirror in iCloud settings. Connect a replacement by its new ID; no raw-folder fallback is used. A cloud retry failure alone does not revoke sound local access. |
 | Could not check iCloud | Keep the connections and choose Check again. This is not evidence that iCloud is missing. |
 | Concurrent note change | Reread the complete note and prepare the intended change again. The stale patch saved nothing. |

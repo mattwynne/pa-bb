@@ -220,7 +220,7 @@ test('a disconnected restored failure never promises an automatic retry', async 
   await plugin(host.bb, { provider, repository });
   try {
     const mirror = statusSchema.parse(await host.harness.behavior.callRpc('status', null)).mirrors[0];
-    assert.equal(mirror.enabled, true); assert.equal(mirror.retryPending, false); assert.equal(mirror.stale, true);
+    assert.equal(mirror.enabled, true); assert.equal(mirror.retryPending, false); assert.equal('stale' in mirror, false);
   } finally { await host.harness.lifecycle.dispose(); }
 });
 test('reload verifies saved authorization without treating an unknown read failure as expired authorization', async () => {

@@ -26,14 +26,14 @@ function mirrorStatus(mirror: Mirror, connected: boolean) {
 }
 function failureMessage(mirror: Mirror, connected: boolean) {
   if (mirror.recovering) return 'The previous attempt did not complete. Retrying with rclone’s normal checks. The last successful sync changes only when this run finishes.';
-  if (mirror.blocker === 'reconnect') return connected ? 'Apple is connected again. Choose Resume to check and sync this folder. The local copy may be stale.' : 'Apple authorization needs attention. Reconnect, then choose Resume for this folder. The local copy may be stale.';
-  if (mirror.blocker === 'capacity') return 'Sync stopped because host storage or transfer capacity needs attention. A fresh mirror is not a capacity fix. The local copy may be stale.';
-  if (mirror.blocker === 'configuration') return 'Sync stopped because the host or rclone configuration needs attention. The local copy may be stale.';
+  if (mirror.blocker === 'reconnect') return connected ? 'Apple is connected again. Choose Resume to check and sync this folder.' : 'Apple authorization needs attention. Reconnect, then choose Resume for this folder.';
+  if (mirror.blocker === 'capacity') return 'Sync stopped because host storage or transfer capacity needs attention. A fresh mirror is not a capacity fix.';
+  if (mirror.blocker === 'configuration') return 'Sync stopped because the host or rclone configuration needs attention.';
   if (mirror.blocker === 'initialization') return 'Initial preparation did not complete. This folder will not sync until you choose a supported recovery path.';
-  if (mirror.blocker === 'rebuild') return 'This mirror is stopped for recovery review. The local folder, unsent edits and any previously saved recovery copies are kept; the local copy may be stale.';
-  if (mirror.retryPending && mirror.failure === 'interrupted') return 'Sync was interrupted. BB will retry with rclone’s normal checks on the next scheduled run. The local copy may be stale.';
-  if (mirror.retryPending && mirror.failure === 'source_changed') return 'Files changed during the previous attempt. BB will retry on the next schedule. The local copy may be stale.';
-  if (mirror.retryPending) return 'The last sync did not complete. BB will retry with rclone’s normal checks on the next schedule. The local copy may be stale.';
+  if (mirror.blocker === 'rebuild') return 'This mirror is stopped for recovery review. The local folder, unsent edits and any previously saved recovery copies are kept.';
+  if (mirror.retryPending && mirror.failure === 'interrupted') return 'Sync was interrupted. BB will retry with rclone’s normal checks on the next scheduled run.';
+  if (mirror.retryPending && mirror.failure === 'source_changed') return 'Files changed during the previous attempt. BB will retry on the next schedule.';
+  if (mirror.retryPending) return 'The last sync did not complete. BB will retry with rclone’s normal checks on the next schedule.';
   return 'The last sync did not complete and automatic retries are paused. Retry uses rclone’s normal checks; it does not force resync.';
 }
 function ICloudSettings() {
@@ -125,7 +125,8 @@ function ICloudSettings() {
       <ul className="pa-icloud__mirrors">{state.mirrors.map(mirror => <li key={mirror.id}>
         <div className="pa-icloud__mirror-head"><strong className="pa-icloud__mirror-name"><Icon name="Folder" className="pa-icloud__icon" aria-hidden />{mirror.folder.name}</strong><span role="status">{mirrorStatus(mirror, state.connected)}</span></div>
         {mirror.phase === 'running' && <SyncProgressView progress={mirror.progress} folderName={mirror.folder.name} />}
-        <p>Last successful sync: {mirror.lastSuccess ? new Date(mirror.lastSuccess).toLocaleString() : 'Not yet'}</p>
+        <p>Last successful host sync finished: {mirror.lastSuccess ? new Date(mirror.lastSuccess).toLocaleString(undefined, { timeZoneName: 'short' }) : 'No successful sync recorded (never synced or history unknown)'}</p>
+        <p>A successful host sync does not verify every note reached iCloud or another device.</p>
         {mirror.failure && mirror.phase !== 'retained' && (mirror.recovering || mirror.retryPending
           ? <p role="status">{failureMessage(mirror, state.connected)}</p>
           : <ConnectionAlert>{failureMessage(mirror, state.connected)}</ConnectionAlert>)}

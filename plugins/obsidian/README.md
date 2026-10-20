@@ -84,8 +84,12 @@ their existing separate bounds.
   There is no uncoordinated filesystem fallback.
 - Initialized sound local sources can be read and saved while native sync runs,
   cloud sync is paused, or Apple is disconnected. iCloud owns local availability;
-  cloud phase, connection and last-success timestamp indicate delivery/freshness,
-  not local authorization. Genuine local safety blockers refuse operations.
+  cloud phase, connection and last-success timestamp report sync state,
+  not local authorization or a judgment that notes are stale. The timestamp is
+  recorded after the host sync operation returns successfully; it does not prove
+  every note reached iCloud or another device. Null means no successful sync
+  recorded (never synced or history unknown). Report times in the user's timezone,
+  without an elapsed-age freshness warning. Genuine local safety blockers refuse operations.
   Retained/rebuilt mirrors require new IDs and explicit connections.
 - Reads and saves share iCloud's actual native worker generation and inherited
   operating-system flock. Logical publications may occur during the owner's own
