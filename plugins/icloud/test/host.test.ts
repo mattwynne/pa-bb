@@ -46,6 +46,97 @@ test('other plugins cannot invoke sync consent or account controls', async () =>
     for (const [method, input] of [['disconnect', null], ['browse', { parent: null }], ['select', { folderId: 'test' }], ['enable', { id: 'mirror-1' }], ['retry', { id: 'mirror-1' }], ['pause', { id: 'mirror-1' }]] as const) await assert.rejects(harness.behavior.callRpc(method, input, context), /settings/);
   } finally { await harness.lifecycle.dispose(); }
 });
+test('host-verified updater owns only its Pause reservation; clients and other plugins cannot forge it', async () => {
+  const { harness, provider, bb } = await setup();
+  const updater = { experimental_caller: { kind: 'plugin' as const, pluginId: 'pa-updates' } };
+  try {
+    await harness.behavior.fetchHttp('POST', '/connect', { headers: { 'Content-Type': 'application/json' }, body: '{"account":"synthetic@example.test","password":"synthetic"}' });
+    await harness.behavior.fetchHttp('POST', '/challenge', { headers: { 'Content-Type': 'application/json' }, body: '{"answer":"123456"}' });
+    await harness.behavior.callRpc('browse', { parent: null }); await harness.behavior.callRpc('select', { folderId: 'test' });
+    const id = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].id;
+    await harness.behavior.callRpc('enable', { id });
+    const updateJob = '11111111-1111-4111-8111-111111111111';
+    await assert.rejects(harness.behavior.callRpc('pause', { updateJob }), /host-verified/);
+    await assert.rejects(harness.behavior.callRpc('pause', { updateJob }, { experimental_caller: { kind: 'plugin', pluginId: 'fastmail' } }), /host-verified/);
+    await assert.rejects(harness.behavior.callRpc('enable', { id }, updater), /settings/);
+    await harness.behavior.callRpc('pause', { updateJob }, updater);
+    assert.deepEqual(await bb.storage.kv.get('pa-update-pause-v1'), { jobId: updateJob, ownedIds: [id] });
+    assert.equal(statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].enabled, false);
+    for (const method of ['enable', 'retry', 'rebuild']) await assert.rejects(harness.behavior.callRpc(method, { id }), /operation/);
+    await assert.rejects(harness.behavior.callRpc('enable', { updateJob: '22222222-2222-4222-8222-222222222222' }, updater), /operation/);
+    const synced = provider.synced; await harness.behavior.runSchedule('selected-folder-sync'); assert.equal(provider.synced, synced);
+    await harness.behavior.callRpc('enable', { updateJob }, updater);
+    assert.equal(statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].enabled, true);
+    assert.equal(provider.synced, synced, 'resume does not invent a new manual sync');
+    for (const [method, input] of [['disconnect', null], ['browse', { parent: null }], ['select', { folderId: 'test' }], ['retry', { id }], ['rebuild', { id }]] as const) await assert.rejects(harness.behavior.callRpc(method, input, updater), /settings/);
+  } finally { await harness.lifecycle.dispose(); }
+});
+test('user Pause during draining stays paused after the updater reservation and reload', async () => {
+  const first = await setup(), updater = { experimental_caller: { kind: 'plugin' as const, pluginId: 'pa-updates' } };
+  const { harness, provider, repository, bb } = first;
+  const updateJob = '11111111-1111-4111-8111-111111111111';
+  let release!: () => void, entered!: () => void;
+  const entering = new Promise<void>(resolve => { entered = resolve; });
+  try {
+    await harness.behavior.fetchHttp('POST', '/connect', { headers: { 'Content-Type': 'application/json' }, body: '{"account":"synthetic@example.test","password":"synthetic"}' });
+    await harness.behavior.fetchHttp('POST', '/challenge', { headers: { 'Content-Type': 'application/json' }, body: '{"answer":"123456"}' });
+    await harness.behavior.callRpc('browse', { parent: null }); await harness.behavior.callRpc('select', { folderId: 'test' }); await harness.behavior.callRpc('select', { folderId: 'other' });
+    const id = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].id;
+    await harness.behavior.callRpc('enable', { id });
+    provider.pending = new Promise<void>(resolve => { release = resolve; });
+    const synchronize = provider.synchronize.bind(provider);
+    provider.synchronize = async (...args) => { entered(); await synchronize(...args); };
+    const running = harness.behavior.runSchedule('selected-folder-sync'); await entering;
+    await harness.behavior.callRpc('pause', { updateJob }, updater); // Reservation closes future scheduling, current native turn drains.
+    release(); await running;
+    await harness.behavior.callRpc('pause', { id }); // User acts before updater's next drain poll.
+    await harness.behavior.callRpc('pause', { updateJob }, updater);
+    assert.ok(statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors.every(mirror => !mirror.enabled));
+    await assert.rejects(harness.behavior.callRpc('enable', { id }), /operation/);
+    const saved = await bb.storage.kv.get('pa-update-pause-v1');
+    await harness.lifecycle.dispose();
+    const next = createFakePluginHost({ pluginId: 'icloud' });
+    await next.bb.storage.kv.set('pa-update-pause-v1', JSON.parse(JSON.stringify(saved)));
+    try {
+      await plugin(next.bb, { provider, repository });
+      assert.equal(statusSchema.parse(await next.harness.behavior.callRpc('status', null)).updatePause?.jobId, updateJob);
+      await next.harness.behavior.callRpc('enable', { updateJob }, updater);
+      assert.ok(statusSchema.parse(await next.harness.behavior.callRpc('status', null)).mirrors.every(mirror => !mirror.enabled));
+    } finally { await next.harness.lifecycle.dispose(); }
+  } finally { release?.(); await harness.lifecycle.dispose(); }
+});
+test('an already-failed folder stays paused but releases updater ownership across reload so ordinary retry works', async () => {
+  const { harness, provider, repository, bb } = await setup();
+  const updater = { experimental_caller: { kind: 'plugin' as const, pluginId: 'pa-updates' } }, updateJob = '11111111-1111-4111-8111-111111111111';
+  try {
+    await harness.behavior.fetchHttp('POST', '/connect', { headers: { 'Content-Type': 'application/json' }, body: '{"account":"synthetic@example.test","password":"synthetic"}' });
+    await harness.behavior.fetchHttp('POST', '/challenge', { headers: { 'Content-Type': 'application/json' }, body: '{"answer":"123456"}' });
+    await harness.behavior.callRpc('browse', { parent: null }); await harness.behavior.callRpc('select', { folderId: 'test' });
+    const id = statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].id;
+    await harness.behavior.callRpc('enable', { id }); provider.fail = 'sync_failed'; await harness.behavior.runSchedule('selected-folder-sync');
+    await harness.behavior.callRpc('pause', { updateJob }, updater);
+    const saved = await bb.storage.kv.get('pa-update-pause-v1'); await harness.lifecycle.dispose();
+    const next = createFakePluginHost({ pluginId: 'icloud' }); await next.bb.storage.kv.set('pa-update-pause-v1', JSON.parse(JSON.stringify(saved)));
+    try {
+      await plugin(next.bb, { provider, repository });
+      const resumed = statusSchema.parse(await next.harness.behavior.callRpc('enable', { updateJob }, updater));
+      assert.equal(resumed.updatePause?.jobId, null); assert.equal(resumed.updatePause?.manualRecovery, true);
+      assert.equal(resumed.mirrors[0].enabled, false); assert.equal(resumed.mirrors[0].failure, 'sync_failed');
+      assert.equal(await next.bb.storage.kv.get('pa-update-pause-v1'), null);
+      provider.fail = null;
+      const retried = statusSchema.parse(await next.harness.behavior.callRpc('retry', { id })); assert.equal(retried.mirrors[0].failure, null);
+    } finally { await next.harness.lifecycle.dispose(); }
+  } finally { await harness.lifecycle.dispose(); }
+});
+test('failed updater reservation storage is fail-closed and emits only a bounded diagnostic', async () => {
+  const { bb, harness } = await setup();
+  try {
+    bb.storage.kv.set = async () => { throw new Error('PRIVATE_SENTINEL storage path credential'); };
+    await assert.rejects(harness.behavior.callRpc('pause', { updateJob: '11111111-1111-4111-8111-111111111111' }, { experimental_caller: { kind: 'plugin', pluginId: 'pa-updates' } }), error => error instanceof Error && !error.message.includes('PRIVATE_SENTINEL'));
+    const logs = JSON.stringify(harness.inspection.logEntries);
+    assert.match(logs, /iCloud update_pause unavailable/); assert.doesNotMatch(logs, /PRIVATE_SENTINEL/);
+  } finally { await harness.lifecycle.dispose(); }
+});
 test('the real schedule retries an enabled initialized failure and preserves failed history', async () => {
   const { harness, provider } = await setup();
   try {

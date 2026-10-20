@@ -1,0 +1,29 @@
+{
+  "evidence": "Generated local alias; real factories, original Obsidian handlers and native BB integration updates; no accounts or provider sessions",
+  "bb": "0.46.0",
+  "node": "v24.22.0",
+  "platform": "linux-arm64",
+  "rclone": "1.75.2",
+  "fixtureVersions": {
+    "before": "0.3.1",
+    "installed": "0.3.2"
+  },
+  "nativeRunMs": 16069,
+  "observedNativePartial": true,
+  "reservedWhileNativeSyncRunning": true,
+  "reservationSurvivedNativeDisposalAndReload": true,
+  "nativeDrainBeforeDisposal": true,
+  "resumedNativeScheduleCompleted": true,
+  "restoredPreviouslyEnabledFolders": 1,
+  "preservedUserPausedFolders": 1,
+  "preservedGeneratedNotesAndReceipts": 2,
+  "nativeWriteAdmissions": {
+    "icloud": 1,
+    "obsidian": 1
+  },
+  "updaterReloadRetainedVisibleResult": true,
+  "sourceArchives": {
+    "updaterSha256": "19a3c87f354ebd31bcba29a86ee0ffa7b5aa1199d3cc298376998ca06bb744a0",
+    "pairSha256": "081dfb131edaf9be4f20ea6c1988db62a725765292c1c0c17776fbd906acdd4d"
+  }
+}

@@ -8,9 +8,9 @@
     {
       "id": "pa-updates",
       "displayName": "PA updates",
-      "description": "Discover published Google Calendar releases and review local work. Read-only: nothing installs or restarts.",
+      "description": "Review and apply PA integration and server runtime updates, keeping local customizations by default.",
       "icon": "RotateCcw",
-      "tags": ["updates", "calendar", "productivity"],
+      "tags": ["updates", "productivity"],
       "author": { "name": "Matt Wynne", "github": "mattwynne" },
       "source": {
         "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/pa-updates", "ref": "main" }

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { rpcContract } from './contract.js';
 import { ICloudSync } from './core/service.ts';
+import { UpdatePause } from './core/update-pause.ts';
 import { CloudError, category, evidence } from './core/ports.ts';
 import type { CloudProvider, StateRepository } from './core/ports.ts';
 import type { RunHistoryRepository } from './core/diagnostics.ts';
@@ -34,13 +35,14 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body), (args, capture, report) => runtime!.run(args, capture, report), () => process.checkAvailability(), () => runtime!.stop(), undefined, undefined, mirror => runtime!.registerMirror(mirror), operation => runtime!.idleFiles(operation));
   }
   const sync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose, dependencies?.history ?? bbRunHistory(bb));
+  const updatePause = new UpdatePause(sync, { get: () => bb.storage.kv.get('pa-update-pause-v1'), set: value => bb.storage.kv.set('pa-update-pause-v1', value) });
   let bootStage = 'note_owner';
   try {
     // State recovery and history migration also belong to the native owner.
     // A rejected replacement must not rewrite its predecessor's running state.
     await runtime?.worker.ensure();
     bootStage = 'startup';
-    await sync.start();
+    await sync.start(); await updatePause.start();
     bootStage = 'note_start';
     if (runtime) await runtime.start();
   } catch (error) {
@@ -56,16 +58,24 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
   const local = async (id: string) => ({ ...(runtime ? await runtime.availability(id) : { available: false, reason: 'ownership' as const }), pendingAgeMs: runtime?.pendingAgeMs(id) ?? null, applicationBlocker: runtime?.applicationBlocker(id) ?? null });
   const status = async () => {
     const snapshot = sync.status();
-    return { ...snapshot, mirrors: await Promise.all(snapshot.mirrors.map(async mirror => ({ ...mirror, local: await local(mirror.id) }))), noteAccessVersion: runtime ? 2 as const : null, search: runtime ? await runtime.search.capability() : { version: 1 as const, available: false, reason: 'unavailable' as const }, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
+    return { ...snapshot, updatePause: updatePause.status(), mirrors: await Promise.all(snapshot.mirrors.map(async mirror => ({ ...mirror, local: await local(mirror.id) }))), noteAccessVersion: runtime ? 2 as const : null, search: runtime ? await runtime.search.capability() : { version: 1 as const, available: false, reason: 'unavailable' as const }, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
   };
   const inventory = async () => Promise.all(sync.inventory().map(async item => ({ ...item, local: await local(item.id) })));
   const clientOnly = (context: { experimental_caller: { kind: string } }) => {
     if (context.experimental_caller.kind !== 'client') throw new Error('Use iCloud settings for this action.');
   };
+  const updaterOnly = (context: { experimental_caller: { kind: string; pluginId?: string } }) => {
+    const caller = context.experimental_caller;
+    if (caller.kind !== 'plugin' || caller.pluginId !== 'pa-updates') throw new Error('Only host-verified PA updates can reserve an update Pause.');
+  };
   const action = async (operation: () => Promise<unknown>) => {
     try { await operation(); return status(); }
     catch (error) { throw new Error(category(error) === 'recovery_required' ? 'Sync is paused for recovery. Preserve local files and ask the host operator to inspect the baseline and recovery copies. No automatic repair is performed.' : category(error) === 'busy' ? 'An iCloud operation is still running. Wait for it to finish.' : 'The iCloud action did not complete. Refresh status and check the connection or folder selection.'); }
   };
+  const pauseAction = (operation: () => Promise<unknown>) => action(async () => {
+    try { return await operation(); }
+    catch (error) { diagnose('update_pause', category(error)); throw error; }
+  });
   const obsidianOnly = (context: { experimental_caller: { kind: string; pluginId?: string } }) => {
     if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'obsidian') throw new Error('Only the host-verified Obsidian plugin can use note access.');
   };
@@ -91,11 +101,17 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     status() { return status(); },
     async browse({ parent }, context) { clientOnly(context); try { return await sync.browse(parent); } catch { throw new Error('Could not browse iCloud folders. Reconnect Apple or try again after the current operation finishes.'); } },
     async select({ folderId }, context) { clientOnly(context); return action(() => sync.select(folderId)); },
-    async enable({ id }, context) { clientOnly(context); return action(() => sync.enable(id)); },
-    async retry({ id }, context) { clientOnly(context); return action(() => sync.retry(id)); },
-    async rebuild({ id }, context) { clientOnly(context); return action(() => sync.rebuild(id)); },
-    async pause({ id }, context) { clientOnly(context); return action(() => sync.pause(id)); },
-    async disconnect(_input, context) { clientOnly(context); return action(() => sync.disconnect()); },
+    async enable(input, context) {
+      if ('updateJob' in input) { updaterOnly(context); return pauseAction(() => updatePause.resume(input.updateJob)); }
+      clientOnly(context); return pauseAction(() => updatePause.userEnable(input.id));
+    },
+    async retry({ id }, context) { clientOnly(context); return action(() => { updatePause.assertUserCanStartSync(); return sync.retry(id); }); },
+    async rebuild({ id }, context) { clientOnly(context); return action(() => { updatePause.assertUserCanStartSync(); return sync.rebuild(id); }); },
+    async pause(input, context) {
+      if ('updateJob' in input) { updaterOnly(context); return pauseAction(() => updatePause.pause(input.updateJob)); }
+      clientOnly(context); return pauseAction(() => updatePause.userPause(input.id));
+    },
+    async disconnect(_input, context) { clientOnly(context); return action(() => updatePause.disconnect()); },
     inventory() { return inventory(); },
     diagnostics(input) { return sync.diagnostics(input ?? {}); }
   });
@@ -124,11 +140,12 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     }
   }, { auth: 'local' });
   bb.background.schedule('selected-folder-sync', '* * * * *', async () => {
-    try { await sync.tick(); } catch (error) { diagnose('schedule', category(error), { evidence: evidence(error) }); }
+    try { if (!updatePause.held) await sync.tick(); } catch (error) { diagnose('schedule', category(error), { evidence: evidence(error) }); }
   });
   bb.onDispose(async () => {
+    const paused = updatePause.stop();
     const closed = runtime?.stop(); // close local admission before draining entered publications
-    try { await sync.stop(); } finally { await closed; }
+    try { await sync.stop(); } finally { await closed; await paused; }
   });
   bb.agents.registerTool({ name: 'icloud_list_local_folders', description: 'List initialized iCloud folders, local note availability and last cloud sync. Paused or disconnected cloud delivery does not revoke sound local access. Never ask for Apple credentials in chat.', parameters: z.object({}),
     async execute() { return { content: [{ type: 'text' as const, text: JSON.stringify(await inventory()) }] }; } });

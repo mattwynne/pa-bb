@@ -1,0 +1,23 @@
+// Generated-data gate only: captures AND forwards the nine original tools.
+import { z } from 'zod';
+import { appendFile } from 'node:fs/promises';
+import { defineRpcContract } from '@get-bb/plugin-sdk';
+import { plugin } from './production.ts';
+const names = ['obsidian_status', 'obsidian_search_notes', 'obsidian_read_note', 'obsidian_get_note_metadata', 'obsidian_resolve_link', 'obsidian_list_tasks', 'obsidian_create_note', 'obsidian_edit_note', 'obsidian_update_properties'];
+const contract = defineRpcContract({ fixtureInvoke: { input: z.object({ name: z.enum(names), input: z.record(z.string(), z.json()) }).strict(), output: z.object({ isError: z.boolean(), text: z.string().max(64000) }).strict() } });
+export default async function fixture(bb) {
+  if (process.env.PA_GENERATED_NATIVE_GATE !== '1' || !process.env.BB_FIXTURE_EVENTS?.startsWith('/tmp/')) throw new Error('generated isolated fixture required');
+  const catalog = new Map();
+  const agents = new Proxy(bb.agents, { get(target, key, receiver) {
+    if (key !== 'registerTool') return Reflect.get(target, key, receiver);
+    return definition => { if (!names.includes(definition.name) || catalog.has(definition.name)) throw new Error('unexpected fixture tool catalog'); catalog.set(definition.name, definition); return target.registerTool(definition); };
+  } });
+  await plugin(new Proxy(bb, { get(target, key, receiver) { return key === 'agents' ? agents : Reflect.get(target, key, receiver); } }));
+  if (catalog.size !== names.length) throw new Error('missing original tool registration');
+  bb.rpc.register(contract, { async fixtureInvoke({ name, input }, context) {
+    if (context.experimental_caller.kind !== 'client') throw new Error('fixture client only');
+    const tool = catalog.get(name), result = await tool.execute(tool.parameters.parse(input), { signal: new AbortController().signal });
+    return { isError: result.isError === true, text: result.content[0].text };
+  } });
+  await appendFile(process.env.BB_FIXTURE_EVENTS, JSON.stringify({ event: 'obsidian-ready', at: Date.now() }) + '\n');
+}

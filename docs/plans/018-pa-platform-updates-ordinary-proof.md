@@ -1,9 +1,10 @@
 # 018 — Ordinary-update and baseline feasibility
 
-Status: these bounded proofs passed on isolated Linux **BB 0.46.0 / SDK 0.6.37**,
-Node **24.21.0**. They support the revised ordinary-update route, not a claim that
-Update PA is implemented or ready to deploy. No production account, plugin,
-permission, provider write or runtime installation changed.
+Status: implementation and bounded native/rendered acceptance have advanced beyond
+the original feasibility checkpoint. Historical evidence below remains labelled;
+current original-handler, runtime and builder results follow it. No production
+account, plugin, permission or runtime installation changed. Final review and
+remaining delivery gates are not replaced by these tests.
 
 ## Why these tests exist
 
@@ -13,12 +14,12 @@ an ordinary update can replace customized code while leaving a kept sibling and
 account state intact, or that normal installed artifacts can be compared against
 an independent original without a development checkout.
 
-Two current harnesses answer those questions. `test/gate-host.mjs` shares only
+The first two harnesses answer those questions. `test/gate-host.mjs` shares only
 isolated startup/cleanup and public CLI/HTTP plumbing; it is not an application
 framework. The proof does not justify a universal baseline builder, dependency
 framework, rollback engine or new BB supervisor.
 
-## Ordinary managed updates
+## Historical ordinary-update feasibility
 
 [`run-ordinary-update-gate.mjs`](../../plugins/pa-updates/test/run-ordinary-update-gate.mjs)
 creates four synthetic plugins in one Git repository, installed through BB's real
@@ -92,6 +93,151 @@ builders, path installs, native runtime caches or arbitrary custom code. The
 application should report unknown prerequisites rather than expand this proof
 into a universal reconstruction system.
 
+## Current product and runtime acceptance
+
+The integration gate now invokes the **original PA updater handlers**, application
+coordinator and native adapter, substituting only its trusted synthetic repository
+and disabling runtime discovery. Its fixture versions are 0.3.1 → preview 0.3.2 →
+actual 0.3.3. It checks default Keep, explicit replacement, runtime-only edits,
+pre-apply edits, joined clicks, saved receipts after reload, state preservation and
+untouched unrelated plugins. This supersedes the earlier direct-call limitation
+without changing the historical commit table above.
+
+The actual runtime gate ran in a fresh **Linux aarch64 `node:24-bookworm` Docker
+container**, Node **24.22.0**. No host networking, privileged mode, Docker socket,
+credentials or host directory mounts were supplied. Only source archives and gate
+scripts were copied in. Before any provider installation, the gate asserted its
+own HOME/data, executable PATH, login-shell PATH and npm global prefix/config/cache.
+It rejected parent provider executables. BB and provider packages were bootstrapped
+inside that disposable container; no parent Pi/Codex installation was changed.
+
+The earlier PA updates **0.2.0 / SDK 0.6.37** integration/runtime checkpoint
+used a source archive with SHA-256
+`ae07b9982d1a99fe608970fce380d00721ebbb0268d48d6a329bedafbd7e7b07`.
+Original application handlers and runtime adapters produced these native receipts:
+
+| Component | Before | Preview | Verified actual | Source |
+| --- | --- | --- | --- | --- |
+| Pi CLI | 1.2.0 | 1.3.0 | 1.3.0 | Managed npm global |
+| Codex CLI | 0.162.1 | 0.163.0 | 0.163.0 | Managed npm global |
+| BB | 0.46.0 | 0.46.1 | 0.46.1 | Native npm launcher |
+
+- The real BB launcher disconnected and restarted the server. The same persisted
+  job completed; each runtime had exactly one recorded write admission.
+- Reloading the updater preserved identical receipts. A fresh public native status
+  check confirmed the installed versions and selected primary host again.
+- An integration built by BB 0.46.0 remained independently reproducible after the
+  BB upgrade. A later ordinary managed integration update built with BB 0.46.1
+  also reproduced as stock. No checkout setup or historical tool download was
+  added to the product.
+- Separately, the real Calendar 0.1.1, Fastmail 0.1.6 and Drive 0.1.1 source snapshot
+  reproduced under their observed legacy **BB 0.45.0 / SDK 0.6.15** builder: 38,
+  30 and 27 compared files, served app bytes and read-only handlers. That input
+  archive had SHA-256 `103141b28a23692fbc9d1252bab6d35f0325d27ffaa68017c7f7296727ae2dd5`.
+  This is not a claim that the newer paired integrations run under BB 0.45.0.
+- No active provider session or provider-account operation was used. Installed
+  versions do not prove that existing Pi/Codex processes are fresh. The installer
+  does not forcibly restart them. Native running-thread consent has unit and
+  rendered coverage, not an asserted live-account interruption experiment.
+
+The gate caught two fixture issues before its clean pass: login shells reset PATH,
+so owned profile files and login-shell prefix assertions were added; detached
+native children can write during recursive cleanup, so evidence is preserved until
+its enclosing disposable container is destroyed. These are fixture boundaries,
+not a custom application supervisor or new recovery mechanism.
+
+### Final bounded fixes and native paired-sync acceptance
+
+The updater now persists at most five active independently reconstructed
+expected-hash records, one per integration, bound to its source commit and recorded
+builder. It seeds unchanged integrations as well as offered updates. Unit tests
+remove the original builder between instances, then verify stock/custom detection
+from the saved original, key mismatch refusal, failed persistence and disposal
+fencing. This closes the two-upgrade retention gap without downloading old tools
+or keeping installation history. It is simulated pruning coverage, not a claim
+that two real BB upgrades were exercised.
+
+Startup and six-hour discovery now retain the displayed complete or uncertain job
+until explicit **Check again**. Tests exercise the actual registered startup and
+schedule callbacks across reload, including the review/job relationship that
+makes receipts visible. Unreached steps say **Waiting…** or **Not updated**, and
+unknown rows show their actual prerequisite rather than always blaming a baseline.
+
+The [generated paired-sync gate](../../plugins/pa-updates/test/run-paired-sync-gate.mjs)
+passed in the isolated Linux environment, with all Linux capabilities dropped,
+stock rclone **1.75.2** and current original iCloud/Obsidian factories. Fixture-only
+entries supply generated local alias data and forward the original Obsidian tool
+handlers. Both package manifests use synthetic **0.3.1 → 0.3.2** versions; this
+is not a test of bootstrapping Pause support in an old installed release.
+
+- A real minute-scheduled transfer ran for about **16 seconds**. Its native partial
+  file was observed before Apply; the updater held its reservation while the
+  actual sync was still running, then drained it before native disposal.
+- The same durable Pause job and its one owned folder survived iCloud disposal and
+  native reload. Both folders were disabled at the handoff. Native installation
+  ran once per integration and reported actual 0.3.2 versions.
+- Only the previously enabled folder resumed, and a subsequent real scheduled run
+  completed. The user-paused sibling never started a native run.
+- Two generated notes retained their exact bytes/hashes and original operation
+  receipts; connected vault IDs survived. The paused note remained local rather
+  than silently syncing. The updater's own reload retained the visible job result.
+
+[Sanitized native evidence](018-paired-sync-evidence.json) records the assertions
+and input archive hashes. That accepted native checkpoint used updater archive
+`19a3c87f354ebd31bcba29a86ee0ffa7b5aa1199d3cc298376998ca06bb744a0`;
+the ordinary integration-handler gate also passed with this archive. The earlier
+runtime-installer checkpoint above remains separately identified.
+
+Two fixture setup failures were corrected without changing sync behavior or
+resetting failed sources: host archive ownership could not be restored with
+capabilities dropped, and an empty prior bisync listing was refused. Extraction
+now keeps the container's ownership; fresh generated aliases include a seed note,
+as in the archived installed-BB recipe. No privileges or account access were added.
+
+Running **BB 0.46.0** rendered the original app at 1280px and 390px across 17 states:
+first/checking/current, offers, unknown and failed checks, explicit restart consent,
+applying/restarting, complete/failed/uncertain receipts, distinct prerequisites,
+preflight and partial-CLI failures, RPC failure and storage failure. Checks include default Keep, native dialog focus/Escape/return, footer
+entry, scroll/action visibility, release notes and failed-check recovery. The first
+mobile attempt found an inert closed-sidebar disclosure; the notice now opens the
+same review component in a native dialog. The final overlap cleanup also passed;
+38 captures include keyboard-checked consent and visible pending/skipped-result copy. Synthetic RPC states are UI evidence,
+not native installation evidence. Selected captures:
+[desktop dialog](018-update-pa-dialog-desktop.png),
+[narrow dialog](018-update-pa-dialog-narrow.png),
+[narrow footer consent](018-update-pa-consent-narrow.png),
+[prerequisite reasons](018-update-pa-prerequisites-narrow.png), and
+[unreached steps](018-update-pa-result-narrow.png).
+
+Local suites at that checkpoint passed: updater build, **60 tests / 4 scenarios**, typecheck and
+SDK-pin check; iCloud build/shared-source check, **80 tests / 46 scenarios**, and
+typecheck. Its **143 native tests / 10 native scenarios were skipped** without the
+stock-rclone test binary. They are not a full native-suite pass; the focused
+paired-sync acceptance above is separate evidence.
+
+### Later-offer notification follow-up
+
+Closure review found that retaining a completed result had also stopped all later
+automatic offer checks. Discovery now refreshes one transient readiness flag and
+check time using the existing integration/runtime inspections, without rewriting
+the saved review or job. The pill uses that fresh readiness, not the consumed
+review or Calendar-only feed. Old kept/uncertain offers do not create a duplicate
+completion notice. A new native runtime offer remains eligible after a successful
+update, including source BB commits sharing a displayed version.
+
+Opening the returning pill keeps the saved result visible. The existing **Check
+again** action explicitly requests the new review; an explicit call joining an
+automatic scan promotes that same scan rather than returning old results.
+
+Updater build, **65 tests / 4 scenarios**, typecheck and SDK-pin check passed.
+Registered startup/scheduled callbacks cover later integration and runtime offers,
+no-new-release checks, unchanged saved complete/kept/uncertain results, and reload.
+Focused rendered checks passed **22 captures** at desktop/narrow widths: returning
+pill, result reopening through the footer, actual new review after Check again,
+and suppression during active/reserved work. This supplements the earlier 38
+captures; native installer/sync evidence remains accepted and was not rerun for
+this discovery-only change. [Example new runtime review](018-update-pa-later-offer-narrow.png).
+
 ## Reproduce
 
 Use a disposable Linux environment with Node, Git, tar and an installed compatible
@@ -99,7 +245,10 @@ BB package. Network access is needed for pinned npm dependencies. Supply a trust
 archive produced from this repository, never an untrusted tarball.
 
 ```sh
-node plugins/pa-updates/test/run-ordinary-update-gate.mjs "$BB_APP_PACKAGE_DIR"
+COPYFILE_DISABLE=1 tar --no-xattrs -cf updater-source.tar -C plugins/pa-updates package.json package-lock.json \
+  server.ts contract.ts app.tsx app.css core adapters
+node plugins/pa-updates/test/run-ordinary-update-gate.mjs \
+  "$BB_APP_PACKAGE_DIR" updater-source.tar
 REV=0d5359f3691edac2820ade86a83482b65da464fe
 git archive "$REV" plugins/google-calendar plugins/fastmail \
   plugins/google-drive plugins/icloud plugins/obsidian > integration-source.tar
@@ -107,8 +256,9 @@ node plugins/pa-updates/test/run-integration-baseline-gate.mjs \
   "$BB_APP_PACKAGE_DIR" integration-source.tar "$REV"
 ```
 
-Both scripts create fresh HOME/data/repository directories and loopback listeners;
-they never connect to an existing BB instance. Successful runs exit zero and remove
+The scripts create fresh HOME/data/repository directories and loopback listeners;
+they never connect to an existing BB instance. Native-launcher runs retain evidence
+until the enclosing owned container is destroyed; other successful fixtures remove
 their temporary state. A failure retains isolated evidence for diagnosis. Current
 scripts bound command failures to a fixed message, handle setup failures inside
 cleanup, and stop the disposable server on SIGINT/SIGTERM. These are test-harness
@@ -121,18 +271,35 @@ production-version compatibility checks. This was caught during reconstruction
 because CLI-built and server-built metadata differed. See the qualification added
 to the [historical proof](018-pa-platform-updates-gate-0.md).
 
-## Still to implement or verify
+For native runtime acceptance, copy the archive plus `gate-host.mjs` and
+`run-runtime-update-gate.mjs` into a fresh disposable Linux container, install a
+trusted BB package inside it, then run:
 
-- The actual bounded baseline adapter, server-owned review, keep/replace
-  authorization and recheck, ordinary update job and actual-version receipts.
-- Real integration application with generated iCloud/Obsidian activity and safe
-  pause/drain/resume, not only unconfigured integration baseline reads.
-- Supported BB/Pi/Codex channel updates, session handling and BB restart
-  continuation under BB's existing launcher/lifecycle ownership.
-- The running-BB pill/review/result UI. The refreshed HTML/PNG mock-ups use
-  **Install released version**, currently-available previews and actual completion
-  versions. Their bulk-choice and narrow-overflow checks passed in a browser, but
-  they are not a live-BB UX gate; runtime/restart design is explicitly pending.
+```sh
+node run-runtime-update-gate.mjs "$BB_APP_PACKAGE_DIR" updater-source.tar
+```
+
+For the focused paired-sync gate, also copy `run-paired-sync-gate.mjs` and its
+`paired-fixtures` directory. Install stock rclone 1.75.2 and provide a second source
+archive containing `plugins/icloud` and `plugins/obsidian` with their current source
+and lockfiles, excluding dependencies, build outputs and OS metadata. Then run:
+
+```sh
+node run-paired-sync-gate.mjs "$BB_APP_PACKAGE_DIR" updater-source.tar pair-source.tar
+```
+
+Copy needed evidence before destroying only that owned container. Never run these
+installer gates in a shared PA host merely because HOME is temporary.
+
+## Remaining delivery limits
+
+- Initial delivery must use the stopped paired procedure to introduce updater-aware
+  Pause to older iCloud installations. The product refuses an enabled provider
+  without that capability; it does not bypass the prerequisite.
+- The Calendar v1 release-note feed does not advertise tested coverage for all
+  components or later channel versions.
+- Targeted independent review and controlled delivery/running-BB feedback remain
+  separate gates; the affected local suites above do not replace them. No production Apply has occurred.
 
 No exact-preview-target, fixed-tag-retargeting or upstream pinning-contract work
 is needed. These proofs are a checkpoint toward a working Update PA, not another

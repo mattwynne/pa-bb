@@ -1,0 +1,46 @@
+// Generated-data gate only; adapted from the archived installed-BB fixture.
+// The unchanged production factory owns sync, Pause and note operations.
+import { dirname, isAbsolute, join } from 'node:path';
+import { mkdir, writeFile, appendFile } from 'node:fs/promises';
+import { plugin } from './production.ts';
+import { bbState } from './adapters/bb-state.ts';
+import { RcloneProcess } from './adapters/rclone-process.ts';
+import { syncArguments } from './adapters/rclone-cloud-provider.ts';
+import { NoteRuntime } from './adapters/note-runtime.ts';
+import { NoteStore } from './adapters/note-store.ts';
+const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+export default async function fixture(bb) {
+  const database = bb.storage.database(), alias = process.env.BB_GENERATED_ALIAS_ROOT, events = process.env.BB_FIXTURE_EVENTS;
+  if (process.env.PA_GENERATED_NATIVE_GATE !== '1' || !isAbsolute(database.name) || !alias?.startsWith('/tmp/') || !events?.startsWith('/tmp/')) throw new Error('generated isolated fixture required');
+  const root = join(dirname(database.name), 'sync'), existing = bbState(bb);
+  const event = (event, details = {}) => appendFile(events, JSON.stringify({ event, at: Date.now(), ...details }) + '\n');
+  let currentState = await existing.load();
+  if (!currentState) {
+    const preparer = new RcloneProcess(root, '/usr/local/bin/rclone');
+    try {
+      await preparer.ensure();
+      await preparer.call('config/create', { name: 'icloud', type: 'alias', parameters: { remote: alias }, opt: { nonInteractive: true } });
+      for (const [index, id] of ids.entries()) {
+        const mirror = join(root, 'mirrors', id), baseline = join(root, 'baselines', id);
+        await mkdir(mirror); await mkdir(baseline);
+        await preparer.run(syncArguments(`icloud:${index ? 'paused' : 'enabled'}`, mirror, baseline, true));
+        await writeFile(join(baseline, 'initialized'), '1', { mode: 0o600 });
+      }
+      currentState = { connected: true, challenge: null, mirrors: ids.map((id, index) => ({ id, folder: { id: Buffer.from(index ? 'paused' : 'enabled').toString('base64url'), name: index ? 'Generated paused' : 'Generated enabled', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', lastSuccess: new Date().toISOString(), failure: null, blocker: null })) };
+      await existing.save(currentState);
+    } finally { await preparer.stop(); }
+  }
+  const repository = { async load() { currentState = await existing.load(); return currentState; }, async save(state) { await existing.save(state); currentState = state; } };
+  const worker = new RcloneProcess(root, '/usr/local/bin/rclone', '512k'), nativeRun = worker.run.bind(worker);
+  worker.run = async (...args) => {
+    const id = ids.find(id => args[0].includes(join(root, 'mirrors', id)));
+    if (id) await event('native-start', { id });
+    try { const result = await nativeRun(...args); if (id) await event('native-end', { id, success: true }); return result; }
+    catch (error) { if (id) await event('native-end', { id, success: false }); throw error; }
+  };
+  const runtime = new NoteRuntime(root, database, worker, new NoteStore(join(root, 'note-operations')), () => currentState);
+  await plugin(bb, { worker, runtime, repository });
+  const evidence = async () => ({ reservation: await bb.storage.kv.get('pa-update-pause-v1'), enabledIds: currentState.mirrors.filter(mirror => mirror.enabled).map(mirror => mirror.id) });
+  await event('icloud-ready', { root, ...await evidence() });
+  bb.onDispose(async () => { await event('icloud-dispose', await evidence()); });
+}

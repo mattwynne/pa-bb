@@ -24,9 +24,10 @@ For a new installation, start with [host setup](#1-prepare-the-host). This repos
 
 These plugins are early-stage and intended for **single-user BB installations**, not shared servers. Listed capabilities are implemented, but not every action has been verified against a live account. In particular, live Google Drive sign-in/reads, Calendar tool/approval flows, and Fastmail writes remain unverified; each plugin guide records its limits. PA core and other [planned integrations](docs/roadmap.md) are not available yet.
 
-For a read-only review of published Calendar releases and local-work blockers,
-install the optional [PA updates](plugins/pa-updates/README.md) plugin. It adds a
-sidebar footer icon; it does not install updates or replace BB/Pi controls.
+The optional [PA updates](plugins/pa-updates/README.md) plugin reviews and applies
+integration and BB/Pi/Codex updates on the configured PA server. Local integration
+customizations default to **Keep local**. It requires BB **0.46.0+** and uses BB’s
+normal installers and restart controls. See its guide for tested paths and limits.
 
 ## Get started
 

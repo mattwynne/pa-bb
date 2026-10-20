@@ -1,104 +1,115 @@
 # PA updates
 
-A **read-only Google Calendar release review** in BB's sidebar footer. It does
-not install, update or remove plugins, edit checkouts, suppress native prompts,
-or restart BB/Pi. Other PA plugins are outside this pilot.
+Review and apply ordinary released updates to Calendar, Fastmail, Google Drive,
+iCloud, Obsidian, BB, Pi CLI and Codex CLI. Local integration customizations stay
+unless you choose **Install released version**.
 
 ## Use it
 
-1. Add the PA marketplace if needed (see the repository setup guide).
-2. Install `pa-updates@pa-for-bb` independently. Calendar is not installed as a
-   side effect.
-3. Open the **PA updates** footer icon. Read the installed/published versions,
-   local-work status, release notes and last successful release check.
-4. Choose **Check again** to retry. Checks are limited to once a minute and
-   scheduled every six hours by the server, not by each browser.
+1. Install `pa-updates@pa-for-bb` through BB’s normal plugin controls.
+2. Open **PA update available**, or the **PA updates** footer icon. The notice
+   opens a keyboard-accessible dialog; the footer also opens the review.
+3. Check the versions and the named PA server. Pi/Codex actions target BB’s
+   configured primary host, never the computer displaying the browser.
+4. Keep the default **Keep local**, or choose **Install released version** for
+   a customized integration. Bulk controls change choices, not installations.
+5. Choose **Update PA**. If BB has running threads, its restart requires explicit
+   permission to interrupt them. Otherwise wait for those threads to finish.
+6. After a BB restart, reopen the panel to read the saved result.
 
-Requires BB **0.45.0+**, Node **22.18+**, outbound HTTPS to GitHub, and Git only
-if a development checkout is configured. BB 0.45.0 / SDK 0.6.15 are the verified
-API baseline; engine ranges are declarations, not a compatibility guarantee for
-all later runtimes. Requirements use the BB-reported version and this source-
-installed checker's public SDK build marker, not its development dependency pin.
-Missing metadata leaves compatibility unknown. Native BB and Pi controls remain
-available.
+Opening the panel or checking never installs anything. The server checks every
+six hours; repeated Apply requests join one saved job. The updater does not
+replace itself, install absent integrations, update unrelated plugins, or change
+other machines. It never executes commands supplied by a browser or release record.
 
-## What the states mean
+## Versions and results
 
-- **Current** requires matching package version and exact known source revision.
-- **Update available** means a higher published version, not permission to apply.
-- **Source differs** means the same version has different source (or an unrelated
-  installation source). It is not automatically a newer release.
-- **Installed revision unavailable** means source equality cannot be established.
-  BB 0.45.0 normally reports a 12-character installed revision. We display that
-  precision, never expand it from history: its history also includes prepared
-  candidates. Matching short revisions do not prove an exact match.
-- **Local changes found** covers relevant staged, unstaged, deleted and untracked
-  source. **Local commits not in release** covers relevant unpublished commits.
-- **No local changes found** is a timestamped observation against the release,
-  never an installation reservation or proof against installed-code drift.
-- **Local work not assessed / Cannot establish safety** means missing mapping,
-  objects, access, supported layout, stable files or ordinary shared ancestry.
-  Ask the operator to review the checkout. Discovery still works.
-- A failed release check keeps the last validated record and marks it **stale**.
-  The last successful check and most recent attempt are shown separately.
-  Inventory, local-work and storage failures do not mean “up to date”.
+A preview is not a pin. A compatible released version can advance before the
+native installer runs. Receipts distinguish the preview from the actual installed
+version, kept customizations, unverified/skipped components, native failures and
+uncertain results. Completed steps are not rolled back as a group. Uncertain
+installation writes are not retried automatically. Automatic discovery and reloads
+keep the saved outcome visible until you choose **Check again**. Automatic checks
+still discover later integration and runtime offers, so the notice can return
+without replacing those results. Opening it preserves the result; **Check again**
+opens a fresh review. Steps not reached
+say **Waiting…** while the job runs and **Not updated** after it stops.
 
-Release notes are inert text. Source details and notes open as disclosures; the
-retry control stays visible while the content scrolls.
+CLI receipts verify the installed version and managed npm provenance. Existing
+provider processes and sessions may retain their previous version until their
+normal restart or release. No session is forcibly reset by the CLI updater.
 
-## Operator configuration
+BB updates last through its native launcher. The job records restart intent
+before calling BB and reads BB’s durable result after reconnecting. A provisional
+startup result stays pending; delayed results can still resolve an uncertain
+receipt. The plugin does not supervise BB or promise automatic rollback.
 
-Associate the Calendar development checkout by setting the server environment
-variable `PA_UPDATES_CALENDAR_CHECKOUT` to an operator-selected absolute checkout
-root, then reload this plugin through BB's normal controls. Keep that value in
-protected service configuration; do not put paths in releases, chat or logs.
-There is no path/command RPC or browser path-entry form. Without a mapping,
-release discovery works and local work is explicitly not assessed.
+## What stays in place
 
-Trusted scope is declared in `core/release.ts`: `plugins/google-calendar`,
-`shared/connection-ui`, and `scripts/sync-connection-ui.mjs`. Dirty Obsidian-only
-work does not block Calendar; relevant shared work does. Ordinary ignored build
-outputs and state do not block it.
+Settings, credentials, account data, enablement and kept customizations remain.
+Installing a released integration replaces its local code, interface and assets.
+The updater checks local changes again before applying. Avoid editing installed
+code while an update runs; the native handoff is not an atomic edit reservation.
 
-The inspector accepts ordinary non-shallow Git checkouts with a `.git`
-directory. Linked worktrees, submodules, replace/graft histories, config
-includes, extension/filter configuration and divergent histories stay unknown.
-It disables optional Git index writes, external diff/text conversion and
-fsmonitor, bounds the entire inspection to ten seconds, bounds child output to
-1 MiB, and fingerprints HEAD, index, status and both diff layers before/after.
-It never fetches, stashes, resets, cleans, checks out, commits or pushes. Missing
-candidate objects yield unknown; **there is no repository cache or cache disk
-use in this slice**. Make objects available separately, outside the checker's
-read-only operation. Untracked source is always a blocker, not sampled away.
+A failed baseline check is **unverified**, not proof of customization or permission
+to overwrite. That integration is skipped without hiding independent updates.
+Local-path, pinned and non-main installations are not silently retargeted.
 
-## Release trust and publication
+## Requirements and supported scope
 
-The repository/channel is fixed to `mattwynne/pa-bb`, stable dedicated
-`pa-release-<full-source-commit>` GitHub releases. Drafts/prereleases and other
-tags are ignored. Selection is newest publication time, then descending tag for
-a tie. All pages must complete: at most four pages of fifty entries, each at
-most 2 MiB. Reaching the cap is an incomplete check, not “no release”. Metadata
-is at most 256 KiB, notes at most 8,000 characters, and each HTTP operation at
-most ten seconds. Redirects are bounded to trusted GitHub asset hosts.
+- BB **0.46.0+**, Node **22.18+**, Git, and outbound access to the configured GitHub
+  and npm services. The verified native path is Linux with BB’s supported launcher.
+- Managed integrations from the fixed `mattwynne/pa-bb` repository, `main` channel
+  and their normal `plugins/<id>` subdirectories. “Released” means the compatible
+  version available through that configured published channel.
+- Original-build verification uses published Git objects and an already-installed
+  BB builder matching the artifact’s recorded version, or a saved independently
+  reconstructed original for that exact integration, source commit and builder.
+  It can use the exact native app-version sibling retained by BB. It never
+  downloads old BB toolchains or requires a development checkout. Normal builds may download pinned dependencies;
+  this is not an offline operation.
+- Reconstruction uses temporary files, bounded to 512 source entries and 32 MiB
+  per package. At most five active expected-hash records persist—one per integration,
+  not an artifact history. Checks seed unchanged integrations before a later BB
+  upgrade can prune their builders. Expected hashes come from independent original
+  reconstruction, never the currently installed bytes. Tests, documentation,
+  dependencies and ordinary operational data are not executable customizations.
+- BB must offer a supported native npm/latest or clean source/main update. Desktop,
+  development, dirty or unsupported installations use BB’s normal instructions.
+  Pi/Codex must already have supported managed npm installations. Missing CLIs
+  are not installed as a side effect; external installations are not overwritten.
 
-`releases/pa-release-v1.schema.json` documents the structural contract;
-`core/release.ts` also checks semantic versions/ranges and cross-field commit
-identity. Records cannot select arbitrary repositories, paths, commands or URLs.
-Only Calendar is listed as tested. The backend stores the last accepted identity
-and raw content SHA-256 and rejects changed bytes under that identity. Releases
-must be append-only: never edit an asset or retarget a tag; use a new tested
-revision instead. Historical identities other than the last accepted one are
-not retained as an audit ledger. HTTPS and repository write controls are the
-trust boundary, **not independent artifact signing**. No executable artifact is
-downloaded by this plugin.
+### iCloud and Obsidian
 
-Maintainers trigger **Publish PA release metadata** on trusted `main`. Its read-
-only verification job checks out the exact event SHA, uses lockfiles, runs the
-pilot and checker gates, and generates the record from the tested Calendar
-package. Only the subsequent publishing job has `contents: write`; it refuses
-existing tags and does not execute package code. No deployment/account key is
-needed. The publisher does not choose a new Calendar version just to show an
-update.
+Automatic paired updates support the current **0.3.x** note-interface family.
+Older pairs require the [documented stopped migration](../icloud/README.md).
+The installed iCloud must already provide updater-aware Pause support; an older
+provider without it cannot safely bootstrap this capability while enabled. Use
+that stopped delivery procedure first.
+
+During a paired update, iCloud reserves scheduling and drains work. Its durable
+reservation records only folders it paused. User-paused folders stay paused,
+including across reload. Failed folders remain paused but release the updater’s
+restoration rights, so ordinary recovery controls remain usable. The update shows
+an attention result rather than trapping the folder behind the reservation.
+
+After an uncertain integration write, inspect the native result before choosing
+**Resume previously enabled folders**. This does not clear recovery failures.
+
+## Release notes and trust
+
+The existing immutable `pa-release-<source-commit>` feed supplies release notes.
+Its v1 publisher still covers Calendar only; absent notes are shown as unavailable,
+not invented. Offers and application come from the supported native channels.
+Older release metadata does not certify a later version installed from `main`.
+
+The optional `PA_UPDATES_CALENDAR_CHECKOUT` environment setting belongs to the
+historical read-only discovery check. It is not required for installed-code
+assessment or application. Normal users need no checkout mapping.
+
+Repository/channel allowlists, native engine checks and HTTPS/repository controls
+are the trust boundary—not independent artifact signing. No workflow-write or
+account credential is needed to consume public releases.
 
 ## Development and verification
 
@@ -107,17 +118,29 @@ npm ci
 npm run build
 npm test
 npm run typecheck
-BB_REVIEW_CHROME=/path/to/chromium npm run test:rendered
+npm run test:rendered
 ```
 
-The rendered suite starts a disposable BB 0.45.0 with a generated older Calendar
-installation and synthetic release data, then checks desktop/narrow widths,
-keyboard disclosure controls, focus restoration, notes, retry, stale recovery,
-real typed RPCs and real dirty/divergent Git observations. Its output labels
-this evidence synthetic; it is not a production downgrade or live account test.
-See [iteration 017](../../docs/plans/017-pa-update-discovery.md) for delivery gates.
+The rendered gate starts disposable BB and uses the original app with synthetic
+typed RPC states at desktop/narrow widths. It checks choices, consent, scrolling,
+notes, errors, keyboard access and focus return. It does not perform native writes.
+
+`test/run-ordinary-update-gate.mjs` exercises the original integration executor.
+`test/run-runtime-update-gate.mjs` exercises real native CLI installers and BB’s
+launcher, then verifies original-build reconstruction and a later plugin update
+across the BB upgrade. `test/run-paired-sync-gate.mjs` exercises the actual
+updater-aware iCloud/Obsidian pair with generated local alias data and stock
+rclone 1.75.2: active sync, reservation, native reload, restored enablement and
+preserved notes/receipts. Run these native installer gates **only inside a fresh
+disposable Linux container**, with no host credentials, broad mounts, privileged mode or host
+networking. Its own HOME/data/PATH/npm-prefix checks are an additional boundary,
+not a substitute for the container. Copy evidence before destroying that container.
+
+See [iteration 018 evidence](../../docs/plans/018-pa-platform-updates-ordinary-proof.md)
+for tested versions and outstanding gates. A portable unit pass is not native sync
+acceptance or permission to deploy.
 
 Diagnostics contain only `pa-updates stage=<fixed stage> outcome=<fixed category>`.
-A warning establishes the failing boundary, not its private cause. Logs and UI
-diagnostics must never contain paths, Git output, exception payloads or account
-content. No agent tools are registered.
+Never log raw installer output, paths, exception payloads, credentials or account
+content. No agent mutation tools are registered. BB’s `client` caller category
+includes app, CLI and agent clients; it is not an agent-exclusion boundary.

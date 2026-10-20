@@ -1,6 +1,7 @@
 // Rebuild original PA integration artifacts independently of installed bytes.
 // No accounts, provider writes, production server or private host modules.
-// Usage: node test/run-integration-baseline-gate.mjs BB_APP PACKAGE_SOURCE_TAR SOURCE_COMMIT
+// Usage: node test/run-integration-baseline-gate.mjs BB_APP PACKAGE_SOURCE_TAR SOURCE_COMMIT [legacy]
+// legacy checks only the three integrations observed with BB 0.45.0 builds.
 // PACKAGE_SOURCE_TAR: git archive <SOURCE_COMMIT> plugins/{five integration dirs}.
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -13,7 +14,7 @@ assert.match(suppliedSourceLabel, /^[0-9a-f]{40}$/);
 const archiveSha256 = createHash('sha256').update(await readFile(archive)).digest('hex');
 const host = await createGateHost(process.argv[2]);
 const { pkg, npm, root, repo, baseline, command, git, cli, request } = host;
-const ids = ['google-calendar', 'fastmail', 'google-drive', 'icloud', 'obsidian'];
+const ids = process.argv[5] === 'legacy' ? ['google-calendar', 'fastmail', 'google-drive'] : ['google-calendar', 'fastmail', 'google-drive', 'icloud', 'obsidian'];
 const runtime = ['dist/server.js', 'dist/server.meta.json', 'dist/app.js', 'dist/app.meta.json', 'dist/app.css'];
 let completed = false;
 try {
@@ -63,7 +64,7 @@ try {
       originalBaselineReproduced: true, activeAppBytesVerified: true, runtimeOnlyDriftDetected: true, readOnlyStatus: true });
   }
   console.log(JSON.stringify({ proof: 'real PA integration baseline reconstruction', bb: pkg.version, node: process.version,
-    platform: process.platform, suppliedSourceLabel, archiveSha256, results,
+    platform: process.platform, suppliedSourceLabel, archiveSha256, selectedIntegrations: ids, results,
     limits: ['same builder version only', 'no custom-source deployment or concurrency reservation', 'no generated sync activity', 'no BB/Pi/Codex update lifecycle', 'no live BB UI approval'] }, null, 2));
   completed = true;
 } catch {

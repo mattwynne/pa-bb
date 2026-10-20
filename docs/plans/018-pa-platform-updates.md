@@ -1,10 +1,12 @@
 # 018 — Update PA, with local-customization choices
 
-Status: implementation investigation resumed. [Ordinary synthetic updates and
-same-builder baselines for all five real integrations passed](018-pa-platform-updates-ordinary-proof.md)
-on disposable Linux BB 0.46.0 / SDK 0.6.37. Review/application code, generated sync
-and runtime lifecycle proofs remain open. No application flow or new prompt is
-implemented. Baseline: `pa-updates` **0.1.1**, the read-only Calendar pilot.
+Status: review/application and native runtime actions implemented; final review
+and delivery gates remain open. [Evidence](018-pa-platform-updates-ordinary-proof.md)
+includes original integration handlers, real Pi/Codex installs, BB 0.46.0 → 0.46.1
+through its launcher, saved receipts across restart, bounded persisted baseline
+continuity, real generated paired-sync reservation/reload/restoration, and rendered
+desktop/narrow review. Prepared packages: PA updates **0.2.0** and
+iCloud **0.3.2**. No production deployment is claimed.
 
 ## Owner decisions
 
@@ -76,8 +78,11 @@ The [interactive mock-ups](018-pa-platform-updates-mockups.html) and
 [focused image](018-pa-platform-updates-mockup.png) record the earlier plugin-only
 design, now refreshed to use **Install released version** rather than exact-version
 choices. Target versions remain useful currently-available previews; completion
-illustrates an actually installed version newer than its preview. Runtime rows, session impact,
-restart consent and post-restart status still need design and rendered review.
+illustrates an actually installed version newer than its preview. The implemented
+runtime rows, named primary host, native restart consent and saved results have
+also been exercised in running BB. The notice uses a native dialog containing the
+same review component: opening only the footer disclosure leaves a closed mobile
+sidebar inert. The ordinary footer entry remains supported.
 
 - Use the labelled **PA update available** pill near the left footer through the
   supported app-overlay slot. Keep the ordinary footer icon when quiet. No
@@ -108,7 +113,7 @@ Follow the [UX skill](../../.agents/skills/bb-plugin-ux/SKILL.md),
 [observability standards](../o11y-standards.md). Mock-up rendering is not a live
 BB UI pass.
 
-## Remaining feasibility proofs — before broad application implementation
+## Verification scope
 
 Use supported BB/SDK versions and public installation/lifecycle surfaces in
 isolated Linux BB with generated data. The historical exact-target counterexample
@@ -122,28 +127,34 @@ is not a reason to fail these proofs.
    source/build output and mutable operational data. Account for source, effective
    runtime and assets without requiring a development checkout. An unavailable
    original baseline is unknown, not permission to bless today's bytes as clean.
-   A dirty unrelated checkout is not an installed customization.
+   A dirty unrelated checkout is not an installed customization. Persist at most
+   five active independently reconstructed expected-hash records, keyed by
+   integration, source commit and recorded builder. Seed unchanged integrations
+   before BB can prune their builders; never learn from installed bytes or build
+   a historical artifact/toolchain service.
 3. **Keep and replace:** leave a customized plugin byte-for-byte while updating
    compatible siblings, including plugins sharing one cached repository. Explicit
    **Install released version** may replace that plugin's local code, including
    unpublished edits, without deleting data or touching associated source work.
    No shared reset/clean, cache reset or destructive remove/reinstall is allowed.
 4. **Review-to-apply safety:** recheck local fingerprints and prerequisites before
-   activation and prevent competing applications/edits. A timestamped observation
-   is not a reserved update window. Channel advancement is allowed; authorization
-   still applies only to the reviewed component set and keep/replace decisions.
+   activation and join competing applications. Channel advancement is allowed;
+   authorization still applies to the reviewed component set and keep/replace
+   decisions. Avoid code edits during native handoff; atomic edit protection is
+   outside the accepted scope.
 5. **Background work:** for iCloud/Obsidian, prevent new sync runs through supported
    Pause controls, drain active work, retain note operations/baselines, update in
    a compatible order and restore only previously enabled work. Observe completion
    using generated data. Do not clear failures or locks merely to deploy.
 6. **Runtime lifecycle:** prove ordinary BB/Pi/Codex updates through supported
    configured channels on the selected execution host. Preserve credentials,
-   settings and sessions; verify actual executable versions afterwards. Establish
-   active-session drain/interruption controls and required owner consent.
+   settings and sessions; verify actual executable versions afterwards. Use BB's
+   native interruption consent for its restart. CLI updates do not force session
+   resets; existing provider processes may keep old versions until normal release.
 7. **BB restart:** prove supported durable lifecycle ownership and continuation
    across BB stopping/restarting. A plugin process cannot supervise its own stopped
-   process. An existing launcher or external supervisor may be suitable, but must
-   be tested, not assumed. Preserve native controls and unrelated hosts.
+   process. BB's native launcher owns the tested restart; the plugin persists
+   intent and reconciles its result. Preserve native controls and unrelated hosts.
 8. **Host UI:** inspect the actual footer/provider-usage disclosure before fixing
    placement. Record tested BB/SDK versions and portable evidence for each proof.
 
@@ -155,7 +166,7 @@ limitation—not a renamed exact-pin gate—and seek an owner decision on that r
 
 ## Review and application rules
 
-- Compare only supported installed components; omit unchanged components and do
+- Compare only supported installed components; omit verified unchanged components and do
   not downgrade newer versions. Source provenance and version/code equality are
   different observations.
 - Store a server-owned review with the component set, channel provenance, observed
@@ -172,6 +183,9 @@ limitation—not a renamed exact-pin gate—and seek an owner decision on that r
   tool is required; opening the panel or checking updates never installs.
 - Persist per-component receipts: reviewed observation, authorized decision,
   activation result, actual verified version/identity and retained exceptions.
+  Automatic discovery and reloads retain the displayed result until explicit
+  **Check again**. Distinguish waiting/not-updated steps from absent software;
+  show actual prerequisites without inventing reasons for skipped receipts.
   Do not store credentials, provider data or arbitrary host exception text.
 - Determine dependency-safe ordering from tested component requirements. Do not
   assume BB-first, atomic application or universal downgrade/rollback support.
@@ -180,9 +194,11 @@ limitation—not a renamed exact-pin gate—and seek an owner decision on that r
 
 ## Publication and evidence model
 
-Extend `core/release.ts`, schema, generator and gated workflow from the Calendar
-v1 pilot to bounded allowlisted component metadata. Read v1 as historical pilot
-metadata, not a complete multi-component offer. No whole-platform semver.
+Keep Calendar v1 metadata as historical pilot evidence and optional release
+notes, not a complete multi-component offer. Native APIs provide current offers
+for the fixed integration/runtime allowlists. Missing notes are explicit. No new
+whole-platform release format or workflow permission is required to consume
+those supported channels.
 
 Each integration entry records its package version, repository/subdirectory,
 source revision, engines and release notes. Declare known inter-plugin requirements
@@ -236,8 +252,10 @@ exceptions, credentials or account content.
 Installed-BB gates use original handlers and actual managed updates: multiple
 integrations, preserved sentinels, untouched absent/unrelated/kept plugins, local
 and runtime drift, advancing channels, and generated sync activity. Runtime and
-BB-restart tests use synthetic active/idle sessions and durable receipts, proving
-non-selected hosts are untouched. No personal notes or provider writes are needed.
+BB-restart tests use a disposable Linux container and durable receipts. CLI
+versions do not assert freshness of existing provider processes. Native thread
+consent is retained; distinguish unit/rendered consent checks from any actually
+exercised active-thread case. No personal notes or provider-account writes are needed.
 
 Rendered gates cover quiet/available pill, ordinary review, one/multiple
 customizations, bulk/mixed choices, Also updating, applying, success with/without

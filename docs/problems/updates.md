@@ -1,7 +1,8 @@
 # PA updates are fragmented and need to preserve local work
 
-Status: full update application remains an open capability gap. The read-only
-`pa-updates` pilot is implemented; see [verification and delivery](../plans/017-pa-update-discovery-review.md).
+Status: reviewed update application is implemented but not yet delivered.
+The running installation remains the read-only pilot; see its
+[verification and delivery](../plans/017-pa-update-discovery-review.md).
 Chosen direction: an independently installable `pa-updates` plugin,
 using supported BB extension points. No BB fork is planned; native BB/provider
 prompts remain. The owner has waived exact reviewed-target pinning: use ordinary
@@ -9,15 +10,18 @@ compatible channel updates and report actual installed versions. No upstream
 pinning contract is required by the revised iteration.
 [Iteration 017](../plans/017-pa-update-discovery.md) implements release discovery and
 read-only local-work review for Google Calendar; it does not install updates.
-[Iteration 018](../plans/018-pa-platform-updates.md) now plans reviewed integration,
+[Iteration 018](../plans/018-pa-platform-updates.md) implements reviewed integration,
 BB application, Pi CLI and Codex CLI versions on the selected PA execution host,
 with local-plugin customization choices and no whole-platform version number.
 The [earlier Gate 0 proof](../plans/018-pa-platform-updates-gate-0.md) characterizes
 a **superseded requirement**: real managed updates on BB 0.45.0 and 0.46.1 can
 install a newer branch/tag-range candidate than the preview. That is now accepted.
-State preservation, trustworthy local-change baselines and runtime/session/restart
-safety still need proof. The refreshed mock-ups cover plugin choices, not approval
-of the still-pending runtime/restart flow.
+[Current evidence](../plans/018-pa-platform-updates-ordinary-proof.md) covers original
+integration handlers, native BB/Pi/Codex updates, restart receipts, builder continuity
+and rendered UI. The generated native paired-sync gate also passed: the new Pause
+reservation survived native reload, preserved notes/receipts and restored only
+previously enabled folders. Final review/delivery remain open; installed CLI
+versions do not assert fresh sessions.
 Session-driven source editing, Git credentials and permission to publish changes
 are a separate problem, deferred from this brief.
 
@@ -44,8 +48,8 @@ fresh safety checks and an explicit user request.
 Provide a noticeable **PA update available** pill near the left-hand footer
 when a new release exists, opening a platform-level review with release notes
 and an **Update PA** action. A supported app-wide overlay can supply the labelled
-pill; its responsive placement still needs rendered verification. The existing
-footer icon remains a quiet entry when nothing is new. Native BB/Pi update pills
+pill. Iteration 018 verified its dialog, placement and keyboard behavior at desktop
+and narrow widths in disposable BB 0.46.0. The existing footer icon remains a quiet entry when nothing is new. Native BB/Pi update pills
 and recovery controls remain intact: no BB fork or DOM/CSS-based suppression.
 
 Use the supported compatible update from the trusted configured release channel.
@@ -87,9 +91,10 @@ present in SDK 0.6.15 as well as the inspected upstream source. Upstream's
 `provider-usage` plugin supplies a comparable disclosure. A PA entry opening an
 update review is therefore plausible without modifying BB's DOM.
 
-This is an experimental icon/disclosure API, not a demonstrated replacement for
-the native conditional, labelled update pills. Dynamic availability, attention
-badges and exact placement still need a rendered proof in the target BB version.
+This experimental icon/disclosure API does not replace the native update pills.
+Iteration 018 now verifies the plugin's own labelled overlay notice and native
+HTML dialog, alongside its footer disclosure, in running BB 0.46.0. The native
+prompts remain unchanged; this is not evidence of a suppression hook.
 
 Sources: [footer contract](https://github.com/get-bb/bb/blob/5e7c06e637102a73ea2dba5c5e2d5d03f09c7c62/packages/plugin-sdk/src/app-contract.ts)
 (`ExperimentalSidebarFooter`),
@@ -160,8 +165,8 @@ are not a rollback guarantee for the whole release. See upstream
 
 ### Entry and review
 
-Iteration 017 supplies the icon/disclosure pilot. The next design is
-platform-first: a labelled update pill opens one **Update PA** review. Normal
+Iteration 017 supplies the icon/disclosure pilot. Iteration 018 implements the
+platform-first design: a labelled update pill opens one **Update PA** review. Normal
 users see the reviewed PA release, what is new, any required restart, and the
 update action—not a plugin checklist or development-checkout setup.
 
@@ -217,7 +222,10 @@ that source as well. Account for dependencies internally, serialize updates and
 recheck the reviewed choices before application. New local changes require a
 fresh choice, not an automatic overwrite. Missing checkout mapping alone is not
 a failure; an unavailable installed-code baseline is genuinely unknown and must
-not be presented as clean.
+not be presented as clean. Keep at most five active, independently reconstructed
+expected-hash records, keyed by integration, source commit and recorded builder.
+Seed unchanged integrations too, before BB can prune an old builder. Never learn
+an expected baseline from installed bytes or scan all installation history.
 
 Before enabling Apply, prove ordinary supported updates preserve state and honor
 keep/replace choices. A newer compatible released version is allowed; it is not a
@@ -225,7 +233,10 @@ reason to demand a new review or block application. New local edits or unsafe
 compatibility/background state still require attention before activation.
 
 The panel reconnects to recorded outcomes rather than inferring success from a
-closed request. Never promise an atomic bundle or automatic rollback. Removing
+closed request. Automatic discovery and reloads retain the displayed outcome
+until explicit **Check again**. Unreached steps say **Waiting…** during the job or
+**Not updated** afterward; prerequisite text describes the actual failed check.
+Never promise an atomic bundle or automatic rollback. Removing
 `pa-updates` leaves installed integrations and BB/Pi's native controls intact.
 
 ### BB, Pi and Codex in this design
@@ -235,21 +246,20 @@ CLI in the reviewed release, not just a link to native status. Each retains its
 own version. Native update pills and settings remain available and unchanged.
 Failure to read runtime status must not silently mean the installation is current.
 
-This expanded scope is planned, not implemented. Prove ordinary supported channel
-updates and actual executable verification for each runtime on the selected PA
-execution host. Exact runtime pins are not required. Establish active-session drain/interruption
-controls and consent, compatibility/order, preserved credentials/configuration,
-and durable continuation across BB restarts. The plugin cannot own continuation
-while its BB process is stopped; a supported external lifecycle owner or launcher
-handoff must be proved rather than assumed. Do not invent a rollback guarantee
-for BB migrations or claim that restarted sessions continued safely without tests.
+This scope is implemented and verified in a disposable Linux installation using
+BB's supported installers and launcher. Native Pi and Codex updates verified
+installed executable versions; a real BB restart reconciled the same saved job
+without repeating the write. See the [runtime evidence](../plans/018-pa-platform-updates-ordinary-proof.md).
+Exact runtime pins are not required. CLI updates do not stop sessions: existing
+provider processes may retain their previous versions until normal release or
+restart. BB's own running-thread refusal and explicit interruption consent govern
+its restart. No live-account/session interruption experiment was performed.
 
-Stop and explain a specific state/lifecycle limitation if supported mechanisms
-cannot satisfy these properties. Do not modify BB, disable its controls or treat
-arbitrary package-manager commands as an approved route. A supported channel may
-advance normally; do not recreate an exact-pin gate under another name. Runtime
-feasibility needs a separate disposable proof; the historical plugin counterexample
-neither proves nor disproves those runtime mechanisms.
+The launcher, not the plugin, owns BB's restart. Do not invent a rollback guarantee
+for BB migrations or claim that every provider connection is fresh afterward.
+Missing or unsupported installations remain prerequisites, not permission to
+install another runtime or target another machine. Native controls remain intact;
+a supported channel may advance normally without recreating an exact-pin gate.
 
 ## Customization policy and examples
 
@@ -303,8 +313,9 @@ that lifecycle remains outside the next iteration.
    execution-host identity in the same release review. Preserve native prompts;
    no BB fork or prompt-suppression work is needed.
 4. **Coordinate BB, Pi and Codex.** Prove supported update-channel provenance,
-   actual executable identity, compatibility, ordering, active-session consent and durable ownership
-   across BB restarts before implementing application. Report partial failures
+   actual executable identity, compatibility, ordering, BB interruption consent and durable ownership
+   across BB restarts. The isolated runtime gate now covers native application
+   and saved receipts, not a promise to refresh every session. Report partial failures
    without promising automatic downgrade.
 5. **Support background-sync updates.** Pause scheduling, drain active work,
    update, restore prior enablement and observe completion. An idle snapshot is
@@ -332,14 +343,15 @@ that lifecycle remains outside the next iteration.
 
 Follow [UX standards](../ux-standards.md) and
 [observability standards](../o11y-standards.md). Test unavailable release feeds,
-malformed records, failed checks, concurrent edits, explicit keep/replace choices
+malformed records, failed checks, pre-apply edits, explicit keep/replace choices
 and partial results with synthetic data and safe diagnostics. Review discovery,
 no-update, available, blocked, applying, restart and recovery states in running
 BB at desktop/narrow widths with keyboard navigation before claiming delivery.
 The investigation itself implemented no plugin or release pipeline. Iteration
 017 now supplies the read-only discovery pilot and gated metadata publisher;
-application and coordinated BB/Pi/Codex upgrades are planned in 018; ordinary-update,
-customization and lifecycle proofs are in progress. Exact pinning is superseded;
+iteration 018 now implements application and coordinated BB/Pi/Codex upgrades,
+with isolated ordinary-update, customization, restart, generated paired-sync and
+rendered proofs. Production delivery remains held. Exact pinning is superseded;
 prompt suppression remains excluded. Self-development credentials are separate:
 the owner has rejected workflow-write permission, and release consumption must
 not require broader repository publishing authority.

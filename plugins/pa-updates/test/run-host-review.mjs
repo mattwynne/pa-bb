@@ -1,7 +1,7 @@
-// Disposable BB 0.45.0. All checkouts, releases and older installations are
-// generated synthetic evidence; never points installers at an existing server.
+// Real disposable BB, original app bundle, synthetic typed RPC states. This
+// rendered gate never installs runtime updates or touches an existing server.
 import assert from 'node:assert/strict';
-import { spawn, execFile, execFileSync } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtemp, mkdir, writeFile, readFile, cp, symlink, rm } from 'node:fs/promises';
 import { openSync, closeSync } from 'node:fs';
@@ -12,127 +12,180 @@ import { createServer } from 'node:net';
 import { chromium } from 'playwright';
 import { record } from './fixtures.ts';
 const exec = promisify(execFile);
-const plugin = resolve(fileURLToPath(new URL('../', import.meta.url)));
-const repo = resolve(plugin, '../..');
-const bb = join(plugin, 'node_modules/bb-app');
+const plugin = resolve(fileURLToPath(new URL('../', import.meta.url))), repo = resolve(plugin, '../..');
+const bb = resolve(process.env.BB_REVIEW_PACKAGE ?? join(plugin, 'node_modules/bb-app'));
+const bbVersion = JSON.parse(await readFile(join(bb, 'package.json'), 'utf8')).version;
 const port = Number(process.env.BB_REVIEW_PORT ?? 43910);
 assert.ok(Number.isInteger(port) && port > 1024 && port < 65535);
 for (const candidate of [port, port + 1]) await new Promise((resolve, reject) => { const probe = createServer(); probe.once('error', reject); probe.listen(candidate, '127.0.0.1', () => probe.close(resolve)); });
-const root = await mkdtemp(join(tmpdir(), 'pa-updates-bb-'));
-const artifacts = await mkdtemp(join(tmpdir(), 'pa-updates-evidence-'));
-await mkdir(join(root, 'home')); await mkdir(join(root, 'checkout')); await mkdir(join(root, 'fixture'));
-const checkout = join(root, 'checkout'); const git = (...args) => execFileSync('git', args, { cwd: checkout, encoding: 'utf8' }).trim();
-git('init', '-q'); git('config', 'user.name', 'Synthetic'); git('config', 'user.email', 'synthetic@example.invalid');
-await mkdir(join(checkout, 'plugins/google-calendar'), { recursive: true });
-const source = join(checkout, 'plugins/google-calendar/server.ts'); await writeFile(source, 'synthetic baseline\n'); git('add', '.'); git('commit', '-qm', 'baseline'); const baseline = git('rev-parse', 'HEAD');
-const feedFile = join(root, 'release.json'); const clockFile = join(root, 'clock'); const countFile = join(root, 'calls');
-let clock = Date.parse('2026-10-19T12:00:00Z');
-await writeFile(clockFile, String(clock)); await writeFile(countFile, ''); await writeFile(feedFile, JSON.stringify(record('0.1.1', baseline)));
-await cp(plugin, join(root, 'fixture'), { recursive: true, filter: path => !['node_modules', 'dist', 'test', 'features'].some(part => path.slice(plugin.length).split('/').includes(part)) });
-await symlink(join(plugin, 'node_modules'), join(root, 'fixture/node_modules'));
-await writeFile(join(root, 'fixture/implementation.ts'), await readFile(join(plugin, 'server.ts')));
-await writeFile(join(root, 'fixture/server.ts'), `import plugin from './implementation.ts';\nimport {readFileSync,appendFileSync} from 'node:fs';\nexport default bb => plugin(bb, { now:()=>Number(readFileSync(${JSON.stringify(clockFile)},'utf8')), feed:async signal=>{if(signal.aborted)throw new Error('cancelled');appendFileSync(${JSON.stringify(countFile)},'check\\n');const text=readFileSync(${JSON.stringify(feedFile)},'utf8');if(text==='fail')throw new Error('PRIVATE_SENTINEL token account /private');return {text,identity:JSON.parse(text).identity};} });`);
-// Generated older Calendar installation, not a change to the pilot source.
-const older = join(root, 'older-calendar');
-await cp(join(repo, 'plugins/google-calendar'), older, { recursive: true, filter: path => !['node_modules', 'dist'].some(part => path.split('/').includes(part)) });
-const oldPackage = JSON.parse(await readFile(join(older, 'package.json'), 'utf8')); oldPackage.version = '0.1.0'; await writeFile(join(older, 'package.json'), JSON.stringify(oldPackage));
-await symlink(join(repo, 'plugins/google-calendar/node_modules'), join(older, 'node_modules'));
-const env = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: join(root, 'home'), NODE_ENV: 'production', BB_DATA_DIR: join(root, 'data'), BB_SERVER_PORT: String(port), BB_SERVER_BIND_HOST: '127.0.0.1', BB_SERVER_URL: `http://127.0.0.1:${port}`, BB_HOST_DAEMON_PORT: String(port + 1), PA_UPDATES_CALENDAR_CHECKOUT: checkout };
-const output = openSync(join(root, 'server.log'), 'w', 0o600); const server = spawn(process.execPath, [join(bb, 'server/dist/index.js')], { env, cwd: root, stdio: ['ignore', output, output] }); closeSync(output);
-const cli = async (...args) => (await exec(process.execPath, [join(bb, 'host-daemon/dist/bb'), ...args], { env, cwd: root, timeout: 120000, maxBuffer: 2 * 1024 * 1024 })).stdout;
-let browser; let completed = false;
+const root = await mkdtemp(join(tmpdir(), 'pa-updates-bb-')), artifacts = await mkdtemp(join(tmpdir(), 'pa-updates-evidence-'));
+let browser, server, completed = false;
+const stop = () => { if (server && server.exitCode === null && server.signalCode === null) server.kill('SIGTERM'); };
+const interrupted = () => { stop(); process.exitCode = 130; };
+process.once('SIGINT', interrupted); process.once('SIGTERM', interrupted);
 try {
+  await mkdir(join(root, 'home')); const fixture = join(root, 'fixture');
+  await cp(plugin, fixture, { recursive: true, filter: path => !['node_modules', 'dist', 'test', 'features'].some(part => path.slice(plugin.length).split('/').includes(part)) });
+  await symlink(join(plugin, 'node_modules'), join(fixture, 'node_modules'));
+  await writeFile(join(fixture, 'implementation.ts'), await readFile(join(plugin, 'server.ts')));
+  await writeFile(join(fixture, 'server.ts'), `import plugin from './implementation.ts';
+export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:null,runtime:null})},{inspect:async()=>[],validateMix:async()=>{},update:async()=>{throw new Error('Rendered fixture cannot activate updates');},quiesce:async()=>{},restore:async()=>{},load:()=>bb.storage.kv.get('rendered-job'),save:value=>bb.storage.kv.set('rendered-job',value),diagnose:()=>{}});`);
+  const env = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: join(root, 'home'), NODE_ENV: 'production', BB_APP_VERSION: bbVersion, BB_DATA_DIR: join(root, 'data'), BB_SERVER_PORT: String(port), BB_SERVER_BIND_HOST: '127.0.0.1', BB_SERVER_URL: `http://127.0.0.1:${port}`, BB_HOST_DAEMON_PORT: String(port + 1) };
+  const output = openSync(join(root, 'server.log'), 'w', 0o600); server = spawn(process.execPath, [join(bb, 'server/dist/index.js')], { env, cwd: root, stdio: ['ignore', output, output] }); closeSync(output);
+  const cli = async (...args) => { try { return (await exec(process.execPath, [join(bb, 'host-daemon/dist/bb'), ...args], { env, cwd: root, timeout: 120000, maxBuffer: 2 * 1024 * 1024 })).stdout; } catch { throw new Error('gate_command_failed'); } };
   let ready = false;
   for (let n = 0; n < 150; n++) { assert.equal(server.exitCode, null, 'Isolated BB exited'); try { ready = (await fetch(env.BB_SERVER_URL)).ok; } catch {} if (ready) break; await new Promise(r => setTimeout(r, 100)); }
-  assert.ok(ready); assert.equal((await cli('--version')).trim(), '0.45.0');
-  for (const path of [older, join(root, 'fixture')]) { const installed = JSON.parse(await cli('plugin', 'install', path, '--yes', '--json')); assert.equal(installed.plugin.status, 'running', JSON.stringify({ id: installed.plugin.id, detail: installed.plugin.statusDetail })); }
-  const installed = JSON.parse(await cli('plugin', 'list', '--json')).plugins;
-  assert.equal(installed.find(p => p.id === 'google-calendar').version, '0.1.0');
-  const rpc = async (method, input = null) => { const response = await fetch(env.BB_SERVER_URL + '/api/v1/plugins/pa-updates/rpc/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }); const body = await response.json(); assert.equal(body.ok, true, JSON.stringify(body)); return body.result; };
-  let initial;
-  for (let n = 0; n < 100; n++) { initial = await rpc('status'); if (initial.observation && !initial.checking) break; await new Promise(r => setTimeout(r, 100)); }
-  assert.equal(initial.observation.local.outcome, 'clean'); assert.equal(initial.observation.installed.version, '0.1.0');
-  const index = await readFile(join(checkout, '.git/index'));
-  await writeFile(source, 'PRIVATE_SENTINEL dirty local work\n'); clock += 60001; await writeFile(clockFile, String(clock));
-  const beforeCalls = (await readFile(countFile, 'utf8')).split('\n').filter(Boolean).length;
-  const joined = await Promise.all(Array.from({ length: 8 }, () => rpc('check')));
-  assert.ok(joined.every(status => status.observation.local.outcome === 'local_changes'));
-  assert.equal((await readFile(countFile, 'utf8')).split('\n').filter(Boolean).length, beforeCalls + 1);
-  assert.equal(await readFile(source, 'utf8'), 'PRIVATE_SENTINEL dirty local work\n'); assert.deepEqual(await readFile(join(checkout, '.git/index')), index);
-  // All mutations below create fixture history; the checker only observes it.
-  git('commit', '-qam', 'local work'); const local = git('rev-parse', 'HEAD'); git('checkout', '-qb', 'candidate', baseline); await writeFile(source, 'release work\n'); git('commit', '-qam', 'candidate'); const candidate = git('rev-parse', 'HEAD'); git('checkout', '-q', local);
-  await writeFile(feedFile, JSON.stringify(record('0.1.1', candidate))); clock += 60001; await writeFile(clockFile, String(clock));
-  const divergentIndex = await readFile(join(checkout, '.git/index')); const divergentBytes = await readFile(source);
-  const diverged = await rpc('check'); assert.equal(diverged.observation.local.outcome, 'cannot_establish'); assert.deepEqual(await readFile(join(checkout, '.git/index')), divergentIndex); assert.deepEqual(await readFile(source), divergentBytes);
-  await writeFile(feedFile, 'fail'); clock += 60001; await writeFile(clockFile, String(clock)); const failed = await rpc('check'); assert.equal(failed.stale, true); assert.equal(failed.feedFailure, 'unavailable');
-  const logs = await cli('plugin', 'logs', 'pa-updates'); assert.match(logs, /stage=feed outcome=unavailable/); assert.ok(!logs.includes('PRIVATE_SENTINEL')); assert.ok(!JSON.stringify(failed).includes('PRIVATE_SENTINEL'));
-  const callsBeforeReload = await readFile(countFile, 'utf8'); await cli('plugin', 'reload', 'pa-updates'); await rpc('status'); assert.equal(await readFile(countFile, 'utf8'), callsBeforeReload);
-  // Real footer, real bundles, synthetic typed RPC states below.
-  browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : {}) });
-  const base = { ...initial, checking: false, comparison: 'current', storageFailure: false, stale: false, feedFailure: null, nextManualAt: null,
-    observation: { ...initial.observation, installed: { version: '0.1.1', revision: baseline, source: 'trusted' }, release: record('0.1.1', baseline) } };
-  base.observation.release.plugins[0].notes = 'Synthetic release evidence only.\n<script>inert text, not markup</script>\n' + 'Readable notes. '.repeat(40);
-  const views = ['first', 'checking', 'current', 'available', 'absent', 'unknown', 'dirty', 'diverged', 'stale', 'invalid', 'revision', 'incompatible', 'inventory', 'recovery', 'no_release', 'mismatch', 'newer', 'rpc_error', 'storage'];
+  assert.ok(ready); assert.equal((await cli('--version')).trim(), bbVersion);
+  // A comparable real integration is present, but no accounts are configured.
+  for (const source of [join(repo, 'plugins/google-calendar'), fixture]) {
+    const installed = JSON.parse(await cli('plugin', 'install', source, '--yes', '--json'));
+    assert.equal(installed.plugin.status, 'running', installed.plugin.id);
+  }
+  const readRpc = async method => { const response = await fetch(env.BB_SERVER_URL + '/api/v1/plugins/pa-updates/rpc/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'null' }); const body = await response.json(); assert.equal(body.ok, true); return body.result; };
+  let discovery;
+  for (let n = 0; n < 100; n++) { discovery = await readRpc('status'); if (discovery.lastAttempt && !discovery.checking) break; await new Promise(r => setTimeout(r, 100)); }
+  const live = await readRpc('applicationStatus'); assert.equal(live.failure, null); assert.equal(live.job, null);
+  const release = record('0.1.1', 'a'.repeat(40)); release.plugins[0].notes = 'Synthetic release evidence.\n<script>inert text, not markup</script>\n' + 'Readable notes. '.repeat(30);
+  discovery = { ...discovery, checking: false, stale: false, comparison: 'available', observation: { ...discovery.observation, release } };
+  const reviewId = '11111111-1111-4111-8111-111111111111';
+  const base = { checking: false, applying: false, failure: null, job: null, offers: { available: true, checkedAt: new Date().toISOString() }, review: { id: reviewId, at: new Date().toISOString(), rows: [
+    { id: 'google-calendar', installed: '0.1.0', available: '0.1.1', local: 'stock', fingerprint: 'calendar', prerequisite: null },
+    { id: 'fastmail', installed: '0.1.0', available: '0.1.1', local: 'custom', fingerprint: 'fastmail', prerequisite: null },
+  ], runtime: { target: { id: 'synthetic-primary-host', name: 'PA test server' }, runningThreadCount: 0, rows: ['pi', 'codex', 'bb'].map(id => ({ id, installed: '1.0.0', available: '1.0.1', source: id === 'bb' ? 'npm' : 'npmGlobal', state: 'ready', reason: null, fingerprint: id })) } } };
+  const job = () => ({ id: '22222222-2222-4222-8222-222222222222', reviewId, phase: 'complete', receipts: base.review.rows.map(row => ({ id: row.id, choice: row.local === 'custom' ? 'keep' : 'install', before: row.installed, preview: row.available, actual: row.local === 'custom' ? row.installed : '0.1.2', outcome: row.local === 'custom' ? 'kept' : 'updated' })), syncReserved: false, failure: null, runtimeReceipts: base.review.runtime.rows.map(row => ({ id: row.id, before: row.installed, preview: row.available, actual: '1.0.2', source: row.source, outcome: 'updated' })), bbIntent: null, confirmInterruptingThreads: false });
+  browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : { channel: 'chrome' }) });
+  const views = ['first', 'checking', 'current', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
   let screenshots = 0;
   for (const view of views) for (const width of [1280, 390]) {
     console.log(`Rendering synthetic ${view} at ${width}`);
-    const page = await browser.newPage({ viewport: { width, height: 1000 } }); page.on('pageerror', error => console.error('Synthetic page error:', error.message)); let state = structuredClone(base); let checks = 0;
-    if (view === 'first') Object.assign(state, { comparison: 'first', observation: null, lastSuccess: null, lastAttempt: null });
+    const page = await browser.newPage({ viewport: { width, height: 1000 } }); const pageErrors = []; page.on('pageerror', error => pageErrors.push(error.message));
+    let state = structuredClone(base), notes = structuredClone(discovery); const writes = [];
+    const laterOffer = view.startsWith('later_');
+    if (view === 'first') { state.review = null; state.offers = null; notes.comparison = 'first'; }
     if (view === 'checking') state.checking = true;
-    if (view === 'available') { state.comparison = 'available'; state.observation.installed.version = '0.1.0'; }
-    if (view === 'absent') { state.comparison = 'no_plugin'; state.observation.installed = null; }
-    if (view === 'unknown') state.observation.local = { ...state.observation.local, outcome: 'not_assessed', reason: 'mapping_missing' };
-    if (view === 'dirty') state.observation.local.outcome = 'local_changes';
-    if (view === 'diverged') Object.assign(state.observation.local, { outcome: 'cannot_establish', reason: 'diverged' });
-    if (['stale', 'invalid', 'recovery'].includes(view)) Object.assign(state, { stale: true, feedFailure: view === 'invalid' ? 'invalid' : 'network', lastAttempt: new Date(clock).toISOString() });
-    if (view === 'revision') { state.comparison = 'revision_unavailable'; state.observation.installed.revision = null; }
-    if (view === 'incompatible') state.comparison = 'incompatible';
-    if (view === 'no_release') { state.comparison = 'no_release'; state.observation.release = null; }
-    if (view === 'mismatch') state.comparison = 'source_mismatch';
-    if (view === 'newer') { state.comparison = 'installed_newer'; state.observation.installed.version = '0.2.0'; }
-    if (view === 'storage') state.storageFailure = true;
-    if (view === 'inventory') { state.comparison = 'inventory_unavailable'; delete state.observation.installed; state.observation.inventoryFailed = true; }
+    if (view === 'current') { state.offers.available = false; state.review.rows = []; state.review.runtime.rows.forEach(row => { row.state = 'current'; row.available = null; }); notes.comparison = 'current'; }
+    if (view === 'unknown') { state.review.rows[0].local = 'unknown'; state.review.rows[0].prerequisite = 'baseline_unknown'; state.review.runtime.target = null; state.review.runtime.rows.forEach(row => { row.state = 'unavailable'; row.reason = 'unavailable'; }); }
+    if (view === 'prerequisites') state.review.rows = ['incompatible', 'unavailable', 'baseline_unknown'].map((prerequisite, index) => ({ ...base.review.rows[0], id: ['google-calendar', 'fastmail', 'google-drive'][index], local: 'unknown', prerequisite }));
+    if (view === 'failed') { state.failure = 'unavailable'; notes.stale = true; }
+    if (view === 'consent') state.review.runtime.runningThreadCount = 2;
+    if (laterOffer || ['updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'bb_failed', 'interrupted'].includes(view)) { state.job = job(); state.offers = laterOffer ? structuredClone(base.offers) : null; }
+    if (view === 'later_uncertain') { state.job.phase = 'attention'; state.job.failure = 'interrupted'; state.job.receipts[0].outcome = 'uncertain'; state.job.receipts[0].actual = null; }
+    if (view === 'updating' || view === 'preflight') {
+      state.job.receipts.concat(state.job.runtimeReceipts).forEach(row => { row.outcome = 'pending'; row.actual = null; });
+      if (view === 'updating') { state.applying = true; state.job.phase = 'applying'; state.job.receipts[0].outcome = 'activating'; }
+      else { state.job.phase = 'attention'; state.job.failure = 'changed'; }
+    }
+    if (view === 'cli_failed') { state.job.phase = 'attention'; state.job.failure = 'unavailable'; state.job.runtimeReceipts[1].outcome = 'uncertain'; state.job.runtimeReceipts[1].actual = null; state.job.runtimeReceipts[2].outcome = 'pending'; state.job.runtimeReceipts[2].actual = null; }
+    if (view === 'complete') {
+      state.review.rows.push({ ...base.review.rows[0], id: 'google-drive', local: 'unknown', prerequisite: 'incompatible' });
+      state.job.receipts.push({ id: 'google-drive', choice: 'keep', before: '0.1.0', preview: '0.1.1', actual: '0.1.0', outcome: 'skipped' });
+    }
+    if (view === 'restarting') { state.applying = true; state.job.phase = 'restarting'; state.job.runtimeReceipts[2].outcome = 'activating'; state.job.runtimeReceipts[2].actual = null; state.job.bbIntent = { hostId: 'synthetic-primary-host', previousResultId: null, requestedAt: new Date().toISOString(), fromVersion: '1.0.0', fromCommit: null }; }
+    if (view === 'bb_failed') { state.job.phase = 'attention'; state.job.failure = 'unavailable'; state.job.runtimeReceipts[2].outcome = 'failed'; state.job.runtimeReceipts[2].actual = '1.0.0'; }
+    if (view === 'interrupted') { state.offers = structuredClone(base.offers); state.job.phase = 'attention'; state.job.failure = 'interrupted'; state.job.syncReserved = true; state.job.receipts[0].outcome = 'uncertain'; state.job.receipts[0].actual = null; }
+    if (view === 'storage') state.failure = 'storage';
     await page.route('**/api/v1/plugins/pa-updates/rpc/**', route => {
-      const method = new URL(route.request().url()).pathname.split('/').at(-1); assert.ok(['check', 'status'].includes(method));
-      if (method === 'check') { checks++; if (view === 'recovery') { state = structuredClone(base); } }
-      return route.fulfill({ json: view === 'rpc_error' ? { ok: false, error: { code: 'internal', message: 'PRIVATE_SENTINEL private response' } } : { ok: true, result: state } });
+      const method = new URL(route.request().url()).pathname.split('/').at(-1); assert.ok(['applicationStatus', 'status', 'review', 'apply', 'resumeSync'].includes(method));
+      if (['review', 'apply', 'resumeSync'].includes(method)) {
+        writes.push({ method, input: route.request().postDataJSON() });
+        if (method === 'review') {
+          const savedJob = state.job; state = structuredClone(base);
+          if (laterOffer) {
+            state.job = savedJob; state.review.id = '33333333-3333-4333-8333-333333333333';
+            state.review.rows = view === 'later_runtime' ? [] : [{ ...base.review.rows[0], installed: '0.1.2', available: '0.1.3' }];
+            state.review.runtime.rows.forEach(row => { row.installed = '1.0.2'; row.available = view === 'later_runtime' && row.id === 'pi' ? '1.0.3' : null; row.state = row.available ? 'ready' : 'current'; });
+          }
+        }
+        if (method === 'apply') { state.job = job(); state.job.confirmInterruptingThreads = route.request().postDataJSON().confirmInterruptingThreads; }
+        if (method === 'resumeSync') state.job.syncReserved = false;
+      }
+      return route.fulfill({ json: view === 'rpc_error' ? { ok: false, error: { code: 'internal', message: 'PRIVATE_SENTINEL private response' } } : { ok: true, result: method === 'status' ? notes : state } });
     });
-    await page.goto(env.BB_SERVER_URL); await page.getByText('Learn what bb can do', { exact: true }).waitFor({ timeout: 60000 }); const trigger = page.getByRole('button', { name: 'PA updates', exact: true });
-    if (width === 390 && await page.locator('main[data-sidebar-shelf="closed"]').count()) { await page.getByRole('button', { name: /Toggle sidebar/ }).click(); await page.locator('main[data-sidebar-shelf="open"]').waitFor(); }
-    await trigger.waitFor({ timeout: 60000 }); await trigger.click({ trial: true }); await trigger.focus(); await page.keyboard.press('Enter');
-    await page.screenshot({ path: join(artifacts, 'last-open.png') });
-    const section = page.getByRole('region', { name: 'Google Calendar updates', exact: true }); await section.waitFor();
-    await section.getByRole('button', { name: 'Check again', exact: true }).waitFor();
-    await page.waitForFunction(() => !document.querySelector('.pa-updates')?.textContent.includes('Loading check status'));
+    await page.goto(env.BB_SERVER_URL); await page.locator('button').first().waitFor({ timeout: 60000 });
+    const skip = page.getByRole('button', { name: 'Skip setup', exact: true });
+    if (await skip.isVisible()) await skip.click();
+    await writeFile(join(artifacts, 'last-page.txt'), await page.locator('body').innerText());
+    await page.screenshot({ path: join(artifacts, 'last-page.png') });
+    const trigger = page.getByRole('button', { name: 'PA updates', exact: true }), notice = page.getByRole('button', { name: 'PA update available', exact: true });
+    const fromNotice = laterOffer || ['available', 'prerequisites'].includes(view);
+    if (fromNotice) { await notice.waitFor(); await notice.focus(); await page.keyboard.press('Enter'); }
+    else {
+      if (width === 390 && await page.locator('main[data-sidebar-shelf="closed"]').count()) { await page.getByRole('button', { name: /Toggle sidebar/ }).click(); await page.locator('main[data-sidebar-shelf="open"]').waitFor(); }
+      await trigger.waitFor({ timeout: 60000 }); await trigger.focus(); await page.keyboard.press('Enter');
+    }
+    const section = page.getByRole('region', { name: 'Update PA', exact: true }); await section.waitFor();
+    await section.getByRole('button', { name: /Check again|Check for updates/ }).waitFor();
+    await page.waitForFunction(() => document.querySelector('.pa-updates [role="status"]')?.textContent.length > 0);
     assert.equal(await section.evaluate(el => el.scrollWidth > el.clientWidth), false); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    assert.ok(!(await section.textContent()).includes('PRIVATE_SENTINEL'));
+    assert.ok(!(await section.textContent()).includes('PRIVATE_SENTINEL')); assert.equal(await section.locator('script,a').count(), 0);
     assert.ok(await section.locator('[role="status"][aria-live="polite"]').count() > 0);
-    assert.equal(await section.getByRole('button', { name: /install|apply|approve/i }).count(), 0); assert.equal(await section.locator('script,a').count(), 0);
-    await page.waitForFunction(() => { const el = document.querySelector('.pa-updates'); if (!el) return false; const host = el.closest('[id^="plugin-sidebar-footer-disclosure-"]').getBoundingClientRect(); const own = el.getBoundingClientRect(); const check = el.querySelector('footer button').getBoundingClientRect(); return own.bottom <= host.bottom + 1 && check.bottom <= host.bottom && check.top >= host.top; });
-    if (view === 'stale' || view === 'invalid') await section.getByText(/Last known release information/).waitFor();
-    if (view === 'available') await section.getByText('Google Calendar update available', { exact: true }).waitFor();
-    if (view === 'absent') await section.getByText('No supported plugin installed', { exact: true }).waitFor();
-    if (view === 'recovery') { await section.getByRole('button', { name: 'Check again' }).click(); await section.getByText(/Last known release information/).waitFor({ state: 'hidden' }); assert.equal(checks, 1); }
-    const close = section.getByRole('button', { name: 'Close PA updates' }); await page.keyboard.press('Tab'); await close.focus(); assert.equal(await close.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
+    await page.waitForFunction(() => { const el = document.querySelector('.pa-updates'); const host = el.closest('dialog,[id^="plugin-sidebar-footer-disclosure-"]').getBoundingClientRect(); const own = el.getBoundingClientRect(); const check = el.querySelector('footer button').getBoundingClientRect(); return own.bottom <= host.bottom + 1 && check.bottom <= host.bottom && check.top >= host.top; });
+    if (['failed', 'storage', 'checking', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'bb_failed', 'interrupted', 'rpc_error'].includes(view)) assert.equal(await notice.count(), 0);
+    if (view === 'failed') await section.getByText('Check failed — previous results may be out of date', { exact: true }).waitFor();
+    if (view === 'available') assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
+    if (view === 'prerequisites') {
+      await section.getByText('The available release does not meet this integration’s requirements. This integration will not be replaced.', { exact: true }).waitFor();
+      await section.getByText('Could not check this integration. Check BB and your connection, then check again.', { exact: true }).waitFor();
+      assert.equal(await section.getByText(/The original installed build could not be verified/).count(), 1);
+    }
+    if (['updating', 'preflight', 'cli_failed', 'complete'].includes(view)) {
+      assert.ok(!(await section.locator('.pa-update-results').textContent()).includes('Not installed'));
+      assert.ok(!(await section.locator('.pa-update-results').textContent()).includes('unverified'));
+      const result = section.getByText(view === 'updating' ? 'Waiting…' : 'Not updated', { exact: true });
+      assert.equal(await result.count(), view === 'updating' ? 4 : view === 'preflight' ? 5 : 1);
+      await result.first().scrollIntoViewIfNeeded();
+    }
+    const close = section.getByRole('button', { name: 'Close PA updates' }); await close.focus();
+    await page.screenshot({ path: join(artifacts, 'last-open.png') });
+    await writeFile(join(artifacts, 'last-focus.json'), JSON.stringify(await close.evaluate(el => ({ focused: document.activeElement === el, outline: getComputedStyle(el).outlineStyle, active: document.activeElement.outerHTML, sidebar: document.querySelector('main')?.getAttribute('data-sidebar-shelf'), inert: !!el.closest('[inert]') })), null, 2));
+    assert.equal(await close.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
     await page.mouse.move(width - 10, 10); await page.screenshot({ path: join(artifacts, `${view}-${width}.png`) }); screenshots++;
     if (view === 'available') {
-      for (const label of ['Release notes', 'Source revisions and requirements']) {
-        const detail = section.locator('summary', { hasText: label }); await detail.scrollIntoViewIfNeeded(); await detail.focus(); await page.keyboard.press('Enter');
-        assert.equal(await detail.evaluate(el => el.parentElement.open), true);
-        assert.equal(await section.evaluate(el => el.scrollWidth > el.clientWidth), false);
-        await page.screenshot({ path: join(artifacts, `${label.startsWith('Release') ? 'notes' : 'source'}-${width}.png`) }); screenshots++;
-      }
+      const detail = section.locator('summary', { hasText: 'Release notes' }); await detail.scrollIntoViewIfNeeded(); await detail.focus(); await page.keyboard.press('Enter');
+      assert.equal(await detail.evaluate(el => el.parentElement.open), true); assert.equal(await section.locator('script').count(), 0);
+      await page.screenshot({ path: join(artifacts, `notes-${width}.png`) }); screenshots++;
+      await section.getByRole('button', { name: 'Update PA', exact: true }).click();
+      assert.equal(writes[0].input.choices.find(choice => choice.id === 'fastmail').choice, 'keep'); assert.equal(writes[0].input.confirmInterruptingThreads, false);
     }
-    await page.keyboard.press('Escape'); await section.waitFor({ state: 'hidden' });
-    assert.equal(await trigger.evaluate(el => document.activeElement === el), true, 'Host must restore focus to disclosure trigger');
+    if (laterOffer) {
+      const saved = structuredClone(state.job);
+      assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), 0, 'Opening the pill does not dismiss or reapply the old result');
+      assert.ok((await section.locator('.pa-update-results').textContent()).includes(view === 'later_uncertain' ? 'Result uncertain' : 'Installed 0.1.2'));
+      await close.click(); await section.waitFor({ state: 'hidden' });
+      if (width === 390 && await page.locator('main[data-sidebar-shelf="closed"]').count()) { await page.getByRole('button', { name: /Toggle sidebar/ }).click(); await page.locator('main[data-sidebar-shelf="open"]').waitFor(); }
+      await trigger.focus(); await page.keyboard.press('Enter'); await section.waitFor();
+      assert.ok((await section.locator('.pa-update-results').textContent()).includes(view === 'later_uncertain' ? 'Result uncertain' : 'Installed 0.1.2'));
+      await section.getByRole('button', { name: 'Close PA updates' }).click(); await section.waitFor({ state: 'hidden' });
+      await notice.focus(); await page.keyboard.press('Enter'); await section.waitFor();
+      assert.equal(writes.length, 0); assert.deepEqual(state.job, saved);
+      await section.getByRole('button', { name: 'Check again', exact: true }).click();
+      await section.getByText(view === 'later_runtime' ? 'Installed 1.0.2 → 1.0.3' : '0.1.2 → 0.1.3', { exact: true }).waitFor();
+      assert.equal(writes[0].method, 'review'); assert.deepEqual(state.job, saved);
+      assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).isEnabled(), true);
+      await page.screenshot({ path: join(artifacts, `${view}-new-review-${width}.png`) }); screenshots++;
+    }
+    if (view === 'consent') {
+      const apply = section.getByRole('button', { name: 'Update PA', exact: true }); assert.equal(await apply.isDisabled(), true);
+      const consent = section.getByRole('checkbox'); await consent.focus(); await page.keyboard.press('Space'); assert.equal(await apply.isEnabled(), true);
+      await page.screenshot({ path: join(artifacts, `consent-checked-${width}.png`) }); screenshots++;
+      await apply.click(); assert.equal(writes[0].input.confirmInterruptingThreads, true);
+    }
+    if (view === 'failed') { await section.getByRole('button', { name: 'Check again' }).click(); await section.getByText('PA updates available', { exact: true }).waitFor(); assert.equal(writes[0].method, 'review'); }
+    if (view === 'interrupted') { await section.getByRole('button', { name: 'Resume previously enabled folders' }).click(); assert.equal(writes[0].method, 'resumeSync'); }
+    assert.equal(pageErrors.length, 0, 'Rendered app has JavaScript errors');
+    await section.getByRole('button', { name: 'Close PA updates' }).focus(); await page.keyboard.press('Escape'); await section.waitFor({ state: 'hidden' });
+    assert.equal(await (fromNotice ? notice : trigger).evaluate(el => document.activeElement === el), true, 'Closing restores focus to the entry button');
     await page.close();
   }
   await browser.close(); browser = null;
-  await cli('plugin', 'disable', 'pa-updates'); const stoppedCalls = await readFile(countFile, 'utf8');
-  const after = JSON.parse(await cli('plugin', 'list', '--json')).plugins; assert.equal(after.find(p => p.id === 'pa-updates').status, 'disabled'); assert.equal(after.find(p => p.id === 'google-calendar').status, 'running'); assert.equal(await readFile(countFile, 'utf8'), stoppedCalls);
-  const result = { evidence: 'Synthetic; generated older installation and release data, no production downgrade', bb: '0.45.0', sdk: '0.6.15', screenshots, typedRpc: true, boundedDiagnostic: true, unchangedCheckout: true, joinedChecks: true, restartCooldown: true, desktopAndNarrowKeyboard: true, artifacts };
+  await cli('plugin', 'disable', 'pa-updates');
+  const installed = JSON.parse(await cli('plugin', 'list', '--json')).plugins;
+  assert.equal(installed.find(p => p.id === 'pa-updates').status, 'disabled'); assert.equal(installed.find(p => p.id === 'google-calendar').status, 'running');
+  const result = { evidence: 'Original app in disposable BB; synthetic RPC states, no native runtime writes', bb: bbVersion, views, screenshots, originalBundle: true, desktopAndNarrowKeyboard: true, explicitNativeConsent: views.includes('consent'), defaultKeep: views.includes('available'), laterOfferReview: ['later_plugin', 'later_runtime', 'later_uncertain'].every(view => views.includes(view)), artifacts };
   await writeFile(join(artifacts, 'result.json'), JSON.stringify(result, null, 2)); completed = true; console.log(JSON.stringify(result));
 } finally {
-  await browser?.close(); if (server.exitCode === null && server.signalCode === null) { server.kill('SIGTERM'); await Promise.race([new Promise(r => server.once('exit', r)), new Promise(r => setTimeout(r, 10000))]); }
-  if (server.exitCode === 0 && completed) await rm(root, { recursive: true, force: true }); else console.error('Retained disposable host/evidence:', root, artifacts);
+  await browser?.close(); stop();
+  if (server && server.exitCode === null && server.signalCode === null) { await Promise.race([new Promise(r => server.once('exit', r)), new Promise(r => setTimeout(r, 10000))]); if (server.exitCode === null && server.signalCode === null) server.kill('SIGKILL'); }
+  process.off('SIGINT', interrupted); process.off('SIGTERM', interrupted);
+  if (completed) await rm(root, { recursive: true, force: true }); else console.error('Retained disposable host/evidence:', root, artifacts);
 }
