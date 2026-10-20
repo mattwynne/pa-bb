@@ -127,6 +127,14 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     if (view === 'available') {
       assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
       await section.getByText('Installing a release replaces local changes, not settings or data.', { exact: true }).waitFor();
+      const choose = async name => { await section.getByRole('button', { name, exact: true }).focus(); await page.keyboard.press('Enter'); };
+      await choose('Install all released');
+      assert.equal(await section.getByRole('button', { name: 'Install released version', exact: true }).getAttribute('aria-pressed'), 'true');
+      await choose('Keep all local');
+      assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
+      await choose('Install released version');
+      await choose('Keep local');
+      assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
     }
     if (['normal', 'available'].includes(view)) {
       const text = await section.textContent();
@@ -138,6 +146,14 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
       assert.equal(await section.getByText('Codex', { exact: true }).count(), 0);
       assert.equal(await section.getByText('1.0.0 → 1.0.1', { exact: true }).count(), 2);
       assert.equal(await section.locator('h3').count(), 0);
+      assert.equal(await section.locator('.pa-update-card svg').count(), 2);
+      assert.equal(await section.locator('.pa-update-card button').count(), 0);
+      assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), 1);
+      for (const card of await section.locator('.pa-update-card').all()) {
+        assert.equal(await card.evaluate(el => getComputedStyle(el).borderTopStyle), 'solid');
+        assert.ok(await card.evaluate(el => el.getBoundingClientRect().height <= 56), 'Normal version row stays compact');
+        assert.ok(await card.locator('.pa-update-version').evaluate(el => { const [label, version] = [...el.children].map(child => child.getBoundingClientRect()); return Math.abs(label.y - version.y) < 2; }), 'Name and versions share a line');
+      }
     }
     if (['current', 'runtime_prerequisites'].includes(view)) for (const name of ['Pi', 'Codex', 'BB']) await section.getByText(name, { exact: true }).waitFor();
     if (view === 'runtime_prerequisites') {
@@ -162,6 +178,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     await writeFile(join(artifacts, 'last-focus.json'), JSON.stringify(await close.evaluate(el => ({ focused: document.activeElement === el, outline: getComputedStyle(el).outlineStyle, active: document.activeElement.outerHTML, sidebar: document.querySelector('main')?.getAttribute('data-sidebar-shelf'), inert: !!el.closest('[inert]') })), null, 2));
     assert.equal(await close.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
     await page.mouse.move(width - 10, 10); await page.screenshot({ path: join(artifacts, `${view}-${width}.png`) }); screenshots++;
+    if (['normal', 'available'].includes(view)) { await section.screenshot({ path: join(artifacts, `${view}-panel-${width}.png`) }); screenshots++; }
     if (view === 'available') {
       const detail = section.locator('summary', { hasText: 'Release notes' }); await detail.scrollIntoViewIfNeeded(); await detail.focus(); await page.keyboard.press('Enter');
       assert.equal(await detail.evaluate(el => el.parentElement.open), true); assert.equal(await section.locator('script').count(), 0);
