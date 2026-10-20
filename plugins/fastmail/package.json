@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-fastmail",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,7 +10,7 @@
   },
   "bb": {
     "name": "Fastmail",
-    "description": "Use Fastmail MCP tools, with an optional JMAP token for Inbox and label changes.",
+    "description": "Use Fastmail MCP tools, with optional JMAP label updates and CardDAV contact groups.",
     "branding": {
       "icon": "Mail"
     },
@@ -19,11 +19,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0",
+    "@xmldom/xmldom": "0.9.12",
+    "unicode-case-folding": "1.1.1",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.1",
-    "@get-bb/plugin-sdk": "0.6.15",
+    "@get-bb/plugin-sdk": "0.6.37",
+    "@types/node": "22.20.5",
     "@types/react": "19.2.7",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",

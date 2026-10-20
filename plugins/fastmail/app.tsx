@@ -48,7 +48,7 @@ function FastmailSettings() {
     finally { setBusy(false); }
   }
   async function disconnect() {
-    if (!window.confirm('Disconnect the Fastmail MCP connection? Its tools will stop working here. Any separately configured JMAP token remains active; clear it in Configuration to stop label-update access. Revoke credentials in Fastmail’s security settings too if needed.')) return;
+    if (!window.confirm('Disconnect the Fastmail MCP connection? Its tools will stop working here. Any separately configured JMAP token or CardDAV credentials remain active; clear them in Configuration to stop label-update and contact-group access. Revoke credentials in Fastmail’s security settings too if needed.')) return;
     setBusy(true); setError(''); setCallback('');
     try { await rpc.call('disconnect', null); await reload(); }
     catch { setError('Could not disconnect Fastmail. Check the connection and try again.'); }

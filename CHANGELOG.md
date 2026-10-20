@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Fastmail 0.1.7 adds optional CardDAV contact-group list/inspection and preview-first membership add/remove. The MIT service is copied locally from pi-extensions, with BB secret settings, conditional writes, read-back verification and no automatic write retries. Existing MCP tools still own contact creation; message-label changes do not update future sender routing. Live CardDAV access and downstream routing remain unverified.
+
 - iCloud 0.1.11 distinguishes stock rclone's resilient retryable bisync exit 7 from a resync-required lockout using pinned native JSON markers. Only a proven retryable abort enters the ordinary retry path; uncertain output and saved blockers stay stopped. Logs and bounded history now record safe native decisions and a proven listing-failure reason without retaining provider text.
 - iCloud 0.1.10 delegates sync directly to native bisync. It no longer takes whole-folder backups, runs extra cloud listings or blocks on legacy recovery archives. Overwrites/deletions no longer have an independent sync-time recovery copy; previously saved copies remain untouched. Rclone's conflict, maximum-deletion, locking and normal recovery checks remain in place, and saved stronger blockers are not automatically cleared.
 - Pending/active iCloud retries use neutral status text rather than red error banners; stopped conditions still show actionable errors. Setup and file-safety guidance describe the reduced backup policy honestly.
