@@ -1,4 +1,7 @@
-// Gate 0 characterization, not an application implementation or passing gate.
+// HISTORICAL characterization of the now-SUPERSEDED exact-target requirement.
+// Do not use its BLOCKED result to gate ordinary compatible channel updates.
+// See docs/plans/018-pa-platform-updates.md for the owner's revised scope.
+// This is not an application implementation or a current acceptance harness.
 // Run with: node test/run-installation-gate.mjs /absolute/path/to/bb-app
 // Exit 2 means the known blocker was reproduced, NOT a passing installation gate.
 // Exit 1 means the harness could not establish that result.

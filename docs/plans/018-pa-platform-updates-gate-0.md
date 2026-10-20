@@ -1,22 +1,39 @@
-# 018 — Gate 0: blocked on exact-target replacement
+# 018 — Historical exact-target characterization (requirement superseded)
 
-**Iteration 18 is not implemented.** The disposable Linux proof failed its
+**Not an active implementation gate.** The owner subsequently accepted BB's
+ordinary compatible channel update: a newer released candidate than the preview
+is allowed, and completion reports actual installed versions. Exact-target
+pinning, fixed-tag retargeting and an upstream pinning contract are no longer
+required. Follow the [revised plan](018-pa-platform-updates.md), not the historical
+stop decision below. The old harness intentionally reproduces the old requirement's
+failure; its `BLOCKED` result/exit 2 must not block the revised implementation.
+
+**Iteration 18 was not implemented by this investigation.** The disposable Linux proof failed its
 first required safety property on BB **0.45.0 / SDK 0.6.15** and
 **0.46.1 / SDK 0.6.49**, both with Node **24.21.0**. After reviewing commit A
 and advancing the tracking branch to B, the public update operation installed
 **B**, not A. No production plugin, permission, or BB version was changed.
 
-The [plan](018-pa-platform-updates.md#gate-0--prove-installation-is-possible-before-building-apply)
-requires stopping here for an owner decision. No Apply UI, application executor,
+**Later harness qualification:** these historical runs launched the shipped
+server entry directly without the launcher's `BB_APP_VERSION`. The server used
+`0.0.0-dev` for application-version checks, despite running the package/SDK code
+listed here. Thus these results characterize request/source behavior, not
+production engine validation. The [current ordinary proof](018-pa-platform-updates-ordinary-proof.md)
+sets the actual package version and verifies it through `/system/version`.
+
+The plan at the time required stopping here for an owner decision. That decision
+has now been made: use ordinary compatible updates and **Install released version**
+choices, without promising exact previewed versions. No Apply UI, application executor,
 or multi-integration release publisher was added. The existing read-only updater
 remains unchanged.
 
 The owner subsequently broadened the planned review to include individual BB
 application, Pi CLI and Codex CLI versions on the selected PA execution host,
 without a whole-platform semver or changes to native update pills. That decision
-does not resolve or waive this gate. Exact runtime installation, session-safe
-maintenance and supported durable ownership across BB restarts need separate
-proofs; a plugin process cannot continue supervising while BB is stopped.
+was followed by the separate waiver of exact-target pinning for integrations and
+runtimes. Ordinary runtime updates, session-safe maintenance and supported durable
+ownership across BB restarts still need separate proofs; a plugin process cannot
+continue supervising while BB is stopped.
 
 ## Reproduce
 
@@ -38,7 +55,8 @@ Their names deliberately differ from the real integrations. This is a
 counterexample to the installation contract, not acceptance coverage of Calendar,
 Drive, iCloud, or Obsidian.
 
-**Expected exit: 2, with `gate: "BLOCKED"`.** Exit 1 means the harness failed to
+**Historical expected exit: 2, with `gate: "BLOCKED"`.** This refers only to the
+superseded exact-target requirement, not to current acceptance. Exit 1 means the harness failed to
 establish the counterexample. The script does not turn a failed product gate into
 a passing test. It stops its server and removes successful-run temporary state;
 a harness failure retains its isolated directory for diagnosis. Do not attach raw
@@ -133,14 +151,15 @@ it still installs B after the owner reviewed A. All of these were exercised on
 both tested versions, with immutable-by-convention fixture tags that never moved.
 
 Tags therefore solve target identity, not state-preserving application. A tag-
-only release policy cannot close Gate 0. The missing operation is **replace this
+only release policy could not meet the original exact-target gate. Under the
+revised ordinary-update policy, neither tag retargeting nor that gate is required. The missing operation is **replace this
 existing plugin with this exact resolved target, without removing its state**.
 Tag protection and resolving to a verified commit would still be needed after
 that operation exists; moving a release tag is not a workaround.
 
-## Missing contract and owner decision
+## Contract the old requirement would have needed — no longer requested
 
-BB needs a supported **state-preserving exact-target replacement** operation for
+The original exact-target requirement would have needed a supported **state-preserving exact-target replacement** operation for
 an existing managed plugin. It must accept a verified immutable target (or a
 server-owned prepared-artifact handle), activate that target without re-resolving
 the tracking source, and preserve the plugin's registration, state, credentials,
@@ -156,17 +175,19 @@ target parameter. The installer permits a state-preserving path-to-path move,
 but rejects replacing a managed Git installation with another source. Changing
 to a pinned source via remove/install deletes state and is not an allowed route.
 
-**Recommended next step:** request this contract upstream, then rerun Gate 0 on
-an explicitly approved supported BB release. No upstream issue has been filed by
-this iteration. Do not silently upgrade BB, edit its database, import private
-server modules, reset managed caches, or substitute an ordinary latest update.
-Any other implementation route requires an explicit owner decision.
+**Superseded recommendation:** an upstream exact-target contract was proposed but
+no issue was filed. The owner instead explicitly chose BB's ordinary supported
+compatible update mechanism and accepted channel advancement after preview.
+Do not pursue this contract or substitute an equivalent exact-pin gate. Continue
+with baseline, authorization, data-preservation and lifecycle proofs. The bans on
+silent host upgrades, database edits, private imports and cache resets still apply.
 
 ## Gates still unverified
 
-- Exact-target installation, including explicit replacement of customized code.
-- Exact BB/Pi/Codex runtime targets, installation provenance, session preservation,
-  maintenance reservation/consent and supported continuation across BB restarts.
+- Explicit replacement of customized code through ordinary supported updates.
+  Exact-target installation was not proved and is no longer required.
+- BB/Pi/Codex installation provenance, actual-version verification, session
+  preservation, maintenance reservation/consent and continuation across BB restarts.
   No runtime mechanism was exercised or ruled out by this plugin-only harness.
 - A trustworthy full installed-code baseline for ordinary installations. The
   generated sibling hash proves retention in this test, not baseline discovery.
@@ -177,5 +198,6 @@ Any other implementation route requires an explicit owner decision.
   No overlay placement was chosen and no UI pass is claimed.
 - Multi-integration publication, updater deployment and owner-confirmed live Apply.
 
-Only the reproduction and this record are deliverable; the product safety gate
-remains blocked.
+This investigation delivered only the reproduction and this historical record.
+Its exact-target failure is no longer a product blocker. Remaining state,
+customization and lifecycle requirements are listed in the revised plan.

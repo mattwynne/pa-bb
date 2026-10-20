@@ -1,356 +1,263 @@
 # 018 — Update PA, with local-customization choices
 
-Status: blocked at Gate 0; no application flow or new update prompt implemented.
-The [disposable Linux proof](018-pa-platform-updates-gate-0.md) reproduced the
-exact-target failure on BB 0.45.0 and 0.46.1. An owner decision is required before
-implementation proceeds.
-Baseline: `ea258ea`; `pa-updates` **0.1.1** supplies the read-only Calendar pilot.
-This iteration targets the platform-first outcome from the
-[updates problem](../problems/updates.md), incorporating the owner's example
-mapping after [017](017-pa-update-discovery.md).
+Status: implementation investigation resumed. [Ordinary synthetic updates and
+same-builder baselines for all five real integrations passed](018-pa-platform-updates-ordinary-proof.md)
+on disposable Linux BB 0.46.0 / SDK 0.6.37. Review/application code, generated sync
+and runtime lifecycle proofs remain open. No application flow or new prompt is
+implemented. Baseline: `pa-updates` **0.1.1**, the read-only Calendar pilot.
+
+## Owner decisions
+
+**Exact reviewed-target pinning is no longer a requirement.** The owner accepts
+a newer released candidate appearing between preview and application. Use BB's
+normal supported compatible update mechanisms and report the versions actually
+installed. Preview versions are observations, not immutable installation promises.
+Do not block on A-versus-B, fixed-tag retargeting or exact runtime version pins.
+Do not seek an upstream pinning contract for this iteration.
+
+The [earlier Gate 0 evidence](018-pa-platform-updates-gate-0.md) remains useful
+characterization of BB 0.45.0 and 0.46.1, but its exact-target failure is a
+**superseded requirement**, not the current acceptance gate.
+
+The intended release includes PA integrations, the BB application, Pi CLI and
+Codex CLI on **the selected PA execution host only**. No whole-platform semver,
+BB fork, native-prompt suppression, laptop update or all-machines update is
+wanted. Source-editing credentials are separate; no workflow-write grant is
+approved or needed to consume updates.
 
 ## Outcome and scope
 
 An owner sees **PA update available**, reviews what will change, and clicks
-**Update PA**. PA installs the reviewed integration, BB application, Pi CLI and
-Codex CLI versions and verifies the result. The owner broadened this intended
-scope after the plugin Gate 0 investigation; runtime installation and lifecycle
-safety remain unproved, not authorized workarounds for the existing blocker.
-Most users see no developer setup or customization controls. Only actual local
-customizations introduce keep/replace choices.
+**Update PA**. PA installs available compatible released versions through trusted
+configured update channels and reports actual outcomes. Most users see no Git,
+development checkout, customization controls or plugin-selection checklist.
+Only actual local plugin customizations introduce keep/replace choices.
 
-**Update PA is an action, not a new platform version.** Show individual component
-versions, not an invented “PA 1.5.0”. An internal immutable release record binds
-the target versions/commits together. Integration updates cover only already-
-installed Calendar, Fastmail, Drive, iCloud and Obsidian from the trusted PA
-repository. Runtime updates cover the BB application, Pi CLI and Codex CLI on
-**the selected PA execution host only**, never the browser's computer, a laptop
-or every enrolled machine. Show each component's own installed → target version.
-Do not install missing integrations or directly update unrelated/builtin plugins;
-BB's own bundled components follow its supported application lifecycle. Missing
-required CLIs are a prerequisite to explain, not permission to install providers
-silently. The updater's own replacement remains separate; bootstrap this
-iteration's new `pa-updates` package through the normal delivery process.
+**Update PA is an action, not a new platform version.** Show each component's own
+installed → currently available version. Explain that a newer released version
+may be installed if the channel advances before application.
 
-This must deliver functioning installation, not another metadata-only release
-or mock-up. Multi-plugin cases must use the actual managed installer in
-disposable BB, not only mocked update calls.
+Integration scope is already-installed Calendar, Fastmail, Drive, iCloud and
+Obsidian from the trusted PA repository. Leave absent integrations absent and
+unrelated plugins unchanged. BB's bundled components follow its normal application
+lifecycle, not separate PA plugin updates. Missing required runtimes, unknown
+installation provenance and unsupported source types are prerequisites to explain,
+not permission to install providers or retarget sources silently.
 
-## Agreed UI
+Do not update the running `pa-updates` package through its own executor in this
+slice. Bootstrap its new package through the normal delivery process.
 
-The [standalone interactive mock-ups](018-pa-platform-updates-mockups.html) and
-[focused image](018-pa-platform-updates-mockup.png) record the agreed design.
-All target versions in them are illustrative, not release promises. Their icons
-are line-art stand-ins; implementation uses each plugin's declared BB icon.
-These mock-ups predate the runtime scope expansion: BB/Pi/Codex version rows,
-active-session impact, restart consent and post-restart status still need design
-and rendered review. Do not treat the plugin-only mock-ups as approval of a
-runtime restart flow.
+### What “released version” means
 
-- Use the accepted labelled **PA update available** pill near the left footer
-  through the supported app-overlay slot. No animation or native-control hiding.
-  Retain the ordinary footer icon when no update is available.
-- The normal review shows release notes and installed → target component versions,
-  with one **Update PA** action. Identify the selected execution host, any affected
-  active sessions, and required restarts before confirmation. No plugin-selection
-  checklist or development checkout is required for an ordinary managed installation.
-- If plugins are customized, show all of them in one **Local changes** section.
-  Each defaults to **Keep local**; its alternative names the exact target,
-  e.g. **Use 0.1.2**. Only these rows need choices.
-- **Keep all local** / **Use release for all** select choices; neither installs.
-  The single update action confirms the visible keep/replace summary.
-- **Also updating** lists other components and installed → target versions,
-  using each plugin's declared icon and supported runtime branding,
-  without unnecessary controls. Clearly identify code that will be overwritten;
-  credentials, settings and account data must stay in place.
-- Completion shows verified component versions and any local versions retained.
-  No platform-version label, duplicate “another update” banner, or next-update
-  button. If another release is waiting, the usual footer pill returns after
-  completion.
+The existing marketplace entries use `git:https://github.com/mattwynne/pa-bb.git`
+with `ref: main` and each plugin's fixed subdirectory. BB's ordinary compatible
+update follows that **published main branch**. It does not install an arbitrary
+local checkout, unpublished work, a client-supplied commit or a chosen GitHub
+release tag. In this flow, “released version” means the compatible plugin code
+available through that trusted configured channel when BB applies the update.
+
+The publication process must make main suitable as a release channel: shipped
+code is versioned and checked before publication. A previously fetched PA release
+record supplies preview notes and compatibility evidence, not a promise that BB
+will install its exact commit or that a later candidate was tested by that record.
+Do not label a newer installed candidate as covered by older CI evidence.
+Repository-only changes and the same plugin version at a different repository
+commit must not manufacture an update or a customization warning.
+
+BB/Pi/Codex likewise use their supported configured distribution/update channels.
+Inspect and document those channels before implementation; never accept executable
+commands, repositories, package names or host paths from a remote release record
+or browser request. No arbitrary unpublished-code route or silent source-retarget
+operation is authorized.
+
+## UI
+
+The [interactive mock-ups](018-pa-platform-updates-mockups.html) and
+[focused image](018-pa-platform-updates-mockup.png) record the earlier plugin-only
+design, now refreshed to use **Install released version** rather than exact-version
+choices. Target versions remain useful currently-available previews; completion
+illustrates an actually installed version newer than its preview. Runtime rows, session impact,
+restart consent and post-restart status still need design and rendered review.
+
+- Use the labelled **PA update available** pill near the left footer through the
+  supported app-overlay slot. Keep the ordinary footer icon when quiet. No
+  animation, DOM tricks, hidden native controls or collisions with provider usage.
+- The ordinary review shows release notes, component icons and installed →
+  available versions, with one **Update PA** action. Identify the selected
+  execution host, active-session impact and required restarts before confirmation.
+- Put actual customized plugins together under **Local changes**. Each defaults
+  to **Keep local**; its alternative is **Install released version**. Show the
+  currently available version nearby without promising that exact version.
+- **Keep all local** and **Use release for all** select choices only. They do not
+  install. The single update action confirms which plugins may be replaced and
+  which must remain untouched.
+- **Also updating** lists other components and their version previews, with no
+  unnecessary controls. Use each plugin's declared BB icon and supported runtime
+  branding. Identify code that may be overwritten; credentials, settings and
+  account data stay in place.
+- Completion names the **actual verified installed versions** and any retained
+  local versions. No platform version, duplicate newer-update banner or next-update
+  button. The normal footer pill can return after completion if updates remain.
+- New remote releases alone do not invalidate authorization. New local code edits
+  do: refresh the affected customization choice before overwriting it.
+- Failed or partial application shows what actually changed. Do not claim automatic
+  rollback or retry an uncertain write blindly.
 
 Follow the [UX skill](../../.agents/skills/bb-plugin-ux/SKILL.md),
 [UX standards](../ux-standards.md) and
-[observability standards](../o11y-standards.md). Mock-up rendering is not a
-passing review of this UI in BB.
+[observability standards](../o11y-standards.md). Mock-up rendering is not a live
+BB UI pass.
 
-## Gate 0 — prove installation is possible before building Apply
+## Remaining feasibility proofs — before broad application implementation
 
-Iteration 017 did not establish safe exact-target application. The inspected BB
-contract accepts an empty plugin-update body, and its implementation resolves
-the tracked source again during `applyUpdate`. A check followed by an unpinned
-update is not a way to install the release already reviewed. `getSource` also
-reports abbreviated revisions and history containing prepared candidates, not
-just activations. Do not use that history to guess what is installed.
+Use supported BB/SDK versions and public installation/lifecycle surfaces in
+isolated Linux BB with generated data. The historical exact-target counterexample
+is not a reason to fail these proofs.
 
-Before broad UI or publisher changes, run a bounded disposable-host proof:
+1. **Ordinary managed update:** update multiple installed integrations through
+   their trusted configured channels. Preserve registration, settings, secrets,
+   enablement, schedules, source intent and operational files. Verify actual
+   executable identity, not just package version, history or API success.
+2. **Trustworthy customization baseline:** distinguish installed hand edits from
+   source/build output and mutable operational data. Account for source, effective
+   runtime and assets without requiring a development checkout. An unavailable
+   original baseline is unknown, not permission to bless today's bytes as clean.
+   A dirty unrelated checkout is not an installed customization.
+3. **Keep and replace:** leave a customized plugin byte-for-byte while updating
+   compatible siblings, including plugins sharing one cached repository. Explicit
+   **Install released version** may replace that plugin's local code, including
+   unpublished edits, without deleting data or touching associated source work.
+   No shared reset/clean, cache reset or destructive remove/reinstall is allowed.
+4. **Review-to-apply safety:** recheck local fingerprints and prerequisites before
+   activation and prevent competing applications/edits. A timestamped observation
+   is not a reserved update window. Channel advancement is allowed; authorization
+   still applies only to the reviewed component set and keep/replace decisions.
+5. **Background work:** for iCloud/Obsidian, prevent new sync runs through supported
+   Pause controls, drain active work, retain note operations/baselines, update in
+   a compatible order and restore only previously enabled work. Observe completion
+   using generated data. Do not clear failures or locks merely to deploy.
+6. **Runtime lifecycle:** prove ordinary BB/Pi/Codex updates through supported
+   configured channels on the selected execution host. Preserve credentials,
+   settings and sessions; verify actual executable versions afterwards. Establish
+   active-session drain/interruption controls and required owner consent.
+7. **BB restart:** prove supported durable lifecycle ownership and continuation
+   across BB stopping/restarting. A plugin process cannot supervise its own stopped
+   process. An existing launcher or external supervisor may be suitable, but must
+   be tested, not assumed. Preserve native controls and unrelated hosts.
+8. **Host UI:** inspect the actual footer/provider-usage disclosure before fixing
+   placement. Record tested BB/SDK versions and portable evidence for each proof.
 
-1. Use the supported BB/SDK version and public lifecycle/installation surfaces
-   to update an existing managed integration to an explicitly chosen commit,
-   preserving registration, state, secrets, enablement and unrelated plugins.
-2. Review target A, advance its remote tracking source to B, then apply. **A must
-   be installed**, not B. Post-install detection that B slipped through is a
-   failed gate, not a recovery strategy.
-3. Identify and verify the active code and an expected installed-code baseline
-   without assuming package version or a short SHA proves content equality.
-4. Show a locally modified plugin can be kept byte-for-byte, or explicitly
-   replaced without deleting its data. Include multiple plugins sharing a Git
-   checkout/artifact cache: replacing one must not alter a kept sibling.
-5. Capture the actual operation sequence, tested BB/SDK versions, and evidence
-   in a portable verification record. Inspect the running footer and existing
-   provider-usage disclosure before committing to overlay placement.
-6. Separately prove exact-target BB application, Pi CLI and Codex CLI installation
-   on a disposable selected execution host. Repeat A-reviewed/B-available for each;
-   verify actual executable identities, install provenance and preserved settings,
-   credentials and sessions. Establish supported active-session drain/interruption
-   controls and explicit consent. Prove a durable supervisor/handoff can continue
-   and verify the operation across BB stopping and restarting; the updater plugin
-   cannot supervise its own stopped process. Do not assume an existing launcher
-   or provider install API accepts a requested version or preserves active work.
-   Leave unrelated hosts and native update controls unchanged.
+No direct BB database edits, private server imports, managed-cache resets, BB
+forks, destructive reinstall or silent widening of production permissions.
+A newer compatible candidate during ordinary application is acceptable. If a
+remaining state/baseline/lifecycle property cannot be achieved, report that precise
+limitation—not a renamed exact-pin gate—and seek an owner decision on that route.
 
-No direct BB database edits, private server-module imports, managed-cache resets,
-remove/reinstall that loses data, BB fork, or ordinary `update latest` workaround.
-Do not widen production permissions or upgrade BB silently to pass the proof.
-If supported mechanisms cannot satisfy the requirements, stop and report the
-specific missing contract for an owner decision. Do not spend the iteration on
-more status UI and call it delivery. Re-evaluate the implementation route only
-with an explicit decision; the user outcome above remains the target.
+## Review and application rules
 
-## Stories and examples
+- Compare only supported installed components; omit unchanged components and do
+  not downgrade newer versions. Source provenance and version/code equality are
+  different observations.
+- Store a server-owned review with the component set, channel provenance, observed
+  versions, fingerprints, compatibility evidence and keep/replace decisions.
+  Browser requests refer to that review, never arbitrary commands, paths or refs.
+- A newer published candidate may supersede the preview. Recheck supported
+  compatibility and safety facts available from BB before starting. Do not claim
+  that arbitrary custom code is certified because its version string matches.
+- Preflight the resulting released/kept combination, especially the iCloud/Obsidian
+  note interface. If a kept version is incompatible, explain before activation;
+  never silently replace it or reset its data.
+- Join repeated clicks into one job. Use typed, need-shaped ports for review,
+  baseline assessment, update, status and lifecycle ownership. No agent mutation
+  tool is required; opening the panel or checking updates never installs.
+- Persist per-component receipts: reviewed observation, authorized decision,
+  activation result, actual verified version/identity and retained exceptions.
+  Do not store credentials, provider data or arbitrary host exception text.
+- Determine dependency-safe ordering from tested component requirements. Do not
+  assume BB-first, atomic application or universal downgrade/rollback support.
+- No remaining updates after keep choices means no empty installation and no
+  claim that retained custom versions match stock releases.
 
-### 1. Update an ordinary PA installation
+## Publication and evidence model
 
-As an owner who has never customized a plugin, I can review and install the
-available PA updates without learning Git or configuring a checkout.
+Extend `core/release.ts`, schema, generator and gated workflow from the Calendar
+v1 pilot to bounded allowlisted component metadata. Read v1 as historical pilot
+metadata, not a complete multi-component offer. No whole-platform semver.
 
-- Compare installed supported integrations and selected-host runtime components
-  with the tested release record. Omit unchanged components; do not downgrade
-  newer versions. Unsupported combinations block before activation.
-- A repository-only change, missing developer mapping, or matching package
-  version at another repository commit must not manufacture an update or local
-  customization. Version/code evidence and provenance are separate concerns.
-- Prepare a server-owned review identifying the exact target for every changed
-  integration and runtime component, bound to the selected execution host.
-  Confirmation applies that set, not the newest feed contents.
-- Recheck installed-code fingerprints and prerequisites before changing anything.
-  Repeated clicks must not start competing updates.
-- Install in a dependency-safe order, then verify running versions/identities,
-  retained state, sessions, untouched integrations and unaffected hosts. Determine
-  runtime/plugin ordering from tested requirements, not an assumed BB-first order.
-  Report actual outcomes; one button does not imply an atomic transaction or
-  blanket rollback guarantee.
+Each integration entry records its package version, repository/subdirectory,
+source revision, engines and release notes. Declare known inter-plugin requirements
+and component coverage. Runtime entries identify the supported distribution channel,
+observed release version, platform requirements and notes; their versions are not
+immutable apply targets. Missing metadata is incomplete evidence, not proof that
+all components are current or permission to invent a channel.
 
-**Examples:** Calendar and Drive have newer tested versions → one review, one
-Update PA, both verified. Fastmail is not installed → leave it absent. Calendar
-has no runtime/version update but the repository advanced → no spurious offer.
-A newer release appears after review → install the original reviewed targets,
-then let the ordinary pill show what remains available.
+Keep immutable metadata identities and reject mutated published records. That
+protects the truth of the preview/evidence; it does **not** prevent a newer
+compatible channel candidate from being installed. Keep reviewed observations
+separate from the latest-feed cache and actual installation receipts.
 
-### 2. Ask only about actual local customizations
+Changed shipped code needs that plugin's own version increment. Test/docs-only
+or unrelated repository changes do not require cosmetic bumps. CI must build,
+test and typecheck every advertised integration at the recorded revision, including
+shared, generated-source and native checks with portable Linux prerequisites.
+Test the advertised BB/Pi/Codex/plugin combination; skipped required gates must
+not produce “tested” metadata. Never attribute later code to earlier test results.
 
-As an owner who changed one or several installed plugins, I can keep or replace
-each local version while still treating the operation as one PA update.
+Retain trusted-main publication, lockfiles, fixed channels, bounded network access
+and safe diagnostics. No server/account credentials in the publishing job.
+Source-author workflow changes follow normal reviewed CI work, not PA-session
+credential grants. Define disk/cache retention before introducing any executable
+staging; prefer BB-owned installation rather than a second package manager.
 
-- Establish customization against a trustworthy installed artifact/source
-  baseline. Do not treat a dirty but unrelated development repository as an
-  installed customization, or bless today's bytes as the expected original.
-  Account for source, effective runtime code and assets; distinguish normal
-  BB-generated output and mutable operational data from hand edits.
-- Standard managed installs need no development checkout or special opt-out.
-  Keep an explicitly associated source checkout separate and untouched by
-  deployment. An unavailable installed baseline is unknown, not automatically
-  clean or customized; explain the real prerequisite without directing every
-  user into development setup.
-- **Keep local** leaves that installed code untouched and updates the compatible
-  remainder. **Use [target version]** explicitly replaces that plugin's local
-  code, preserving its configuration, credentials and account data. This is not
-  permission to reset a source checkout or silently lose unrelated work.
-- Include staged/uncommitted/unpublished work where the active custom install
-  uses such source. The owner may choose replacement without first publishing
-  it. Do not restore the superseded unconditional dirty-plugin block from 017.
-- If code changes after review, ask again about that changed exception. A newer
-  remote release alone does not invalidate the reviewed targets or choices.
-- Check known integration requirements against the resulting mix of released
-  and kept versions. If a retained version is incompatible, explain the
-  dependency before starting; never silently replace it. Do not claim arbitrary
-  custom code is certified just because its package version matches.
-
-**Examples:** Calendar modified → keep or use its named target. Calendar,
-Obsidian and Fastmail modified → one screen, three choices; keep Obsidian and
-replace the other two, with Drive/iCloud listed under Also updating. All kept →
-update only the remaining compatible components. No remaining changes → do not
-run an empty installation or claim retained custom plugins match stock code.
-
-### 3. Notice the update and understand completion
-
-As an owner, I can see when there is something new, understand my choices and
-see the outcome without repeated prompts or technical noise.
-
-- Show the labelled pill only for a verified available update, not for a stale
-  check, raw source mismatch or an unassessed development checkout.
-- Use plugin icons and target versions in choices, ordinary updates and results.
-  Keep commit details and technical evidence behind disclosures.
-- A mixed completion says which local versions stayed local. Never label all
-  components stock/current if some were deliberately retained.
-- Basic failed/partial application gets a safe, honest result showing what did
-  change. Do not claim automatic rollback or retry uncertain writes. Durable
-  continuation and visible status after a planned BB restart are required by the
-  expanded scope. General connection-drop recovery beyond that lifecycle remains
-  outside this iteration.
-
-## Publication and internal release model
-
-Extend `core/release.ts`, the JSON schema, generator and gated workflow from the
-Calendar-only v1 pilot to a bounded, allowlisted component record covering the
-integrations, BB application, Pi CLI and Codex CLI. Use a new
-schema version where needed; continue reading v1 safely as historical pilot
-metadata, not an installable multi-plugin offer. No separate platform semver.
-The new record must declare its integration and runtime coverage; a missing installed
-supported component is incomplete metadata, not permission to fetch its latest
-version independently or claim the whole supported set is current.
-
-For each included integration, bind its own package version, exact repository
-commit/subdirectory, engine requirements, notes and the integrity/baseline
-information required by Gate 0. For each runtime component, bind an exact version,
-trusted fixed distribution source, immutable artifact integrity, platform/engine
-requirements and release notes. Record its selected-host installation provenance;
-never accept a release-supplied executable command or floating `latest` spec.
-Declare known inter-plugin requirements where keeping one version affects another; at least cover the iCloud/Obsidian note
-interface. Do not invent a general dependency framework for unrelated plugins.
-
-Changed shipped plugin code needs that plugin's own version increment; an
-unrelated repository commit or test/docs-only edit does not require bumping every
-plugin. Enforce this discipline rather than publishing different runtime code
-under an unchanged version and relying on whole-repository mismatch warnings.
-
-CI must build/test/typecheck every integration it advertises at the exact source
-revision, including applicable shared, native and generated-source checks. Pin and
-verify runtime artifacts and test the advertised BB/Pi/Codex/plugin combination
-on its supported execution platform. A metadata check alone does not certify
-runtime installation, restart safety or provider-session continuity.
-Provide Linux native prerequisites from the portable host requirements where
-needed. A missing/skipped required gate must not yield “tested” metadata. Keep
-lockfiles, trusted-main publication, fixed source/channel and append-only release
-identities; no server/account credentials in the publishing job. Source-author
-workflow changes belong to the normal reviewed CI process, not PA-session
-credential provisioning: the owner has explicitly excluded workflow-write grants.
-
-The review stores its validated release bytes/digest, exact target set and
-keep/replace decisions independently of the feed's latest-record cache. A
-newer valid record cannot retarget that review. Mutating the original reviewed
-record or making its target unverifiable is an integrity error, not permission
-to substitute latest. Preserve the existing bounded-network and safe-diagnostics
-behaviour, and define cache/artifact retention and disk limits before introducing
-executable staging. Staging is not activation; metadata history is not proof of
-what is running. Use trusted fixed code paths, not remote executable commands.
-
-## Application, state and background work
-
-- Put review, customization assessment and application behind typed,
-  need-shaped ports. Add client-authorized review/apply/status RPCs; an apply
-  request refers to a server-owned review, not arbitrary paths, repositories,
-  commands or caller-supplied unverified commits. No agent mutation tool is
-  required. Opening a panel/checking releases never installs.
-- Define the supported lifecycle owner before implementation. A plugin-local job
-  cannot continue while BB is stopped. Prove an external supported supervisor or
-  launcher handoff with durable ownership, restart status and receipts, or stop
-  with a prerequisite error. This owner must not need a BB fork or broader source
-  publishing credentials. Active sessions require a reserved maintenance window
-  or explicit safe-interruption consent; an idle snapshot is insufficient.
-- Use a single joined application job with durable per-component receipts:
-  reviewed target, kept/replaced decision, activation outcome and actual verified
-  target. Preflight the complete chosen combination before the first activation.
-  Prevent conflicting updates/edits from invalidating the assessment. Do not
-  equate a timestamped observation with a reserved update window.
-- Preserve settings, secrets, connections, enablement, schedules, source choices
-  and operational files. Do not copy credentials into previews or receipts.
-  Keep replacement of one plugin isolated from shared repository/artifact roots
-  used by another; do not reset or clean a shared checkout.
-- For affected iCloud/Obsidian updates, quiesce using supported controls before
-  preparation: prevent new sync runs, drain active work, preserve local note
-  operations and prior enablement, update in a compatible order, then restore
-  only previously enabled work and observe completion. Test this with generated
-  data. Never clear baselines, locks or failures just to deploy. If safe quiescence
-  or a compatible retained/released combination is unavailable, explain that
-  limitation before applying—not silently skip a component or stop the server.
-- Do not update the running `pa-updates` package through its own executor in this
-  slice. Native BB/provider update controls and independent marketplace installation
-  remain available; unrelated hosts and unrelated independently installed plugins
-  are not selected for update. BB's bundled components may change only as part of the
-  reviewed BB application update.
-
-## Delivery sequence and acceptance
-
-1. Pass Gate 0 and record supported exact-target/baseline strategies for plugins,
-   BB, Pi and Codex, plus session-safe maintenance and restart continuation.
-2. Drive the normal and exception rules with failing core/adapter/Gherkin tests;
-   implement review/execution and multi-component release publication.
-3. Implement the approved pill/review/result using BB theme/icon components and
-   supported app APIs. Adapt the panel/overlay to host constraints rather than
-   fitting a long form into 017's small disclosure or covering other controls.
-4. Run actual managed-install and rendered gates, then ship and get feedback.
+## Acceptance and delivery
 
 | Given / when | Required result |
 | --- | --- |
-| Ordinary managed install, no checkout | Review and apply without development setup |
-| Two integrations have newer tested versions | One Update PA applies and verifies both targets |
-| Reviewed BB/Pi/Codex versions, newer upstream versions appear | Install exact reviewed versions on selected PA execution host only |
-| Active sessions or a required BB restart | Explain impact, obtain required consent, safely drain/interrupt, continue under supported durable ownership and verify after restart |
-| Runtime installation provenance or restart continuation cannot be established | Stop before activation; do not substitute latest or assume a plugin survives BB stopping |
-| Integration is absent, current or newer than target | No accidental install, churn update or downgrade |
-| One or several actual customizations | Only those need choices; default Keep local |
-| Bulk shortcut or mixed choices | No immediate install; exact overwrite/keep summary before confirmation |
-| Owner explicitly chooses Use [version] | Replace only authorized local code; preserve state/source work |
-| A version is kept local | Bytes retained; compatible remainder updates; result names the exception |
-| New remote release appears during review/apply | Reviewed targets installed; normal pill returns later |
-| Installed code changes after review | No stale overwrite authorization; refresh the affected choice |
-| Kept version or background state is incompatible | Explain before activation; no silent substitution or data resets |
-| Known baseline or exact target cannot be established | Honest prerequisite error; do not guess clean or install latest |
+| Ordinary managed install without checkout | Review and update without development setup |
+| Several integrations have newer released versions | One Update PA applies ordinary compatible updates and verifies actual versions |
+| Component absent, unchanged or newer than preview | No accidental integration install, churn update or downgrade |
+| Actual local customizations | Only those get keep/replace choices; default Keep local |
+| Bulk/mixed choices | No immediate install; clear overwrite/keep summary |
+| Install released version selected | Replace authorized local code only; preserve data/source work |
+| Keep local selected | Bytes retained; compatible remainder updates; result names exception |
+| Channel advances after preview | Newer compatible released candidate allowed; report actual installed version |
+| Local code changes after review | Refresh affected authorization before overwrite |
+| Kept version/background state incompatible | Explain before activation; no silent replacement or reset |
+| Baseline or provenance unknown | Honest prerequisite; do not guess clean |
+| Runtime updates | Selected execution host only; supported channels; verify actual versions |
+| BB restart or active sessions | Required consent, safe maintenance, durable continuation and verified result |
 
-Automated gates: updater build/tests/typecheck/SDK-pin check, all advertised
-integration gates, schema/generator/workflow checks and shared-source checks.
-Test safe diagnostics with synthetic private sentinels in Git, installer,
-release/storage and RPC failures; never forward arbitrary host exception text.
-Bound logs by fixed stages such as review, baseline, prepare, activate, verify,
-quiesce and restart. Store only the metadata needed to explain outcomes.
+Automated gates: updater build/tests/typecheck/SDK pin; advertised integration,
+schema/generator/workflow and shared-source checks. Use synthetic private sentinels
+in Git, installer, storage, release and RPC failures. Logs use fixed review,
+baseline, prepare, activate, verify, quiesce and restart categories, never raw
+exceptions, credentials or account content.
 
-Installed-BB gates must exercise original handlers through real managed updates
-on isolated Linux BB, including at least two integrations, state/secrets
-sentinels, unchanged absent/unrelated/kept plugins, exact A-despite-newer-B,
-multiple local choices, runtime/source drift and generated sync activity. Verify
-actual executable version/identity and receipts, not only returned API success.
-Use disposable accounts/data; no provider writes or real notes are needed.
-Separately exercise exact runtime installation and BB restart on an isolated host,
-with synthetic active/idle sessions, durable receipts and interruption failures.
-Verify BB, Pi and Codex executable identities and preserved runtime configuration;
-prove non-selected hosts were not addressed. Existing plugin-update evidence does
-not establish any of these runtime gates.
+Installed-BB gates use original handlers and actual managed updates: multiple
+integrations, preserved sentinels, untouched absent/unrelated/kept plugins, local
+and runtime drift, advancing channels, and generated sync activity. Runtime and
+BB-restart tests use synthetic active/idle sessions and durable receipts, proving
+non-selected hosts are untouched. No personal notes or provider writes are needed.
 
-Rendered gates: available/quiet pill; ordinary review; one/multiple customizations;
-all-keep/all-release/mixed selections; read-only Also updating; applying; simple
-success with/without retained versions; incompatible/unknown/partial failure;
-selected-host runtime versions, session/restart consent and restored status after
-BB restart.
-Check desktop/narrow widths, sidebar rail/list/collapsed arrangements, scrolling,
-other overlays, keyboard/focus restoration and accessible status. Preserve native
-BB/provider controls. Record any unavailable state/gate, not a blanket visual pass.
+Rendered gates cover quiet/available pill, ordinary review, one/multiple
+customizations, bulk/mixed choices, Also updating, applying, success with/without
+retained versions, unknown/incompatible/partial results, runtime versions,
+session/restart consent and restored status. Check desktop/narrow, sidebar
+arrangements, scrolling, overlays, keyboard, focus restoration and accessible
+status. Record missing gates rather than claim a blanket pass.
 
-Follow the [shipping skill](../../.agents/skills/bb-ship-feedback/SKILL.md) after
-verification. Bootstrap only the new updater package through normal deployment;
-verify its running source/version and a harmless read-only call. Publish a genuine
-tested record. Do not downgrade production or create a cosmetic integration
-version bump merely to light the pill. Actual installation must already have
-passed in disposable BB; if no genuine newer component release exists, record
-production Apply as pending its first owner-confirmed use. Do not relabel a mock
-or dry-run as live application. On that first real update, verify installed targets
-and retained state without reading provider account content, then seek feedback.
+After verification follow the [shipping skill](../../.agents/skills/bb-ship-feedback/SKILL.md):
+commit, push, bootstrap the updater, verify its running source/version and a
+harmless read, publish genuine checked metadata and seek feedback. No production
+downgrades or cosmetic bumps to light the pill. If no genuine update is available,
+record production Apply as pending first owner-confirmed use. Verify actual
+versions and retained state after that use; never relabel a dry-run as live apply.
 
-## Explicitly out of scope
+## Out of scope
 
-Native BB/provider prompt suppression; BB forks; PA platform-version numbering;
-updates on laptops or non-selected execution hosts; self-development/Git write permissions; updater self-replacement; automatic source
-merging or checkout resets; a plugin-management dashboard; unattended application;
-general connection-drop recovery beyond planned BB restarts; universal
-compatibility certification or cross-component atomic rollback. Gate 0
-investigation has begun, but application implementation is blocked; copying the
-mock-ups does not deploy the new UI.
+Exact reviewed-target pinning; fixed-tag retargeting; upstream pinning-contract
+work; whole-platform semver; BB forks; native prompt suppression; updates on
+laptops/non-selected hosts; self-development credentials; updater self-replacement;
+automatic source merging or checkout resets; unattended installation; general
+connection-drop recovery beyond planned BB restarts; universal compatibility
+certification or cross-component atomic rollback.
