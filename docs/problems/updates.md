@@ -3,18 +3,24 @@
 Status: full update application remains an open capability gap. The read-only
 `pa-updates` pilot is implemented; see [verification and delivery](../plans/017-pa-update-discovery-review.md).
 Chosen direction: an independently installable `pa-updates` plugin,
-using supported BB extension points. No BB fork or upstream change is required
-for the initial design; native BB/Pi prompts remain.
+using supported BB extension points. No BB fork is planned; native BB/provider
+prompts remain. The read-only design needed no upstream change, but exact-target
+application is now blocked on a missing supported installation contract.
 [Iteration 017](../plans/017-pa-update-discovery.md) implements release discovery and
 read-only local-work review for Google Calendar; it does not install updates.
-[Iteration 018](../plans/018-pa-platform-updates.md) plans application of reviewed
-plugin versions with local-customization choices and the accepted mock-ups.
+[Iteration 018](../plans/018-pa-platform-updates.md) now plans reviewed integration,
+BB application, Pi CLI and Codex CLI versions on the selected PA execution host,
+with local-plugin customization choices and no whole-platform version number.
+Its [Gate 0 proof](../plans/018-pa-platform-updates-gate-0.md) is **blocked**: real
+managed updates on BB 0.45.0 and 0.46.1 installed a newer branch commit rather than
+the previously reviewed target. Runtime/session/restart feasibility is unproved.
+The accepted mock-ups cover the earlier plugin-only scope, not restart consent.
 Session-driven source editing, Git credentials and permission to publish changes
 are a separate problem, deferred from this brief.
 
 ## Problem
 
-The owner sees separate BB and Pi update prompts, while PA plugins have a
+The owner sees separate BB and provider CLI update prompts, while PA plugins have a
 separate update process. There is no single answer to “is PA up to date?” or a
 single place to review and install a compatible set of changes.
 
@@ -46,8 +52,11 @@ action to the completion panel. Never silently substitute latest or require
 another review merely because a newer release now exists. This does not permit
 using a reviewed release whose original contents or integrity have changed.
 
-A PA release should identify the plugin revisions and compatible BB/Pi versions.
-This is a proposed release record, not a capability already supplied by
+A PA release should identify exact integration revisions and individual BB
+application, Pi CLI and Codex CLI versions, artifact integrity and compatibility.
+It has an immutable internal identity, not a whole-platform semver. Runtime
+updates apply only to the selected PA execution host, not laptops or all enrolled
+machines. This is a proposed release record, not a capability already supplied by
 `marketplace.json`. Preserve independent plugin installation: an update must not
 install integrations the owner has not chosen.
 
@@ -57,9 +66,11 @@ Research inspected published plugin SDK **0.6.15**, used by this repository, and
 upstream `get-bb/bb` source at
 [`5e7c06e637102a73ea2dba5c5e2d5d03f09c7c62`](https://github.com/get-bb/bb/tree/5e7c06e637102a73ea2dba5c5e2d5d03f09c7c62)
 (SDK **0.6.57**). These establish source capabilities, not availability on the
-installed server. The server was unreachable during this investigation; no live
-API, rendered UI or update was verified. The repository's
-[pinned configuration guide](../references/README.md) is older than this upstream
+installed server. The server was unreachable during that initial investigation;
+no live API, rendered UI or update was verified then. The subsequent
+[Gate 0 record](../plans/018-pa-platform-updates-gate-0.md) adds actual isolated
+Linux managed-install evidence, not production application or runtime-upgrade
+proof. The repository's [pinned configuration guide](../references/README.md) is older than this upstream
 source and must not be treated as current API evidence.
 
 ### A plugin can contribute a footer entry
@@ -131,7 +142,7 @@ updates; database migrations can prevent downgrades. Plugin activation snapshots
 are not a rollback guarantee for the whole release. See upstream
 [update lifecycle](https://github.com/get-bb/bb/blob/5e7c06e637102a73ea2dba5c5e2d5d03f09c7c62/docs/configuration.md#in-app-updates).
 
-## Plugin-only design
+## Plugin-led review and coordinated application
 
 ### Entry and review
 
@@ -141,9 +152,9 @@ users see the reviewed PA release, what is new, any required restart, and the
 update action—not a plugin checklist or development-checkout setup.
 
 **Update PA** is the product action, not a new platform-version scheme in the
-next iteration. Show individual plugin versions; do not invent a PA version in
-the UI. The reviewed release record still identifies the fixed set of targets
-internally.
+next iteration. Show individual integration, BB, Pi and Codex versions; do not
+invent a PA version in the UI. The reviewed release record still identifies the
+fixed set of targets internally.
 
 Only detected local customizations introduce plugin-specific choices:
 
@@ -156,12 +167,12 @@ When several plugins are customized, show one review screen, not a sequence of
 dialogs. Put those plugins under **Local changes**; each defaults to **Keep
 local**, with an individual keep/use-release choice. Show the target plugin
 version directly in that choice, such as **Use 0.1.2**, and in the confirmation
-summary. Under **Also updating**, list the other plugins and their version
-changes without unnecessary controls. Show each plugin's declared BB icon beside
-its name in both sections and the completion summary. Offer **Keep all local**
-and **Use release for all** selection shortcuts; these select choices but never
-install by
-themselves. Summarize exactly which local versions will be retained or replaced
+summary. Under **Also updating**, list the other components and their version
+changes without unnecessary controls. Identify the selected execution host and
+any session interruption or required restart before confirmation. Show each
+plugin's declared BB icon beside its name in both sections and the completion
+summary. Offer **Keep all local** and **Use release for all** selection shortcuts;
+these select choices but never install by themselves. Summarize exactly which local versions will be retained or replaced
 before **Update PA**, and identify retained versions in the completion summary.
 If keeping a custom plugin cannot form a supported combination, explain that
 dependency rather than silently replacing it or claiming the complete release
@@ -177,7 +188,10 @@ A failed or stale check must remain distinct from “up to date”.
 The plugin backend checks a configured trusted release source on a bounded
 schedule and on request. Store the last validated result and check outcome so
 browser reloads do not start competing polls. Validate release records as data,
-not executable commands, and compare only already-installed PA plugins.
+not executable commands. Compare only already-installed supported PA integrations
+and the BB/Pi/Codex installations on the selected PA execution host. Unknown
+installation provenance or absent required runtimes is a prerequisite to explain,
+not permission to install a provider or target another host silently.
 
 The backend, not browser state or an agent's assertion, owns safety checks and
 application. Detect installed-code customization against a trustworthy recorded
@@ -198,19 +212,27 @@ The panel reconnects to recorded outcomes rather than inferring success from a
 closed request. Never promise an atomic bundle or automatic rollback. Removing
 `pa-updates` leaves installed integrations and BB/Pi's native controls intact.
 
-### BB and Pi in this design
+### BB, Pi and Codex in this design
 
-Initially show BB/Pi installed and available versions where supported, with a
-route to BB's existing Updates settings for their native review and actions.
-Label these separately from PA plugin changes. This is one useful overview, not
-yet a single tested BB/Pi/plugin bundle. Failure to read BB/Pi status must not
-silently mean they are current.
+The owner expanded iteration 018 to include the BB application, Pi CLI and Codex
+CLI in the reviewed release, not just a link to native status. Each retains its
+own version. Native update pills and settings remain available and unchanged.
+Failure to read runtime status must not silently mean the installation is current.
 
-Coordinated BB/Pi installation can follow only when supported APIs can select
-the intended targets and safely handle active sessions and BB restarts. Do not
-work around missing APIs by modifying BB, disabling its controls or substituting
-arbitrary package-manager commands. That limitation does not block plugin
-release discovery or the subsequent guarded plugin-update slice.
+This expanded scope is planned, not implemented. Prove exact-target installation
+and artifact verification for each runtime, including A-reviewed/B-available,
+on the selected PA execution host. Establish active-session drain/interruption
+controls and consent, compatibility/order, preserved credentials/configuration,
+and durable continuation across BB restarts. The plugin cannot own continuation
+while its BB process is stopped; a supported external lifecycle owner or launcher
+handoff must be proved rather than assumed. Do not invent a rollback guarantee
+for BB migrations or claim that restarted sessions continued safely without tests.
+
+Stop if supported mechanisms cannot satisfy these properties. Do not bypass the
+existing plugin Gate 0 failure, modify BB, disable its controls, use floating
+latest, or treat arbitrary package-manager commands as an approved replacement
+route. Runtime feasibility needs a separate disposable proof; the plugin
+counterexample neither proves nor disproves those runtime mechanisms.
 
 ## Customization policy and examples
 
@@ -241,8 +263,9 @@ of either cleanliness or customization.
 Preserve the reviewed release identity and customization choices through
 application; do not widen them when new work or releases appear. Record actual
 installed versions and retained exceptions, without an unqualified claim that
-all components match the stock release. Connection-drop/reconnect recovery is
-not a story in the next iteration.
+all components match the stock release. Continuation and visible outcomes after
+a planned BB restart are now required; general connection-drop recovery beyond
+that lifecycle remains outside the next iteration.
 
 ## Stories and first slice
 
@@ -258,12 +281,13 @@ not a story in the next iteration.
    local exception, preserving credentials, settings and unrelated source work.
    Exact-target application and installed-artifact identity remain technical
    prerequisites, not assumptions already proven by the discovery pilot.
-3. **Include BB/Pi status.** Show supported version information and open native
-   Updates settings for actions. Keep their existing prompts; no BB fork or
-   prompt-suppression work is needed.
-4. **Coordinate BB and Pi.** Resolve exact target selection, compatibility,
-   ordering, active-session consent and durable continuation across BB restarts.
-   Report partial failures without promising automatic downgrade.
+3. **Review BB/Pi/Codex targets.** Include individual exact versions and selected
+   execution-host identity in the same release review. Preserve native prompts;
+   no BB fork or prompt-suppression work is needed.
+4. **Coordinate BB, Pi and Codex.** Prove exact target selection, artifact
+   identity, compatibility, ordering, active-session consent and durable ownership
+   across BB restarts before implementing application. Report partial failures
+   without promising automatic downgrade.
 5. **Support background-sync updates.** Pause scheduling, drain active work,
    update, restore prior enablement and observe completion. An idle snapshot is
    not an update reservation.
@@ -276,8 +300,9 @@ not a story in the next iteration.
   should be needed by the publishing job.
 - How are supported partial combinations declared, and which updates must apply
   together? A bundled offer is not automatically an all-or-nothing transaction.
-- Which host's Pi installation is managed? Start with the server's selected host;
-  do not silently update every enrolled machine or the browser's computer.
+- Manage BB, Pi and Codex only on the selected PA execution host. Prove its
+  installation provenance and lifecycle authority; do not update every enrolled
+  machine, a laptop or the browser's computer.
 - Updating the running `pa-updates` package itself needs a handoff that survives
   its replacement; defer that mechanism from the first slice. Giving a PA
   session authority to edit, commit and publish its own source remains a
@@ -295,4 +320,7 @@ no-update, available, blocked, applying, restart and recovery states in running
 BB at desktop/narrow widths with keyboard navigation before claiming delivery.
 The investigation itself implemented no plugin or release pipeline. Iteration
 017 now supplies the read-only discovery pilot and gated metadata publisher;
-application, prompt suppression and coordinated upgrades remain excluded.
+application and coordinated BB/Pi/Codex upgrades are planned in 018 but blocked;
+prompt suppression remains excluded. Self-development credentials are separate:
+the owner has rejected workflow-write permission, and release consumption must
+not require broader repository publishing authority.
