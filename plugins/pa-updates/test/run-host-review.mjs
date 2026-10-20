@@ -54,7 +54,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
   ], runtime: { target: { id: 'synthetic-primary-host', name: 'PA test server' }, runningThreadCount: 0, rows: ['pi', 'codex', 'bb'].map(id => ({ id, installed: '1.0.0', available: '1.0.1', source: id === 'bb' ? 'npm' : 'npmGlobal', state: 'ready', reason: null, fingerprint: id })) } } };
   const job = () => ({ id: '22222222-2222-4222-8222-222222222222', reviewId, phase: 'complete', receipts: base.review.rows.map(row => ({ id: row.id, choice: row.local === 'custom' ? 'keep' : 'install', before: row.installed, preview: row.available, actual: row.local === 'custom' ? row.installed : '0.1.2', outcome: row.local === 'custom' ? 'kept' : 'updated' })), syncReserved: false, failure: null, runtimeReceipts: base.review.runtime.rows.map(row => ({ id: row.id, before: row.installed, preview: row.available, actual: '1.0.2', source: row.source, outcome: 'updated' })), bbIntent: null, confirmInterruptingThreads: false });
   browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : { channel: 'chrome' }) });
-  const views = ['first', 'checking', 'current', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
+  const views = ['first', 'checking', 'current', 'normal', 'runtime_prerequisites', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
   let screenshots = 0;
   for (const view of views) for (const width of [1280, 390]) {
     console.log(`Rendering synthetic ${view} at ${width}`);
@@ -67,6 +67,8 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     if (view === 'unknown') { state.review.rows[0].local = 'unknown'; state.review.rows[0].prerequisite = 'baseline_unknown'; state.review.runtime.target = null; state.review.runtime.rows.forEach(row => { row.state = 'unavailable'; row.reason = 'unavailable'; }); }
     if (view === 'prerequisites') state.review.rows = ['incompatible', 'unavailable', 'baseline_unknown'].map((prerequisite, index) => ({ ...base.review.rows[0], id: ['google-calendar', 'fastmail', 'google-drive'][index], local: 'unknown', prerequisite }));
     if (view === 'failed') { state.failure = 'unavailable'; notes.stale = true; }
+    if (view === 'normal') { state.review.rows = []; Object.assign(state.review.runtime.rows[1], { state: 'current', available: null }); }
+    if (view === 'runtime_prerequisites') state.review.runtime.rows.forEach((row, index) => Object.assign(row, { state: 'unavailable', available: null, installed: index === 0 ? null : row.installed, source: ['missing', 'external', 'unknown'][index], reason: ['not_installed', 'unsupported_install', 'unavailable'][index] }));
     if (view === 'consent') state.review.runtime.runningThreadCount = 2;
     if (laterOffer || ['updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'bb_failed', 'interrupted'].includes(view)) { state.job = job(); state.offers = laterOffer ? structuredClone(base.offers) : null; }
     if (view === 'later_uncertain') { state.job.phase = 'attention'; state.job.failure = 'interrupted'; state.job.receipts[0].outcome = 'uncertain'; state.job.receipts[0].actual = null; }
@@ -107,7 +109,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     await writeFile(join(artifacts, 'last-page.txt'), await page.locator('body').innerText());
     await page.screenshot({ path: join(artifacts, 'last-page.png') });
     const trigger = page.getByRole('button', { name: 'PA updates', exact: true }), notice = page.getByRole('button', { name: 'PA update available', exact: true });
-    const fromNotice = laterOffer || ['available', 'prerequisites'].includes(view);
+    const fromNotice = laterOffer || ['normal', 'available', 'prerequisites'].includes(view);
     if (fromNotice) { await notice.waitFor(); await notice.focus(); await page.keyboard.press('Enter'); }
     else {
       if (width === 390 && await page.locator('main[data-sidebar-shelf="closed"]').count()) { await page.getByRole('button', { name: /Toggle sidebar/ }).click(); await page.locator('main[data-sidebar-shelf="open"]').waitFor(); }
@@ -115,14 +117,34 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
     }
     const section = page.getByRole('region', { name: 'Update PA', exact: true }); await section.waitFor();
     await section.getByRole('button', { name: /Check again|Check for updates/ }).waitFor();
-    await page.waitForFunction(() => document.querySelector('.pa-updates [role="status"]')?.textContent.length > 0);
+    await page.waitForFunction(() => document.querySelector('.pa-updates [role="status"]')?.textContent.length > 0 || !!document.querySelector('.pa-updates .pa-update-row, .pa-updates .pa-update-version'));
     assert.equal(await section.evaluate(el => el.scrollWidth > el.clientWidth), false); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.ok(!(await section.textContent()).includes('PRIVATE_SENTINEL')); assert.equal(await section.locator('script,a').count(), 0);
     assert.ok(await section.locator('[role="status"][aria-live="polite"]').count() > 0);
     await page.waitForFunction(() => { const el = document.querySelector('.pa-updates'); const host = el.closest('dialog,[id^="plugin-sidebar-footer-disclosure-"]').getBoundingClientRect(); const own = el.getBoundingClientRect(); const check = el.querySelector('footer button').getBoundingClientRect(); return own.bottom <= host.bottom + 1 && check.bottom <= host.bottom && check.top >= host.top; });
     if (['failed', 'storage', 'checking', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'bb_failed', 'interrupted', 'rpc_error'].includes(view)) assert.equal(await notice.count(), 0);
     if (view === 'failed') await section.getByText('Check failed — previous results may be out of date', { exact: true }).waitFor();
-    if (view === 'available') assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
+    if (view === 'available') {
+      assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
+      await section.getByText('Installing a release replaces local changes, not settings or data.', { exact: true }).waitFor();
+    }
+    if (['normal', 'available'].includes(view)) {
+      const text = await section.textContent();
+      for (const removed of ['PA updates available', 'PA runtime', 'Pi CLI', 'Codex CLI', 'CLI receipts', 'native launcher', 'newer compatible release', 'each component’s supported', 'Installed 1.0.0']) assert.ok(!text.includes(removed), removed);
+      await section.getByText('BB will restart. Settings and data stay.', { exact: true }).waitFor();
+      assert.equal(await section.locator('[role="status"]').textContent(), '');
+    }
+    if (view === 'normal') {
+      assert.equal(await section.getByText('Codex', { exact: true }).count(), 0);
+      assert.equal(await section.getByText('1.0.0 → 1.0.1', { exact: true }).count(), 2);
+      assert.equal(await section.locator('h3').count(), 0);
+    }
+    if (['current', 'runtime_prerequisites'].includes(view)) for (const name of ['Pi', 'Codex', 'BB']) await section.getByText(name, { exact: true }).waitFor();
+    if (view === 'runtime_prerequisites') {
+      await section.getByText(/This CLI is not installed/).waitFor();
+      await section.getByText(/This installation cannot use/).waitFor();
+      await section.getByText(/Could not finish this step/).waitFor();
+    }
     if (view === 'prerequisites') {
       await section.getByText('The available release does not meet this integration’s requirements. This integration will not be replaced.', { exact: true }).waitFor();
       await section.getByText('Could not check this integration. Check BB and your connection, then check again.', { exact: true }).waitFor();
@@ -159,7 +181,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
       await notice.focus(); await page.keyboard.press('Enter'); await section.waitFor();
       assert.equal(writes.length, 0); assert.deepEqual(state.job, saved);
       await section.getByRole('button', { name: 'Check again', exact: true }).click();
-      await section.getByText(view === 'later_runtime' ? 'Installed 1.0.2 → 1.0.3' : '0.1.2 → 0.1.3', { exact: true }).waitFor();
+      await section.getByText(view === 'later_runtime' ? '1.0.2 → 1.0.3' : '0.1.2 → 0.1.3', { exact: true }).waitFor();
       assert.equal(writes[0].method, 'review'); assert.deepEqual(state.job, saved);
       assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).isEnabled(), true);
       await page.screenshot({ path: join(artifacts, `${view}-new-review-${width}.png`) }); screenshots++;
@@ -170,7 +192,7 @@ export default bb=>plugin(bb,{feed:async()=>null,inventory:async()=>({installed:
       await page.screenshot({ path: join(artifacts, `consent-checked-${width}.png`) }); screenshots++;
       await apply.click(); assert.equal(writes[0].input.confirmInterruptingThreads, true);
     }
-    if (view === 'failed') { await section.getByRole('button', { name: 'Check again' }).click(); await section.getByText('PA updates available', { exact: true }).waitFor(); assert.equal(writes[0].method, 'review'); }
+    if (view === 'failed') { await section.getByRole('button', { name: 'Check again' }).click(); await page.waitForFunction(() => document.querySelector('.pa-updates [role="status"]')?.textContent === ''); assert.equal(writes[0].method, 'review'); }
     if (view === 'interrupted') { await section.getByRole('button', { name: 'Resume previously enabled folders' }).click(); assert.equal(writes[0].method, 'resumeSync'); }
     assert.equal(pageErrors.length, 0, 'Rendered app has JavaScript errors');
     await section.getByRole('button', { name: 'Close PA updates' }).focus(); await page.keyboard.press('Escape'); await section.waitFor({ state: 'hidden' });

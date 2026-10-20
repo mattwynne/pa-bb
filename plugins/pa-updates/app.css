@@ -2,6 +2,7 @@
 .pa-updates header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--sidebar-border); }
 .pa-updates-body { flex: 1 1 auto; overflow-y: auto; padding: 10px; min-height: 0; overflow-wrap: anywhere; }
 .pa-updates p { margin: 0 0 10px; }
+.pa-updates [role=status]:empty { margin: 0; }
 .pa-updates h3 { font-size: inherit; font-weight: 600; margin: 10px 0 6px; }
 .pa-updates dl { margin: 0 0 10px; }
 .pa-updates dt { color: var(--muted-foreground); margin-top: 6px; }
