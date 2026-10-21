@@ -6,3 +6,9 @@
   gather_facts: true
   roles:
     - role: pa_bb_host_dependencies
+
+- name: Provision the official browser plugin in an existing BB installation
+  hosts: bb_hosts
+  gather_facts: false
+  roles:
+    - role: pa_bb_browser_automation

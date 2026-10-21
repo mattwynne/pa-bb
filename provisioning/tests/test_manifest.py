@@ -75,6 +75,25 @@ class ManifestTests(unittest.TestCase):
         self.assertTrue(any(t.get("ansible.builtin.assert", {}).get("that") == "pa_bb_rclone_process_check.rc == 0"
                             for t in self.tasks))
 
+    def test_browser_packages_stay_in_root_host_role(self):
+        chrome = self.manifest["chrome"]
+        self.assertEqual(chrome["package"], "google-chrome-stable")
+        self.assertEqual(chrome["executable"], "/usr/bin/google-chrome-stable")
+        self.assertRegex(chrome["key_sha256"], r"^[0-9a-f]{64}$")
+        browser = list(tasks(load(ROLE / "tasks/browser.yml")))
+        apt = next(t for t in browser if "ansible.builtin.apt" in t)
+        self.assertEqual(apt["ansible.builtin.apt"]["state"], "present")
+        self.assertIs(apt["ansible.builtin.apt"]["allow_downgrade"], False)
+        self.assertEqual(apt["ansible.builtin.apt"]["policy_rc_d"], 101)
+        self.assertEqual(apt["environment"], {"NEEDRESTART_MODE": "l"})
+        repo = next(t["ansible.builtin.copy"] for t in browser if "ansible.builtin.copy" in t)
+        self.assertIn("signed-by=/etc/apt/keyrings/pa-bb-google.asc", repo["content"])
+        self.assertNotIn("trusted=yes", repo["content"])
+        user_role = list(tasks(load(ROOT / "roles/pa_bb_browser_automation/tasks/main.yml")))
+        self.assertFalse(any("ansible.builtin.apt" in t for t in user_role))
+        self.assertFalse(any("plugin" in str(t.get("ansible.builtin.command", {}))
+                             for t in self.tasks + browser))
+
     def test_all_yaml_parses_and_no_inventory_is_shipped(self):
         for path in ROOT.rglob("*.yml"):
             self.assertIsNotNone(load(path), str(path))

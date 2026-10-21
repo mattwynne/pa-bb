@@ -1,0 +1,5 @@
+---
+# Supply pa_bb_user and pa_bb_home in private inventory. BB must already run.
+# argv supports installations whose CLI needs an explicit Node entrypoint.
+pa_bb_cli_argv: [bb]
+pa_bb_user_path: /usr/local/bin:/usr/bin:/bin

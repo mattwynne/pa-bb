@@ -10,7 +10,7 @@
 
 Choose the integrations you need and use them together in BB conversations. The goal is an assistant that helps you prepare, plan and follow through—not just a collection of service connections. See [the vision](docs/vision.md) for the intended experience; today's available plugins are listed below.
 
-For a new installation, start with [host setup](#1-prepare-the-host). This repository includes **Ansible provisioning for the iCloud and Obsidian host dependencies**, as well as the plugins and their marketplace. Already running BB? [Add the integrations you want](#2-add-the-marketplace-and-install-plugins).
+For a new installation, start with [host setup](#1-prepare-the-host). This repository includes **Ansible provisioning for the iCloud and Obsidian host dependencies and BB’s official Browser Automation**, as well as the plugins and their marketplace. Already running BB? [Add the integrations you want](#2-add-the-marketplace-and-install-plugins).
 
 ## Available integrations
 
@@ -41,7 +41,7 @@ Install [BB](https://getbb.app) **0.45 or later**, with Node.js **22 or later**,
 - Pinned rclone **1.75.2** for iCloud folder sync and ripgrep **14.1.0** for note search.
 - Required locking and process-inspection support for safe background syncing.
 
-Use the role from a reviewed Git revision in your own infrastructure project, or follow the [standalone playbook instructions](provisioning/README.md#consume-from-infrastructure). It installs and checks dependencies only: **it does not create a server, install BB, connect accounts or enable sync**. You manage the host, persistent storage, service and private configuration. The plugins never install system packages themselves.
+Use the role from a reviewed Git revision in your own infrastructure project, or follow the [standalone playbook instructions](provisioning/README.md#consume-from-infrastructure). It installs and checks host dependencies, including native Chrome. After BB is running, a separate role installs/enables `builtin:browser-automation` as the BB service user; see [browser provisioning](provisioning/README.md#browser-automation-installation-and-runtime). **It does not create a server, install BB, connect accounts or enable sync**. You manage the host, persistent storage, service and private configuration. The plugins never install system packages themselves.
 
 Calendar, Fastmail and Drive do not need these iCloud/Obsidian dependencies.
 

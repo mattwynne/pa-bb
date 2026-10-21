@@ -60,3 +60,9 @@
   ansible.builtin.assert:
     that: pa_bb_procfs.stat.isdir | default(false)
     fail_msg: Mount procfs and let the BB service user inspect its own processes and inherited descriptors.
+
+- name: Verify the native Chrome executable
+  ansible.builtin.command:
+    argv: ['{{ pa_bb_host_manifest.chrome.executable }}', --version]
+  changed_when: false
+  check_mode: false

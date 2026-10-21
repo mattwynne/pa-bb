@@ -1,0 +1,46 @@
+---
+# Root-owned Chrome only. BB/plugin state is managed separately as the BB user.
+- name: Ensure the APT keyring directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+- name: Install the checksum-pinned Google Linux signing key
+  ansible.builtin.get_url:
+    url: '{{ pa_bb_host_manifest.chrome.key_url }}'
+    dest: /etc/apt/keyrings/pa-bb-google.asc
+    checksum: 'sha256:{{ pa_bb_host_manifest.chrome.key_sha256 }}'
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Configure only the signed Google Chrome repository
+  ansible.builtin.copy:
+    content: |
+      deb [arch=amd64 signed-by=/etc/apt/keyrings/pa-bb-google.asc] https://dl.google.com/linux/chrome/deb/ stable main
+    dest: /etc/apt/sources.list.d/google-chrome.list
+    owner: root
+    group: root
+    mode: '0644'
+  register: pa_bb_chrome_repository
+
+- name: Install native Chrome and its package-declared runtime dependencies
+  ansible.builtin.apt:
+    name: '{{ pa_bb_host_manifest.chrome.package }}'
+    state: present
+    update_cache: '{{ pa_bb_chrome_repository.changed }}'
+    allow_downgrade: false
+    force_apt_get: true
+    policy_rc_d: 101
+  environment:
+    NEEDRESTART_MODE: l
+  # A new repository is not written by check mode, so APT cannot resolve it yet.
+  when: not (ansible_check_mode and pa_bb_chrome_repository.changed)
+
+- name: Report Chrome installation when its repository is planned
+  ansible.builtin.debug:
+    msg: The signed Google repository and native Chrome package would be installed; dependency resolution requires an apply.
+  changed_when: true
+  when: ansible_check_mode and pa_bb_chrome_repository.changed

@@ -13,6 +13,11 @@ pa_bb_host_manifest:
     - unzip
     - util-linux
     - ripgrep=14.1.0-1
+  chrome:
+    package: google-chrome-stable
+    executable: /usr/bin/google-chrome-stable
+    key_url: https://dl.google.com/linux/linux_signing_key.pub
+    key_sha256: 54dea5f6c2a26091578cf52a999cebc6b64df478d37ad4dce96376b711e3b27c
   ripgrep:
     version: '14.1.0'
     executable: /usr/bin/rg

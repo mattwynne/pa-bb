@@ -1,0 +1,94 @@
+---
+- name: Require explicit BB service-user configuration
+  ansible.builtin.assert:
+    that:
+      - pa_bb_user is defined
+      - pa_bb_user | default('root') != 'root'
+      - pa_bb_home is defined
+      - pa_bb_home | default('') is match('^/')
+      - pa_bb_cli_argv is sequence and pa_bb_cli_argv is not string
+      - pa_bb_cli_argv | length > 0
+    fail_msg: Supply the existing BB service user, absolute home and CLI argv in private inventory; BB must already be running.
+
+- name: Provision Browser Automation as the BB service user
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  block:
+    - name: Verify the effective user is unprivileged
+      ansible.builtin.command:
+        argv: [id, -u]
+      register: pa_bb_browser_uid
+      changed_when: false
+      check_mode: false
+      failed_when: pa_bb_browser_uid.rc != 0 or pa_bb_browser_uid.stdout == '0'
+
+    - name: Verify Chrome is visible to the BB service user
+      ansible.builtin.command:
+        argv: [google-chrome-stable, --version]
+      changed_when: false
+      check_mode: false
+      when: not ansible_check_mode
+
+    - name: Verify npm supports runtime provenance checks
+      ansible.builtin.command:
+        argv: [npm, --version]
+      register: pa_bb_browser_npm
+      changed_when: false
+      check_mode: false
+      failed_when: pa_bb_browser_npm.rc != 0 or not (pa_bb_browser_npm.stdout is version('9.5.0', '>='))
+
+    - name: Read installed plugin state without exposing configuration
+      ansible.builtin.command:
+        argv: "{{ pa_bb_cli_argv + ['plugin', 'list', '--json'] }}"
+      register: pa_bb_browser_plugins
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Select Browser Automation state
+      ansible.builtin.set_fact:
+        pa_bb_browser_installed: "{{ (pa_bb_browser_plugins.stdout | from_json).plugins | selectattr('id', 'equalto', 'browser-automation') | list }}"
+      no_log: true
+
+    - name: Refuse an unexpected Browser Automation source
+      ansible.builtin.assert:
+        that: pa_bb_browser_installed | length == 0 or pa_bb_browser_installed[0].source == 'builtin:browser-automation'
+        fail_msg: Browser Automation has an unexpected source; inspect it before provisioning.
+
+    - name: Install the official bundled plugin only when absent
+      ansible.builtin.command:
+        argv: "{{ pa_bb_cli_argv + ['plugin', 'install', 'builtin:browser-automation', '--yes', '--json'] }}"
+      when: pa_bb_browser_installed | length == 0
+      changed_when: true
+      no_log: true
+
+    - name: Enable the existing official plugin only when disabled
+      ansible.builtin.command:
+        argv: "{{ pa_bb_cli_argv + ['plugin', 'enable', 'browser-automation', '--json'] }}"
+      when: pa_bb_browser_installed | length > 0 and not pa_bb_browser_installed[0].enabled
+      changed_when: true
+      no_log: true
+
+    - name: Report the planned plugin change
+      ansible.builtin.debug:
+        msg: The official Browser Automation plugin would be installed or enabled as the BB service user.
+      changed_when: true
+      when: ansible_check_mode and (pa_bb_browser_installed | length == 0 or not pa_bb_browser_installed[0].enabled)
+
+    - name: Verify the installed plugin is running
+      ansible.builtin.command:
+        argv: "{{ pa_bb_cli_argv + ['plugin', 'list', '--json'] }}"
+      register: pa_bb_browser_verified
+      changed_when: false
+      no_log: true
+      when: not ansible_check_mode
+      failed_when: >-
+        pa_bb_browser_verified.rc != 0 or
+        ((pa_bb_browser_verified.stdout | from_json).plugins |
+        selectattr('id', 'equalto', 'browser-automation') |
+        selectattr('source', 'equalto', 'builtin:browser-automation') |
+        selectattr('enabled', 'equalto', true) |
+        selectattr('status', 'equalto', 'running') | list | length) != 1

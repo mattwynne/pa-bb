@@ -161,6 +161,9 @@
     follow: false
   when: not pa_bb_rclone_install_required
 
+- name: Provision the supported native browser runtime
+  ansible.builtin.include_tasks: browser.yml
+
 - name: Verify installed executable versions and Linux prerequisites
   ansible.builtin.include_tasks: verify.yml
   when: not ansible_check_mode
