@@ -10,21 +10,20 @@ import { Application } from './core/application.ts';
 import type { ApplicationPorts } from './core/application.ts';
 import { applicationPorts } from './adapters/application.ts';
 export default async function plugin(bb: BbPluginApi, injected?: Partial<Ports>, applicationOverride?: ApplicationPorts) {
-  const settings = bb.settings.define({ developmentCheckout: { type: 'string', label: 'Development checkout (optional)', description: 'Absolute server path to one PA repository. Check again to inspect unpublished work; nothing in this checkout is changed or installed.', default: '' } });
   const diagnose: Ports['diagnose'] = (stage, category) => {
     // Fixed allowlists are the entire diagnostic payload. No exception, Git
     // output, source path, release note or provider content enters the logger.
     const stages: Stage[] = ['feed', 'inventory', 'local', 'storage'];
     bb.log.warn(`pa-updates stage=${stages.includes(stage) ? stage : 'local'} outcome=${categorySchema.safeParse(category).success ? category : 'unavailable'}`);
   };
-  const inspect = localGit(process.env.PA_UPDATES_CALENDAR_CHECKOUT);
+  const inspect = localGit(undefined); // Historical single-component RPC; current review owns canonical source inspection.
   const service = new Updates({
     feed: githubFeed(), inventory: installedInventory(bb, diagnose),
     async local(target, signal) { const result = await inspect(target, signal); if (['unavailable', 'unsupported', 'target_missing', 'limit'].includes(result.reason)) diagnose('local', 'unavailable'); return result; },
     load: () => bb.storage.kv.get('checks-v1'), save: value => bb.storage.kv.set('checks-v1', value),
     now: Date.now, diagnose, ...injected,
   }, () => bb.realtime.publish('status', null));
-  const application = new Application(applicationOverride ?? applicationPorts(bb, undefined, async () => (await settings.get()).developmentCheckout), () => bb.realtime.publish('application', null));
+  const application = new Application(applicationOverride ?? applicationPorts(bb), () => bb.realtime.publish('application', null));
   await service.start(); await application.start();
   bb.onDispose(async () => { await application.dispose(); await service.stop(); });
   bb.rpc.register(rpcContract, {
@@ -48,11 +47,11 @@ export default async function plugin(bb: BbPluginApi, injected?: Partial<Ports>,
       return service.check(true);
     },
   });
-  bb.background.schedule('release-discovery', '0 */6 * * *', async () => { await service.check(false); await application.review({ automatic: true }); });
+  bb.background.schedule('release-discovery', '0 */6 * * *', async () => { await application.refresh(); await service.check(false); await application.review({ automatic: true }); });
   bb.background.service('initial-discovery', { async start(signal) {
     const stop = () => { void application.dispose(); void service.stop(); };
     signal.addEventListener('abort', stop, { once: true });
-    try { if (!signal.aborted) await service.check(false); if (!signal.aborted) await application.review({ automatic: true }); }
+    try { if (!signal.aborted) await application.refresh(); if (!signal.aborted) await service.check(false); if (!signal.aborted) await application.review({ automatic: true }); }
     finally { signal.removeEventListener('abort', stop); }
   } });
 }

@@ -196,7 +196,11 @@ test('one persisted job restores integrations, updates CLIs, then reconciles BB 
   assert.equal(f.app.status().job?.phase, 'restarting'); assert.equal(f.app.status().applying, true);
   await f.app.apply({ reviewId: review.id, choices: [] }); assert.equal((await f.app.review()).review?.id, review.id);
   await f.app.dispose(); f.result({ state: 'updated', actual: '0.46.2' });
+  let nativeReads = 0; const reconcile = f.ports.runtime!.reconcileBb;
+  f.ports.runtime!.reconcileBb = async intent => { nativeReads++; return reconcile(intent); };
   const restarted = new Application(f.ports); await restarted.start();
+  assert.equal(nativeReads, 0, 'factory/start cannot await native registration-dependent reads');
+  assert.equal(restarted.status().job?.phase, 'restarting'); await restarted.refresh();
   assert.equal(restarted.status().job?.phase, 'complete');
   assert.deepEqual(restarted.status().job?.runtimeReceipts.map(row => [row.id, row.actual]), [['pi', '1.0.2'], ['codex', '1.0.2'], ['bb', '0.46.2']]);
   assert.equal(f.events.filter(event => event === 'bb').length, 1);

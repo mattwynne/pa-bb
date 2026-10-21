@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import { lstat, realpath, open, mkdtemp, mkdir, writeFile, utimes, rm } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { integrationId } from '../core/application-model.ts';
 import type { DevelopmentWork } from '../core/application-model.ts';
@@ -36,7 +36,14 @@ async function head(gitDir: string) {
   const packed = await optional(join(gitDir, 'packed-refs'), LIMIT);
   return sha(packed?.data.toString().split('\n').find(line => line.endsWith(` ${ref}`))?.split(' ')[0] ?? '');
 }
-/** Read the explicitly mapped checkout through a private Git directory/index.
+export const canonicalCheckout = (home = homedir()) => join(home, 'src', 'pa-bb');
+/** Absence is normal; a present but unreadable/unsupported checkout is not clean. */
+export async function inspectCanonicalDevelopment(signal: AbortSignal, source = SOURCE_URL, checkout = canonicalCheckout()): Promise<DevelopmentWork | null> {
+  try { await lstat(checkout); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw new DevelopmentError('unavailable'); }
+  return inspectDevelopment(checkout, signal, source);
+}
+/** Read the canonical checkout through a private Git directory/index.
  * No Git command runs in, or writes to, the owner repository. No checkout,
  * hooks, filters, builds, credential helpers or source scripts are executed.
  */

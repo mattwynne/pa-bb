@@ -28,11 +28,11 @@ function fixture(t: TestContext) {
   ports.quiesce = async installing => { pauses.push(installing); };
   return { ports, bb, saved: () => structuredClone(saved), outcomes, locals, versions, pinned, originals, logs, updates, pauses };
 }
-test('all five current integrations remain visible without offers, notices, writes or receipts; snapshot survives reload', async t => {
+test('all six current components remain visible without offers, notices, writes or receipts; snapshot survives reload', async t => {
   const f = fixture(t); // A repository-only candidate is also current, not an offer.
   f.outcomes.set('google-calendar', 'update-available'); f.versions.set('google-calendar', '1.0.0');
   const app = new Application(f.ports); await app.start(); const state = await app.review();
-  assert.deepEqual(state.review?.rows, []); assert.equal(state.review?.inventory?.length, 5);
+  assert.deepEqual(state.review?.rows, []); assert.equal(state.review?.inventory?.length, 6);
   assert.ok(state.review?.inventory?.every(row => row.state === 'current' && row.local === 'stock'));
   assert.equal(hasFreshOffers(state), false);
   await app.apply({ reviewId: state.review!.id, choices: [] }); await app.join();
@@ -45,7 +45,7 @@ test('current inventory never becomes an install, choice, pause target or receip
   for (const replaceCustom of [false, true]) {
     f.ports.load = async () => null; f.updates.length = 0; f.pauses.length = 0;
     const app = new Application(f.ports); await app.start(); const state = await app.review();
-    assert.equal(state.review?.inventory?.length, 5); assert.deepEqual(state.review?.rows.map(row => row.id), ['google-calendar', 'fastmail']);
+    assert.equal(state.review?.inventory?.length, 6); assert.deepEqual(state.review?.rows.map(row => row.id), ['google-calendar', 'fastmail']);
     await assert.rejects(app.apply({ reviewId: state.review!.id, choices: [{ id: 'icloud', choice: 'install' }] }));
     await app.apply({ reviewId: state.review!.id, choices: replaceCustom ? [{ id: 'fastmail', choice: 'install' }] : [] }); await app.join();
     const installed = replaceCustom ? ['google-calendar', 'fastmail'] : ['google-calendar'];
@@ -65,6 +65,7 @@ test('current custom, pinned, failed checks and unknown baselines remain distinc
     { id: 'google-drive', state: 'unavailable', local: 'stock', prerequisite: 'unavailable' },
     { id: 'icloud', state: 'pinned', local: 'unknown', prerequisite: null },
     { id: 'obsidian', state: 'unavailable', local: 'unknown', prerequisite: 'baseline_unknown' },
+    { id: 'pa-updates', state: 'current', local: 'stock', prerequisite: null },
   ]);
   assert.ok(!f.originals.includes('icloud')); assert.ok(!JSON.stringify([state, f.logs]).includes('PRIVATE_SENTINEL'));
 });
@@ -95,9 +96,9 @@ test('a slow integration exposes earlier fresh results without publishing a part
   await app.apply({ reviewId: final.review!.id, choices: [] }); await app.join();
   assert.deepEqual(f.updates, ['google-calendar']); assert.equal(app.status().job?.receipts.find(row => row.id === 'fastmail')?.outcome, 'kept');
 });
-test('development work is advisory inventory, never installed customization, offers, pause targets or receipts', async t => {
+test('source work alone is not an offer, pause target or receipt; fresh preflight also checks local-work decisions', async t => {
   const f = fixture(t); let developmentReads = 0;
-  f.ports.development = async () => { developmentReads++; return { 'google-calendar': 'clean', fastmail: 'clean', 'google-drive': 'clean', icloud: 'unpublished', obsidian: 'unpublished' }; };
+  f.ports.development = async () => { developmentReads++; return { 'google-calendar': 'clean', fastmail: 'clean', 'google-drive': 'clean', icloud: 'unpublished', obsidian: 'unpublished', 'pa-updates': 'clean' };  };
   const app = new Application(f.ports); await app.start(); const state = await app.review();
   assert.deepEqual(state.review?.rows, []); assert.equal(hasFreshOffers(state), false);
   assert.ok(state.review?.inventory?.every(row => row.local === 'stock'));
@@ -106,16 +107,44 @@ test('development work is advisory inventory, never installed customization, off
   f.outcomes.set('google-calendar', 'update-available'); f.outcomes.set('fastmail', 'update-available'); f.locals.set('fastmail', 'custom');
   const next = await app.review(); const readsBeforeApply = developmentReads;
   await app.apply({ reviewId: next.review!.id, choices: [] }); await app.join();
-  assert.equal(developmentReads, readsBeforeApply, 'preflight/apply never consults the developer checkout');
+  assert.equal(developmentReads, readsBeforeApply + 2, 'both preflight boundaries recheck source-work decisions without changing installed fingerprints');
   assert.deepEqual(f.updates, ['google-calendar']); assert.equal(app.status().job?.receipts.find(row => row.id === 'fastmail')?.outcome, 'kept');
   assert.ok(app.status().job?.receipts.every(row => row.id !== 'icloud' && row.id !== 'obsidian'));
 });
-test('failed optional checkout settings are unknown with safe diagnostics, not a clean assessment', async t => {
+test('failed canonical checkout inspection is unknown with safe diagnostics, not a clean assessment', async t => {
   const f = fixture(t), ports = applicationPorts(f.bb, SOURCE_URL, async () => { throw new Error('PRIVATE_SENTINEL /private/checkout'); }); delete ports.runtime;
   const app = new Application(ports); await app.start(); const state = await app.review();
   assert.ok(state.review?.inventory?.every(row => row.development === 'unknown'));
   assert.deepEqual(state.review?.rows, []); assert.ok(f.logs.includes('pa-updates stage=development outcome=unavailable'));
   assert.ok(!JSON.stringify([state, f.logs]).includes('PRIVATE_SENTINEL'));
+});
+test('unpublished work with an upstream release defaults to Keep, requires explicit opt-in, and never fakes installed customization', async t => {
+  const f = fixture(t); f.outcomes.set('google-calendar', 'update-available');
+  f.ports.development = async () => ({ 'google-calendar': 'unpublished', fastmail: 'clean', 'google-drive': 'clean', icloud: 'clean', obsidian: 'clean', 'pa-updates': 'clean' });
+  const app = new Application(f.ports); await app.start(); const state = await app.review(), row = state.review!.rows[0];
+  assert.equal(row.local, 'stock'); assert.equal(row.fingerprint, 'original-google-calendar'); assert.equal(row.decision, 'choose');
+  assert.equal(hasFreshOffers(state), true, 'the released offer, not local work, creates readiness');
+  await app.apply({ reviewId: state.review!.id, choices: [] }); await app.join();
+  assert.equal(app.status().job, null); assert.deepEqual(f.updates, []); assert.deepEqual(f.pauses, []);
+  await app.apply({ reviewId: state.review!.id, choices: [{ id: 'google-calendar', choice: 'install' }] }); await app.join();
+  assert.deepEqual(f.updates, ['google-calendar']); assert.equal(app.status().job?.receipts[0].outcome, 'updated');
+});
+test('new source work after a stock review cannot silently acquire overwrite permission', async t => {
+  const f = fixture(t); f.outcomes.set('google-calendar', 'update-available');
+  const app = new Application(f.ports); await app.start(); const state = await app.review();
+  assert.equal(state.review!.rows[0].decision, 'automatic');
+  f.ports.development = async () => ({ 'google-calendar': 'unpublished', fastmail: 'clean', 'google-drive': 'clean', icloud: 'clean', obsidian: 'clean', 'pa-updates': 'clean' });
+  await app.apply({ reviewId: state.review!.id, choices: [] }); await app.join();
+  assert.equal(app.status().job?.failure, 'changed'); assert.deepEqual(f.updates, []); assert.deepEqual(f.pauses, []);
+});
+test('legacy source-work reviews gain the safe decision but no new component or job receipt', async t => {
+  const f = fixture(t); f.outcomes.set('google-calendar', 'update-available');
+  const app = new Application(f.ports); await app.start(); const review = (await app.review()).review!;
+  delete review.rows[0].decision; review.inventory!.find(row => row.id === 'google-calendar')!.development = 'unpublished';
+  f.ports.load = async () => ({ review, job: null });
+  const restored = new Application(f.ports); await restored.start();
+  assert.equal(restored.status().review!.rows[0].decision, 'choose'); assert.equal(restored.status().review!.rows[0].local, 'stock');
+  await restored.apply({ reviewId: review.id, choices: [] }); assert.equal(restored.status().job, null); assert.deepEqual(f.updates, []);
 });
 test('saved reviews written before the inventory addition still parse without inventing current status', () => {
   const old = { review: { id: '11111111-1111-4111-8111-111111111111', at: new Date().toISOString(), rows: [], runtime: null }, job: null };

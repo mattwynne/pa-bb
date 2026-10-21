@@ -1,8 +1,8 @@
 # PA updates
 
 Review and apply ordinary released updates to Calendar, Fastmail, Google Drive,
-iCloud, Obsidian, BB, Pi CLI and Codex CLI. Local integration customizations stay
-unless you choose **Install released version**.
+iCloud, Obsidian, PA updater itself, BB, Pi CLI and Codex CLI. Components with
+**Local changes** stay unchanged unless you choose **Install released version**.
 
 ## Use it
 
@@ -12,15 +12,16 @@ unless you choose **Install released version**.
 3. Check the versions and the named PA server. Pi/Codex actions target BB’s
    configured primary host, never the computer displaying the browser.
 4. Keep the default **Keep local**, or choose **Install released version** for
-   a customized integration. Bulk controls change choices, not installations.
+   a component with local changes. Bulk controls change choices, not installations.
 5. Choose **Update PA**. If BB has running threads, its restart requires explicit
    permission to interrupt them. Otherwise wait for those threads to finish.
 6. After a BB restart, return to **Settings → PA updates** to read the saved result.
 
-Opening the page or checking never installs anything. The server checks every
-six hours; repeated Apply requests join one saved job. The updater does not
-replace itself, install absent integrations, update unrelated plugins, or change
-other machines. It never executes commands supplied by a browser or release record.
+Opening the page or checking does not start a new update job. The server checks
+every six hours; repeated Apply requests join one saved job. An already-authorized
+job can finish its final updater step after BB restarts. The updater does not
+install absent integrations, update unrelated plugins, or change other machines.
+It never executes commands supplied by a browser or release record.
 
 ## Versions and results
 
@@ -39,26 +40,28 @@ CLI receipts verify the installed version and managed npm provenance. Existing
 provider processes and sessions may retain their previous version until their
 normal restart or release. No session is forcibly reset by the CLI updater.
 
-BB updates last through its native launcher. The job records restart intent
-before calling BB and reads BB’s durable result after reconnecting. A provisional
-startup result stays pending; delayed results can still resolve an uncertain
-receipt. The plugin does not supervise BB or promise automatic rollback.
+Integrations update first, then their scheduling is restored, then CLIs and BB
+update through their native controls. PA updater replaces itself **last**. The
+job records intent before each BB restart or self-update. After BB restarts,
+only the still-pending final self step from that same saved job may continue.
+Failed or uncertain BB updates leave PA updater unchanged. After self-replacement,
+the new instance reads its running version and trusted source to finish the same
+receipt; it never repeats an admitted update. Older jobs do not acquire new steps.
+The plugin does not supervise BB or promise automatic rollback.
 
-## Optional development checkout
+## Local changes and the source workspace
 
-Ordinary installations need no repository. Developers can map one full PA checkout
-on the server through BB’s **Development checkout (optional)** setting, or:
+On a PA server, the source workspace is `$HOME/src/pa-bb`. There is no checkout
+setting or directory search. Ordinary installations need no repository; a missing
+workspace simply means there is no development checkout to inspect.
 
-```sh
-bb plugin config pa-updates set developmentCheckout /absolute/path/to/pa-repository
-```
-
-Choose **Check again** after changing the mapping. The five integration folders
-are checked for Git-visible unstaged, staged and untracked files, and local branch
-changes absent from freshly fetched published `main`. A branch that is merely
-behind does not count as local work. Affected rows show **Unpublished local changes**
-in amber, alongside their installed versions. These checkout changes are **not
-installed code** and do not enable Update PA or change Keep local choices.
+The six component folders are checked for Git-visible unstaged, staged and
+untracked files, and unpublished branch changes against fresh published `main`.
+Being behind does not count as local work. Both these changes and edits to installed
+code show the same amber **Local changes** badge. With a released offer, both
+require an explicit **Install released version** choice; **Keep local** is the
+default. Local work without a released offer does not enable Update PA or a notice.
+Installing a release never deletes or publishes source-workspace changes.
 
 Inspection never writes to the checkout or runs its hooks, filters, builds or
 scripts. Network Git operations use a disposable directory, not cached
@@ -66,7 +69,9 @@ scripts. Network Git operations use a disposable directory, not cached
 4,096 changed paths; unsupported layouts or an unavailable comparison show
 **Couldn’t check local work**, not a green success. Linked worktrees, shallow or
 partial clones and custom checkout filters are not supported. Ignored generated
-files do not count as untracked work. Clear the setting to disable this inspection.
+files do not count as untracked work. Actual inspection failures remain unknown,
+not evidence that replacement is safe. Agents should follow the workspace rules
+in the repository’s [AGENTS.md](../../AGENTS.md), not edit BB-managed copies.
 
 ## What stays in place
 
@@ -93,7 +98,7 @@ Local-path, pinned and non-main installations are not silently retargeted.
   downloads old BB toolchains or requires a development checkout. Normal builds may download pinned dependencies;
   this is not an offline operation.
 - Reconstruction uses temporary files, bounded to 512 source entries and 32 MiB
-  per package. At most five active expected-hash records persist—one per integration,
+  per package. At most six active expected-hash records persist—one per component,
   not an artifact history. Checks seed unchanged integrations before a later BB
   upgrade can prune their builders. Expected hashes come from independent original
   reconstruction, never the currently installed bytes. Tests, documentation,
@@ -127,10 +132,6 @@ Its v1 publisher still covers Calendar only; absent notes are shown as unavailab
 not invented. Offers and application come from the supported native channels.
 Older release metadata does not certify a later version installed from `main`.
 
-The optional `PA_UPDATES_CALENDAR_CHECKOUT` environment setting belongs to the
-historical read-only discovery check. It is not required for installed-code
-assessment or application. Normal users need no checkout mapping.
-
 Repository/channel allowlists, native engine checks and HTTPS/repository controls
 are the trust boundary—not independent artifact signing. No workflow-write or
 account credential is needed to consume public releases.
@@ -148,6 +149,12 @@ npm run test:rendered
 The rendered gate starts disposable BB and uses the original app with synthetic
 typed RPC states at desktop/narrow widths. It checks choices, consent, scrolling,
 notes, errors, keyboard access and focus return. It does not perform native writes.
+
+`test/run-self-update-gate.mjs` exercises kept self, explicit native self-replacement,
+and self-replacement after a real BB restart. It checks the same durable receipt,
+one admission per update, no registration/disposal deadlock, and no provider CLI
+installation. Factory startup performs no native reconciliation; post-registration
+status/background entrypoints handle the saved job.
 
 `test/run-ordinary-update-gate.mjs` exercises the original integration executor.
 `test/run-runtime-update-gate.mjs` exercises real native CLI installers and BB’s

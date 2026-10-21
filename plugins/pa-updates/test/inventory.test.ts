@@ -41,6 +41,36 @@ test('one unsupported source is isolated and unchanged trusted integrations stil
   assert.equal(inventory[0].id, 'google-calendar'); assert.equal(inventory[0].local, 'unknown'); assert.equal(inventory[0].state, 'unavailable');
   assert.equal(inventory[1].state, 'current'); assert.deepEqual(logs, ['pa-updates stage=review outcome=baseline_unknown']);
 });
+test('self reconciliation uses read-only public provenance and logs failures once without private details', async t => {
+  let fail = false, version = '0.1.0', commit = 'a'.repeat(40), local: 'stock' | 'custom' = 'stock';
+  const logs: string[] = []; let nativeWrites = 0;
+  t.mock.method(Baselines.prototype, 'inspect', async () => ({ local, fingerprint: 'original', originalVersion: version }));
+  const bb = { storage: { kv: { get: async () => null, set: async () => {} } }, log: { warn: (message: string) => logs.push(message) }, sdk: { plugins: {
+    list: async () => { if (fail) throw Object.assign(new Error('PRIVATE_SENTINEL account token'), { body: 'PRIVATE_SENTINEL provider response' }); return { plugins: [{ id: 'pa-updates', version, enabled: true, status: 'running', rootDir: '/fixture/pa-updates' }] }; },
+    getSource: async () => ({ requested: `git:${SOURCE_URL}@main`, subdirectory: 'plugins/pa-updates', resolved: `${SOURCE_URL} (${commit})` }),
+    applyUpdate: async () => { nativeWrites++; throw new Error('read-only reconciliation must never activate'); },
+  } } } as unknown as BbPluginApi;
+  const ports = applicationPorts(bb), intent = { before: '0.1.0', source: `${SOURCE_URL} (${commit})`, requestedAt: new Date().toISOString() };
+  assert.equal((await ports.self!.reconcile(intent)).state, 'pending');
+  assert.equal((await ports.self!.reconcile(intent, true)).state, 'unchanged');
+  version = '0.1.2'; commit = 'b'.repeat(40); assert.deepEqual(await ports.self!.reconcile(intent), { state: 'updated', actual: '0.1.2' });
+  fail = true; assert.equal((await ports.self!.reconcile(intent)).state, 'uncertain'); await ports.self!.reconcile(intent);
+  assert.deepEqual(logs, ['pa-updates stage=self-reconcile outcome=unavailable']); assert.ok(!JSON.stringify(logs).includes('PRIVATE_SENTINEL'));
+  fail = false; local = 'custom'; assert.equal((await ports.self!.reconcile(intent)).state, 'uncertain'); assert.equal(nativeWrites, 0);
+});
+test('self rechecks native source after durable intent and refuses a retarget before admission', async t => {
+  let requested = `git:${SOURCE_URL}@main`, commit = 'a'.repeat(40), nativeWrites = 0;
+  t.mock.method(Baselines.prototype, 'inspect', async () => ({ local: 'stock', fingerprint: 'original', originalVersion: '0.1.0' }));
+  const bb = { storage: { kv: { get: async () => null, set: async () => {} } }, sdk: { plugins: {
+    list: async () => ({ plugins: [{ id: 'pa-updates', version: '0.1.0', enabled: true, status: 'running', rootDir: '/fixture/pa-updates' }] }),
+    getSource: async () => ({ requested, subdirectory: 'plugins/pa-updates', resolved: `${SOURCE_URL} (${commit})` }),
+    applyUpdate: async () => { nativeWrites++; return { outcome: 'unchanged' }; },
+  } } } as unknown as BbPluginApi;
+  const ports = applicationPorts(bb), intent = await ports.self!.prepare({ installed: '0.1.0', fingerprint: 'original', jobId: '00000000-0000-4000-8000-000000000001' });
+  commit = 'b'.repeat(40); await assert.rejects(ports.self!.apply(intent), error => error instanceof ApplicationError && error.category === 'changed');
+  commit = 'a'.repeat(40); requested = `git:${SOURCE_URL}@pinned`; await assert.rejects(ports.self!.apply(intent));
+  assert.equal(nativeWrites, 0);
+});
 test('missing checker SDK metadata never guesses compatibility from the development pin', async () => {
   const bb = { pluginId: 'pa-updates', sdk: { plugins: { async list() { return { plugins: [] }; } }, system: { async version() { return { currentVersion: '0.46.0' }; } } } } as unknown as BbPluginApi;
   const result = await installedInventory(bb)(new AbortController().signal);

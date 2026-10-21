@@ -3,9 +3,9 @@ import semver from 'semver';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { Baselines } from './baseline.ts';
 import { runtimePorts } from './runtime.ts';
-import { inspectDevelopment, unknownDevelopment, DevelopmentError } from './development.ts';
+import { inspectCanonicalDevelopment, canonicalCheckout, unknownDevelopment, DevelopmentError } from './development.ts';
 import { ApplicationError, integrationId } from '../core/application.ts';
-import type { ApplicationPorts, Assessment, IntegrationId, IntegrationInventoryRow } from '../core/application.ts';
+import type { ApplicationPorts, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode } from '../core/application.ts';
 import { SOURCE_URL } from '../core/release.ts';
 const syncStatus = z.object({ updatePause: z.object({ version: z.literal(1), jobId: z.string().uuid().nullable(), manualRecovery: z.boolean().optional() }).optional(), mirrors: z.array(z.object({ id: z.string().uuid(), enabled: z.boolean(), phase: z.string(), failure: z.string().nullable() })).max(20) });
 const validVersion = (value: string) => { if (value.length > 64 || !semver.valid(value)) throw new ApplicationError('unavailable'); return value; };
@@ -19,6 +19,11 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
   const list = () => bb.sdk.plugins.list({ signal: signal() });
   const available = new Map<IntegrationId, string>();
   let lastInventory: IntegrationInventoryRow[] = [];
+  let selfUncertainLogged = false;
+  const selfUncertain = (actual: string | null, code: FailureCode) => {
+    if (!selfUncertainLogged) { selfUncertainLogged = true; bb.log.warn(`pa-updates stage=self-reconcile outcome=${code}`); }
+    return { state: 'uncertain' as const, actual };
+  };
   const trusted = (source: { requested: string; subdirectory?: string }, id: IntegrationId) =>
     [`git:${sourceUrl}@main`, `git:${sourceUrl}@ref:main`].includes(source.requested) && source.subdirectory === `plugins/${id}`;
   const source = async (id: IntegrationId) => {
@@ -33,7 +38,10 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
   const sync = (method = 'status', input: null | { updateJob: string } = null) => bb.sdk.plugins.callRpc({ pluginId: 'icloud', method, input, outputSchema: syncStatus, signal: signal() });
   return {
     async development() {
-      try { return await inspectDevelopment(await getDevelopmentCheckout?.(), controller.signal, sourceUrl); }
+      try {
+        const checkout = getDevelopmentCheckout ? await getDevelopmentCheckout() : canonicalCheckout();
+        return checkout ? await inspectCanonicalDevelopment(controller.signal, sourceUrl, checkout) : null;
+      }
       catch (error) {
         if (!controller.signal.aborted) bb.log.warn(`pa-updates stage=development outcome=${error instanceof DevelopmentError ? error.category : 'unavailable'}`);
         return unknownDevelopment();
@@ -135,6 +143,43 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
         if (actual.enabled) await bb.sdk.plugins.callRpc({ pluginId: id, method: 'status', input: null, outputSchema: z.unknown(), signal: signal() });
         return { actual: validVersion(actual.version), updated: outcome.applied };
       } finally { await baseline.close(); }
+    },
+    self: {
+      async prepare(authorized) {
+        try {
+          const provenance = await source('pa-updates'), before = (await list()).plugins.find(item => item.id === 'pa-updates');
+          if (!before || !before.enabled || before.status !== 'running' || before.version !== authorized.installed) throw new ApplicationError('changed');
+          const bytes = await baseline.inspect('pa-updates', before.rootDir, revision(provenance.resolved));
+          if (bytes.fingerprint !== authorized.fingerprint) throw new ApplicationError('changed');
+          active(); return { before: validVersion(before.version), source: provenance.resolved, requestedAt: new Date().toISOString() };
+        } finally { await baseline.close(); }
+      },
+      async apply(intent) {
+        const currentSource = await source('pa-updates'); active();
+        if (currentSource.resolved !== intent.source) throw new ApplicationError('changed');
+        // Only the native replacement is admitted here. Do not read or write
+        // plugin state after disposal; the new instance owns reconciliation.
+        const outcome = await bb.sdk.plugins.applyUpdate({ pluginId: 'pa-updates' });
+        active(); if (outcome.outcome === 'rolled-back') throw new ApplicationError('unavailable');
+      },
+      async reconcile(intent, completed = false) {
+        const expired = Date.now() - Date.parse(intent.requestedAt) >= 15 * 60_000;
+        let actual: string | null = null;
+        try {
+          const running = (await list()).plugins.find(item => item.id === 'pa-updates');
+          if (!running || !running.enabled || running.status !== 'running') return expired ? selfUncertain(actual, 'interrupted') : { state: 'pending', actual };
+          actual = validVersion(running.version);
+          const provenance = await source('pa-updates');
+          if (actual === intent.before && provenance.resolved === intent.source) return completed ? { state: 'unchanged', actual } : expired ? selfUncertain(actual, 'interrupted') : { state: 'pending', actual };
+          const bytes = await baseline.inspect('pa-updates', running.rootDir, revision(provenance.resolved));
+          if (bytes.local !== 'stock' || !semver.gt(actual, intent.before) || provenance.resolved === intent.source) throw new ApplicationError('changed');
+          return { state: 'updated', actual };
+        } catch (error) {
+          active();
+          if (error instanceof ApplicationError && error.category === 'storage') throw error;
+          return selfUncertain(actual, error instanceof ApplicationError ? error.category : 'unavailable');
+        } finally { await baseline.close(); }
+      },
     },
     async quiesce(ids, jobId, remember) {
       if (!ids.some(id => id === 'icloud' || id === 'obsidian')) return;

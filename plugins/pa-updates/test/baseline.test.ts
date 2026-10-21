@@ -61,9 +61,10 @@ test('cache retains at most one active key per integration and drops removed int
   const f = await fixture(integrationId.options), baseline = f.baseline();
   try {
     for (const id of integrationId.options) await baseline.inspect(id, f.installed(id), f.commit);
-    assert.equal(f.saved().records.length, 5); assert.equal(new Set(f.saved().records.map(row => row.id)).size, 5);
+    assert.equal(f.saved().records.length, 6); assert.equal(new Set(f.saved().records.map(row => row.id)).size, 6);
+    assert.equal(baselineCacheSchema.parse({ ...f.saved(), records: f.saved().records.slice(0, 5) }).records.length, 5, 'older five-record caches remain valid');
     await baseline.retain(['google-calendar']); assert.deepEqual(f.saved().records.map(row => row.id), ['google-calendar']);
-    assert.equal(baselineCacheSchema.safeParse({ ...f.saved(), records: Array(6).fill(f.saved().records[0]) }).success, false);
+    assert.equal(baselineCacheSchema.safeParse({ ...f.saved(), records: Array(7).fill(f.saved().records[0]) }).success, false);
   } finally { await baseline.close(); await f.clean(); }
 });
 test('failed persistence never authorizes a baseline from memory or exposes storage details', async () => {

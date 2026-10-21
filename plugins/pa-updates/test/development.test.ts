@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, lstat, rm } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
-import { inspectDevelopment, DevelopmentError } from '../adapters/development.ts';
+import { inspectDevelopment, inspectCanonicalDevelopment, canonicalCheckout, DevelopmentError } from '../adapters/development.ts';
 import { integrationId } from '../core/application-model.ts';
 const exec = promisify(execFile), ids = integrationId.options;
 async function fixture() {
@@ -42,11 +42,12 @@ test('fresh published main detects a clean unpublished component commit on a div
     assert.notEqual(await f.git(f.seed, 'rev-parse', 'HEAD'), stale);
     await f.git(f.owner, 'remote', 'set-url', 'origin', '/PRIVATE_SENTINEL/not-used');
     const before = await fingerprint(f.owner), result = await f.inspect();
-    assert.deepEqual(result, { 'google-calendar': 'clean', fastmail: 'clean', 'google-drive': 'clean', icloud: 'unpublished', obsidian: 'unpublished' });
+    assert.deepEqual(result, { 'google-calendar': 'clean', fastmail: 'clean', 'google-drive': 'clean', icloud: 'unpublished', obsidian: 'unpublished', 'pa-updates': 'clean' });
     assert.deepEqual(await fingerprint(f.owner), before); assert.equal(await f.git(f.owner, 'rev-parse', 'origin/main'), stale);
     await writeFile(join(f.owner, 'plugins/google-calendar/server.ts'), 'unstaged work\n');
     await writeFile(join(f.owner, 'plugins/fastmail/server.ts'), 'staged work\n'); await f.git(f.owner, 'add', 'plugins/fastmail/server.ts');
     await writeFile(join(f.owner, 'plugins/google-drive/new.ts'), 'untracked work\n');
+    await writeFile(join(f.owner, 'plugins/pa-updates/new.ts'), 'untracked updater work\n');
     const dirty = await fingerprint(f.owner); assert.ok(Object.values((await f.inspect())!).every(state => state === 'unpublished'));
     assert.deepEqual(await fingerprint(f.owner), dirty);
   } finally { await f.close(); }
@@ -69,6 +70,21 @@ test('checkout filter attributes stay unknown even when their driver is only con
     await assert.rejects(f.inspect(), error => error instanceof DevelopmentError && error.category === 'unsupported');
     assert.deepEqual(await fingerprint(f.owner), before);
   } finally { await f.close(); }
+});
+test('canonical workspace absence is ordinary, but an existing invalid workspace is not clean', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pa-canonical-'));
+  try {
+    const checkout = canonicalCheckout(root); assert.equal(checkout, join(root, 'src', 'pa-bb'));
+    assert.equal(await inspectCanonicalDevelopment(new AbortController().signal, '/PRIVATE_SENTINEL', checkout), null);
+    await mkdir(checkout, { recursive: true });
+    await assert.rejects(inspectCanonicalDevelopment(new AbortController().signal, '/PRIVATE_SENTINEL', checkout));
+    const server = await readFile(new URL('../server.ts', import.meta.url), 'utf8');
+    assert.ok(!server.includes('bb.settings.define')); assert.ok(!server.includes('PA_UPDATES_CALENDAR_CHECKOUT'));
+    const agents = await readFile(new URL('../../../AGENTS.md', import.meta.url), 'utf8');
+    const guide = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+    assert.ok(agents.includes('$HOME/src/pa-bb')); assert.ok(agents.includes('not source workspaces'));
+    assert.ok(guide.includes('$HOME/src/pa-bb')); assert.ok(!guide.includes('developmentCheckout'));
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 test('ordinary users need no checkout; failures stay bounded and owner hooks/config never execute', async () => {
   assert.equal(await inspectDevelopment(undefined, new AbortController().signal, '/PRIVATE_SENTINEL'), null);

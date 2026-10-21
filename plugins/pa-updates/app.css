@@ -22,10 +22,10 @@
 .pa-update-label { display: inline-flex; gap: 8px; align-items: center; min-width: 0; font-weight: 600; }
 .pa-update-label svg { flex: none; width: 16px; height: 16px; }
 .pa-update-bulk { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
-.pa-update-bulk button { border: 0; background: transparent; padding: 2px 0; color: var(--primary); }
-.pa-update-choices { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.pa-update-row { padding: 10px; border-bottom: 1px solid var(--border); }
-.pa-update-row:last-child { border-bottom: 0; }
+.pa-update-bulk button { border: 0; background: transparent; padding: 2px 0; color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.pa-update-choices { display: grid; gap: 8px; }
+.pa-update-row { padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
+.pa-update-row > .pa-development-badge { margin-top: 7px; }
 .pa-update-toggle { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 4px; margin-top: 10px; }
 .pa-update-toggle button { min-width: 0; white-space: normal; }
 .pa-update-toggle button[aria-pressed=true] { color: var(--primary-foreground); background: var(--primary); }

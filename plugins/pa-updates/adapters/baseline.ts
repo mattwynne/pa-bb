@@ -23,13 +23,13 @@ const cachedExpected = z.object({
   files: z.record(z.string().min(1).max(1024).refine(path => !path.includes('\\') && path.split('/').every(part => part !== '' && part !== '.' && part !== '..' && part.toLowerCase() !== '.git')),
     z.string().regex(/^[a-f0-9]{64}$/)).refine(files => Object.keys(files).length > 0 && Object.keys(files).length <= 512),
 }).strict();
-export const baselineCacheSchema = z.object({ version: z.literal(1), source: z.string().max(2048), records: z.array(cachedExpected).max(5) }).strict()
+export const baselineCacheSchema = z.object({ version: z.literal(1), source: z.string().max(2048), records: z.array(cachedExpected).max(6) }).strict()
   .refine(value => new Set(value.records.map(record => record.id)).size === value.records.length && Buffer.byteLength(JSON.stringify(value)) <= 1024 * 1024);
 export type BaselineCache = z.infer<typeof baselineCacheSchema>;
 export type BaselineStore = { load(): Promise<unknown>; save(value: BaselineCache): Promise<void> };
 type Expected = z.infer<typeof cachedExpected>;
 
-/** Fixed-source, bounded source/artifact inspection for the five PA packages.
+/** Fixed-source, bounded source/artifact inspection for the six PA packages.
  * Selects only already-installed BB packages. Their normal build command and
  * npm may download pinned build/package dependencies; this is not offline.
  * Expected hashes come from published Git objects, never today's installed bytes.

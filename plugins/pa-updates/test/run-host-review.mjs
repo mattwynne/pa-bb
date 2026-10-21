@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { chromium } from 'playwright';
 import { record } from './fixtures.ts';
+import { localDecision } from '../core/decision.ts';
+import { approvedViews, approvedState, approvedJob, assertApproved } from './approved-views.mjs';
 const exec = promisify(execFile);
 const plugin = resolve(fileURLToPath(new URL('../', import.meta.url))), repo = resolve(plugin, '../..');
 const bb = resolve(process.env.BB_REVIEW_PACKAGE ?? join(plugin, 'node_modules/bb-app'));
@@ -58,18 +60,18 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
   ], runtime: { target: { id: 'synthetic-primary-host', name: 'PA test server' }, runningThreadCount: 0, rows: ['pi', 'codex', 'bb'].map(id => ({ id, installed: '1.0.0', available: '1.0.1', source: id === 'bb' ? 'npm' : 'npmGlobal', state: 'ready', reason: null, fingerprint: id })) } } };
   const job = () => ({ id: '22222222-2222-4222-8222-222222222222', reviewId, phase: 'complete', receipts: base.review.rows.map(row => ({ id: row.id, choice: row.local === 'custom' ? 'keep' : 'install', before: row.installed, preview: row.available, actual: row.local === 'custom' ? row.installed : '0.1.2', outcome: row.local === 'custom' ? 'kept' : 'updated' })), syncReserved: false, failure: null, runtimeReceipts: base.review.runtime.rows.map(row => ({ id: row.id, before: row.installed, preview: row.available, actual: '1.0.2', source: row.source, outcome: 'updated' })), bbIntent: null, confirmInterruptingThreads: false });
   browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : { channel: 'chrome' }) });
-  const views = ['first', 'checking', 'progress', 'progress_development', 'progress_saved', 'current', 'integrations_current', 'integrations_mixed', 'integrations_status', 'integrations_development', 'integrations_development_unknown', 'integrations_development_mixed', 'integrations_failed', 'integrations_rpc_failed', 'integrations_action_failed', 'normal', 'runtime_prerequisites', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
+  const views = [...approvedViews, 'first', 'checking', 'progress', 'progress_development', 'progress_saved', 'current', 'integrations_current', 'integrations_mixed', 'integrations_status', 'integrations_development', 'integrations_development_unknown', 'integrations_development_mixed', 'integrations_failed', 'integrations_rpc_failed', 'integrations_action_failed', 'normal', 'runtime_prerequisites', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
   let screenshots = 0;
   for (const view of views) for (const width of [1280, 390]) {
     console.log(`Rendering synthetic ${view} at ${width}`);
     const page = await browser.newPage({ viewport: { width, height: 1000 } }); const pageErrors = []; page.on('pageerror', error => pageErrors.push(error.message));
     let state = structuredClone(base), notes = structuredClone(discovery); const writes = [];
-    const laterOffer = view.startsWith('later_'), inventoryView = view.startsWith('integrations_');
-    const progressView = view === 'progress' || view === 'progress_development', developmentView = view.startsWith('integrations_development');
+    const laterOffer = view.startsWith('later_'), inventoryView = view.startsWith('integrations_'), approvedView = approvedViews.includes(view);
+    const progressView = ['progress', 'progress_development', 'approved_checking'].includes(view), developmentView = view.startsWith('integrations_development');
     const failureMode = view === 'integrations_failed' ? 'server' : view === 'integrations_rpc_failed' ? 'read' : view === 'integrations_action_failed' ? 'action' : null;
     if (inventoryView || progressView) {
       const mixed = view === 'integrations_mixed' || view === 'integrations_development_mixed' || progressView;
-      state.review.inventory = ['google-calendar', 'fastmail', 'google-drive', 'icloud', 'obsidian'].map(id => ({ id, installed: '0.1.0', state: mixed && ['google-calendar', 'fastmail'].includes(id) ? 'offered' : 'current', local: mixed && id === 'fastmail' ? 'custom' : 'stock', prerequisite: null }));
+      state.review.inventory = ['google-calendar', 'fastmail', 'google-drive', 'icloud', 'obsidian', 'pa-updates'].map(id => ({ id, installed: '0.1.0', state: mixed && ['google-calendar', 'fastmail'].includes(id) ? 'offered' : 'current', local: mixed && id === 'fastmail' ? 'custom' : 'stock', prerequisite: null }));
       if (!mixed) state.review.rows = [];
       state.offers.available = mixed; state.review.runtime.rows.forEach(row => { row.state = 'current'; row.available = null; });
       if (developmentView) for (const row of state.review.inventory) row.development = view === 'integrations_development_unknown' || view === 'integrations_development_mixed' && row.id === 'fastmail' ? 'unknown' : ['icloud', 'obsidian'].includes(row.id) || view === 'integrations_development_mixed' && row.id === 'google-calendar' ? 'unpublished' : 'clean';
@@ -107,6 +109,8 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
     if (view === 'bb_failed') { state.job.phase = 'attention'; state.job.failure = 'unavailable'; state.job.runtimeReceipts[2].outcome = 'failed'; state.job.runtimeReceipts[2].actual = '1.0.0'; }
     if (view === 'interrupted') { state.offers = structuredClone(base.offers); state.job.phase = 'attention'; state.job.failure = 'interrupted'; state.job.syncReserved = true; state.job.receipts[0].outcome = 'uncertain'; state.job.receipts[0].actual = null; }
     if (view === 'storage') state.failure = 'storage';
+    if (approvedView && !progressView) state = approvedState(view, base);
+    if (state.review) state.review.rows = state.review.rows.map(row => { const facts = { ...row, development: row.development ?? state.review.inventory?.find(item => item.id === row.id)?.development }; return { ...facts, decision: localDecision(facts) }; });
     let releaseCheck; const checkGate = new Promise(resolve => { releaseCheck = resolve; });
     let releaseProgress; const progressGate = new Promise(resolve => { releaseProgress = resolve; });
     let releaseResponse; const responseGate = new Promise(resolve => { releaseResponse = resolve; });
@@ -121,15 +125,15 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
           state.review = { ...state.review, id: '33333333-3333-4333-8333-333333333333', rows: [structuredClone(base.review.rows[1])], inventory: structuredClone(state.progress.integrations), runtime: { target: state.progress.target, runningThreadCount: 0, rows: structuredClone(state.progress.runtime) } };
           state.checking = false; state.progress = null; await readRpc('fixtureNotify'); await responseGate;
         } else if (method === 'review' && (!failureMode || failureMode !== 'server' && writes.filter(entry => entry.method === 'review').length > 2)) {
-          const savedJob = state.job; state = structuredClone(inventoryView ? state : base);
-          if (inventoryView) state.review.id = '33333333-3333-4333-8333-333333333333';
+          const savedJob = state.job; state = structuredClone(inventoryView || approvedView ? state : base);
+          if (inventoryView || approvedView) state.review.id = '33333333-3333-4333-8333-333333333333';
           if (laterOffer) {
             state.job = savedJob; state.review.id = '33333333-3333-4333-8333-333333333333';
             state.review.rows = view === 'later_runtime' ? [] : [{ ...base.review.rows[0], installed: '0.1.2', available: '0.1.3' }];
             state.review.runtime.rows.forEach(row => { row.installed = '1.0.2'; row.available = view === 'later_runtime' && row.id === 'pi' ? '1.0.3' : null; row.state = row.available ? 'ready' : 'current'; });
           }
         }
-        if (method === 'apply') { state.job = job(); state.job.confirmInterruptingThreads = route.request().postDataJSON().confirmInterruptingThreads; }
+        if (method === 'apply') { state.job = approvedView ? approvedJob(state, route.request().postDataJSON().choices) : job(); if (approvedView) state.offers = null; state.job.confirmInterruptingThreads = route.request().postDataJSON().confirmInterruptingThreads; }
         if (method === 'resumeSync') state.job.syncReserved = false;
       }
       const firstFailedCheck = writes.filter(entry => entry.method === 'review').length === 1;
@@ -157,9 +161,9 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
       await entry.focus(); assert.equal(await entry.evaluate(el => document.activeElement === el), true, 'Native Settings entry must accept keyboard focus'); await page.keyboard.press('Enter');
       await page.waitForURL('**' + settingsPath);
     };
-    const fromNotice = laterOffer || ['normal', 'available', 'prerequisites', 'integrations_mixed'].includes(view);
+    const fromNotice = view === 'approved_updates' || view === 'approved_local_updates' || laterOffer || ['normal', 'available', 'prerequisites', 'integrations_mixed'].includes(view);
     if (fromNotice) { await notice.waitFor(); assert.equal(await notice.getAttribute('href'), settingsPath); await notice.focus(); await page.keyboard.press('Enter'); await page.waitForURL('**' + settingsPath); }
-    else if (view === 'integrations_current') await openSettingsNav();
+    else if (view === 'integrations_current' || view === 'approved_current') await openSettingsNav();
     else await openFooter();
     const section = page.getByRole('region', { name: 'Update PA', exact: true }); await section.waitFor();
     assert.equal(await page.getByRole('heading', { name: 'PA updates', exact: true }).count(), 1);
@@ -172,12 +176,15 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
     assert.ok(!(await section.textContent()).includes('PRIVATE_SENTINEL')); assert.equal(await section.locator('script,a').count(), 0);
     assert.ok(await section.locator('[role="status"][aria-live="polite"]').count() > 0);
     if (['failed', 'storage', 'checking', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'bb_failed', 'interrupted', 'rpc_error'].includes(view)) assert.equal(await notice.count(), 0);
+    assert.equal(await page.getByText('Development checkout (optional)', { exact: true }).count(), 0);
+    assert.ok(!(await section.textContent()).includes('Unpublished local changes'));
+    if (approvedView) await assertApproved({ view, section, page, writes });
     if (inventoryView) {
-      if (failureMode) await page.waitForFunction(() => document.querySelectorAll('.pa-update-check').length === 8);
+      if (failureMode) await page.waitForFunction(() => document.querySelectorAll('.pa-update-check').length === 9);
       await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = el.scrollHeight; });
       await section.getByRole('button', { name: 'Check again', exact: true }).focus(); await page.keyboard.press('Enter');
       if (failureMode) {
-        await page.waitForFunction(() => [...document.querySelectorAll('.pa-update-version')].filter(el => el.textContent.includes('Checking…')).length === 8);
+        await page.waitForFunction(() => [...document.querySelectorAll('.pa-update-version')].filter(el => el.textContent.includes('Checking…')).length === 9);
         assert.equal(await section.locator('.pa-update-check').count(), 0); releaseCheck();
       }
       await page.waitForFunction(() => !document.querySelector('.pa-updates footer button')?.disabled && document.querySelector('.pa-updates-body')?.scrollTop === 0);
@@ -190,9 +197,9 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
       }
       for (const name of ['Calendar', 'Fastmail', 'Google Drive', 'iCloud', 'Obsidian']) assert.equal(await section.getByText(name, { exact: true }).count(), 1);
       const mixed = view === 'integrations_mixed' || view === 'integrations_development_mixed';
-      assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), mixed ? 1 : 0);
+      assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), view === 'integrations_mixed' ? 1 : 0);
       if (!mixed) assert.equal(await notice.count(), 0);
-      const expectedChecks = failureMode ? 0 : view === 'integrations_development' ? 6 : view === 'integrations_development_unknown' ? 3 : view === 'integrations_development_mixed' ? 1 : view === 'integrations_current' ? 8 : mixed ? 3 : 4;
+      const expectedChecks = failureMode ? 0 : view === 'integrations_development' ? 7 : view === 'integrations_development_unknown' ? 3 : view === 'integrations_development_mixed' ? 5 : view === 'integrations_current' ? 9 : mixed ? 7 : 5;
       assert.equal(await section.locator('.pa-update-check').count(), expectedChecks);
       assert.equal(await section.locator('.pa-update-card').filter({ hasText: 'Up to date' }).count(), expectedChecks);
       for (const icon of await section.locator('.pa-update-check').all()) {
@@ -200,10 +207,10 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
         assert.notEqual(await icon.evaluate(el => getComputedStyle(el).color), await icon.evaluate(el => getComputedStyle(el.parentElement).color));
       }
       if (mixed) for (const name of ['Calendar', 'Fastmail']) assert.equal(await section.locator('.pa-update-card,.pa-update-row').filter({ has: page.getByText(name, { exact: true }) }).locator('.pa-update-check').count(), 0);
-      if (failureMode) assert.equal(await section.getByText('Couldn’t check', { exact: false }).count(), 8);
+      if (failureMode) assert.equal(await section.getByText('Couldn’t check', { exact: false }).count(), 9);
       if (developmentView) {
-        assert.equal(await section.locator('.pa-development-badge').count(), view === 'integrations_development_unknown' ? 0 : mixed ? 3 : 2);
-        assert.equal(await section.locator('.pa-development-unknown').count(), view === 'integrations_development_unknown' ? 5 : mixed ? 1 : 0);
+        assert.equal(await section.locator('.pa-development-badge').count(), view === 'integrations_development_unknown' ? 0 : mixed ? 4 : 2);
+        assert.equal(await section.locator('.pa-development-unknown').count(), view === 'integrations_development_unknown' ? 6 : 0);
         for (const name of ['iCloud', 'Obsidian']) { const card = section.locator('.pa-update-card').filter({ has: page.getByText(name, { exact: true }) }); assert.equal(await card.locator('.pa-update-check').count(), 0); assert.ok((await card.textContent()).includes('0.1.0')); assert.ok(!(await card.textContent()).includes('Up to date')); }
       }
       if (mixed) assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
@@ -214,7 +221,7 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
       const previous = structuredClone(state.review);
       await section.getByRole('button', { name: 'Check again', exact: true }).focus(); await page.keyboard.press('Enter');
       const group = section.getByRole('group', { name: 'Check progress', exact: true }); await group.waitFor();
-      await page.waitForFunction(() => document.querySelectorAll('.pa-update-spinner').length === 8);
+      await page.waitForFunction(() => document.querySelectorAll('.pa-update-spinner').length === 9);
       assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), 0);
       assert.equal(await notice.count(), 0);
       const spinner = group.locator('.pa-update-spinner').first(); assert.equal(await spinner.getAttribute('aria-hidden'), 'true');
@@ -222,18 +229,19 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
       await page.emulateMedia({ reducedMotion: 'reduce' }); assert.equal(await spinner.evaluate(el => getComputedStyle(el).animationName), 'none'); await page.emulateMedia({ reducedMotion: 'no-preference' });
       state.progress.integrations.push({ id: 'google-calendar', installed: '0.1.1', local: 'stock', state: 'current', prerequisite: null }); await readRpc('fixtureNotify');
       await group.locator('[data-check-id="google-calendar"] .pa-update-check').waitFor();
-      assert.equal(await group.locator('.pa-update-spinner').count(), 7); assert.equal(await group.locator('.pa-update-check').count(), 1);
+      assert.equal(await group.locator('.pa-update-spinner').count(), 8); assert.equal(await group.locator('.pa-update-check').count(), 1);
       await page.screenshot({ path: join(artifacts, `${view}-first-${width}.png`) }); screenshots++;
       state.progress.integrations.push(
         { id: 'fastmail', installed: '0.1.0', local: 'custom', state: 'offered', prerequisite: null },
         { id: 'google-drive', installed: '0.1.0', local: 'stock', state: 'unavailable', prerequisite: 'unavailable' },
         { id: 'icloud', installed: '0.1.0', local: 'stock', state: 'current', prerequisite: null },
-        { id: 'obsidian', installed: '0.1.0', local: 'unknown', state: 'unavailable', prerequisite: 'baseline_unknown' });
+        { id: 'obsidian', installed: '0.1.0', local: 'unknown', state: 'unavailable', prerequisite: 'baseline_unknown' },
+        { id: 'pa-updates', installed: '0.2.8', local: 'stock', state: 'current', prerequisite: null });
       if (view === 'progress_development') for (const row of state.progress.integrations) if (['icloud', 'obsidian'].includes(row.id)) row.development = 'unpublished';
       state.progress.integrationsDone = true; state.progress.target = structuredClone(base.review.runtime.target);
       state.progress.runtime.push({ ...base.review.runtime.rows[0], state: 'current', available: null }, { ...base.review.runtime.rows[1], state: 'unavailable', available: null, reason: 'unavailable' }); await readRpc('fixtureNotify');
-      await page.waitForFunction(count => document.querySelectorAll('.pa-update-spinner').length === 1 && document.querySelectorAll('.pa-update-check').length === count, view === 'progress_development' ? 2 : 3);
-      if (view === 'progress_development') { assert.equal(await group.locator('.pa-development-badge').count(), 2); assert.equal(await group.locator('[data-check-id="icloud"] .pa-update-check').count(), 0); }
+      await page.waitForFunction(count => document.querySelectorAll('.pa-update-spinner').length === 1 && document.querySelectorAll('.pa-update-check').length === count, view === 'progress_development' ? 3 : 4);
+      if (view === 'progress_development') { assert.equal(await group.locator('.pa-development-badge').count(), 3); assert.equal(await group.locator('[data-check-id="icloud"] .pa-update-check').count(), 0); }
       for (const id of ['fastmail', 'google-drive', 'obsidian', 'codex']) assert.equal(await group.locator(`[data-check-id="${id}"] .pa-update-check`).count(), 0);
       assert.ok((await group.locator('[data-check-id="fastmail"]').textContent()).includes('Local changes'));
       assert.ok((await group.locator('[data-check-id="obsidian"]').textContent()).includes('Changes unverified'));
@@ -243,7 +251,7 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
       await page.waitForFunction(() => document.querySelectorAll('.pa-update-spinner').length === 0);
       assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), 0, 'Even all reported rows are not an authorized review until final completion');
       releaseProgress(); await group.waitFor({ state: 'hidden' });
-      await page.waitForFunction(count => document.querySelectorAll('.pa-update-check').length === count && document.querySelectorAll('.pa-update-spinner').length === 0, view === 'progress_development' ? 1 : 2);
+      await page.waitForFunction(count => document.querySelectorAll('.pa-update-check').length === count && document.querySelectorAll('.pa-update-spinner').length === 0, view === 'progress_development' ? 3 : 4);
       assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).isDisabled(), true, 'The final fresh result stays visible while the review RPC response is still pending');
       releaseResponse(); await page.waitForFunction(() => !document.querySelector('.pa-update-primary')?.disabled);
       assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
@@ -261,11 +269,9 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
     if (view === 'failed') await section.getByText('Check failed — previous results may be out of date', { exact: true }).waitFor();
     if (view === 'available') {
       assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
-      await section.getByText('Installing a release replaces local changes, not settings or data.', { exact: true }).waitFor();
+      await section.getByText('Keep local leaves this component unchanged. Installing a release replaces its code, not your settings or data.', { exact: true }).waitFor();
       const choose = async name => { await section.getByRole('button', { name, exact: true }).focus(); await page.keyboard.press('Enter'); };
-      await choose('Install all released');
-      assert.equal(await section.getByRole('button', { name: 'Install released version', exact: true }).getAttribute('aria-pressed'), 'true');
-      await choose('Keep all local');
+      assert.equal(await section.getByRole('button', { name: 'Install all released', exact: true }).count(), 0, 'bulk shortcuts are only useful for several local choices');
       assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
       await choose('Install released version');
       await choose('Keep local');
@@ -274,14 +280,14 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
     if (['normal', 'available'].includes(view)) {
       const text = await section.textContent();
       for (const removed of ['PA updates available', 'PA runtime', 'Pi CLI', 'Codex CLI', 'CLI receipts', 'native launcher', 'newer compatible release', 'each component’s supported', 'Installed 1.0.0']) assert.ok(!text.includes(removed), removed);
-      await section.getByText('BB will restart. Settings and data stay.', { exact: true }).waitFor();
-      assert.equal(await section.locator('[role="status"]').textContent(), '');
+      await section.getByText(view === 'normal' ? 'BB will restart. Settings and data stay.' : 'BB will restart.', { exact: true }).waitFor();
+      assert.equal(await section.locator('[role="status"]').textContent(), view === 'normal' ? 'Updates available' : '');
     }
     if (view === 'normal') {
-      assert.equal(await section.getByText('Codex', { exact: true }).count(), 0);
+      assert.equal(await section.getByText('Codex', { exact: true }).count(), 1);
       assert.equal(await section.getByText('1.0.0 → 1.0.1', { exact: true }).count(), 2);
       assert.equal(await section.locator('h3').count(), 0);
-      assert.equal(await section.locator('.pa-update-card svg').count(), 2);
+      assert.equal(await section.locator('.pa-update-card svg').count(), 4);
       assert.equal(await section.locator('.pa-update-card button').count(), 0);
       assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), 1);
       for (const card of await section.locator('.pa-update-card').all()) {
@@ -306,7 +312,7 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
     if (['updating', 'preflight', 'cli_failed', 'complete'].includes(view)) {
       assert.ok(!(await section.locator('.pa-update-results').textContent()).includes('Not installed'));
       assert.ok(!(await section.locator('.pa-update-results').textContent()).includes('unverified'));
-      const result = section.getByText(view === 'updating' ? 'Waiting…' : 'Not updated', { exact: true });
+      const result = section.locator('.pa-update-results li > span:last-child').filter({ hasText: view === 'updating' ? 'Waiting…' : 'Not updated' });
       assert.equal(await result.count(), view === 'updating' ? 4 : view === 'preflight' ? 5 : 1);
       await result.first().scrollIntoViewIfNeeded();
     }
@@ -351,9 +357,33 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
     if (failureMode === 'read' || failureMode === 'action') {
       // A successful read of the old cached review must not restore green checks.
       await check.focus(); await page.keyboard.press('Enter'); await page.waitForFunction(() => !document.querySelector('.pa-updates footer button')?.disabled);
-      assert.equal(await section.locator('.pa-update-check').count(), 0); assert.equal(await section.getByText('Couldn’t check', { exact: false }).count(), 8);
+      assert.equal(await section.locator('.pa-update-check').count(), 0); assert.equal(await section.getByText('Couldn’t check', { exact: false }).count(), 9);
       // A genuinely new successful review can confirm the versions again.
-      await check.focus(); await page.keyboard.press('Enter'); await page.waitForFunction(() => document.querySelectorAll('.pa-update-check').length === 8);
+      await check.focus(); await page.keyboard.press('Enter'); await page.waitForFunction(() => document.querySelectorAll('.pa-update-check').length === 9);
+    }
+    if (view === 'approved_local_updates') {
+      await section.getByRole('button', { name: 'Check again', exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(artifacts, `${view}-bottom-${width}.png`) }); screenshots++;
+      const cloud = section.getByRole('group', { name: 'iCloud local changes', exact: true });
+      await cloud.getByRole('button', { name: 'Install released version', exact: true }).focus(); await page.keyboard.press('Enter');
+      await page.screenshot({ path: join(artifacts, `${view}-opt-in-${width}.png`) }); screenshots++;
+      await section.getByRole('button', { name: 'Update PA', exact: true }).click();
+      assert.deepEqual(writes.at(-1).input.choices, [{ id: 'icloud', choice: 'install' }, { id: 'obsidian', choice: 'keep' }]);
+    }
+    if (view === 'approved_updates') {
+      const apply = section.getByRole('button', { name: 'Update PA', exact: true }); assert.equal(await apply.isDisabled(), true);
+      await section.getByRole('checkbox').focus(); await page.keyboard.press('Space'); assert.equal(await apply.isEnabled(), true);
+      await apply.click(); assert.equal(writes.at(-1).input.confirmInterruptingThreads, true);
+    }
+    if (view === 'approved_results') {
+      const saved = structuredClone(state.job), beforeWrites = writes.length;
+      state.offers = { available: true, checkedAt: new Date(Date.parse(state.review.at) + 1).toISOString() };
+      await readRpc('fixtureNotify');
+      await page.waitForFunction(() => document.querySelectorAll('.pa-update-check').length === 0);
+      assert.deepEqual(state.job, saved); assert.equal(writes.length, beforeWrites);
+      assert.equal(await section.getByText('Installed 0.1.2', { exact: true }).count(), 1);
+      assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), 0);
+      await page.screenshot({ path: join(artifacts, `${view}-later-offer-${width}.png`) }); screenshots++;
     }
     const savedJob = structuredClone(state.job), callsBeforeNavigation = writes.length;
     await openSettingsNav(); await section.waitFor(); await openFooter(); await section.waitFor();
@@ -365,7 +395,7 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
   await cli('plugin', 'disable', 'pa-updates');
   const installed = JSON.parse(await cli('plugin', 'list', '--json')).plugins;
   assert.equal(installed.find(p => p.id === 'pa-updates').status, 'disabled'); assert.equal(installed.find(p => p.id === 'google-calendar').status, 'running');
-  const result = { evidence: 'Original app in disposable BB; synthetic RPC states, no native runtime writes', bb: bbVersion, views, screenshots, originalBundle: true, settingsHome: true, footerAndNoticeNavigation: true, desktopAndNarrowKeyboard: true, explicitNativeConsent: views.includes('consent'), defaultKeep: views.some(view => ['available', 'integrations_mixed', 'progress'].includes(view)), liveProgressSignals: views.some(view => ['progress', 'progress_development'].includes(view)), savedResultDuringDiscovery: views.includes('progress_saved'), laterOfferReview: ['later_plugin', 'later_runtime', 'later_uncertain'].every(view => views.includes(view)), artifacts };
+  const result = { evidence: 'Original app in disposable BB; synthetic RPC states, no native runtime writes', bb: bbVersion, views, screenshots, originalBundle: true, settingsHome: true, footerAndNoticeNavigation: true, desktopAndNarrowKeyboard: true, explicitNativeConsent: views.some(view => ['consent', 'approved_updates'].includes(view)), defaultKeep: views.some(view => ['available', 'integrations_mixed', 'progress', 'approved_local_updates'].includes(view)), liveProgressSignals: views.some(view => ['progress', 'progress_development', 'approved_checking'].includes(view)), savedResultDuringDiscovery: views.includes('progress_saved'), laterOfferReview: ['later_plugin', 'later_runtime', 'later_uncertain'].every(view => views.includes(view)), artifacts };
   await writeFile(join(artifacts, 'result.json'), JSON.stringify(result, null, 2)); completed = true; console.log(JSON.stringify(result));
 } finally {
   await browser?.close(); stop();
