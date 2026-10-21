@@ -44,6 +44,30 @@ before calling BB and reads BB’s durable result after reconnecting. A provisio
 startup result stays pending; delayed results can still resolve an uncertain
 receipt. The plugin does not supervise BB or promise automatic rollback.
 
+## Optional development checkout
+
+Ordinary installations need no repository. Developers can map one full PA checkout
+on the server through BB’s **Development checkout (optional)** setting, or:
+
+```sh
+bb plugin config pa-updates set developmentCheckout /absolute/path/to/pa-repository
+```
+
+Choose **Check again** after changing the mapping. The five integration folders
+are checked for Git-visible unstaged, staged and untracked files, and local branch
+changes absent from freshly fetched published `main`. A branch that is merely
+behind does not count as local work. Affected rows show **Unpublished local changes**
+in amber, alongside their installed versions. These checkout changes are **not
+installed code** and do not enable Update PA or change Keep local choices.
+
+Inspection never writes to the checkout or runs its hooks, filters, builds or
+scripts. Network Git operations use a disposable directory, not cached
+`origin/main`. Inspection is bounded to 60 seconds, 256 published commits and
+4,096 changed paths; unsupported layouts or an unavailable comparison show
+**Couldn’t check local work**, not a green success. Linked worktrees, shallow or
+partial clones and custom checkout filters are not supported. Ignored generated
+files do not count as untracked work. Clear the setting to disable this inspection.
+
 ## What stays in place
 
 Settings, credentials, account data, enablement and kept customizations remain.

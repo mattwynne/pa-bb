@@ -3,12 +3,13 @@ import semver from 'semver';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { Baselines } from './baseline.ts';
 import { runtimePorts } from './runtime.ts';
+import { inspectDevelopment, unknownDevelopment, DevelopmentError } from './development.ts';
 import { ApplicationError, integrationId } from '../core/application.ts';
 import type { ApplicationPorts, Assessment, IntegrationId, IntegrationInventoryRow } from '../core/application.ts';
 import { SOURCE_URL } from '../core/release.ts';
 const syncStatus = z.object({ updatePause: z.object({ version: z.literal(1), jobId: z.string().uuid().nullable(), manualRecovery: z.boolean().optional() }).optional(), mirrors: z.array(z.object({ id: z.string().uuid(), enabled: z.boolean(), phase: z.string(), failure: z.string().nullable() })).max(20) });
 const validVersion = (value: string) => { if (value.length > 64 || !semver.valid(value)) throw new ApplicationError('unavailable'); return value; };
-export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL): ApplicationPorts {
+export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDevelopmentCheckout?: () => Promise<string | undefined>): ApplicationPorts {
   const controller = new AbortController();
   const active = () => controller.signal.throwIfAborted();
   const signal = (timeout = 10000) => AbortSignal.any([controller.signal, AbortSignal.timeout(timeout)]);
@@ -31,6 +32,13 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL): Appli
   };
   const sync = (method = 'status', input: null | { updateJob: string } = null) => bb.sdk.plugins.callRpc({ pluginId: 'icloud', method, input, outputSchema: syncStatus, signal: signal() });
   return {
+    async development() {
+      try { return await inspectDevelopment(await getDevelopmentCheckout?.(), controller.signal, sourceUrl); }
+      catch (error) {
+        if (!controller.signal.aborted) bb.log.warn(`pa-updates stage=development outcome=${error instanceof DevelopmentError ? error.category : 'unavailable'}`);
+        return unknownDevelopment();
+      }
+    },
     inventory: () => structuredClone(lastInventory),
     async inspect(onResult) {
       const rows: Assessment[] = [], inventory: IntegrationInventoryRow[] = []; available.clear();

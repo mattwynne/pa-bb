@@ -95,6 +95,28 @@ test('a slow integration exposes earlier fresh results without publishing a part
   await app.apply({ reviewId: final.review!.id, choices: [] }); await app.join();
   assert.deepEqual(f.updates, ['google-calendar']); assert.equal(app.status().job?.receipts.find(row => row.id === 'fastmail')?.outcome, 'kept');
 });
+test('development work is advisory inventory, never installed customization, offers, pause targets or receipts', async t => {
+  const f = fixture(t); let developmentReads = 0;
+  f.ports.development = async () => { developmentReads++; return { 'google-calendar': 'clean', fastmail: 'clean', 'google-drive': 'clean', icloud: 'unpublished', obsidian: 'unpublished' }; };
+  const app = new Application(f.ports); await app.start(); const state = await app.review();
+  assert.deepEqual(state.review?.rows, []); assert.equal(hasFreshOffers(state), false);
+  assert.ok(state.review?.inventory?.every(row => row.local === 'stock'));
+  assert.deepEqual(state.review?.inventory?.filter(row => row.development === 'unpublished').map(row => row.id), ['icloud', 'obsidian']);
+  await app.apply({ reviewId: state.review!.id, choices: [] }); assert.equal(app.status().job, null); assert.deepEqual(f.updates, []); assert.deepEqual(f.pauses, []);
+  f.outcomes.set('google-calendar', 'update-available'); f.outcomes.set('fastmail', 'update-available'); f.locals.set('fastmail', 'custom');
+  const next = await app.review(); const readsBeforeApply = developmentReads;
+  await app.apply({ reviewId: next.review!.id, choices: [] }); await app.join();
+  assert.equal(developmentReads, readsBeforeApply, 'preflight/apply never consults the developer checkout');
+  assert.deepEqual(f.updates, ['google-calendar']); assert.equal(app.status().job?.receipts.find(row => row.id === 'fastmail')?.outcome, 'kept');
+  assert.ok(app.status().job?.receipts.every(row => row.id !== 'icloud' && row.id !== 'obsidian'));
+});
+test('failed optional checkout settings are unknown with safe diagnostics, not a clean assessment', async t => {
+  const f = fixture(t), ports = applicationPorts(f.bb, SOURCE_URL, async () => { throw new Error('PRIVATE_SENTINEL /private/checkout'); }); delete ports.runtime;
+  const app = new Application(ports); await app.start(); const state = await app.review();
+  assert.ok(state.review?.inventory?.every(row => row.development === 'unknown'));
+  assert.deepEqual(state.review?.rows, []); assert.ok(f.logs.includes('pa-updates stage=development outcome=unavailable'));
+  assert.ok(!JSON.stringify([state, f.logs]).includes('PRIVATE_SENTINEL'));
+});
 test('saved reviews written before the inventory addition still parse without inventing current status', () => {
   const old = { review: { id: '11111111-1111-4111-8111-111111111111', at: new Date().toISOString(), rows: [], runtime: null }, job: null };
   assert.deepEqual(applicationSavedSchema.parse(old), old);

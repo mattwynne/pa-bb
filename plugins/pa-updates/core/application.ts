@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
-import { ApplicationError, assessmentSchema, integrationInventorySchema, applicationSavedSchema, applyInputSchema, reviewSchema, version } from './application-model.ts';
-import type { ApplicationSaved as Saved, ApplicationStatus, CheckProgress, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode } from './application-model.ts';
+import { ApplicationError, assessmentSchema, integrationInventorySchema, developmentWorkSchema, applicationSavedSchema, applyInputSchema, reviewSchema, version } from './application-model.ts';
+import type { ApplicationSaved as Saved, ApplicationStatus, CheckProgress, DevelopmentWork, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode } from './application-model.ts';
 import { runtimeReviewSchema, runtimeRowSchema } from './runtime-model.ts';
 import type { RuntimePorts } from './runtime-model.ts';
 export * from './application-model.ts';
@@ -10,6 +10,8 @@ export type ApplicationPorts = {
   inspect(onResult?: (row: IntegrationInventoryRow) => void): Promise<Assessment[]>;
   /** Read-only inventory from the same completed inspection; never install authority. */
   inventory?(): IntegrationInventoryRow[];
+  /** Optional development checkout visibility; never used by preflight/apply. */
+  development?(): Promise<DevelopmentWork | null>;
   validateMix(installing: IntegrationId[]): Promise<void>;
   update(id: IntegrationId, authorized: { installed: string; fingerprint: string; jobId: string }): Promise<{ actual: string; updated: boolean }>;
   quiesce(ids: IntegrationId[], jobId: string, remember: () => Promise<void>): Promise<void>;
@@ -119,13 +121,15 @@ export class Application {
     this.checking = Promise.resolve().then(async () => {
       try {
         this.active();
+        const development = this.ports.development ? developmentWorkSchema.nullable().parse(await this.ports.development()) : null; this.active();
+        const displayRow = (row: IntegrationInventoryRow) => integrationInventorySchema.parse({ ...row, ...(development ? { development: development[row.id] } : {}) });
         const rows = z.array(assessmentSchema).max(5).parse(await this.ports.inspect(row => {
           if (this.disposed || this.progress !== progress) return;
-          const result = integrationInventorySchema.parse(row);
+          const result = displayRow(row);
           progress.integrations = [...progress.integrations.filter(old => old.id !== result.id), result]; this.notify();
         })); this.active();
         if (new Set(rows.map(row => row.id)).size !== rows.length) throw new ApplicationError('unavailable');
-        const inventory = z.array(integrationInventorySchema).max(5).parse(this.ports.inventory?.() ?? []);
+        const inventory = z.array(integrationInventorySchema).max(5).parse(this.ports.inventory?.() ?? []).map(displayRow);
         if (new Set(inventory.map(row => row.id)).size !== inventory.length) throw new ApplicationError('unavailable');
         progress.integrations = inventory; progress.integrationsDone = true; this.notify();
         const runtime = this.ports.runtime ? runtimeReviewSchema.parse(await this.ports.runtime.inspect((row, target) => {

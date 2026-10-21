@@ -36,6 +36,14 @@ function Checking() { return <span className="pa-update-current"><Icon name="Rot
 function CurrentStatus({ confirmed, checking }: { confirmed: boolean; checking: boolean }) {
   return confirmed ? <span className="pa-update-current"><Icon name="Check" className="pa-update-check" aria-hidden={true} />Up to date</span> : checking ? <Checking /> : <>Couldn’t check</>;
 }
+function DevelopmentStatus({ state }: { state: IntegrationInventoryRow['development'] }) {
+  return state === 'unpublished' ? <span className="pa-development-badge" title="Development checkout changes, not installed code">Unpublished local changes</span> : state === 'unknown' ? <span className="pa-development-unknown">Couldn’t check local work</span> : null;
+}
+function InventoryResult({ row, confirmed, checking }: { row: IntegrationInventoryRow; confirmed: boolean; checking: boolean }) {
+  const concern = row.development === 'unpublished' || row.development === 'unknown';
+  const current = row.state === 'current' && row.local === 'stock';
+  return <>{current ? concern ? null : <CurrentStatus confirmed={confirmed && row.installed !== 'unknown' && !row.prerequisite} checking={checking} /> : inventoryStatus(row)}{concern && !current ? ' · ' : null}<DevelopmentStatus state={row.development} /></>;
+}
 function Label({ id }: { id: IntegrationId }) { return <span className="pa-update-label"><Icon name={labels[id][1]} className="pa-update-icon" /><span>{labels[id][0]}</span></span>; }
 function RuntimeLabel({ id }: { id: RuntimeId }) { return <span className="pa-update-label"><Icon name={runtimeIcons[id]} className="pa-update-icon" /><span>{runtimeLabels[id]}</span></span>; }
 function ProgressRows({ progress, previous, error }: { progress: CheckProgress; previous: ApplicationStatus['review']; error: boolean }) {
@@ -44,7 +52,7 @@ function ProgressRows({ progress, previous, error }: { progress: CheckProgress; 
     {integrationOrder.filter(id => !progress.integrationsDone || progress.integrations.some(row => row.id === id)).map(id => {
       const row = progress.integrations.find(row => row.id === id);
       const installed = row?.installed ?? previous?.inventory?.find(row => row.id === id)?.installed ?? previous?.rows.find(row => row.id === id)?.installed;
-      return <div className="pa-update-card pa-update-version" data-check-id={id} key={id}><Label id={id} /><span>{installed && <>{installed === 'unknown' ? 'Version unknown' : installed} · </>}{!row ? error ? 'Couldn’t check' : <Checking /> : row.state === 'current' && row.local === 'stock' ? <CurrentStatus confirmed={!error && row.installed !== 'unknown' && !row.prerequisite} checking={false} /> : inventoryStatus(row)}</span></div>;
+      return <div className="pa-update-card pa-update-version" data-check-id={id} key={id}><Label id={id} /><span>{installed && <>{installed === 'unknown' ? 'Version unknown' : installed} · </>}{!row ? error ? 'Couldn’t check' : <Checking /> : <InventoryResult row={row} confirmed={!error} checking={false} />}</span></div>;
     })}
     {(Object.keys(runtimeLabels) as RuntimeId[]).filter(id => !progress.runtimeDone || progress.runtime.some(row => row.id === id)).map(id => {
       const row = progress.runtime.find(row => row.id === id);
@@ -87,6 +95,7 @@ export function UpdatesPanel() {
   }
   const rows = state?.review?.rows ?? [], custom = rows.filter(row => row.local === 'custom'), ordinary = rows.filter(row => row.local === 'stock'), unknown = rows.filter(row => row.local === 'unknown');
   const inventory = (state?.review?.inventory ?? []).filter(row => !rows.some(offer => offer.id === row.id));
+  const developmentFor = (id: IntegrationId) => state?.review?.inventory?.find(row => row.id === id)?.development;
   const pending = busy || state?.applying || state?.checking || discovery?.checking;
   const reviewedJob = state?.job?.reviewId === state?.review?.id ? state?.job : null;
   const runtime = state?.review?.runtime, runtimeRows = runtime?.rows ?? [];
@@ -107,14 +116,15 @@ export function UpdatesPanel() {
       {error && <p role="alert">Could not read the result. Reopen this panel to check the saved job; do not assume the update failed.</p>}
       {failure && <p role="alert">{failures[failure]}</p>}
       {(shownTarget || runtime && !progress) && <p className="pa-updates-muted">{shownTarget ? <>Server: <strong title={shownTarget.id}>{shownTarget.name}</strong></> : 'The PA server could not be identified. Runtime updates are unavailable; no other machine will be used.'}</p>}
+      {(progress?.integrations ?? state?.review?.inventory ?? []).some(row => row.development === 'unpublished') && <p className="pa-updates-muted">Development checkout changes are not installed.</p>}
       {progress && <ProgressRows progress={progress} previous={state?.review ?? null} error={error} />}
       {!progress && !reviewedJob && <>
         {custom.length > 0 && <><h3>Local changes</h3><div className="pa-update-bulk"><button disabled={pending} onClick={() => setChoices({})}>Keep all local</button><button disabled={pending} onClick={() => setChoices(Object.fromEntries(custom.map(row => [row.id, 'install'])))}>Install all released</button></div>
-          <div className="pa-update-choices">{custom.map(row => <div className="pa-update-row" key={row.id}><div className="pa-update-version"><Label id={row.id} /><span>{row.installed} → <strong>{row.available}</strong></span></div><div className="pa-update-toggle" role="group" aria-label={`${labels[row.id][0]} local changes`}><button disabled={pending} aria-pressed={(choices[row.id] ?? 'keep') === 'keep'} onClick={() => setChoices(current => ({ ...current, [row.id]: 'keep' }))}>Keep local</button><button disabled={pending} aria-pressed={choices[row.id] === 'install'} onClick={() => setChoices(current => ({ ...current, [row.id]: 'install' }))}>Install released version</button></div></div>)}</div>
+          <div className="pa-update-choices">{custom.map(row => <div className="pa-update-row" key={row.id}><div className="pa-update-version"><Label id={row.id} /><span>{row.installed} → <strong>{row.available}</strong>{' '}<DevelopmentStatus state={developmentFor(row.id)} /></span></div><div className="pa-update-toggle" role="group" aria-label={`${labels[row.id][0]} local changes`}><button disabled={pending} aria-pressed={(choices[row.id] ?? 'keep') === 'keep'} onClick={() => setChoices(current => ({ ...current, [row.id]: 'keep' }))}>Keep local</button><button disabled={pending} aria-pressed={choices[row.id] === 'install'} onClick={() => setChoices(current => ({ ...current, [row.id]: 'install' }))}>Install released version</button></div></div>)}</div>
           <p className="pa-updates-muted">Installing a release replaces local changes, not settings or data.</p></>}
-        {ordinary.length > 0 && <div className="pa-update-ordinary">{custom.length > 0 && <h3>Also updating</h3>}{ordinary.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed} → <strong>{row.available}</strong></span></div>)}</div>}
-        {unknown.map(row => <div className="pa-update-card" key={row.id}><Label id={row.id} /><p>{prerequisites[row.prerequisite ?? 'baseline_unknown'] ?? failures[row.prerequisite ?? 'baseline_unknown']}</p></div>)}
-        {inventory.length > 0 && <div className="pa-update-ordinary">{inventory.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed === 'unknown' ? 'Version unknown' : row.installed} · {row.state === 'current' && row.local === 'stock' ? <CurrentStatus confirmed={currentConfirmed && row.installed !== 'unknown' && !row.prerequisite} checking={!!pending} /> : inventoryStatus(row)}</span></div>)}</div>}
+        {ordinary.length > 0 && <div className="pa-update-ordinary">{custom.length > 0 && <h3>Also updating</h3>}{ordinary.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed} → <strong>{row.available}</strong>{' '}<DevelopmentStatus state={developmentFor(row.id)} /></span></div>)}</div>}
+        {unknown.map(row => <div className="pa-update-card" key={row.id}><Label id={row.id} /><p>{prerequisites[row.prerequisite ?? 'baseline_unknown'] ?? failures[row.prerequisite ?? 'baseline_unknown']}</p><DevelopmentStatus state={developmentFor(row.id)} /></div>)}
+        {inventory.length > 0 && <div className="pa-update-ordinary">{inventory.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed === 'unknown' ? 'Version unknown' : row.installed} · <InventoryResult row={row} confirmed={currentConfirmed} checking={!!pending} /></span></div>)}</div>}
         {visibleRuntimeRows.length > 0 && <div className="pa-update-ordinary">{visibleRuntimeRows.map(row => <div className="pa-update-card" key={row.id}><div className="pa-update-version"><RuntimeLabel id={row.id} /><span>{row.installed ?? (row.source === 'missing' ? 'Not installed' : 'Installed version unknown')}{row.state === 'ready' ? <> → <strong>{row.available}</strong></> : row.state === 'current' ? <> · <CurrentStatus confirmed={currentConfirmed && !!row.installed && !row.reason} checking={!!pending} /></> : row.reason === 'unavailable' ? ' · Couldn’t check' : ' · Update unavailable'}</span></div>{row.reason && <p className="pa-updates-muted">{failures[row.reason]}</p>}</div>)}</div>}
         {installCount > 0 && <p>{bbOffered ? 'BB will restart. ' : ''}Settings and data stay.</p>}
         {needsConsent && <label className="pa-update-consent"><input type="checkbox" checked={confirmInterruptingThreads} disabled={pending} onChange={event => setConfirmInterruptingThreads(event.target.checked)} /><span>Allow the BB restart to interrupt running threads ({runtime?.runningThreadCount} currently running).</span></label>}

@@ -15,9 +15,13 @@ export const assessmentSchema = z.object({
   prerequisite: failureCode.nullable(),
 });
 export type Assessment = z.infer<typeof assessmentSchema>;
+export const developmentState = z.enum(['clean', 'unpublished', 'unknown']);
+export const developmentWorkSchema = z.record(integrationId, developmentState);
+export type DevelopmentWork = z.infer<typeof developmentWorkSchema>;
 export const integrationInventorySchema = z.object({
   id: integrationId, installed: version, local: assessmentSchema.shape.local,
   state: z.enum(['current', 'offered', 'pinned', 'unavailable']), prerequisite: failureCode.nullable(),
+  development: developmentState.optional(),
 });
 export type IntegrationInventoryRow = z.infer<typeof integrationInventorySchema>;
 export const reviewSchema = z.object({ id: z.string().uuid(), at: z.string().datetime(), rows: z.array(assessmentSchema).max(5), runtime: runtimeReviewSchema.nullable().default(null), inventory: z.array(integrationInventorySchema).max(5).optional() });

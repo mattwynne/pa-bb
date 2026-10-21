@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- PA updates 0.2.8 can inspect one explicitly mapped development checkout. Affected integrations show amber **Unpublished local changes**, separately from installed customizations; dirty files and unpublished branch changes are checked against fresh published main without changing the checkout or authorizing an update.
+
 - PA updates 0.2.7 shows a spinner for pending checks and each component’s fresh result as it arrives. Partial results cannot authorize updates; saved reviews and receipts remain intact until the check finishes.
 
 - PA updates 0.2.6 clarifies unsuccessful version checks as “Couldn’t check” and in-progress refreshes as “Checking…”, without changing specific local, pinned or setup statuses.

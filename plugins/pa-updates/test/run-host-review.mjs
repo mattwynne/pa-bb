@@ -58,19 +58,21 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
   ], runtime: { target: { id: 'synthetic-primary-host', name: 'PA test server' }, runningThreadCount: 0, rows: ['pi', 'codex', 'bb'].map(id => ({ id, installed: '1.0.0', available: '1.0.1', source: id === 'bb' ? 'npm' : 'npmGlobal', state: 'ready', reason: null, fingerprint: id })) } } };
   const job = () => ({ id: '22222222-2222-4222-8222-222222222222', reviewId, phase: 'complete', receipts: base.review.rows.map(row => ({ id: row.id, choice: row.local === 'custom' ? 'keep' : 'install', before: row.installed, preview: row.available, actual: row.local === 'custom' ? row.installed : '0.1.2', outcome: row.local === 'custom' ? 'kept' : 'updated' })), syncReserved: false, failure: null, runtimeReceipts: base.review.runtime.rows.map(row => ({ id: row.id, before: row.installed, preview: row.available, actual: '1.0.2', source: row.source, outcome: 'updated' })), bbIntent: null, confirmInterruptingThreads: false });
   browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : { channel: 'chrome' }) });
-  const views = ['first', 'checking', 'progress', 'progress_saved', 'current', 'integrations_current', 'integrations_mixed', 'integrations_status', 'integrations_failed', 'integrations_rpc_failed', 'integrations_action_failed', 'normal', 'runtime_prerequisites', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
+  const views = ['first', 'checking', 'progress', 'progress_development', 'progress_saved', 'current', 'integrations_current', 'integrations_mixed', 'integrations_status', 'integrations_development', 'integrations_development_unknown', 'integrations_development_mixed', 'integrations_failed', 'integrations_rpc_failed', 'integrations_action_failed', 'normal', 'runtime_prerequisites', 'available', 'unknown', 'prerequisites', 'failed', 'consent', 'updating', 'preflight', 'cli_failed', 'restarting', 'complete', 'later_plugin', 'later_runtime', 'later_uncertain', 'bb_failed', 'interrupted', 'rpc_error', 'storage'].filter(view => !process.env.BB_REVIEW_VIEWS || process.env.BB_REVIEW_VIEWS.split(',').includes(view));
   let screenshots = 0;
   for (const view of views) for (const width of [1280, 390]) {
     console.log(`Rendering synthetic ${view} at ${width}`);
     const page = await browser.newPage({ viewport: { width, height: 1000 } }); const pageErrors = []; page.on('pageerror', error => pageErrors.push(error.message));
     let state = structuredClone(base), notes = structuredClone(discovery); const writes = [];
     const laterOffer = view.startsWith('later_'), inventoryView = view.startsWith('integrations_');
+    const progressView = view === 'progress' || view === 'progress_development', developmentView = view.startsWith('integrations_development');
     const failureMode = view === 'integrations_failed' ? 'server' : view === 'integrations_rpc_failed' ? 'read' : view === 'integrations_action_failed' ? 'action' : null;
-    if (inventoryView || view === 'progress') {
-      const mixed = view === 'integrations_mixed' || view === 'progress';
+    if (inventoryView || progressView) {
+      const mixed = view === 'integrations_mixed' || view === 'integrations_development_mixed' || progressView;
       state.review.inventory = ['google-calendar', 'fastmail', 'google-drive', 'icloud', 'obsidian'].map(id => ({ id, installed: '0.1.0', state: mixed && ['google-calendar', 'fastmail'].includes(id) ? 'offered' : 'current', local: mixed && id === 'fastmail' ? 'custom' : 'stock', prerequisite: null }));
       if (!mixed) state.review.rows = [];
       state.offers.available = mixed; state.review.runtime.rows.forEach(row => { row.state = 'current'; row.available = null; });
+      if (developmentView) for (const row of state.review.inventory) row.development = view === 'integrations_development_unknown' || view === 'integrations_development_mixed' && row.id === 'fastmail' ? 'unknown' : ['icloud', 'obsidian'].includes(row.id) || view === 'integrations_development_mixed' && row.id === 'google-calendar' ? 'unpublished' : 'clean';
       if (view === 'integrations_status') {
         Object.assign(state.review.inventory[1], { local: 'custom' });
         Object.assign(state.review.inventory[2], { state: 'unavailable', prerequisite: 'unavailable' });
@@ -114,7 +116,7 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
         writes.push({ method, input: route.request().postDataJSON() });
         if (method === 'review' && failureMode && writes.filter(entry => entry.method === 'review').length === 1) await checkGate;
         if (method === 'review' && failureMode === 'server') state.failure = 'unavailable';
-        if (method === 'review' && view === 'progress') {
+        if (method === 'review' && progressView) {
           state.checking = true; state.progress = freshProgress(true); await readRpc('fixtureNotify'); await progressGate;
           state.review = { ...state.review, id: '33333333-3333-4333-8333-333333333333', rows: [structuredClone(base.review.rows[1])], inventory: structuredClone(state.progress.integrations), runtime: { target: state.progress.target, runningThreadCount: 0, rows: structuredClone(state.progress.runtime) } };
           state.checking = false; state.progress = null; await readRpc('fixtureNotify'); await responseGate;
@@ -187,10 +189,10 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
         await section.locator('.pa-updates-body').evaluate(el => { el.scrollTop = 0; });
       }
       for (const name of ['Calendar', 'Fastmail', 'Google Drive', 'iCloud', 'Obsidian']) assert.equal(await section.getByText(name, { exact: true }).count(), 1);
-      const mixed = view === 'integrations_mixed';
+      const mixed = view === 'integrations_mixed' || view === 'integrations_development_mixed';
       assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), mixed ? 1 : 0);
       if (!mixed) assert.equal(await notice.count(), 0);
-      const expectedChecks = failureMode ? 0 : view === 'integrations_current' ? 8 : mixed ? 3 : 4;
+      const expectedChecks = failureMode ? 0 : view === 'integrations_development' ? 6 : view === 'integrations_development_unknown' ? 3 : view === 'integrations_development_mixed' ? 1 : view === 'integrations_current' ? 8 : mixed ? 3 : 4;
       assert.equal(await section.locator('.pa-update-check').count(), expectedChecks);
       assert.equal(await section.locator('.pa-update-card').filter({ hasText: 'Up to date' }).count(), expectedChecks);
       for (const icon of await section.locator('.pa-update-check').all()) {
@@ -199,11 +201,16 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
       }
       if (mixed) for (const name of ['Calendar', 'Fastmail']) assert.equal(await section.locator('.pa-update-card,.pa-update-row').filter({ has: page.getByText(name, { exact: true }) }).locator('.pa-update-check').count(), 0);
       if (failureMode) assert.equal(await section.getByText('Couldn’t check', { exact: false }).count(), 8);
+      if (developmentView) {
+        assert.equal(await section.locator('.pa-development-badge').count(), view === 'integrations_development_unknown' ? 0 : mixed ? 3 : 2);
+        assert.equal(await section.locator('.pa-development-unknown').count(), view === 'integrations_development_unknown' ? 5 : mixed ? 1 : 0);
+        for (const name of ['iCloud', 'Obsidian']) { const card = section.locator('.pa-update-card').filter({ has: page.getByText(name, { exact: true }) }); assert.equal(await card.locator('.pa-update-check').count(), 0); assert.ok((await card.textContent()).includes('0.1.0')); assert.ok(!(await card.textContent()).includes('Up to date')); }
+      }
       if (mixed) assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
       if (view === 'integrations_status') for (const status of ['Local changes', 'Couldn’t check', 'Version pinned', 'Changes unverified']) await section.getByText(new RegExp(status)).waitFor();
       assert.deepEqual(writes.map(entry => entry.method), ['review']);
     }
-    if (view === 'progress') {
+    if (progressView) {
       const previous = structuredClone(state.review);
       await section.getByRole('button', { name: 'Check again', exact: true }).focus(); await page.keyboard.press('Enter');
       const group = section.getByRole('group', { name: 'Check progress', exact: true }); await group.waitFor();
@@ -216,25 +223,27 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
       state.progress.integrations.push({ id: 'google-calendar', installed: '0.1.1', local: 'stock', state: 'current', prerequisite: null }); await readRpc('fixtureNotify');
       await group.locator('[data-check-id="google-calendar"] .pa-update-check').waitFor();
       assert.equal(await group.locator('.pa-update-spinner').count(), 7); assert.equal(await group.locator('.pa-update-check').count(), 1);
-      await page.screenshot({ path: join(artifacts, `progress-first-${width}.png`) }); screenshots++;
+      await page.screenshot({ path: join(artifacts, `${view}-first-${width}.png`) }); screenshots++;
       state.progress.integrations.push(
         { id: 'fastmail', installed: '0.1.0', local: 'custom', state: 'offered', prerequisite: null },
         { id: 'google-drive', installed: '0.1.0', local: 'stock', state: 'unavailable', prerequisite: 'unavailable' },
         { id: 'icloud', installed: '0.1.0', local: 'stock', state: 'current', prerequisite: null },
         { id: 'obsidian', installed: '0.1.0', local: 'unknown', state: 'unavailable', prerequisite: 'baseline_unknown' });
+      if (view === 'progress_development') for (const row of state.progress.integrations) if (['icloud', 'obsidian'].includes(row.id)) row.development = 'unpublished';
       state.progress.integrationsDone = true; state.progress.target = structuredClone(base.review.runtime.target);
       state.progress.runtime.push({ ...base.review.runtime.rows[0], state: 'current', available: null }, { ...base.review.runtime.rows[1], state: 'unavailable', available: null, reason: 'unavailable' }); await readRpc('fixtureNotify');
-      await page.waitForFunction(() => document.querySelectorAll('.pa-update-spinner').length === 1 && document.querySelectorAll('.pa-update-check').length === 3);
+      await page.waitForFunction(count => document.querySelectorAll('.pa-update-spinner').length === 1 && document.querySelectorAll('.pa-update-check').length === count, view === 'progress_development' ? 2 : 3);
+      if (view === 'progress_development') { assert.equal(await group.locator('.pa-development-badge').count(), 2); assert.equal(await group.locator('[data-check-id="icloud"] .pa-update-check').count(), 0); }
       for (const id of ['fastmail', 'google-drive', 'obsidian', 'codex']) assert.equal(await group.locator(`[data-check-id="${id}"] .pa-update-check`).count(), 0);
       assert.ok((await group.locator('[data-check-id="fastmail"]').textContent()).includes('Local changes'));
       assert.ok((await group.locator('[data-check-id="obsidian"]').textContent()).includes('Changes unverified'));
       assert.equal(await section.locator('.pa-update-toggle').count(), 0); assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), 0); assert.deepEqual(state.review, previous);
-      await page.screenshot({ path: join(artifacts, `progress-partial-${width}.png`) }); screenshots++;
+      await page.screenshot({ path: join(artifacts, `${view}-partial-${width}.png`) }); screenshots++;
       state.progress.runtime.push(structuredClone(base.review.runtime.rows[2])); state.progress.runtimeDone = true; await readRpc('fixtureNotify');
       await page.waitForFunction(() => document.querySelectorAll('.pa-update-spinner').length === 0);
       assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).count(), 0, 'Even all reported rows are not an authorized review until final completion');
       releaseProgress(); await group.waitFor({ state: 'hidden' });
-      await page.waitForFunction(() => document.querySelectorAll('.pa-update-check').length === 2 && document.querySelectorAll('.pa-update-spinner').length === 0);
+      await page.waitForFunction(count => document.querySelectorAll('.pa-update-check').length === count && document.querySelectorAll('.pa-update-spinner').length === 0, view === 'progress_development' ? 1 : 2);
       assert.equal(await section.getByRole('button', { name: 'Update PA', exact: true }).isDisabled(), true, 'The final fresh result stays visible while the review RPC response is still pending');
       releaseResponse(); await page.waitForFunction(() => !document.querySelector('.pa-update-primary')?.disabled);
       assert.equal(await section.getByRole('button', { name: 'Keep local', exact: true }).getAttribute('aria-pressed'), 'true');
@@ -356,7 +365,7 @@ bb.rpc.register(defineRpcContract({fixtureNotify:{input:z.null(),output:z.null()
   await cli('plugin', 'disable', 'pa-updates');
   const installed = JSON.parse(await cli('plugin', 'list', '--json')).plugins;
   assert.equal(installed.find(p => p.id === 'pa-updates').status, 'disabled'); assert.equal(installed.find(p => p.id === 'google-calendar').status, 'running');
-  const result = { evidence: 'Original app in disposable BB; synthetic RPC states, no native runtime writes', bb: bbVersion, views, screenshots, originalBundle: true, settingsHome: true, footerAndNoticeNavigation: true, desktopAndNarrowKeyboard: true, explicitNativeConsent: views.includes('consent'), defaultKeep: views.some(view => ['available', 'integrations_mixed', 'progress'].includes(view)), liveProgressSignals: views.includes('progress'), savedResultDuringDiscovery: views.includes('progress_saved'), laterOfferReview: ['later_plugin', 'later_runtime', 'later_uncertain'].every(view => views.includes(view)), artifacts };
+  const result = { evidence: 'Original app in disposable BB; synthetic RPC states, no native runtime writes', bb: bbVersion, views, screenshots, originalBundle: true, settingsHome: true, footerAndNoticeNavigation: true, desktopAndNarrowKeyboard: true, explicitNativeConsent: views.includes('consent'), defaultKeep: views.some(view => ['available', 'integrations_mixed', 'progress'].includes(view)), liveProgressSignals: views.some(view => ['progress', 'progress_development'].includes(view)), savedResultDuringDiscovery: views.includes('progress_saved'), laterOfferReview: ['later_plugin', 'later_runtime', 'later_uncertain'].every(view => views.includes(view)), artifacts };
   await writeFile(join(artifacts, 'result.json'), JSON.stringify(result, null, 2)); completed = true; console.log(JSON.stringify(result));
 } finally {
   await browser?.close(); stop();

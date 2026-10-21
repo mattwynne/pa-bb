@@ -38,6 +38,8 @@
 .pa-update-version > span:last-child { color: var(--muted-foreground); }
 .pa-update-version strong { color: var(--foreground); font-weight: 600; }
 .pa-update-current { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; white-space: nowrap; }
+.pa-development-badge { display: inline-block; max-width: 100%; padding: 1px 5px; border: 1px solid var(--warning, #b7791f); border-radius: 4px; color: var(--foreground); background: color-mix(in srgb, var(--warning, #b7791f) 15%, transparent); font-size: 12px; vertical-align: middle; }
+.pa-development-unknown { color: var(--muted-foreground); }
 .pa-update-check { color: var(--success, #27815d); width: 14px; height: 14px; flex: none; }
 .pa-update-spinner { width: 14px; height: 14px; flex: none; animation: pa-update-spin 1s linear infinite; }
 @keyframes pa-update-spin { to { transform: rotate(-360deg); } }
