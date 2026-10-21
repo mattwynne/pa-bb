@@ -16,11 +16,32 @@
     group: root
     mode: '0644'
 
+# Chrome's postinst/cron migrate google-chrome.list and create their own
+# google-chrome.sources. Disable that documented package-owned automation
+# before installation so Ansible remains the sole repository owner.
+- name: Keep Chrome repository management in Ansible
+  ansible.builtin.lineinfile:
+    path: /etc/default/google-chrome
+    regexp: '^{{ item }}='
+    line: '{{ item }}="false"'
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop: [repo_add_once, repo_reenable_on_distupgrade]
+
+- name: Remove the superseded Chrome repository entries
+  ansible.builtin.file:
+    path: '/etc/apt/sources.list.d/{{ item }}'
+    state: absent
+  loop: [google-chrome.list, google-chrome.sources]
+  register: pa_bb_chrome_legacy_repositories
+
 - name: Configure only the signed Google Chrome repository
   ansible.builtin.copy:
     content: |
       deb [arch=amd64 signed-by=/etc/apt/keyrings/pa-bb-google.asc] https://dl.google.com/linux/chrome/deb/ stable main
-    dest: /etc/apt/sources.list.d/google-chrome.list
+    dest: /etc/apt/sources.list.d/pa-bb-google-chrome.list
     owner: root
     group: root
     mode: '0644'
@@ -30,7 +51,7 @@
   ansible.builtin.apt:
     name: '{{ pa_bb_host_manifest.chrome.package }}'
     state: present
-    update_cache: '{{ pa_bb_chrome_repository.changed }}'
+    update_cache: '{{ pa_bb_chrome_repository.changed or pa_bb_chrome_legacy_repositories.changed }}'
     allow_downgrade: false
     force_apt_get: true
     policy_rc_d: 101

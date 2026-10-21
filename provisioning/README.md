@@ -25,7 +25,7 @@ x86_64 Linux**, with:
   supported distribution. These base packages follow its configured repository
   versions; the manifest is not a lock of the entire operating system.
 - Native `google-chrome-stable` from Google's signed Linux APT repository.
-  The role manages `/etc/apt/sources.list.d/google-chrome.list` and a dedicated,
+  The role manages `/etc/apt/sources.list.d/pa-bb-google-chrome.list` and a dedicated,
   checksum-pinned public key under `/etc/apt/keyrings` from
   [Google’s Linux repositories](https://www.google.com/linuxrepositories/).
   APT resolves the browser's declared shared-library/font dependencies; Ubuntu's Snap `chromium-browser`
@@ -44,8 +44,13 @@ responsibilities. The one managed additional
 repository is Google's Chrome stable channel, restricted with `signed-by` to
 its checksum-pinned key. Its creation refreshes the APT cache; no system-wide
 upgrade or downgrade runs. Review any existing Chrome repository configuration
-before adopting this role to avoid duplicate source entries. A signing-key
-rotation requires a reviewed manifest checksum change. Package
+before adopting this role. Ansible disables the package's `repo_add_once`
+and `repo_reenable_on_distupgrade` controls in `/etc/default/google-chrome`,
+and removes the standard `google-chrome.list`/`google-chrome.sources` entries
+in favor of its own source. This prevents Chrome's post-install/cron migration
+from rewriting the managed source or creating a second repository. Other
+source filenames are preserved; inspect any custom Chrome entries for
+duplicates. A signing-key rotation requires a reviewed manifest checksum change. Package
 service actions are suppressed for the transaction; Ubuntu's `needrestart` is
 restricted to listing, not restarting, affected services. The role leaves
 service restart decisions to the infrastructure project.

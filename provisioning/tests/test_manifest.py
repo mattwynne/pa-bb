@@ -94,6 +94,19 @@ class ManifestTests(unittest.TestCase):
         self.assertFalse(any("plugin" in str(t.get("ansible.builtin.command", {}))
                              for t in self.tasks + browser))
 
+    def test_chrome_installer_cannot_migrate_ansible_repository(self):
+        browser = list(tasks(load(ROLE / "tasks/browser.yml")))
+        maintenance = next(t for t in browser if "ansible.builtin.lineinfile" in t)
+        self.assertEqual(maintenance["loop"], ["repo_add_once", "repo_reenable_on_distupgrade"])
+        self.assertEqual(maintenance["ansible.builtin.lineinfile"]["line"], '{{ item }}="false"')
+        cleanup = next(t for t in browser if t.get("ansible.builtin.file", {}).get("state") == "absent")
+        self.assertEqual(cleanup["loop"], ["google-chrome.list", "google-chrome.sources"])
+        repo = next(t for t in browser if "ansible.builtin.copy" in t)
+        self.assertEqual(repo["ansible.builtin.copy"]["dest"], "/etc/apt/sources.list.d/pa-bb-google-chrome.list")
+        install = next(t for t in browser if "ansible.builtin.apt" in t)
+        self.assertLess(browser.index(maintenance), browser.index(install))
+        self.assertLess(browser.index(cleanup), browser.index(install))
+
     def test_all_yaml_parses_and_no_inventory_is_shipped(self):
         for path in ROOT.rglob("*.yml"):
             self.assertIsNotNone(load(path), str(path))
