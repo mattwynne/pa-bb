@@ -264,7 +264,7 @@ session/restart consent and restored status. Check desktop/narrow, sidebar
 arrangements, scrolling, overlays, keyboard, focus restoration and accessible
 status. Record missing gates rather than claim a blanket pass.
 
-After verification follow the [shipping skill](../../.agents/skills/bb-ship-feedback/SKILL.md):
+After verification follow the [release-and-deploy skill](../../.agents/skills/release-and-deploy/SKILL.md):
 commit, push, bootstrap the updater, verify its running source/version and a
 harmless read, publish genuine checked metadata and seek feedback. No production
 downgrades or cosmetic bumps to light the pill. If no genuine update is available,

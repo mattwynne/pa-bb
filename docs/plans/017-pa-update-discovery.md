@@ -213,7 +213,7 @@ work, feed failure with stale data and recovery. Do not invent approval states
 for this read-only slice. Record tested BB/SDK versions and compare with the
 actual provider-usage footer; source/build checks alone are not this gate.
 
-Once verified, follow the [shipping skill](../../.agents/skills/bb-ship-feedback/SKILL.md):
+Once verified, follow the [release-and-deploy skill](../../.agents/skills/release-and-deploy/SKILL.md):
 commit/push, install only the new plugin, verify its running version, make a
 narrow read-only check and inspect safe failure diagnostics. Confirm existing
 plugins, credentials, source choices and native BB/Pi prompts are unchanged.

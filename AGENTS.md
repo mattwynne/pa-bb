@@ -21,4 +21,4 @@
 - For any plugin UI planning, implementation, or review, load the project-local `bb-plugin-ux` skill at `.agents/skills/bb-plugin-ux/SKILL.md`. Its rendered-BB review is a release gate, not a passing-build substitute.
 - Public documentation must describe portable requirements, not Matt's private deployment. Keep hostnames, private addresses, machine IDs, usernames, home paths, and personal provisioning details out of briefs, ADRs, and public references. Keep deployment notes in private infrastructure documentation.
 - For plugin backend changes and reviews, follow `docs/o11y-standards.md`; test failure diagnostics without exposing account content or credentials.
-- Once implementation passes its gates, load `.agents/skills/bb-ship-feedback/SKILL.md` and follow its commit, push, component-release, deploy and feedback steps rather than stopping at a local test pass.
+- Once implementation passes its gates, load `.agents/skills/release-and-deploy/SKILL.md` and follow its commit, push, component-release, deploy and feedback steps rather than stopping at a local test pass.

@@ -1,9 +1,9 @@
 ---
-name: bb-ship-feedback
+name: release-and-deploy
 description: Ship verified PA for BB repository changes and get feedback from the running BB installation. Use after implementing plugin, marketplace, or documentation changes that are ready for delivery.
 ---
 
-# Ship and get feedback
+# Release and deploy
 
 The default end to implementation in this repository is **verify → commit → push → release → deploy → observe**, not “code complete, awaiting a separate request.” Do this without asking for routine permission, but honor any explicit review, release or deployment hold. Follow `../../../AGENTS.md` and `../../../docs/o11y-standards.md`; for any plugin UI change also load `../bb-plugin-ux/SKILL.md`. Its rendered-BB review remains a release gate even if tests pass.
 
