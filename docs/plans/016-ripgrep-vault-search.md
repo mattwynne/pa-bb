@@ -2,7 +2,7 @@
 
 Status: **0.3.1 colon-filename correction delivered; owner count confirmation pending**. The owner authorized the build, host-managed dependencies and deployment. The reusable Ansible manifest lives here; private infrastructure consumes it at a pinned revision. Generated Linux, installed original-handler, rendered review and controlled production delivery gates passed. Personal-vault count correctness and responsiveness await the owner's test. The [reported search problem](../problems/obsidian-search.md) was an incomplete count and matches from a hidden subfolder. This is our Obsidian plugin's search, not Obsidian's built-in search or an iCloud snapshot selection.
 
-Baseline: repository `d802645`; installed iCloud **0.2.0** and Obsidian **0.2.0**, code `1182129`. Preserve [iteration 015](015-icloud-continuous-note-access.md)'s continuous local access, native ownership and durable saves. Follow [observability](../o11y-standards.md), [UX](../ux-standards.md) and the [shipping skill](../../.agents/skills/bb-ship-feedback/SKILL.md).
+Baseline: repository `d802645`; installed iCloud **0.2.0** and Obsidian **0.2.0**, code `1182129`. Preserve [iteration 015](015-icloud-continuous-note-access.md)'s continuous local access, native ownership and durable saves. Follow [observability](../o11y-standards.md), [UX](../ux-standards.md) and the [release-and-deploy skill](../../.agents/skills/release-and-deploy/SKILL.md).
 
 ## Outcome
 

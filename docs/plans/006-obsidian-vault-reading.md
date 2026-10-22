@@ -202,7 +202,7 @@ messages. Compare with the existing iCloud layout. HTML mockups/builds do not pa
 - Prove diagnostics at handled read/write/RPC/background failures using synthetic
   private sentinels. Log fixed `Obsidian <stage> <category>` messages, never note
   content, account data, host paths, raw exceptions or provider responses.
-- Follow `bb-ship-feedback`: commit/push, install the new plugin explicitly, verify
+- Follow `release-and-deploy`: commit/push, install the new plugin explicitly, verify
   running version/commit and fresh-session tool visibility. If iCloud changes, update
   only the affected plugins and use supported Pause/Resume around its deployment.
 - In running BB, connect disposable vaults, search/read a source and execute a local
