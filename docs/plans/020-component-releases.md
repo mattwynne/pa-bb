@@ -1,9 +1,8 @@
 # 020 — Component releases and released-code installation
 
-Status: **planned; implementation and component publication pending**. This plan
-implements [ADR 0002](../adrs/0002-component-releases.md), which supersedes the
-older interpretation of `main` as a release channel in iteration 018. The
-existing workflow and installed updater do not yet enforce that decision.
+Status: **superseded before implementation** by [021 — Git-first PA updates](021-git-first-pa-updates.md) on 2026-10-22. The owner chose server editing, local application and normal Git synchronization rather than a mandatory component-release stage. Do not build this pipeline as an updater prerequisite.
+
+The original plan below is retained as history. [ADR 0002](../adrs/0002-component-releases.md) is likewise superseded for this workflow.
 
 ## Outcome and scope
 

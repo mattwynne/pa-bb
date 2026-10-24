@@ -1,16 +1,43 @@
-import { Given, When, Then } from '@cucumber/cucumber';
+import { Before, Given, When, Then } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
-import { Updates } from '../core/service.ts';
-import { harness, record } from '../test/fixtures.ts';
-Given('Google Calendar is installed at the published baseline', async function () { this.h = harness(); this.service = new Updates(this.h.ports); await this.service.start(); });
-Given('Google Calendar is not installed', async function () { this.h = harness(); this.h.ports.inventory = async () => ({ installed: null, runtime: { bb: '0.45.0', sdk: '0.6.15' } }); this.service = new Updates(this.h.ports); await this.service.start(); });
-Given('a successful check has been saved', async function () { await this.service.check(); this.h.advance(); });
-Given('the release feed is now unavailable', function () { this.h.ports.feed = async () => { throw new Error('PRIVATE_SENTINEL'); }; });
-Given('relevant local files have changed', function () { this.h.ports.local = async () => ({ outcome: 'local_changes', reason: 'observed', at: '2026-10-19T12:01:01.000Z' }); });
-Given('a newer Calendar release is published', function () { this.h.ports.feed = async () => ({ text: JSON.stringify(record('0.1.2', 'b'.repeat(40))), identity: record('0.1.2', 'b'.repeat(40)).identity }); });
-Given('no development checkout is configured', function () { this.h.ports.local = async () => ({ outcome: 'not_assessed', reason: 'mapping_missing', at: '2026-10-19T12:00:00.000Z' }); });
-When('I check PA updates', async function () { this.result = await this.service.check(); });
-Then('the release result is {string}', function (expected) { assert.equal(this.result.comparison, expected); });
-Then('the last release information is stale', function () { assert.equal(this.result.stale, true); assert.ok(this.result.observation.release); });
-Then('the local-work result is {string}', function (expected) { assert.equal(this.result.observation.local.outcome, expected); });
-Then('no installation or checkout write is requested', function () { assert.deepEqual(Object.keys(this.h.ports).sort(), ['diagnose', 'feed', 'inventory', 'load', 'local', 'now', 'save']); });
+import { Application } from '../core/application.ts';
+import { codeState, componentIds } from '../core/workspace.ts';
+Before(function () {
+  this.rows = []; this.local = []; this.applied = []; this.pulls = 0;
+  this.ports = { inspect: async (_report, mode) => mode === 'local' ? this.local : this.rows,
+    localCandidates: () => this.local, validateMix: async () => {},
+    update: async (id, authority) => { this.applied.push({ id, mode: authority.mode }); return { actual: '1.0.0', updated: true }; },
+    quiesce: async () => {}, restore: async () => {}, load: async () => null, save: async () => {}, diagnose() {},
+    syncWorkspace: async () => { this.pulls++; throw new Error('Local source must be kept'); } };
+});
+const row = () => ({ id: 'google-calendar', installed: '1.0.0', available: '1.0.0', local: 'stock', fingerprint: 'loaded', targetFingerprint: 'b'.repeat(64), prerequisite: null });
+Given('a local-path plugin with unapplied edits', function () { this.local = [{ ...row(), local: 'unknown', sourceMode: 'local' }]; });
+When('I apply the local changes', async function () {
+  this.app = new Application(this.ports); await this.app.start(); const review = (await this.app.review()).review;
+  await this.app.applyLocal({ reviewId: review.id }); await this.app.join();
+});
+Then('that working code is applied without pulling or updating runtimes', function () {
+  assert.deepEqual(this.applied, [{ id: 'google-calendar', mode: 'local' }]); assert.equal(this.pulls, 0);
+  assert.equal(this.app.status().job.mode, 'local'); assert.deepEqual(this.app.status().job.runtimeReceipts, []);
+});
+Given('the working copy and origin agree but an older build was applied', function () {
+  this.work = { local: false, upstream: false, working: 'b'.repeat(64), origin: 'b'.repeat(64) }; this.loaded = 'a'.repeat(64);
+});
+Then('the plugin is not reported up to date', function () { assert.equal(codeState(this.work, this.loaded), 'unapplied'); });
+Given('origin offers different plugin contents with the same version', function () { this.rows = [row()]; });
+Given('local and origin changes need Git review', function () {
+  this.rows = [{ ...row(), sourceMode: 'local', local: 'unknown', prerequisite: 'source_work' }];
+  this.ports.workspace = () => ({ head: 'a'.repeat(40), originHead: 'b'.repeat(40), dirty: true, ahead: false, behind: true,
+    components: Object.fromEntries(componentIds.map(id => [id, { local: true, upstream: true, working: 'a'.repeat(64), origin: 'b'.repeat(64) }])) });
+});
+When('I update PA', async function () {
+  this.app = new Application(this.ports); await this.app.start(); const review = (await this.app.review()).review;
+  await this.app.apply({ reviewId: review.id, choices: [] }); await this.app.join();
+});
+Then('those contents are applied with that same version', function () {
+  assert.deepEqual(this.applied, [{ id: 'google-calendar', mode: 'origin' }]);
+  assert.equal(this.app.status().job.receipts[0].actual, '1.0.0');
+});
+Then('local work is kept without an empty successful update', function () {
+  assert.deepEqual(this.applied, []); assert.equal(this.pulls, 0); assert.equal(this.app.status().job, null);
+});

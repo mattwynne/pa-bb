@@ -6,19 +6,20 @@ import { applicationPorts } from '../adapters/application.ts';
 import { Baselines } from '../adapters/baseline.ts';
 import { Application, integrationId, applicationSavedSchema } from '../core/application.ts';
 import { hasFreshOffers } from '../core/notice.ts';
-import { SOURCE_URL } from '../core/release.ts';
+import { originUrl as SOURCE_URL } from '../core/workspace.ts';
 const ids = integrationId.options;
 function fixture(t: TestContext) {
   const outcomes = new Map<string, string>(), locals = new Map<string, 'stock' | 'custom' | 'unknown'>(), versions = new Map<string, string>();
-  const pinned = new Set<string>(), logs: string[] = [], originals: string[] = [];
+  const pinned = new Set<string>(), sameSources = new Set<string>(), logs: string[] = [], originals: string[] = [];
   let saved: unknown;
   t.mock.method(Baselines.prototype, 'inspect', async (id: string) => {
     originals.push(id); if (locals.get(id) === 'unknown') throw new Error('PRIVATE_SENTINEL');
     return { local: locals.get(id) ?? 'stock', fingerprint: `original-${id}`, originalVersion: '1.0.0' };
   });
   t.mock.method(Baselines.prototype, 'manifest', async (_revision: string, id: string) => ({ version: versions.get(id) ?? '1.1.0' }));
+  t.mock.method(Baselines.prototype, 'sourceIdentity', async (revision: string, id: string) => (revision === 'b'.repeat(40) && !sameSources.has(id) ? 'b' : 'a').repeat(64));
   const bb = { storage: { kv: { get: async (key: string) => key === 'application-v1' ? saved : null, set: async (key: string, value: unknown) => { if (key === 'application-v1') saved = structuredClone(value); } } }, log: { warn: (message: string) => logs.push(message) }, sdk: { plugins: {
-    list: async () => ({ plugins: ids.map(id => ({ id, version: '1.0.0', rootDir: `/fixture/${id}` })) }),
+    list: async () => ({ plugins: ids.map(id => ({ id, version: '1.0.0', rootDir: `/fixture/${'a'.repeat(40)}/plugins/${id}` })) }),
     getSource: async ({ pluginId: id }: { pluginId: string }) => ({ requested: `git:${SOURCE_URL}@${pinned.has(id) ? 'a'.repeat(40) : 'main'}`, subdirectory: `plugins/${id}`, resolved: `${SOURCE_URL} (${'a'.repeat(40)})` }),
     checkUpdates: async ({ pluginId: id }: { pluginId: string }) => [{ id, outcome: outcomes.get(id) ?? 'current', ...(outcomes.get(id) === 'update-available' ? { candidate: { version: 'b'.repeat(40) } } : {}) }],
   } } } as unknown as BbPluginApi;
@@ -26,11 +27,11 @@ function fixture(t: TestContext) {
   const updates: string[] = [], pauses: string[][] = [];
   ports.update = async id => { updates.push(id); return { actual: '1.1.0', updated: true }; };
   ports.quiesce = async installing => { pauses.push(installing); };
-  return { ports, bb, saved: () => structuredClone(saved), outcomes, locals, versions, pinned, originals, logs, updates, pauses };
+  return { ports, bb, saved: () => structuredClone(saved), outcomes, locals, versions, pinned, sameSources, originals, logs, updates, pauses };
 }
 test('all six current components remain visible without offers, notices, writes or receipts; snapshot survives reload', async t => {
   const f = fixture(t); // A repository-only candidate is also current, not an offer.
-  f.outcomes.set('google-calendar', 'update-available'); f.versions.set('google-calendar', '1.0.0');
+  f.outcomes.set('google-calendar', 'update-available'); f.versions.set('google-calendar', '1.0.0'); f.sameSources.add('google-calendar');
   const app = new Application(f.ports); await app.start(); const state = await app.review();
   assert.deepEqual(state.review?.rows, []); assert.equal(state.review?.inventory?.length, 6);
   assert.ok(state.review?.inventory?.every(row => row.state === 'current' && row.local === 'stock'));
@@ -38,6 +39,13 @@ test('all six current components remain visible without offers, notices, writes 
   await app.apply({ reviewId: state.review!.id, choices: [] }); await app.join();
   assert.equal(app.status().job, null); assert.deepEqual(f.updates, []); assert.deepEqual(f.pauses, []);
   const reloaded = new Application(f.ports); await reloaded.start(); assert.deepEqual(reloaded.status().review, state.review);
+});
+test('same-version origin code changes are offers, not current versions', async t => {
+  const f = fixture(t); f.outcomes.set('google-calendar', 'update-available'); f.versions.set('google-calendar', '1.0.0');
+  const app = new Application(f.ports); await app.start(); const state = await app.review();
+  assert.equal(state.review?.rows[0]?.available, '1.0.0');
+  assert.equal(state.review?.inventory?.find(row => row.id === 'google-calendar')?.state, 'offered');
+  assert.equal(hasFreshOffers(state), true);
 });
 test('current inventory never becomes an install, choice, pause target or receipt in a mixed review', async t => {
   const f = fixture(t); f.outcomes.set('google-calendar', 'update-available'); f.outcomes.set('fastmail', 'update-available');

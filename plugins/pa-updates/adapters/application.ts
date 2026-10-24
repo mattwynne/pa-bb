@@ -1,12 +1,19 @@
 import { z } from 'zod';
 import semver from 'semver';
+import { basename, dirname, join } from 'node:path';
+import { realpath, readFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { Baselines } from './baseline.ts';
 import { runtimePorts } from './runtime.ts';
-import { inspectCanonicalDevelopment, canonicalCheckout, unknownDevelopment, DevelopmentError } from './development.ts';
+import { inspectCanonicalWorkspace, canonicalCheckout, unknownDevelopment, DevelopmentError } from './development.ts';
+import { sourceFingerprint, sourceDetails } from './source-files.ts';
+import { AppliedSources } from './applied-source.ts';
+import { syncWorkspace } from './sync-workspace.ts';
+import type { Workspace } from '../core/workspace.ts';
 import { ApplicationError, integrationId } from '../core/application.ts';
 import type { ApplicationPorts, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode } from '../core/application.ts';
-import { SOURCE_URL } from '../core/release.ts';
+import { originUrl as SOURCE_URL } from '../core/workspace.ts';
 const syncStatus = z.object({ updatePause: z.object({ version: z.literal(1), jobId: z.string().uuid().nullable(), manualRecovery: z.boolean().optional() }).optional(), mirrors: z.array(z.object({ id: z.string().uuid(), enabled: z.boolean(), phase: z.string(), failure: z.string().nullable() })).max(20) });
 const validVersion = (value: string) => { if (value.length > 64 || !semver.valid(value)) throw new ApplicationError('unavailable'); return value; };
 export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDevelopmentCheckout?: () => Promise<string | undefined>): ApplicationPorts {
@@ -19,6 +26,27 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
   const list = () => bb.sdk.plugins.list({ signal: signal() });
   const available = new Map<IntegrationId, string>();
   let lastInventory: IntegrationInventoryRow[] = [];
+  let workspace: Workspace | null = null;
+  let localRows: Assessment[] = [], pendingLocal = false;
+  const instance = randomUUID();
+  const appliedSources = new AppliedSources({ load: () => bb.storage.kv.get('applied-source-v1'), save: value => bb.storage.kv.set('applied-source-v1', value) }, controller.signal);
+  const checkout = async () => getDevelopmentCheckout ? await getDevelopmentCheckout() : canonicalCheckout();
+  const localRoot = async (id: IntegrationId, root: string, requested: string) => {
+    if (!requested.startsWith('path:')) return null;
+    const base = await checkout(); if (!base) return null;
+    try {
+      const expected = await realpath(join(base, 'plugins', id));
+      return await realpath(root) === expected && requested === `path:${expected}` ? expected : null;
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  };
+  const localFingerprint = (root: string, enabled: boolean, applied: string | null) => createHash('sha256').update(JSON.stringify([root, enabled, applied])).digest('hex');
+  const localSnapshot = async () => { const root = await checkout(); return root ? inspectCanonicalWorkspace(controller.signal, sourceUrl, root, 'HEAD').catch(() => null) : null; };
+  const sourceAt = async (id: IntegrationId, path: string, snapshot: Workspace | null) => {
+    const value = snapshot?.components[id];
+    return value?.stamp ? { fingerprint: value.working, stamp: value.stamp } : sourceDetails(path);
+  };
+  const localVersion = async (root: string) => validVersion(JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).version);
+  const healthy = (plugin: Awaited<ReturnType<typeof list>>['plugins'][number]) => plugin.enabled ? plugin.status === 'running' && !plugin.statusDetail && (!plugin.app?.hasApp || plugin.app.bundle?.compatible) : plugin.status === 'disabled';
   let selfUncertainLogged = false;
   const selfUncertain = (actual: string | null, code: FailureCode) => {
     if (!selfUncertainLogged) { selfUncertainLogged = true; bb.log.warn(`pa-updates stage=self-reconcile outcome=${code}`); }
@@ -36,39 +64,88 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
     if (!result) throw new ApplicationError('baseline_unknown'); return result;
   };
   const sync = (method = 'status', input: null | { updateJob: string } = null) => bb.sdk.plugins.callRpc({ pluginId: 'icloud', method, input, outputSchema: syncStatus, signal: signal() });
+  const runtime = runtimePorts(bb, controller.signal);
+  const protectRestart = (row: import('../core/runtime-model.ts').RuntimeRow) => pendingLocal && row.id === 'bb' && row.state === 'ready'
+    ? { ...row, state: 'unavailable' as const, reason: 'local_pending' as const } : row;
   return {
     async development() {
+      workspace = null;
       try {
         const checkout = getDevelopmentCheckout ? await getDevelopmentCheckout() : canonicalCheckout();
-        return checkout ? await inspectCanonicalDevelopment(controller.signal, sourceUrl, checkout) : null;
+        workspace = checkout ? await inspectCanonicalWorkspace(controller.signal, sourceUrl, checkout) : null;
+        return workspace ? Object.fromEntries(integrationId.options.map(id => [id, workspace!.components[id].local ? 'unpublished' : 'clean'])) as import('../core/application-model.ts').DevelopmentWork : null;
       }
       catch (error) {
         if (!controller.signal.aborted) bb.log.warn(`pa-updates stage=development outcome=${error instanceof DevelopmentError ? error.category : 'unavailable'}`);
         return unknownDevelopment();
       }
     },
+    workspace: () => workspace ? structuredClone(workspace) : null,
+    localCandidates: () => structuredClone(localRows),
+    async syncWorkspace(expected) {
+      const root = await checkout(); if (!root) return { state: 'held' as const, reason: 'unavailable' as const };
+      const result = await syncWorkspace(root, expected, controller.signal, sourceUrl); active();
+      if (result.state === 'updated') workspace = result.workspace;
+      return result;
+    },
     inventory: () => structuredClone(lastInventory),
-    async inspect(onResult) {
-      const rows: Assessment[] = [], inventory: IntegrationInventoryRow[] = []; available.clear();
+    async inspect(onResult, mode = 'origin') {
+      const rows: Assessment[] = [], inventory: IntegrationInventoryRow[] = []; available.clear(); localRows = []; pendingLocal = false;
+      const localWork = mode === 'local' ? await localSnapshot() : workspace;
       try {
-        const listed = await list();
-        await baseline.retain(listed.plugins.flatMap(plugin => { const id = integrationId.safeParse(plugin.id); return id.success ? [id.data] : []; }));
+        const listed = await list(); let retained = false;
         for (const plugin of listed.plugins) {
           const id = integrationId.safeParse(plugin.id); if (!id.success) continue;
-          let assessment: Awaited<ReturnType<Baselines['inspect']>> | null = null;
+          let assessment: { local: 'stock' | 'custom' | 'unknown'; fingerprint: string; originalVersion: string } | null = null;
+          let applied: string | null = null;
+          let sourceMode: IntegrationInventoryRow['sourceMode'] = 'unsupported';
+          const facts = () => ({ workspace: workspace?.components[id.data] ?? null, applied, sourceMode });
           const installed = plugin.version.length <= 64 && semver.valid(plugin.version) ? plugin.version : 'unknown';
           const snapshot = (state: IntegrationInventoryRow['state'], prerequisite: IntegrationInventoryRow['prerequisite'] = null) => {
-            const row: IntegrationInventoryRow = { id: id.data, installed, state, local: assessment?.local ?? 'unknown', prerequisite };
+            const row: IntegrationInventoryRow = { ...facts(), id: id.data, installed, state, local: assessment?.local ?? 'unknown', prerequisite };
             inventory.push(row); onResult?.(structuredClone(row));
           };
           try {
             validVersion(plugin.version);
             const provenance = await bb.sdk.plugins.getSource({ pluginId: id.data, signal: signal() });
+            const path = await localRoot(id.data, plugin.rootDir, provenance.requested);
+            if (path) {
+              sourceMode = 'local';
+              const work = localWork?.components[id.data] ?? null;
+              const details = await sourceAt(id.data, path, localWork), working = details.fingerprint;
+              const known = await appliedSources.get(id.data, path);
+              applied = healthy(plugin) && await appliedSources.confirmed(id.data, path, details.stamp) ? known : null;
+              assessment = { local: known ? 'stock' : 'unknown', fingerprint: localFingerprint(path, plugin.enabled, known), originalVersion: installed };
+              const version = await localVersion(path), fingerprint = assessment.fingerprint;
+              const needsApply = !applied || applied !== working;
+              if (needsApply) {
+                localRows.push({ ...facts(), id: id.data, installed, available: version, local: assessment.local, fingerprint, targetFingerprint: working, prerequisite: null });
+                if (mode === 'local') available.set(id.data, version);
+                if (!known || !work || work.local) pendingLocal = true;
+              }
+              if (mode === 'local') { if (needsApply) rows.push(localRows.at(-1)!); snapshot('current'); continue; }
+              if (work && known !== work.origin) {
+                const blocked = !known ? 'baseline_unknown' as const : working !== work.origin && (workspace?.dirty || workspace?.ahead) ? 'source_work' as const : null;
+                if (!work.upstream && working !== work.origin) { snapshot('current'); continue; }
+                if (working === work.origin && !needsApply) { snapshot('current'); continue; }
+                const target = await baseline.manifest(workspace!.originHead, id.data), offered = validVersion(target.version);
+                available.set(id.data, offered);
+                rows.push({ ...facts(), id: id.data, installed, available: offered, local: blocked ? 'unknown' : assessment.local, fingerprint, targetFingerprint: work.origin, prerequisite: blocked });
+                snapshot('offered', blocked); continue;
+              }
+              snapshot('current'); continue;
+            }
+            if (mode === 'local') { snapshot('unavailable', 'unsupported_install'); continue; }
             const supported = trusted(provenance, id.data);
+            sourceMode = supported ? 'managed' : 'unsupported';
             try {
               // Seed independently reconstructed originals even without an
               // integration offer: later BB updates may prune this builder.
-              if (supported) assessment = await baseline.inspect(id.data, plugin.rootDir, revision(provenance.resolved));
+              if (supported) {
+                if (!retained) { await baseline.retain(listed.plugins.flatMap(plugin => { const id = integrationId.safeParse(plugin.id); return id.success ? [id.data] : []; })); retained = true; }
+                assessment = await baseline.inspect(id.data, plugin.rootDir, revision(provenance.resolved));
+                if (assessment.local === 'stock') applied = await sourceFingerprint(plugin.rootDir);
+              }
             } catch (error) {
               if (error instanceof ApplicationError && ['storage', 'interrupted'].includes(error.category)) throw error;
             }
@@ -82,23 +159,27 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
             }
             if (checked.outcome === 'incompatible' || !checked.candidate) throw new ApplicationError('incompatible');
             const target = await baseline.manifest(checked.candidate.version, id.data), offered = validVersion(target.version);
-            // Repository-only changes and newer installed packages are not offers.
-            if (!semver.gt(offered, installed)) {
+            // Git code changes count even without a version bump. Conversely,
+            // another plugin's commit must not update this component.
+            const targetFingerprint = await baseline.sourceIdentity(checked.candidate.version, id.data);
+            const installedFingerprint = await baseline.sourceIdentity(basename(dirname(dirname(plugin.rootDir))), id.data);
+            if (targetFingerprint === installedFingerprint) {
               if (!assessment) throw new ApplicationError('baseline_unknown');
               snapshot('current'); continue;
             }
             available.set(id.data, offered);
             if (!assessment) throw new ApplicationError('baseline_unknown');
-            rows.push({ id: id.data, installed, available: offered, local: assessment.local, fingerprint: assessment.fingerprint, prerequisite: null });
+            rows.push({ ...facts(), id: id.data, installed, available: offered, local: assessment.local, fingerprint: assessment.fingerprint, targetFingerprint, prerequisite: null });
             snapshot('offered');
           } catch (error) {
+            if (sourceMode === 'local' || plugin.source?.startsWith('path:')) pendingLocal = true;
             const code = error instanceof ApplicationError ? error.category : 'unavailable';
             if (code === 'storage' || code === 'interrupted') throw error;
             bb.log.warn(`pa-updates stage=review outcome=${code}`);
             snapshot('unavailable', code);
-            // Only a confirmed higher release belongs in the offer/receipt path.
+            // Only confirmed origin code changes belong in the offer/receipt path.
             const offered = available.get(id.data);
-            if (offered) rows.push({ id: id.data, installed, available: offered, local: 'unknown', fingerprint: '', prerequisite: code });
+            if (offered) rows.push({ ...facts(), id: id.data, installed, available: offered, local: 'unknown', fingerprint: '', prerequisite: code });
           }
         }
         lastInventory = inventory;
@@ -119,9 +200,31 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
     },
     async update(id, authorized) {
       try {
-        const beforeSource = await source(id);
         const before = (await list()).plugins.find(item => item.id === id);
-        if (!before || before.version !== authorized.installed) throw new ApplicationError('changed');
+        if (!before) throw new ApplicationError('changed');
+        const initialSource = await bb.sdk.plugins.getSource({ pluginId: id, signal: signal() });
+        const path = await localRoot(id, before.rootDir, initialSource.requested);
+        if (path) {
+          const known = await appliedSources.get(id, path), snapshot = await localSnapshot();
+          const details = await sourceAt(id, path, snapshot), working = details.fingerprint;
+          if (!authorized.target || working !== authorized.target || localFingerprint(path, before.enabled, known) !== authorized.fingerprint) throw new ApplicationError('changed');
+          if (id === 'icloud' || id === 'obsidian') {
+            const cloud = (await list()).plugins.find(plugin => plugin.id === 'icloud');
+            if (cloud?.enabled) { const held = await sync(); if (held.updatePause?.jobId !== authorized.jobId || held.mirrors.some(mirror => mirror.enabled || mirror.phase === 'running')) throw new ApplicationError('changed'); }
+          }
+          active();
+          // BB compiles path-source code and keeps its previous instance if the
+          // candidate fails. Do not add a second compiler or reinstall it.
+          await bb.sdk.plugins.reload({ pluginId: id }); active();
+          const actual = (await list()).plugins.find(item => item.id === id);
+          const after = await sourceAt(id, path, await localSnapshot());
+          if (!actual || actual.enabled !== before.enabled || !healthy(actual) || after.fingerprint !== working || after.stamp !== details.stamp || !await localRoot(id, actual.rootDir, (await bb.sdk.plugins.getSource({ pluginId: id, signal: signal() })).requested)) throw new ApplicationError('unavailable');
+          await appliedSources.remember(id, path, working, details.stamp); active();
+          return { actual: validVersion(actual.version), updated: known !== working };
+        }
+        if (authorized.mode === 'local') throw new ApplicationError('unsupported_install');
+        const beforeSource = await source(id);
+        if (before.version !== authorized.installed) throw new ApplicationError('changed');
         const beforeBytes = await baseline.inspect(id, before.rootDir, revision(beforeSource.resolved));
         if (beforeBytes.fingerprint !== authorized.fingerprint) throw new ApplicationError('changed');
         if (id === 'icloud' || id === 'obsidian') {
@@ -136,7 +239,7 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
         if (outcome.outcome === 'rolled-back') throw new ApplicationError('unavailable');
         active();
         const actual = (await list()).plugins.find(item => item.id === id);
-        if (!actual || actual.enabled !== before.enabled || (actual.enabled ? actual.status !== 'running' : actual.status !== 'disabled')) throw new ApplicationError('unavailable');
+        if (!actual || actual.enabled !== before.enabled || !healthy(actual)) throw new ApplicationError('unavailable');
         const provenance = await source(id);
         const checked = await baseline.inspect(id, actual.rootDir, revision(provenance.resolved));
         if (checked.local !== 'stock') throw new ApplicationError('changed');
@@ -147,7 +250,17 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
     self: {
       async prepare(authorized) {
         try {
-          const provenance = await source('pa-updates'), before = (await list()).plugins.find(item => item.id === 'pa-updates');
+          const current = (await list()).plugins.find(item => item.id === 'pa-updates');
+          const currentSource = await bb.sdk.plugins.getSource({ pluginId: 'pa-updates', signal: signal() });
+          const path = current ? await localRoot('pa-updates', current.rootDir, currentSource.requested) : null;
+          if (path && current) {
+            const known = await appliedSources.get('pa-updates', path), snapshot = await localSnapshot();
+            const details = await sourceAt('pa-updates', path, snapshot), working = details.fingerprint;
+            if (!current.enabled || !authorized.target || working !== authorized.target || localFingerprint(path, current.enabled, known) !== authorized.fingerprint) throw new ApplicationError('changed');
+            return { before: validVersion(current.version), source: currentSource.resolved, requestedAt: new Date().toISOString(), local: { path, expected: working, stamp: details.stamp, instance } };
+          }
+          if (authorized.mode === 'local') throw new ApplicationError('unsupported_install');
+          const provenance = await source('pa-updates'), before = current;
           if (!before || !before.enabled || before.status !== 'running' || before.version !== authorized.installed) throw new ApplicationError('changed');
           const bytes = await baseline.inspect('pa-updates', before.rootDir, revision(provenance.resolved));
           if (bytes.fingerprint !== authorized.fingerprint) throw new ApplicationError('changed');
@@ -155,6 +268,14 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
         } finally { await baseline.close(); }
       },
       async apply(intent) {
+        if (intent.local) {
+          const current = (await list()).plugins.find(item => item.id === 'pa-updates');
+          const provenance = await bb.sdk.plugins.getSource({ pluginId: 'pa-updates', signal: signal() });
+          const path = current ? await localRoot('pa-updates', current.rootDir, provenance.requested) : null;
+          const details = path ? await sourceAt('pa-updates', path, await localSnapshot()) : null;
+          if (!path || path !== intent.local.path || details?.fingerprint !== intent.local.expected || !intent.local.stamp || details.stamp !== intent.local.stamp || instance !== intent.local.instance) throw new ApplicationError('changed');
+          active(); await bb.sdk.plugins.reload({ pluginId: 'pa-updates' }); active(); return;
+        }
         const currentSource = await source('pa-updates'); active();
         if (currentSource.resolved !== intent.source) throw new ApplicationError('changed');
         // Only the native replacement is admitted here. Do not read or write
@@ -169,10 +290,20 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
           const running = (await list()).plugins.find(item => item.id === 'pa-updates');
           if (!running || !running.enabled || running.status !== 'running') return expired ? selfUncertain(actual, 'interrupted') : { state: 'pending', actual };
           actual = validVersion(running.version);
+          if (intent.local) {
+            if (instance === intent.local.instance) return completed ? { state: 'unchanged', actual } : expired ? selfUncertain(actual, 'interrupted') : { state: 'pending', actual };
+            const provenance = await bb.sdk.plugins.getSource({ pluginId: 'pa-updates', signal: signal() });
+            const path = await localRoot('pa-updates', running.rootDir, provenance.requested);
+            const details = path ? await sourceAt('pa-updates', path, await localSnapshot()) : null;
+            if (!path || path !== intent.local.path || !healthy(running) || details?.fingerprint !== intent.local.expected || !intent.local.stamp || details.stamp !== intent.local.stamp) throw new ApplicationError('changed');
+            await appliedSources.remember('pa-updates', path, intent.local.expected, details.stamp); active();
+            return { state: 'updated', actual };
+          }
           const provenance = await source('pa-updates');
           if (actual === intent.before && provenance.resolved === intent.source) return completed ? { state: 'unchanged', actual } : expired ? selfUncertain(actual, 'interrupted') : { state: 'pending', actual };
+          if (!healthy(running)) throw new ApplicationError('unavailable');
           const bytes = await baseline.inspect('pa-updates', running.rootDir, revision(provenance.resolved));
-          if (bytes.local !== 'stock' || !semver.gt(actual, intent.before) || provenance.resolved === intent.source) throw new ApplicationError('changed');
+          if (bytes.local !== 'stock' || provenance.resolved === intent.source) throw new ApplicationError('changed');
           return { state: 'updated', actual };
         } catch (error) {
           active();
@@ -207,8 +338,11 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
       if (restored.updatePause?.jobId !== null) throw new ApplicationError('unavailable');
       if (restored.updatePause.manualRecovery) return 'manual_recovery';
     },
-    runtime: runtimePorts(bb, controller.signal),
-    cancel: () => { controller.abort(); return baseline.stop(); },
+    runtime: { ...runtime, async inspect(report) {
+      const result = await runtime.inspect((row, target) => report?.(protectRestart(row), target)); active();
+      return { ...result, rows: result.rows.map(protectRestart) };
+    } },
+    cancel: async () => { controller.abort(); await Promise.all([baseline.stop(), appliedSources.drain()]); },
     load: () => bb.storage.kv.get('application-v1'), save: value => bb.storage.kv.set('application-v1', value),
     diagnose(stage, code) { bb.log.warn(`pa-updates stage=${stage} outcome=${code}`); },
   };

@@ -2,7 +2,9 @@
 
 Date: 2026-10-21
 
-Status: accepted. Pipeline and updater enforcement are not yet implemented.
+Status: superseded for the updater workflow on 2026-10-22 by [021 — Git-first PA updates](../plans/021-git-first-pa-updates.md).
+
+The owner chose **edit → try on the server → commit and push**, with drift measured against `origin` and the code actually applied. A separate versioned release is not required for this workflow. The shared component-release pipeline was not implemented; do not continue it as an updater prerequisite. The decision below is retained as history, not current policy. Formal releases may still be requested separately for distribution.
 
 ## Context
 

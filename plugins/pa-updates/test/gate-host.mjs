@@ -107,7 +107,7 @@ export async function createGateHost(bbPath, { nativeRuntime = false } = {}) {
     },
     async start() {
       assert.equal(server, undefined, 'start a test host once');
-      const log = openSync(join(root, 'server.log'), 'w', 0o600);
+      const log = openSync(join(root, 'server.log'), 'a', 0o600);
       const args = nativeRuntime ? [join(bb, 'dist/bb-app.js'), '--data-dir', env.BB_DATA_DIR, '--server-port', env.BB_SERVER_PORT, '--server-bind-host', '127.0.0.1', '--host-daemon-port', env.BB_HOST_DAEMON_PORT] : [join(bb, 'server/dist/index.js')];
       server = spawn(process.execPath, args, { cwd: root, env, detached: nativeRuntime, stdio: ['ignore', log, log] }); closeSync(log);
       let ready = false;
@@ -119,6 +119,17 @@ export async function createGateHost(bbPath, { nativeRuntime = false } = {}) {
       assert.ok(ready, 'disposable BB must start');
       const runtime = await request('system/version');
       assert.equal(runtime.body.currentVersion, pkg.version, 'runtime must not use dev fallback');
+    },
+    async restart() {
+      assert.equal(nativeRuntime, false, 'same-binary test restart is not the native launcher upgrade gate');
+      assert.ok(server);
+      if (server.exitCode === null && server.signalCode === null) {
+        const exited = new Promise(resolve => server.once('exit', resolve));
+        server.kill('SIGTERM'); const timer = setTimeout(() => server.kill('SIGKILL'), 10000);
+        await exited; clearTimeout(timer);
+      }
+      server = undefined;
+      await this.start();
     },
     finish,
   };

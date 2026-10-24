@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, lstat, rm } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
-import { inspectDevelopment, inspectCanonicalDevelopment, canonicalCheckout, DevelopmentError } from '../adapters/development.ts';
+import { inspectDevelopment, inspectCanonicalDevelopment, inspectCanonicalWorkspace, canonicalCheckout, DevelopmentError } from '../adapters/development.ts';
 import { integrationId } from '../core/application-model.ts';
 const exec = promisify(execFile), ids = integrationId.options;
 async function fixture() {
@@ -60,6 +60,32 @@ test('being behind is not local work; already published component bytes are not 
     assert.ok(Object.values((await f.inspect())!).every(state => state === 'clean'));
     await writeFile(join(f.owner, 'plugins/icloud/server.ts'), 'shared change\n'); await f.commit(f.owner, 'different commit, already published bytes');
     assert.ok(Object.values((await f.inspect())!).every(state => state === 'clean'));
+  } finally { await f.close(); }
+});
+test('workspace inspection reports local/upstream differences and content identity without mutating Git', async () => {
+  const f = await fixture();
+  try {
+    const before = await fingerprint(f.owner);
+    const initial = await inspectCanonicalWorkspace(new AbortController().signal, f.remote, f.owner);
+    assert.ok(initial); assert.equal(initial.ahead, false); assert.equal(initial.behind, false);
+    assert.ok(Object.values(initial.components).every(row => !row.local && !row.upstream && row.working === row.origin));
+    assert.deepEqual(await fingerprint(f.owner), before);
+    await writeFile(join(f.owner, 'plugins/icloud/server.ts'), 'local edits without a version bump\n');
+    await writeFile(join(f.seed, 'plugins/obsidian/server.ts'), 'someone else changed this\n');
+    await f.commit(f.seed, 'remote update'); await f.git(f.seed, 'push', f.remote, 'HEAD:main');
+    const changed = await fingerprint(f.owner), state = await inspectCanonicalWorkspace(new AbortController().signal, f.remote, f.owner);
+    assert.ok(state); assert.equal(state.dirty, true); assert.equal(state.behind, true);
+    assert.equal(state.components.icloud.local, true); assert.equal(state.components.icloud.upstream, false);
+    assert.equal(state.components.obsidian.local, false); assert.equal(state.components.obsidian.upstream, true);
+    assert.notEqual(state.components.icloud.working, state.components.icloud.origin);
+    assert.notEqual(state.components.obsidian.working, state.components.obsidian.origin);
+    assert.deepEqual(await fingerprint(f.owner), changed);
+    await f.commit(f.owner, 'local changes');
+    await f.git(f.owner, 'pull', '--no-rebase', f.remote, 'main');
+    await f.git(f.owner, 'push', f.remote, 'HEAD:refs/heads/main');
+    const pushed = await inspectCanonicalWorkspace(new AbortController().signal, f.remote, f.owner);
+    assert.ok(pushed); assert.equal(pushed.components.icloud.local, false);
+    assert.equal(pushed.components.icloud.working, pushed.components.icloud.origin);
   } finally { await f.close(); }
 });
 test('checkout filter attributes stay unknown even when their driver is only configured globally', async () => {

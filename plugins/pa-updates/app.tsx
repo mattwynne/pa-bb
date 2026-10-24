@@ -1,187 +1,160 @@
 import { useEffect, useRef, useState } from 'react';
 import { definePluginApp, useRpc, useRealtime, useRealtimeConnectionState, experimental_Icon as Icon } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './contract.ts';
-import type { Status } from './core/model.ts';
 import type { ApplicationStatus, CheckProgress, IntegrationId, IntegrationInventoryRow, FailureCode } from './core/application-model.ts';
 import type { RuntimeId } from './core/runtime-model.ts';
+import { codeState } from './core/workspace.ts';
 import { hasFreshOffers } from './core/notice.ts';
 import { reviewDecision } from './core/decision.ts';
 import './app.css';
 const labels = { 'google-calendar': ['Calendar', 'Calendar'], fastmail: ['Fastmail', 'Mail'], 'google-drive': ['Google Drive', 'FolderOpen'], icloud: ['iCloud', 'Cloud'], obsidian: ['Obsidian', 'Notebook'], 'pa-updates': ['PA updater', 'RotateCcw'] } as const;
-const componentOrder: IntegrationId[] = ['fastmail', 'google-calendar', 'google-drive', 'icloud', 'obsidian', 'pa-updates'];
-const byComponent = (a: { id: IntegrationId }, b: { id: IntegrationId }) => componentOrder.indexOf(a.id) - componentOrder.indexOf(b.id);
+const order: IntegrationId[] = ['fastmail', 'google-calendar', 'google-drive', 'icloud', 'obsidian', 'pa-updates'];
 const runtimeLabels: Record<RuntimeId, string> = { pi: 'Pi', codex: 'Codex', bb: 'BB' };
 const runtimeIcons = { pi: 'Terminal', codex: 'Code', bb: 'Zap' } as const;
 const failures: Record<FailureCode, string> = {
-  not_installed: 'This CLI is not installed. Set it up through BB’s normal provider controls before using PA updates.',
-  sync_recovery: 'Some iCloud folders need recovery and were left paused. The update reservation has been released. Open iCloud settings and follow those folders’ recovery instructions; completed changes are listed below.',
-  busy: 'BB is busy or has running threads. Wait for the work to finish, or check again to review permission to interrupt threads for the BB restart.',
-  unsupported_install: 'This installation cannot use the native released update. Use BB’s normal update instructions for its installation type.',
+  not_installed: 'This CLI is not installed. Set it up through BB’s normal provider controls.',
+  sync_recovery: 'Some iCloud folders need recovery and were left paused. Open iCloud settings for recovery instructions. Completed changes are kept.',
+  busy: 'BB is busy or has running threads. Check again when they finish, or review permission to interrupt them.',
+  unsupported_install: 'This installation cannot use the supported update operation.',
   unavailable: 'Could not finish this step. Check BB and your connection, then check again.',
-  baseline_unknown: 'The original installed build could not be verified. This is not evidence of local changes. This integration will not be replaced.',
-  changed: 'The installation changed after your review. Check again and choose whether to replace the new local changes.',
-  incompatible: 'The available versions do not meet this installation’s requirements. Nothing further will be installed.',
-  paired_migration: 'These iCloud/Obsidian versions need the documented stopped paired upgrade. This automatic flow supports their current 0.3.x versions only.',
-  maintenance_unavailable: 'Updater-aware iCloud Pause support is unavailable. Check its installed release before continuing; completed changes are listed below.',
-  interrupted: 'The update was interrupted. Check the recorded results before starting again; uncertain installs are not retried automatically.',
-  storage: 'Update history could not be saved or read. Updates are stopped until plugin storage is working again.',
+  baseline_unknown: 'Could not verify the applied code. Nothing will be overwritten.',
+  changed: 'The code changed after this check. Check again before applying it.',
+  incompatible: 'The available code does not meet this installation’s requirements.',
+  paired_migration: 'These older iCloud/Obsidian versions need their documented stopped paired upgrade.',
+  maintenance_unavailable: 'Could not reserve an iCloud update window. Completed changes are kept.',
+  interrupted: 'The operation was interrupted. Check its saved results before retrying; uncertain changes are not retried automatically.',
+  storage: 'Update history could not be saved or read. Applying code is stopped until storage works again.',
+  source_work: 'The working copy has local work. Ask PA to review it before bringing in origin’s changes.',
+  local_pending: 'A BB restart loads the working folder too. Apply or resolve pending local edits first.',
 };
-const prerequisites: Partial<Record<FailureCode, string>> = {
-  unavailable: 'Could not check this integration. Check BB and your connection, then check again.',
-  incompatible: 'The available release does not meet this integration’s requirements. This integration will not be replaced.',
-};
-function inventoryStatus(row: IntegrationInventoryRow) {
-  return row.state === 'current' ? row.local === 'unknown' ? 'Changes unverified' : ''
-    : row.state === 'pinned' ? 'Version pinned' : row.state === 'offered' ? 'Update available' : row.prerequisite === 'baseline_unknown' ? 'Changes unverified' : row.prerequisite === 'incompatible' ? 'Update unavailable' : 'Couldn’t check';
-}
-function Checking() { return <span className="pa-update-current"><Icon name="RotateCcw" className="pa-update-spinner" aria-hidden={true} />Checking…</span>; }
-function CurrentStatus({ confirmed, checking, historical = false }: { confirmed: boolean; checking: boolean; historical?: boolean }) {
-  return confirmed && !historical ? <span className="pa-update-current"><Icon name="Check" className="pa-update-check" aria-hidden={true} />Up to date</span> : checking ? <Checking /> : historical ? <>Not updated</> : <>Couldn’t check</>;
-}
-const hasLocalWork = (row: Pick<IntegrationInventoryRow, 'local' | 'development'>) => row.local === 'custom' || row.development === 'unpublished';
-function LocalStatus({ row }: { row: Pick<IntegrationInventoryRow, 'local' | 'development'> }) {
-  return hasLocalWork(row) ? <span className="pa-development-badge">Local changes</span> : row.development === 'unknown' ? <span className="pa-development-unknown">Couldn’t check local work</span> : null;
-}
-function InventoryResult({ row, confirmed, checking, historical = false }: { row: IntegrationInventoryRow; confirmed: boolean; checking: boolean; historical?: boolean }) {
-  const concern = hasLocalWork(row) || row.development === 'unknown';
-  const current = row.state === 'current' && row.local === 'stock';
-  const status = inventoryStatus(row);
-  return <>{current ? concern ? null : <CurrentStatus confirmed={confirmed && row.installed !== 'unknown' && !row.prerequisite} checking={checking} historical={historical} /> : status}{concern && !current && status ? ' · ' : null}<LocalStatus row={row} /></>;
-}
 function Label({ id }: { id: IntegrationId }) { return <span className="pa-update-label"><Icon name={labels[id][1]} className="pa-update-icon" /><span>{labels[id][0]}</span></span>; }
 function RuntimeLabel({ id }: { id: RuntimeId }) { return <span className="pa-update-label"><Icon name={runtimeIcons[id]} className="pa-update-icon" /><span>{runtimeLabels[id]}</span></span>; }
-function receiptText(row: NonNullable<ApplicationStatus['job']>['receipts'][number], applying: boolean) {
-  return row.outcome === 'skipped' ? `${row.before} · Not updated` : row.outcome === 'kept' ? `Kept local ${row.actual ?? row.before}` : row.actual ? `Installed ${row.actual}${row.actual !== row.preview ? ` (previewed ${row.preview})` : ''}` : row.outcome === 'uncertain' ? 'Result uncertain — check before retrying' : row.outcome === 'activating' ? 'Installing…' : applying ? `${row.before} · Waiting…` : `${row.before} · Not updated`;
+function Checking() { return <span className="pa-update-current"><Icon name="RotateCcw" className="pa-update-spinner" aria-hidden={true} />Checking…</span>; }
+function Current({ confirmed, historical = false }: { confirmed: boolean; historical?: boolean }) {
+  return historical ? <>Not updated</> : confirmed ? <span className="pa-update-current"><Icon name="Check" className="pa-update-check" aria-hidden={true} />Up to date</span> : <>Couldn’t check</>;
 }
-function runtimeReceiptText(row: NonNullable<ApplicationStatus['job']>['runtimeReceipts'][number], applying: boolean) {
-  return row.outcome === 'failed' ? `${runtimeLabels[row.id]} update failed${row.actual ? ` · Installed ${row.actual}` : ''}` : row.outcome === 'uncertain' ? 'Result uncertain — check before retrying' : row.outcome === 'activating' ? row.id === 'bb' ? 'Updating…' : 'Installing…' : row.actual ? `Installed ${row.actual}${row.actual !== row.preview ? ` (previewed ${row.preview})` : ''}` : applying ? 'Waiting…' : `${row.before ?? 'Version unknown'} · Not updated`;
+function componentState(row: IntegrationInventoryRow) {
+  if (row.local === 'custom' || row.development === 'unpublished' || row.workspace?.local)
+    return row.workspace?.upstream ? 'both' : 'local';
+  if (row.development === 'unknown' || row.state === 'unavailable') return 'unknown';
+  if (row.workspace) return codeState(row.workspace, row.applied ?? null);
+  return row.state === 'offered' ? 'upstream' : row.state === 'current' && row.local === 'stock' ? 'current' : 'unknown';
 }
-function ProgressRows({ progress, previous, error }: { progress: CheckProgress; previous: ApplicationStatus['review']; error: boolean }) {
+function CodeStatus({ row, confirmed, historical = false }: { row: IntegrationInventoryRow; confirmed: boolean; historical?: boolean }) {
+  const state = componentState(row);
+  if (state === 'current') return <Current confirmed={confirmed} historical={historical} />;
+  const text = { local: 'Local changes', upstream: 'Updates available', both: 'Local and upstream changes', unapplied: 'Changes ready to apply', unknown: 'Couldn’t check' }[state];
+  const unapplied = (state === 'local' || state === 'both') && row.applied && row.workspace && row.applied !== row.workspace.working;
+  return <>{text}{unapplied && <span className="pa-updates-muted"> · Not applied</span>}</>;
+}
+function components(review: ApplicationStatus['review']): IntegrationInventoryRow[] {
+  return order.flatMap(id => {
+    const inventory = review?.inventory?.find(row => row.id === id), offer = review?.rows.find(row => row.id === id);
+    return inventory ? [inventory] : offer ? [{ ...offer, state: 'offered' as const }] : [];
+  });
+}
+function Progress({ value, previous, error }: { value: CheckProgress; previous: ApplicationStatus['review']; error: boolean }) {
   return <div className="pa-update-ordinary" role="group" aria-label="Check progress" aria-live="polite">
-    {componentOrder.filter(id => !progress.integrationsDone || progress.integrations.some(row => row.id === id)).map(id => {
-      const row = progress.integrations.find(row => row.id === id);
-      const installed = row?.installed ?? previous?.inventory?.find(row => row.id === id)?.installed ?? previous?.rows.find(row => row.id === id)?.installed;
-      return <div className="pa-update-card pa-update-version" data-check-id={id} key={id}><Label id={id} /><span>{installed && <>{installed === 'unknown' ? 'Version unknown' : installed} · </>}{!row ? error ? 'Couldn’t check' : <Checking /> : <InventoryResult row={row} confirmed={!error} checking={false} />}</span></div>;
+    {order.filter(id => !value.integrationsDone || value.integrations.some(row => row.id === id)).map(id => {
+      const row = value.integrations.find(row => row.id === id), version = row?.installed ?? components(previous).find(row => row.id === id)?.installed;
+      return <div className="pa-update-card pa-update-version" data-check-id={id} key={id}><Label id={id} /><span>{version && <>{version} · </>}{row ? <CodeStatus row={row} confirmed={!error} /> : error ? 'Couldn’t check' : <Checking />}</span></div>;
     })}
-    {(Object.keys(runtimeLabels) as RuntimeId[]).filter(id => !progress.runtimeDone || progress.runtime.some(row => row.id === id)).map(id => {
-      const row = progress.runtime.find(row => row.id === id);
-      const installed = row ? row.installed : previous?.runtime?.rows.find(row => row.id === id)?.installed;
-      return <div className="pa-update-card pa-update-version" data-check-id={id} key={id}><RuntimeLabel id={id} /><span>{installed ? <>{installed} · </> : row?.source === 'missing' ? 'Not installed · ' : null}{!row ? error ? 'Couldn’t check' : <Checking /> : row.state === 'current' ? <CurrentStatus confirmed={!error && !!row.installed && !row.reason} checking={false} /> : row.state === 'ready' ? 'Update available' : row.reason === 'unavailable' ? 'Couldn’t check' : 'Update unavailable'}</span></div>;
+    {(Object.keys(runtimeLabels) as RuntimeId[]).filter(id => !value.runtimeDone || value.runtime.some(row => row.id === id)).map(id => {
+      const row = value.runtime.find(row => row.id === id), version = row?.installed ?? previous?.runtime?.rows.find(row => row.id === id)?.installed;
+      return <div className="pa-update-card pa-update-version" data-check-id={id} key={id}><RuntimeLabel id={id} /><span>{version && <>{version} · </>}{!row ? error ? 'Couldn’t check' : <Checking /> : row.state === 'current' ? <Current confirmed={!error && !!row.installed && !row.reason} /> : row.state === 'ready' ? 'Updates available' : 'Couldn’t check'}</span></div>;
     })}
   </div>;
 }
+function receiptText(row: NonNullable<ApplicationStatus['job']>['receipts'][number], applying: boolean) {
+  return row.outcome === 'kept' ? 'Kept local' : row.outcome === 'skipped' ? 'Not updated' : row.outcome === 'uncertain' ? 'Result uncertain — check before retrying' : row.outcome === 'activating' ? 'Applying…' : row.actual ? `${row.outcome === 'updated' ? 'Applied changes' : 'Unchanged'} · ${row.actual}` : applying ? 'Waiting…' : 'Not updated';
+}
 export function UpdatesPanel() {
   const rpc = useRpc<typeof rpcContract>(), connection = useRealtimeConnectionState();
-  const [state, setState] = useState<ApplicationStatus | null>(null), [discovery, setDiscovery] = useState<Status | null>(null);
-  const [error, setError] = useState(false), [busy, setBusy] = useState(false), [unconfirmed, setUnconfirmed] = useState(false);
-  const [choices, setChoices] = useState<Partial<Record<IntegrationId, 'keep' | 'install'>>>({});
-  const [confirmInterruptingThreads, setConfirmInterruptingThreads] = useState(false);
-  const generation = useRef(0), mounted = useRef(true), body = useRef<HTMLDivElement>(null);
-  const reviewAtRequest = useRef<{ id: string | null } | null>(null);
+  const [state, setState] = useState<ApplicationStatus | null>(null), [error, setError] = useState(false), [busy, setBusy] = useState(false);
+  const [confirmInterruptingThreads, setConsent] = useState(false), [unconfirmed, setUnconfirmed] = useState(false);
+  const generation = useRef(0), mounted = useRef(true), requestedReview = useRef<string | null>(null);
   async function read() {
     const request = ++generation.current;
-    try { const [next, notes] = await Promise.all([rpc.call('applicationStatus', null), rpc.call('status', null)]); if (mounted.current && request === generation.current) { setState(next); setDiscovery(notes); setError(false); } }
+    try { const next = await rpc.call('applicationStatus', null); if (mounted.current && request === generation.current) { setState(next); setError(false); } }
     catch { if (mounted.current && request === generation.current) { setError(true); setUnconfirmed(true); } }
   }
   useRealtime('application', () => { void read(); });
-  useRealtime('status', () => { void read(); });
   useEffect(() => { mounted.current = true; void read(); return () => { mounted.current = false; generation.current++; }; }, [connection]);
-  useEffect(() => { setChoices({}); setConfirmInterruptingThreads(false); setUnconfirmed(false); body.current?.scrollTo({ top: 0 }); }, [state?.review?.id]);
-  const unresolvedSelf = !!state?.job?.selfIntent && state.job.receipts.some(row => row.id === 'pa-updates' && row.outcome === 'uncertain') && Date.now() - Date.parse(state.job.selfIntent.requestedAt) < 15 * 60_000;
+  useEffect(() => { setConsent(false); setUnconfirmed(false); }, [state?.review?.id]);
+  const unresolved = !!state?.job && (state.job.receipts.some(row => row.outcome === 'uncertain') && !!state.job.selfIntent && Date.now() - Date.parse(state.job.selfIntent.requestedAt) < 15 * 60_000 || state.job.runtimeReceipts.some(row => row.id === 'bb' && row.outcome === 'uncertain'));
   useEffect(() => {
-    const unresolvedBb = state?.job?.bbIntent && state.job.runtimeReceipts.some(row => row.id === 'bb' && row.outcome === 'uncertain');
-    if (!busy && !state?.applying && !state?.checking && !unresolvedBb && !unresolvedSelf) return;
+    if (!busy && !state?.applying && !state?.checking && !unresolved) return;
     const timer = setInterval(() => { void read(); }, 1000); return () => clearInterval(timer);
-  }, [busy, state?.applying, state?.checking, state?.job?.phase, unresolvedSelf]);
-  async function act(action: 'review' | 'apply' | 'resumeSync') {
-    if (action === 'review') reviewAtRequest.current = { id: state?.review?.id ?? null };
+  }, [busy, state?.applying, state?.checking, unresolved]);
+  async function act(action: 'review' | 'apply' | 'applyLocal' | 'resumeSync') {
+    if (action === 'review') requestedReview.current = state?.review?.id ?? '';
     setBusy(true); setError(false);
     try {
-      if (action === 'apply' && state?.review) await rpc.call('apply', { reviewId: state.review.id, choices: state.review.rows.filter(row => reviewDecision(row) === 'choose').map(row => ({ id: row.id, choice: choices[row.id] ?? 'keep' })), confirmInterruptingThreads });
-      else if (action !== 'apply') await rpc.call(action, null);
+      if (action === 'applyLocal') { if (state?.review) await rpc.call('applyLocal', { reviewId: state.review.id }); }
+      else if (action === 'apply') { if (state?.review) await rpc.call('apply', { reviewId: state.review.id, choices: [], confirmInterruptingThreads }); }
+      else await rpc.call(action, null);
       await read();
     } catch { if (mounted.current) { setError(true); setUnconfirmed(true); } }
-    finally { reviewAtRequest.current = null; if (mounted.current) setBusy(false); }
+    finally { requestedReview.current = null; if (mounted.current) setBusy(false); }
   }
-  const rows = [...(state?.review?.rows ?? [])].sort(byComponent), custom = rows.filter(row => reviewDecision(row) === 'choose'), ordinary = rows.filter(row => reviewDecision(row) === 'automatic'), unknown = rows.filter(row => reviewDecision(row) === 'unverified');
-  const inventory = (state?.review?.inventory ?? []).filter(row => !rows.some(offer => offer.id === row.id)).sort(byComponent);
-  const listedIntegrations = [...inventory, ...(custom.length ? [] : ordinary)].sort(byComponent);
-  const pending = busy || state?.applying || state?.checking || discovery?.checking;
-  const reviewedJob = state?.job?.reviewId === state?.review?.id ? state?.job : null;
-  const runtime = state?.review?.runtime, runtimeRows = runtime?.rows ?? [];
-  const runtimeOffers = runtimeRows.filter(row => row.state === 'ready');
-  const bbOffered = runtimeOffers.some(row => row.id === 'bb');
-  const needsConsent = bbOffered && (runtime?.runningThreadCount ?? 0) > 0;
-  const installCount = ordinary.length + custom.filter(row => choices[row.id] === 'install').length + runtimeOffers.length;
-  const visibleRuntimeRows = runtimeRows;
-  const progress = state?.checking && state.progress && (!reviewedJob || state.progress.requested) ? state.progress : null;
-  const failure = progress ? null : state?.failure ?? reviewedJob?.failure;
-  // The final realtime result can arrive before the waiting review RPC returns.
-  const completedReview = !!reviewAtRequest.current && !!state?.review && state.review.id !== reviewAtRequest.current.id && !state.checking && !state.applying;
-  const currentConfirmed = (!pending || completedReview) && !error && !failure && !unconfirmed;
-  // A failed write to BB does not turn successful checks of untouched
-  // components into failed reads. A new/failed check still suppresses green.
-  const resultInventoryConfirmed = !error && !state?.failure && !unconfirmed && !state?.checking && !reviewAtRequest.current;
-  // Later automatic discovery retains this historical review. Its untouched
-  // rows must not claim current release status from that older snapshot.
-  const resultReviewAge = state?.review ? Date.now() - Date.parse(state.review.at) : Infinity;
-  const resultInventoryHistorical = resultReviewAge < 0 || resultReviewAge >= 6 * 60 * 60 * 1000 || !!state?.offers && (state.offers.available || state.offers.checkedAt !== state.review?.at);
-  const shownTarget = progress?.target ?? runtime?.target;
-  const bbStoppedSelf = reviewedJob?.runtimeReceipts.some(row => row.id === 'bb' && row.outcome === 'failed') && reviewedJob.receipts.some(row => row.id === 'pa-updates' && row.outcome === 'pending');
-  const localOnly = inventory.some(hasLocalWork);
-  const readFailed = inventory.some(row => row.development === 'unknown' || row.local === 'unknown' || row.state === 'unavailable') || runtimeRows.some(row => row.reason === 'unavailable');
-  const allCurrent = currentConfirmed && inventory.length + runtimeRows.length > 0 && inventory.every(row => row.state === 'current' && row.local === 'stock' && !row.prerequisite && row.development !== 'unknown') && runtimeRows.every(row => row.state === 'current');
+  const review = state?.review ?? null, rows = components(review), runtime = review?.runtime;
+  const job = state?.job?.reviewId === review?.id ? state?.job : null;
+  const progress = state?.checking && state.progress && (!job || state.progress.requested) ? state.progress : null;
+  const pending = busy || !!state?.applying || !!state?.checking;
+  const failure = progress ? null : state?.failure ?? job?.failure;
+  const completedReview = requestedReview.current !== null && review?.id !== requestedReview.current && !state?.checking && !state?.applying;
+  const confirmed = !error && !unconfirmed && !state?.failure && (!state?.checking || completedReview) && (requestedReview.current === null || completedReview);
+  const historical = !!review && (Date.now() - Date.parse(review.at) >= 6 * 60 * 60_000 || !!state?.offers && state.offers.checkedAt !== review.at);
+  const runtimeRows = runtime?.rows ?? [], runtimeOffers = runtimeRows.filter(row => row.state === 'ready' && row.available);
+  const sourceReady = !!review?.workspace?.behind && !review.workspace.dirty && !review.workspace.ahead;
+  const sourceHeld = !!review?.workspace?.behind && !sourceReady;
+  const localCount = review?.localRows?.length ?? 0;
+  const count = (review?.rows ?? []).filter(row => reviewDecision(row) === 'automatic' && !row.prerequisite).length + runtimeOffers.length + Number(sourceReady);
+  const restarting = runtimeOffers.some(row => row.id === 'bb'), needsConsent = restarting && (runtime?.runningThreadCount ?? 0) > 0;
+  const target = progress?.target ?? runtime?.target;
+  const local = rows.some(row => ['local', 'both'].includes(componentState(row)));
+  const disconnectedLocal = rows.some(row => row.sourceMode === 'managed' && row.workspace?.local && row.applied && row.applied !== row.workspace.working);
   return <section className="pa-updates" aria-label="Update PA">
-    <div className="pa-updates-body" ref={body}>
-      <p role="status" aria-live="polite">{error ? 'Update status unavailable' : failure ? reviewedJob?.phase === 'attention' ? 'Update needs attention' : 'Check failed — previous results may be out of date' : state?.applying ? state.job?.phase === 'restarting' ? 'BB is updating and restarting…' : 'Updating PA…' : busy || state?.checking ? 'Checking…' : reviewedJob ? reviewedJob.phase === 'complete' ? 'Update finished' : 'Update needs attention' : !state?.review ? 'Check for PA updates' : rows.length || runtimeOffers.length ? custom.length ? '' : 'Updates available' : localOnly ? 'Local changes' : readFailed ? 'Some checks failed' : allCurrent ? 'All up to date.' : 'No updates offered' }</p>
-      {error && <p role="alert">Could not read the result. Reopen this panel to check the saved job; do not assume the update failed.</p>}
-      {failure && <p role="alert">{bbStoppedSelf ? 'BB wasn’t updated, so PA updater was left unchanged. Completed updates are kept.' : failures[failure]}</p>}
-      {(shownTarget || runtime && !progress) && <p className="pa-updates-muted">{shownTarget ? <>Server: <strong title={shownTarget.id}>{shownTarget.name}</strong></> : 'The PA server could not be identified. Runtime updates are unavailable; no other machine will be used.'}</p>}
-      {progress && <ProgressRows progress={progress} previous={state?.review ?? null} error={error} />}
-      {!progress && !reviewedJob && <>
-        {custom.length > 0 && <><h3>Local changes</h3>{custom.length > 1 && <div className="pa-update-bulk"><button disabled={pending} onClick={() => setChoices({})}>Keep all local</button><button disabled={pending} onClick={() => setChoices(Object.fromEntries(custom.map(row => [row.id, 'install'])))}>Install all released</button></div>}
-          <div className="pa-update-choices">{custom.map(row => <div className="pa-update-row" key={row.id}><div className="pa-update-version"><Label id={row.id} /><span>{row.installed}{choices[row.id] === 'install' ? <> → <strong>{row.available}</strong></> : <> · {row.available} available</>}</span></div><LocalStatus row={row} /><div className="pa-update-toggle" role="group" aria-label={`${labels[row.id][0]} local changes`}><button disabled={pending} aria-pressed={(choices[row.id] ?? 'keep') === 'keep'} onClick={() => setChoices(current => ({ ...current, [row.id]: 'keep' }))}>Keep local</button><button disabled={pending} aria-pressed={choices[row.id] === 'install'} onClick={() => setChoices(current => ({ ...current, [row.id]: 'install' }))}>Install released version</button></div></div>)}</div>
-          </>}
-        {custom.length > 0 && ordinary.length > 0 && <div className="pa-update-ordinary">{custom.length > 0 && <h3>Also updating</h3>}{ordinary.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed} → <strong>{row.available}</strong></span></div>)}</div>}
-        {unknown.map(row => <div className="pa-update-card" key={row.id}><Label id={row.id} /><p>{row.development === 'unknown' ? 'Couldn’t check local work. Check again before updating.' : prerequisites[row.prerequisite ?? 'baseline_unknown'] ?? failures[row.prerequisite ?? 'baseline_unknown']}</p><LocalStatus row={row} /></div>)}
-        {custom.length > 0 && (inventory.length > 0 || visibleRuntimeRows.length > 0) && <h3>Other components</h3>}
-        {listedIntegrations.length > 0 && <div className="pa-update-ordinary">{listedIntegrations.map(row => <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{row.installed === 'unknown' ? 'Version unknown' : row.installed}{'available' in row ? <> → <strong>{row.available}</strong></> : <> · <InventoryResult row={row} confirmed={currentConfirmed} checking={!!pending} /></>}</span></div>)}</div>}
-        {localOnly && !rows.length && !runtimeOffers.length && <p className="pa-updates-muted">No released updates. Your local changes stay.</p>}
-        {visibleRuntimeRows.length > 0 && <div className="pa-update-ordinary">{visibleRuntimeRows.map(row => <div className="pa-update-card" key={row.id}><div className="pa-update-version"><RuntimeLabel id={row.id} /><span>{row.installed ?? (row.source === 'missing' ? 'Not installed' : 'Installed version unknown')}{row.state === 'ready' ? <> → <strong>{row.available}</strong></> : row.state === 'current' ? <> · <CurrentStatus confirmed={currentConfirmed && !!row.installed && !row.reason} checking={!!pending} /></> : row.reason === 'unavailable' ? ' · Couldn’t check' : ' · Update unavailable'}</span></div>{row.reason && row.reason !== 'unavailable' && <p className="pa-updates-muted">{failures[row.reason]}</p>}</div>)}</div>}
-        {custom.length > 0 && <p className="pa-updates-muted">Keep local leaves this component unchanged. Installing a release replaces its code, not your settings or data.</p>}
-        {installCount > 0 && (custom.length === 0 || bbOffered) && <p>{bbOffered ? 'BB will restart.' : ''}{custom.length === 0 ? `${bbOffered ? ' ' : ''}Settings and data stay.` : ''}</p>}
-        {needsConsent && <label className="pa-update-consent"><input type="checkbox" checked={confirmInterruptingThreads} disabled={pending} onChange={event => setConfirmInterruptingThreads(event.target.checked)} /><span>Allow the BB restart to interrupt {runtime?.runningThreadCount} running threads.</span></label>}
+    <div className="pa-updates-body">
+      {(error || failure || pending || job || !review) && <p role="status" aria-live="polite">{error ? 'Update status unavailable' : failure ? 'Update needs attention' : state?.applying ? state.job?.phase === 'restarting' ? 'BB is updating and restarting…' : 'Applying changes…' : pending ? 'Checking…' : job ? job.phase === 'complete' ? 'Update finished' : 'Update needs attention' : 'Check for PA updates'}</p>}
+      {error && <p role="alert">Could not read the saved result. Check before retrying; an interrupted response does not mean the operation failed.</p>}
+      {failure && <p role="alert">{failures[failure]}</p>}
+      {target && <p className="pa-updates-muted">Server: <strong title={target.id}>{target.name}</strong></p>}
+      {progress ? <Progress value={progress} previous={review} error={error} /> : <>
+        <div className="pa-update-ordinary">{rows.map(row => {
+          const receipt = job?.receipts.find(receipt => receipt.id === row.id), offer = review?.rows.find(offer => offer.id === row.id);
+          return <div className="pa-update-card pa-update-version" key={row.id}><Label id={row.id} /><span>{receipt ? receiptText(receipt, !!state?.applying) : <>{row.installed === 'unknown' ? 'Version unknown' : row.installed}{offer && reviewDecision(offer) === 'automatic' && offer.available !== row.installed ? <> → <strong>{offer.available}</strong></> : null}{' · '}<CodeStatus row={row} confirmed={confirmed} historical={!!job && historical} /></>}</span></div>;
+        })}</div>
+        <div className="pa-update-ordinary">{runtimeRows.map(row => {
+          const receipt = job?.runtimeReceipts.find(receipt => receipt.id === row.id);
+          const result = receipt ? receipt.outcome === 'failed' ? 'Update failed' : receipt.outcome === 'uncertain' ? 'Result uncertain — check before retrying' : receipt.outcome === 'activating' ? 'Updating…' : receipt.actual ? `Installed ${receipt.actual}` : state?.applying ? 'Waiting…' : 'Not updated' : null;
+          return <div className="pa-update-card" key={row.id}><div className="pa-update-version"><RuntimeLabel id={row.id} /><span>{result ?? <>{row.installed ?? (row.source === 'missing' ? 'Not installed' : 'Version unknown')}{row.state === 'ready' ? <> → <strong>{row.available}</strong></> : row.state === 'current' ? <> · <Current confirmed={confirmed && !!row.installed && !row.reason} historical={!!job && historical} /></> : ' · Couldn’t check'}</>}</span></div>{!receipt && row.reason && row.reason !== 'unavailable' && <p className="pa-updates-muted">{failures[row.reason]}</p>}</div>;
+        })}</div>
+        {job?.sourceUpdate && <p className="pa-updates-muted">{job.sourceUpdate.outcome === 'updated' ? 'Working copy updated from origin.' : job.sourceUpdate.outcome === 'held' ? 'Working copy kept. Ask PA to review its local work before pulling updates.' : job.sourceUpdate.outcome === 'uncertain' ? 'Working-copy update uncertain. Ask PA to inspect Git before retrying.' : 'Updating the working copy…'}</p>}
+        {!job && sourceHeld && <p className="pa-updates-muted">Origin has updates, but the working copy has local work. Ask PA to review it first.</p>}
+        {!job && sourceReady && !rows.some(row => row.workspace?.upstream) && <p className="pa-updates-muted">The working copy has updates from origin.</p>}
+        {!job && local && <p className="pa-updates-muted">Local work is kept. Applying does not commit or push it.</p>}
+        {!job && disconnectedLocal && <p className="pa-updates-muted">BB is not using the working folder yet, so these local edits cannot be applied here.</p>}
+        {!job && restarting && <p>BB will restart. Settings and data stay.</p>}
+        {!job && needsConsent && <label className="pa-update-consent"><input type="checkbox" checked={confirmInterruptingThreads} disabled={pending} onChange={event => setConsent(event.target.checked)} /><span>Allow the BB restart to interrupt {runtime?.runningThreadCount} running threads.</span></label>}
       </>}
-      {!progress && reviewedJob && <ul className="pa-update-results">{componentOrder.map(id => {
-        const receipt = reviewedJob.receipts.find(row => row.id === id), current = inventory.find(row => row.id === id);
-        return receipt ? <li key={id}><Label id={id} /><span>{receiptText(receipt, !!state?.applying)}</span></li> : current ? <li key={id}><Label id={id} /><span>{current.installed === 'unknown' ? 'Version unknown' : current.installed} · <InventoryResult row={current} confirmed={resultInventoryConfirmed} checking={!!state?.checking || !!reviewAtRequest.current} historical={resultInventoryHistorical} /></span></li> : null;
-      })}{(Object.keys(runtimeLabels) as RuntimeId[]).map(id => {
-        const receipt = reviewedJob.runtimeReceipts.find(row => row.id === id), current = runtimeRows.find(row => row.id === id);
-        return receipt ? <li key={id}><RuntimeLabel id={id} /><span>{runtimeReceiptText(receipt, !!state?.applying)}</span></li> : current ? <li key={id}><RuntimeLabel id={id} /><span>{current.installed ?? 'Not installed'} · {current.state === 'current' ? <CurrentStatus confirmed={resultInventoryConfirmed && !!current.installed && !current.reason} checking={!!state?.checking || !!reviewAtRequest.current} historical={resultInventoryHistorical} /> : 'Couldn’t check'}</span></li> : null;
-      })}</ul>}
-      {!progress && rows.length > 0 && <details><summary>Release notes</summary>{rows.map(row => {
-        const published = discovery?.observation?.release?.plugins.find(item => item.id === row.id && item.version === row.available);
-        return <div key={row.id}><h3>{labels[row.id][0]} · preview {row.available}</h3><p className="pa-updates-notes">{published?.notes || 'No published notes available for this preview.'}</p></div>;
-      })}{discovery?.stale && <p className="pa-updates-muted">Last known release notes; the release check could not be refreshed.</p>}</details>}
-      {state?.job?.syncReserved && !state.applying && <p role="alert">iCloud remains reserved for this update. If an install result is uncertain, wait for BB’s native update to finish—or restart BB—before resuming. Folders you explicitly paused stay paused.</p>}
+      {state?.job?.syncReserved && !state.applying && <p role="alert">iCloud remains reserved. Check any uncertain result before resuming. Folders you explicitly paused stay paused.</p>}
     </div>
-    <footer>{state?.job?.syncReserved && !state.applying ? <button disabled={pending} onClick={() => void act('resumeSync')}>Resume previously enabled folders</button> : !progress && !reviewedJob && installCount > 0 ? <button className="pa-update-primary" disabled={pending || !!state?.failure || error || (needsConsent && !confirmInterruptingThreads)} onClick={() => void act('apply')}>Update PA</button> : null}
-      <button type="button" disabled={pending || state?.job?.syncReserved} onClick={() => void act('review')}>{state?.review ? 'Check again' : 'Check for updates'}</button>
+    <footer>{state?.job?.syncReserved && !state.applying ? <button disabled={pending} onClick={() => void act('resumeSync')}>Resume previously enabled folders</button> : !progress && !job && count > 0 ? <button className="pa-update-primary" disabled={pending || !!failure || error || unconfirmed || needsConsent && !confirmInterruptingThreads} onClick={() => void act('apply')}>Update PA</button> : null}
+      {!progress && !job && localCount > 0 && <button className={count ? undefined : 'pa-update-primary'} disabled={pending || !!failure || error || unconfirmed} onClick={() => void act('applyLocal')}>Apply local changes</button>}
+      <button type="button" disabled={pending || state?.job?.syncReserved} onClick={() => void act('review')}>{review ? 'Check again' : 'Check for updates'}</button>
     </footer>
   </section>;
 }
 function UpdateNotice() {
   const rpc = useRpc<typeof rpcContract>(), connection = useRealtimeConnectionState();
-  const [available, setAvailable] = useState(false);
-  const mounted = useRef(true), generation = useRef(0);
+  const [available, setAvailable] = useState(false), mounted = useRef(true), generation = useRef(0);
   async function read() {
     const request = ++generation.current;
-    try {
-      const state = await rpc.call('applicationStatus', null);
-      if (mounted.current && request === generation.current) setAvailable(hasFreshOffers(state));
-    } catch { if (mounted.current && request === generation.current) setAvailable(false); }
+    try { const state = await rpc.call('applicationStatus', null); if (mounted.current && request === generation.current) setAvailable(hasFreshOffers(state)); }
+    catch { if (mounted.current && request === generation.current) setAvailable(false); }
   }
-  useRealtime('application', () => { void read(); }); useRealtime('status', () => { void read(); });
+  useRealtime('application', () => { void read(); });
   useEffect(() => { mounted.current = true; void read(); return () => { mounted.current = false; generation.current++; }; }, [connection]);
   return available ? <a className="pa-update-notice" href="/settings/plugins/pa-updates"><Icon name="RotateCcw" /> PA update available</a> : null;
 }

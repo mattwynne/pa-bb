@@ -6,7 +6,9 @@ import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { integrationId } from '../core/application-model.ts';
 import type { DevelopmentWork } from '../core/application-model.ts';
-import { SOURCE_URL } from '../core/release.ts';
+import { originUrl as SOURCE_URL, workspaceSchema } from '../core/workspace.ts';
+import type { Workspace } from '../core/workspace.ts';
+import { sourceDetails, treeFingerprint } from './source-files.ts';
 const LIMIT = 1024 * 1024, paths = integrationId.options.map(id => `plugins/${id}`);
 export class DevelopmentError extends Error {
   readonly category: 'unsupported' | 'unavailable' | 'changed' | 'limit';
@@ -38,16 +40,21 @@ async function head(gitDir: string) {
 }
 export const canonicalCheckout = (home = homedir()) => join(home, 'src', 'pa-bb');
 /** Absence is normal; a present but unreadable/unsupported checkout is not clean. */
-export async function inspectCanonicalDevelopment(signal: AbortSignal, source = SOURCE_URL, checkout = canonicalCheckout()): Promise<DevelopmentWork | null> {
+export async function inspectCanonicalDevelopment(signal: AbortSignal, source = SOURCE_URL, checkout = canonicalCheckout(), onWorkspace?: (value: Workspace) => void, reference?: string): Promise<DevelopmentWork | null> {
   try { await lstat(checkout); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw new DevelopmentError('unavailable'); }
-  return inspectDevelopment(checkout, signal, source);
+  return inspectDevelopment(checkout, signal, source, onWorkspace, reference);
+}
+export async function inspectCanonicalWorkspace(signal: AbortSignal, source = SOURCE_URL, checkout = canonicalCheckout(), reference?: string): Promise<Workspace | null> {
+  let workspace: Workspace | null = null;
+  await inspectCanonicalDevelopment(signal, source, checkout, value => { workspace = value; }, reference);
+  return workspace;
 }
 /** Read the canonical checkout through a private Git directory/index.
  * No Git command runs in, or writes to, the owner repository. No checkout,
  * hooks, filters, builds, credential helpers or source scripts are executed.
  */
-export async function inspectDevelopment(checkout: string | undefined, signal: AbortSignal, source = SOURCE_URL): Promise<DevelopmentWork | null> {
+export async function inspectDevelopment(checkout: string | undefined, signal: AbortSignal, source = SOURCE_URL, onWorkspace?: (value: Workspace) => void, reference?: string): Promise<DevelopmentWork | null> {
   if (!checkout) return null;
   if (!isAbsolute(checkout) || /[\0\r\n]/.test(checkout) || checkout.length > 4096) throw new DevelopmentError('unsupported');
   let temp: string | undefined;
@@ -74,24 +81,28 @@ export async function inspectDevelopment(checkout: string | undefined, signal: A
     await git(['init', '--bare', '.']);
     await writeFile(join(temp, 'owner-config'), config.data, { mode: 0o600 });
     const settings = (await git(['config', '--file', join(temp, 'owner-config'), '--no-includes', '--list', '-z'])).toString().split('\0');
-    if (settings.some(entry => /^(filter\.|include\.|includeif\.|extensions\.|core\.(worktree|autocrlf|eol|sparsecheckout|ignorestat|attributesfile|excludesfile)\n)/i.test(entry))) throw new DevelopmentError('unsupported');
+    if (settings.some(entry => /^(filter\.|url\.|http\.|remote\.[^\n]*\.proxy\n|include\.|includeif\.|extensions\.|core\.(sshcommand|gitproxy|worktree|autocrlf|eol|sparsecheckout|ignorestat|attributesfile|excludesfile)\n)/i.test(entry))) throw new DevelopmentError('unsupported');
     const fileMode = settings.find(entry => entry.startsWith('core.filemode\n'))?.split('\n')[1] ?? 'true';
     if (!['true', 'false'].includes(fileMode)) throw new DevelopmentError('unsupported');
     // Fetch before attaching local objects/refs: even negotiation has no local
     // unpublished commit IDs. Never consult the owner's cached origin/main.
-    await git(['fetch', '--no-tags', '--no-recurse-submodules', '--depth=256', '--filter=blob:none', source, 'refs/heads/main:refs/heads/published']);
-    const published = sha((await git(['rev-parse', 'refs/heads/published'])).toString().trim());
+    if (!reference) await git(['fetch', '--no-tags', '--no-recurse-submodules', '--depth=256', '--filter=blob:none', source, 'refs/heads/main:refs/heads/published']);
+    const published = reference ? reference === 'HEAD' ? local : sha(reference) : sha((await git(['rev-parse', 'refs/heads/published'])).toString().trim());
     await mkdir(join(temp, 'objects/info'), { recursive: true });
     await writeFile(join(temp, 'objects/info/alternates'), join(ownerGit, 'objects') + '\n', { mode: 0o600 });
+    // Local application and post-fast-forward verification need no network.
+    // The caller supplies only HEAD or an already fetched, server-owned ref.
+    if (reference) await git(['update-ref', 'refs/heads/published', published]);
     await git(['update-ref', 'refs/heads/local', local]); await git(['symbolic-ref', 'HEAD', 'refs/heads/local']);
     const exclude = await optional(join(ownerGit, 'info/exclude'), 64 * 1024); if (exclude) await writeFile(join(temp, 'info/exclude'), exclude.data, { mode: 0o600 });
     await writeFile(join(temp, 'index'), index.data, { mode: 0o600 });
     // Retain index time so copying cannot hide Git's racy-clean detection.
     await utimes(join(temp, 'index'), index.stat.atime, index.stat.mtime);
     const worktree = ['--git-dir', temp, '--work-tree', root, '-c', 'core.bare=false', '-c', `core.filemode=${fileMode}`];
-    const flags = (await git([...worktree, 'ls-files', '-v', '-z', '--', ...paths])).toString().split('\0');
+    const scope = onWorkspace ? [] : paths;
+    const flags = (await git([...worktree, 'ls-files', '-v', '-z', '--', ...scope])).toString().split('\0');
     if (flags.some(line => /^[a-zS]/.test(line))) throw new DevelopmentError('unsupported');
-    const stages = (await git([...worktree, 'ls-files', '--stage', '-z', '--', ...paths])).toString().split('\0');
+    const stages = (await git([...worktree, 'ls-files', '--stage', '-z', '--', ...scope])).toString().split('\0');
     if (stages.some(line => /^160000 /.test(line))) throw new DevelopmentError('unsupported');
     const tracked = [...new Set(stages.filter(Boolean).map(line => line.slice(line.indexOf('\t') + 1)))];
     if (tracked.length > 4096) throw new DevelopmentError('limit');
@@ -101,17 +112,31 @@ export async function inspectDevelopment(checkout: string | undefined, signal: A
       const attributes = (await git([...worktree, 'check-attr', '--all', '-z', '--', ...tracked.slice(offset, offset + 128)])).toString().split('\0');
       if (attributes.some((value, index) => index % 3 === 1 && value === 'filter')) throw new DevelopmentError('unsupported');
     }
-    const status = () => git([...worktree, 'status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=all', '--ignore-submodules=all', '--', ...paths]);
+    const status = () => git([...worktree, 'status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=all', '--ignore-submodules=all', '--', ...scope]);
     const before = await status();
     const base = sha((await git(['merge-base', '--all', local, published])).toString().trim());
     const changed = async (from: string, to: string) => (await git(['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', from, to, '--', ...paths])).toString().split('\0').filter(Boolean);
     const localPaths = await changed(base, local), different = new Set(await changed(local, published));
     const dirty = before.toString().split('\0').filter(Boolean).map(line => line.slice(3));
+    const localWork = [...dirty, ...localPaths.filter(path => different.has(path))];
+    let workspace: Workspace | undefined;
+    if (onWorkspace) {
+      const upstream = (await changed(base, published)).filter(path => different.has(path));
+      const files = (await git([...worktree, 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...paths])).toString().split('\0').filter(Boolean);
+      const components = Object.fromEntries(await Promise.all(integrationId.options.map(async id => {
+        const prefix = `plugins/${id}/`, affects = (path: string) => path === `plugins/${id}` || path.startsWith(prefix);
+        const working = await sourceDetails(join(root, 'plugins', id), files.filter(path => path.startsWith(prefix)).map(path => path.slice(prefix.length)));
+        return [id, { local: localWork.some(affects), upstream: upstream.some(affects), working: working.fingerprint, stamp: working.stamp,
+          origin: treeFingerprint(await git(['ls-tree', '-rz', published, '--', `plugins/${id}`]), prefix) }];
+      })));
+      const [ahead, behind] = (await git(['rev-list', '--left-right', '--count', `${local}...${published}`])).toString().trim().split(/\s+/).map(Number);
+      workspace = workspaceSchema.parse({ head: local, originHead: published, dirty: dirty.length > 0, ahead: ahead > 0, behind: behind > 0, components });
+    }
     if (localPaths.length + different.size + dirty.length > 4096) throw new DevelopmentError('limit');
     const after = await status(), nextIndex = await bytes(join(ownerGit, 'index'), 8 * LIMIT);
     if (await head(ownerGit) !== local || digest(index.data) !== digest(nextIndex.data) || !before.equals(after) || !(await bytes(join(ownerGit, 'config'), 64 * 1024)).data.equals(config.data)) throw new DevelopmentError('changed');
-    const work = [...dirty, ...localPaths.filter(path => different.has(path))];
-    return Object.fromEntries(integrationId.options.map(id => [id, work.some(path => path === `plugins/${id}` || path.startsWith(`plugins/${id}/`)) ? 'unpublished' : 'clean'])) as DevelopmentWork;
+    if (workspace) onWorkspace!(workspace);
+    return Object.fromEntries(integrationId.options.map(id => [id, localWork.some(path => path === `plugins/${id}` || path.startsWith(`plugins/${id}/`)) ? 'unpublished' : 'clean'])) as DevelopmentWork;
   } catch (error) { throw error instanceof DevelopmentError ? error : new DevelopmentError('unavailable'); }
   finally { if (temp) await rm(temp, { recursive: true, force: true }); }
 }

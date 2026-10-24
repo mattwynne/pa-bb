@@ -2,8 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import plugin from '../server.ts';
-import { harness as portsHarness } from './fixtures.ts';
-import { statusSchema } from '../core/model.ts';
 import type { ApplicationPorts } from '../core/application.ts';
 import { applicationSavedSchema, applicationStatusSchema } from '../core/application-model.ts';
 import { hasFreshOffers } from '../core/notice.ts';
@@ -29,13 +27,13 @@ test('startup/scheduled discovery notifies later integration or runtime offers w
     for (let generation = 0; generation < 2; generation++) {
       const { bb, harness } = createFakePluginHost({ pluginId: 'pa-updates' });
       try {
-        await plugin(bb, portsHarness().ports, application);
+        await plugin(bb, undefined, application);
         await harness.runService('initial-discovery').done;
         const initial = applicationStatusSchema.parse(await harness.callRpc('applicationStatus', null));
         assert.equal(hasFreshOffers(initial), generation === 1, 'No duplicate old offer; reload rediscovers a genuinely later release');
         if (offer === 'plugin') latestRows = original.review!.rows.map(row => ({ ...row, installed: outcome === 'updated' ? '0.1.1' : '0.1.0', available: '0.1.2' }));
         else { runtime.rows[0].available = '1.0.2'; runtime.rows[0].state = 'ready'; }
-        await harness.runSchedule('release-discovery');
+        await harness.runSchedule('update-check');
         const visible = applicationStatusSchema.parse(await harness.callRpc('applicationStatus', null));
         assert.equal(hasFreshOffers(visible), true, 'The actual notice predicate sees the new offer');
         assert.equal(hasFreshOffers(visible, Date.parse(visible.offers!.checkedAt) + 6 * 60 * 60 * 1000), false);
@@ -57,7 +55,7 @@ test('per-component progress reaches the existing realtime channel before the re
   const gate = new Promise<void>(resolve => { release = resolve; }), checking = new Promise<void>(resolve => { entered = resolve; });
   const inventory = [{ id: 'google-calendar' as const, installed: '1.0.0', local: 'stock' as const, state: 'current' as const, prerequisite: null }];
   const application: ApplicationPorts = { ...idleApplication, inspect: async report => { report?.(inventory[0]); entered(); await gate; return []; }, inventory: () => inventory };
-  await plugin(bb, portsHarness().ports, application);
+  await plugin(bb, undefined, application);
   const pending = harness.callRpc('review', null); await checking;
   try {
     const partial = applicationStatusSchema.parse(await harness.callRpc('applicationStatus', null));
@@ -71,25 +69,27 @@ test('per-component progress reaches the existing realtime channel before the re
   const final = applicationStatusSchema.parse(await pending); assert.equal(final.progress, null); assert.deepEqual(final.review?.inventory, inventory);
   await harness.dispose();
 });
-test('typed application RPCs retain read-only discovery and reject cross-plugin writes; diagnostics stay bounded', async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: 'pa-updates' }); const h = portsHarness();
-  const { diagnose: _diagnose, ...ports } = h.ports;
-  await plugin(bb, ports, idleApplication);
-  assert.deepEqual(harness.registrations.rpcMethods.sort(), ['applicationStatus', 'apply', 'check', 'resumeSync', 'review', 'status']);
+test('one typed status/check path has no release feed; writes reject other plugins and diagnostics stay bounded', async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: 'pa-updates' });
+  let inspections = 0, legacyCalls = 0;
+  await plugin(bb, { feed: () => { legacyCalls++; } }, { ...idleApplication, inspect: async () => { inspections++; return []; } });
+  assert.deepEqual(harness.registrations.rpcMethods.sort(), ['applicationStatus', 'apply', 'applyLocal', 'check', 'resumeSync', 'review', 'status']);
   for (const method of ['review', 'resumeSync', 'apply']) await assert.rejects(harness.callRpc(method, method !== 'apply' ? null : { reviewId: '11111111-1111-4111-8111-111111111111', choices: [] }, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));
-  statusSchema.parse(await harness.callRpc('status', null));
+  await assert.rejects(harness.callRpc('applyLocal', { reviewId: '11111111-1111-4111-8111-111111111111' }, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));
+  applicationStatusSchema.parse(await harness.callRpc('status', null));
   await assert.rejects(harness.callRpc('check', null, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));
   await assert.rejects(harness.callRpc('check', { path: 'PRIVATE_SENTINEL', command: 'reset' }));
-  await Promise.all([harness.runSchedule('release-discovery'), harness.callRpc('check', null)]);
-  assert.equal(h.calls(), 1); assert.equal(harness.sdk.calls.length, 0);
-  h.advance(); ports.feed = async () => { throw new Error('PRIVATE_SENTINEL body token /private'); };
-  // Dependencies are captured when constructed: mutate original referenced port
-  // via a second plugin instance to exercise the production diagnostic boundary.
+  await Promise.all([harness.runSchedule('update-check'), harness.callRpc('check', null)]);
+  assert.equal(inspections, 1); assert.equal(legacyCalls, 0); assert.equal(harness.sdk.calls.length, 0);
   await harness.dispose();
   const next = createFakePluginHost({ pluginId: 'pa-updates' });
-  await plugin(next.bb, { ...ports, feed: ports.feed }, idleApplication); await next.harness.callRpc('check', null);
+  await plugin(next.bb, undefined, { ...idleApplication,
+    inspect: async () => { throw new Error('PRIVATE_SENTINEL body token /private'); },
+    diagnose: (stage, category) => next.bb.log.warn(`pa-updates stage=${stage} outcome=${category}`),
+  });
+  await next.harness.callRpc('check', null);
   const logs = JSON.stringify(next.harness.logEntries);
-  assert.match(logs, /pa-updates stage=feed outcome=unavailable/); assert.ok(!logs.includes('PRIVATE_SENTINEL'));
+  assert.match(logs, /pa-updates stage=review outcome=unavailable/); assert.ok(!logs.includes('PRIVATE_SENTINEL'));
   assert.ok(!JSON.stringify(await next.harness.callRpc('status', null)).includes('PRIVATE_SENTINEL'));
   await next.harness.dispose();
 });

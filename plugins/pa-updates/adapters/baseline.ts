@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { IntegrationId } from '../core/application.ts';
 import { ApplicationError, integrationId } from '../core/application-model.ts';
-import { SOURCE_URL } from '../core/release.ts';
+import { originUrl as SOURCE_URL } from '../core/workspace.ts';
+import { treeFingerprint } from './source-files.ts';
 const exec = promisify(execFile);
 const LIMIT = 32 * 1024 * 1024;
 const sha = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
@@ -91,6 +92,12 @@ export class Baselines {
     await this.command('git', ['init', '-q', '--bare'], dir);
     await this.command('git', ['fetch', '--quiet', '--depth=1', '--no-tags', this.sourceUrl, commit], dir, this.root);
     this.sources.set(commit, dir); return dir;
+  }
+  /** Compare code, not the repository commit or package version. No build. */
+  async sourceIdentity(commit: string, id: IntegrationId): Promise<string> {
+    const dir = await this.source(commit);
+    const listing = await this.command('git', ['ls-tree', '-rz', commit, '--', `plugins/${id}`], dir);
+    return treeFingerprint(Buffer.from(listing), `plugins/${id}/`);
   }
   async manifest(commit: string, id: IntegrationId): Promise<Manifest> {
     const dir = await this.source(commit);

@@ -4,6 +4,8 @@ import { Application, ApplicationError } from '../core/application.ts';
 import type { ApplicationPorts, Assessment } from '../core/application.ts';
 import type { RuntimeReview, BbResult } from '../core/runtime-model.ts';
 import { hasFreshOffers } from '../core/notice.ts';
+import { componentIds } from '../core/workspace.ts';
+import type { Workspace } from '../core/workspace.ts';
 const row = (id: Assessment['id'] = 'google-calendar', local: Assessment['local'] = 'stock'): Assessment => ({ id, installed: '0.1.0', available: '0.1.1', local, fingerprint: `original-${id}`, prerequisite: null });
 function fixture(rows = [row()]) {
   let stored: unknown, updates: string[] = [], logs: unknown[] = [];
@@ -96,6 +98,15 @@ test('automatic discovery retains an active job and cannot reuse pre-apply readi
     assert.deepEqual(result.job, active.job); assert.deepEqual(f.stored(), stored); assert.equal(hasFreshOffers(result), false);
   } finally { gate.resolve(); await f.app.join(); }
   assert.equal(hasFreshOffers(f.app.status()), false);
+});
+test('new origin contents notify after a saved result even when the version did not change', async () => {
+  const original = { ...row(), available: '0.1.0', targetFingerprint: 'a'.repeat(64) };
+  const f = fixture([original]); await f.app.start(); const review = (await f.app.review()).review!;
+  await f.app.apply({ reviewId: review.id, choices: [] }); await f.app.join();
+  assert.equal(hasFreshOffers(await f.app.review({ automatic: true })), false);
+  f.rows[0].targetFingerprint = 'b'.repeat(64);
+  assert.equal(hasFreshOffers(await f.app.review({ automatic: true })), true);
+  assert.equal(f.app.status().review?.id, review.id, 'saved results remain visible');
 });
 test('automatic offers can refresh a reserved result but cannot invite application or discard recovery', async () => {
   const f = fixture(); await f.app.start(); const review = (await f.app.review()).review!;
@@ -274,6 +285,68 @@ test('failure to persist BB restart intent prevents native restart admission', a
   await f.app.start(); const review = (await f.app.review()).review!;
   await f.app.apply({ reviewId: review.id, choices: [] }); await f.app.join();
   assert.equal(f.app.status().failure, 'storage'); assert.ok(!f.events.includes('bb'));
+});
+function sourceWorkspace(): Workspace {
+  return { head: 'a'.repeat(40), originHead: 'b'.repeat(40), dirty: false, ahead: false, behind: true,
+    components: Object.fromEntries(componentIds.map(id => [id, { local: false, upstream: id === 'google-calendar', working: 'a'.repeat(64), origin: id === 'google-calendar' ? 'b'.repeat(64) : 'a'.repeat(64) }])) as Workspace['components'] };
+}
+test('explicit local application accepts an unknown loaded record, not an unknown source; it never pulls or updates runtimes', async () => {
+  const f = fixture([]), candidate: Assessment = { ...row(), installed: '1.0.0', available: '1.0.0', local: 'unknown', sourceMode: 'local', targetFingerprint: 'b'.repeat(64) };
+  let developmentReads = 0, runtimeReads = 0, syncs = 0;
+  f.ports.development = async () => { developmentReads++; return null; };
+  f.ports.inspect = async (_report, mode) => mode === 'local' ? [candidate] : [];
+  f.ports.localCandidates = () => [candidate];
+  f.ports.syncWorkspace = async () => { syncs++; throw new Error('No source writes'); };
+  f.ports.runtime = { ...runtimeFixture().ports.runtime!, inspect: async () => { runtimeReads++; return { target: null, runningThreadCount: 9, rows: [] }; } };
+  f.ports.update = async (id, authorized) => { assert.equal(authorized.mode, 'local'); assert.equal(authorized.target, candidate.targetFingerprint); f.updates.push(id); return { actual: '1.0.0', updated: true }; };
+  await f.app.start(); const review = (await f.app.review()).review!;
+  await f.app.applyLocal({ reviewId: review.id }); await f.app.join();
+  const state = f.app.status(); assert.equal(state.job?.mode, 'local'); assert.equal(state.job?.phase, 'complete');
+  assert.deepEqual(f.updates, ['google-calendar']); assert.deepEqual(state.job?.runtimeReceipts, []);
+  assert.equal(state.job?.receipts[0].actual, '1.0.0'); assert.equal(developmentReads, 1); assert.equal(runtimeReads, 1); assert.equal(syncs, 0);
+});
+test('local source edits after review require a fresh explicit application', async () => {
+  const f = fixture([]), candidate: Assessment = { ...row(), sourceMode: 'local', targetFingerprint: 'b'.repeat(64) };
+  f.ports.localCandidates = () => [candidate]; f.ports.inspect = async (_report, mode) => mode === 'local' ? [candidate] : [];
+  await f.app.start(); const review = (await f.app.review()).review!; candidate.targetFingerprint = 'c'.repeat(64);
+  await f.app.applyLocal({ reviewId: review.id }); await f.app.join();
+  assert.equal(f.app.status().job?.failure, 'changed'); assert.deepEqual(f.updates, []);
+});
+test('source-only updates are real jobs even when the running plugins already match origin', async () => {
+  const f = fixture([]), source = sourceWorkspace(); let syncs = 0;
+  f.ports.workspace = () => source;
+  f.ports.syncWorkspace = async expected => {
+    syncs++; assert.equal(expected.head, source.head);
+    const next = structuredClone(source); next.head = source.originHead; next.behind = false;
+    for (const row of Object.values(next.components)) { row.working = row.origin; row.upstream = false; }
+    return { state: 'updated', workspace: next };
+  };
+  await f.app.start(); const review = (await f.app.review()).review!; assert.equal(hasFreshOffers(f.app.status()), true);
+  await f.app.apply({ reviewId: review.id, choices: [] }); await f.app.join();
+  assert.equal(syncs, 1); assert.equal(f.app.status().job?.phase, 'complete'); assert.equal(f.app.status().job?.sourceUpdate?.outcome, 'updated');
+  assert.equal(f.app.status().review?.workspace?.behind, false); assert.deepEqual(f.updates, []); assert.deepEqual(f.app.status().job?.receipts, []);
+});
+test('held source work does not block an independent CLI update or create an empty success', async () => {
+  const f = fixture([]), source = { ...sourceWorkspace(), dirty: true }; let syncs = 0;
+  f.ports.workspace = () => source; f.ports.syncWorkspace = async () => { syncs++; throw new Error('Source must be kept'); };
+  await f.app.start(); let review = (await f.app.review()).review!;
+  await f.app.apply({ reviewId: review.id, choices: [] }); assert.equal(f.app.status().job, null);
+  f.ports.runtime = { ...runtimeFixture().ports.runtime!, inspect: async () => ({ target: { id: 'fixture', name: 'Fixture' }, runningThreadCount: 0,
+    rows: [{ id: 'pi', installed: '1.0.0', available: '1.1.0', state: 'ready', source: 'npmGlobal', fingerprint: 'pi', reason: null }] }),
+    updateCli: async () => ({ actual: '1.1.0', source: 'npmGlobal' }) };
+  review = (await f.app.review()).review!;
+  await f.app.apply({ reviewId: review.id, choices: [] }); await f.app.join();
+  assert.equal(syncs, 0); assert.equal(f.app.status().job?.sourceUpdate?.outcome, 'held');
+  assert.equal(f.app.status().job?.runtimeReceipts[0].outcome, 'updated'); assert.equal(f.app.status().job?.phase, 'complete');
+});
+test('an uncertain source write stops activation and is never replayed after restart', async () => {
+  const f = fixture([]); let syncs = 0; f.ports.workspace = sourceWorkspace;
+  f.ports.syncWorkspace = async () => { syncs++; throw new Error('PRIVATE_SENTINEL'); };
+  await f.app.start(); const review = (await f.app.review()).review!;
+  await f.app.apply({ reviewId: review.id, choices: [] }); await f.app.join();
+  assert.equal(f.app.status().job?.sourceUpdate?.outcome, 'uncertain'); assert.equal(f.app.status().job?.phase, 'attention');
+  const restarted = new Application(f.ports); await restarted.start(); await restarted.refresh(); assert.equal(syncs, 1);
+  assert.ok(!JSON.stringify([f.logs, restarted.status()]).includes('PRIVATE_SENTINEL'));
 });
 test('storage failure refuses to start application', async () => {
   const f = fixture(); await f.app.start(); const review = (await f.app.review()).review!;

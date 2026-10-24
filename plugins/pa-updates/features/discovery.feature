@@ -1,31 +1,21 @@
-Feature: Read-only Google Calendar release discovery
-  Scenario: A real installed revision matches the baseline
-    Given Google Calendar is installed at the published baseline
-    When I check PA updates
-    Then the release result is "current"
-    And no installation or checkout write is requested
+Feature: Git-first PA development
+  Try server changes before sharing them, and see differences from origin.
 
-  Scenario: Local work does not disappear when the feed fails
-    Given Google Calendar is installed at the published baseline
-    And a successful check has been saved
-    And the release feed is now unavailable
-    And relevant local files have changed
-    When I check PA updates
-    Then the last release information is stale
-    And the local-work result is "local_changes"
-    And no installation or checkout write is requested
+  Scenario: Try local code without publishing it
+    Given a local-path plugin with unapplied edits
+    When I apply the local changes
+    Then that working code is applied without pulling or updating runtimes
 
-  Scenario: Missing mapping does not prevent release discovery
-    Given Google Calendar is installed at the published baseline
-    And a newer Calendar release is published
-    And no development checkout is configured
-    When I check PA updates
-    Then the release result is "available"
-    And the local-work result is "not_assessed"
-    And no installation or checkout write is requested
+  Scenario: Pushed code is not necessarily running
+    Given the working copy and origin agree but an older build was applied
+    Then the plugin is not reported up to date
 
-  Scenario: Calendar is not installed
-    Given Google Calendar is not installed
-    When I check PA updates
-    Then the release result is "no_plugin"
-    And no installation or checkout write is requested
+  Scenario: Incoming code need not bump a package version
+    Given origin offers different plugin contents with the same version
+    When I update PA
+    Then those contents are applied with that same version
+
+  Scenario: Both sides changed
+    Given local and origin changes need Git review
+    When I update PA
+    Then local work is kept without an empty successful update

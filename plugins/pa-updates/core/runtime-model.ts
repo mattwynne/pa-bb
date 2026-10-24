@@ -8,7 +8,7 @@ export const runtimeRowSchema = z.object({
   id: runtimeId, installed: version.nullable(), available: version.nullable(),
   source: runtimeSource, fingerprint: z.string().max(128),
   state: z.enum(['ready', 'current', 'unavailable']),
-  reason: z.enum(['unsupported_install', 'not_installed', 'unavailable', 'busy', 'changed']).nullable(),
+  reason: z.enum(['unsupported_install', 'not_installed', 'unavailable', 'busy', 'changed', 'local_pending']).nullable(),
 });
 export const runtimeReviewSchema = z.object({
   target: z.object({ id: z.string().min(1).max(256), name: z.string().min(1).max(128) }).nullable(),

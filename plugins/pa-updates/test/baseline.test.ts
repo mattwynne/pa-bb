@@ -36,6 +36,21 @@ async function fixture(ids: IntegrationId[] = ['google-calendar']) {
   const store: BaselineStore = { load: async () => structuredClone(saved), save: async value => { saved = structuredClone(value); } };
   return { root, repo, tools, cli, commit, installed, store, saved: () => baselineCacheSchema.parse(saved), baseline: () => new Baselines(repo, cli, undefined, store), clean: () => rm(root, { recursive: true, force: true }) };
 }
+test('source identity ignores sibling commits but detects same-version code changes without a builder', async () => {
+  const f = await fixture(), baseline = f.baseline();
+  const git = async (...args: string[]) => (await exec('git', args, { cwd: f.repo })).stdout.trim();
+  try {
+    await rm(f.tools, { recursive: true, force: true });
+    const before = await baseline.sourceIdentity(f.commit, 'google-calendar');
+    await writeFile(join(f.repo, 'README.md'), 'repository-only update');
+    await git('add', '.'); await git('commit', '-qm', 'unrelated');
+    assert.equal(await baseline.sourceIdentity(await git('rev-parse', 'HEAD'), 'google-calendar'), before);
+    await writeFile(join(f.repo, 'plugins/google-calendar/server.ts'), 'same version, new behavior\n');
+    await git('add', '.'); await git('commit', '-qm', 'same-version code');
+    assert.notEqual(await baseline.sourceIdentity(await git('rev-parse', 'HEAD'), 'google-calendar'), before);
+    assert.equal((await baseline.manifest(await git('rev-parse', 'HEAD'), 'google-calendar')).version, '0.1.1');
+  } finally { await baseline.close(); await f.clean(); }
+});
 test('trusted originals survive reload and later builder pruning without blessing customized installed bytes', async () => {
   const f = await fixture(); const first = f.baseline();
   try {

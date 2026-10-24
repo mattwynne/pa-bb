@@ -1,177 +1,62 @@
 # PA updates
 
-Review and apply ordinary released updates to Calendar, Fastmail, Google Drive,
-iCloud, Obsidian, PA updater itself, BB, Pi CLI and Codex CLI. Components with
-**Local changes** stay unchanged unless you choose **Install released version**.
+A compact **Settings → PA updates** page for the six PA plugins, BB, Pi and Codex.
+For plugin development, the workflow is **edit → try on the server → commit and push**.
+GitHub releases and version bumps are not required to detect or apply code changes.
 
-## Use it
+## Everyday use
 
-1. Install `pa-updates@pa-for-bb` through BB’s normal plugin controls.
-2. Open **Settings → PA updates**. The update notice and **PA updates** footer
-   icon both open this page.
-3. Check the versions and the named PA server. Pi/Codex actions target BB’s
-   configured primary host, never the computer displaying the browser.
-4. Keep the default **Keep local**, or choose **Install released version** for
-   a component with local changes. Bulk controls change choices, not installations.
-5. Choose **Update PA**. If BB has running threads, its restart requires explicit
-   permission to interrupt them. Otherwise wait for those threads to finish.
-6. After a BB restart, return to **Settings → PA updates** to read the saved result.
+- **Check again** compares the working copy with fresh `origin` and the last confirmed applied code. It does not alter the working copy, reload a plugin, commit or push.
+- **Apply local changes** asks BB to compile/load the affected local-path plugins. It does not pull, commit or push. Try the result before sharing it through normal Git.
+- **Update PA** safely fast-forwards incoming source changes and applies affected plugins, together with eligible native BB/Pi/Codex updates. Local work is kept. If the checkout needs a merge, ask PA to review it through normal Git; the updater does not reset, stash or choose a merge strategy.
 
-Opening the page or checking does not start a new update job. The server checks
-every six hours; repeated Apply requests join one saved job. An already-authorized
-job can finish its final updater step after BB restarts. The updater does not
-install absent integrations, update unrelated plugins, or change other machines.
-It never executes commands supplied by a browser or release record.
+The footer entry and update notice open this page. Checks show real per-component progress. Opening the page never starts an update. Background checks run every six hours.
 
-## Versions and results
+## What the rows mean
 
-A preview is not a pin. A compatible released version can advance before the
-native installer runs. Receipts distinguish the preview from the actual installed
-version, kept customizations, unverified/skipped components, native failures and
-uncertain results. Completed steps are not rolled back as a group. Uncertain
-installation writes are not retried automatically. Automatic discovery and reloads
-keep the saved outcome visible until you choose **Check again**. Automatic checks
-still discover later integration and runtime offers, so the notice can return
-without replacing those results. Opening it preserves the result; **Check again**
-opens a fresh review. Steps not reached
-say **Waiting…** while the job runs and **Not updated** after it stops.
+- **Up to date:** applied code, working files and origin agree. Versions alone cannot earn a green check.
+- **Local changes:** edited files or code not yet shared with origin.
+- **Updates available:** origin has changes the server has not taken.
+- **Local and upstream changes:** both sides changed; review through Git.
+- **Changes ready to apply:** known applied code differs from the working copy.
+- **Couldn't check:** source or applied-code identity is uncertain. This is not permission to overwrite anything.
 
-CLI receipts verify the installed version and managed npm provenance. Existing
-provider processes and sessions may retain their previous version until their
-normal restart or release. No session is forcibly reset by the CLI updater.
+The standard source workspace is `$HOME/src/pa-bb`; there is no folder setting or directory search. Locally developed plugins load from its component folders through BB's local-path mode. Their IDs, settings and data directories stay the same.
 
-Integrations update first, then their scheduling is restored, then CLIs and BB
-update through their native controls. PA updater replaces itself **last**. The
-job records intent before each BB restart or self-update. After BB restarts,
-only the still-pending final self step from that same saved job may continue.
-Failed or uncertain BB updates leave PA updater unchanged. After self-replacement,
-the new instance reads its running version and trusted source to finish the same
-receipt; it never repeats an admitted update. Older jobs do not acquire new steps.
-The plugin does not supervise BB or promise automatic rollback.
+BB reload compiles local source itself. BB startup also loads the current working source, so a BB update is held while local edits are unconfirmed. A planned BB restart can itself replace the local-path updater; that replacement is observed, not repeated.
 
-## Local changes and the source workspace
+The updater records confirmed native loads, including a file-generation stamp. Restoring old file contents after loading different code cannot falsely produce a green check. Code applied outside this workflow may require an explicit local application to confirm it again.
 
-On a PA server, the source workspace is `$HOME/src/pa-bb`. There is no checkout
-setting or directory search. Ordinary installations need no repository; a missing
-workspace simply means there is no development checkout to inspect.
+## Existing GitHub-sourced installations
 
-The six component folders are checked for Git-visible unstaged, staged and
-untracked files, and unpublished branch changes against fresh published `main`.
-Being behind does not count as local work. Both these changes and edits to installed
-code show the same amber **Local changes** badge. With a released offer, both
-require an explicit **Install released version** choice; **Keep local** is the
-default. Local work without a released offer does not enable Update PA or a notice.
-Installing a release never deletes or publishes source-workspace changes.
+These use BB's separate installed snapshots. Their normal origin updates still work, including same-version code changes. A missing development checkout is normal. Existing original-build verification remains for these installations during transition: cached proofs or independently reconstructed originals in owned temporary directories, using already-installed/retained builders only. It never changes the working copy or runs a candidate plugin. No historical toolchains are downloaded.
 
-Inspection never writes to the checkout or runs its hooks, filters, builds or
-scripts. Network Git operations use a disposable directory, not cached
-`origin/main`. Inspection is bounded to 60 seconds, 256 published commits and
-4,096 changed paths; unsupported layouts or an unavailable comparison show
-**Couldn’t check local work**, not a green success. Linked worktrees, shallow or
-partial clones and custom checkout filters are not supported. Ignored generated
-files do not count as untracked work. Actual inspection failures remain unknown,
-not evidence that replacement is safe. Agents should follow the workspace rules
-in the repository’s [AGENTS.md](../../AGENTS.md), not edit BB-managed copies.
+**An in-place source switch is still required for local editing of an existing managed installation.** BB 0.46.1 and the inspected 0.47.1 support local-folder-to-local-folder moves, but reject Git-to-local-folder replacement. Do not uninstall a configured plugin, patch its cache or edit BB's private database to bypass this restriction. This is an installation capability dependency, not a data-migration task.
 
-## What stays in place
+## Data, consent and recovery
 
-Settings, credentials, account data, enablement and kept customizations remain.
-Installing a released integration replaces its local code, interface and assets.
-The updater checks local changes again before applying. Avoid editing installed
-code while an update runs; the native handoff is not an atomic edit reservation.
+Settings, credentials, enabled state, user source work and account data remain intact. Source checks use an isolated Git directory/index without owner hooks or filters. Fast-forwards stop on local work or ignored-file collisions; they do not push anything.
 
-A failed baseline check is **unverified**, not proof of customization or permission
-to overwrite. That integration is skipped without hiding independent updates.
-Local-path, pinned and non-main installations are not silently retargeted.
+File-writing integrations are reserved and drained through their supported Pause controls before changing code. Only previously enabled folders resume; explicitly paused or failed folders remain paused. The current iCloud/Obsidian 0.3.x note-interface family is supported; older pairs need their [documented stopped migration](../icloud/README.md).
 
-## Requirements and supported scope
+Native BB restart consent for running threads remains. Pi/Codex updates affect the configured PA execution host, not the browser's computer, and do not forcibly refresh existing provider sessions.
 
-- BB **0.46.0+**, Node **22.18+**, Git, and outbound access to the configured GitHub
-  and npm services. The verified native path is Linux with BB’s supported launcher.
-- Managed integrations from the fixed `mattwynne/pa-bb` repository, `main` channel
-  and their normal `plugins/<id>` subdirectories. “Released” means the compatible
-  version available through that configured published channel.
-- Original-build verification uses published Git objects and an already-installed
-  BB builder matching the artifact’s recorded version, or a saved independently
-  reconstructed original for that exact integration, source commit and builder.
-  It can use the exact native app-version sibling retained by BB. It never
-  downloads old BB toolchains or requires a development checkout. Normal builds may download pinned dependencies;
-  this is not an offline operation.
-- Reconstruction uses temporary files, bounded to 512 source entries and 32 MiB
-  per package. At most six active expected-hash records persist—one per component,
-  not an artifact history. Checks seed unchanged integrations before a later BB
-  upgrade can prune their builders. Expected hashes come from independent original
-  reconstruction, never the currently installed bytes. Tests, documentation,
-  dependencies and ordinary operational data are not executable customizations.
-- BB must offer a supported native npm/latest or clean source/main update. Desktop,
-  development, dirty or unsupported installations use BB’s normal instructions.
-  Pi/Codex must already have supported managed npm installations. Missing CLIs
-  are not installed as a side effect; external installations are not overwritten.
-
-### iCloud and Obsidian
-
-Automatic paired updates support the current **0.3.x** note-interface family.
-Older pairs require the [documented stopped migration](../icloud/README.md).
-The installed iCloud must already provide updater-aware Pause support; an older
-provider without it cannot safely bootstrap this capability while enabled. Use
-that stopped delivery procedure first.
-
-During a paired update, iCloud reserves scheduling and drains work. Its durable
-reservation records only folders it paused. User-paused folders stay paused,
-including across reload. Failed folders remain paused but release the updater’s
-restoration rights, so ordinary recovery controls remain usable. The update shows
-an attention result rather than trapping the folder behind the reservation.
-
-After an uncertain integration write, inspect the native result before choosing
-**Resume previously enabled folders**. This does not clear recovery failures.
-
-## Release notes and trust
-
-The existing immutable `pa-release-<source-commit>` feed supplies release notes.
-Its v1 publisher still covers Calendar only; absent notes are shown as unavailable,
-not invented. Offers and application come from the supported native channels.
-Older release metadata does not certify a later version installed from `main`.
-
-Repository/channel allowlists, native engine checks and HTTPS/repository controls
-are the trust boundary—not independent artifact signing. No workflow-write or
-account credential is needed to consume public releases.
+Results survive updater replacement and BB restart. Completed steps remain completed; unknown writes are never retried automatically. After an uncertain result, inspect the saved outcome before retrying or resuming reserved folders. The plugin is not a rollback or session-supervision system.
 
 ## Development and verification
 
 ```sh
 npm ci
-npm run build
 npm test
 npm run typecheck
+npm run build
 npm run test:rendered
 ```
 
-The rendered gate starts disposable BB and uses the original app with synthetic
-typed RPC states at desktop/narrow widths. It checks choices, consent, scrolling,
-notes, errors, keyboard access and focus return. It does not perform native writes.
+Temporary-repository tests cover local, incoming, both-sided and same-version changes, read-only checks, safe fast-forward and preservation of local/ignored files. Native disposable gates use synthetic settings, secrets and data only:
 
-`test/run-self-update-gate.mjs` exercises kept self, explicit native self-replacement,
-and self-replacement after a real BB restart. It checks the same durable receipt,
-one admission per update, no registration/disposal deadlock, and no provider CLI
-installation. Factory startup performs no native reconciliation; post-registration
-status/background entrypoints handle the saved job.
+- `test/run-local-path-gate.mjs`: native reload and same-ID local-folder movement preserve data and disabled state.
+- `test/run-local-development-gate.mjs`: original updater handlers, edit/try before push, same-version local/origin changes, self replacement, source-only updates, kept work and actual same-binary BB restarts. It does not claim to upgrade the BB binary.
+- Existing ordinary/runtime/paired-sync gates retain their narrower historical evidence; rerun affected boundaries, not every old version combination.
 
-`test/run-ordinary-update-gate.mjs` exercises the original integration executor.
-`test/run-runtime-update-gate.mjs` exercises real native CLI installers and BB’s
-launcher, then verifies original-build reconstruction and a later plugin update
-across the BB upgrade. `test/run-paired-sync-gate.mjs` exercises the actual
-updater-aware iCloud/Obsidian pair with generated local alias data and stock
-rclone 1.75.2: active sync, reservation, native reload, restored enablement and
-preserved notes/receipts. Run these native installer gates **only inside a fresh
-disposable Linux container**, with no host credentials, broad mounts, privileged mode or host
-networking. Its own HOME/data/PATH/npm-prefix checks are an additional boundary,
-not a substitute for the container. Copy evidence before destroying that container.
-
-See [iteration 018 evidence](../../docs/plans/018-pa-platform-updates-ordinary-proof.md)
-for tested versions and outstanding gates. A portable unit pass is not native sync
-acceptance or permission to deploy.
-
-Diagnostics contain only `pa-updates stage=<fixed stage> outcome=<fixed category>`.
-Never log raw installer output, paths, exception payloads, credentials or account
-content. No agent mutation tools are registered. BB’s `client` caller category
-includes app, CLI and agent clients; it is not an agent-exclusion boundary.
+Rendered review uses the original app in disposable BB at desktop/narrow widths with keyboard checks. Unit tests or version labels do not substitute for it. Historical Calendar release records and publisher tests remain separate from the updater's Git-based workflow.
