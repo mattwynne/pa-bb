@@ -1,6 +1,6 @@
 # 022 — Per-plugin GitHub and local development modes
 
-Status: verified; delivery pending. Tracked in `yx` under “Switch PA plugins between GitHub and local development”. Extends 021 with an explicitly approved destructive transition; retaining configuration is follow-up work, not a prerequisite.
+Status: delivered as PA updates 0.4.0 (`3c574b2`). Tracked in `yx` under “Switch PA plugins between GitHub and local development”. Extends 021 with an explicitly approved destructive transition; retaining configuration is follow-up work, not a prerequisite.
 
 ## Outcome
 
@@ -45,6 +45,12 @@ Original-handler native switching now passes on BB 0.46.1 and 0.47.1: per versio
 Rendered review uses the original app in disposable BB 0.46.0 with validated synthetic RPC states: 41 states at desktop/narrow widths, 24 plugin/direction/viewport warning cases and 166 screenshots. Keyboard Cancel/Tab/Escape/return focus, no writes on cancellation, one explicit confirmation and saved failure/recovery outcomes pass. Actual rejected RPCs and lost responses do not leak private error text or replay writes. Fresh per-row origin verification prevents a previous successful snapshot from producing a false green during a new check. The parent inspected actual desktop/narrow, local-origin, ordinary/self warnings, rejected-response and progress screenshots. This is UI proof, not native switching proof; no live plugin was switched.
 
 The final display/error changes do not modify the tested mutation engine; its five recorded source-file hashes still match the frozen native fixture. Selected rendered evidence: [desktop](022-source-modes-desktop.png), [local details](022-local-details-narrow.png), [reset warning](022-switch-warning-narrow.png), [updater warning](022-self-switch-warning-narrow.png), [unverified progress](022-unverified-progress-narrow.png).
+
+## Delivery observation
+
+Implementation `3c574b2` is pushed and updater **0.4.0** is running after a targeted native Git update. Fresh live inspection and desktop/narrow review show all six source controls enabled. Ordinary and updater-self warnings were opened and cancelled, including keyboard focus return; no source-switch or other write RPC was attempted. The page reported no browser errors.
+
+All 44 installed plugins retained their status and enablement; only the intended updater version changed. BB 0.46.1, Pi 1.3.0 and Codex 0.163.0 stayed installed. All six PA sources remain **GitHub**, with no source-switch receipt or reset. Working-copy runtime dependencies were prepared with install scripts disabled, without loading those plugins, and the checkout stayed clean. Private server guidance was aligned outside the checkout.
 
 ## Follow-up
 
