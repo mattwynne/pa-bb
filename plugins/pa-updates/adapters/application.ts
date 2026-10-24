@@ -10,13 +10,14 @@ import { inspectCanonicalWorkspace, canonicalCheckout, unknownDevelopment, Devel
 import { sourceFingerprint, sourceDetails } from './source-files.ts';
 import { AppliedSources } from './applied-source.ts';
 import { syncWorkspace } from './sync-workspace.ts';
+import { sourceModePorts, sourceGeneration } from './source-mode.ts';
 import type { Workspace } from '../core/workspace.ts';
 import { ApplicationError, integrationId } from '../core/application.ts';
 import type { ApplicationPorts, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode } from '../core/application.ts';
 import { originUrl as SOURCE_URL } from '../core/workspace.ts';
 const syncStatus = z.object({ updatePause: z.object({ version: z.literal(1), jobId: z.string().uuid().nullable(), manualRecovery: z.boolean().optional() }).optional(), mirrors: z.array(z.object({ id: z.string().uuid(), enabled: z.boolean(), phase: z.string(), failure: z.string().nullable() })).max(20) });
 const validVersion = (value: string) => { if (value.length > 64 || !semver.valid(value)) throw new ApplicationError('unavailable'); return value; };
-export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDevelopmentCheckout?: () => Promise<string | undefined>): ApplicationPorts {
+export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDevelopmentCheckout?: () => Promise<string | undefined>, receiptRoot?: string): ApplicationPorts {
   const controller = new AbortController();
   const active = () => controller.signal.throwIfAborted();
   const signal = (timeout = 10000) => AbortSignal.any([controller.signal, AbortSignal.timeout(timeout)]);
@@ -65,9 +66,14 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
   };
   const sync = (method = 'status', input: null | { updateJob: string } = null) => bb.sdk.plugins.callRpc({ pluginId: 'icloud', method, input, outputSchema: syncStatus, signal: signal() });
   const runtime = runtimePorts(bb, controller.signal);
+  const sourceMode = sourceModePorts(bb, { sourceUrl, checkout, receiptRoot, active,
+    manifest: async (commit, id) => { try { return await baseline.manifest(commit, id); } finally { await baseline.close(); } },
+    remember: (id, path, source, stamp) => appliedSources.remember(id, path, source, stamp),
+  });
   const protectRestart = (row: import('../core/runtime-model.ts').RuntimeRow) => pendingLocal && row.id === 'bb' && row.state === 'ready'
     ? { ...row, state: 'unavailable' as const, reason: 'local_pending' as const } : row;
   return {
+    sourceMode,
     async development() {
       workspace = null;
       try {
@@ -99,7 +105,10 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
           let assessment: { local: 'stock' | 'custom' | 'unknown'; fingerprint: string; originalVersion: string } | null = null;
           let applied: string | null = null;
           let sourceMode: IntegrationInventoryRow['sourceMode'] = 'unsupported';
-          const facts = () => ({ workspace: workspace?.components[id.data] ?? null, applied, sourceMode });
+          let generation: string | undefined;
+          const facts = () => ({ workspace: workspace?.components[id.data] ?? null, applied, sourceMode, sourceEnabled: plugin.enabled,
+            ...(typeof workspace?.originComparisonMatches === 'boolean' ? { originComparisonMatches: workspace.originComparisonMatches } : {}),
+            ...(generation ? { sourceGeneration: generation } : {}) });
           const installed = plugin.version.length <= 64 && semver.valid(plugin.version) ? plugin.version : 'unknown';
           const snapshot = (state: IntegrationInventoryRow['state'], prerequisite: IntegrationInventoryRow['prerequisite'] = null) => {
             const row: IntegrationInventoryRow = { ...facts(), id: id.data, installed, state, local: assessment?.local ?? 'unknown', prerequisite };
@@ -108,6 +117,7 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
           try {
             validVersion(plugin.version);
             const provenance = await bb.sdk.plugins.getSource({ pluginId: id.data, signal: signal() });
+            generation = sourceGeneration(plugin, provenance);
             const path = await localRoot(id.data, plugin.rootDir, provenance.requested);
             if (path) {
               sourceMode = 'local';
@@ -342,7 +352,7 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
       const result = await runtime.inspect((row, target) => report?.(protectRestart(row), target)); active();
       return { ...result, rows: result.rows.map(protectRestart) };
     } },
-    cancel: async () => { controller.abort(); await Promise.all([baseline.stop(), appliedSources.drain()]); },
+    cancel: async () => { controller.abort(); await Promise.all([baseline.stop(), appliedSources.drain(), sourceMode.drain()]); },
     load: () => bb.storage.kv.get('application-v1'), save: value => bb.storage.kv.set('application-v1', value),
     diagnose(stage, code) { bb.log.warn(`pa-updates stage=${stage} outcome=${code}`); },
   };

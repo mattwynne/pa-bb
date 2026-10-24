@@ -17,6 +17,16 @@ export default async function plugin(bb: BbPluginApi, _legacy?: unknown, applica
     review: (_input, context) => { client(context.experimental_caller.kind); return application.review(); },
     check: (_input, context) => { client(context.experimental_caller.kind); return application.review(); },
     resumeSync: (_input, context) => { client(context.experimental_caller.kind); return application.resumeSync(); },
+    acknowledgeSourceRecovery: async (input, context) => {
+      client(context.experimental_caller.kind);
+      try { return await application.acknowledgeSourceRecovery(input); }
+      catch { throw new Error('Recovery is not verified. Keep the plugin and folders paused, check the manual recovery instructions, then check recovery again.'); }
+    },
+    switchSource: async (input, context) => {
+      client(context.experimental_caller.kind);
+      try { return await application.switchSource(input); }
+      catch { throw new Error('Source switch unavailable. Check again in Settings; existing work or recovery may need attention.'); }
+    },
     applyLocal: async (input, context) => {
       client(context.experimental_caller.kind);
       try { return await application.applyLocal(input); }

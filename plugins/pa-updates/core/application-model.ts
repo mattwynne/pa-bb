@@ -3,9 +3,12 @@ import { runtimeReviewSchema, runtimeRowSchema, runtimeReceiptSchema, bbIntentSc
 import { componentIds, workspaceComponentSchema, workspaceSchema } from './workspace.ts';
 export const integrationId = z.enum(componentIds);
 const codeFacts = {
+  originComparisonMatches: z.boolean().optional(),
   workspace: workspaceComponentSchema.nullable().optional(),
   applied: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),
   sourceMode: z.enum(['managed', 'local', 'unsupported']).optional(),
+  sourceGeneration: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  sourceEnabled: z.boolean().optional(),
 };
 export type IntegrationId = z.infer<typeof integrationId>;
 export const failureCode = z.enum(['unavailable', 'baseline_unknown', 'changed', 'incompatible', 'paired_migration', 'maintenance_unavailable', 'interrupted', 'storage', 'busy', 'unsupported_install', 'not_installed', 'sync_recovery', 'source_work', 'local_pending']);
@@ -53,7 +56,27 @@ const jobSchema = z.object({ id: z.string().uuid(), reviewId: z.string().uuid(),
   runtimeReceipts: z.array(runtimeReceiptSchema).max(3).default([]), bbIntent: bbIntentSchema.nullable().default(null),
   selfIntent: selfIntentSchema.nullable().default(null),
   confirmInterruptingThreads: z.boolean().default(false) });
-export const applicationSavedSchema = z.object({ review: reviewSchema.nullable(), job: jobSchema.nullable() });
+export const switchSourceInputSchema = z.object({ reviewId: z.string().uuid(), id: integrationId, target: z.enum(['github', 'local']), confirmLoss: z.literal(true) }).strict();
+export type SwitchSourceInput = z.infer<typeof switchSourceInputSchema>;
+export const acknowledgeSourceRecoveryInputSchema = z.object({ jobId: z.string().uuid() }).strict();
+export const sourceSwitchReasonSchema = z.enum(['changed', 'busy', 'unsupported', 'disabled', 'dependencies_missing', 'unavailable', 'storage', 'pause_required', 'pause_incomplete', 'remove_uncertain', 'install_uncertain', 'install_failed', 'verification_failed', 'interrupted']);
+export class SourceSwitchError extends ApplicationError {
+  readonly sourceReason: z.infer<typeof sourceSwitchReasonSchema>;
+  constructor(reason: z.infer<typeof sourceSwitchReasonSchema>) { super('unsupported_install'); this.sourceReason = reason; }
+}
+/** Public receipt: no native paths, native response/error strings, or credentials. */
+export const sourceSwitchSchema = z.object({
+  jobId: z.string().uuid(), reviewId: z.string().uuid(), id: integrationId, target: z.enum(['github', 'local']),
+  startedAt: z.string().datetime(), updatedAt: z.string().datetime(),
+  phase: z.enum(['preparing', 'ready', 'running', 'complete', 'attention']),
+  reason: sourceSwitchReasonSchema.nullable(), removalAttempted: z.boolean(), removed: z.boolean(), installAdmitted: z.boolean(),
+  pauseHandoff: z.boolean(), syncReserved: z.boolean(), manualRecovery: z.boolean(),
+  configuration: z.enum(['reset_expected', 'possibly_deleted', 'deleted']),
+  actual: version.nullable(),
+  recovery: z.enum(['target_verified', 'aborted_before_removal']).optional(),
+}).strict();
+export type SourceSwitch = z.infer<typeof sourceSwitchSchema>;
+export const applicationSavedSchema = z.object({ review: reviewSchema.nullable(), job: jobSchema.nullable(), sourceSwitch: sourceSwitchSchema.nullable().optional() });
 /** Read-only results from the current inspection, never persisted or apply authority. */
 export const checkProgressSchema = z.object({
   id: z.string().uuid(), requested: z.boolean(),

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { execFile } from 'node:child_process';
+import { mock, test } from 'node:test';
+import childProcess, { execFile, type SpawnOptions } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { promisify } from 'node:util';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, lstat, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,6 +9,7 @@ import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import { inspectDevelopment, inspectCanonicalDevelopment, inspectCanonicalWorkspace, canonicalCheckout, DevelopmentError } from '../adapters/development.ts';
 import { integrationId } from '../core/application-model.ts';
+import { originUrl } from '../core/workspace.ts';
 const exec = promisify(execFile), ids = integrationId.options;
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'pa-local-work-')), seed = join(root, 'seed'), owner = join(root, 'owner checkout'), remote = join(root, 'published.git');
@@ -86,6 +88,115 @@ test('workspace inspection reports local/upstream differences and content identi
     const pushed = await inspectCanonicalWorkspace(new AbortController().signal, f.remote, f.owner);
     assert.ok(pushed); assert.equal(pushed.components.icloud.local, false);
     assert.equal(pushed.components.icloud.working, pushed.components.icloud.origin);
+  } finally { await f.close(); }
+});
+test('workspace keeps edited files and unpushed comparison commits independent', async () => {
+  const f = await fixture();
+  try {
+    await f.git(f.owner, 'remote', 'set-url', 'origin', 'git@github.com:Example/Workspace.git');
+    await writeFile(join(f.owner, 'plugins/icloud/server.ts'), 'edited only\n');
+    const before = await fingerprint(f.owner);
+    const edited = await inspectCanonicalWorkspace(new AbortController().signal, f.remote, f.owner);
+    assert.ok(edited); assert.equal(edited.dirty, true); assert.equal(edited.ahead, false);
+    assert.equal(edited.configuredOrigin, 'https://github.com/example/workspace.git');
+    assert.equal(edited.originComparisonMatches, false); // Fixture source is not this origin.
+    assert.deepEqual(await fingerprint(f.owner), before);
+    await f.commit(f.owner, 'local commit only');
+    const committed = await fingerprint(f.owner);
+    const ahead = await inspectCanonicalWorkspace(new AbortController().signal, f.remote, f.owner);
+    assert.ok(ahead); assert.equal(ahead.dirty, false); assert.equal(ahead.ahead, true);
+    assert.equal(ahead.components.icloud.local, true); assert.equal(ahead.originComparisonMatches, false);
+    assert.deepEqual(await fingerprint(f.owner), committed);
+  } finally { await f.close(); }
+});
+test('configured origin comes from isolated owner config, not the supplied comparison source', async () => {
+  const f = await fixture();
+  try {
+    for (const origin of ['https://github.com/Example/Workspace.git', 'git@github.com:Example/Workspace.git',
+      'ssh://git@github.com/Example/Workspace.git']) {
+      await f.git(f.owner, 'remote', 'set-url', 'origin', origin);
+      const before = await fingerprint(f.owner);
+      const state = await inspectCanonicalWorkspace(new AbortController().signal, f.remote, f.owner);
+      assert.ok(state); assert.equal(state.configuredOrigin, 'https://github.com/example/workspace.git');
+      assert.equal(state.originComparisonMatches, false);
+      assert.ok(!JSON.stringify(state).includes(f.root));
+      assert.deepEqual(await fingerprint(f.owner), before);
+    }
+    // Even a matching source string cannot verify origin when no fetch occurred.
+    await f.git(f.owner, 'remote', 'set-url', 'origin', 'git@github.com:mattwynne/pa-bb.git');
+    for (const reference of ['HEAD', await f.git(f.owner, 'rev-parse', 'HEAD')]) {
+      const state = await inspectCanonicalWorkspace(new AbortController().signal, originUrl, f.owner, reference);
+      assert.ok(state); assert.equal(state.configuredOrigin, originUrl);
+      assert.equal(state.originComparisonMatches, false);
+    }
+  } finally { await f.close(); }
+});
+test('a fetched source matching normalized configured origin explicitly verifies the comparison', async () => {
+  const f = await fixture();
+  const spawn = childProcess.spawn;
+  let fetches = 0;
+  try {
+    await f.git(f.owner, 'remote', 'set-url', 'origin', 'ssh://git@github.com/mattwynne/pa-bb.git');
+    const before = await fingerprint(f.owner);
+    // Substitute only the transport at the process boundary: no live GitHub
+    // request, config rewrite, or production fetch/isolation change is needed.
+    const transport = mock.method(childProcess, 'spawn', (command: string, args: readonly string[], options: SpawnOptions) => {
+      const actual = [...args];
+      if (actual.includes('fetch')) {
+        assert.equal(command, 'git'); assert.ok(actual.includes(originUrl)); fetches++;
+        actual[actual.indexOf(originUrl)] = f.remote;
+        actual.unshift('-c', 'protocol.file.allow=always');
+      }
+      return spawn(command, actual, options);
+    });
+    syncBuiltinESMExports();
+    try {
+      const state = await inspectCanonicalWorkspace(new AbortController().signal, originUrl, f.owner);
+      assert.ok(state); assert.equal(state.configuredOrigin, originUrl); assert.equal(state.originComparisonMatches, true);
+      assert.equal(fetches, 1); assert.ok(!JSON.stringify(state).includes(f.root));
+    } finally { transport.mock.restore(); syncBuiltinESMExports(); }
+    assert.deepEqual(await fingerprint(f.owner), before);
+  } finally { await f.close(); }
+});
+test('unknown, ambiguous, credentialed and local origins never escape workspace metadata', async () => {
+  const f = await fixture();
+  try {
+    for (const origin of [f.remote, '/PRIVATE_SENTINEL/not-used', 'file:///PRIVATE_SENTINEL/not-used',
+      'https://PRIVATE_SENTINEL@github.com/example/workspace.git',
+      'https://user:PRIVATE_SENTINEL@github.com/example/workspace.git',
+      'https://github.com/example/workspace.git?token=PRIVATE_SENTINEL',
+      'https://github.com/example/workspace.git#PRIVATE_SENTINEL',
+      'ssh://PRIVATE_SENTINEL@github.com/example/workspace.git',
+      'https://other.invalid/PRIVATE_SENTINEL/workspace.git']) {
+      await f.git(f.owner, 'remote', 'set-url', 'origin', origin);
+      const before = await fingerprint(f.owner);
+      const state = await inspectCanonicalWorkspace(new AbortController().signal, f.remote, f.owner);
+      assert.ok(state); assert.equal(state.configuredOrigin, undefined); assert.equal(state.originComparisonMatches, false);
+      assert.equal(Object.hasOwn(state, 'configuredOrigin'), false, 'BB RPC requires unknown origin to be absent, not undefined');
+      const rpc = JSON.stringify(state);
+      assert.ok(!rpc.includes('PRIVATE_SENTINEL')); assert.ok(!rpc.includes(f.root));
+      assert.deepEqual(await fingerprint(f.owner), before);
+    }
+    await f.git(f.owner, 'remote', 'remove', 'origin');
+    const missing = await inspectCanonicalWorkspace(new AbortController().signal, f.remote, f.owner);
+    assert.ok(missing); assert.equal(missing.configuredOrigin, undefined); assert.equal(missing.originComparisonMatches, false);
+    await f.git(f.owner, 'config', '--add', 'remote.origin.url', originUrl);
+    await f.git(f.owner, 'config', '--add', 'remote.origin.url', 'https://github.com/other/workspace.git');
+    const ambiguous = await inspectCanonicalWorkspace(new AbortController().signal, f.remote, f.owner);
+    assert.ok(ambiguous); assert.equal(ambiguous.configuredOrigin, undefined); assert.equal(ambiguous.originComparisonMatches, false);
+  } finally { await f.close(); }
+});
+test('credentialed origin cannot leak through a failed comparison diagnostic', async () => {
+  const f = await fixture();
+  try {
+    await f.git(f.owner, 'remote', 'set-url', 'origin', 'https://user:PRIVATE_SENTINEL@github.com/example/workspace.git');
+    const before = await fingerprint(f.owner);
+    await assert.rejects(inspectCanonicalWorkspace(new AbortController().signal, join(f.root, 'missing'), f.owner), error => {
+      assert.ok(error instanceof DevelopmentError); assert.equal(error.category, 'unavailable');
+      assert.equal(error.message, 'unavailable'); assert.ok(!String(error).includes('PRIVATE_SENTINEL'));
+      assert.ok(!JSON.stringify(error).includes('PRIVATE_SENTINEL')); return true;
+    });
+    assert.deepEqual(await fingerprint(f.owner), before);
   } finally { await f.close(); }
 });
 test('checkout filter attributes stay unknown even when their driver is only configured globally', async () => {

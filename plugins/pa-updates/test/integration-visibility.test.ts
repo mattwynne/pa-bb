@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
+import childProcess, { execFile, type SpawnOptions } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { promisify } from 'node:util';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { applicationPorts } from '../adapters/application.ts';
 import { Baselines } from '../adapters/baseline.ts';
 import { Application, integrationId, applicationSavedSchema } from '../core/application.ts';
@@ -39,6 +45,54 @@ test('all six current components remain visible without offers, notices, writes 
   await app.apply({ reviewId: state.review!.id, choices: [] }); await app.join();
   assert.equal(app.status().job, null); assert.deepEqual(f.updates, []); assert.deepEqual(f.pauses, []);
   const reloaded = new Application(f.ports); await reloaded.start(); assert.deepEqual(reloaded.status().review, state.review);
+});
+test('inventory and offered assessments expose actual native enablement without changing old snapshots', async t => {
+  const f = fixture(t); f.outcomes.set('google-calendar', 'update-available');
+  const list = f.bb.sdk.plugins.list;
+  f.bb.sdk.plugins.list = async args => ({ plugins: (await list(args)).plugins.map(plugin => ({ ...plugin, enabled: plugin.id !== 'google-calendar' })) });
+  const app = new Application(f.ports); await app.start(); const state = await app.review();
+  assert.equal(state.review?.rows[0].sourceEnabled, false);
+  assert.equal(state.review?.inventory?.find(row => row.id === 'google-calendar')?.sourceEnabled, false);
+  assert.equal(state.review?.inventory?.find(row => row.id === 'fastmail')?.sourceEnabled, true);
+  const saved = applicationSavedSchema.parse({ review: { id: state.review!.id, at: state.review!.at, rows: [] }, job: null });
+  assert.equal(saved.review?.inventory, undefined);
+});
+test('inventory, progress and assessments carry only the current workspace origin fact; old saved rows remain valid', async t => {
+  const f = fixture(t), root = await mkdtemp(join(tmpdir(), 'pa-origin-facts-')), checkout = join(root, 'checkout');
+  const exec = promisify(execFile), spawn = childProcess.spawn;
+  const env = { PATH: process.env.PATH, HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' };
+  const git = (...args: string[]) => exec('git', args, { cwd: checkout, env, timeout: 10000 });
+  let selected: string | undefined = checkout;
+  const ports = applicationPorts(f.bb, SOURCE_URL, async () => selected); delete ports.runtime;
+  const transport = t.mock.method(childProcess, 'spawn', (command: string, args: readonly string[], options: SpawnOptions) => {
+    const actual = [...args];
+    if (actual.includes('fetch')) {
+      assert.equal(command, 'git'); assert.ok(actual.includes(SOURCE_URL));
+      actual[actual.indexOf(SOURCE_URL)] = checkout; actual.unshift('-c', 'protocol.file.allow=always');
+    }
+    return spawn(command, actual, options);
+  });
+  syncBuiltinESMExports();
+  try {
+    await mkdir(checkout); await git('init', '-b', 'main');
+    for (const id of ids) { await mkdir(join(checkout, 'plugins', id), { recursive: true }); await writeFile(join(checkout, 'plugins', id, 'server.ts'), 'fixture\n'); }
+    await git('add', '.'); await git('commit', '-m', 'fixture'); await git('remote', 'add', 'origin', SOURCE_URL);
+    f.outcomes.set('google-calendar', 'update-available');
+    for (const expected of [true, false, true, null]) {
+      if (expected === null) selected = undefined;
+      else await git('remote', 'set-url', 'origin', expected ? SOURCE_URL : 'https://github.com/example/working-fork.git');
+      await ports.development!();
+      const progress: object[] = [];
+      const assessments = await ports.inspect(row => progress.push(row)), inventory = ports.inventory!();
+      for (const row of [...assessments, ...inventory, ...progress]) {
+        if (expected === null) assert.equal(Object.hasOwn(row, 'originComparisonMatches'), false, 'no undefined property in native BB JSON');
+        else assert.equal((row as { originComparisonMatches?: boolean }).originComparisonMatches, expected);
+      }
+      assert.equal(inventory.length, 6); assert.equal(assessments.length, 1); assert.equal(progress.length, 6);
+      const old = { review: { id: '11111111-1111-4111-8111-111111111111', at: new Date().toISOString(), rows: assessments.map(({ originComparisonMatches: _fact, ...row }) => row), inventory: inventory.map(({ originComparisonMatches: _fact, ...row }) => row), runtime: null }, job: null };
+      assert.deepEqual(applicationSavedSchema.parse(old), old, 'saved schemas need not contain the new fact');
+    }
+  } finally { transport.mock.restore(); syncBuiltinESMExports(); await ports.cancel?.(); await rm(root, { recursive: true, force: true }); }
 });
 test('same-version origin code changes are offers, not current versions', async t => {
   const f = fixture(t); f.outcomes.set('google-calendar', 'update-available'); f.versions.set('google-calendar', '1.0.0');

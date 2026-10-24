@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { applicationStatusSchema, applyInputSchema } from './core/application-model.ts';
+import { applicationStatusSchema, applyInputSchema, switchSourceInputSchema, acknowledgeSourceRecoveryInputSchema } from './core/application-model.ts';
 export const rpcContract = {
   status: { input: z.null(), output: applicationStatusSchema },
   check: { input: z.null(), output: applicationStatusSchema },
@@ -7,5 +7,7 @@ export const rpcContract = {
   review: { input: z.null(), output: applicationStatusSchema },
   resumeSync: { input: z.null(), output: applicationStatusSchema },
   apply: { input: applyInputSchema, output: applicationStatusSchema },
+  switchSource: { input: switchSourceInputSchema, output: applicationStatusSchema },
+  acknowledgeSourceRecovery: { input: acknowledgeSourceRecoveryInputSchema, output: applicationStatusSchema },
   applyLocal: { input: z.object({ reviewId: z.string().uuid() }).strict(), output: applicationStatusSchema },
 };

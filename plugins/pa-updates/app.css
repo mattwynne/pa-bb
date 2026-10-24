@@ -24,6 +24,18 @@
 @keyframes pa-update-spin { to { transform: rotate(-360deg); } }
 @media (prefers-reduced-motion: reduce) { .pa-update-spinner { animation: none; } }
 .pa-updates button.pa-update-primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+.pa-update-source-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 5px; color: var(--muted-foreground); font-size: 12px; }
+.pa-updates button.pa-update-source-action { padding: 0; border: 0; border-radius: 2px; background: transparent; color: var(--muted-foreground); text-decoration: underline; text-underline-offset: 3px; font-size: inherit; text-align: left; }
+.pa-updates button.pa-update-source-action:hover { color: var(--foreground); }
+.pa-updates button.pa-update-source-action:disabled { cursor: not-allowed; text-decoration: none; }
+.pa-updates p.pa-update-source-facts { margin: 5px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
+.pa-update-source-result { margin-bottom: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
+.pa-updates code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--muted); color: var(--foreground); font-size: 12px; user-select: text; }
+.pa-update-dialog { box-sizing: border-box; inset: 0; margin: auto; width: min(540px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--background); color: var(--foreground); font: inherit; line-height: 1.5; overflow-wrap: anywhere; }
+.pa-update-dialog::backdrop { background: color-mix(in srgb, var(--foreground) 35%, transparent); }
+.pa-update-dialog h2 { margin: 0 0 12px; font-size: 17px; font-weight: 600; line-height: 1.35; }
+.pa-update-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.pa-updates button.pa-update-destructive { background: var(--destructive); border-color: var(--destructive); color: var(--destructive-foreground, var(--primary-foreground)); }
 .pa-update-notice { position: fixed; left: 12px; bottom: 52px; z-index: 20; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100vw - 24px); padding: 6px 10px; border: 1px solid var(--sidebar-border); border-radius: 999px; background: var(--sidebar-accent); color: var(--sidebar-foreground); font: inherit; font-size: 12px; cursor: pointer; text-decoration: none; }
 body:has(.pa-updates) .pa-update-notice { display: none; }
 .pa-update-notice svg { width: 14px; height: 14px; flex: none; }

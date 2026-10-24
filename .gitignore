@@ -3,3 +3,4 @@ dist/
 .worktrees/
 *.tgz
 __pycache__/
+.yaks/

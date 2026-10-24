@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
-import { ApplicationError, assessmentSchema, integrationInventorySchema, developmentWorkSchema, applicationSavedSchema, applyInputSchema, reviewSchema, version, localDecision, reviewDecision, selfIntentSchema } from './application-model.ts';
-import type { ApplicationSaved as Saved, ApplicationStatus, CheckProgress, DevelopmentWork, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode, SelfIntent } from './application-model.ts';
+import { ApplicationError, assessmentSchema, integrationInventorySchema, developmentWorkSchema, applicationSavedSchema, applyInputSchema, reviewSchema, version, localDecision, reviewDecision, selfIntentSchema, switchSourceInputSchema, sourceSwitchSchema, SourceSwitchError, acknowledgeSourceRecoveryInputSchema } from './application-model.ts';
+import type { ApplicationSaved as Saved, ApplicationStatus, CheckProgress, DevelopmentWork, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode, SelfIntent, SwitchSourceInput, SourceSwitch } from './application-model.ts';
 import { runtimeReviewSchema, runtimeRowSchema } from './runtime-model.ts';
 import { workspaceSchema } from './workspace.ts';
 import type { RuntimePorts } from './runtime-model.ts';
@@ -29,6 +29,14 @@ export type ApplicationPorts = {
     apply(intent: SelfIntent): Promise<void>;
     reconcile(intent: SelfIntent, completed?: boolean): Promise<{ state: 'pending' | 'updated' | 'unchanged' | 'uncertain'; actual: string | null }>;
   };
+  sourceMode?: {
+    prepare(receipt: SourceSwitch, review: z.infer<typeof reviewSchema>): Promise<void>;
+    launch(receipt: SourceSwitch): Promise<void>;
+    observe(verify?: boolean): Promise<SourceSwitch | null>;
+    settle(receipt: SourceSwitch): Promise<void>;
+    recover(jobId: string): Promise<SourceSwitch>;
+    drain(): Promise<void>;
+  };
   cancel?(): void | Promise<void>;
   diagnose(stage: 'review' | 'preflight' | 'activate' | 'quiesce' | 'restore' | 'storage', code: FailureCode): void;
 };
@@ -43,7 +51,8 @@ export class Application {
   private offers: ApplicationStatus['offers'] = null;
   private applying = false;
   private reconciling: Promise<ApplicationStatus> | null = null;
-  private inFlight() { return this.applying || this.saved.job?.phase === 'restarting' || this.saved.job?.phase === 'self-updating'; }
+  private sourceBlocked() { const receipt = this.saved.sourceSwitch; return !!receipt && (!['complete', 'attention'].includes(receipt.phase) || receipt.manualRecovery || receipt.syncReserved); }
+  private inFlight() { return this.applying || !!this.saved.sourceSwitch && !['complete', 'attention'].includes(this.saved.sourceSwitch.phase) || this.saved.job?.phase === 'restarting' || this.saved.job?.phase === 'self-updating'; }
   private running: Promise<void> | null = null;
   private failure: FailureCode | null = null;
   private disposed = false;
@@ -56,6 +65,10 @@ export class Application {
     try {
       const value = await this.ports.load(); this.active();
       if (value != null) this.saved = applicationSavedSchema.parse(value);
+      // Filesystem receipt survives replacement independently of BB settings/KV.
+      // Startup only observes; it cannot spawn or admit any native operation.
+      if (this.ports.sourceMode) this.saved.sourceSwitch = sourceSwitchSchema.nullable().parse(await this.ports.sourceMode.observe()) ?? this.saved.sourceSwitch ?? null;
+      this.active();
       if (this.saved.review) this.saved.review.rows = this.saved.review.rows.map(row => {
         const development = row.development ?? this.saved.review!.inventory?.find(item => item.id === row.id)?.development;
         return { ...row, ...(development ? { development } : {}), decision: localDecision({ ...row, development }) };
@@ -82,12 +95,26 @@ export class Application {
     const self = job?.receipts.find(row => row.id === 'pa-updates');
     const eligibleSelf = job?.selfIntent && (self?.outcome === 'activating' || self?.outcome === 'uncertain' && Date.now() - Date.parse(job.selfIntent.requestedAt) < 15 * 60_000);
     const continuation = job?.phase === 'self-updating' && this.pendingSelf();
-    if (this.disposed || this.applying || this.checking || !(eligibleBb || eligibleSelf || continuation) || this.failure === 'storage') return Promise.resolve(this.status());
+    if (this.disposed || this.applying || this.checking || !(eligibleBb || eligibleSelf || continuation || this.ports.sourceMode) || this.failure === 'storage') return Promise.resolve(this.status());
     this.reconciling = Promise.resolve().then(async () => {
       try {
-        if (eligibleBb) await this.reconcileBb();
-        if (eligibleSelf && this.saved.job?.phase !== 'restarting') await this.reconcileSelf();
-        if (this.saved.job?.phase === 'self-updating' && this.pendingSelf()) this.continueSelf();
+        if (this.ports.sourceMode) {
+          const receipt = sourceSwitchSchema.nullable().parse(await this.ports.sourceMode.observe(true)) ?? this.saved.sourceSwitch ?? null; this.active();
+          if (receipt && receipt.phase === 'complete' && receipt.pauseHandoff && receipt.syncReserved) {
+            // The runner verified the retained reservation after activation.
+            // Every mirror's durable user-Pause removed owned resume rights.
+            const result = await this.ports.restore(receipt.jobId); this.active();
+            receipt.syncReserved = false;
+            if (result === 'manual_recovery') { receipt.phase = 'attention'; receipt.reason = 'pause_required'; receipt.manualRecovery = true; }
+            await this.ports.sourceMode.settle(receipt); this.active();
+          }
+          if (JSON.stringify(receipt) !== JSON.stringify(this.saved.sourceSwitch ?? null)) { this.saved.sourceSwitch = receipt; await this.persist(); }
+        }
+        if (!this.sourceBlocked()) {
+          if (eligibleBb) await this.reconcileBb();
+          if (eligibleSelf && this.saved.job?.phase !== 'restarting') await this.reconcileSelf();
+          if (this.saved.job?.phase === 'self-updating' && this.pendingSelf()) this.continueSelf();
+        }
       }
       catch (error) { if (!this.disposed) { const code = category(error); if (code === 'storage') this.failure = code; this.ports.diagnose(code === 'storage' ? 'storage' : 'activate', code); } }
       finally { this.reconciling = null; }
@@ -184,7 +211,7 @@ export class Application {
     await stopping;
   }
   review({ automatic = false } = {}): Promise<ApplicationStatus> {
-    if (this.disposed || this.inFlight() || this.failure === 'storage') return Promise.resolve(this.status());
+    if (this.disposed || this.inFlight() || this.sourceBlocked() || this.failure === 'storage') return Promise.resolve(this.status());
     if (!automatic && this.saved.job?.syncReserved) { this.failure = 'interrupted'; return Promise.resolve(this.status()); }
     // An explicit caller joining automatic discovery still asks for a new
     // review. Both callers share the same bounded inspection, not a second job.
@@ -251,10 +278,10 @@ export class Application {
   applyLocal(input: { reviewId: string }): Promise<ApplicationStatus> { return this.admit({ reviewId: input.reviewId, choices: [] }, 'local'); }
   private async admit(input: z.infer<typeof applyInputSchema>, mode: ApplyMode): Promise<ApplicationStatus> {
     this.active();
-    if (this.inFlight() || this.reconciling) return this.status();
+    if (this.inFlight() || this.sourceBlocked() || this.reconciling) return this.status();
     if (this.checking || this.failure === 'storage') return this.status();
     const parsed = applyInputSchema.parse(input), review = this.saved.review;
-    if (!review || review.id !== parsed.reviewId || this.saved.job?.reviewId === review.id || this.saved.job?.syncReserved) throw new ApplicationError('changed');
+    if (!review || review.id !== parsed.reviewId || this.saved.job?.reviewId === review.id || this.saved.sourceSwitch?.reviewId === review.id || this.saved.job?.syncReserved) throw new ApplicationError('changed');
     const candidates = mode === 'local' ? review.localRows ?? [] : review.rows;
     const choices = new Map(parsed.choices.map(row => [row.id, row.choice]));
     if (choices.size !== parsed.choices.length || parsed.choices.some(choice => !candidates.some(row => row.id === choice.id && reviewDecision(row) === 'choose'))) throw new ApplicationError('changed');
@@ -390,10 +417,103 @@ export class Application {
       try { await this.persist(); } catch { /* persist already diagnosed; never retry writes */ }
     }
   }
+  async switchSource(input: SwitchSourceInput): Promise<ApplicationStatus> {
+    this.active(); const parsed = switchSourceInputSchema.parse(input);
+    if (this.inFlight() || this.sourceBlocked() || this.reconciling || this.checking || this.failure === 'storage' || this.saved.job?.syncReserved) throw new ApplicationError('busy');
+    const review = this.saved.review;
+    if (!review || parsed.reviewId !== review.id || this.saved.job?.reviewId === review.id || this.saved.sourceSwitch?.reviewId === review.id) throw new ApplicationError('changed');
+    const row = review.inventory?.find(row => row.id === parsed.id);
+    if (!row?.sourceGeneration || !['managed', 'local'].includes(row.sourceMode ?? '') || (row.sourceMode === 'local') === (parsed.target === 'local')) throw new ApplicationError('changed');
+    if (!this.ports.sourceMode) throw new ApplicationError('unsupported_install');
+    // Admission shares the same synchronous mutex as checks and ordinary apply.
+    this.applying = true; this.failure = null; this.offers = null;
+    const at = new Date().toISOString();
+    const receipt: SourceSwitch = { jobId: randomUUID(), reviewId: review.id, id: parsed.id, target: parsed.target,
+      startedAt: at, updatedAt: at, phase: 'preparing', reason: null, removalAttempted: false, removed: false, installAdmitted: false,
+      pauseHandoff: false, syncReserved: false, manualRecovery: false, configuration: 'reset_expected', actual: null };
+    this.saved.sourceSwitch = receipt;
+    try { await this.persist(); }
+    catch { this.applying = false; return this.status(); }
+    let launchAttempted = false;
+    this.running = (async () => {
+      try {
+        await this.ports.sourceMode!.prepare(structuredClone(receipt), review); this.active();
+        await this.ports.quiesce([receipt.id], receipt.jobId, async () => {
+          receipt.syncReserved = true; await this.persist();
+          // Drain must not begin until reservation intent is also independent
+          // of this updater instance. The runner owns the receipt after launch.
+          await this.ports.sourceMode!.settle(structuredClone(receipt)); this.active();
+        }); this.active();
+        if ((receipt.id === 'icloud' || receipt.id === 'obsidian') && !receipt.syncReserved) throw new ApplicationError('maintenance_unavailable');
+        receipt.phase = 'ready'; await this.persist(); this.active();
+        // Returns on readiness/admission only. Never await self-removal, install,
+        // or a native lock from the old updater's disposal hook.
+        launchAttempted = true;
+        await this.ports.sourceMode!.launch(structuredClone(receipt)); this.active();
+      } catch (error) {
+        if (this.disposed) return;
+        const code = category(error); this.ports.diagnose('preflight', code);
+        // The independent receipt owns any admitted write; do not overwrite it
+        // with an optimistic failure after a lost launch acknowledgement.
+        const observed = await this.ports.sourceMode!.observe().catch(() => null);
+        this.active();
+        const conflicting = observed && observed.jobId !== receipt.jobId && (observed.manualRecovery || observed.syncReserved || !['complete', 'attention'].includes(observed.phase));
+        const ownsWrite = observed?.jobId === receipt.jobId && (launchAttempted || observed.removalAttempted || observed.phase === 'running' || observed.phase === 'complete');
+        if (observed && (conflicting || ownsWrite)) this.saved.sourceSwitch = observed;
+        else {
+          receipt.phase = 'attention'; receipt.reason = error instanceof SourceSwitchError ? error.sourceReason : code === 'changed' ? 'changed' : code === 'busy' ? 'busy' : code === 'maintenance_unavailable' ? 'pause_required' : code === 'unsupported_install' ? 'unsupported' : code === 'storage' ? 'storage' : 'unavailable';
+          receipt.manualRecovery = receipt.syncReserved || launchAttempted;
+          if (launchAttempted) receipt.configuration = 'possibly_deleted';
+          // Never write over an independently admitted runner on an unknown read.
+          if (!launchAttempted) {
+            try { await this.ports.sourceMode!.settle(receipt); }
+            catch { this.failure = 'storage'; this.ports.diagnose('storage', 'storage'); }
+          }
+        }
+        try { await this.persist(); } catch { /* storage already diagnosed */ }
+      }
+    })().finally(() => { this.applying = false; this.running = null; if (!this.disposed) this.notify(); });
+    return this.status();
+  }
+  async acknowledgeSourceRecovery(input: z.infer<typeof acknowledgeSourceRecoveryInputSchema>): Promise<ApplicationStatus> {
+    this.active(); const { jobId } = acknowledgeSourceRecoveryInputSchema.parse(input);
+    if (this.applying || this.checking || this.reconciling || this.failure === 'storage' || this.saved.job?.syncReserved || ['restarting', 'self-updating'].includes(this.saved.job?.phase ?? '')) throw new ApplicationError('busy');
+    if (!this.ports.sourceMode || this.saved.sourceSwitch?.jobId !== jobId || !['ready', 'running', 'attention'].includes(this.saved.sourceSwitch.phase)) throw new ApplicationError('changed');
+    this.applying = true; this.offers = null;
+    try {
+      // Only the adapter can prove a raw nonterminal runner is gone and take
+      // ownership. Verification and user-Pause only; never remove/install/replay.
+      const receipt = sourceSwitchSchema.parse(await this.ports.sourceMode.recover(jobId)); this.active();
+      if (receipt.jobId !== jobId || receipt.phase !== 'attention' || !receipt.manualRecovery || !receipt.recovery || receipt.syncReserved && !receipt.pauseHandoff) throw new ApplicationError('changed');
+      this.saved.sourceSwitch = receipt; await this.persist();
+      if (receipt.syncReserved) {
+        const result = await this.ports.restore(jobId); this.active();
+        if (result === 'manual_recovery') throw new ApplicationError('sync_recovery');
+        receipt.syncReserved = false;
+      }
+      receipt.manualRecovery = false;
+      if (receipt.recovery === 'target_verified') { receipt.phase = 'complete'; receipt.reason = null; }
+      receipt.updatedAt = new Date().toISOString();
+      await this.ports.sourceMode.settle(structuredClone(receipt)); this.active();
+      this.saved.sourceSwitch = receipt; this.failure = null; await this.persist();
+    } catch (error) {
+      if (!this.disposed) {
+        // Never publish optimistic cleanup flags if the external write failed.
+        // A later explicit acknowledgment may re-verify a lost cleanup response.
+        try { this.saved.sourceSwitch = await this.ports.sourceMode.observe() ?? this.saved.sourceSwitch; this.active(); }
+        catch { /* original bounded failure remains the diagnostic */ }
+        const code = category(error); if (code === 'storage') this.failure = code;
+        this.ports.diagnose('restore', code);
+        try { await this.persist(); } catch { /* storage already diagnosed */ }
+      }
+      throw new ApplicationError(category(error));
+    } finally { this.applying = false; if (!this.disposed) this.notify(); }
+    return this.status();
+  }
   async resumeSync(): Promise<ApplicationStatus> {
     this.active();
     const job = this.saved.job;
-    if (this.inFlight() || this.reconciling || this.checking || this.failure === 'storage' || !job?.syncReserved) return this.status();
+    if (this.inFlight() || this.sourceBlocked() || this.reconciling || this.checking || this.failure === 'storage' || !job?.syncReserved) return this.status();
     this.applying = true;
     try { await this.restoreSync(); this.failure = null; await this.persist(); }
     catch (error) { if (!this.disposed) { job.failure = category(error); this.ports.diagnose('restore', job.failure); try { await this.persist(); } catch { /* already diagnosed */ } } }

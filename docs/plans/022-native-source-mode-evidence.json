@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "updater": "0.4.0",
+  "frozenSourceArchiveSha256": "54a90794be946d07a9ce4692c34e4e2029867ed3df202f6144a82ef7016006d6",
+  "mutationEngineSha256": {
+    "adapters/source-mode.ts": "f53a03b9e875d1b3ba9a7c166fe5c1597deabecff02c3dc039392651c85d692d",
+    "adapters/source-mode-runner.ts": "6c03faa98db4c30d0962566d030994e318c1bf330446945e0967c3eabcaee3ce",
+    "core/application.ts": "2459d4d559cf9d7b36fd8e492eccb4684ae2b09d3d5b5887b1088c9cb1cd9716",
+    "server.ts": "d7f467f1f41e1bb6599c0259820308377e2de281fb229c91f5e743b1b3951beb",
+    "contract.ts": "acb58a95ed044ed043e1c2227001559568b84923182d959a8efea3d0c24034a8"
+  },
+  "environment": {
+    "disposableLinux": true,
+    "syntheticAccountsAndDataOnly": true,
+    "originalUpdaterHandlersAndRunner": true,
+    "publicNativeRemoveInstallAndRpc": true,
+    "sameBinaryServerRestarts": true,
+    "runtimeInstallerOrBinaryUpgradeTest": false
+  },
+  "runs": [
+    { "bb": "0.46.1", "nativeRemovals": 11, "installJobs": 16, "succeeded": 15, "deliberatelyFailed": 1, "automaticMirrorEnables": 0 },
+    { "bb": "0.47.1", "nativeRemovals": 11, "installJobs": 16, "succeeded": 15, "deliberatelyFailed": 1, "automaticMirrorEnables": 0 }
+  ],
+  "passed": [
+    "ordinary Git-to-path-to-Git with different actual behavior at the same package version",
+    "real updater self-removal and replacement in both directions with the same saved operation",
+    "BB settings, secrets and one-time schedules deleted as warned",
+    "KV, plugin database, synthetic note and data-directory inodes retained",
+    "wrong identity, missing dependency and disabled plugin refused before removal",
+    "definite native install failure after removal, manual native repair and verification-only recovery",
+    "observer reload and same-binary restart never replay removal or installation",
+    "original UpdatePause state machine with native updater/client caller identities and an active synthetic drain",
+    "every mirror class remains paused with empty automatic resume rights",
+    "owned runner SIGKILL during real native disposal, immediate observe-only attention and restart-gated recovery",
+    "failed initial reservation with a null hold requires original server death, same-job barrier and empty-rights cleanup",
+    "source files, dirty edits and unpushed commit retained without commit or push",
+    "unrelated plugins and configured provider runtimes unchanged",
+    "bounded failure diagnostic present and synthetic private sentinel absent from logs and receipts"
+  ],
+  "limits": [
+    "real Apple or rclone activity belongs to the separate previously accepted integration gate",
+    "these native gates do not prove rendered UI or upgrade the BB binary",
+    "mutable Git main and local files after the final check are not atomic expected-ID installations",
+    "missing, ambiguous, permission-denied or reused PID evidence blocks conservatively",
+    "later changes to display metadata and UI require their own tests; the recorded mutation-engine hashes must remain unchanged"
+  ]
+}

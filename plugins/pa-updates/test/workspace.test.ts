@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { codeState } from '../core/workspace.ts';
+import { codeState, componentIds, normalizeGithubOrigin, workspaceSchema } from '../core/workspace.ts';
 import { sourceFingerprint, sourceDetails, treeFingerprint } from '../adapters/source-files.ts';
 const exec = promisify(execFile);
 const old = 'a'.repeat(64), next = 'b'.repeat(64);
@@ -20,6 +20,47 @@ test('Git agreement is not proof that code was applied', () => {
 test('local, upstream and both-sided work remain distinct', () => {
   for (const [local, upstream, expected] of [[true, false, 'local'], [false, true, 'upstream'], [true, true, 'both']] as const)
     assert.equal(codeState({ local, upstream, working: next, origin: old }, next), expected);
+});
+
+test('GitHub origins normalize HTTPS and SSH coordinates without transport identities', () => {
+  for (const value of [
+    'https://github.com/Example/Workspace', 'https://GITHUB.COM/Example/Workspace.git/',
+    'git@github.com:Example/Workspace.git', 'ssh://git@github.com/Example/Workspace',
+    'ssh://git@github.com:22/Example/Workspace.git',
+  ]) assert.equal(normalizeGithubOrigin(value), 'https://github.com/example/workspace.git');
+});
+test('origin normalization rejects credentials, URL extras, unsafe paths and unsupported hosts/transports', () => {
+  for (const value of [
+    'https://PRIVATE_SENTINEL@github.com/example/workspace.git',
+    'https://user:PRIVATE_SENTINEL@github.com/example/workspace.git',
+    'https://github.com/example/workspace.git?token=PRIVATE_SENTINEL',
+    'https://github.com/example/workspace.git#PRIVATE_SENTINEL',
+    'https://github.com/example/workspace.git?x', 'https://github.com/example/workspace.git#x',
+    'ssh://PRIVATE_SENTINEL@github.com/example/workspace.git',
+    'ssh://git:PRIVATE_SENTINEL@github.com/example/workspace.git',
+    'git@github.com:example/workspace.git?PRIVATE_SENTINEL',
+    'https://github.com.evil.invalid/example/workspace.git',
+    'https://github.com:443/example/workspace.git', 'http://github.com/example/workspace.git',
+    'https://github.com/example/../workspace.git', 'https://github.com/example/%77orkspace.git',
+    'https://github.com/example/..', 'https://github.com/example/.git',
+    'https://github.com/example/workspace.git\n', 'https://github.com/example/work\0space.git',
+    'https://github.com/example/workspace.git\u2028', 'https://github.com/example/workspace.git\u2029',
+    'ssh://git@github.com:2222/example/workspace.git', 'git://github.com/example/workspace.git',
+    'https://other.invalid/example/workspace.git', '/PRIVATE_SENTINEL/workspace', 'file:///PRIVATE_SENTINEL/workspace',
+  ]) assert.equal(normalizeGithubOrigin(value), undefined);
+});
+test('workspace metadata accepts old snapshots but only canonical sanitized configured origins', () => {
+  const legacy = { head: 'a'.repeat(40), originHead: 'b'.repeat(40), dirty: false, ahead: false, behind: false,
+    components: Object.fromEntries(componentIds.map(id => [id, { local: false, upstream: false, working: old, origin: old }])) };
+  assert.deepEqual(workspaceSchema.parse(legacy), legacy);
+  for (const originComparisonMatches of [true, false]) {
+    const value = { ...legacy, configuredOrigin: 'https://github.com/example/workspace.git', originComparisonMatches };
+    assert.deepEqual(workspaceSchema.parse(value), value);
+  }
+  for (const configuredOrigin of ['git@github.com:example/workspace.git', '/PRIVATE_SENTINEL/workspace',
+    'https://PRIVATE_SENTINEL@github.com/example/workspace.git'])
+    assert.equal(workspaceSchema.safeParse({ ...legacy, configuredOrigin }).success, false);
+  assert.equal(workspaceSchema.safeParse({ ...legacy, originComparisonMatches: 'true' }).success, false);
 });
 
 async function fixture(run: (root: string, git: (...args: string[]) => Promise<Buffer>) => Promise<void>) {

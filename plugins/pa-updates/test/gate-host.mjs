@@ -14,7 +14,7 @@ const freePort = () => new Promise((resolve, reject) => {
   const server = createServer(); server.on('error', reject);
   server.listen(0, '127.0.0.1', () => { const port = server.address().port; server.close(() => resolve(port)); });
 });
-export async function createGateHost(bbPath, { nativeRuntime = false } = {}) {
+export async function createGateHost(bbPath, { nativeRuntime = false, retainEvidence = false } = {}) {
   if (nativeRuntime) assert.equal(process.platform, 'linux', 'Native installers require the disposable Linux gate');
   const bb = resolve(bbPath ?? 'node_modules/bb-app');
   const pkg = JSON.parse(await readFile(join(bb, 'package.json'), 'utf8'));
@@ -85,7 +85,7 @@ export async function createGateHost(bbPath, { nativeRuntime = false } = {}) {
       // Native providers can own detached children. Preserve their evidence
       // until the enclosing disposable container is destroyed; never race rm
       // against a child's last write or hunt processes on a shared host.
-      if (completed && !nativeRuntime) await rm(root, { recursive: true, force: true });
+      if (completed && !nativeRuntime && !retainEvidence) await rm(root, { recursive: true, force: true });
       else console.error(completed ? 'Native evidence retained for container teardown:' : 'Proof failed; isolated evidence directory:', root);
     })();
   }

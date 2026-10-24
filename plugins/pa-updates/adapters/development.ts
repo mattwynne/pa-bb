@@ -6,7 +6,7 @@ import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { integrationId } from '../core/application-model.ts';
 import type { DevelopmentWork } from '../core/application-model.ts';
-import { originUrl as SOURCE_URL, workspaceSchema } from '../core/workspace.ts';
+import { originUrl as SOURCE_URL, normalizeGithubOrigin, workspaceSchema } from '../core/workspace.ts';
 import type { Workspace } from '../core/workspace.ts';
 import { sourceDetails, treeFingerprint } from './source-files.ts';
 const LIMIT = 1024 * 1024, paths = integrationId.options.map(id => `plugins/${id}`);
@@ -82,6 +82,11 @@ export async function inspectDevelopment(checkout: string | undefined, signal: A
     await writeFile(join(temp, 'owner-config'), config.data, { mode: 0o600 });
     const settings = (await git(['config', '--file', join(temp, 'owner-config'), '--no-includes', '--list', '-z'])).toString().split('\0');
     if (settings.some(entry => /^(filter\.|url\.|http\.|remote\.[^\n]*\.proxy\n|include\.|includeif\.|extensions\.|core\.(sshcommand|gitproxy|worktree|autocrlf|eol|sparsecheckout|ignorestat|attributesfile|excludesfile)\n)/i.test(entry))) throw new DevelopmentError('unsupported');
+    // Read only the isolated config copy. Ambiguous/unsupported origins stay
+    // unavailable; never substitute the supplied comparison source for origin.
+    const originSettings = settings.filter(entry => entry.startsWith('remote.origin.url\n'));
+    const configuredOrigin = originSettings.length === 1 ? normalizeGithubOrigin(originSettings[0].slice('remote.origin.url\n'.length)) : undefined;
+    const originComparisonMatches = !reference && configuredOrigin !== undefined && configuredOrigin === normalizeGithubOrigin(source);
     const fileMode = settings.find(entry => entry.startsWith('core.filemode\n'))?.split('\n')[1] ?? 'true';
     if (!['true', 'false'].includes(fileMode)) throw new DevelopmentError('unsupported');
     // Fetch before attaching local objects/refs: even negotiation has no local
@@ -130,7 +135,7 @@ export async function inspectDevelopment(checkout: string | undefined, signal: A
           origin: treeFingerprint(await git(['ls-tree', '-rz', published, '--', `plugins/${id}`]), prefix) }];
       })));
       const [ahead, behind] = (await git(['rev-list', '--left-right', '--count', `${local}...${published}`])).toString().trim().split(/\s+/).map(Number);
-      workspace = workspaceSchema.parse({ head: local, originHead: published, dirty: dirty.length > 0, ahead: ahead > 0, behind: behind > 0, components });
+      workspace = workspaceSchema.parse({ head: local, originHead: published, dirty: dirty.length > 0, ahead: ahead > 0, behind: behind > 0, ...(configuredOrigin ? { configuredOrigin } : {}), originComparisonMatches, components });
     }
     if (localPaths.length + different.size + dirty.length > 4096) throw new DevelopmentError('limit');
     const after = await status(), nextIndex = await bytes(join(ownerGit, 'index'), 8 * LIMIT);
