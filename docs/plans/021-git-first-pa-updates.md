@@ -1,6 +1,6 @@
 # 021 — Git-first PA updates
 
-Status: implemented and verified in disposable BB; delivery pending. Existing managed installations still need BB's supported Git-to-local source switch before they can use local development. Supersedes the release-based updater direction in ADR 0002 and plan 020.
+Status: updater 0.3.0 delivered; local-path development verified in disposable BB. Existing managed installations still need BB's supported Git-to-local source switch before they can use local development. Supersedes the release-based updater direction in ADR 0002 and plan 020.
 
 ## Purpose
 
@@ -69,3 +69,9 @@ Rendered review in BB 0.46.0 uses the original app with validated synthetic RPC 
 Selected rendered evidence: [desktop](021-local-desktop.png), [local changes](021-local-narrow.png), [both sides](021-both-sided-narrow.png), [progress](021-check-progress-narrow.png), [restart consent](021-restart-consent-narrow.png), [source-only update](021-source-only-narrow.png), [uncertain result/recovery](021-uncertain-narrow.png).
 
 The package version increases once so older version-gated updater installations can discover this controller. It is not a new requirement to version or publish every source edit. Live application and the unsupported source-switch dependency must be reported separately.
+
+## Delivery observation
+
+Implementation `73d7e1f` is pushed. A targeted native update activated updater **0.3.0** on BB **0.46.1**. A fresh read-only check and desktop/narrow rendered inspection succeeded without page errors. All 44 installed plugins retained their version/status/enablement except the intended updater version change. BB, Pi, Codex and the other PA plugins were not upgraded; no provider/account writes or all-plugin update were used.
+
+The four unchanged PA components correctly agree with both working copy and origin. The existing iCloud/Obsidian source changes appear as **Changes ready to apply** despite unchanged package versions; they remain unapplied. Saved updater history survived replacement. The six PA installations remain managed Git sources, with no local-apply action offered for them: the unsupported in-place source switch is still a real limit, not completed live local development. Server-wide guidance was aligned separately, outside the source checkout.
