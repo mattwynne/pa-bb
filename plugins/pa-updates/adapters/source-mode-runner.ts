@@ -35,7 +35,7 @@ export const sourceModeRunnerScript = String.raw`
   };
   const intent = await read('intent.json');
   const r = await read('receipt.json');
-  if (r.jobId !== intent.receipt.jobId || r.id !== intent.receipt.id || r.target !== intent.receipt.target) throw Error();
+  if (r.jobId !== intent.receipt.jobId || r.id !== intent.receipt.id || r.target !== intent.receipt.target || r.configuration !== 'preserved') throw Error();
   const ids = ['google-calendar', 'fastmail', 'google-drive', 'icloud', 'obsidian', 'pa-updates'];
   const base = new URL(intent.baseUrl);
   if (!ids.includes(r.id) || !['github', 'local'].includes(r.target) || base.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(base.hostname) || base.username || base.password || base.search || base.hash || base.pathname !== '/' || !base.port || !isAbsolute(intent.localPath)) throw Error();
@@ -44,7 +44,7 @@ export const sourceModeRunnerScript = String.raw`
   const lifetime = new AbortController();
   let failing = null;
   const fail = reason => failing ??= (async () => {
-    r.phase = 'attention'; r.reason = reason; r.manualRecovery = r.removalAttempted || r.syncReserved;
+    r.phase = 'attention'; r.reason = reason; r.manualRecovery = r.installAdmitted || r.syncReserved;
     await persist();
   })();
   const watchdog = setTimeout(() => { lifetime.abort(); void fail(boundary).finally(() => process.exit(1)); }, 10 * 60_000);
@@ -81,7 +81,7 @@ export const sourceModeRunnerScript = String.raw`
     if (!Array.isArray(intent.dependencies) || intent.dependencies.length > 128 || intent.dependencies.some(name => typeof name !== 'string' || name.length > 214 || !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i.test(name))) throw Error();
     const resolver = createRequire(join(intent.localPath, 'package.json'));
     for (const name of intent.dependencies) {
-      // Node can cache a successful resolution across DELETE/disposal; check
+      // Node can cache a successful resolution across disposal; check
       // that the resolved runtime entry still exists instead of trusting cache.
       if (!(await fs.stat(resolver.resolve(name))).isFile()) throw Error();
     }
@@ -128,8 +128,9 @@ export const sourceModeRunnerScript = String.raw`
       if (permitted) break; await sleep(50);
     }
     if (!permitted) throw Error();
-    r.phase = 'running'; await persist(); boundary = 'changed';
-    await noJobs();
+    r.phase = 'running'; await persist(); boundary = 'unsupported';
+    if ((await request('/system/version')).experimental_directPluginSourceMoves !== true) throw Error();
+    boundary = 'changed'; await noJobs();
     let plugin = (await listed()).find(p => p.id === r.id);
     let src = await source();
     if (!plugin || !healthy(plugin) || generation(plugin, src) !== intent.expected.generation || src.requested !== intent.expected.requested || src.resolved !== intent.expected.resolved || (src.subdirectory ?? null) !== intent.expected.subdirectory) throw Error();
@@ -142,17 +143,11 @@ export const sourceModeRunnerScript = String.raw`
     if (intent.requirePause) {
       boundary = 'pause_incomplete'; const status = await paused();
       handedOffIds = status.mirrors.map(m => m.id).sort();
-      for (const mirror of status.mirrors) {
-        if (typeof mirror.id !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(mirror.id)) throw Error();
-        const result = await request('/plugins/icloud/rpc/pause', 'POST', { id: mirror.id });
-        if (result.ok !== true || result.result?.updatePause?.version !== 1 || result.result.updatePause.jobId !== r.jobId || !Array.isArray(result.result.mirrors) || result.result.mirrors.length > 20 || result.result.mirrors.some(m => m.enabled !== false || m.phase === 'running')) throw Error();
-      }
-      const after = await paused();
-      if (JSON.stringify(after.mirrors.map(m => m.id).sort()) !== JSON.stringify(handedOffIds)) throw Error();
+      // The reservation retains its original resume rights; no user-Pause calls.
       r.pauseHandoff = true; await persist();
     }
     // Re-read registration, local generation and pause state immediately before
-    // the destructive boundary; draining never grants fresh source authority.
+    // installation; draining never grants fresh source authority.
     boundary = 'changed'; await noJobs();
     plugin = (await listed()).find(p => p.id === r.id); src = await source();
     if (!plugin || !healthy(plugin) || generation(plugin, src) !== intent.expected.generation) throw Error();
@@ -166,15 +161,10 @@ export const sourceModeRunnerScript = String.raw`
       if (JSON.stringify(current.mirrors.map(m => m.id).sort()) !== JSON.stringify(handedOffIds)) throw Error();
     }
     lifetime.signal.throwIfAborted();
-    boundary = 'remove_uncertain'; r.removalAttempted = true; r.configuration = 'possibly_deleted'; await persist();
-    const removed = await request('/plugins/' + r.id, 'DELETE'); if (removed.ok !== true) throw Error();
-    if ((await listed()).some(p => p.id === r.id)) throw Error();
-    r.removed = true; r.configuration = 'deleted'; await persist();
-    boundary = 'install_uncertain'; await noJobs();
-    if ((await listed()).some(p => p.id === r.id)) throw Error();
+    boundary = 'unsupported';
+    if ((await request('/system/version')).experimental_directPluginSourceMoves !== true) throw Error();
     if (intent.local) {
-      // DELETE can dispose code while the working copy is being edited. Recheck
-      // identity and runtime bytes AFTER removal, immediately before admission.
+      // Check identity and runtime bytes immediately before native admission.
       // This is not a lock against edits after this check or BB's final parse.
       boundary = 'changed';
       const manifest = await read(join(intent.localPath, 'package.json'));
@@ -188,6 +178,7 @@ export const sourceModeRunnerScript = String.raw`
       ? { source: 'path:' + intent.localPath, selection: { kind: 'root' } }
       : { source: 'git:' + intent.sourceUrl + '@main', selection: { kind: 'subdirectory', path: 'plugins/' + r.id } }, 202);
     if (installed.ok !== true || typeof installed.job?.id !== 'string' || !/^[a-z0-9_-]{1,128}$/i.test(installed.job.id)) throw Error();
+    r.nativeJobId = installed.job.id; await persist();
     let succeeded = false;
     for (let attempt = 0; attempt < 1000; attempt++) {
       const response = await request('/plugins/install-jobs/' + installed.job.id); const job = response.job;

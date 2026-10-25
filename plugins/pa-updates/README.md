@@ -21,7 +21,7 @@ The footer entry and update notice open this page. Checks show real per-componen
 - **Changes ready to apply:** known applied code differs from the working copy.
 - **Couldn't check:** source or applied-code identity is uncertain. This is not permission to overwrite anything.
 
-The standard source workspace is `$HOME/src/pa-bb`; there is no folder setting or directory search. Locally developed plugins load from its component folders through BB's local-path mode. Ordinary reloads preserve their settings and data. The initial source-mode switch is deliberately different: it resets BB configuration after explicit confirmation.
+The standard source workspace is `$HOME/src/pa-bb`; there is no folder setting or directory search. Locally developed plugins load from its component folders through BB's local-path mode. Reloads and supported source-mode switches preserve configuration and data. Switching requires an explicit host capability; package versions alone are not proof.
 
 BB reload compiles local source itself. BB startup also loads the current working source, so a BB update is held while local edits are unconfirmed. A planned BB restart can itself replace the local-path updater; that replacement is observed, not repeated.
 
@@ -33,25 +33,25 @@ These use BB's separate installed snapshots. Their normal origin updates still w
 
 ## Switch between GitHub and local development
 
-Each PA row shows **GitHub** or **Local development**, with a control for the other mode. The initial implementation uses BB's native remove/install operations: confirm **Delete settings and switch** only when ready to lose that plugin's BB settings, saved credentials and schedules. Its ID and user source remain; other persisted plugin data may remain too. This is not a full data reset or a backup/restore feature. A disabled plugin must be enabled explicitly before switching; the updater never silently starts it.
+Each PA row shows **GitHub** or **Local development**, with a control for the other mode. Confirm **Switch source** to use BB's native same-ID install operation, keeping configuration and data. The updater never uninstalls a plugin to switch its source. These controls currently require an enabled plugin so the newly loaded code can be verified; they never enable a disabled plugin implicitly.
 
 Prepare the standard checkout and run `npm ci` in the intended plugin folder before choosing local development. BB's local install does not install runtime dependencies automatically. Local mode displays the configured Git origin safely, edited files and unpushed commits separately. Unpushed status is unverified when the comparison did not check that origin. Do not edit the selected plugin while a switch is in progress.
 
 Switching does not pull, reset, stash, commit or push the working copy. Switching to GitHub installs its managed `main` source; this is not a claim that every commit is a tagged distribution release. Switching to local development loads the current working files, including edits.
 
-The warning is necessary because BB 0.46.1 and the inspected 0.47.1 reject Git↔local in-place replacement while retaining configuration. Removing the warning through proven preservation or upstream support is separate follow-up work. Do not patch BB's database or cache. Deploying these controls does not authorize switching configured plugins.
+BB must advertise `experimental_directPluginSourceMoves: true` through its version API. A stock version number, including 0.47.1, does not establish support. Unsupported hosts disable these controls; there is no destructive fallback. Direct Git/path sources are supported, not catalog/npm/builtin replacement. Do not patch BB's database or cache. Deploying the controls does not authorize switching configured plugins.
 
 ## Data, consent and recovery
 
-Ordinary updates preserve settings, credentials, enabled state, user source work and account data. Explicitly confirmed source switches reset BB configuration as described above. Source checks use an isolated Git directory/index without owner hooks or filters. Fast-forwards stop on local work or ignored-file collisions; they do not push anything.
+Ordinary updates and supported source switches retain configuration, enabled state and persistent data. Existing receipts from the historical resetting implementation still report what happened; new switches never select that implementation. Source checks use an isolated Git directory/index without owner hooks or filters. Fast-forwards stop on local work or ignored-file collisions; they do not push anything.
 
-File-writing integrations are reserved and drained through their supported Pause controls before changing code. Ordinary updates restore only previously enabled folders. **Source switches leave every folder paused**: reconnect/reconfigure before deliberately resuming. The current iCloud/Obsidian 0.3.x note-interface family is supported; older pairs need their [documented stopped migration](../icloud/README.md).
+File-writing integrations are reserved and drained through their supported Pause controls before changing code. Updates and source switches retain reservation ownership and restore only previously enabled healthy folders. User-paused, failed and retained folders are not automatically enabled. The current iCloud/Obsidian 0.3.x note-interface family is supported; older pairs need their [documented stopped migration](../icloud/README.md).
 
-Native BB restart consent for running threads remains. Pi/Codex updates affect the configured PA execution host, not the browser's computer, and do not forcibly refresh existing provider sessions.
+Native BB restart consent for running threads remains. A BB installation pinned and updated outside the native updater is labelled **Managed separately**, not offered a stock replacement. Pi/Codex updates affect the configured PA execution host, not the browser's computer, and do not forcibly refresh existing provider sessions.
 
-Results survive updater replacement and BB restart. Completed steps remain completed; unknown writes are never retried automatically. After an uncertain result, inspect the saved outcome before retrying or resuming reserved folders. **Check recovery** verifies a manual repair and safely clears pause ownership; it never removes, installs or replays a switch. An interrupted removal or unverified pause window may require an operator BB restart after running work finishes. The plugin does not restart BB automatically for recovery and is not a rollback or session-supervision system.
+Results survive updater replacement and BB restart. Completed steps remain completed; unknown writes are never retried automatically. After an uncertain result, inspect the saved outcome before retrying or resuming reserved folders. **Check recovery** verifies the current target or original source and safely clears pause ownership; it never removes, installs or replays a switch. An unsettled native operation or unverified pause window may require an operator BB restart after running work finishes. Missing or ambiguous runner ownership remains blocked rather than guessed. The plugin does not restart BB automatically for recovery and is not a rollback or session-supervision system.
 
-Switching the updater itself temporarily removes this page. Save the intended reinstall command shown in its warning outside BB first. A finite independent task finishes the native switch and records the outcome; startup does not replay it. Bounded private operation receipts live under `$HOME/.local/state/pa-updates/source-modes/`, outside BB's database/cache. They contain no backed-up settings or credentials.
+Switching the updater itself reloads this page. Save the independent native install command shown in its confirmation outside BB first. A finite independent task finishes the native switch and records the outcome; startup does not replay it. Bounded private operation receipts live under `$HOME/.local/state/pa-updates/source-modes/`, outside BB's database/cache. They contain no backed-up settings or credentials.
 
 ## Development and verification
 
@@ -67,7 +67,7 @@ Temporary-repository tests cover local, incoming, both-sided and same-version ch
 
 - `test/run-local-path-gate.mjs`: native reload and same-ID local-folder movement preserve data and disabled state.
 - `test/run-local-development-gate.mjs`: original updater handlers, edit/try before push, same-version local/origin changes, self replacement, source-only updates, kept work and actual same-binary BB restarts. It does not claim to upgrade the BB binary.
-- `test/run-source-mode-gate.mjs`: original-handler Git↔local switches on disposable BB 0.46.1 and 0.47.1, actual updater self-removal, expected configuration deletion with retained KV/data, failed native installation, no replay, paused-folder ownership and process-death/restart recovery. Uses the original Pause state machine with synthetic mirrors, not real Apple/rclone activity. [Bounded evidence](../../docs/plans/022-native-source-mode-evidence.json).
+- `test/run-source-mode-gate.mjs`: original-handler Git↔local switches on a disposable capability-advertising BB fork, actual updater self-replacement, retained configuration/storage, failed installation keeping the previous registration, no replay, original Pause/drain/resume ownership and process-death/restart recovery. Zero native removals and zero helper user-Pause calls. Synthetic mirrors are not real Apple/rclone activity. [Current evidence](../../docs/plans/023-preserving-source-mode-evidence.json); the older resetting gate remains historical in iteration 022.
 - Existing ordinary/runtime/paired-sync gates retain their narrower historical evidence; rerun affected boundaries, not every old version combination.
 
 Rendered review uses the original app in disposable BB at desktop/narrow widths with keyboard checks. Unit tests or version labels do not substitute for it. Historical Calendar release records and publisher tests remain separate from the updater's Git-based workflow.

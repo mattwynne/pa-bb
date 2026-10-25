@@ -212,3 +212,22 @@ test('saved reviews written before the inventory addition still parse without in
   const old = { review: { id: '11111111-1111-4111-8111-111111111111', at: new Date().toISOString(), rows: [], runtime: null }, job: null };
   assert.deepEqual(applicationSavedSchema.parse(old), old);
 });
+
+test('capability facts come only from the raw host probe, never an SDK/version guess; absent stubs stay false', async t => {
+  const f = fixture(t); f.outcomes.set('google-calendar', 'update-available');
+  await f.ports.inspect(); assert.ok(f.ports.inventory!().every(row => row.sourceSwitchSupported === false));
+  Object.defineProperty(f.bb, 'server', { value: { loopbackBaseUrl: 'http://127.0.0.1:45678' } });
+  const calls: string[] = []; let raw: unknown;
+  t.mock.method(globalThis, 'fetch', async (url: string, init?: RequestInit) => {
+    calls.push(String(url)); assert.equal(init?.redirect, 'error'); assert.equal(init?.method, undefined); assert.equal(init?.body, undefined);
+    return new Response(JSON.stringify(raw), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  });
+  for (const value of [{ currentVersion: '999.0.0' }, { experimental_directPluginSourceMoves: false }, { experimental_directPluginSourceMoves: 'true', private: 'PRIVATE_SENTINEL' }, { experimental_directPluginSourceMoves: true }]) {
+    raw = value; const progress: { sourceSwitchSupported?: boolean }[] = [];
+    const rows = await f.ports.inspect(row => progress.push(row));
+    const expected = value.experimental_directPluginSourceMoves === true;
+    assert.ok([...rows, ...f.ports.inventory!(), ...progress].every(row => row.sourceSwitchSupported === expected));
+    assert.ok(!JSON.stringify([rows, f.ports.inventory!(), f.logs]).includes('PRIVATE_SENTINEL'));
+  }
+  assert.ok(calls.every(url => url === 'http://127.0.0.1:45678/api/v1/system/version')); assert.equal(calls.length, 4);
+});

@@ -2,6 +2,8 @@
 
 Status: delivered as PA updates 0.4.0 (`3c574b2`). Tracked in `yx` under “Switch PA plugins between GitHub and local development”. Extends 021 with an explicitly approved destructive transition; retaining configuration is follow-up work, not a prerequisite.
 
+The resetting implementation below is historical. [Iteration 023](023-preserving-plugin-source-modes.md) replaces it with capability-verified preserving switches; new operations never use removal.
+
 ## Outcome
 
 Each PA plugin row offers a switch between **GitHub** and **Local development**. GitHub means BB's existing managed source from this repository; do not mislabel `main` as a published versioned release or add a release pipeline. Local development uses the plugin's standard folder under `$HOME/src/pa-bb`. No arbitrary folder picker, Git dashboard, fork, database edit or cache patch.

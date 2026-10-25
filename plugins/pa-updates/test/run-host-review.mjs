@@ -19,7 +19,7 @@ function current() {
   const components = Object.fromEntries(componentIds.map(id => [id, { local: false, upstream: false, working: a, origin: a }]));
   return { checking: false, applying: false, failure: null, job: null, progress: null, offers: { available: false, checkedAt: new Date().toISOString() }, review: {
     id: reviewId, at: new Date().toISOString(), rows: [], localRows: [], workspace: { head: 'a'.repeat(40), originHead: 'a'.repeat(40), dirty: false, ahead: false, behind: false, configuredOrigin: 'https://github.com/mattwynne/pa-bb.git', originComparisonMatches: true, components },
-    inventory: componentIds.map(id => ({ id, installed: '1.0.0', local: 'stock', sourceMode: 'managed', sourceEnabled: true, sourceGeneration: c, state: 'current', prerequisite: null, workspace: components[id], applied: a, originComparisonMatches: true })),
+    inventory: componentIds.map(id => ({ id, installed: '1.0.0', local: 'stock', sourceMode: 'managed', sourceEnabled: true, sourceSwitchSupported: true, sourceGeneration: c, state: 'current', prerequisite: null, workspace: components[id], applied: a, originComparisonMatches: true })),
     runtime: { target: { id: 'fixture-host', name: 'PA test server' }, runningThreadCount: 0, rows: ['pi', 'codex', 'bb'].map(id => ({ id, installed: '1.0.0', available: null, source: id === 'bb' ? 'npm' : 'npmGlobal', fingerprint: id, state: 'current', reason: null })) },
   } };
 }
@@ -61,7 +61,10 @@ function makeState(view) {
     if (['local_unknown', 'local_mismatch'].includes(view)) state.review.workspace.originComparisonMatches = row.originComparisonMatches = false;
     if (view === 'local_legacy') delete row.originComparisonMatches;
   }
+  if (view === 'source_capability_false') state.review.inventory.forEach(row => row.sourceSwitchSupported = false);
+  if (view === 'source_capability_missing') state.review.inventory.forEach(row => delete row.sourceSwitchSupported);
   if (view === 'source_disabled') state.review.inventory.forEach(row => row.sourceEnabled = false);
+  if (view === 'source_managed_separately') Object.assign(state.review.runtime.rows.find(row => row.id === 'bb'), { state: 'unavailable', source: 'unknown', reason: 'unsupported_install' });
   if (view === 'source_missing_enablement') state.review.inventory.forEach(row => delete row.sourceEnabled);
   if (view === 'source_missing_generation') state.review.inventory.forEach(row => delete row.sourceGeneration);
   if (view === 'source_unsupported') state.review.inventory.forEach(row => row.sourceMode = 'unsupported');
@@ -80,9 +83,10 @@ function makeState(view) {
   if (['source_failed_local', 'source_failed_github', 'source_recovery_aborted', 'source_recovery_waiting', 'source_recovery_rpc_refused'].includes(view)) {
     const target = view === 'source_failed_github' ? 'github' : 'local';
     if (target === 'github') row.sourceMode = 'local';
-    state.sourceSwitch = { ...sourceReceipt('google-calendar', target, 'attention'), reason: 'install_failed', removalAttempted: true, removed: true, installAdmitted: true, manualRecovery: true, configuration: 'deleted', syncReserved: true, pauseHandoff: true };
+    state.sourceSwitch = { ...sourceReceipt('google-calendar', target, 'attention'), reason: 'install_failed', removalAttempted: false, removed: false, installAdmitted: true, manualRecovery: true, configuration: 'preserved', syncReserved: true, pauseHandoff: true };
   }
-  if (view === 'source_recovery_aborted') Object.assign(state.sourceSwitch, { reason: 'pause_incomplete', removalAttempted: false, removed: false, installAdmitted: false, configuration: 'reset_expected', pauseHandoff: false });
+  if (['source_legacy_deleted', 'source_legacy_possible', 'source_legacy_planned'].includes(view)) state.sourceSwitch = { ...sourceReceipt('google-calendar', 'local', 'attention'), reason: 'install_failed', removalAttempted: true, removed: true, installAdmitted: true, manualRecovery: true, configuration: view === 'source_legacy_possible' ? 'possibly_deleted' : view === 'source_legacy_planned' ? 'reset_expected' : 'deleted', syncReserved: true, pauseHandoff: true };
+  if (view === 'source_recovery_aborted') Object.assign(state.sourceSwitch, { reason: 'pause_incomplete', removalAttempted: false, removed: false, installAdmitted: false, configuration: 'preserved', pauseHandoff: false });
   if (view === 'source_complete_stale') {
     row.state = 'offered'; Object.assign(work, { local: true, working: b });
     state.review.rows = [{ ...offer(state), available: '1.1.0' }]; state.review.localRows = [offer(state)];
@@ -93,11 +97,11 @@ function makeState(view) {
 }
 function sourceReceipt(id, target, phase) {
   return { jobId: '55555555-5555-4555-8555-555555555555', reviewId, id, target, phase, startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), reason: null,
-    removalAttempted: false, removed: false, installAdmitted: false, pauseHandoff: false, syncReserved: false, manualRecovery: false, configuration: 'reset_expected', actual: null };
+    removalAttempted: false, removed: false, installAdmitted: false, pauseHandoff: false, syncReserved: false, manualRecovery: false, configuration: 'preserved', actual: null };
 }
 function finishSource(state) {
   state.applying = false;
-  Object.assign(state.sourceSwitch, { phase: 'complete', reason: null, actual: '2.0.0', configuration: 'deleted', removalAttempted: true, removed: true, installAdmitted: true, manualRecovery: false, syncReserved: false });
+  Object.assign(state.sourceSwitch, { phase: 'complete', reason: null, actual: '2.0.0', configuration: 'preserved', removalAttempted: false, removed: false, installAdmitted: true, manualRecovery: false, syncReserved: false });
 }
 async function settle(panel) {
   await panel.evaluate(async element => {
@@ -133,7 +137,7 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
   const notify = async () => { const value = await host.request('plugins/pa-updates/rpc/fixtureNotify', null); assert.equal(value.body.ok, true); };
   const views = process.env.BB_REVIEW_VIEWS?.split(',') ?? ['current', 'local', 'incoming', 'both', 'unapplied', 'unconfirmed', 'progress', 'consent', 'source_only', 'failed_check', 'uncertain',
     'source_managed', 'source_local', 'local_origin', 'local_dirty', 'local_ahead', 'local_both', 'local_unknown', 'local_mismatch',
-    'source_disabled', 'source_missing_enablement', 'source_missing_generation', 'source_unsupported', 'source_no_workspace', 'source_busy', 'source_error',
+    'source_managed_separately', 'source_legacy_deleted', 'source_legacy_possible', 'source_legacy_planned', 'source_capability_false', 'source_capability_missing', 'source_disabled', 'source_missing_enablement', 'source_missing_generation', 'source_unsupported', 'source_no_workspace', 'source_busy', 'source_error',
     'source_pending', 'source_failed_local', 'source_failed_github', 'source_recovery_aborted', 'source_recovery_waiting', 'source_dependencies', 'source_complete_stale',
     'source_switch_refused', 'source_switch_lost_response', 'source_recovery_rpc_refused', 'progress_origin_false', 'progress_origin_absent', 'progress_origin_verified', 'local_legacy', 'source_status_read_failure'];
   for (const view of views) for (const width of [1280, 390]) {
@@ -159,7 +163,7 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
         assert.deepEqual(acknowledgeSourceRecoveryInputSchema.parse(route.request().postDataJSON()), { jobId: state.sourceSwitch.jobId });
         if (view === 'source_recovery_rpc_refused' && writes.filter(write => write.method === 'acknowledgeSourceRecovery').length === 1)
           return route.fulfill({ json: { ok: false, error: { code: 'internal', message: 'PRIVATE_SENTINEL' } } });
-        if (view === 'source_recovery_aborted') Object.assign(state.sourceSwitch, { recovery: 'aborted_before_removal', manualRecovery: false, syncReserved: false, pauseHandoff: true, actual: '1.0.0' });
+        if (view === 'source_recovery_aborted') Object.assign(state.sourceSwitch, { recovery: 'original_verified', manualRecovery: false, syncReserved: false, pauseHandoff: true, actual: '1.0.0' });
         else if (view !== 'source_recovery_waiting' || writes.filter(write => write.method === 'acknowledgeSourceRecovery').length > 1) { finishSource(state); state.sourceSwitch.recovery = 'target_verified'; }
       }
       if (method === 'review') {
@@ -184,6 +188,7 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
     assert.equal(await panel.locator('.pa-update-card').count(), 9);
     const text = await panel.innerText(); assert.ok(!/Install released|Release notes|PRIVATE_SENTINEL/.test(text));
     if (view === 'current') assert.equal(await panel.locator('.pa-update-check').count(), 9);
+    if (view === 'source_managed_separately') { assert.ok(text.includes('Managed separately')); assert.ok(!text.includes('Couldn’t check')); assert.equal(await panel.locator('.pa-update-check').count(), 8); }
     if (view === 'local') { assert.ok(text.includes('Local changes')); assert.equal(await panel.getByRole('button', { name: 'Update PA', exact: true }).count(), 0); }
     if (view === 'both') { assert.ok(text.includes('Local and upstream changes')); assert.equal(await panel.getByRole('button', { name: 'Update PA', exact: true }).count(), 0); }
     if (view === 'unapplied') assert.ok(text.includes('Changes ready to apply'));
@@ -246,9 +251,10 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
       if (view === 'local_origin' || view === 'local_mismatch') assert.ok(facts.includes('https://github.com/example/working-fork.git'));
       if (['local_unknown', 'local_mismatch', 'local_legacy'].includes(view)) assert.equal(await localRow.locator('.pa-update-check').count(), 0, 'unverified origin cannot earn a green agreement');
     }
-    if (['source_disabled', 'source_missing_enablement', 'source_missing_generation', 'source_no_workspace', 'source_busy', 'source_error', 'source_dependencies', 'uncertain'].includes(view)) {
+    if (['source_capability_false', 'source_capability_missing', 'source_disabled', 'source_missing_enablement', 'source_missing_generation', 'source_no_workspace', 'source_busy', 'source_error', 'source_dependencies', 'uncertain'].includes(view)) {
       assert.equal(await sourceButtons.count(), 6);
       for (const button of await sourceButtons.all()) assert.equal(await button.isEnabled(), false);
+      if (['source_capability_false', 'source_capability_missing'].includes(view)) assert.ok(text.includes('verify BB supports configuration-preserving source switches'));
       if (view === 'source_disabled') assert.ok(text.includes('Enable this plugin in BB first'));
       if (view === 'source_dependencies') assert.ok(text.includes('run npm ci'));
     }
@@ -260,16 +266,16 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
         assert.equal(await button.isEnabled(), true);
         const beforeDialog = rpcCalls;
         await button.click(); const dialog = panel.getByRole('dialog'); await dialog.waitFor();
-        const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true }), confirm = dialog.getByRole('button', { name: 'Delete settings and switch', exact: true });
+        const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true }), confirm = dialog.getByRole('button', { name: 'Switch source', exact: true });
         assert.equal(await cancel.evaluate(element => element === document.activeElement), true);
         const warning = await dialog.innerText();
         assert.ok(warning.includes(id === 'google-calendar' ? 'Calendar' : id === 'pa-updates' ? 'PA updater' : id === 'google-drive' ? 'Google Drive' : id === 'icloud' ? 'iCloud' : id === 'obsidian' ? 'Obsidian' : 'Fastmail'));
         assert.ok(warning.includes(view === 'source_managed' ? 'to Local development?' : 'to GitHub?'));
-        for (const phrase of ['BB settings, saved credentials and schedules', 'Source files and commits are kept', 'including edited files', 'reconnect and reconfigure']) assert.ok(warning.includes(phrase));
+        for (const phrase of ['Settings and data stay', 'Source files and commits are kept', 'including edited files', 'nothing is committed, pushed or reset']) assert.ok(warning.includes(phrase));
         assert.equal(warning.includes('Do not edit this plugin until the switch finishes.'), view === 'source_managed');
-        if (['icloud', 'obsidian'].includes(id)) assert.ok(warning.includes('folders remain paused'));
+        if (['icloud', 'obsidian'].includes(id)) assert.ok(warning.includes('Only previously enabled folders resume after verification'));
         if (id === 'pa-updates') {
-          assert.ok(warning.includes('temporarily removes this page')); assert.ok(warning.includes('Keep these instructions outside BB'));
+          assert.ok(warning.includes('reloads this page')); assert.ok(warning.includes('Keep these instructions outside BB'));
           assert.ok(warning.includes(view === 'source_managed' ? 'path:$HOME/src/pa-bb/plugins/pa-updates' : 'git:https://github.com/mattwynne/pa-bb.git@main --subdirectory plugins/pa-updates'));
         }
         await page.keyboard.press('Shift+Tab'); assert.equal(await confirm.evaluate(element => element === document.activeElement), true, `Reverse Tab focus: ${await page.evaluate(() => document.activeElement?.tagName)}`);
@@ -288,9 +294,9 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
       }
       const row = panel.locator('[data-source-id="google-calendar"]');
       await row.locator('.pa-update-source-action').click();
-      await panel.getByRole('button', { name: 'Delete settings and switch', exact: true }).click();
+      await panel.getByRole('button', { name: 'Switch source', exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.pa-update-source-result')?.textContent.includes('Switching source'));
-      assert.deepEqual(writes, [{ method: 'switchSource', input: { reviewId, id: 'google-calendar', target: view === 'source_managed' ? 'local' : 'github', confirmLoss: true } }]);
+      assert.deepEqual(writes, [{ method: 'switchSource', input: { reviewId, id: 'google-calendar', target: view === 'source_managed' ? 'local' : 'github', confirmSwitch: true } }]);
       assert.equal(await panel.getByRole('button', { name: 'Check again', exact: true }).isEnabled(), false);
       assert.ok(!(await row.innerText()).includes('Up to date'));
       await page.screenshot({ path: join(artifacts, `${view}-admitted-${width}.png`), fullPage: true }); screenshots++;
@@ -307,7 +313,7 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
     }
     if (['source_switch_refused', 'source_switch_lost_response'].includes(view)) {
       await panel.locator('[data-source-id="google-calendar"] .pa-update-source-action').click();
-      await panel.getByRole('button', { name: 'Delete settings and switch', exact: true }).click();
+      await panel.getByRole('button', { name: 'Switch source', exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.pa-updates')?.textContent.includes('The switch response was interrupted'));
       const notice = await panel.innerText();
       assert.ok(notice.includes('may have been admitted'));
@@ -330,7 +336,7 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
       await page.waitForFunction(() => !document.querySelector('.pa-updates')?.textContent.includes('The switch response was interrupted'));
       assert.equal(await panel.locator('.pa-update-check').count(), 9);
       await panel.locator('[data-source-id="google-calendar"] .pa-update-source-action').click();
-      await panel.getByRole('button', { name: 'Delete settings and switch', exact: true }).click();
+      await panel.getByRole('button', { name: 'Switch source', exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.pa-update-source-result')?.textContent.includes('Switching source…'));
       assert.deepEqual(writes.map(write => write.method), ['switchSource', 'review', 'switchSource'], 'a new switch needs a new check and explicit confirmation');
     }
@@ -340,7 +346,7 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
       for (const button of await sourceButtons.all()) assert.equal(await button.isEnabled(), false);
     }
     if (['source_failed_local', 'source_failed_github', 'source_recovery_aborted', 'source_recovery_waiting', 'source_recovery_rpc_refused'].includes(view)) {
-      assert.ok(text.includes(view === 'source_recovery_aborted' ? 'no completed reset is confirmed' : 'were deleted')); assert.ok(text.includes('folders remain paused'));
+      assert.ok(text.includes('Settings and data are kept')); assert.ok(text.includes('folders remain reserved'));
       assert.ok(text.includes(view === 'source_failed_github' ? 'git:https://github.com/mattwynne/pa-bb.git@main --subdirectory plugins/google-calendar' : 'path:$HOME/src/pa-bb/plugins/google-calendar'));
       assert.equal(await panel.getByRole('button', { name: 'Check again', exact: true }).isEnabled(), false);
       const row = panel.locator('[data-source-id="google-calendar"]'); assert.ok(!(await row.innerText()).includes('Up to date'));
@@ -349,7 +355,7 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
         await page.waitForFunction(() => document.querySelector('.pa-updates')?.textContent.includes('Recovery is not verified yet'));
         const refused = await panel.innerText();
         assert.ok(refused.includes('Nothing was installed or removed by this check'));
-        assert.ok(refused.includes('folders remain paused')); assert.ok(refused.includes('reinstall the intended'));
+        assert.ok(refused.includes('folders remain reserved')); assert.ok(refused.includes('reinstall the intended'));
         assert.ok(!/Could not read the saved result|PRIVATE_SENTINEL/.test(refused));
         const reread = page.waitForResponse(response => response.url().endsWith('/rpc/applicationStatus')); await notify(); await reread; await settle(panel);
         if (view === 'source_recovery_rpc_refused') assert.equal(await panel.locator('.pa-update-check').count(), 0, 'old snapshot cannot restore green after refused recovery');
@@ -365,6 +371,9 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
       for (const button of await sourceButtons.all()) assert.equal(await button.isEnabled(), false);
       await page.screenshot({ path: join(artifacts, `${view}-checked-${width}.png`), fullPage: true }); screenshots++;
     }
+    if (view === 'source_legacy_possible') assert.ok(text.includes('may have been deleted'));
+    if (view === 'source_legacy_planned') assert.ok(text.includes('no completed reset is confirmed'));
+    if (view === 'source_legacy_deleted') { assert.ok(text.includes('were deleted')); assert.ok(text.includes('Reconnect and reconfigure')); assert.ok(text.includes('folders remain paused')); }
     if (view === 'source_complete_stale') {
       const rowText = await panel.locator('[data-source-id="google-calendar"]').innerText();
       assert.ok(rowText.includes('2.0.0 · Switched to Local development'));
@@ -381,7 +390,7 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
     if (view === 'consent') {
       await panel.getByRole('button', { name: 'Update PA', exact: true }).click();
       await page.waitForFunction(() => document.querySelector('.pa-updates')?.textContent.includes('Update finished'));
-      assert.equal(writes.at(-1).input.confirmInterruptingThreads, true); assert.deepEqual(writes.at(-1).input.choices, []);
+      assert.ok((await panel.innerText()).includes('Check again to enable source switching')); assert.equal(writes.at(-1).input.confirmInterruptingThreads, true); assert.deepEqual(writes.at(-1).input.choices, []);
     }
     assert.deepEqual(errors, []); assert.ok(!(await panel.innerText()).includes('PRIVATE_SENTINEL')); await page.close();
   }

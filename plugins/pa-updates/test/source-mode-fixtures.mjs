@@ -11,8 +11,8 @@ const mode=()=>{try{return JSON.parse(readFileSync(join(root,'mode.json'),'utf8'
 const event=(operation,extra={})=>{let receipt;try{receipt=JSON.parse(readFileSync(join(receipts,'receipt.json'),'utf8'))}catch{}
  appendFileSync(join(root,'events.jsonl'),JSON.stringify({id,operation,marker,jobId:receipt?.jobId??null,removalAttempted:receipt?.removalAttempted??false,...extra})+'\\n')};
 const setting=bb.settings.define({note:{type:'string',label:'Synthetic setting',default:''},credential:{type:'string',label:'Synthetic secret',secret:true}});
-const data=join(bb.server.experimental_dataDir,'plugins',id),once=join(root,id+'-schedule-once');
-if(!existsSync(once)){bb.background.schedule('fixture-once','0 0 1 1 *',()=>{});writeFileSync(once,'registered')}
+const data=join(bb.server.experimental_dataDir,'plugins',id);
+bb.background.schedule('fixture-sweep','0 0 1 1 *',()=>{});
 const database=()=>bb.storage.database();
 const snapshot=async()=>{const settings=await setting.get(),db=database();const has=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='fixture'").get();
  return{marker,pid:process.pid,kv:await bb.storage.kv.get('fixture-sentinel')==='SYNTHETIC_KV',database:!!has&&db.prepare('SELECT value FROM fixture WHERE id=1').get()?.value==='SYNTHETIC_DB',note:existsSync(join(data,'fixture-note.txt'))&&readFileSync(join(data,'fixture-note.txt'),'utf8')==='SYNTHETIC_NOTE',setting:settings.note==='SYNTHETIC_SETTING',secret:settings.credential==='SYNTHETIC_SECRET'}};
@@ -47,10 +47,14 @@ const allPaused=async()=>{if(pause.held)throw Error('Cannot reset held fixture')
 const contract={fixtureStatus:{input:z.null(),output:z.unknown()},seed:{input:z.null(),output:z.unknown()}${cloud ? ",status:{input:z.null(),output:z.unknown()},pause:{input:z.union([z.object({id:z.string().uuid()}),z.object({updateJob:z.string().uuid()})]),output:z.unknown()},enable:{input:z.union([z.object({id:z.string().uuid()}),z.object({updateJob:z.string().uuid()})]),output:z.unknown()},reset:{input:z.null(),output:z.unknown()},allPaused:{input:z.null(),output:z.unknown()}" : ''}};
 const handlers={fixtureStatus:async()=>({...await snapshot()${cloud ? ",...await status(),owned:await bb.storage.kv.get('pa-update-pause-v1')??null" : ''}}),seed${cloud ? ',status,pause:pauseHandler,enable:enableHandler,reset,allPaused' : ''}};
 bb.onDispose(async()=>{event('dispose-enter'${cloud ? ",{ownedIds:(await bb.storage.kv.get('pa-update-pause-v1'))?.ownedIds??[],mirrors:sync.status().mirrors}" : ''});
- if(mode().hideOriginOnDispose===id){renameSync(${value(origin)},${value(origin + '.offline')});event('origin-hidden')}
- const deadline=Date.now()+60000;while(mode().blockDispose===id){if(Date.now()>deadline)throw Error('Bounded fixture disposal expired');await new Promise(r=>setTimeout(r,25))}
+  const deadline=Date.now()+60000;while(mode().blockDispose===id){if(Date.now()>deadline)throw Error('Bounded fixture disposal expired');await new Promise(r=>setTimeout(r,25))}
  ${cloud ? 'await pause.stop();' : ''}event('dispose-exit')});event('load');
 ${updater ? `const ports=applicationPorts(bb,${value(origin)},async()=>${value(workspace)},receipts);
+// Fault seam runs AFTER the original adapter has prepared the original intent.
+// No production implementation, runner or native route is replaced.
+const prepare=ports.sourceMode.prepare;
+ports.sourceMode.prepare=async(receipt,review)=>{await prepare(receipt,review);
+ if(mode().hideOriginAfterPrepare===receipt.id){renameSync(${value(origin)},${value(origin + '.offline')});event('origin-hidden-after-prepare')}};
 ports.runtime={inspect:async()=>({target:null,runningThreadCount:0,rows:[]}),updateCli:async()=>{throw Error('No runtime writes')},prepareBb:async()=>{throw Error('No runtime writes')},applyBb:async()=>{throw Error('No runtime writes')},reconcileBb:async()=>{throw Error('No runtime writes')}};
 const api=new Proxy(bb,{get(target,key){if(key!=='rpc')return Reflect.get(target,key,target);return{...target.rpc,register(c,h){return target.rpc.register({...c,...contract},{...h,...handlers})}}}});
 return plugin(api,undefined,ports);` : 'bb.rpc.register(contract,handlers);'}

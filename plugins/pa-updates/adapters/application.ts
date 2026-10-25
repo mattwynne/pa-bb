@@ -10,7 +10,7 @@ import { inspectCanonicalWorkspace, canonicalCheckout, unknownDevelopment, Devel
 import { sourceFingerprint, sourceDetails } from './source-files.ts';
 import { AppliedSources } from './applied-source.ts';
 import { syncWorkspace } from './sync-workspace.ts';
-import { sourceModePorts, sourceGeneration } from './source-mode.ts';
+import { sourceModePorts, sourceGeneration, directSourceMoves } from './source-mode.ts';
 import type { Workspace } from '../core/workspace.ts';
 import { ApplicationError, integrationId } from '../core/application.ts';
 import type { ApplicationPorts, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode } from '../core/application.ts';
@@ -98,6 +98,11 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
     async inspect(onResult, mode = 'origin') {
       const rows: Assessment[] = [], inventory: IntegrationInventoryRow[] = []; available.clear(); localRows = []; pendingLocal = false;
       const localWork = mode === 'local' ? await localSnapshot() : workspace;
+      let sourceSwitchSupported = false;
+      if (bb.server?.loopbackBaseUrl) {
+        try { sourceSwitchSupported = await directSourceMoves(bb); }
+        catch { active(); bb.log.warn('pa-updates stage=source-capability outcome=unavailable'); }
+      }
       try {
         const listed = await list(); let retained = false;
         for (const plugin of listed.plugins) {
@@ -107,6 +112,7 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
           let sourceMode: IntegrationInventoryRow['sourceMode'] = 'unsupported';
           let generation: string | undefined;
           const facts = () => ({ workspace: workspace?.components[id.data] ?? null, applied, sourceMode, sourceEnabled: plugin.enabled,
+            sourceSwitchSupported,
             ...(typeof workspace?.originComparisonMatches === 'boolean' ? { originComparisonMatches: workspace.originComparisonMatches } : {}),
             ...(generation ? { sourceGeneration: generation } : {}) });
           const installed = plugin.version.length <= 64 && semver.valid(plugin.version) ? plugin.version : 'unknown';

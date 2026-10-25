@@ -54,7 +54,7 @@ const installCommand = (id: IntegrationId, target: 'github' | 'local') => target
 const sourceFailures: Record<NonNullable<SourceSwitch['reason']>, string> = {
   changed: 'The source changed after this check. Check again before confirming a new switch.',
   busy: 'BB is busy. Wait for running operations to finish, then check again.',
-  unsupported: 'This installation cannot use the supported source switch.',
+  unsupported: 'BB needs configuration-preserving source-switch support. Check again after updating BB.',
   disabled: 'Enable this plugin in BB first, then check again.',
   dependencies_missing: 'In this plugin’s working folder, run npm ci. Then check again and confirm a new switch.',
   unavailable: 'The source could not be verified. Check BB and the standard working folder, then check again.',
@@ -63,7 +63,7 @@ const sourceFailures: Record<NonNullable<SourceSwitch['reason']>, string> = {
   pause_incomplete: 'Folder pausing is incomplete. Keep folders paused and check their settings before recovery.',
   remove_uncertain: 'Removal is uncertain. Inspect the installed plugin in BB before any manual repair.',
   install_uncertain: 'Installation is uncertain. Inspect the installed plugin in BB before any manual repair.',
-  install_failed: 'The intended source was not installed. Repair it manually using the intended source below.',
+  install_failed: 'The source change failed. Check the installed source before trying again.',
   verification_failed: 'The intended source could not be verified. Inspect the installed plugin before manual repair.',
   interrupted: 'The switch was interrupted. Inspect the installed plugin before manual repair; nothing is retried automatically.',
 };
@@ -89,26 +89,26 @@ function SourceConfirmation({ selection, close, confirm }: { selection: SwitchSo
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   }}>
     <h2 id="pa-source-title">Switch {labels[selection.id][0]} to {modeLabel(selection.target)}?</h2>
-    <p id="pa-source-warning">This deletes this plugin’s BB settings, saved credentials and schedules. You may need to reconnect and reconfigure it.</p>
+    <p id="pa-source-warning">Settings and data stay. BB will reload this plugin from the selected source.</p>
     <p>Source files and commits are kept. Local development runs the working folder, including edited files; nothing is committed, pushed or reset.</p>
     {selection.target === 'local' && <p>Do not edit this plugin until the switch finishes.</p>}
-    {(selection.id === 'icloud' || selection.id === 'obsidian') && <p>iCloud and Obsidian folders remain paused. Reconfigure before choosing to resume them.</p>}
-    {selection.id === 'pa-updates' && <><p>This temporarily removes this page. Keep these instructions outside BB before continuing: if the page does not return, run this command on the BB server to reinstall the intended source, then reopen Settings.</p><code>{installCommand(selection.id, selection.target)}</code><p>For Local development, the standard working folder and its dependencies must be available. Reinstalling does not restore deleted settings.</p></>}
-    <div className="pa-update-dialog-actions"><button ref={cancel} type="button" onClick={close}>Cancel</button><button type="button" className="pa-update-destructive" onClick={confirm}>Delete settings and switch</button></div>
+    {(selection.id === 'icloud' || selection.id === 'obsidian') && <p>File-writing folders pause during the switch. Only previously enabled folders resume after verification.</p>}
+    {selection.id === 'pa-updates' && <><p>This reloads this page. Keep these instructions outside BB: if the page does not return, check the installed source before running this command on the BB server, then reopen Settings.</p><code>{installCommand(selection.id, selection.target)}</code><p>Local development needs the standard working folder and its dependencies.</p></>}
+    <div className="pa-update-dialog-actions"><button ref={cancel} type="button" onClick={close}>Cancel</button><button type="button" className="pa-update-primary" onClick={confirm}>Switch source</button></div>
   </dialog>;
 }
 function SourceResult({ receipt, pending, recover }: { receipt: SourceSwitch; pending: boolean; recover: () => void }) {
   const active = !['complete', 'attention'].includes(receipt.phase);
   return <div className="pa-update-source-result" role="status" aria-live="polite">
-    <p><strong>{labels[receipt.id][0]} · {modeLabel(receipt.target)}</strong>{' · '}{active ? 'Switching source…' : receipt.phase === 'complete' ? 'Source switched' : receipt.recovery === 'aborted_before_removal' ? 'Original source kept' : 'Source switch needs attention'}</p>
-    {active && <p>{receipt.removalAttempted ? 'Installing and verifying the intended source. Do not retry.' : 'Preparing the source and saving the result before removal.'}</p>}
+    <p><strong>{labels[receipt.id][0]} · {modeLabel(receipt.target)}</strong>{' · '}{active ? 'Switching source…' : receipt.phase === 'complete' ? 'Source switched' : ['aborted_before_removal', 'original_verified'].includes(receipt.recovery ?? '') ? 'Original source kept' : 'Source switch needs attention'}</p>
+    {active && <p>{receipt.installAdmitted ? 'Installing and verifying the intended source. Do not retry.' : 'Preparing the source and saving the result.'}</p>}
     {receipt.phase === 'attention' && !receipt.recovery && receipt.reason && <p>{sourceFailures[receipt.reason]}</p>}
-    <p>{receipt.configuration === 'deleted' ? 'BB settings, saved credentials and schedules were deleted. Reconnect and reconfigure as needed.' : receipt.configuration === 'possibly_deleted' ? 'BB settings, saved credentials and schedules may have been deleted. Do not assume they were restored.' : 'Settings deletion was planned; no completed reset is confirmed.'} Source files and commits are kept.</p>
-    {(receipt.pauseHandoff || receipt.syncReserved) && <p>iCloud and Obsidian folders remain paused. Reconfigure before choosing to resume them.</p>}
+    <p>{receipt.configuration === 'preserved' ? 'Settings and data are kept.' : receipt.configuration === 'deleted' ? 'BB settings, saved credentials and schedules were deleted. Reconnect and reconfigure as needed.' : receipt.configuration === 'possibly_deleted' ? 'BB settings, saved credentials and schedules may have been deleted. Do not assume they were restored.' : 'Settings deletion was planned; no completed reset is confirmed.'} Source files and commits are kept.</p>
+    {(receipt.pauseHandoff || receipt.syncReserved) && <p>{receipt.configuration === 'preserved' ? receipt.syncReserved ? 'File-writing folders remain reserved until verification finishes.' : 'The update reservation was released. Only previously enabled folders may resume.' : 'iCloud and Obsidian folders remain paused. Reconfigure before choosing to resume them.'}</p>}
     {receipt.phase === 'attention' && (receipt.manualRecovery || receipt.syncReserved) && <>
       <p>Inspect BB’s installed plugin first. If repair is needed, reinstall the intended {modeLabel(receipt.target)} source on the BB server:</p><code>{installCommand(receipt.id, receipt.target)}</code>
-      <p>Then choose Check recovery. It only verifies manual repair and safe pause cleanup; it never installs, removes or retries. Missing or wrong sources and active jobs cannot be cleared.</p>
-      <p>If BB cannot verify an interrupted removal or pause window, finish any running work and restart BB before checking recovery again.</p>
+      <p>Then choose Check recovery. It verifies the current source and safe pause cleanup; it never installs, removes or retries. Missing or wrong sources and active jobs cannot be cleared.</p>
+      <p>If BB cannot verify an interrupted native operation or pause window, finish any running work and restart BB before checking recovery again.</p>
       <button type="button" disabled={pending} onClick={recover}>Check recovery</button>
     </>}
   </div>;
@@ -207,31 +207,34 @@ export function UpdatesPanel() {
   return <section className="pa-updates" aria-label="Update PA">
     <div className="pa-updates-body">
       {(error || failure || pending || job || !review) && <p role="status" aria-live="polite">{error ? 'Update status unavailable' : failure ? 'Update needs attention' : state?.applying ? state.job?.phase === 'restarting' ? 'BB is updating and restarting…' : 'Applying changes…' : pending ? 'Checking…' : job ? job.phase === 'complete' ? 'Update finished' : 'Update needs attention' : 'Check for PA updates'}</p>}
+      {job?.phase === 'complete' && !operationBlocked && <p className="pa-updates-muted">Check again to enable source switching.</p>}
       {error && <p role="alert">Could not read the saved result. Check before retrying; an interrupted response does not mean the operation failed.</p>}
       {failure && <p role="alert">{failures[failure]}</p>}
       {sourceReceipt && <SourceResult receipt={sourceReceipt} pending={pending} recover={() => void sourceAction({ jobId: sourceReceipt.jobId })} />}
       {sourceNotice && <p role="status">{sourceNotice}</p>}
       {target && <p className="pa-updates-muted">Server: <strong title={target.id}>{target.name}</strong></p>}
+      {!progress && rows.some(row => row.sourceSwitchSupported !== true) && <p className="pa-updates-muted">Check again to verify BB supports configuration-preserving source switches.</p>}
       {progress ? <Progress value={progress} previous={review} error={error} /> : <>
         <div className="pa-update-ordinary">{rows.map(row => {
           const receipt = job?.receipts.find(receipt => receipt.id === row.id), offer = review?.rows.find(offer => offer.id === row.id);
           const switched = sourceConsumed && sourceReceipt?.id === row.id ? sourceReceipt : null;
           const complete = switched?.phase === 'complete', mode = complete ? switched.target === 'github' ? 'managed' : 'local' : row.sourceMode;
-          const eligible = (mode === 'managed' || mode === 'local') && !!row.sourceGeneration && row.sourceEnabled === true && !!review?.workspace;
+          const eligible = row.sourceSwitchSupported === true && (mode === 'managed' || mode === 'local') && !!row.sourceGeneration && row.sourceEnabled === true && !!review?.workspace;
           const next = mode === 'managed' ? 'local' : 'github';
           return <div className="pa-update-card" data-source-id={row.id} key={row.id}>
-            <div className="pa-update-version"><Label id={row.id} /><span>{switched ? complete ? <>{switched.actual ?? 'Version unverified'} · Switched to {modeLabel(switched.target)}</> : switched.recovery === 'aborted_before_removal' ? 'Original source kept · Check again' : switched.phase === 'attention' ? 'Source needs attention' : 'Switching source…' : receipt ? receiptText(receipt, !!state?.applying) : <>{row.installed === 'unknown' ? 'Version unknown' : row.installed}{offer && reviewDecision(offer) === 'automatic' && offer.available !== row.installed ? <> → <strong>{offer.available}</strong></> : null}{' · '}<CodeStatus row={row} confirmed={confirmed && (row.sourceMode !== 'local' || row.originComparisonMatches === true)} historical={!!job && historical} /></>}</span></div>
-            <div className="pa-update-source-line"><span>{switched && !complete && switched.removalAttempted && switched.recovery !== 'aborted_before_removal' ? 'Source unverified' : mode === 'managed' ? 'GitHub' : mode === 'local' ? 'Local development' : 'Source unavailable'}</span>
-              {(mode === 'managed' || mode === 'local') && <button type="button" className="pa-update-source-action" aria-label={`Switch ${labels[row.id][0]} to ${modeLabel(next)}`} disabled={!eligible || operationBlocked || sourceConsumed || !!job || !!state?.job?.syncReserved || !confirmed} onClick={() => review && setSelection({ reviewId: review.id, id: row.id, target: next, confirmLoss: true })}>Switch to {modeLabel(next)}</button>}
+            <div className="pa-update-version"><Label id={row.id} /><span>{switched ? complete ? <>{switched.actual ?? 'Version unverified'} · Switched to {modeLabel(switched.target)}</> : ['aborted_before_removal', 'original_verified'].includes(switched.recovery ?? '') ? 'Original source kept · Check again' : switched.phase === 'attention' ? 'Source needs attention' : 'Switching source…' : receipt ? receiptText(receipt, !!state?.applying) : <>{row.installed === 'unknown' ? 'Version unknown' : row.installed}{offer && reviewDecision(offer) === 'automatic' && offer.available !== row.installed ? <> → <strong>{offer.available}</strong></> : null}{' · '}<CodeStatus row={row} confirmed={confirmed && (row.sourceMode !== 'local' || row.originComparisonMatches === true)} historical={!!job && historical} /></>}</span></div>
+            <div className="pa-update-source-line"><span>{switched && !complete && switched.removalAttempted && !['aborted_before_removal', 'original_verified'].includes(switched.recovery ?? '') ? 'Source unverified' : mode === 'managed' ? 'GitHub' : mode === 'local' ? 'Local development' : 'Source unavailable'}</span>
+              {(mode === 'managed' || mode === 'local') && <button type="button" className="pa-update-source-action" aria-label={`Switch ${labels[row.id][0]} to ${modeLabel(next)}`} disabled={!eligible || operationBlocked || sourceConsumed || !!job || !!state?.job?.syncReserved || !confirmed} onClick={() => review && setSelection({ reviewId: review.id, id: row.id, target: next, confirmSwitch: true })}>Switch to {modeLabel(next)}</button>}
             </div>
             {mode === 'local' && (!switched || complete) && <LocalFacts workspace={review?.workspace} />}
-            {row.sourceEnabled === false ? <p className="pa-update-source-facts">Enable this plugin in BB first, then check again.</p> : !eligible && <p className="pa-update-source-facts">{mode === 'unsupported' ? 'This source cannot be switched here.' : 'Check again to verify the source, enablement and standard working folder.'}</p>}
+            {row.sourceEnabled === false ? <p className="pa-update-source-facts">Enable this plugin in BB first, then check again.</p> : !eligible && row.sourceSwitchSupported === true && <p className="pa-update-source-facts">{mode === 'unsupported' ? 'This source cannot be switched here.' : 'Check again to verify the source, enablement and standard working folder.'}</p>}
           </div>;
         })}</div>
         <div className="pa-update-ordinary">{runtimeRows.map(row => {
           const receipt = job?.runtimeReceipts.find(receipt => receipt.id === row.id);
-          const result = receipt ? receipt.outcome === 'failed' ? 'Update failed' : receipt.outcome === 'uncertain' ? 'Result uncertain — check before retrying' : receipt.outcome === 'activating' ? 'Updating…' : receipt.actual ? `Installed ${receipt.actual}` : state?.applying ? 'Waiting…' : 'Not updated' : null;
-          return <div className="pa-update-card" key={row.id}><div className="pa-update-version"><RuntimeLabel id={row.id} /><span>{result ?? <>{row.installed ?? (row.source === 'missing' ? 'Not installed' : 'Version unknown')}{row.state === 'ready' ? <> → <strong>{row.available}</strong></> : row.state === 'current' ? <> · <Current confirmed={confirmed && !!row.installed && !row.reason} historical={!!job && historical} /></> : ' · Couldn’t check'}</>}</span></div>{!receipt && row.reason && row.reason !== 'unavailable' && <p className="pa-updates-muted">{failures[row.reason]}</p>}</div>;
+          const managedSeparately = row.id === 'bb' && row.reason === 'unsupported_install' && rows.some(row => row.sourceSwitchSupported === true);
+          const result = managedSeparately ? `${row.installed ?? 'Version unknown'} · Managed separately` : receipt ? receipt.outcome === 'failed' ? 'Update failed' : receipt.outcome === 'uncertain' ? 'Result uncertain — check before retrying' : receipt.outcome === 'activating' ? 'Updating…' : receipt.actual ? `Installed ${receipt.actual}` : state?.applying ? 'Waiting…' : 'Not updated' : null;
+          return <div className="pa-update-card" key={row.id}><div className="pa-update-version"><RuntimeLabel id={row.id} /><span>{result ?? <>{row.installed ?? (row.source === 'missing' ? 'Not installed' : 'Version unknown')}{row.state === 'ready' ? <> → <strong>{row.available}</strong></> : row.state === 'current' ? <> · <Current confirmed={confirmed && !!row.installed && !row.reason} historical={!!job && historical} /></> : ' · Couldn’t check'}</>}</span></div>{!receipt && !managedSeparately && row.reason && row.reason !== 'unavailable' && <p className="pa-updates-muted">{failures[row.reason]}</p>}</div>;
         })}</div>
         {job?.sourceUpdate && <p className="pa-updates-muted">{job.sourceUpdate.outcome === 'updated' ? 'Working copy updated from origin.' : job.sourceUpdate.outcome === 'held' ? 'Working copy kept. Ask PA to review its local work before pulling updates.' : job.sourceUpdate.outcome === 'uncertain' ? 'Working-copy update uncertain. Ask PA to inspect Git before retrying.' : 'Updating the working copy…'}</p>}
         {!job && !sourceConsumed && sourceHeld && <p className="pa-updates-muted">Origin has updates, but the working copy has local work. Ask PA to review it first.</p>}

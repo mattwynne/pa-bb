@@ -102,7 +102,8 @@ export class Application {
           const receipt = sourceSwitchSchema.nullable().parse(await this.ports.sourceMode.observe(true)) ?? this.saved.sourceSwitch ?? null; this.active();
           if (receipt && receipt.phase === 'complete' && receipt.pauseHandoff && receipt.syncReserved) {
             // The runner verified the retained reservation after activation.
-            // Every mirror's durable user-Pause removed owned resume rights.
+            // Preserving switches retain original resume rights; legacy reset
+            // receipts released only after user-Pause removed those rights.
             const result = await this.ports.restore(receipt.jobId); this.active();
             receipt.syncReserved = false;
             if (result === 'manual_recovery') { receipt.phase = 'attention'; receipt.reason = 'pause_required'; receipt.manualRecovery = true; }
@@ -424,13 +425,14 @@ export class Application {
     if (!review || parsed.reviewId !== review.id || this.saved.job?.reviewId === review.id || this.saved.sourceSwitch?.reviewId === review.id) throw new ApplicationError('changed');
     const row = review.inventory?.find(row => row.id === parsed.id);
     if (!row?.sourceGeneration || !['managed', 'local'].includes(row.sourceMode ?? '') || (row.sourceMode === 'local') === (parsed.target === 'local')) throw new ApplicationError('changed');
+    if (row.sourceSwitchSupported !== true) throw new ApplicationError('unsupported_install');
     if (!this.ports.sourceMode) throw new ApplicationError('unsupported_install');
     // Admission shares the same synchronous mutex as checks and ordinary apply.
     this.applying = true; this.failure = null; this.offers = null;
     const at = new Date().toISOString();
     const receipt: SourceSwitch = { jobId: randomUUID(), reviewId: review.id, id: parsed.id, target: parsed.target,
       startedAt: at, updatedAt: at, phase: 'preparing', reason: null, removalAttempted: false, removed: false, installAdmitted: false,
-      pauseHandoff: false, syncReserved: false, manualRecovery: false, configuration: 'reset_expected', actual: null };
+      pauseHandoff: false, syncReserved: false, manualRecovery: false, configuration: 'preserved', actual: null };
     this.saved.sourceSwitch = receipt;
     try { await this.persist(); }
     catch { this.applying = false; return this.status(); }
@@ -446,7 +448,7 @@ export class Application {
         }); this.active();
         if ((receipt.id === 'icloud' || receipt.id === 'obsidian') && !receipt.syncReserved) throw new ApplicationError('maintenance_unavailable');
         receipt.phase = 'ready'; await this.persist(); this.active();
-        // Returns on readiness/admission only. Never await self-removal, install,
+        // Returns on readiness/admission only. Never await self-replacement, install,
         // or a native lock from the old updater's disposal hook.
         launchAttempted = true;
         await this.ports.sourceMode!.launch(structuredClone(receipt)); this.active();
@@ -463,7 +465,6 @@ export class Application {
         else {
           receipt.phase = 'attention'; receipt.reason = error instanceof SourceSwitchError ? error.sourceReason : code === 'changed' ? 'changed' : code === 'busy' ? 'busy' : code === 'maintenance_unavailable' ? 'pause_required' : code === 'unsupported_install' ? 'unsupported' : code === 'storage' ? 'storage' : 'unavailable';
           receipt.manualRecovery = receipt.syncReserved || launchAttempted;
-          if (launchAttempted) receipt.configuration = 'possibly_deleted';
           // Never write over an independently admitted runner on an unknown read.
           if (!launchAttempted) {
             try { await this.ports.sourceMode!.settle(receipt); }

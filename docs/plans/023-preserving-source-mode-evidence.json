@@ -1,0 +1,49 @@
+{
+  "format": 1,
+  "bb": {
+    "version": "0.47.1",
+    "fork": "https://github.com/mattwynne/bb",
+    "commit": "611fb55ba23676112aa6d5e551f231309cbf90fd",
+    "capability": "experimental_directPluginSourceMoves"
+  },
+  "updater": "0.5.0",
+  "archiveSha256": "55483a12e44a4bcfd00cf75e118064e329e64264d3448c525db936189ab54222",
+  "pauseArchiveSha256": "2ba76de98897b5de760c8661b4197748ee06a3804f1d89599a129f090f579879",
+  "executionSourceSha256": {
+    "adapters/source-mode.ts": "a175f5881b35fc15225058dfe02ad3ea27d00d595e8f68d070386e9b4ad3bda7",
+    "adapters/source-mode-runner.ts": "37854b83426d846c7ca7f7ea139e175afef8140e66a8b692a1cc867d7976c1d7",
+    "core/application.ts": "c2456d28379a970b49b08490c2b41d07163fd1e5411d42d92075fbc26922bbca",
+    "server.ts": "d7f467f1f41e1bb6599c0259820308377e2de281fb229c91f5e743b1b3951beb",
+    "contract.ts": "acb58a95ed044ed043e1c2227001559568b84923182d959a8efea3d0c24034a8"
+  },
+  "native": {
+    "originalApplicationHandlersAndHelper": true,
+    "successfulSourceSwitches": 10,
+    "removals": 0,
+    "installJobs": { "total": 16, "succeeded": 15, "deliberatelyFailed": 1 },
+    "sameVersionDifferentBehavior": true,
+    "actualUpdaterSelfReplacementBothDirections": true,
+    "configurationAndPersistentDataRetained": true,
+    "declaredCronSchedulesRetained": true,
+    "failedInstallKeepsPreviousRegistration": true,
+    "sourceFilesDirtyWorkAndUnpushedCommitKept": true,
+    "observerReloadAndRestartNeverReplay": true,
+    "ownedHelperSigkillAndNativeJobSettlement": true,
+    "failedInitialPauseRequiresOldServerDeathAndSameUuidBarrier": true,
+    "helperUserPauseCalls": 0,
+    "originalResumeRightsRetained": true,
+    "automaticEnables": 4,
+    "onlyPreviouslyEnabledHealthyFoldersResume": true,
+    "siblingsAndConfiguredRuntimesUnchanged": true,
+    "boundedFailureDiagnosticAndNoPrivateSentinel": true
+  },
+  "limits": [
+    "Synthetic mirrors exercise the original UpdatePause state machine, not real Apple or rclone work.",
+    "Native plugin source switching is proven, not a BB binary upgrade.",
+    "Undeclared schedules are pruned by normal BB startup; the fixture redeclares its persistent cron.",
+    "Plugin startup side effects are not rolled back by registration restoration.",
+    "Mutable main and final local parsing are not an atomic pinned source transaction.",
+    "Ownership, missing evidence, permission-denied and reused-PID fences additionally rely on focused unit regressions.",
+    "Later display/help/test/documentation edits do not change the listed tested mutation engine."
+  ]
+}

@@ -78,8 +78,9 @@ test('one typed status/check path has no release feed; writes reject other plugi
   await assert.rejects(harness.callRpc('applyLocal', { reviewId: '11111111-1111-4111-8111-111111111111' }, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));
   await assert.rejects(harness.callRpc('acknowledgeSourceRecovery', { jobId: '11111111-1111-4111-8111-111111111111' }, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));
   for (const input of [null, { jobId: 'not-a-uuid' }, { jobId: '11111111-1111-4111-8111-111111111111', source: 'PRIVATE_SENTINEL' }]) await assert.rejects(harness.callRpc('acknowledgeSourceRecovery', input));
-  await assert.rejects(harness.callRpc('switchSource', { reviewId: '11111111-1111-4111-8111-111111111111', id: 'pa-updates', target: 'local', confirmLoss: true }, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));
-  for (const input of [null, { reviewId: '11111111-1111-4111-8111-111111111111', id: 'fastmail', target: 'local' }, { reviewId: '11111111-1111-4111-8111-111111111111', id: 'fastmail', target: 'local', confirmLoss: false }]) await assert.rejects(harness.callRpc('switchSource', input));
+  await assert.rejects(harness.callRpc('switchSource', { reviewId: '11111111-1111-4111-8111-111111111111', id: 'pa-updates', target: 'local', confirmSwitch: true }, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));
+  for (const input of [null, { reviewId: '11111111-1111-4111-8111-111111111111', id: 'fastmail', target: 'local' }, { reviewId: '11111111-1111-4111-8111-111111111111', id: 'fastmail', target: 'local', confirmSwitch: false }]) await assert.rejects(harness.callRpc('switchSource', input));
+  await assert.rejects(harness.callRpc('switchSource', { reviewId: '11111111-1111-4111-8111-111111111111', id: 'fastmail', target: 'local', confirmLoss: true }));
   applicationStatusSchema.parse(await harness.callRpc('status', null));
   await assert.rejects(harness.callRpc('check', null, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));
   await assert.rejects(harness.callRpc('check', { path: 'PRIVATE_SENTINEL', command: 'reset' }));

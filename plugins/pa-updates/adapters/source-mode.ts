@@ -27,6 +27,17 @@ export function loopbackServer(value: string) {
   if (url.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(url.hostname) || !url.port || url.username || url.password || url.search || url.hash || url.pathname !== '/' || value.replace(/\/$/, '') !== url.origin) throw new ApplicationError('unsupported_install');
   return url.origin;
 }
+/** Positive capability discovery, never a package-version guess or a write probe. */
+export async function directSourceMoves(bb: BbPluginApi): Promise<boolean> {
+  const response = await fetch(`${loopbackServer(bb.server.loopbackBaseUrl)}/api/v1/system/version`, { redirect: 'error', signal: AbortSignal.timeout(15000) });
+  if (response.status !== 200 || !response.headers.get('content-type')?.includes('application/json')) { await response.body?.cancel(); throw new ApplicationError('unavailable'); }
+  const reader = response.body?.getReader(); if (!reader) throw new ApplicationError('unavailable');
+  const chunks: Uint8Array[] = []; let size = 0;
+  try { while (true) { const next = await reader.read(); if (next.done) break; size += next.value.length; if (size > 65536) throw new ApplicationError('unavailable'); chunks.push(next.value); } }
+  finally { await reader.cancel(); }
+  const value = z.object({ experimental_directPluginSourceMoves: z.boolean().optional() }).parse(JSON.parse(Buffer.concat(chunks).toString()));
+  return value.experimental_directPluginSourceMoves === true;
+}
 export function receiptDirectory(dataDir: string, home = homedir()) {
   if (!isAbsolute(dataDir) || dataDir.length > 4096 || /[\0\r\n]/.test(dataDir)) throw new ApplicationError('unsupported_install');
   return join(home, '.local/state/pa-updates/source-modes', createHash('sha256').update(dataDir).digest('hex'));
@@ -196,6 +207,13 @@ export function sourceModePorts(bb: BbPluginApi, options: Options): NonNullable<
       try { launch = z.object({ jobId: z.string().uuid(), pid: z.number().int().positive().safe() }).strict().parse(await readJson(location('launch.json'))); }
       catch (error) { if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw new ApplicationError('busy'); }
       if (!rawTerminal && !launch) throw new ApplicationError('busy');
+      if (!launch && receipt.configuration === 'preserved') {
+        if (receipt.installAdmitted || receipt.pauseHandoff) throw new ApplicationError('busy');
+        // The exclusive, synced launch lock precedes spawn. Its absence only
+        // permits known pre-launch cleanup, never an admitted-write recovery.
+        try { await lstat(location('launch-lock.json')); throw new ApplicationError('busy'); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplicationError('busy'); }
+      }
       if (launch) {
         if (launch.jobId !== jobId) throw new ApplicationError('changed');
         for (const name of ['ready.json', 'permit.json']) {
@@ -208,7 +226,7 @@ export function sourceModePorts(bb: BbPluginApi, options: Options): NonNullable<
             if (!rawTerminal || (error as NodeJS.ErrnoException)?.code !== 'ENOENT' || receipt.removalAttempted || receipt.installAdmitted) throw new ApplicationError('busy');
           }
         }
-        if (!rawTerminal) requireGone(launch.pid);
+        if (!rawTerminal || receipt.configuration === 'preserved') requireGone(launch.pid);
       }
       // Runner death does NOT settle a DELETE already delivered to BB. Only an
       // operator restart (positive absence of the admitting server) fences it.
@@ -224,6 +242,36 @@ export function sourceModePorts(bb: BbPluginApi, options: Options): NonNullable<
         return { actual: plugin.version, generation: sourceGeneration(plugin, source), outcome: target ? 'target_verified' as const : 'aborted_before_removal' as const };
       };
       const before = await registration(); options.active?.();
+      if (receipt.configuration === 'preserved') {
+        // A missing/expired job is not settlement of a delivered native write.
+        if (receipt.installAdmitted) {
+          const jobs = await bb.sdk.plugins.installJobs.list({ signal: AbortSignal.timeout(10000) });
+          const job = receipt.nativeJobId ? jobs.find(job => job.id === receipt.nativeJobId) : null;
+          if (!job) requireGone(intent.serverPid);
+          else if (!['succeeded', 'failed', 'cancelled'].includes(job.state)) throw new ApplicationError('busy');
+        }
+        if (intent.requirePause) {
+          const status = () => bb.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'status', input: null, outputSchema: pauseStatusSchema, signal: AbortSignal.timeout(10000) });
+          let current = await status(); options.active?.();
+          if (current.updatePause.jobId === null && receipt.pauseHandoff) receipt.syncReserved = false;
+          else {
+            if (current.updatePause.jobId === null) {
+              requireGone(intent.serverPid);
+              current = await bb.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'pause', input: { updateJob: jobId }, outputSchema: pauseStatusSchema, signal: AbortSignal.timeout(15000) });
+            }
+            if (current.updatePause.jobId !== jobId || current.mirrors.some(m => m.enabled || m.phase === 'running')) throw new SourceSwitchError('pause_incomplete');
+            // Keep the provider's original resume rights. Recovery never user-pauses.
+            receipt.pauseHandoff = true; receipt.syncReserved = true;
+          }
+        }
+        await noNativeJobs(); const after = await registration(); options.active?.();
+        if (after.generation !== before.generation || after.outcome !== before.outcome) throw new ApplicationError('changed');
+        receipt.phase = 'attention'; receipt.recovery = after.outcome === 'target_verified' ? 'target_verified' : 'original_verified';
+        receipt.actual = after.actual; receipt.manualRecovery = true; receipt.updatedAt = new Date().toISOString();
+        await writeJson(location('observed.json'), { jobId });
+        await writeJson(location('receipt.json'), receipt);
+        return receipt;
+      }
       if (intent.requirePause) {
         const status = () => bb.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'status', input: null, outputSchema: pauseStatusSchema, signal: AbortSignal.timeout(10000) });
         let current = await status(); options.active?.();
@@ -276,11 +324,13 @@ export function sourceModePorts(bb: BbPluginApi, options: Options): NonNullable<
       options.active?.();
       if (existing && (existing.jobId === receipt.jobId || existing.manualRecovery || existing.syncReserved || !['complete', 'attention'].includes(existing.phase))) throw new ApplicationError('busy');
       const row = review.inventory?.find(row => row.id === receipt.id);
+      if (receipt.configuration !== 'preserved' || !await directSourceMoves(bb)) throw new SourceSwitchError('unsupported');
       if (!row?.sourceGeneration || !['managed', 'local'].includes(row.sourceMode ?? '') || (row.sourceMode === 'local') === (receipt.target === 'local')) throw new ApplicationError('changed');
       const baseUrl = loopbackServer(bb.server.loopbackBaseUrl);
       const listed = await bb.sdk.plugins.list({ signal: AbortSignal.timeout(10000) });
       const plugin = listed.plugins.find(p => p.id === receipt.id);
       if (!plugin) throw new ApplicationError('changed');
+      if (plugin.provenance !== 'direct') throw new SourceSwitchError('unsupported');
       if (!plugin.enabled) throw new SourceSwitchError('disabled');
       if (!['running', 'needs-configuration'].includes(plugin.status)) throw new ApplicationError('busy');
       const source = await bb.sdk.plugins.getSource({ pluginId: receipt.id, signal: AbortSignal.timeout(10000) });
@@ -311,8 +361,8 @@ export function sourceModePorts(bb: BbPluginApi, options: Options): NonNullable<
       if (requirePause) {
         const cloud = listed.plugins.find(p => p.id === 'icloud');
         if (!cloud?.enabled || !semver.satisfies(cloud.version, '>=0.3.0 <0.4.0')) throw new ApplicationError('maintenance_unavailable');
-        // Retain the existing paired-interface restriction; a destructive switch
-        // is not authorization to run an unreviewed paired migration.
+        // Retain the paired-interface restriction; preserving configuration
+        // does not authorize an unreviewed paired migration.
         for (const id of ['icloud', 'obsidian']) {
           const pair = listed.plugins.find(p => p.id === id);
           if (pair && !semver.satisfies(pair.version, '>=0.3.0 <0.4.0')) throw new ApplicationError('paired_migration');
@@ -387,7 +437,7 @@ export function sourceModePorts(bb: BbPluginApi, options: Options): NonNullable<
             await writeJson(location('receipt.json'), { ...receipt, phase: 'attention',
               reason: error instanceof ApplicationError && error.category === 'changed' ? 'changed' : 'unavailable',
               manualRecovery: receipt.syncReserved, removalAttempted: false, removed: false, installAdmitted: false,
-              configuration: 'reset_expected', actual: null, updatedAt: new Date().toISOString() });
+              configuration: receipt.configuration, actual: null, updatedAt: new Date().toISOString() });
           }
         }
         throw error;
