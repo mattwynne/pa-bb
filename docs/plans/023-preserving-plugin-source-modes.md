@@ -1,6 +1,6 @@
 # 023 — Preserve configuration when changing plugin sources
 
-Status: verified in disposable BB; delivery in progress. Replaces the resetting source-switch path from iteration 022. Tracked by the configuration-preservation follow-up in `yx`.
+Status: delivered. PA updates 0.5.0 (`bee6d23`) and the capability-advertising BB fork (`611fb55ba`) are running. Replaces the resetting source-switch path from iteration 022. Tracked by the configuration-preservation follow-up in `yx`.
 
 ## Outcome
 
@@ -36,4 +36,10 @@ A fixture initially tried registering a cron only once across plugin factories. 
 
 ## Delivery observation
 
-Pending targeted controller delivery and fork cutover. All live source changes remain separate user actions.
+PA updates 0.5.0 was first delivered as a targeted managed Git update. A fresh read on stock BB confirmed all six source controls remained unavailable without the capability, with no fallback or source change. The pinned source fork was then built with the production settings, checked for identical existing SQL migrations, and started only after file writers were paused and idle, running threads/native jobs were absent, and a consistent protected BB backup was complete. Native BB replacement updates are disabled.
+
+The running server reports source installation and the explicit preserving capability. Fresh PA inspection enables all six controls. Actual desktop/narrow review opened and cancelled Calendar, updater-self and file-writer confirmations, verified keyboard focus return, the **Settings and data stay** copy and **Managed separately** BB row, with zero write requests and no page errors.
+
+Before/after comparison covered 47 plugins: configuration, secret-file hashes, enablement, running status, PA data/database identities and the other PA source identities stayed unchanged. Only the intended updater version changed. Primary execution-host identity/connectivity and provider versions remained intact. The one originally enabled healthy mirror was restored through its supported control; no additional folder was enabled. Private server guidance and operational evidence are kept outside this public checkout.
+
+All six PA plugins still use GitHub sources. No live source switch was used as deployment proof; the owner chooses each switch in Settings.
