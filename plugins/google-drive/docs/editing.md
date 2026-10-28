@@ -24,11 +24,13 @@ Its output **does not authorize edits**. Use the separate complete inspection.
    Preview is the default, performs no write and does **not** establish write
    authorization. It returns the exact target and before/after proposal.
 4. Repeat the same inputs with `preview: false` only for a user-requested edit.
-   The plugin checks write scope, then pauses for BB owner approval of the exact
-   document/account/tab/revision/before/after. Decline, cancellation and malformed
-   approval values cannot write. `preview: false` is not an approval bypass.
-   The service re-inspects after approval. A changed revision is rejected before
-   submission; the single provider request also closes the remaining race.
+   The plugin checks write scope and the current global approval setting. By
+   default it pauses for BB owner approval of the exact document/account/tab/
+   revision/before/after. Decline, cancellation and malformed approval values
+   cannot write. Only the owner can opt out of per-edit cards in plugin Settings;
+   tool arguments cannot override that policy. The service re-inspects in both
+   modes. A changed revision is rejected before submission; the single provider
+   request also closes the remaining race.
 5. Only `outcome: "verified"` confirms the provider's single replacement count
    **and** exact readback of all tab body text at the returned revision. The
    response does not repeat the document contents. It does not independently
@@ -38,6 +40,30 @@ There is no editing CLI, arbitrary Google request proxy, insertion-at-index,
 full-document replacement or multi-change batch. For several paragraphs, inspect
 and approve each replacement with its current revision. Do not reuse a revision
 from another account/document or a previous successful write.
+
+## Global per-edit approval setting
+
+In **Settings → Plugins → Google Drive → Configuration**, the owner can turn
+**Require approval for Google Docs edits** off. It defaults to **on**, including
+for existing installations. Off authorizes agents to apply edits the user
+requests without another card, across **all documents and connected accounts**.
+This does not authorize unsolicited edits, add Google access, bypass scope/file
+permission checks, or change approval for copying or other plugins.
+
+The plugin reads this setting for each write; changes need no reload or new
+agent session. Missing/invalid values require approval, and a failed settings
+read prevents the write. Disabling it does not auto-approve an already open
+card: finish or cancel that review. If approval is re-enabled by the policy
+recheck after inspection, that no-card call stops with `approval_required` before
+entering provider submission. Changing the setting does not cancel an already
+in-flight provider operation or undo a submitted write. Settings changes never
+replay a write.
+
+Preview still performs no write. Unique-match validation, required revision,
+post-change verification and the no-retry rule remain mandatory. Write receipts
+report `approval: "owner_approved"` or `"disabled_in_settings"`; neither alone
+proves completion—require `outcome: "verified"`. Agents must not change this
+setting on the owner's behalf unless separately explicitly requested.
 
 ## Supported documents and text
 
@@ -73,6 +99,38 @@ to review deletion and fail-closed missing-data states. Decline and **Cancel
 review** exercise both termination paths. This is not a live authorization or
 provider-write test. It exists so rendered review needs neither real document
 content nor creation of a scratch document.
+
+The CLI is only a rendering/routing probe: its form is cancelled if its HTTP
+caller disconnects. It does **not** test a native agent tool's deferred lifecycle.
+For that test, call **`gdocs_review_edit_example`** with `{}` (or `state` set to
+`deletion` / `incomplete`). This tool uses only the same fixed synthetic payload;
+there is no account/store/Google adapter path. Keep the test in its originating
+thread. When BB returns its waiting notice, end the originating turn, then have
+the owner open that thread in ordinary BB chat and confirm card visibility on
+the actual desktop/mobile client before making a synthetic choice. Verify the
+separate result has `exampleOnly: true` and `writeAttempted: false`. Test timeout
+and stop/reload separately; never use a live document to exercise these paths.
+A narrow browser viewport is not proof of delivery to a phone.
+
+Native tool forms are independent of turn completion. The current SDK detaches
+the tool's request cancellation once the form opens; thread stop/delete or plugin
+disposal still interrupts it. The default review timeout is ten minutes. A waiting
+notice means the host accepted a pending request, **not** that a client rendered
+it. `bb thread interactions list THREAD_ID --json` lists current pending requests,
+not historical decisions. After a request disappears, use its ID with
+`bb thread interactions show INTERACTION_ID THREAD_ID --json` or inspect the
+thread's `system/interaction/lifecycle` events. Inspect only lifecycle fields
+when diagnosing: payloads can contain private document text.
+
+`gdocs_replace_text` returns `declined` / `owner_declined` only for an explicit
+false approval, `cancelled` with the host reason for a cancelled review, and
+`approval_unavailable` for malformed responses or request setup failure. A
+`timeout` is **not** owner rejection and does not establish UI visibility.
+`plugin-disposed`, `thread-stopped`, `thread-deleted`, `server-restarted` and
+`request-aborted` remain distinct; `caller_aborted` means only that the caller
+signal stopped before write submission. Every such receipt has
+`writeAttempted: false`. No review is retried automatically. Check card delivery
+with the no-op native tool before asking for a fresh live proposal.
 
 ## Google API and concurrency
 
@@ -110,7 +168,7 @@ accepts an existing owner-authorized `drive.file`, `documents` or `drive` write
 grant, as required by Google's Docs API. `drive.file` also requires the file to
 have been explicitly granted to the app. Read-only grants cannot mutate Docs.
 A connected account or successful preview proves neither write scope nor file
-edit authorization. Scope and identity are checked before approval and again
+edit authorization. Scope and identity are checked before the approval-policy decision and again
 immediately before the mutation.
 
 Run `bb google-drive editing-access --account ACCOUNT_EMAIL` for a document-free
@@ -144,8 +202,11 @@ Failures are logged once at the handling tool boundary, or as the handled
 `docs_write_uncertain` / `docs_write_verification` outcome. Logs contain fixed
 stage/category names and validated HTTP status where available, never arguments,
 account addresses, document IDs/text, tokens, exception messages, provider bodies
-or stacks. `scope_required`, `stale_revision`, `write_rejected`,
-`unsupported_document` and authorization failures are distinct from connection
+or stacks. Approval interruptions use fixed `docs_approval_<reason>` stages;
+ordinary owner decline/cancellation is not logged as a failure. These diagnostics
+cannot establish whether a card was displayed, and never infer owner intent from
+an expiry. `scope_required`, `stale_revision`, `write_rejected`,
+`unsupported_document`, `approval_policy_unavailable` and authorization failures are distinct from connection
 availability. Diagnostics establish which boundary failed, not whether an
 uncertain write reached Google. There is no automatic recovery/replay service.
 

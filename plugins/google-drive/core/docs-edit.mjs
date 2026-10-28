@@ -1,5 +1,6 @@
-// Narrow Docs port: complete inspection, one literal replacement, owner consent.
+// Narrow Docs port: complete inspection, one literal replacement, owner policy.
 // No arbitrary request objects or index-based editing escape this boundary.
+import { docsApprovalDecision, docsApprovalReceipt, diagnoseDocsApproval } from './docs-approval.mjs';
 export const DOC_LIMIT = 50_000; // UTF-16 code units across every tab
 export const EDIT_LIMIT = 2_000;
 const MESSAGES = Object.freeze({
@@ -13,6 +14,7 @@ const MESSAGES = Object.freeze({
   write_rejected: 'Google rejected the required revision or replacement. Inspect the document again; nothing was written.',
   authorization_failed: 'Google rejected access. Check the selected account, document edit permission and authorized scopes in Settings.',
   remote_unavailable: 'Google Docs inspection or authorization is unavailable. No write was attempted.',
+  approval_policy_unavailable: 'The Google Docs approval setting could not be checked. No write was attempted. Check plugin Settings and try again.',
 });
 export function docsError(code) { return Object.assign(new Error(MESSAGES[code] || MESSAGES.remote_unavailable), { docsCode: code }); }
 export function docsErrorMessage(error) { return MESSAGES[error?.docsCode] || MESSAGES.remote_unavailable; }
@@ -101,7 +103,11 @@ function replacement(snapshot, args) {
   if (snapshot.tabs.reduce((n, t) => n + t.text.length, 0) - oldText.length + newText.length > DOC_LIMIT) throw docsError('invalid_input');
   return { tab, offset };
 }
-export function createDocsEditService({ store, drive, docs, diagnose = (_stage, _error) => {}, approve = async (_proposal) => false }) {
+export function createDocsEditService({ store, drive, docs, diagnose = (_stage, _error) => {}, approve = async (_proposal) => /** @type {unknown} */ ({ outcome: 'cancelled', reason: 'request-aborted' }), approvalRequired = async () => true }) {
+  async function needsApproval() {
+    try { return (await approvalRequired()) !== false; }
+    catch { throw docsError('approval_policy_unavailable'); }
+  }
   async function load(args) {
     if (!nonempty(args.account, 320)) throw docsError('invalid_input');
     const record = await store.byEmail(args.account);
@@ -124,33 +130,48 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     // Obtain a same-account, scope-checked writer BEFORE requesting consent.
     // No tokens or arbitrary request proxy leave the adapter.
     const writer = await docs.prepareWrite(record);
-    if (signal?.aborted) return { outcome: 'cancelled', writeAttempted: false };
-    let approved;
-    try { approved = await approve(proposal); }
-    catch (error) { if (!signal?.aborted) throw error; }
-    if (approved !== true || signal?.aborted) return { outcome: 'cancelled', writeAttempted: false };
-    // Re-inspect after the owner has reviewed it, then close the remaining race
+    const stop = decision => {
+      diagnoseDocsApproval(diagnose, decision);
+      return docsApprovalReceipt(decision);
+    };
+    if (signal?.aborted) return stop({ outcome: 'cancelled', reason: 'caller_aborted' });
+    let ownerApproved = false;
+    if (await needsApproval()) {
+      let decision;
+      try { decision = docsApprovalDecision(await approve(proposal)); }
+      catch { return stop(signal?.aborted ? { outcome: 'cancelled', reason: 'caller_aborted' } : { outcome: 'approval_unavailable', reason: 'request_failed' }); }
+      if (decision.outcome !== 'approved') return stop(decision);
+      ownerApproved = true;
+    }
+    if (signal?.aborted) return stop({ outcome: 'cancelled', reason: 'caller_aborted' });
+    // No-card writes use explicit standing consent in Settings, not a forged
+    // owner submission. Re-inspect in both modes, then close the remaining race
     // with requiredRevisionId in the single atomic provider request.
     const current = await load(args);
     if (current.record.subject !== record.subject) throw docsError('authorization_failed');
     replacement(current.snapshot, args);
-    if (signal?.aborted) return { outcome: 'cancelled', writeAttempted: false };
+    // Recheck policy after inspection, before entering provider submission.
+    // A form already open still needs its own explicit choice.
+    if (!ownerApproved && await needsApproval()) return { outcome: 'approval_required', writeAttempted: false,
+      guidance: 'Per-edit approval was re-enabled while this edit was preparing. No write was attempted. Request a fresh review.' };
+    const approval = ownerApproved ? 'owner_approved' : 'disabled_in_settings';
+    if (signal?.aborted) return stop({ outcome: 'cancelled', reason: 'caller_aborted' });
     let response;
     try { response = await writer.replace(proposal, signal); }
     catch (error) {
       // Only the adapter can establish a definitive rejection before application.
       if (error?.docsWriteAttempted === false || ['authorization_failed', 'write_rejected', 'scope_required', 'stale_revision'].includes(error?.docsCode)) throw error;
       diagnose('docs_write_uncertain', error);
-      return { outcome: 'uncertain', writeAttempted: true, retrySafe: false, guidance: 'Inspect the document before deciding what to do. Never replay this replacement blindly.' };
+      return { outcome: 'uncertain', writeAttempted: true, approval, retrySafe: false, guidance: 'Inspect the document before deciding what to do. Never replay this replacement blindly.' };
     }
     try {
       if (response?.documentId !== snapshot.documentId || response.replies?.length !== 1 || response.replies[0]?.replaceAllText?.occurrencesChanged !== 1 || !nonempty(response.writeControl?.requiredRevisionId, 2048)) throw docsError('unsupported_document');
       const after = (await load(args)).snapshot;
       if (after.revisionId !== response.writeControl.requiredRevisionId || after.tabs.length !== snapshot.tabs.length || after.tabs.some((t, i) => t.tabId !== snapshot.tabs[i].tabId || t.text !== (t.tabId === tab.tabId ? tab.text.slice(0, offset) + args.newText + tab.text.slice(offset + args.oldText.length) : snapshot.tabs[i].text))) throw docsError('unsupported_document');
-      return { outcome: 'verified', writeAttempted: true, documentId: snapshot.documentId, tabId: tab.tabId, revisionId: after.revisionId, replacements: 1, verification: 'All tab body text matches the expected single replacement. Formatting is not independently verified.' };
+      return { outcome: 'verified', writeAttempted: true, approval, documentId: snapshot.documentId, tabId: tab.tabId, revisionId: after.revisionId, replacements: 1, verification: 'All tab body text matches the expected single replacement. Formatting is not independently verified.' };
     } catch (error) {
       diagnose('docs_write_verification', error);
-      return { outcome: 'verification_unavailable', writeAttempted: true, retrySafe: false, guidance: 'Google returned a result, but the exact post-write document could not be verified. Inspect it; do not replay the replacement.' };
+      return { outcome: 'verification_unavailable', writeAttempted: true, approval, retrySafe: false, guidance: 'Google returned a result, but the exact post-write document could not be verified. Inspect it; do not replay the replacement.' };
     }
   }
   return { inspect, replace };

@@ -1,9 +1,39 @@
 import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb/plugin-sdk';
+import { z } from 'zod';
+import { docsApprovalDecision, docsApprovalReceipt, diagnoseDocsApproval } from './core/docs-approval.mjs';
+
+export const DOCS_REVIEW_TOOL = 'gdocs_review_edit_example';
+const reviewState = z.enum(['replacement', 'deletion', 'incomplete']);
+// Shared by the CLI rendering probe and the native-tool lifecycle probe. There
+// is deliberately no adapter/store/account injection into this function.
+async function reviewExample(bb: BbPluginApi, threadId: string, state: string, signal?: AbortSignal) {
+  const payload = { exampleOnly: true, account: 'writer@example.invalid', documentId: 'example-no-document', title: 'Example only — no Google document',
+    tabId: 'example-tab', tabTitle: 'Example introduction', expectedRevisionId: 'example-revision',
+    ...(state === 'incomplete' ? {} : { oldText: 'We help teams solve difficult problems.', newText: state === 'deletion' ? '' : 'We help teams collaborate on difficult problems.' }) };
+  let decision;
+  try {
+    decision = docsApprovalDecision(await bb.ui.requestInput({ threadId, rendererId: 'docs-edit-approval', title: 'Docs review example — no document access', payload,
+      describeSubmission: () => ({ title: 'Docs review example finished — no write' }),
+    }, { signal }));
+  } catch { decision = { outcome: 'approval_unavailable', reason: 'request_failed' }; }
+  diagnoseDocsApproval((stage: string) => bb.log.warn(`Google Drive ${stage}`), decision);
+  return { exampleOnly: true, ...(decision.outcome === 'approved' ? { outcome: 'approved_example', writeAttempted: false }
+    : decision.outcome === 'declined' ? { outcome: 'declined_example', reason: decision.reason, writeAttempted: false }
+      : docsApprovalReceipt(decision)) };
+}
 
 // The review-edit-example handler is disconnected from the Docs adapter: even
 // an approval cannot write, request a token, or access a real document. The
 // separate editing-access handler only calls the injected scope inspector.
 export function registerDocsReview(bb: BbPluginApi, inspectAuthorization: (account: string) => Promise<unknown>) {
+  bb.agents.registerTool({ name: DOCS_REVIEW_TOOL,
+    description: 'Open a fixed synthetic Google Docs approval card in this thread. Every choice is a no-op: no Google account, document or API is accessed. Use to check native card delivery and deferred results, including after ending the originating turn.',
+    parameters: z.object({ state: reviewState.optional() }).strict(),
+    async execute({ state }, ctx) {
+      const result = await reviewExample(bb, ctx.threadId, state || 'replacement', ctx.signal);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+    },
+  });
   bb.cli.register(defineCli({ name: 'google-drive', summary: 'Google Drive diagnostics and safe Docs review example', commands: {
     'editing-access': cliCommand({
       summary: 'Check one connected account’s Docs write scope and installed Settings consent capability; no document is accessed or changed.',
@@ -20,14 +50,7 @@ export function registerDocsReview(bb: BbPluginApi, inspectAuthorization: (accou
       async run(input, ctx) {
         const threadId = input.options.thread || ctx.threadId;
         if (!threadId) throw new PluginCliError('A thread is required for this review.', { code: 'thread_required', hint: 'Pass --thread with the thread ID where the example should appear.' });
-        const payload = { exampleOnly: true, account: 'writer@example.invalid', documentId: 'example-no-document', title: 'Example only — no Google document',
-          tabId: 'example-tab', tabTitle: 'Example introduction', expectedRevisionId: 'example-revision',
-          ...(input.options.state === 'incomplete' ? {} : { oldText: 'We help teams solve difficult problems.', newText: input.options.state === 'deletion' ? '' : 'We help teams collaborate on difficult problems.' }) };
-        const result = await bb.ui.requestInput({ threadId, rendererId: 'docs-edit-approval', title: 'Docs review example — no document access', payload,
-          describeSubmission: () => ({ title: 'Docs review example finished — no write' }),
-        }, { signal: ctx.signal });
-        const approved = result.outcome === 'submitted' && Boolean(result.value && typeof result.value === 'object' && 'approved' in result.value && result.value.approved === true);
-        return { exitCode: 0, stdout: JSON.stringify({ exampleOnly: true, outcome: result.outcome === 'cancelled' ? 'cancelled' : approved ? 'approved_example' : 'declined_example', writeAttempted: false }) };
+        return { exitCode: 0, stdout: JSON.stringify(await reviewExample(bb, threadId, input.options.state, ctx.signal)) };
       },
     }),
   } }));

@@ -6,7 +6,7 @@ import { createGoogleAdapter } from './adapters/google.mjs';
 import { createDriveService } from './core/service.mjs';
 import { failureCategory } from './diagnostic.mjs';
 import { registerDocsTools, DOCS_TOOL_NAMES, docsAuthorizationInspector } from './docs-tools.js';
-import { registerDocsReview } from './docs-review.js';
+import { registerDocsReview, DOCS_REVIEW_TOOL } from './docs-review.js';
 
 const required = z.string().min(1);
 const account = required.describe('Email of the connected Google Drive account.');
@@ -67,6 +67,8 @@ export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
     clientId: { type: 'string', label: 'Web OAuth client ID', description: 'First time? Follow the setup guide below.', default: '' },
     clientSecret: { type: 'string', label: 'Client secret', secret: true },
+    requireDocsApproval: { type: 'boolean', label: 'Require approval for Google Docs edits', default: true,
+      description: 'Applies to all documents and connected accounts. Turn off to let agents apply edits you request without a separate approval card. Revision checks and readback verification stay on. Does not change Google access or approval for other actions.' },
   });
   const store = createBbStore(bb.storage.database(), (db: Parameters<typeof bb.storage.migrate>[0], statements: Parameters<typeof bb.storage.migrate>[1]) => bb.storage.migrate(db, statements));
   const getClient = async () => settings.get();
@@ -141,7 +143,7 @@ export default async function plugin(bb: BbPluginApi) {
       },
     });
   }
-  registerDocsTools(bb, store, adapter);
+  registerDocsTools(bb, store, adapter, async () => (await settings.get()).requireDocsApproval !== false);
   registerDocsReview(bb, docsAuthorizationInspector(bb, store, adapter));
-  bb.agents.configure(() => ({ tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES], skills: ['google-docs-editing'] }));
+  bb.agents.configure(() => ({ tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES, DOCS_REVIEW_TOOL], skills: ['google-docs-editing'] }));
 }

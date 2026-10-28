@@ -23,7 +23,8 @@ function setup(options = {}) {
         return { documentId: 'doc-a', replies: [{ replaceAllText: { occurrencesChanged: options.count ?? 1 } }], writeControl: { requiredRevisionId: 'rev-b' } };
       } };
     } },
-    approve: async proposal => { approvals++; options.onApprove?.(doc, proposal); return Object.hasOwn(options, 'approved') ? options.approved : true; },
+    approvalRequired: options.approvalRequired || (async () => true),
+    approve: async proposal => { approvals++; options.onApprove?.(doc, proposal); return Object.hasOwn(options, 'approval') ? options.approval : { outcome: 'submitted', value: { approved: true } }; },
     diagnose: (stage, error) => logs.push(`${stage} ${docsFailureCategory(error)}`),
   });
   return { service, set: next => { doc = next; }, stats: () => ({ writes, approvals, scopes }), logs };
@@ -56,6 +57,52 @@ test('one owner-approved literal replacement verifies all tab text, including ne
   assert.equal(result.verification.includes('Formatting is not independently verified'), true);
   assert.deepEqual(stats(), { writes: 1, approvals: 1, scopes: 1 });
 });
+test('only an explicit false global policy skips the card and still verifies the write', async () => {
+  for (const policy of [true, undefined, null, 0, 'false', false]) {
+    const h = setup({ approvalRequired: async () => policy });
+    const result = await h.service.replace({ ...input, preview: false });
+    assert.equal(result.outcome, 'verified');
+    assert.equal(result.approval, policy === false ? 'disabled_in_settings' : 'owner_approved');
+    assert.equal(h.stats().approvals, policy === false ? 0 : 1);
+    assert.equal(h.stats().writes, 1);
+  }
+});
+test('no-card mode preserves preview, scope, stale revision, verification and no-retry protections', async () => {
+  const off = { approvalRequired: async () => false };
+  let h = setup({ ...off, scopeError: true });
+  assert.equal((await h.service.replace(input)).outcome, 'preview');
+  assert.deepEqual(h.stats(), { writes: 0, approvals: 0, scopes: 0 });
+  await assert.rejects(() => h.service.replace({ ...input, preview: false }), failure('scope_required'));
+  assert.equal(h.stats().writes, 0);
+  h = setup(off);
+  await assert.rejects(() => h.service.replace({ ...input, preview: false, expectedRevisionId: 'stale' }), failure('stale_revision'));
+  assert.equal(h.stats().writes, 0);
+  for (const [options, outcome] of [[{ writeError: new Error('private-token-body') }, 'uncertain'], [{ readbackError: true }, 'verification_unavailable']]) {
+    h = setup({ ...off, ...options });
+    const result = await h.service.replace({ ...input, preview: false });
+    assert.equal(result.outcome, outcome); assert.equal(result.retrySafe, false);
+    assert.equal(result.approval, 'disabled_in_settings');
+    assert.deepEqual(h.stats(), { writes: 1, approvals: 0, scopes: 1 });
+    assert.doesNotMatch(JSON.stringify([result, h.logs]), /private-/);
+  }
+});
+test('policy read failures and re-enabled approval before submission stop no-card writes', async () => {
+  for (const at of [1, 2]) {
+    let reads = 0;
+    const h = setup({ approvalRequired: async () => { if (++reads === at) throw new Error('private-settings-token'); return false; } });
+    await assert.rejects(() => h.service.replace({ ...input, preview: false }), error => {
+      assert.equal(error.docsCode, 'approval_policy_unavailable');
+      assert.doesNotMatch(error.message, /private-/); return true;
+    });
+    assert.equal(h.stats().writes, 0); assert.equal(h.stats().approvals, 0);
+  }
+  let reads = 0;
+  const h = setup({ approvalRequired: async () => ++reads > 1 });
+  const result = await h.service.replace({ ...input, preview: false });
+  assert.equal(result.outcome, 'approval_required'); assert.equal(result.writeAttempted, false);
+  assert.equal(h.stats().writes, 0); assert.equal(h.stats().approvals, 0);
+});
+
 test('deleting matched text is supported, but paragraph boundaries cannot be deleted', async () => {
   const { service } = setup();
   assert.equal((await service.replace({ ...input, newText: '', preview: false })).outcome, 'verified');
@@ -115,10 +162,18 @@ test('wrong account/type, permissions and missing scopes never request owner app
   assert.deepEqual(h.stats(), { writes: 0, approvals: 0, scopes: 1 });
 });
 test('declined, cancelled, aborted and malformed approvals never write', async () => {
-  for (const approved of [false, null, 'true', { approved: true }]) {
-    const h = setup({ approved });
-    assert.equal((await h.service.replace({ ...input, preview: false })).outcome, 'cancelled');
+  for (const [approval, outcome, reason] of [
+    [{ outcome: 'submitted', value: { approved: false } }, 'declined', 'owner_declined'],
+    [{ outcome: 'submitted', value: { approved: 'true' } }, 'approval_unavailable', 'invalid_response'],
+    [null, 'approval_unavailable', 'invalid_response'],
+    [{ outcome: 'cancelled', reason: 'timeout' }, 'cancelled', 'timeout'],
+    [{ outcome: 'cancelled', reason: 'private-token-provider-body' }, 'approval_unavailable', 'invalid_response'],
+  ]) {
+    const h = setup({ approval });
+    const result = await h.service.replace({ ...input, preview: false });
+    assert.equal(result.outcome, outcome); assert.equal(result.reason, reason);
     assert.equal(h.stats().writes, 0);
+    assert.doesNotMatch(JSON.stringify([result, h.logs]), /private-token-provider-body/);
   }
   const controller = new AbortController();
   const h = setup({ onApprove: () => controller.abort() });

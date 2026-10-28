@@ -22,7 +22,10 @@ test('synthetic review CLI exercises approval, rejection, cancellation and incom
       else harness.behavior.submitInteraction(request.id, { approved: decision });
       const result = await done;
       assert.equal(result.exitCode, 0);
-      assert.deepEqual(JSON.parse(result.stdout), { exampleOnly: true, outcome, writeAttempted: false });
+      const receipt = JSON.parse(result.stdout);
+      assert.equal(receipt.exampleOnly, true); assert.equal(receipt.outcome, outcome); assert.equal(receipt.writeAttempted, false);
+      if (decision === false) assert.equal(receipt.reason, 'owner_declined');
+      if (decision === 'cancel') assert.equal(receipt.reason, 'user');
     }
     assert.equal(calls, 0);
   } finally { await harness.lifecycle.dispose(); globalThis.fetch = original; }
