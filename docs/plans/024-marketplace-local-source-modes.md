@@ -51,12 +51,17 @@ replayed when the controller or BB reloads.
   installer: marketplace root/subdirectory moves and disabled-state handling.
 - BB: 104 server tests across five relevant files, 23 CLI tests; server,
   server-contract, SDK and CLI typechecks; packaged application build passed.
-- PA: 273 tests, four acceptance scenarios/15 steps, typecheck, SDK alignment
+- PA: 280 tests, four acceptance scenarios/15 steps, typecheck, SDK alignment
   and build passed. Includes distinct registration/capability eligibility,
   revoked support at both task checks, protected registrations and privacy.
 - Rendered original app: 48 states at desktop/narrow widths, 188 screenshots,
   24 confirmations, keyboard/Cancel/focus, legacy outcomes and the saved
   unsupported attempt. No account writes.
+- The live cutover check found another real-server case: finished update jobs
+  use `completed`, not the install-job state `succeeded`. The controller and
+  task now validate each job family's actual terminal states separately.
+  Active/unknown states still block; a real completed update is seeded before
+  native switching tests so this cannot be hidden by a server restart.
 - Disposable Linux BB: all six seeded through the real marketplace API, using
   a synthetic HTTPS repository mapped to an owned local bare Git repository.
   Original controller/task code performed 12 successful source switches,

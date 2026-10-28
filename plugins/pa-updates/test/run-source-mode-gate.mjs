@@ -206,6 +206,13 @@ try {
     const p = await info(id); assert.equal(p.provenance, 'catalog'); assert.equal(p.catalogEntryId, id); assert.equal(p.catalogMarketplaceName, 'pa-for-bb');
   }
   results.push({ case: 'all-six-seeded-through-real-marketplace', provenance: 'catalog', count: 6 });
+  const update = await fetch(host.env.BB_SERVER_URL + '/api/v1/plugins/fastmail/update', { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'respond-async' }, body: '{}' });
+  assert.equal(update.status, 202); const updateJob = (await update.json()).job; assert.equal(typeof updateJob.id, 'string');
+  await until('real native update settled', async () => {
+    const j = (await request('plugins/update-jobs')).body.jobs.find(j => j.id === updateJob.id);
+    assert.notEqual(j?.state, 'failed'); return j?.state === 'completed';
+  });
+  results.push({ case: 'completed-real-update-does-not-block-source-switch', state: 'completed' });
   await idle();
   const siblingInventory = (await request('plugins')).body.plugins.filter(p => !testedIds.includes(p.id)).map(p => ({ id: p.id, rootDir: p.rootDir, enabled: p.enabled, version: p.version }));
   const versionBefore = (await request('system/version')).body, runtimeBefore = await runtimeConfiguration();

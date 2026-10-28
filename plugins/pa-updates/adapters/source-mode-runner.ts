@@ -67,7 +67,7 @@ export const sourceModeRunnerScript = String.raw`
     const updates = await request('/plugins/update-jobs');
     if (!Array.isArray(installs.jobs) || installs.jobs.length > 512 || !Array.isArray(updates.jobs) || updates.jobs.length > 512) throw Error();
     // Refuse active install AND update jobs, including unknown selected IDs.
-    if ([...installs.jobs, ...updates.jobs].some(job => !['succeeded', 'failed', 'cancelled'].includes(job.state))) throw Error();
+    if (installs.jobs.some(job => !['succeeded', 'failed', 'cancelled'].includes(job.state)) || updates.jobs.some(job => !['completed', 'failed'].includes(job.state))) throw Error();
   };
   const source = () => request('/plugins/' + r.id + '/source');
   const healthy = plugin => plugin.enabled && ['running', 'needs-configuration'].includes(plugin.status) && !(plugin.status === 'running' && plugin.statusDetail) && (!plugin.app?.hasApp || plugin.app.bundle?.compatible);

@@ -32,7 +32,7 @@ async function fixture(id: IntegrationId = 'fastmail', target: 'local' | 'github
   const jobId = randomUUID(), nativeJob = randomUUID();
   const plugin = () => ({ id, provenance, version: '0.3.0', rootDir: currentTarget === 'local' ? path : join(home, 'snapshot', id), enabled: !disabled, status: 'needs-configuration', statusDetail: null, app: { hasApp: false } });
   const source = () => currentTarget === 'local' ? { requested: `path:${path}`, resolved: `path:${path}` } : { requested: `git:${originUrl}@main`, resolved: `git:${originUrl}@main (${(changed ? 'b' : 'a').repeat(40)})`, subdirectory: `plugins/${id}` };
-  let capability: unknown = true, catalogCapability: unknown, capabilityReads = 0, nativeState: string | null = null;
+  let capability: unknown = true, catalogCapability: unknown, capabilityReads = 0, nativeState: string | null = null, updateState: string | null = null;
   let onCapability: ((count: number) => Promise<void>) | undefined;
   const requests: string[] = [];
   let heldJob: string | null = jobId;
@@ -48,7 +48,7 @@ async function fixture(id: IntegrationId = 'fastmail', target: 'local' | 'github
     if (route === '/system/version') { capabilityReads++; await onCapability?.(capabilityReads); return json({ currentVersion: '0.47.1', experimental_directPluginSourceMoves: capability, experimental_catalogGitToLocalSourceMoves: catalogCapability }); }
     if (route === '/plugins' && req.method === 'GET') return json({ plugins: installed ? [plugin()] : [] });
     if (route === '/plugins/install-jobs' && req.method === 'GET') return json({ jobs: conflict ? [{ id: nativeJob, state: 'running' }] : nativeState ? [{ id: nativeJob, state: nativeState }] : [] });
-    if (route === '/plugins/update-jobs' && req.method === 'GET') return json({ jobs: updateConflict ? [{ id: nativeJob, state: 'running' }] : [] });
+    if (route === '/plugins/update-jobs' && req.method === 'GET') return json({ jobs: updateConflict ? [{ id: nativeJob, state: 'running' }] : updateState ? [{ id: nativeJob, state: updateState }] : [] });
     if (route === `/plugins/${id}/source`) return json(wrongSource && currentTarget === target ? { requested: 'https://PRIVATE_SENTINEL' } : source());
     if (route === '/plugins/icloud/rpc/status') return json({ ok: true, result: sync() });
     if (route === '/plugins/icloud/rpc/pause') {
@@ -70,7 +70,7 @@ async function fixture(id: IntegrationId = 'fastmail', target: 'local' | 'github
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const bb = { server: { loopbackBaseUrl: baseUrl, experimental_dataDir: '/fixture/bb-read-only' }, log: { warn: (value: string) => logs.push(value) }, sdk: {
-    plugins: { list: async () => ({ plugins: installed ? [plugin()] : [] }), getSource: async () => source(), installJobs: { list: async () => conflict ? [{ id: nativeJob, state: 'running' }] : nativeState ? [{ id: nativeJob, state: nativeState }] : [] }, experimental_updateJobs: { list: async () => updateConflict ? [{ id: nativeJob, state: 'running' }] : [] }, callRpc: async (args: { method: string; input: unknown }) => {
+    plugins: { list: async () => ({ plugins: installed ? [plugin()] : [] }), getSource: async () => source(), installJobs: { list: async () => conflict ? [{ id: nativeJob, state: 'running' }] : nativeState ? [{ id: nativeJob, state: nativeState }] : [] }, experimental_updateJobs: { list: async () => updateConflict ? [{ id: nativeJob, state: 'running' }] : updateState ? [{ id: nativeJob, state: updateState }] : [] }, callRpc: async (args: { method: string; input: unknown }) => {
       if (args.method === 'pause') {
         assert.deepEqual(args.input, { updateJob: jobId }); events.push('barrier'); heldJob = jobId;
       }
@@ -116,6 +116,7 @@ async function fixture(id: IntegrationId = 'fastmail', target: 'local' | 'github
     provenance: (value: string) => { provenance = value; },
     onCapability: (callback: (count: number) => Promise<void>) => { onCapability = callback; },
     native: (value: string | null) => { nativeState = value; },
+    updateState: (value: string | null) => { updateState = value; },
     original: () => currentTarget === (target === 'local' ? 'github' : 'local'),
     hold: (value: string | null) => { heldJob = value; },
     set: (flags: Partial<Record<'disabled' | 'conflict' | 'updateConflict' | 'changed' | 'installFailure' | 'loseInstall' | 'pauseFailure' | 'auth' | 'redirect' | 'wrongSource', boolean>>) => {
@@ -682,6 +683,20 @@ test('capability probe rejects malformed, oversized, non-JSON and redirected res
       () => new Response('{"experimental_directPluginSourceMoves":true}', { status: 401, headers: { 'Content-Type': 'application/json' } }),
     ]) { response = make; await assert.rejects(sourceMoveCapabilities(f.bb)); }
     fetch.mock.restore(); assert.deepEqual(f.events, []);
+  } finally { await f.close(); }
+});
+
+for (const state of ['completed', 'failed']) test(`settled update job ${state} does not block a new source switch`, async () => {
+  const f = await fixture(); try {
+    f.updateState(state); await f.prepare(); await f.ports.launch(f.receipt); const r = await f.wait();
+    assert.equal(r.phase, 'complete'); assert.equal(f.events.filter(e => e === 'install').length, 1);
+  } finally { await f.close(); }
+});
+for (const state of ['queued', 'running', 'succeeded', 'cancelled', 'PRIVATE_SENTINEL']) test(`nonterminal or invalid update job ${state} blocks source admission`, async () => {
+  const f = await fixture(); try {
+    f.updateState(state); await assert.rejects(f.prepare()); assert.deepEqual(f.events, []);
+    f.updateState(null); await f.prepare(); f.updateState(state); await f.ports.launch(f.receipt); const r = await f.wait();
+    assert.equal(r.installAdmitted, false); assert.deepEqual(f.events, []); assert.ok(!JSON.stringify([r, f.logs]).includes('PRIVATE_SENTINEL'));
   } finally { await f.close(); }
 });
 

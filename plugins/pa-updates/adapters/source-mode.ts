@@ -114,7 +114,7 @@ export function sourceModePorts(bb: BbPluginApi, options: Options): NonNullable<
   const noNativeJobs = async () => {
     const installs = await bb.sdk.plugins.installJobs.list({ signal: AbortSignal.timeout(10000) });
     const updates = await bb.sdk.plugins.experimental_updateJobs.list({ signal: AbortSignal.timeout(10000) });
-    if (installs.length > 512 || updates.length > 512 || [...installs, ...updates].some(job => !['succeeded', 'failed', 'cancelled'].includes(job.state))) throw new ApplicationError('busy');
+    if (installs.length > 512 || updates.length > 512 || installs.some(job => !['succeeded', 'failed', 'cancelled'].includes(job.state)) || updates.some(job => !['completed', 'failed'].includes(job.state))) throw new ApplicationError('busy');
   };
   const requireGone = (pid: unknown) => {
     if (!Number.isSafeInteger(pid) || (pid as number) <= 0) throw new ApplicationError('busy');
