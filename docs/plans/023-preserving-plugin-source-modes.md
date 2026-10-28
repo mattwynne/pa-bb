@@ -1,6 +1,6 @@
 # 023 — Preserve configuration when changing plugin sources
 
-Status: delivered. PA updates 0.5.0 (`bee6d23`) and the capability-advertising BB fork (`611fb55ba`) are running. Replaces the resetting source-switch path from iteration 022. Tracked by the configuration-preservation follow-up in `yx`.
+Status: delivered as PA updates 0.5.0 (`bee6d23`) and BB fork `611fb55ba`; superseded by iteration 024. Replaces the resetting source-switch path from iteration 022. Tracked by the configuration-preservation follow-up in `yx`.
 
 Correction: the live readiness check missed marketplace ownership. The controls were offered for unsupported marketplace installs, although the native proof below covered only direct Git installs. [Iteration 024](024-marketplace-local-source-modes.md) fixes this gap and tests the actual installation shape. Opening/cancelling live confirmations was not proof that those switches would work.
 

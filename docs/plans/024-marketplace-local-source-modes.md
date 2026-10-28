@@ -1,6 +1,6 @@
 # Marketplace installs can be tried locally
 
-Status: verified; delivery in progress.
+Status: delivered. PA updates 0.5.1 (`0285b4c`) and standalone BB fork `52a6a22ba` are running.
 
 ## What went wrong
 
@@ -76,7 +76,30 @@ historical evidence, not proof that marketplace installs worked before this fix.
 
 ## Delivery
 
-Pending targeted updater delivery and pinned fork cutover, preserving the
-server's existing working changes. Do not switch live plugins as a test or
-replay the user's earlier refused attempt. The user chooses a fresh switch
-when the updated controls are ready.
+The updater was delivered with a targeted native Git update, not an all-plugin
+update or a source conversion. On the older fork, its six marketplace controls
+correctly stayed disabled until the separate marketplace capability was present.
+The fork was built in a separate source worktree before touching the service.
+After supported Pause/drain, no running threads or active native jobs, and a
+protected consistent backup, the service moved to that pinned worktree with BB
+replacement updates still disabled.
+
+All seven deployed execution-file hashes match the final native gate. Before/
+after checks cover 47 plugins: configuration, secret hashes, enablement, running
+status and existing storage identities are unchanged; only the intended updater
+changed version/source revision. Provider versions and credential-file hashes
+are unchanged, and the existing primary host remains connected. Only the one
+originally enabled healthy sync folder was resumed.
+
+The development thread committed its unrelated work while this fix was being
+prepared. Once the working copy was clean, delivery fast-forwarded only the
+controller/policy changes and verified the Google Drive tree was unchanged.
+Private server guidance now explicitly offers local testing before publication.
+
+Fresh live inspection verifies all six marketplace controls and their local
+runtime dependencies. Desktop/narrow review opened and cancelled Google Drive,
+updater-self and file-writer confirmations, checked keyboard/focus and the
+honest **Switch did not start** outcome, with zero write attempts/page errors.
+No live source switch was used as proof. All six still use their marketplace
+GitHub sources, and the earlier refused attempt was not replayed. The user
+chooses a fresh switch.
