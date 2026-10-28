@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { createGateHost } from './gate-host.mjs';
-import { applicationStatusSchema, switchSourceInputSchema, acknowledgeSourceRecoveryInputSchema } from '../core/application-model.ts';
+import { applicationStatusSchema, switchSourceInputSchema, acknowledgeSourceRecoveryInputSchema, installedSourcesSchema } from '../core/application-model.ts';
 import { componentIds } from '../core/workspace.ts';
 const source = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const host = await createGateHost(process.env.BB_REVIEW_PACKAGE ?? join(source, 'node_modules/bb-app'));
@@ -96,6 +96,12 @@ function makeState(view) {
   if (view === 'source_dependencies') state.sourceSwitch = { ...sourceReceipt('google-calendar', 'local', 'attention'), reason: 'dependencies_missing' };
   return applicationStatusSchema.parse(state);
 }
+function installedSources(state) {
+  const rows = state.review.inventory.map(row => ({ id: row.id, installed: row.installed, sourceMode: row.sourceMode ?? null, sourceGeneration: row.sourceGeneration ?? null, sourceEnabled: row.sourceEnabled ?? true }));
+  const receipt = state.sourceSwitch;
+  if (receipt?.phase === 'complete' && receipt.reviewId === state.review.id) Object.assign(rows.find(row => row.id === receipt.id), { installed: receipt.actual, sourceMode: receipt.target === 'local' ? 'local' : 'managed', sourceGeneration: b });
+  return installedSourcesSchema.parse(rows);
+}
 function sourceReceipt(id, target, phase) {
   return { jobId: '55555555-5555-4555-8555-555555555555', reviewId, id, target, phase, startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), reason: null,
     removalAttempted: false, removed: false, installAdmitted: false, pauseHandoff: false, syncReserved: false, manualRecovery: false, configuration: 'preserved', actual: null };
@@ -140,14 +146,18 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
     'source_managed', 'source_local', 'source_not_started', 'local_origin', 'local_dirty', 'local_ahead', 'local_both', 'local_unknown', 'local_mismatch',
     'source_managed_separately', 'source_legacy_deleted', 'source_legacy_possible', 'source_legacy_planned', 'source_capability_false', 'source_capability_missing', 'source_disabled', 'source_missing_enablement', 'source_missing_generation', 'source_unsupported', 'source_no_workspace', 'source_busy', 'source_error',
     'source_pending', 'source_failed_local', 'source_failed_github', 'source_recovery_aborted', 'source_recovery_waiting', 'source_dependencies', 'source_complete_stale',
-    'source_switch_refused', 'source_switch_lost_response', 'source_recovery_rpc_refused', 'progress_origin_false', 'progress_origin_absent', 'progress_origin_verified', 'local_legacy', 'source_status_read_failure'];
+    'source_switch_refused', 'source_switch_lost_response', 'source_recovery_rpc_refused', 'progress_origin_false', 'progress_origin_absent', 'progress_origin_verified', 'local_legacy', 'source_status_read_failure', 'source_external', 'source_snapshot_failure', 'source_partial_failure', 'source_removed'];
   for (const view of views) for (const width of [1280, 390]) {
-    let state = makeState(view), reviews = 0, rpcCalls = 0, failStatus = false; const writes = [], errors = [];
+    let state = makeState(view), reviews = 0, rpcCalls = 0, failStatus = false, failSources = false, externalSources = null; const writes = [], errors = [];
     const page = await browser.newPage({ viewport: { width, height: 1000 } }); page.on('pageerror', error => errors.push(error.message));
     await page.route('**/api/v1/plugins/pa-updates/rpc/**', async route => {
       rpcCalls++;
       const method = new URL(route.request().url()).pathname.split('/').at(-1);
-      assert.ok(['status', 'applicationStatus', 'review', 'apply', 'applyLocal', 'resumeSync', 'switchSource', 'acknowledgeSourceRecovery'].includes(method));
+      assert.ok(['status', 'applicationStatus', 'installedSources', 'review', 'apply', 'applyLocal', 'resumeSync', 'switchSource', 'acknowledgeSourceRecovery'].includes(method));
+      if (method === 'installedSources') {
+        if (failSources) return route.fulfill({ json: { ok: false, error: { code: 'internal', message: 'PRIVATE_SENTINEL' } } });
+        return route.fulfill({ json: { ok: true, result: installedSourcesSchema.parse(externalSources ?? installedSources(state)) } });
+      }
       if (method === 'applicationStatus' && failStatus) {
         return route.fulfill({ json: { ok: false, error: { code: 'internal', message: 'PRIVATE_SENTINEL' } } });
       }
@@ -233,6 +243,49 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
       assert.equal(writes.length, 0);
       await panel.getByRole('button', { name: 'Check again' }).click();
       await page.waitForFunction(() => document.querySelectorAll('.pa-updates .pa-update-check').length === 9);
+    }
+    if (view === 'source_external') {
+      const row = panel.locator('[data-source-id="google-drive"]');
+      const switchButton = row.getByRole('button', { name: 'Switch Google Drive to Local development' });
+      await switchButton.click(); await page.getByRole('dialog', { name: /Switch Google Drive/ }).waitFor();
+      externalSources = installedSources(state);
+      Object.assign(externalSources.find(row => row.id === 'google-drive'), { sourceMode: 'local', sourceGeneration: b });
+      // Real host system:changed event, not the updater's application signal.
+      await host.cli('plugin', 'disable', 'google-calendar');
+      await page.waitForFunction(() => document.querySelector('[data-source-id="google-drive"] .pa-update-source-line')?.textContent.includes('Local developmentSwitch to GitHub'));
+      assert.equal(await page.getByRole('dialog', { name: /Switch Google Drive/ }).count(), 0, 'external change closes stale confirmation');
+      assert.equal(await row.locator('.pa-update-check').count(), 0, 'old applied-code claim is not transferred to a new source');
+      assert.ok((await row.innerText()).includes('Code unverified'));
+      assert.equal(await row.getByRole('button', { name: 'Switch Google Drive to GitHub' }).isEnabled(), false);
+      assert.equal(writes.length, 0, 'notifications never review, install, reload or apply');
+      const savedReview = structuredClone(state.review), savedJob = structuredClone(state.job);
+      Object.assign(externalSources.find(row => row.id === 'google-drive'), { sourceMode: 'managed', sourceGeneration: c });
+      await host.cli('plugin', 'enable', 'google-calendar');
+      await page.waitForFunction(() => document.querySelector('[data-source-id="google-drive"] .pa-update-source-line')?.textContent.includes('GitHubSwitch to Local development'));
+      assert.equal(await row.getByRole('button', { name: 'Switch Google Drive to Local development' }).isEnabled(), true);
+      assert.deepEqual(state.review, savedReview); assert.deepEqual(state.job, savedJob);
+      // A change made while the page was closed is picked up when reopening.
+      Object.assign(externalSources.find(row => row.id === 'google-drive'), { sourceMode: 'local', sourceGeneration: b });
+      await page.reload(); await page.locator('.pa-updates [data-source-id="google-drive"]').waitFor();
+      await page.waitForFunction(() => document.querySelector('[data-source-id="google-drive"] .pa-update-source-line')?.textContent.includes('Local developmentSwitch to GitHub'));
+      assert.equal(writes.length, 0);
+    }
+    if (['source_snapshot_failure', 'source_partial_failure', 'source_removed'].includes(view)) {
+      if (view === 'source_snapshot_failure') failSources = true;
+      else {
+        externalSources = installedSources(state);
+        if (view === 'source_removed') externalSources = externalSources.filter(row => row.id !== 'google-drive');
+        else Object.assign(externalSources.find(row => row.id === 'google-drive'), { sourceMode: null, sourceGeneration: null });
+      }
+      await notify();
+      await page.waitForFunction(() => document.querySelector('[data-source-id="google-drive"]')?.textContent.includes('Source unavailable'));
+      assert.equal(await panel.locator('[data-source-id="google-drive"] .pa-update-check').count(), 0);
+      assert.ok(!(await panel.innerText()).includes('PRIVATE_SENTINEL'));
+      if (view === 'source_removed') assert.ok((await panel.locator('[data-source-id="google-drive"]').innerText()).includes('Not installed'));
+      assert.equal(writes.length, 0);
+      await page.screenshot({ path: join(artifacts, `${view}-unavailable-${width}.png`), fullPage: true }); screenshots++;
+      failSources = false; externalSources = null; await notify();
+      await page.waitForFunction(() => document.querySelector('[data-source-id="google-drive"] .pa-update-check'));
     }
     // BB animates the narrow sidebar shelf after navigation. Wait for geometry,
     // not a guessed delay, before judging or capturing the finished layout.

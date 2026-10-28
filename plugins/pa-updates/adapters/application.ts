@@ -12,8 +12,8 @@ import { AppliedSources } from './applied-source.ts';
 import { syncWorkspace } from './sync-workspace.ts';
 import { sourceModePorts, sourceGeneration, sourceMoveCapabilities, sourceMoveSupported } from './source-mode.ts';
 import type { Workspace } from '../core/workspace.ts';
-import { ApplicationError, integrationId } from '../core/application.ts';
-import type { ApplicationPorts, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode } from '../core/application.ts';
+import { ApplicationError, integrationId, installedSourcesSchema } from '../core/application.ts';
+import type { ApplicationPorts, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode, InstalledSource } from '../core/application.ts';
 import { originUrl as SOURCE_URL } from '../core/workspace.ts';
 const syncStatus = z.object({ updatePause: z.object({ version: z.literal(1), jobId: z.string().uuid().nullable(), manualRecovery: z.boolean().optional() }).optional(), mirrors: z.array(z.object({ id: z.string().uuid(), enabled: z.boolean(), phase: z.string(), failure: z.string().nullable() })).max(20) });
 const validVersion = (value: string) => { if (value.length > 64 || !semver.valid(value)) throw new ApplicationError('unavailable'); return value; };
@@ -48,6 +48,11 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
   };
   const localVersion = async (root: string) => validVersion(JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).version);
   const healthy = (plugin: Awaited<ReturnType<typeof list>>['plugins'][number]) => plugin.enabled ? plugin.status === 'running' && !plugin.statusDetail && (!plugin.app?.hasApp || plugin.app.bundle?.compatible) : plugin.status === 'disabled';
+  let installedSourceFailure: 'source_unavailable' | 'unavailable' | null = null;
+  const sourceDiagnostic = (outcome: typeof installedSourceFailure) => {
+    if (outcome && outcome !== installedSourceFailure) bb.log.warn(`pa-updates stage=installed-sources outcome=${outcome}`);
+    installedSourceFailure = outcome;
+  };
   let selfUncertainLogged = false;
   const selfUncertain = (actual: string | null, code: FailureCode) => {
     if (!selfUncertainLogged) { selfUncertainLogged = true; bb.log.warn(`pa-updates stage=self-reconcile outcome=${code}`); }
@@ -74,6 +79,32 @@ export function applicationPorts(bb: BbPluginApi, sourceUrl = SOURCE_URL, getDev
     ? { ...row, state: 'unavailable' as const, reason: 'local_pending' as const } : row;
   return {
     sourceMode,
+    async installedSources() {
+      // Do not reuse lastInventory: CLI/other-thread installs bypass this controller.
+      // No baselines, code hashing, native update checks, KV or Git operations.
+      let unavailable = false;
+      try {
+        const listed = await list(); active();
+        const rows: InstalledSource[] = [];
+        for (const plugin of listed.plugins) {
+          const id = integrationId.safeParse(plugin.id); if (!id.success) continue;
+          const installed = plugin.version.length <= 64 && semver.valid(plugin.version) ? plugin.version : 'unknown';
+          const row: InstalledSource = { id: id.data, installed, sourceEnabled: plugin.enabled, sourceMode: null, sourceGeneration: null };
+          try {
+            const provenance = await bb.sdk.plugins.getSource({ pluginId: id.data, signal: signal() }); active();
+            row.sourceMode = await localRoot(id.data, plugin.rootDir, provenance.requested) ? 'local' : trusted(provenance, id.data) ? 'managed' : 'unsupported';
+            row.sourceGeneration = sourceGeneration(plugin, provenance);
+          } catch { active(); unavailable = true; }
+          rows.push(row);
+        }
+        const result = installedSourcesSchema.parse(rows);
+        sourceDiagnostic(unavailable ? 'source_unavailable' : null);
+        return result;
+      } catch {
+        active(); sourceDiagnostic('unavailable');
+        throw new Error('Installed sources unavailable. Check again in Settings.');
+      }
+    },
     async development() {
       workspace = null;
       try {

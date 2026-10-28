@@ -49,6 +49,22 @@ test('startup/scheduled discovery notifies later integration or runtime offers w
     assert.equal(inspections, 5); assert.equal(runtimeInspections, 5);
   }
 });
+test('native source reads are independent of update discovery, saved results and write authority', async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: 'pa-updates' });
+  let reads = 0;
+  const sources = [{ id: 'google-drive' as const, installed: '0.1.1', sourceEnabled: true, sourceMode: 'local' as const, sourceGeneration: 'a'.repeat(64) }];
+  const forbidden = async (): Promise<never> => { throw new Error('Source observation must not inspect, save or write'); };
+  await plugin(bb, undefined, { ...idleApplication, inspect: forbidden, save: forbidden, update: forbidden, quiesce: forbidden, installedSources: async () => { reads++; return sources; } });
+  try {
+    const before = await harness.callRpc('applicationStatus', null);
+    assert.deepEqual(await harness.callRpc('installedSources', null), sources);
+    sources[0].sourceGeneration = 'b'.repeat(64);
+    assert.deepEqual(await harness.callRpc('installedSources', null), sources);
+    assert.deepEqual(await harness.callRpc('applicationStatus', null), before);
+    await assert.rejects(harness.callRpc('installedSources', { source: 'PRIVATE_SENTINEL' }));
+    assert.equal(reads, 2); assert.equal(harness.sdk.calls.length, 0);
+  } finally { await harness.dispose(); }
+});
 test('per-component progress reaches the existing realtime channel before the review RPC completes', async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: 'pa-updates' });
   let release!: () => void, entered!: () => void;
@@ -73,7 +89,7 @@ test('one typed status/check path has no release feed; writes reject other plugi
   const { bb, harness } = createFakePluginHost({ pluginId: 'pa-updates' });
   let inspections = 0, legacyCalls = 0;
   await plugin(bb, { feed: () => { legacyCalls++; } }, { ...idleApplication, inspect: async () => { inspections++; return []; } });
-  assert.deepEqual(harness.registrations.rpcMethods.sort(), ['acknowledgeSourceRecovery', 'applicationStatus', 'apply', 'applyLocal', 'check', 'resumeSync', 'review', 'status', 'switchSource']);
+  assert.deepEqual(harness.registrations.rpcMethods.sort(), ['acknowledgeSourceRecovery', 'applicationStatus', 'apply', 'applyLocal', 'check', 'installedSources', 'resumeSync', 'review', 'status', 'switchSource']);
   for (const method of ['review', 'resumeSync', 'apply']) await assert.rejects(harness.callRpc(method, method !== 'apply' ? null : { reviewId: '11111111-1111-4111-8111-111111111111', choices: [] }, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));
   await assert.rejects(harness.callRpc('applyLocal', { reviewId: '11111111-1111-4111-8111-111111111111' }, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));
   await assert.rejects(harness.callRpc('acknowledgeSourceRecovery', { jobId: '11111111-1111-4111-8111-111111111111' }, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }));

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 import { ApplicationError, assessmentSchema, integrationInventorySchema, developmentWorkSchema, applicationSavedSchema, applyInputSchema, reviewSchema, version, localDecision, reviewDecision, selfIntentSchema, switchSourceInputSchema, sourceSwitchSchema, SourceSwitchError, acknowledgeSourceRecoveryInputSchema } from './application-model.ts';
-import type { ApplicationSaved as Saved, ApplicationStatus, CheckProgress, DevelopmentWork, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode, SelfIntent, SwitchSourceInput, SourceSwitch } from './application-model.ts';
+import type { ApplicationSaved as Saved, ApplicationStatus, CheckProgress, DevelopmentWork, Assessment, IntegrationId, IntegrationInventoryRow, FailureCode, SelfIntent, SwitchSourceInput, SourceSwitch, InstalledSource } from './application-model.ts';
 import { runtimeReviewSchema, runtimeRowSchema } from './runtime-model.ts';
 import { workspaceSchema } from './workspace.ts';
 import type { RuntimePorts } from './runtime-model.ts';
@@ -16,6 +16,8 @@ export type ApplicationPorts = {
   syncWorkspace?(expected: Workspace): Promise<SourceSync>;
   /** Read-only inventory from the same completed inspection; never install authority. */
   inventory?(): IntegrationInventoryRow[];
+  /** Lightweight native source facts: no origin fetch, code inspection or writes. */
+  installedSources?(): Promise<InstalledSource[]>;
   /** Canonical source-work facts; never substitute these for installed bytes. */
   development?(): Promise<DevelopmentWork | null>;
   validateMix(installing: IntegrationId[]): Promise<void>;

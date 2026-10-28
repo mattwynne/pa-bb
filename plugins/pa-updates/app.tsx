@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { definePluginApp, useRpc, useRealtime, useRealtimeConnectionState, experimental_Icon as Icon } from '@get-bb/plugin-sdk/app';
+import { definePluginApp, useRpc, useRealtime, useRealtimeConnectionState, useSdk, experimental_Icon as Icon } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './contract.ts';
-import type { ApplicationStatus, CheckProgress, IntegrationId, IntegrationInventoryRow, FailureCode, SourceSwitch, SwitchSourceInput } from './core/application-model.ts';
+import type { ApplicationStatus, CheckProgress, IntegrationId, IntegrationInventoryRow, FailureCode, SourceSwitch, SwitchSourceInput, InstalledSource } from './core/application-model.ts';
 import type { RuntimeId } from './core/runtime-model.ts';
 import { codeState } from './core/workspace.ts';
 import { hasFreshOffers } from './core/notice.ts';
@@ -114,11 +114,14 @@ function SourceResult({ receipt, pending, recover }: { receipt: SourceSwitch; pe
     </>}
   </div>;
 }
-function components(review: ApplicationStatus['review']): IntegrationInventoryRow[] {
+function components(review: ApplicationStatus['review'], sources?: InstalledSource[] | null): IntegrationInventoryRow[] {
   return order.flatMap(id => {
-    const inventory = review?.inventory?.find(row => row.id === id), offer = review?.rows.find(row => row.id === id);
-    return inventory ? [inventory] : offer ? [{ ...offer, state: 'offered' as const }] : [];
+    const inventory = review?.inventory?.find(row => row.id === id), offer = review?.rows.find(row => row.id === id), source = sources?.find(row => row.id === id);
+    return inventory ? [inventory] : offer ? [{ ...offer, state: 'offered' as const }] : source ? [{ id, installed: source.installed, local: 'unknown' as const, state: 'unavailable' as const, prerequisite: null }] : [];
   });
+}
+function sameSource(row: IntegrationInventoryRow, source: InstalledSource | undefined) {
+  return !!source?.sourceGeneration && source.sourceGeneration === row.sourceGeneration && source.sourceMode === row.sourceMode && source.sourceEnabled === row.sourceEnabled;
 }
 function Progress({ value, previous, error }: { value: CheckProgress; previous: ApplicationStatus['review']; error: boolean }) {
   return <div className="pa-update-ordinary" role="group" aria-label="Check progress" aria-live="polite">
@@ -136,17 +139,27 @@ function receiptText(row: NonNullable<ApplicationStatus['job']>['receipts'][numb
   return row.outcome === 'kept' ? 'Kept local' : row.outcome === 'skipped' ? 'Not updated' : row.outcome === 'uncertain' ? 'Result uncertain — check before retrying' : row.outcome === 'activating' ? 'Applying…' : row.actual ? `${row.outcome === 'updated' ? 'Applied changes' : 'Unchanged'} · ${row.actual}` : applying ? 'Waiting…' : 'Not updated';
 }
 export function UpdatesPanel() {
-  const rpc = useRpc<typeof rpcContract>(), connection = useRealtimeConnectionState();
+  const rpc = useRpc<typeof rpcContract>(), connection = useRealtimeConnectionState(), sdk = useSdk();
   const [state, setState] = useState<ApplicationStatus | null>(null), [error, setError] = useState(false), [busy, setBusy] = useState(false);
+  const [sources, setSources] = useState<InstalledSource[] | null>(null), [sourcesChecking, setSourcesChecking] = useState(true);
   const [confirmInterruptingThreads, setConsent] = useState(false), [unconfirmed, setUnconfirmed] = useState(false);
   const [selection, setSelection] = useState<SwitchSourceInput | null>(null), [sourceNotice, setSourceNotice] = useState<string | null>(null);
   const generation = useRef(0), mounted = useRef(true), requestedReview = useRef<string | null>(null), sourceWriting = useRef(false);
   async function read() {
     const request = ++generation.current;
-    try { const next = await rpc.call('applicationStatus', null); if (mounted.current && request === generation.current) { setState(next); setError(false); } }
-    catch { if (mounted.current && request === generation.current) { setError(true); setUnconfirmed(true); } }
+    try {
+      const [next, installed] = await Promise.all([rpc.call('applicationStatus', null), rpc.call('installedSources', null).catch(() => null)]);
+      if (mounted.current && request === generation.current) { setState(next); setSources(installed); setSourcesChecking(false); setError(false); }
+    }
+    catch { if (mounted.current && request === generation.current) { setError(true); setUnconfirmed(true); setSources(null); setSourcesChecking(false); } }
   }
   useRealtime('application', () => { void read(); });
+  useEffect(() => sdk.subscribe({ event: 'system:changed', callback: event => {
+    if (!event.changes.includes('plugins-changed')) return;
+    // Close an old confirmation immediately; an external install isn't consent
+    // for another write. Refresh native facts only, not the saved update review.
+    setSelection(null); setSources(null); setSourcesChecking(true); void read();
+  } }), [sdk]);
   useEffect(() => { mounted.current = true; void read(); return () => { mounted.current = false; generation.current++; }; }, [connection]);
   useEffect(() => { setConsent(false); setUnconfirmed(false); setSourceNotice(null); }, [state?.review?.id]);
   const unresolved = !!state?.job && (state.job.receipts.some(row => row.outcome === 'uncertain') && !!state.job.selfIntent && Date.now() - Date.parse(state.job.selfIntent.requestedAt) < 15 * 60_000 || state.job.runtimeReceipts.some(row => row.id === 'bb' && row.outcome === 'uncertain'));
@@ -184,7 +197,8 @@ export function UpdatesPanel() {
     }
     finally { sourceWriting.current = false; if (mounted.current) setBusy(false); }
   }
-  const review = state?.review ?? null, rows = components(review), runtime = review?.runtime;
+  const review = state?.review ?? null, rows = components(review, sources), runtime = review?.runtime;
+  const sourcesCurrent = sources !== null && rows.length === sources.length && rows.every(row => sameSource(row, sources.find(source => source.id === row.id)));
   const sourceReceipt = state?.sourceSwitch;
   const sourceBlocked = !!sourceReceipt && (!['complete', 'attention'].includes(sourceReceipt.phase) || sourceReceipt.manualRecovery || sourceReceipt.syncReserved);
   const sourceConsumed = !!review && sourceReceipt?.reviewId === review.id;
@@ -213,22 +227,25 @@ export function UpdatesPanel() {
       {failure && <p role="alert">{failures[failure]}</p>}
       {sourceReceipt && <SourceResult receipt={sourceReceipt} pending={pending} recover={() => void sourceAction({ jobId: sourceReceipt.jobId })} />}
       {sourceNotice && <p role="status">{sourceNotice}</p>}
+      {state && !sources && <p role="status">{sourcesChecking ? 'Checking installed sources…' : 'Installed sources unavailable. Check again before applying or switching.'}</p>}
+      {sources && !sourcesCurrent && !progress && <p className="pa-updates-muted" role="status">Installed sources changed since this check. Check again to verify code before applying or switching.</p>}
       {target && <p className="pa-updates-muted">Server: <strong title={target.id}>{target.name}</strong></p>}
       {!progress && rows.some(row => row.sourceSwitchSupported !== true) && <p className="pa-updates-muted">Some source switches could not be verified on this BB and remain disabled.</p>}
       {progress ? <Progress value={progress} previous={review} error={error} /> : <>
         <div className="pa-update-ordinary">{rows.map(row => {
           const receipt = job?.receipts.find(receipt => receipt.id === row.id), offer = review?.rows.find(offer => offer.id === row.id);
           const switched = sourceConsumed && sourceReceipt?.id === row.id ? sourceReceipt : null;
-          const complete = switched?.phase === 'complete', mode = complete ? switched.target === 'github' ? 'managed' : 'local' : row.sourceMode;
-          const eligible = row.sourceSwitchSupported === true && (mode === 'managed' || mode === 'local') && !!row.sourceGeneration && row.sourceEnabled === true && !!review?.workspace;
+          const currentSource = sources?.find(source => source.id === row.id), sourceCurrent = sameSource(row, currentSource);
+          const complete = switched?.phase === 'complete', mode = currentSource?.sourceMode;
+          const eligible = sourceCurrent && row.sourceSwitchSupported === true && (mode === 'managed' || mode === 'local') && !!row.sourceGeneration && currentSource?.sourceEnabled === true && !!review?.workspace;
           const next = mode === 'managed' ? 'local' : 'github';
           return <div className="pa-update-card" data-source-id={row.id} key={row.id}>
-            <div className="pa-update-version"><Label id={row.id} /><span>{switched ? complete ? <>{switched.actual ?? 'Version unverified'} · Switched to {modeLabel(switched.target)}</> : ['aborted_before_removal', 'original_verified'].includes(switched.recovery ?? '') ? 'Original source kept · Check again' : switched.phase === 'attention' ? 'Source needs attention' : 'Switching source…' : receipt ? receiptText(receipt, !!state?.applying) : <>{row.installed === 'unknown' ? 'Version unknown' : row.installed}{offer && reviewDecision(offer) === 'automatic' && offer.available !== row.installed ? <> → <strong>{offer.available}</strong></> : null}{' · '}<CodeStatus row={row} confirmed={confirmed && (row.sourceMode !== 'local' || row.originComparisonMatches === true)} historical={!!job && historical} /></>}</span></div>
-            <div className="pa-update-source-line"><span>{switched && !complete && switched.removalAttempted && !['aborted_before_removal', 'original_verified'].includes(switched.recovery ?? '') ? 'Source unverified' : mode === 'managed' ? 'GitHub' : mode === 'local' ? 'Local development' : 'Source unavailable'}</span>
-              {(mode === 'managed' || mode === 'local') && <button type="button" className="pa-update-source-action" aria-label={`Switch ${labels[row.id][0]} to ${modeLabel(next)}`} disabled={!eligible || operationBlocked || sourceConsumed || !!job || !!state?.job?.syncReserved || !confirmed} onClick={() => review && setSelection({ reviewId: review.id, id: row.id, target: next, confirmSwitch: true })}>Switch to {modeLabel(next)}</button>}
+            <div className="pa-update-version"><Label id={row.id} /><span>{switched ? complete ? <>{switched.actual ?? 'Version unverified'} · Switched to {modeLabel(switched.target)}</> : ['aborted_before_removal', 'original_verified'].includes(switched.recovery ?? '') ? 'Original source kept · Check again' : switched.phase === 'attention' ? 'Source needs attention' : 'Switching source…' : receipt ? receiptText(receipt, !!state?.applying) : <>{(currentSource?.installed ?? row.installed) === 'unknown' ? 'Version unknown' : currentSource?.installed ?? row.installed}{sourceCurrent && offer && reviewDecision(offer) === 'automatic' && offer.available !== row.installed ? <> → <strong>{offer.available}</strong></> : null}{' · '}{sourceCurrent ? <CodeStatus row={row} confirmed={confirmed && (row.sourceMode !== 'local' || row.originComparisonMatches === true)} historical={!!job && historical} /> : sources && !currentSource ? 'Not installed' : 'Code unverified'}</>}</span></div>
+            <div className="pa-update-source-line"><span>{mode === 'managed' ? 'GitHub' : mode === 'local' ? 'Local development' : 'Source unavailable'}</span>
+              {(mode === 'managed' || mode === 'local') && <button type="button" className="pa-update-source-action" aria-label={`Switch ${labels[row.id][0]} to ${modeLabel(next)}`} disabled={!eligible || !sourcesCurrent || operationBlocked || sourceConsumed || !!job || !!state?.job?.syncReserved || !confirmed} onClick={() => review && setSelection({ reviewId: review.id, id: row.id, target: next, confirmSwitch: true })}>Switch to {modeLabel(next)}</button>}
             </div>
-            {mode === 'local' && (!switched || complete) && <LocalFacts workspace={review?.workspace} />}
-            {row.sourceEnabled === false ? <p className="pa-update-source-facts">Enable this plugin in BB first, then check again.</p> : !eligible && row.sourceSwitchSupported === true && <p className="pa-update-source-facts">{mode === 'unsupported' ? 'This source cannot be switched here.' : 'Check again to verify the source, enablement and standard working folder.'}</p>}
+            {mode === 'local' && sourceCurrent && (!switched || complete) && <LocalFacts workspace={review?.workspace} />}
+            {currentSource?.sourceEnabled === false ? <p className="pa-update-source-facts">Enable this plugin in BB first, then check again.</p> : sourceCurrent && !eligible && row.sourceSwitchSupported === true && <p className="pa-update-source-facts">{mode === 'unsupported' ? 'This source cannot be switched here.' : 'Check again to verify the source, enablement and standard working folder.'}</p>}
           </div>;
         })}</div>
         <div className="pa-update-ordinary">{runtimeRows.map(row => {
@@ -247,12 +264,12 @@ export function UpdatesPanel() {
       </>}
       {state?.job?.syncReserved && !state.applying && <p role="alert">iCloud remains reserved. Check any uncertain result before resuming. Folders you explicitly paused stay paused.</p>}
     </div>
-    <footer>{state?.job?.syncReserved && !state.applying ? <button disabled={operationBlocked} onClick={() => void act('resumeSync')}>Resume previously enabled folders</button> : !progress && !job && count > 0 ? <button className="pa-update-primary" disabled={operationBlocked || sourceConsumed || !!failure || error || unconfirmed || needsConsent && !confirmInterruptingThreads} onClick={() => void act('apply')}>Update PA</button> : null}
-      {!progress && !job && localCount > 0 && <button className={count ? undefined : 'pa-update-primary'} disabled={operationBlocked || sourceConsumed || !!failure || error || unconfirmed} onClick={() => void act('applyLocal')}>Apply local changes</button>}
+    <footer>{state?.job?.syncReserved && !state.applying ? <button disabled={operationBlocked} onClick={() => void act('resumeSync')}>Resume previously enabled folders</button> : !progress && !job && count > 0 ? <button className="pa-update-primary" disabled={operationBlocked || !sourcesCurrent || sourceConsumed || !!failure || error || unconfirmed || needsConsent && !confirmInterruptingThreads} onClick={() => void act('apply')}>Update PA</button> : null}
+      {!progress && !job && localCount > 0 && <button className={count ? undefined : 'pa-update-primary'} disabled={operationBlocked || !sourcesCurrent || sourceConsumed || !!failure || error || unconfirmed} onClick={() => void act('applyLocal')}>Apply local changes</button>}
       <button type="button" disabled={operationBlocked || state?.job?.syncReserved} onClick={() => void act('review')}>{review ? 'Check again' : 'Check for updates'}</button>
     </footer>
     {sourceConsumed && !sourceBlocked && <p className="pa-updates-muted">This review was used for a source switch. Check again before updating or switching another plugin.</p>}
-    {selection && <SourceConfirmation selection={selection} close={() => setSelection(null)} confirm={() => { if (!operationBlocked && !sourceConsumed && !job && confirmed && review?.id === selection.reviewId) void sourceAction(selection); else setSelection(null); }} />}
+    {selection && <SourceConfirmation selection={selection} close={() => setSelection(null)} confirm={() => { if (!operationBlocked && sourcesCurrent && !sourceConsumed && !job && confirmed && review?.id === selection.reviewId) void sourceAction(selection); else setSelection(null); }} />}
   </section>;
 }
 function UpdateNotice() {

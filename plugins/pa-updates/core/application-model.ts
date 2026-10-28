@@ -40,6 +40,14 @@ export const integrationInventorySchema = z.object({
   development: developmentState.optional(),
 });
 export type IntegrationInventoryRow = z.infer<typeof integrationInventorySchema>;
+/** Current native registration only, independent of saved checks and receipts. */
+export const installedSourceSchema = z.object({
+  id: integrationId, installed: version, sourceEnabled: z.boolean(),
+  sourceMode: z.enum(['managed', 'local', 'unsupported']).nullable(),
+  sourceGeneration: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+});
+export const installedSourcesSchema = z.array(installedSourceSchema).max(6).refine(rows => new Set(rows.map(row => row.id)).size === rows.length);
+export type InstalledSource = z.infer<typeof installedSourceSchema>;
 export const reviewSchema = z.object({ id: z.string().uuid(), at: z.string().datetime(), rows: z.array(assessmentSchema).max(6), runtime: runtimeReviewSchema.nullable().default(null), inventory: z.array(integrationInventorySchema).max(6).optional(),
   workspace: workspaceSchema.nullable().optional(), localRows: z.array(assessmentSchema).max(6).optional() });
 const receiptSchema = z.object({ id: integrationId, choice: z.enum(['keep', 'install']), before: version,

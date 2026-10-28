@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { applicationStatusSchema, applyInputSchema, switchSourceInputSchema, acknowledgeSourceRecoveryInputSchema } from './core/application-model.ts';
+import { applicationStatusSchema, applyInputSchema, switchSourceInputSchema, acknowledgeSourceRecoveryInputSchema, installedSourcesSchema } from './core/application-model.ts';
 export const rpcContract = {
   status: { input: z.null(), output: applicationStatusSchema },
+  installedSources: { input: z.null(), output: installedSourcesSchema },
   check: { input: z.null(), output: applicationStatusSchema },
   applicationStatus: { input: z.null(), output: applicationStatusSchema },
   review: { input: z.null(), output: applicationStatusSchema },

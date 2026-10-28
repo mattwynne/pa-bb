@@ -7,12 +7,17 @@ import { applicationPorts } from './adapters/application.ts';
 // The second argument is retained for existing disposable host fixtures only;
 // historical single-component release discovery no longer runs here.
 export default async function plugin(bb: BbPluginApi, _legacy?: unknown, applicationOverride?: ApplicationPorts) {
-  const application = new Application(applicationOverride ?? applicationPorts(bb), () => bb.realtime.publish('application', null));
+  const ports = applicationOverride ?? applicationPorts(bb);
+  const application = new Application(ports, () => bb.realtime.publish('application', null));
   await application.start();
   bb.onDispose(() => application.dispose());
   const client = (kind: string) => { if (kind !== 'client') throw new Error('Use PA updates in Settings.'); };
   bb.rpc.register(rpcContract, {
     status: () => application.refresh(),
+    installedSources: () => {
+      if (!ports.installedSources) throw new Error('Installed sources unavailable. Check again in Settings.');
+      return ports.installedSources();
+    },
     applicationStatus: () => application.refresh(),
     review: (_input, context) => { client(context.experimental_caller.kind); return application.review(); },
     check: (_input, context) => { client(context.experimental_caller.kind); return application.review(); },
