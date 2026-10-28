@@ -60,6 +60,7 @@ export const sourceModeRunnerScript = String.raw`
     finally { await reader.cancel(); }
     return JSON.parse(Buffer.concat(chunks).toString());
   };
+  const supported = (capabilities, plugin, src) => plugin?.provenance === 'direct' && capabilities.experimental_directPluginSourceMoves === true || plugin?.provenance === 'catalog' && r.target === 'local' && typeof src?.requested === 'string' && src.requested.startsWith('git:') && capabilities.experimental_catalogGitToLocalSourceMoves === true;
   const listed = async () => { const value = await request('/plugins'); if (!Array.isArray(value.plugins) || value.plugins.length > 512) throw Error(); return value.plugins; };
   const noJobs = async () => {
     const installs = await request('/plugins/install-jobs');
@@ -129,10 +130,12 @@ export const sourceModeRunnerScript = String.raw`
     }
     if (!permitted) throw Error();
     r.phase = 'running'; await persist(); boundary = 'unsupported';
-    if ((await request('/system/version')).experimental_directPluginSourceMoves !== true) throw Error();
-    boundary = 'changed'; await noJobs();
+    const capabilities = await request('/system/version');
+    await noJobs();
     let plugin = (await listed()).find(p => p.id === r.id);
     let src = await source();
+    if (!supported(capabilities, plugin, src)) throw Error();
+    boundary = 'changed';
     if (!plugin || !healthy(plugin) || generation(plugin, src) !== intent.expected.generation || src.requested !== intent.expected.requested || src.resolved !== intent.expected.resolved || (src.subdirectory ?? null) !== intent.expected.subdirectory) throw Error();
     if (intent.local) {
       boundary = 'dependencies_missing'; await dependenciesReady(); boundary = 'changed';
@@ -162,7 +165,7 @@ export const sourceModeRunnerScript = String.raw`
     }
     lifetime.signal.throwIfAborted();
     boundary = 'unsupported';
-    if ((await request('/system/version')).experimental_directPluginSourceMoves !== true) throw Error();
+    if (!supported(await request('/system/version'), plugin, src)) throw Error();
     if (intent.local) {
       // Check identity and runtime bytes immediately before native admission.
       // This is not a lock against edits after this check or BB's final parse.

@@ -1,5 +1,5 @@
 // Disposable source strings only. No production imports are patched by this gate.
-export function fixtureSource({ id, root, origin, workspace, receipts, updater = false, cloud = false }) {
+export function fixtureSource({ id, root, origin, remote = origin, workspace, receipts, updater = false, cloud = false }) {
   const value = JSON.stringify;
   return `import{z}from'zod';import{marker}from'./marker.ts';
 import{appendFileSync,existsSync,readFileSync,writeFileSync,renameSync}from'node:fs';import{join}from'node:path';
@@ -54,7 +54,7 @@ ${updater ? `const ports=applicationPorts(bb,${value(origin)},async()=>${value(w
 // No production implementation, runner or native route is replaced.
 const prepare=ports.sourceMode.prepare;
 ports.sourceMode.prepare=async(receipt,review)=>{await prepare(receipt,review);
- if(mode().hideOriginAfterPrepare===receipt.id){renameSync(${value(origin)},${value(origin + '.offline')});event('origin-hidden-after-prepare')}};
+ if(mode().hideOriginAfterPrepare===receipt.id){renameSync(${value(remote)},${value(remote + '.offline')});event('origin-hidden-after-prepare')}};
 ports.runtime={inspect:async()=>({target:null,runningThreadCount:0,rows:[]}),updateCli:async()=>{throw Error('No runtime writes')},prepareBb:async()=>{throw Error('No runtime writes')},applyBb:async()=>{throw Error('No runtime writes')},reconcileBb:async()=>{throw Error('No runtime writes')}};
 const api=new Proxy(bb,{get(target,key){if(key!=='rpc')return Reflect.get(target,key,target);return{...target.rpc,register(c,h){return target.rpc.register({...c,...contract},{...h,...handlers})}}}});
 return plugin(api,undefined,ports);` : 'bb.rpc.register(contract,handlers);'}

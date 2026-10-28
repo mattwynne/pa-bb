@@ -54,7 +54,7 @@ const installCommand = (id: IntegrationId, target: 'github' | 'local') => target
 const sourceFailures: Record<NonNullable<SourceSwitch['reason']>, string> = {
   changed: 'The source changed after this check. Check again before confirming a new switch.',
   busy: 'BB is busy. Wait for running operations to finish, then check again.',
-  unsupported: 'BB needs configuration-preserving source-switch support. Check again after updating BB.',
+  unsupported: 'BB could not confirm support for switching this plugin’s installed source. Check again before trying a new switch.',
   disabled: 'Enable this plugin in BB first, then check again.',
   dependencies_missing: 'In this plugin’s working folder, run npm ci. Then check again and confirm a new switch.',
   unavailable: 'The source could not be verified. Check BB and the standard working folder, then check again.',
@@ -99,8 +99,9 @@ function SourceConfirmation({ selection, close, confirm }: { selection: SwitchSo
 }
 function SourceResult({ receipt, pending, recover }: { receipt: SourceSwitch; pending: boolean; recover: () => void }) {
   const active = !['complete', 'attention'].includes(receipt.phase);
+  const notStarted = receipt.configuration === 'preserved' && receipt.phase === 'attention' && receipt.reason === 'unsupported' && !receipt.installAdmitted && !receipt.syncReserved && !receipt.manualRecovery;
   return <div className="pa-update-source-result" role="status" aria-live="polite">
-    <p><strong>{labels[receipt.id][0]} · {modeLabel(receipt.target)}</strong>{' · '}{active ? 'Switching source…' : receipt.phase === 'complete' ? 'Source switched' : ['aborted_before_removal', 'original_verified'].includes(receipt.recovery ?? '') ? 'Original source kept' : 'Source switch needs attention'}</p>
+    <p><strong>{labels[receipt.id][0]} · {modeLabel(receipt.target)}</strong>{' · '}{active ? 'Switching source…' : receipt.phase === 'complete' ? 'Source switched' : notStarted ? 'Switch did not start' : ['aborted_before_removal', 'original_verified'].includes(receipt.recovery ?? '') ? 'Original source kept' : 'Source switch needs attention'}</p>
     {active && <p>{receipt.installAdmitted ? 'Installing and verifying the intended source. Do not retry.' : 'Preparing the source and saving the result.'}</p>}
     {receipt.phase === 'attention' && !receipt.recovery && receipt.reason && <p>{sourceFailures[receipt.reason]}</p>}
     <p>{receipt.configuration === 'preserved' ? 'Settings and data are kept.' : receipt.configuration === 'deleted' ? 'BB settings, saved credentials and schedules were deleted. Reconnect and reconfigure as needed.' : receipt.configuration === 'possibly_deleted' ? 'BB settings, saved credentials and schedules may have been deleted. Do not assume they were restored.' : 'Settings deletion was planned; no completed reset is confirmed.'} Source files and commits are kept.</p>
@@ -213,7 +214,7 @@ export function UpdatesPanel() {
       {sourceReceipt && <SourceResult receipt={sourceReceipt} pending={pending} recover={() => void sourceAction({ jobId: sourceReceipt.jobId })} />}
       {sourceNotice && <p role="status">{sourceNotice}</p>}
       {target && <p className="pa-updates-muted">Server: <strong title={target.id}>{target.name}</strong></p>}
-      {!progress && rows.some(row => row.sourceSwitchSupported !== true) && <p className="pa-updates-muted">Check again to verify BB supports configuration-preserving source switches.</p>}
+      {!progress && rows.some(row => row.sourceSwitchSupported !== true) && <p className="pa-updates-muted">Some source switches could not be verified on this BB and remain disabled.</p>}
       {progress ? <Progress value={progress} previous={review} error={error} /> : <>
         <div className="pa-update-ordinary">{rows.map(row => {
           const receipt = job?.receipts.find(receipt => receipt.id === row.id), offer = review?.rows.find(offer => offer.id === row.id);

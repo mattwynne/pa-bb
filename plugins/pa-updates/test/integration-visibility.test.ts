@@ -25,7 +25,7 @@ function fixture(t: TestContext) {
   t.mock.method(Baselines.prototype, 'manifest', async (_revision: string, id: string) => ({ version: versions.get(id) ?? '1.1.0' }));
   t.mock.method(Baselines.prototype, 'sourceIdentity', async (revision: string, id: string) => (revision === 'b'.repeat(40) && !sameSources.has(id) ? 'b' : 'a').repeat(64));
   const bb = { storage: { kv: { get: async (key: string) => key === 'application-v1' ? saved : null, set: async (key: string, value: unknown) => { if (key === 'application-v1') saved = structuredClone(value); } } }, log: { warn: (message: string) => logs.push(message) }, sdk: { plugins: {
-    list: async () => ({ plugins: ids.map(id => ({ id, version: '1.0.0', rootDir: `/fixture/${'a'.repeat(40)}/plugins/${id}` })) }),
+    list: async () => ({ plugins: ids.map(id => ({ id, provenance: 'direct', version: '1.0.0', rootDir: `/fixture/${'a'.repeat(40)}/plugins/${id}` })) }),
     getSource: async ({ pluginId: id }: { pluginId: string }) => ({ requested: `git:${SOURCE_URL}@${pinned.has(id) ? 'a'.repeat(40) : 'main'}`, subdirectory: `plugins/${id}`, resolved: `${SOURCE_URL} (${'a'.repeat(40)})` }),
     checkUpdates: async ({ pluginId: id }: { pluginId: string }) => [{ id, outcome: outcomes.get(id) ?? 'current', ...(outcomes.get(id) === 'update-available' ? { candidate: { version: 'b'.repeat(40) } } : {}) }],
   } } } as unknown as BbPluginApi;
@@ -230,4 +230,18 @@ test('capability facts come only from the raw host probe, never an SDK/version g
     assert.ok(!JSON.stringify([rows, f.ports.inventory!(), f.logs]).includes('PRIVATE_SENTINEL'));
   }
   assert.ok(calls.every(url => url === 'http://127.0.0.1:45678/api/v1/system/version')); assert.equal(calls.length, 4);
+});
+
+test('marketplace inventory mirrors the server: direct-only capability never enables its source buttons', async t => {
+  const f = fixture(t); f.outcomes.set('google-drive', 'update-available');
+  const list = f.bb.sdk.plugins.list;
+  f.bb.sdk.plugins.list = async args => ({ plugins: (await list(args)).plugins.map(plugin => ({ ...plugin, provenance: plugin.id === 'fastmail' ? 'builtin' : 'catalog', catalogEntryId: plugin.id, catalogMarketplaceName: 'pa-for-bb' })) });
+  Object.defineProperty(f.bb, 'server', { value: { loopbackBaseUrl: 'http://127.0.0.1:45678' } });
+  let catalog = false;
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ experimental_directPluginSourceMoves: true, experimental_catalogGitToLocalSourceMoves: catalog }), { headers: { 'Content-Type': 'application/json' } }));
+  for (catalog of [false, true]) {
+    const progress: { id: string; sourceSwitchSupported?: boolean }[] = [];
+    const offered = await f.ports.inspect(row => progress.push(row));
+    for (const row of [...offered, ...f.ports.inventory!(), ...progress]) assert.equal(row.sourceSwitchSupported, catalog && row.id !== 'fastmail', row.id);
+  }
 });

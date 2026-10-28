@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
-import { sourceModePorts, sourceGeneration, directSourceMoves, loopbackServer, receiptDirectory } from '../adapters/source-mode.ts';
+import { sourceModePorts, sourceGeneration, sourceMoveCapabilities, loopbackServer, receiptDirectory } from '../adapters/source-mode.ts';
 import type { IntegrationId, SourceSwitch } from '../core/application-model.ts';
 import { SourceSwitchError } from '../core/application-model.ts';
 import { Application } from '../core/application.ts';
@@ -19,7 +19,7 @@ import type { reviewSchema } from '../core/application-model.ts';
 import { componentIds, originUrl } from '../core/workspace.ts';
 type Review = z.infer<typeof reviewSchema>;
 
-async function fixture(id: IntegrationId = 'fastmail', target: 'local' | 'github' = 'local') {
+async function fixture(id: IntegrationId = 'fastmail', target: 'local' | 'github' = 'local', provenance = 'direct') {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'pa-source-mode-'))), checkout = join(home, 'repo'), path = join(checkout, 'plugins', id), receiptRoot = join(home, 'receipts');
   await mkdir(path, { recursive: true });
   const manifest = { name: `bb-plugin-${id}`, version: '0.3.0', engines: { bb: '>=0.46.0', bbPluginSdk: '>=0.6.37 <1' }, bb: { server: './server.ts' } };
@@ -30,9 +30,9 @@ async function fixture(id: IntegrationId = 'fastmail', target: 'local' | 'github
   const events: string[] = [], logs: string[] = [], bodies: unknown[] = [], headers: unknown[] = [], remembered: unknown[] = [];
   const mirrors = [{ id: randomUUID(), enabled: false, phase: 'paused' }, { id: randomUUID(), enabled: false, phase: 'retained' }], owned = new Set([mirrors[0].id]);
   const jobId = randomUUID(), nativeJob = randomUUID();
-  const plugin = () => ({ id, provenance: 'direct', version: '0.3.0', rootDir: currentTarget === 'local' ? path : join(home, 'snapshot', id), enabled: !disabled, status: 'needs-configuration', statusDetail: null, app: { hasApp: false } });
+  const plugin = () => ({ id, provenance, version: '0.3.0', rootDir: currentTarget === 'local' ? path : join(home, 'snapshot', id), enabled: !disabled, status: 'needs-configuration', statusDetail: null, app: { hasApp: false } });
   const source = () => currentTarget === 'local' ? { requested: `path:${path}`, resolved: `path:${path}` } : { requested: `git:${originUrl}@main`, resolved: `git:${originUrl}@main (${(changed ? 'b' : 'a').repeat(40)})`, subdirectory: `plugins/${id}` };
-  let capability: unknown = true, capabilityReads = 0, nativeState: string | null = null;
+  let capability: unknown = true, catalogCapability: unknown, capabilityReads = 0, nativeState: string | null = null;
   let onCapability: ((count: number) => Promise<void>) | undefined;
   const requests: string[] = [];
   let heldJob: string | null = jobId;
@@ -45,7 +45,7 @@ async function fixture(id: IntegrationId = 'fastmail', target: 'local' | 'github
     if (auth) return json({ error: 'PRIVATE_SENTINEL cookie token' }, 401);
     if (redirect) { res.writeHead(302, { Location: 'http://private.example/PRIVATE_SENTINEL' }); return res.end(); }
     const route = req.url?.replace('/api/v1', '');
-    if (route === '/system/version') { capabilityReads++; await onCapability?.(capabilityReads); return json({ currentVersion: '0.47.1', experimental_directPluginSourceMoves: capability }); }
+    if (route === '/system/version') { capabilityReads++; await onCapability?.(capabilityReads); return json({ currentVersion: '0.47.1', experimental_directPluginSourceMoves: capability, experimental_catalogGitToLocalSourceMoves: catalogCapability }); }
     if (route === '/plugins' && req.method === 'GET') return json({ plugins: installed ? [plugin()] : [] });
     if (route === '/plugins/install-jobs' && req.method === 'GET') return json({ jobs: conflict ? [{ id: nativeJob, state: 'running' }] : nativeState ? [{ id: nativeJob, state: nativeState }] : [] });
     if (route === '/plugins/update-jobs' && req.method === 'GET') return json({ jobs: updateConflict ? [{ id: nativeJob, state: 'running' }] : [] });
@@ -63,7 +63,7 @@ async function fixture(id: IntegrationId = 'fastmail', target: 'local' | 'github
     }
     if (route === `/plugins/install-jobs/${nativeJob}`) {
       events.push('poll'); if (installFailure) { nativeState = 'failed'; return json({ job: { id: nativeJob, state: 'failed', error: 'PRIVATE_SENTINEL response body' } }); }
-      installed = true; currentTarget = target; nativeState = 'succeeded'; return json({ job: { id: nativeJob, state: 'succeeded', plugin: plugin() } });
+      installed = true; currentTarget = target; provenance = 'direct'; nativeState = 'succeeded'; return json({ job: { id: nativeJob, state: 'succeeded', plugin: plugin() } });
     }
     return json({ error: 'PRIVATE_SENTINEL unexpected' }, 404);
   });
@@ -112,6 +112,8 @@ async function fixture(id: IntegrationId = 'fastmail', target: 'local' | 'github
       await ports.settle(legacyReceipt);
     },
     capability: (value: unknown) => { capability = value; },
+    catalogCapability: (value: unknown) => { catalogCapability = value; },
+    provenance: (value: string) => { provenance = value; },
     onCapability: (callback: (count: number) => Promise<void>) => { onCapability = callback; },
     native: (value: string | null) => { nativeState = value; },
     original: () => currentTarget === (target === 'local' ? 'github' : 'local'),
@@ -575,7 +577,7 @@ test('a historical reset intent cannot launch a new runner or perform any REST c
     await assert.rejects(f.ports.launch(f.receipt)); assert.deepEqual(f.events, []); assert.equal(f.calls(), 1);
   } finally { await f.close(); }
 });
-for (const provenance of ['marketplace', undefined]) test(`non-direct provenance ${provenance} refuses preparation`, async () => {
+for (const provenance of ['builtin', 'marketplace', undefined]) test(`unknown or protected provenance ${provenance} refuses preparation`, async () => {
   const f = await fixture(); try {
     const list = f.bb.sdk.plugins.list;
     f.bb.sdk.plugins.list = async args => ({ plugins: (await list(args)).plugins.map(plugin => ({ ...plugin, provenance })) }) as Awaited<ReturnType<typeof list>>;
@@ -678,7 +680,33 @@ test('capability probe rejects malformed, oversized, non-JSON and redirected res
       () => new Response('{"experimental_directPluginSourceMoves":true}', { headers: { 'Content-Type': 'text/plain' } }),
       () => new Response('', { status: 302, headers: { Location: 'http://private.example/PRIVATE_SENTINEL' } }),
       () => new Response('{"experimental_directPluginSourceMoves":true}', { status: 401, headers: { 'Content-Type': 'application/json' } }),
-    ]) { response = make; await assert.rejects(directSourceMoves(f.bb)); }
+    ]) { response = make; await assert.rejects(sourceMoveCapabilities(f.bb)); }
     fetch.mock.restore(); assert.deepEqual(f.events, []);
+  } finally { await f.close(); }
+});
+
+for (const id of ['google-drive', 'pa-updates', 'icloud'] as const) test(`marketplace ${id} switches with its own capability and keeps configuration`, async () => {
+  const f = await fixture(id, 'local', 'catalog'); try {
+    f.catalogCapability(true); await f.prepare(); await f.ports.launch(f.receipt); const r = await f.wait();
+    assert.equal(r.phase, 'complete'); assert.equal(r.configuration, 'preserved'); assert.equal(r.removalAttempted, false); assert.equal(r.removed, false);
+    assert.equal((await f.bb.sdk.plugins.list()).plugins[0].provenance, 'direct');
+    assert.equal(f.events.filter(e => e === 'install').length, 1); assert.ok(!f.events.includes('user-pause'));
+  } finally { await f.close(); }
+});
+for (const value of [undefined, false, 'true', 1, null]) test(`direct capability cannot authorize marketplace source switch when marketplace support is ${JSON.stringify(value)}`, async () => {
+  const f = await fixture('google-drive', 'local', 'catalog'); try {
+    f.catalogCapability(value); await assert.rejects(f.prepare()); assert.deepEqual(f.events, []); assert.equal(f.original(), true);
+  } finally { await f.close(); }
+});
+for (const probe of [2, 3]) test(`marketplace capability revoked at probe ${probe} prevents install`, async () => {
+  const f = await fixture('google-drive', 'local', 'catalog'); try {
+    f.catalogCapability(true); await f.prepare(); f.onCapability(async count => { if (count === probe) f.catalogCapability(false); });
+    await f.ports.launch(f.receipt); const r = await f.wait(); assert.equal(r.reason, 'unsupported'); assert.equal(r.installAdmitted, false); assert.deepEqual(f.events, []);
+  } finally { await f.close(); }
+});
+test('both capabilities still refuse protected provenance changed after preparation', async () => {
+  const f = await fixture('google-drive', 'local', 'catalog'); try {
+    f.catalogCapability(true); await f.prepare(); f.provenance('builtin'); await f.ports.launch(f.receipt); const r = await f.wait();
+    assert.equal(r.installAdmitted, false); assert.deepEqual(f.events, []);
   } finally { await f.close(); }
 });

@@ -18,10 +18,10 @@ assert.equal(inputs.length, 2, 'Supply updater and Pause archives after the fork
 const archive = resolve(inputs[0]), pauseArchive = resolve(inputs[1]);
 const host = await createGateHost(forkPackage, { retainEvidence: true });
 const { root, command, npm, cli, request } = host;
-const workspace = join(host.home, 'src/pa-bb'), origin = host.repo, receipts = join(root, 'source-receipts');
+const workspace = join(host.home, 'src/pa-bb'), remote = host.repo, origin = 'https://source-modes.example.invalid/pa-bb.git', receipts = join(root, 'source-receipts');
 const digest = path => readFile(path).then(bytes => createHash('sha256').update(bytes).digest('hex'));
 const archiveDigest = await digest(archive), pauseDigest = await digest(pauseArchive);
-const testedIds = ['google-calendar', 'pa-updates', 'icloud', 'obsidian'];
+const testedIds = ['google-calendar', 'google-drive', 'fastmail', 'pa-updates', 'icloud', 'obsidian'];
 const localPath = id => join(workspace, 'plugins', id);
 const git = async (cwd, ...args) => (await command('git', args, cwd)).trim();
 const readJson = async path => JSON.parse(await readFile(path, 'utf8'));
@@ -119,7 +119,7 @@ async function jobs() {
 function noNewJobs(current, previous) { assert.ok(current.every(id => previous.includes(id)), 'No new native install admission'); }
 async function nativeRemovals() {
   const lines = (await readFile(join(host.env.BB_DATA_DIR, 'logs/server.1.log'), 'utf8')).trim().split('\n').filter(Boolean);
-  return lines.map(line => JSON.parse(line)).map(entry => /^plugin (google-calendar|pa-updates|icloud|obsidian) removed from /.exec(entry.msg ?? '')?.[1]).filter(Boolean);
+  return lines.map(line => JSON.parse(line)).map(entry => /^plugin (google-calendar|google-drive|fastmail|pa-updates|icloud|obsidian) removed from /.exec(entry.msg ?? '')?.[1]).filter(Boolean);
 }
 async function runtimeConfiguration() {
   const configuration = {};
@@ -164,37 +164,48 @@ async function assertPaused() {
   return state;
 }
 try {
+  const transport = join(root, 'transport-bin'); await mkdir(transport);
+  await writeFile(join(transport, 'git'), `#!/bin/sh\nexec /usr/bin/git -c ${JSON.stringify('url.' + remote + '.insteadOf=' + origin)} "$@"\n`, { mode: 0o755 });
+  host.env.PATH = transport + ':' + host.env.PATH;
   await mkdir(workspace, { recursive: true }); await writeFile(join(root, 'events.jsonl'), ''); await mode({});
   await git(workspace, 'init', '-b', 'main'); await git(workspace, 'config', 'user.name', 'Fixture'); await git(workspace, 'config', 'user.email', 'fixture@example.invalid');
   await writeFile(join(workspace, '.gitignore'), 'node_modules/\ndist/\n');
   // Workspace comparison covers all six enum entries even when only four are installed.
-  for (const id of [...testedIds, 'fastmail', 'google-drive']) {
+  for (const id of testedIds) {
     const directory = localPath(id); await mkdir(directory, { recursive: true });
-    let manifest = { name: `bb-plugin-${id}`, version: id === 'icloud' ? '0.3.2' : id === 'obsidian' ? '0.3.1' : '0.4.0', type: 'module',
+    let manifest = { name: `bb-plugin-${id}`, version: id === 'icloud' ? '0.3.2' : id === 'obsidian' ? '0.3.1' : id === 'fastmail' ? '0.1.7' : '0.1.1', type: 'module',
       engines: { node: '>=22.18', bb: '>=0.46.0', bbPluginSdk: '>=0.6.37 <1' }, dependencies: { zod: '4.6.5' },
       bb: { name: 'Synthetic source mode', description: 'Owned native gate.', branding: { icon: 'Calendar' }, server: './server.ts' } };
     if (id === 'pa-updates') {
       await mkdir(join(directory, 'implementation')); await command('tar', ['--no-same-owner', '-xf', archive, '-C', join(directory, 'implementation')]);
-      const production = await readJson(join(directory, 'implementation/package.json')); assert.equal(production.version, '0.5.0');
+      const production = await readJson(join(directory, 'implementation/package.json')); assert.equal(production.version, '0.5.1');
       manifest = { ...production, bb: { ...production.bb, app: './implementation/app.tsx' } };
       await writeFile(join(directory, 'package-lock.json'), await readFile(join(directory, 'implementation/package-lock.json')));
     }
     if (id === 'icloud') { await mkdir(join(directory, 'pause')); await command('tar', ['--no-same-owner', '-xf', pauseArchive, '-C', join(directory, 'pause')]); }
     await writeFile(join(directory, 'package.json'), JSON.stringify(manifest));
-    await writeFile(join(directory, 'server.ts'), fixtureSource({ id, root, origin, workspace, receipts, updater: id === 'pa-updates', cloud: id === 'icloud' }));
+    await writeFile(join(directory, 'server.ts'), fixtureSource({ id, root, origin, remote, workspace, receipts, updater: id === 'pa-updates', cloud: id === 'icloud' }));
     await writeFile(join(directory, 'marker.ts'), 'export const marker="MANAGED";\n');
     await command(process.execPath, [npm, 'install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], directory);
   }
   await git(workspace, 'add', '.'); await git(workspace, 'commit', '-m', 'owned synthetic fixture baseline');
-  await rm(origin, { recursive: true }); await git(root, 'clone', '--bare', workspace, origin); await git(workspace, 'remote', 'add', 'origin', origin); await git(workspace, 'fetch', 'origin');
+  await rm(remote, { recursive: true }); await git(root, 'clone', '--bare', workspace, remote); await git(workspace, 'remote', 'add', 'origin', origin); await git(workspace, 'fetch', 'origin');
   await writeFile(join(workspace, 'README.md'), 'Synthetic unpushed commit retained.\n'); await git(workspace, 'add', 'README.md'); await git(workspace, 'commit', '-m', 'owned unpushed fixture work');
   for (const id of testedIds) await writeFile(join(localPath(id), 'marker.ts'), 'export const marker="LOCAL";\n');
-  const originalHead = await git(workspace, 'rev-parse', 'HEAD'), originalOrigin = await git(origin, 'rev-parse', 'main'), originalDirty = await git(workspace, 'status', '--porcelain');
+  const originalHead = await git(workspace, 'rev-parse', 'HEAD'), originalOrigin = await git(remote, 'rev-parse', 'main'), originalDirty = await git(workspace, 'status', '--porcelain');
   assert.notEqual(originalHead, originalOrigin); assert.ok(originalDirty);
-  await writeFile(join(root, 'inputs.json'), JSON.stringify({ archiveDigest, pauseDigest, updaterVersion: '0.5.0', bb: host.pkg.version, originalHead, originalOrigin }, null, 2));
+  await writeFile(join(root, 'inputs.json'), JSON.stringify({ archiveDigest, pauseDigest, updaterVersion: '0.5.1', bb: host.pkg.version, originalHead, originalOrigin }, null, 2));
   stage = 'native-install-fixtures'; await host.start();
   assert.equal((await request('system/version')).body.experimental_directPluginSourceMoves, true, 'Gate requires the actual fork capability, never version inference or destructive fallback');
-  for (const id of testedIds) await cli('plugin', 'install', `git:${origin}@main`, '--subdirectory', `plugins/${id}`, '--yes', '--json');
+  assert.equal((await request('system/version')).body.experimental_catalogGitToLocalSourceMoves, true);
+  const marketplace = join(root, 'marketplace'); await mkdir(marketplace);
+  await writeFile(join(marketplace, 'marketplace.json'), JSON.stringify({ schemaVersion: 2, name: 'pa-for-bb', displayName: 'Synthetic PA marketplace', plugins: testedIds.map(id => ({ id, displayName: id, description: 'Owned fixture.', icon: 'Folder', author: { name: 'Fixture' }, source: { git: { url: origin, ref: 'main', subdir: 'plugins/' + id } } })) }));
+  await cli('marketplace', 'add', 'path:' + marketplace, '--json');
+  for (const id of testedIds) {
+    await cli('plugin', 'install', id + '@pa-for-bb', '--yes', '--json');
+    const p = await info(id); assert.equal(p.provenance, 'catalog'); assert.equal(p.catalogEntryId, id); assert.equal(p.catalogMarketplaceName, 'pa-for-bb');
+  }
+  results.push({ case: 'all-six-seeded-through-real-marketplace', provenance: 'catalog', count: 6 });
   await idle();
   const siblingInventory = (await request('plugins')).body.plugins.filter(p => !testedIds.includes(p.id)).map(p => ({ id: p.id, rootDir: p.rootDir, enabled: p.enabled, version: p.version }));
   const versionBefore = (await request('system/version')).body, runtimeBefore = await runtimeConfiguration();
@@ -220,12 +231,22 @@ try {
   stage = 'calendar-roundtrip';
   for (const target of ['local', 'github']) {
     const jobId = await admit('google-calendar', target); await terminal(jobId); const state = await healthy('google-calendar', target, target === 'local' ? 'LOCAL' : 'MANAGED');
-    assert.equal(state.p.version, '0.4.0'); assert.equal(state.state.setting, true); assert.equal(state.state.secret, true);
+    assert.equal(state.p.version, '0.1.1'); assert.equal(state.state.setting, true); assert.equal(state.state.secret, true);
     assert.ok(state.state.kv && state.state.database && state.state.note); assert.ok(state.p.schedules.some(s => s.name === 'fixture-sweep')); assert.equal(state.p.id, 'google-calendar');
   }
   const dataAfter = await stat(join(host.env.BB_DATA_DIR, 'plugins/google-calendar')), dbAfter = await stat(join(host.env.BB_DATA_DIR, 'plugins/google-calendar/data.db'));
   assert.equal(dataAfter.ino, dataBefore.ino); assert.equal(dataAfter.dev, dataBefore.dev); assert.equal(dbAfter.ino, dbBefore.ino);
   results.push({ case: 'calendar-git-path-git', sameVersionDifferentBehavior: true, settingsSecretsSchedulesAndIdentityRetained: true, kvDatabaseNoteAndInodesRetained: true });
+  stage = 'drive-marketplace-roundtrip';
+  const driveBefore = await stat(join(host.env.BB_DATA_DIR, 'plugins/google-drive/data.db'));
+  for (const target of ['local', 'github']) {
+    const jobId = await admit('google-drive', target); await terminal(jobId);
+    const state = await healthy('google-drive', target, target === 'local' ? 'LOCAL' : 'MANAGED');
+    assert.ok(state.state.setting && state.state.secret && state.state.kv && state.state.database && state.state.note);
+    assert.equal(state.p.provenance, 'direct'); assert.equal(state.p.catalogEntryId ?? null, null);
+  }
+  assert.equal((await stat(join(host.env.BB_DATA_DIR, 'plugins/google-drive/data.db'))).ino, driveBefore.ino);
+  results.push({ case: 'drive-marketplace-local-direct-git', configurationAndDirtyWorkKept: true, explicitDirectOwnershipAfterMove: true });
   stage = 'updater-self-roundtrip';
   for (const target of ['local', 'github']) {
     const jobId = await admit('pa-updates', target); const state = await terminal(jobId);
@@ -247,7 +268,7 @@ try {
   const retainedFailureState = await fixture('google-calendar'); assert.ok(retainedFailureState.setting && retainedFailureState.secret && retainedFailureState.kv && retainedFailureState.database && retainedFailureState.note);
   const failedNativeJobs = (await jobs()).filter(j => j.state === 'failed'); assert.ok(failedNativeJobs.some(j => j.id === failedReceipt.nativeJobId));
   await noReplay('failed-native-install-observer-reload', failedJob);
-  await mode({}); await rename(origin + '.offline', origin);
+  await mode({}); await rename(remote + '.offline', remote);
   const recoveryJobs = (await jobs()).map(j => j.id).sort(), removalsBeforeAcknowledgment = await nativeRemovals();
   await runnerGone(); const recovered = await updater('acknowledgeSourceRecovery', { jobId: failedJob });
   assert.deepEqual(await nativeRemovals(), removalsBeforeAcknowledgment, 'Recovery is verification, not another write');
@@ -317,12 +338,12 @@ try {
   // A deliberately rejected native RPC sets BB's sticky statusDetail. Exercise
   // that authorization boundary last, rather than hiding it with a reload.
   const denied = await rpcResponse('icloud', 'pause', { updateJob: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }); assert.notEqual(denied.body.ok, true, 'A REST client cannot impersonate updater caller');
-  assert.equal(await git(workspace, 'rev-parse', 'HEAD'), originalHead); assert.equal(await git(origin, 'rev-parse', 'main'), originalOrigin); assert.equal(await git(workspace, 'status', '--porcelain'), originalDirty);
+  assert.equal(await git(workspace, 'rev-parse', 'HEAD'), originalHead); assert.equal(await git(remote, 'rev-parse', 'main'), originalOrigin); assert.equal(await git(workspace, 'status', '--porcelain'), originalDirty);
   assert.deepEqual((await request('plugins')).body.plugins.filter(p => !testedIds.includes(p.id)).map(p => ({ id: p.id, rootDir: p.rootDir, enabled: p.enabled, version: p.version })), siblingInventory);
   assert.deepEqual((await request('system/version')).body, versionBefore); assert.deepEqual(await runtimeConfiguration(), runtimeBefore);
   const allEvents = await events(); await jobs(); const allJobs = [...nativeJobHistory.values()], removalIds = await nativeRemovals();
   const nativeRemovalsById = Object.fromEntries(testedIds.map(id => [id, removalIds.filter(removed => removed === id).length]));
-  assert.deepEqual(nativeRemovalsById, { 'google-calendar': 0, 'pa-updates': 0, icloud: 0, obsidian: 0 });
+  assert.deepEqual(nativeRemovalsById, Object.fromEntries(testedIds.map(id => [id, 0])));
   assert.equal(allJobs.filter(job => job.state === 'failed').length, 1);
   assert.ok(mutations.length >= 12); assert.equal(allEvents.filter(e => e.operation === 'user-pause').length, 0);
   assert.ok(allEvents.filter(e => e.operation === 'AUTOMATIC-ENABLE').every(e => e.mirrorId === '11111111-1111-4111-8111-111111111111'));
@@ -331,7 +352,7 @@ try {
   assert.ok(!log.includes('PRIVATE_SENTINEL')); assert.ok(!receiptText.includes('PRIVATE_SENTINEL')); assert.ok(log.includes('icloud stage=update_pause outcome=unavailable'));
   await writeFile(join(root, 'receipts-summary.json'), JSON.stringify(snapshots, null, 2));
   await writeFile(join(root, 'install-jobs.json'), JSON.stringify(allJobs, null, 2));
-  const summary = { bb: host.pkg.version, forkPackage: resolve(forkPackage), directSourceMovesCapability: true, updater: '0.5.0', archiveDigest, pauseDigest, originalHandlersAndSourceRunner: true, nativeRuntime: false,
+  const summary = { bb: host.pkg.version, forkPackage: resolve(forkPackage), directSourceMovesCapability: true, catalogGitToLocalCapability: true, initialMarketplaceInstalls: 6, updater: '0.5.1', archiveDigest, pauseDigest, originalHandlersAndSourceRunner: true, nativeRuntime: false,
     results, nativeRemovals: removalIds.length, nativeRemovalsById, successfulRunnerSwitches: snapshots.filter(s => s.phase === 'complete').length, installJobs: { total: allJobs.length, succeeded: allJobs.filter(j => j.state === 'succeeded').length, failed: allJobs.filter(j => j.state === 'failed').length },
     sourceAdmissions: mutations, automaticMirrorEnables: allEvents.filter(e => e.operation === 'AUTOMATIC-ENABLE').length, sourceFilesDirtyAndUnpushedCommitRetained: true, siblingInventoryAndBbVersionUnchanged: true, configuredProviderRuntimesUnchanged: true,
     diagnostics: { boundedFailurePresent: true, sentinelAbsentFromHostLogAndReceipt: true }, evidence: root,

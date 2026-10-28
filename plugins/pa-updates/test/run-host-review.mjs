@@ -92,6 +92,7 @@ function makeState(view) {
     state.review.rows = [{ ...offer(state), available: '1.1.0' }]; state.review.localRows = [offer(state)];
     state.sourceSwitch = sourceReceipt('google-calendar', 'local', 'running'); finishSource(state);
   }
+  if (view === 'source_not_started') state.sourceSwitch = { ...sourceReceipt('google-drive', 'local', 'attention'), reviewId: '99999999-9999-4999-8999-999999999999', reason: 'unsupported' };
   if (view === 'source_dependencies') state.sourceSwitch = { ...sourceReceipt('google-calendar', 'local', 'attention'), reason: 'dependencies_missing' };
   return applicationStatusSchema.parse(state);
 }
@@ -136,7 +137,7 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
   browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : { channel: 'chrome' }) });
   const notify = async () => { const value = await host.request('plugins/pa-updates/rpc/fixtureNotify', null); assert.equal(value.body.ok, true); };
   const views = process.env.BB_REVIEW_VIEWS?.split(',') ?? ['current', 'local', 'incoming', 'both', 'unapplied', 'unconfirmed', 'progress', 'consent', 'source_only', 'failed_check', 'uncertain',
-    'source_managed', 'source_local', 'local_origin', 'local_dirty', 'local_ahead', 'local_both', 'local_unknown', 'local_mismatch',
+    'source_managed', 'source_local', 'source_not_started', 'local_origin', 'local_dirty', 'local_ahead', 'local_both', 'local_unknown', 'local_mismatch',
     'source_managed_separately', 'source_legacy_deleted', 'source_legacy_possible', 'source_legacy_planned', 'source_capability_false', 'source_capability_missing', 'source_disabled', 'source_missing_enablement', 'source_missing_generation', 'source_unsupported', 'source_no_workspace', 'source_busy', 'source_error',
     'source_pending', 'source_failed_local', 'source_failed_github', 'source_recovery_aborted', 'source_recovery_waiting', 'source_dependencies', 'source_complete_stale',
     'source_switch_refused', 'source_switch_lost_response', 'source_recovery_rpc_refused', 'progress_origin_false', 'progress_origin_absent', 'progress_origin_verified', 'local_legacy', 'source_status_read_failure'];
@@ -254,9 +255,14 @@ bb.rpc.register({fixtureNotify:{input:z.null(),output:z.null()}},{fixtureNotify:
     if (['source_capability_false', 'source_capability_missing', 'source_disabled', 'source_missing_enablement', 'source_missing_generation', 'source_no_workspace', 'source_busy', 'source_error', 'source_dependencies', 'uncertain'].includes(view)) {
       assert.equal(await sourceButtons.count(), 6);
       for (const button of await sourceButtons.all()) assert.equal(await button.isEnabled(), false);
-      if (['source_capability_false', 'source_capability_missing'].includes(view)) assert.ok(text.includes('verify BB supports configuration-preserving source switches'));
+      if (['source_capability_false', 'source_capability_missing'].includes(view)) assert.ok(text.includes('Some source switches could not be verified on this BB and remain disabled.'));
       if (view === 'source_disabled') assert.ok(text.includes('Enable this plugin in BB first'));
       if (view === 'source_dependencies') assert.ok(text.includes('run npm ci'));
+    }
+    if (view === 'source_not_started') {
+      assert.ok(text.includes('Switch did not start')); assert.ok(!text.includes('after updating BB'));
+      assert.equal(await panel.locator('[data-source-id="google-drive"] .pa-update-source-action').isEnabled(), true);
+      assert.ok(!(await panel.locator('[data-source-id="google-drive"]').innerText()).includes('Source needs attention'));
     }
     if (view === 'source_unsupported') assert.equal(await sourceButtons.count(), 0);
     if (['source_managed', 'source_local'].includes(view)) {

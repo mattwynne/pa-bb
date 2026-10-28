@@ -1,0 +1,50 @@
+{
+  "updater": "0.5.1",
+  "bbForkCommit": "52a6a22ba29271f58b4e97588eb23418ae28d262",
+  "capabilities": ["experimental_directPluginSourceMoves", "experimental_catalogGitToLocalSourceMoves"],
+  "updaterArchiveSha256": "2280c1ca00e72ecba6df6587aa53f6c4db788e683d071a42b9fac5e399528015",
+  "bbPackageSha256": "b71c710ceacccdc8f16270f4fe53798b7e64cd80e0a72b9608a965de4d416e39",
+  "executionFiles": {
+    "adapters/source-mode.ts": "d1b8d2c71e93c47d9a5cb08781edd1c63dcf82aca7aec774141f29bcef5dfb3e",
+    "adapters/source-mode-runner.ts": "612deca89ad2b9af990f72b73d7a0bbf7344bf011f08149fea7ae5af8db28a0d",
+    "adapters/application.ts": "35aa45ca084ed1a611a5ab43d82be127ab6a44528930e760ac594d25b88d582a",
+    "core/application.ts": "c2456d28379a970b49b08490c2b41d07163fd1e5411d42d92075fbc26922bbca",
+    "core/application-model.ts": "fcc45bd3ba6b80352a891e8c23e6d596afea40f834ce2e68bccf2d61d28d83f8",
+    "adapters/source-files.ts": "a292ef41c18571b4e68bf52f7c83b79ad33e1b362648604520d9dfc6030ca44a",
+    "server.ts": "d7f467f1f41e1bb6599c0259820308377e2de281fb229c91f5e743b1b3951beb"
+  },
+  "checks": {
+    "paTests": 273,
+    "acceptanceScenarios": 4,
+    "acceptanceSteps": 15,
+    "bbServerTests": 104,
+    "bbCliTests": 23,
+    "renderedStateViewportCases": 96,
+    "renderedScreenshots": 188,
+    "confirmationCases": 24,
+    "typecheckBuildAndSdkPin": true,
+    "sharedUiAndWhitespace": true
+  },
+  "nativeGate": {
+    "bb": "0.47.1",
+    "initialRealMarketplaceInstalls": 6,
+    "successfulSwitches": 12,
+    "installJobs": { "total": 20, "succeeded": 19, "intentionalFailure": 1 },
+    "removals": 0,
+    "googleDriveMarketplaceLocalDirectGit": true,
+    "actualUpdaterSelfReplacementBothWays": true,
+    "settingsSecretsSchedulesAndStorageKept": true,
+    "workingFilesAndUnpushedCommitKept": true,
+    "ownedPauseResumeRightsKept": true,
+    "helperUserPauseCalls": 0,
+    "interruptionAndNoReplay": true,
+    "boundedDiagnosticAndNoSentinelLeak": true,
+    "transport": "Synthetic HTTPS identity mapped to an owned local Git repository; no production account data"
+  },
+  "limits": [
+    "No live plugin source conversion used as delivery proof",
+    "Synthetic mirrors do not exercise real Apple/rclone account activity",
+    "No BB binary-upgrade proof",
+    "Mutable Git main and local files remain changeable after the final native check"
+  ]
+}

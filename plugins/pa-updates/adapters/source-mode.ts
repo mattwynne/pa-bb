@@ -28,15 +28,18 @@ export function loopbackServer(value: string) {
   return url.origin;
 }
 /** Positive capability discovery, never a package-version guess or a write probe. */
-export async function directSourceMoves(bb: BbPluginApi): Promise<boolean> {
+export async function sourceMoveCapabilities(bb: BbPluginApi): Promise<{ direct: boolean; catalogGitToLocal: boolean }> {
   const response = await fetch(`${loopbackServer(bb.server.loopbackBaseUrl)}/api/v1/system/version`, { redirect: 'error', signal: AbortSignal.timeout(15000) });
   if (response.status !== 200 || !response.headers.get('content-type')?.includes('application/json')) { await response.body?.cancel(); throw new ApplicationError('unavailable'); }
   const reader = response.body?.getReader(); if (!reader) throw new ApplicationError('unavailable');
   const chunks: Uint8Array[] = []; let size = 0;
   try { while (true) { const next = await reader.read(); if (next.done) break; size += next.value.length; if (size > 65536) throw new ApplicationError('unavailable'); chunks.push(next.value); } }
   finally { await reader.cancel(); }
-  const value = z.object({ experimental_directPluginSourceMoves: z.boolean().optional() }).parse(JSON.parse(Buffer.concat(chunks).toString()));
-  return value.experimental_directPluginSourceMoves === true;
+  const value = z.object({ experimental_directPluginSourceMoves: z.boolean().optional(), experimental_catalogGitToLocalSourceMoves: z.boolean().optional() }).parse(JSON.parse(Buffer.concat(chunks).toString()));
+  return { direct: value.experimental_directPluginSourceMoves === true, catalogGitToLocal: value.experimental_catalogGitToLocalSourceMoves === true };
+}
+export function sourceMoveSupported(capabilities: { direct: boolean; catalogGitToLocal: boolean }, provenance: unknown, mode: string) {
+  return provenance === 'direct' && ['managed', 'local'].includes(mode) && capabilities.direct || provenance === 'catalog' && mode === 'managed' && capabilities.catalogGitToLocal;
 }
 export function receiptDirectory(dataDir: string, home = homedir()) {
   if (!isAbsolute(dataDir) || dataDir.length > 4096 || /[\0\r\n]/.test(dataDir)) throw new ApplicationError('unsupported_install');
@@ -324,13 +327,14 @@ export function sourceModePorts(bb: BbPluginApi, options: Options): NonNullable<
       options.active?.();
       if (existing && (existing.jobId === receipt.jobId || existing.manualRecovery || existing.syncReserved || !['complete', 'attention'].includes(existing.phase))) throw new ApplicationError('busy');
       const row = review.inventory?.find(row => row.id === receipt.id);
-      if (receipt.configuration !== 'preserved' || !await directSourceMoves(bb)) throw new SourceSwitchError('unsupported');
+      if (receipt.configuration !== 'preserved') throw new SourceSwitchError('unsupported');
+      const capabilities = await sourceMoveCapabilities(bb);
       if (!row?.sourceGeneration || !['managed', 'local'].includes(row.sourceMode ?? '') || (row.sourceMode === 'local') === (receipt.target === 'local')) throw new ApplicationError('changed');
       const baseUrl = loopbackServer(bb.server.loopbackBaseUrl);
       const listed = await bb.sdk.plugins.list({ signal: AbortSignal.timeout(10000) });
       const plugin = listed.plugins.find(p => p.id === receipt.id);
       if (!plugin) throw new ApplicationError('changed');
-      if (plugin.provenance !== 'direct') throw new SourceSwitchError('unsupported');
+      if (!sourceMoveSupported(capabilities, plugin.provenance, row.sourceMode ?? 'unsupported')) throw new SourceSwitchError('unsupported');
       if (!plugin.enabled) throw new SourceSwitchError('disabled');
       if (!['running', 'needs-configuration'].includes(plugin.status)) throw new ApplicationError('busy');
       const source = await bb.sdk.plugins.getSource({ pluginId: receipt.id, signal: AbortSignal.timeout(10000) });
