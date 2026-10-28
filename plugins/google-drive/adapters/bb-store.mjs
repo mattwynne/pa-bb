@@ -10,6 +10,7 @@ export function createBbStore(db, migrate) {
       state_hash TEXT PRIMARY KEY, verifier TEXT NOT NULL, redirect_uri TEXT NOT NULL,
       client_id TEXT NOT NULL, expires_at INTEGER NOT NULL
     );`,
+    'ALTER TABLE drive_pending ADD COLUMN reconnect TEXT;',
   ]);
   const row = item => item && ({ subject: item.subject, email: item.email, refreshToken: item.refresh_token, accessToken: item.access_token, expiresAt: item.expires_at });
   return {
@@ -20,6 +21,11 @@ export function createBbStore(db, migrate) {
       if (db.prepare('SELECT 1 FROM drive_accounts WHERE subject = ? OR email = ? COLLATE NOCASE').get(record.subject, record.email)) throw new Error('Google account is already connected');
       db.prepare('INSERT INTO drive_accounts (subject,email,refresh_token,access_token,expires_at) VALUES (?,?,?,?,?)').run(record.subject, record.email, record.refreshToken, record.accessToken, record.expiresAt || null);
     },
+    async replaceAccount(record, previousRefreshToken) {
+      return db.prepare(`UPDATE drive_accounts SET email = ?, refresh_token = ?, access_token = ?, expires_at = ?
+        WHERE subject = ? AND refresh_token = ?`).run(record.email, record.refreshToken, record.accessToken,
+          record.expiresAt || null, record.subject, previousRefreshToken).changes > 0;
+    },
     async removeAccount(subject) { return db.prepare('DELETE FROM drive_accounts WHERE subject = ?').run(subject).changes > 0; },
     async updateEmail(subject, email) { return db.prepare('UPDATE drive_accounts SET email = ? WHERE subject = ?').run(email, subject).changes > 0; },
     async mergeToken(subject, oldRefreshToken, update) {
@@ -28,13 +34,13 @@ export function createBbStore(db, migrate) {
     },
     async savePending(grant) {
       db.prepare('DELETE FROM drive_pending WHERE expires_at <= ?').run(Date.now());
-      db.prepare('INSERT INTO drive_pending (state_hash,verifier,redirect_uri,client_id,expires_at) VALUES (?,?,?,?,?)').run(grant.stateHash, grant.verifier, grant.redirectUri, grant.clientId, grant.expiresAt);
+      db.prepare('INSERT INTO drive_pending (state_hash,verifier,redirect_uri,client_id,expires_at,reconnect) VALUES (?,?,?,?,?,?)').run(grant.stateHash, grant.verifier, grant.redirectUri, grant.clientId, grant.expiresAt, grant.reconnect ? JSON.stringify(grant.reconnect) : null);
     },
     async consumePending(hash) {
       return db.transaction(() => {
         const r = db.prepare('SELECT * FROM drive_pending WHERE state_hash = ?').get(hash);
         if (r) db.prepare('DELETE FROM drive_pending WHERE state_hash = ?').run(hash);
-        return r ? { stateHash: r.state_hash, verifier: r.verifier, redirectUri: r.redirect_uri, clientId: r.client_id, expiresAt: r.expires_at } : null;
+        return r ? { stateHash: r.state_hash, verifier: r.verifier, redirectUri: r.redirect_uri, clientId: r.client_id, expiresAt: r.expires_at, reconnect: r.reconnect ? JSON.parse(r.reconnect) : null } : null;
       })();
     },
   };

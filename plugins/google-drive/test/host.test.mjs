@@ -14,7 +14,7 @@ test('registers read and scope-gated tools, an independent callback, and no conn
   const { harness } = await setup();
   try {
     const selected = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
-    assert.deepEqual(selected.tools.map(t => t.name).sort(), ['gdocs_inspect_for_edit','gdocs_read','gdocs_replace_text','gdrive_auth_status','gdrive_get_file','gdrive_list_folder','gdrive_search_files']);
+    assert.deepEqual(selected.tools.map(t => t.name).sort(), ['gdocs_inspect_for_edit','gdocs_read','gdocs_replace_text','gdrive_auth_status','gdrive_copy_file','gdrive_get_file','gdrive_list_folder','gdrive_search_files']);
     assert.deepEqual(selected.skills, ['google-docs-editing']);
     const status = await harness.behavior.callRpc('status', null);
     assert.equal(status.redirectUri, 'https://bb.example/api/v1/plugins/google-drive/http/callback');
@@ -104,6 +104,30 @@ test('callback consumes grant once and a plugin reload retains the Drive account
     const logged = JSON.stringify(harness.inspection.logEntries);
     assert.doesNotMatch(logged, /private-access|private-refresh|once/);
   } finally { if (harness) await harness.lifecycle.dispose(); globalThis.fetch = fetchOriginal; }
+});
+
+test('Reconnect RPC persists target and atomically replaces same-account grant', async () => {
+  const original = globalThis.fetch;
+  let host;
+  globalThis.fetch = async url => {
+    if (String(url).endsWith('/token')) return Response.json({ access_token: 'new-access', refresh_token: 'new-refresh', scope: SCOPES.join(' ') });
+    if (String(url).endsWith('/userinfo')) return Response.json({ sub: 'same', email: 'alice@example.test', email_verified: true });
+    throw new Error('Unexpected request');
+  };
+  try {
+    host = await setup();
+    const store = createBbStore(host.bb.storage.database(), () => {});
+    await store.addAccount({ subject: 'same', email: 'alice@example.test', refreshToken: 'old-refresh' });
+    const { url } = await host.harness.behavior.callRpc('beginReconnect', { subject: 'same' });
+    assert.equal(new URL(url).searchParams.get('login_hint'), 'alice@example.test');
+    assert.equal((await store.bySubject('same')).refreshToken, 'old-refresh');
+    const { harness } = host;
+    const state = new URL(url).searchParams.get('state');
+    assert.equal((await harness.behavior.fetchHttp('GET', `/callback?state=${state}&code=once`)).status, 200);
+    const saved = createBbStore(host.bb.storage.database(), () => {});
+    assert.equal((await saved.bySubject('same')).refreshToken, 'new-refresh');
+    assert.equal((await saved.accounts()).length, 1);
+  } finally { if (host) await host.harness.lifecycle.dispose(); globalThis.fetch = original; }
 });
 
 test('agent reads use explicit account, return source identity, and reject unknown accounts', async () => {

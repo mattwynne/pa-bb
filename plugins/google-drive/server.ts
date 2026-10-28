@@ -17,6 +17,7 @@ const schemas = {
     pageSize: z.number().int().min(1).max(100).optional(), pageToken: required.optional() }),
   gdrive_list_folder: z.object({ account, folderId: required.describe('Folder ID or root'), pageSize: z.number().int().min(1).max(100).optional(), pageToken: required.optional() }),
   gdrive_get_file: z.object({ account, fileId: required }),
+  gdrive_copy_file: z.object({ account, sourceId: required, folderId: required, title: required.max(255).optional() }),
   gdocs_read: z.object({ account, document: required.describe('Google Doc URL or document ID; other file types are not supported.') }),
 };
 const descriptions = {
@@ -24,6 +25,7 @@ const descriptions = {
   gdrive_search_files: 'Search Google Drive files and folders by name or indexed text across connected accounts. Results are paged per account; check incompleteSearch and nextPageToken.',
   gdrive_list_folder: 'List a folder in one Google Drive account. Use folderId root for My Drive.',
   gdrive_get_file: 'Get Google Drive file metadata and a source link in one explicit account.',
+  gdrive_copy_file: 'Copy a file into an explicitly selected folder and account, preserving the original. Only for user-requested copies. Destination permissions may be inherited: inspect its sharing first. Never blindly retry uncertain results; inspect the destination or returned ID. Requires an existing write grant; read-only connections cannot copy.',
   gdocs_read: 'Read the plain text of every tab in a Google Doc, by URL or ID, in one explicit account. May truncate long documents.',
 };
 function safeError(error: unknown): string {
@@ -35,10 +37,12 @@ function safeError(error: unknown): string {
     'This file is not a Google Doc; reading other formats is not supported yet',
     'account is required', 'folderId is required', 'fileId is required', 'document is required',
   ];
+  if ((error as { code?: string })?.code === 'copy_scope_required') return 'Copy requires write access. Reconnect the Drive account in BB settings and approve full Drive access; existing read-only grants cannot copy.';
+  if (['Use explicit Drive file and folder IDs', 'Copy title is too long', 'Source is not a copyable file', 'Destination is not a writable folder', 'sourceId is required', 'title is required'].includes(message)) return message;
   if (localErrors.includes(message)) return message;
   if (['reauthentication_required', 'invalid_grant'].includes((error as { code?: string })?.code || '') || (error as { status?: number })?.status === 401)
     return 'Google authorization expired. Reconnect the Drive account in BB settings.';
-  return 'Google Drive read failed. Check the connected account and try again.';
+  return 'Google Drive request rejected or unavailable. Check the connected account. Do not blindly retry a copy.';
 }
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 function oauthCategory(error: unknown) {
@@ -47,6 +51,8 @@ function oauthCategory(error: unknown) {
   if (message.startsWith('Google authorization has expired')) return 'state_invalid_or_expired';
   if (message.startsWith('Google did not provide a refresh token')) return 'missing_refresh_token';
   if (message.startsWith('Google did not grant')) return 'missing_required_scopes';
+  if (message.startsWith('Reconnect requires')) return 'reconnect_identity_mismatch';
+  if (message.startsWith('Reconnect account')) return 'reconnect_account_changed';
   if (message.startsWith('Google account is already connected')) return 'duplicate_account';
   if ((error as { code?: string })?.code === 'invalid_grant') return 'token_exchange_rejected';
   if (message.startsWith('Google authorization is temporarily unavailable')) return 'token_endpoint_unreachable';
@@ -82,6 +88,11 @@ export default async function plugin(bb: BbPluginApi) {
       const { clientId, clientSecret } = await getClient();
       if (!clientId || !clientSecret) throw new Error('Configure the Google Web OAuth client in plugin settings');
       return service().beginConnect({ clientId, redirectUri: callbackUrl() });
+    },
+    async beginReconnect({ subject }) {
+      const { clientId, clientSecret } = await getClient();
+      if (!clientId || !clientSecret) throw new Error('Configure the Google Web OAuth client in plugin settings');
+      return service().beginConnect({ clientId, redirectUri: callbackUrl(), subject });
     },
     async removeAccount({ subject }) { return { removed: await service().removeAccount(subject) }; },
     async importCalendarOAuthClient() {

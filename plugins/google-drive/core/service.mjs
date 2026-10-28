@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 
-export const SCOPES = Object.freeze(['openid', 'email', 'https://www.googleapis.com/auth/drive.readonly']);
+export const SCOPES = Object.freeze(['openid', 'email', 'https://www.googleapis.com/auth/drive']);
 const STATE_MS = 5 * 60 * 1000;
 const FOLDER = 'application/vnd.google-apps.folder';
 const DOCUMENT = 'application/vnd.google-apps.document';
@@ -47,14 +47,18 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
     if (!record) throw new Error('Unknown Google Drive account. Check connected accounts in BB settings.');
     return record;
   }
-  async function beginConnect({ clientId, redirectUri }) {
+  /** @param {{ clientId: string, redirectUri: string, subject?: string }} args */
+  async function beginConnect({ clientId, redirectUri, subject }) {
+    const existing = subject === undefined ? null : await store.bySubject(required(subject, 'subject'));
+    if (subject !== undefined && !existing) throw new Error('Reconnect account is no longer connected');
     required(clientId, 'OAuth client ID');
     if (!redirectUri?.startsWith('https://')) throw new Error('OAuth redirect URI must use HTTPS');
     const state = randomBytes(32).toString('base64url');
     const verifier = randomBytes(32).toString('base64url');
     const challenge = createHash('sha256').update(verifier).digest('base64url');
-    await store.savePending({ stateHash: createHash('sha256').update(state).digest('hex'), verifier, redirectUri, clientId, expiresAt: clock() + STATE_MS });
-    return { url: oauth.authorizeUrl({ clientId, redirectUri, state, challenge, scopes: SCOPES }) };
+    await store.savePending({ stateHash: createHash('sha256').update(state).digest('hex'), verifier, redirectUri, clientId, expiresAt: clock() + STATE_MS,
+      reconnect: existing ? { subject: existing.subject, refreshHash: createHash('sha256').update(existing.refreshToken).digest('hex') } : null });
+    return { url: oauth.authorizeUrl({ clientId, redirectUri, state, challenge, scopes: SCOPES, loginHint: existing?.email }) };
   }
   async function finishConnect({ state, code: authorizationCode, error, clientId, clientSecret, redirectUri }) {
     if (!state || !authorizationCode || error) throw new Error('Google authorization was cancelled or incomplete');
@@ -64,11 +68,17 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
     if (!tokens?.refresh_token) throw new Error('Google did not provide a refresh token; reconnect with consent');
     const granted = new Set((tokens.scope || '').split(/\s+/));
     const missing = SCOPES.filter(scope => scope !== 'email' && !granted.has(scope));
-    if (missing.length) throw new Error('Google did not grant the required read-only Drive access');
+    if (missing.length) throw new Error('Google did not grant the required full Drive access');
     const identity = await oauth.identity(tokens.access_token);
     if (!identity?.sub || identity.email_verified !== true || !identity.email) throw new Error('Google did not verify the account identity');
-    await store.addAccount({ subject: identity.sub, email: identity.email, refreshToken: tokens.refresh_token,
-      accessToken: tokens.access_token, expiresAt: clock() + (Number(tokens.expires_in) || 3600) * 1000 });
+    const next = { subject: identity.sub, email: identity.email, refreshToken: tokens.refresh_token,
+      accessToken: tokens.access_token, expiresAt: clock() + (Number(tokens.expires_in) || 3600) * 1000 };
+    if (pending.reconnect) {
+      if (identity.sub !== pending.reconnect.subject) throw new Error('Reconnect requires the same Google account');
+      const previous = await store.bySubject(pending.reconnect.subject);
+      if (!previous || createHash('sha256').update(previous.refreshToken).digest('hex') !== pending.reconnect.refreshHash
+        || !await store.replaceAccount(next, previous.refreshToken)) throw new Error('Reconnect account changed; start again');
+    } else await store.addAccount(next);
     return { subject: identity.sub, email: identity.email };
   }
   async function authStatus() {
@@ -121,6 +131,35 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
     const record = await account(args.account);
     return { account: record.email, file: fileInfo(await drive.getFile(record, required(args.fileId, 'fileId'))) };
   }
+  async function copyFile(args) {
+    const record = await account(args.account);
+    const sourceId = required(args.sourceId, 'sourceId');
+    const folderId = required(args.folderId, 'folderId');
+    if (![sourceId, folderId].every(id => /^[a-zA-Z0-9_-]+$/.test(id))) throw new Error('Use explicit Drive file and folder IDs');
+    const title = args.title === undefined ? undefined : required(args.title, 'title');
+    if (title && title.length > 255) throw new Error('Copy title is too long');
+    const source = await drive.getFile(record, sourceId);
+    const destination = await drive.getFile(record, folderId);
+    if (source.trashed || source.mimeType === FOLDER || source.mimeType === 'application/vnd.google-apps.shortcut' || source.capabilities?.canCopy !== true)
+      throw new Error('Source is not a copyable file');
+    if (destination.trashed || destination.mimeType !== FOLDER || destination.capabilities?.canAddChildren !== true)
+      throw new Error('Destination is not a writable folder');
+    const result = await drive.copyFile(record, sourceId, folderId, title ?? source.name);
+    if (!result.id) {
+      diagnose('copy_outcome_uncertain', null);
+      return { account: record.email, outcome: 'uncertain', retrySafe: false,
+        guidance: 'Do not repeat the copy. Inspect the destination folder first; a copy may exist.' };
+    }
+    try {
+      const file = await drive.getFile(record, result.id);
+      if (file.id !== result.id || !file.parents?.includes(destination.id || folderId) || file.trashed) throw new Error('Copy verification failed');
+      return { account: record.email, outcome: 'verified', file: fileInfo(file) };
+    } catch (error) {
+      diagnose('copy_verification', error);
+      return { account: record.email, outcome: 'verification_unavailable', file: fileInfo({ id: result.id }), retrySafe: false,
+        guidance: 'Copy returned an ID but verification failed. Inspect this file; do not copy again.' };
+    }
+  }
   async function readDoc(args) {
     const record = await account(args.account);
     const input = required(args.document, 'document');
@@ -140,7 +179,7 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
       text: text.slice(0, MAX_TEXT), truncated: text.length > MAX_TEXT };
   }
   const tools = { gdrive_auth_status: authStatus, gdrive_search_files: searchFiles, gdrive_list_folder: listFolder,
-    gdrive_get_file: getFile, gdocs_read: readDoc };
+    gdrive_get_file: getFile, gdrive_copy_file: copyFile, gdocs_read: readDoc };
   async function execute(name, args = {}) {
     if (!Object.hasOwn(tools, name)) throw new Error('Unknown Google Drive tool');
     return tools[name](args);

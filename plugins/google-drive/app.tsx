@@ -36,6 +36,11 @@ function DriveSettings() {
     try { const { url } = await rpc.call('beginConnect', null); window.location.assign(url); }
     catch { setError('Could not start Google authorization. Check the OAuth client settings.'); setBusy(false); }
   }
+  async function reconnect(subject: string) {
+    setBusy(true); setError(''); setNotice('');
+    try { const { url } = await rpc.call('beginReconnect', { subject }); window.location.assign(url); }
+    catch { setError('Could not start reconnection. Your saved connection has not been replaced. Refresh status and try again.'); setBusy(false); }
+  }
   async function remove(subject: string, email: string) {
     if (!window.confirm(`Remove ${email} from Google Drive in BB? This does not revoke access at Google.`)) return;
     setBusy(true); setError('');
@@ -73,9 +78,10 @@ function DriveSettings() {
       </ConnectionSetup>}
       {state.accounts.length ? <ConnectionAccounts>{state.accounts.map(account => <ConnectionAccount key={account.subject}
         initial={account.email[0]?.toUpperCase() ?? 'G'} label={account.email} status={account.status}
-        caption={account.status === 'Re-authentication required' ? 'Remove and reconnect this account.' : account.status === 'Connection unavailable' ? 'Refresh status and try again later.' : undefined}
-        warning={account.status !== 'Connected'} action={<ConnectionButton disabled={busy}
-          aria-label={`Remove ${account.email}`} onClick={() => void remove(account.subject, account.email)}>Remove</ConnectionButton>} />)}</ConnectionAccounts>
+        caption={account.status === 'Connection unavailable' ? 'Refresh status and try again later.' : 'Reconnect to approve Drive access at Google. Choose this same account; cancellation keeps the saved connection.'}
+        warning={account.status !== 'Connected'} action={<>
+          <ConnectionButton disabled={busy || !state.configured} aria-label={`Reconnect ${account.email}`} onClick={() => void reconnect(account.subject)}>Reconnect</ConnectionButton>
+          <ConnectionButton disabled={busy} aria-label={`Remove ${account.email}`} onClick={() => void remove(account.subject, account.email)}>Remove</ConnectionButton></>} />)}</ConnectionAccounts>
       : state.configured && <ConnectionSetup title="Connect your first account">
         <p>Confirm that this Drive redirect URI is registered on your Google Web OAuth client:</p>
         <div className="pa-drive__redirect"><code>{state.redirectUri}</code>

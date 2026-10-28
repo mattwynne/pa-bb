@@ -24,13 +24,14 @@ function fixture() {
   return { store, calls, diagnostics, oauth, drive, service: createDriveService({ store, oauth, drive, diagnose: (stage, error) => diagnostics.push({ stage, error }) }) };
 }
 
-test('OAuth uses verified identity, least-privilege scope, one-use state and isolated account records', async () => {
+test('OAuth requests approved full Drive access, verified identity, one-use state and isolated accounts', async () => {
   const { service, store, calls } = fixture();
   const { url } = await service.beginConnect({ clientId: 'web-id', redirectUri: 'https://bb.example/api/v1/plugins/google-drive/http/callback' });
   const state = new URL(url).searchParams.get('state');
   assert.deepEqual(calls[0][1].scopes, SCOPES);
   assert.equal(calls[0][1].challenge.length > 30, true);
-  assert.ok(!SCOPES.some(s => s.includes('calendar') || s.endsWith('/auth/drive')));
+  assert.deepEqual(SCOPES, ['openid', 'email', 'https://www.googleapis.com/auth/drive']);
+  assert.ok(!SCOPES.some(s => s.includes('calendar')));
   const account = await service.finishConnect({ state, code: 'one-time', clientId: 'web-id', clientSecret: 'private', redirectUri: 'https://bb.example/api/v1/plugins/google-drive/http/callback' });
   assert.deepEqual(account, { subject: 'sub-a', email: 'alice@example.test' });
   assert.equal((await store.accounts())[0].refreshToken, 'private-refresh');
@@ -38,12 +39,12 @@ test('OAuth uses verified identity, least-privilege scope, one-use state and iso
   assert.equal(calls.filter(c => c[0] === 'exchange').length, 1);
 });
 
-test('a missing read scope fails closed, consumes state, and stores no account', async () => {
+test('a read-only grant fails full Drive consent closed, consumes state, and stores no account', async () => {
   const { store, oauth, service } = fixture();
-  oauth.exchange = async () => ({ access_token: 'private-access', refresh_token: 'private-refresh', scope: 'openid email' });
+  oauth.exchange = async () => ({ access_token: 'private-access', refresh_token: 'private-refresh', scope: 'openid email https://www.googleapis.com/auth/drive.readonly' });
   const { url } = await service.beginConnect({ clientId: 'web-id', redirectUri: 'https://bb.example/callback' });
   const props = { state: new URL(url).searchParams.get('state'), code: 'private-code', clientId: 'web-id', clientSecret: 'private', redirectUri: 'https://bb.example/callback' };
-  await assert.rejects(() => service.finishConnect(props), /required read-only Drive access/);
+  await assert.rejects(() => service.finishConnect(props), /required full Drive access/);
   await assert.rejects(() => service.finishConnect(props), /expired or is invalid/);
   assert.deepEqual(await store.accounts(), []);
 });

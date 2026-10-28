@@ -79,9 +79,9 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
   return {
     docs: createDocsAdapter({ verifiedAccess, fetchImpl }),
     oauth: {
-      authorizeUrl({ clientId, redirectUri, state, challenge, scopes }) {
+      authorizeUrl({ clientId, redirectUri, state, challenge, scopes, loginHint }) {
         return params(new URL(AUTH), { client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: scopes.join(' '),
-          access_type: 'offline', prompt: 'consent', include_granted_scopes: 'false', state,
+          access_type: 'offline', prompt: 'consent', include_granted_scopes: 'false', state, login_hint: loginHint,
           code_challenge: challenge, code_challenge_method: 'S256' }).toString();
       },
       exchange({ code, verifier, clientId, clientSecret, redirectUri }) {
@@ -98,7 +98,34 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
       },
       getFile(record, id) {
         return get(record, params(new URL(`${DRIVE}/files/${encodeURIComponent(id)}`), {
-          fields: 'id,name,mimeType,description,modifiedTime,parents,webViewLink,trashed', supportsAllDrives: true }));
+          fields: 'id,name,mimeType,description,modifiedTime,parents,webViewLink,trashed,capabilities(canCopy,canAddChildren)', supportsAllDrives: true }));
+      },
+      async copyFile(record, sourceId, folderId, name) {
+        const accessToken = await verifiedAccess(record);
+        const grant = await fetchImpl('https://oauth2.googleapis.com/tokeninfo', {
+          method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ access_token: accessToken }),
+        });
+        if (!grant.ok) throw failure(grant, 'Google scope inspection');
+        const scopes = new Set(String((await grant.json()).scope || '').split(/\s+/));
+        if (!scopes.has('https://www.googleapis.com/auth/drive.file') && !scopes.has('https://www.googleapis.com/auth/drive'))
+          throw Object.assign(new Error('Copy requires a separately authorized write grant; current read-only access cannot copy.'), { code: 'copy_scope_required' });
+        // Exactly one POST. Neither transport failures nor 401/5xx are retried.
+        let response;
+        try {
+          response = await fetchImpl(params(new URL(`${DRIVE}/files/${encodeURIComponent(sourceId)}/copy`), {
+            supportsAllDrives: true, fields: 'id',
+          }), { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ parents: [folderId], ...(name === undefined ? {} : { name }) }) });
+        } catch { return { outcome: 'uncertain', retrySafe: false }; }
+        if (!response.ok) {
+          if (response.status >= 500 || response.status === 408) return { outcome: 'uncertain', retrySafe: false };
+          throw failure(response, 'Google copy');
+        }
+        let id;
+        try { id = (await response.json()).id; } catch { /* Unknown write result. */ }
+        if (!id) return { outcome: 'uncertain', retrySafe: false };
+        return { id };
       },
       readDoc(record, id) {
         return get(record, params(new URL(`${DOCS}/documents/${encodeURIComponent(id)}`), { includeTabsContent: true }));

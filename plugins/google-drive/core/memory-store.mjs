@@ -10,6 +10,12 @@ export function createMemoryStore() {
       if (records.has(record.subject) || [...records.values()].some(x => x.email.toLowerCase() === record.email.toLowerCase())) throw new Error('Google account is already connected');
       records.set(record.subject, { ...record });
     },
+    async replaceAccount(record, previousRefreshToken) {
+      const current = records.get(record.subject);
+      if (!current || current.refreshToken !== previousRefreshToken) return false;
+      if ([...records.values()].some(x => x.subject !== record.subject && x.email.toLowerCase() === record.email.toLowerCase())) throw new Error('Google account is already connected');
+      records.set(record.subject, { ...record }); return true;
+    },
     async removeAccount(subject) { return records.delete(subject); },
     async updateEmail(subject, email) {
       const previous = records.get(subject);
