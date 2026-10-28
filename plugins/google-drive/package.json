@@ -13,7 +13,7 @@
   },
   "dependencies": { "zod": "4.6.5" },
   "devDependencies": {
-    "@get-bb/plugin-sdk": "0.6.15",
+    "@get-bb/plugin-sdk": "0.6.80",
     "@cucumber/cucumber": "13.2.1",
     "@types/react": "19.2.7",
     "bb-app": "0.45.0",

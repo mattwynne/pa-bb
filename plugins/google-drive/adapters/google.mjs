@@ -1,3 +1,5 @@
+import { createDocsAdapter } from './docs.mjs';
+
 const AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN = 'https://oauth2.googleapis.com/token';
 const USERINFO = 'https://openidconnect.googleapis.com/v1/userinfo';
@@ -75,6 +77,7 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
     return response.json();
   }
   return {
+    docs: createDocsAdapter({ verifiedAccess, fetchImpl }),
     oauth: {
       authorizeUrl({ clientId, redirectUri, state, challenge, scopes }) {
         return params(new URL(AUTH), { client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: scopes.join(' '),
@@ -95,7 +98,7 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
       },
       getFile(record, id) {
         return get(record, params(new URL(`${DRIVE}/files/${encodeURIComponent(id)}`), {
-          fields: 'id,name,mimeType,description,modifiedTime,parents,webViewLink', supportsAllDrives: true }));
+          fields: 'id,name,mimeType,description,modifiedTime,parents,webViewLink,trashed', supportsAllDrives: true }));
       },
       readDoc(record, id) {
         return get(record, params(new URL(`${DOCS}/documents/${encodeURIComponent(id)}`), { includeTabsContent: true }));

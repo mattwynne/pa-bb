@@ -5,3 +5,11 @@
 .pa-drive__redirect code { flex: 1 1 auto; min-width: 0; color: var(--foreground); font-size: 0.73rem; overflow-wrap: anywhere; user-select: all; }
 .pa-drive__import { margin-top: 0.4rem; }
 .pa-drive__notice { padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--muted); }
+.pa-drive__docs-review { min-width: 0; padding: 0.75rem; overflow-wrap: anywhere; }
+.pa-drive__docs-review pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow: auto; padding: 0.65rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--muted); }
+.pa-drive__docs-review h4 { margin: 0.75rem 0 0.3rem; font-weight: 600; }
+.pa-drive__docs-review dt { color: var(--muted-foreground); }
+.pa-drive__docs-review dd { margin: 0 0 0.4rem; }
+.pa-drive__docs-review a { text-decoration: underline; }
+.pa-drive__docs-review :is(a, summary):focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.pa-drive__docs-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }

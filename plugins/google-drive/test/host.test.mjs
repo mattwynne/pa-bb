@@ -6,15 +6,16 @@ import { SCOPES } from '../core/service.mjs';
 import { createBbStore } from '../adapters/bb-store.mjs';
 
 async function setup(settings = { clientId: 'web-id', clientSecret: 'private-client-secret' }) {
-  const host = createFakePluginHost({ pluginId: 'google-drive', appUrl: 'https://bb.example', settings });
+  const host = createFakePluginHost({ pluginId: 'google-drive', agentSkillIds: ['google-docs-editing'], appUrl: 'https://bb.example', settings });
   await plugin(host.bb);
   return host;
 }
-test('registers five read-only tools, an independent callback, and no connected accounts on first run', async () => {
+test('registers read and scope-gated tools, an independent callback, and no connected accounts', async () => {
   const { harness } = await setup();
   try {
     const selected = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
-    assert.deepEqual(selected.tools.map(t => t.name).sort(), ['gdocs_read','gdrive_auth_status','gdrive_get_file','gdrive_list_folder','gdrive_search_files']);
+    assert.deepEqual(selected.tools.map(t => t.name).sort(), ['gdocs_inspect_for_edit','gdocs_read','gdocs_replace_text','gdrive_auth_status','gdrive_get_file','gdrive_list_folder','gdrive_search_files']);
+    assert.deepEqual(selected.skills, ['google-docs-editing']);
     const status = await harness.behavior.callRpc('status', null);
     assert.equal(status.redirectUri, 'https://bb.example/api/v1/plugins/google-drive/http/callback');
     assert.deepEqual(status.accounts, []);

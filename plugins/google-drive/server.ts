@@ -5,6 +5,8 @@ import { createBbStore } from './adapters/bb-store.mjs';
 import { createGoogleAdapter } from './adapters/google.mjs';
 import { createDriveService } from './core/service.mjs';
 import { failureCategory } from './diagnostic.mjs';
+import { registerDocsTools, DOCS_TOOL_NAMES } from './docs-tools.js';
+import { registerDocsReview } from './docs-review.js';
 
 const required = z.string().min(1);
 const account = required.describe('Email of the connected Google Drive account.');
@@ -126,5 +128,7 @@ export default async function plugin(bb: BbPluginApi) {
       },
     });
   }
-  bb.agents.configure(() => ({ tools: Object.keys(schemas), skills: [] }));
+  registerDocsTools(bb, store, adapter);
+  registerDocsReview(bb);
+  bb.agents.configure(() => ({ tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES], skills: ['google-docs-editing'] }));
 }

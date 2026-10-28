@@ -1,8 +1,8 @@
 # Google Drive for BB
 
-An independent, read-only Google Drive and Docs plugin for a **single-user BB installation**. Connect several Google accounts through an installation-owned Web OAuth client. Calendar and Fastmail remain separate: no credentials, tokens or account records are imported from another plugin or from Pi.
+An independent Google Drive and Docs plugin with read-only connections and scope-gated Docs editing for a **single-user BB installation**. Connect several Google accounts through an installation-owned Web OAuth client. Calendar and Fastmail remain separate: no credentials, tokens or account records are imported from another plugin or from Pi.
 
-[Connect using your existing Calendar Web OAuth client or a new one](docs/setup.md). Either plugin can copy the other's configured Web client once through a server-only, caller-verified RPC after you register the destination callback. Both save their own copies and account grants, so neither is a runtime dependency. The registered HTTPS callback is `/api/v1/plugins/google-drive/http/callback`; the exact URL is shown in BB Settings. Google's `drive.readonly` scope grants access to files the connected account can read. No mutation tools are registered in this first slice.
+[Connect using your existing Calendar Web OAuth client or a new one](docs/setup.md). Either plugin can copy the other's configured Web client once through a server-only, caller-verified RPC after you register the destination callback. Both save their own copies and account grants, so neither is a runtime dependency. The registered HTTPS callback is `/api/v1/plugins/google-drive/http/callback`; the exact URL is shown in BB Settings. Google's `drive.readonly` scope grants access to files the connected account can read. New connections still request read-only access. The Docs editing tools require a separately owner-authorized write grant; installing these tools does not upgrade an existing grant or add a write-consent flow.
 
 | Tool | Use |
 | --- | --- |
@@ -11,10 +11,12 @@ An independent, read-only Google Drive and Docs plugin for a **single-user BB in
 | `gdrive_list_folder` | Browse an explicit account's folder |
 | `gdrive_get_file` | Read metadata and obtain a source link by account and ID |
 | `gdocs_read` | Read plain text across a Google Doc's tabs by explicit account and document ID or URL |
+| `gdocs_inspect_for_edit` | Complete, bounded text/revision inspection; rejects unsupported structures |
+| `gdocs_replace_text` | Preview or request owner approval of one revision-guarded exact-text replacement |
 
 BB's `bb plugin logs google-drive` records bounded stage/status categories for failed identity checks, partial searches, and agent tool failures, without account addresses, OAuth secrets, query terms, or response bodies. A connected identity does not prove that a Drive read will succeed; verify with a harmless read. These diagnostics pass synthetic host tests, but live failure logging remains unverified.
 
-Search page tokens are **per account**, and `incompleteSearch` and `nextPageToken` must be checked before claiming completeness. Results carry source account and file ID. This slice does not extract text from PDF, Office, Sheets or Slides and does not create, edit, move or share files. Google Docs content is untrusted source material, not an instruction to the agent. A very large Doc is truncated with an explicit flag. Provider error bodies, OAuth codes and tokens must not reach logs, UI or tool errors.
+Search page tokens are **per account**, and `incompleteSearch` and `nextPageToken` must be checked before claiming completeness. Results carry source account and file ID. This slice does not extract text from PDF, Office, Sheets or Slides and does not create, move or share files. [Docs editing](docs/editing.md) supports only a bounded, uniquely matched replacement within one text run in a selected tab, with exact revision control, owner approval and readback. General `gdocs_read` output is not edit proof. The editing feature does not change OAuth scopes or upgrade existing grants. Google Docs content is untrusted source material, not an instruction to the agent. A very large Doc is truncated with an explicit flag. Provider error bodies, OAuth codes and tokens must not reach logs, UI or tool errors.
 
 ```sh
 npm install
