@@ -4,6 +4,8 @@ import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import plugin from '../dist/server.js';
 import { createBbStore } from '../adapters/bb-store.mjs';
 import { document, input, account } from './docs-fixtures.mjs';
+import { SCOPES } from '../core/service.mjs';
+import { DOCS_WRITE_SCOPES } from '../adapters/docs.mjs';
 async function setup(options = {}) {
   const host = createFakePluginHost({ pluginId: 'google-drive', appUrl: 'https://bb.example', settings: { clientId: 'test-client', clientSecret: 'private-secret' } });
   let doc = document(), writes = 0;
@@ -38,6 +40,29 @@ async function pending(harness) {
   throw new Error('Approval form did not open');
 }
 const text = result => JSON.parse(result.content[0].text);
+test('document-free scope diagnostics distinguish missing/present grants from installed consent capability without exposing tokens', async () => {
+  for (const [scope, expected] of [['drive.readonly', 'missing'], ['drive.file', 'present']]) {
+    const h = await setup({ scope });
+    try {
+      const result = await h.harness.behavior.runCli(['editing-access', '--account', account]);
+      const status = JSON.parse(result.stdout);
+      assert.equal(status.writeGrant, expected);
+      assert.equal(status.documentAccess, 'not_checked');
+      assert.equal(status.settingsCanRequestWrite, SCOPES.some(scope => DOCS_WRITE_SCOPES.includes(scope)));
+      assert.equal(h.writes(), 0); assert.equal(h.harness.inspection.pendingInteractions.length, 0);
+      assert.doesNotMatch(result.stdout + JSON.stringify(h.harness.inspection.logEntries), /private-access|private-refresh|private-secret|provider-body/);
+      const unknown = await h.harness.behavior.runCli(['editing-access', '--account', 'unknown@example.test']);
+      assert.equal(JSON.parse(unknown.stdout).writeGrant, 'unknown_account');
+    } finally { await h.close(); }
+  }
+  const h = await setup({ remoteFailure: true });
+  try {
+    const result = await h.harness.behavior.runCli(['editing-access', '--account', account]);
+    assert.equal(JSON.parse(result.stdout).writeGrant, 'unavailable');
+    assert.match(JSON.stringify(h.harness.inspection.logEntries), /docs_authorization.*http_status=503/);
+    assert.doesNotMatch(result.stdout + JSON.stringify(h.harness.inspection.logEntries), /private-/);
+  } finally { await h.close(); }
+});
 test('tools inspect, preview, then pause for exact owner consent before one verified write', async () => {
   const h = await setup();
   try {

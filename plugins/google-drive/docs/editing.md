@@ -113,6 +113,17 @@ A connected account or successful preview proves neither write scope nor file
 edit authorization. Scope and identity are checked before approval and again
 immediately before the mutation.
 
+Run `bb google-drive editing-access --account ACCOUNT_EMAIL` for a document-free
+check of `writeGrant` (`present`, `missing`, `unknown_account` or `unavailable`)
+and `settingsCanRequestWrite`. It uses the plugin's verified authorization port;
+no token values are returned, no document is read or changed, and document edit
+permission remains `not_checked`. `unavailable` is not proof of a missing grant.
+When the grant is missing and `settingsCanRequestWrite` is false, reconnecting
+cannot fix it: a separately approved write-consent implementation must first be
+delivered. When Settings can request write access, the owner removes/reconnects
+the account in Google Drive Settings and explicitly approves the offered grant
+at Google. Removing the local connection does not revoke Google's grant.
+
 Any additional grant must be explicitly approved by the account owner through
 supported BB Settings and Google's consent screen. Reconnecting to a read-only
 flow cannot grant write access. Do not manually handle tokens, share credentials

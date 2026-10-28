@@ -4,6 +4,8 @@ import { createDocsEditService, docsErrorMessage, docsFailureCategory, EDIT_LIMI
 import { createGoogleAdapter } from './adapters/google.mjs';
 import { createBbStore } from './adapters/bb-store.mjs';
 import { failureCategory } from './diagnostic.mjs';
+import { SCOPES } from './core/service.mjs';
+import { DOCS_WRITE_SCOPES } from './adapters/docs.mjs';
 
 const target = { account: z.string().min(1).max(320).describe('Explicit connected account email.'),
   document: z.string().min(1).max(1024).describe('Google Docs URL or document ID.') };
@@ -16,6 +18,27 @@ const schemas = {
 };
 type Proposal = { account: string; documentId: string; title: string; tabId: string; tabTitle: string; expectedRevisionId: string; oldText: string; newText: string };
 export const DOCS_TOOL_NAMES = Object.keys(schemas);
+export function docsAuthorizationInspector(bb: BbPluginApi, store: ReturnType<typeof createBbStore>, adapter: ReturnType<typeof createGoogleAdapter>) {
+  return async (account: string) => {
+    const settingsCanRequestWrite = SCOPES.some(scope => DOCS_WRITE_SCOPES.includes(scope));
+    try {
+      const record = await store.byEmail(account);
+      if (!record) return { account, writeGrant: 'unknown_account', documentAccess: 'not_checked', settingsCanRequestWrite };
+      try { await adapter.docs.prepareWrite(record); }
+      catch (error) {
+        if ((error as { docsCode?: string })?.docsCode !== 'scope_required') throw error;
+        return { account: record.email, writeGrant: 'missing', documentAccess: 'not_checked', settingsCanRequestWrite,
+          guidance: settingsCanRequestWrite ? 'The owner must reconnect this account in Google Drive Settings and explicitly approve the offered write access.'
+            : 'This installed Settings flow requests only read access. Reconnecting cannot enable editing. A separately approved write-consent flow must first be delivered; do not change tokens or scopes manually.' };
+      }
+      return { account: record.email, writeGrant: 'present', documentAccess: 'not_checked', settingsCanRequestWrite,
+        guidance: 'Write scope is present, but document edit permission and supported structure still require fresh inspection. No reauthorization is indicated by this scope check.' };
+    } catch (error) {
+      bb.log.warn(`Google Drive docs_authorization ${docsFailureCategory(error)} ${failureCategory(error)}`);
+      return { account, writeGrant: 'unavailable', documentAccess: 'not_checked', settingsCanRequestWrite, guidance: docsErrorMessage(error) };
+    }
+  };
+}
 export function registerDocsTools(bb: BbPluginApi, store: ReturnType<typeof createBbStore>, adapter: ReturnType<typeof createGoogleAdapter>) {
   for (const [name, parameters] of Object.entries(schemas)) {
     bb.agents.registerTool({ name, parameters,

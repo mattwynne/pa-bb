@@ -1,10 +1,18 @@
 import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb/plugin-sdk';
 
-// Deliberately disconnected from the Docs service/adapter: even an approval
-// cannot write, request a token, or access a real document. This lets owners
-// review the actual host renderer safely without creating a scratch Doc.
-export function registerDocsReview(bb: BbPluginApi) {
+// The review-edit-example handler is disconnected from the Docs adapter: even
+// an approval cannot write, request a token, or access a real document. The
+// separate editing-access handler only calls the injected scope inspector.
+export function registerDocsReview(bb: BbPluginApi, inspectAuthorization: (account: string) => Promise<unknown>) {
   bb.cli.register(defineCli({ name: 'google-drive', summary: 'Google Drive diagnostics and safe Docs review example', commands: {
+    'editing-access': cliCommand({
+      summary: 'Check one connected account’s Docs write scope and installed Settings consent capability; no document is accessed or changed.',
+      options: { account: { type: 'string', required: true, description: 'Exact connected account email (at most 320 characters).' } },
+      async run(input) {
+        if (!input.options.account?.trim() || input.options.account.length > 320) throw new PluginCliError('Use one bounded connected account email.', { code: 'invalid_account' });
+        return { exitCode: 0, stdout: JSON.stringify(await inspectAuthorization(input.options.account)) };
+      },
+    }),
     'review-edit-example': cliCommand({
       summary: 'Open a synthetic Docs approval preview; every choice is a no-op and no Google API is called.',
       options: { thread: { type: 'string', description: 'Thread to show the example in; defaults to the invoking thread.' },

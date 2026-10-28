@@ -5,7 +5,7 @@ import { createBbStore } from './adapters/bb-store.mjs';
 import { createGoogleAdapter } from './adapters/google.mjs';
 import { createDriveService } from './core/service.mjs';
 import { failureCategory } from './diagnostic.mjs';
-import { registerDocsTools, DOCS_TOOL_NAMES } from './docs-tools.js';
+import { registerDocsTools, DOCS_TOOL_NAMES, docsAuthorizationInspector } from './docs-tools.js';
 import { registerDocsReview } from './docs-review.js';
 
 const required = z.string().min(1);
@@ -129,6 +129,6 @@ export default async function plugin(bb: BbPluginApi) {
     });
   }
   registerDocsTools(bb, store, adapter);
-  registerDocsReview(bb);
+  registerDocsReview(bb, docsAuthorizationInspector(bb, store, adapter));
   bb.agents.configure(() => ({ tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES], skills: ['google-docs-editing'] }));
 }

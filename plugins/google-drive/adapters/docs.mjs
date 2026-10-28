@@ -1,7 +1,7 @@
 import { docsError } from '../core/docs-edit.mjs';
 const BASE = 'https://docs.googleapis.com/v1/documents';
 const MAX_BYTES = 1_048_576;
-const WRITE_SCOPES = ['documents', 'drive.file', 'drive'].map(name => `https://www.googleapis.com/auth/${name}`);
+export const DOCS_WRITE_SCOPES = Object.freeze(['documents', 'drive.file', 'drive'].map(name => `https://www.googleapis.com/auth/${name}`));
 async function boundedJson(response) {
   if (Number(response.headers.get('content-length')) > MAX_BYTES || !response.body) throw docsError('unsupported_document');
   const reader = response.body.getReader();
@@ -35,7 +35,7 @@ export function createDocsAdapter({ verifiedAccess, fetchImpl = fetch }) {
     if (!response.ok) throw rejection(response.status);
     const grant = await boundedJson(response);
     const scopes = new Set(String(grant.scope || '').split(/\s+/));
-    if (!WRITE_SCOPES.some(scope => scopes.has(scope))) throw docsError('scope_required');
+    if (!DOCS_WRITE_SCOPES.some(scope => scopes.has(scope))) throw docsError('scope_required');
     return accessToken;
   }
   return {

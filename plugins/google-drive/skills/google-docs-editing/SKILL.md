@@ -24,6 +24,11 @@ Documents must be complete, bounded and contain only simple text paragraphs in
 all tabs. Tables, suggestions, headers/footers, objects and mixed-run matches are
 not supported. Google controls formatting inheritance; styling isn't verified.
 
+Check scope without reading any document or exposing tokens:
+`bb google-drive editing-access --account ACCOUNT_EMAIL`. It distinguishes a
+missing grant from unavailable verification and reports whether installed
+Settings can request write access. It does not establish document edit permission.
+
 Existing read-only grants cannot edit. Additional scopes need supported Settings
 reauthorization and explicit account-owner consent; reconnecting to a read-only
 flow is insufficient. Do not broaden access or handle credentials manually.
