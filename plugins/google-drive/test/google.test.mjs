@@ -29,6 +29,25 @@ test('Drive and Docs GETs use verified identity, encoded file IDs, paging, and t
   assert.ok(requests.every(([, opts]) => opts.headers.authorization === 'Bearer private-access'));
 });
 
+test('sharing uses read-only metadata and paged permissions GETs with shared-drive support', async () => {
+  const requests = [];
+  const { record, adapter } = await fixture(async (url, options) => {
+    if (String(url).endsWith('/userinfo')) return Response.json({ sub: 'sub-a', email: 'alice@example.test', email_verified: true });
+    requests.push([new URL(url), options]); return Response.json({ permissions: [] });
+  });
+  await adapter.drive.getSharingMetadata(record, 'folder');
+  await adapter.drive.listPermissions(record, 'folder', 'next');
+  assert.equal(requests[1][0].pathname, '/drive/v3/files/folder/permissions');
+  assert.equal(requests[1][0].searchParams.get('pageToken'), 'next');
+  assert.match(requests[1][0].searchParams.get('fields'), /inheritedFrom/);
+  assert.match(requests[0][0].searchParams.get('fields'), /owners/);
+  for (const [url, options] of requests) {
+    assert.equal(url.searchParams.get('supportsAllDrives'), 'true');
+    assert.equal(options.method, undefined);
+    assert.equal(options.body, undefined);
+  }
+});
+
 test('OAuth labels only an explicit invalid_grant as a revoked grant', async () => {
   for (const providerCode of ['invalid_grant', 'invalid_client']) {
     const { adapter } = await fixture(async () => Response.json({ error: providerCode, detail: 'private-token-and-code' }, { status: 400 }));

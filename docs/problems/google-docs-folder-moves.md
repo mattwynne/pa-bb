@@ -8,10 +8,10 @@ The assistant cannot move a Google Doc from one Google Drive folder to another. 
 
 ## Evidence
 
-The user reported this limitation. The Google Drive plugin currently exposes account discovery, search, folder browsing, file metadata, and Google Docs reading, but no file-move operation:
+The user reported this limitation. The Google Drive plugin now supports file copying, full Drive consent and safe same-account reconnection, but still has no file-move operation:
 
 - [`plugins/google-drive/server.ts`](../../plugins/google-drive/server.ts)
-- [Plugin README](../../plugins/google-drive/README.md), which describes the plugin as read-only.
+- [Plugin README](../../plugins/google-drive/README.md).
 
 This is a missing capability, not evidence of a failed move request or a Google Drive service limitation.
 
@@ -19,4 +19,4 @@ This is a missing capability, not evidence of a failed move request or a Google 
 
 The assistant can move a selected Google Doc between folders in an explicitly selected account, preserving the document's identity and content. Resolve ambiguous documents or destinations before changing anything, report permission restrictions clearly, and verify the resulting folder membership. Do not silently copy the document or alter unrelated sharing settings.
 
-No implementation or live Drive changes were made while recording this problem.
+Copying is not a resolution: it creates another file rather than preserving the original identity in a new folder. This move gap remains open. See [copy and destination sharing](google-drive-copy-and-sharing.md) for related progress.

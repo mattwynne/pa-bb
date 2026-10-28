@@ -10,6 +10,7 @@ An independent Google Drive and Docs plugin with explicitly consented full Drive
 | `gdrive_search_files` | Find files/folders by name or indexed text, across accounts with partial failures and paging |
 | `gdrive_list_folder` | Browse an explicit account's folder |
 | `gdrive_get_file` | Read metadata and obtain a source link by account and ID |
+| `gdrive_inspect_sharing` | Read visible owners and paginated sharing permissions; explicit incompleteness/inheritance limits |
 | `gdrive_copy_file` | Scope-gated copy into an explicit folder; requires write consent |
 | `gdocs_read` | Read plain text across a Google Doc's tabs by explicit account and document ID or URL |
 | `gdocs_inspect_for_edit` | Complete, bounded text/revision inspection; rejects unsupported structures |

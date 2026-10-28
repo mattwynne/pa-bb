@@ -19,9 +19,9 @@ The originating BB installation retains Pi thread `thr_fmk9kheeiw`. Read its eve
 
 Repository evidence agrees with the download limitation:
 
-- [`plugins/google-drive/server.ts`](../../plugins/google-drive/server.ts) registers account status, search, folder listing, metadata/link retrieval, and Google Docs plain-text reading only.
+- [`plugins/google-drive/server.ts`](../../plugins/google-drive/server.ts) now also registers copy, sharing inspection and revision-guarded Docs editing tools, but still has no file download/export operation.
 - [`plugins/google-drive/adapters/google.mjs`](../../plugins/google-drive/adapters/google.mjs) retrieves file metadata and Docs JSON, not file bytes or exported documents.
-- The [plugin README](../../plugins/google-drive/README.md) describes this limited read-only tool set.
+- The [plugin README](../../plugins/google-drive/README.md) describes the available tools; copy/edit authorization does not supply an attachment-byte workflow.
 
 This is a missing capability, not evidence of a failed download request or expired authorization. Read-only access and downloading are not inherently contradictory. `gdocs_read` is not a substitute for retrieving an original attachment.
 

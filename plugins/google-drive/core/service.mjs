@@ -131,6 +131,41 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
     const record = await account(args.account);
     return { account: record.email, file: fileInfo(await drive.getFile(record, required(args.fileId, 'fileId'))) };
   }
+  async function inspectSharing(args) {
+    const record = await account(args.account);
+    const id = required(args.fileId, 'fileId');
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Use explicit Drive file and folder IDs');
+    const metadata = await drive.getSharingMetadata(record, id);
+    const permissions = [];
+    const seen = new Set();
+    let pageToken;
+    let listingComplete = false;
+    let listingError = null;
+    for (let page = 0; page < 10; page++) {
+      try {
+        const result = await drive.listPermissions(record, id, pageToken);
+        if (!Array.isArray(result.permissions)) throw new Error('Incomplete permission response');
+        for (const p of result.permissions) permissions.push({ id: p.id, type: p.type, role: p.role,
+          emailAddress: p.emailAddress, domain: p.domain, displayName: p.displayName,
+          allowFileDiscovery: p.allowFileDiscovery, deleted: p.deleted, expirationTime: p.expirationTime,
+          pendingOwner: p.pendingOwner, permissionDetails: p.permissionDetails?.map(d => ({
+            permissionType: d.permissionType, role: d.role, inherited: d.inherited, inheritedFrom: d.inheritedFrom })) });
+        pageToken = result.nextPageToken;
+        if (!pageToken) { listingComplete = true; break; }
+        if (seen.has(pageToken)) break;
+        seen.add(pageToken);
+      } catch (error) {
+        diagnose('inspect_sharing_permissions', error);
+        listingError = code(error); break;
+      }
+    }
+    return { account: record.email, file: fileInfo(metadata), owners: metadata.owners || [],
+      sharedDriveId: metadata.driveId || null, shared: metadata.shared ?? null,
+      canShare: metadata.capabilities?.canShare ?? null, permissions, listingComplete, listingError,
+      anyoneAccess: permissions.filter(p => p.type === 'anyone' && p.deleted !== true).map(p => ({
+        role: p.role, discovery: p.allowFileDiscovery === true ? 'discoverable' : p.allowFileDiscovery === false ? 'link' : 'unknown' })),
+      visibility: 'Google-visible permissions only; not an exhaustive list of people with access. Group membership, domain audiences, ancestor policies and shared-drive membership may not be fully visible. Missing inheritance details mean unknown, not direct access. An empty list or shared=false does not establish privacy.' };
+  }
   async function copyFile(args) {
     const record = await account(args.account);
     const sourceId = required(args.sourceId, 'sourceId');
@@ -179,7 +214,7 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
       text: text.slice(0, MAX_TEXT), truncated: text.length > MAX_TEXT };
   }
   const tools = { gdrive_auth_status: authStatus, gdrive_search_files: searchFiles, gdrive_list_folder: listFolder,
-    gdrive_get_file: getFile, gdrive_copy_file: copyFile, gdocs_read: readDoc };
+    gdrive_get_file: getFile, gdrive_inspect_sharing: inspectSharing, gdrive_copy_file: copyFile, gdocs_read: readDoc };
   async function execute(name, args = {}) {
     if (!Object.hasOwn(tools, name)) throw new Error('Unknown Google Drive tool');
     return tools[name](args);

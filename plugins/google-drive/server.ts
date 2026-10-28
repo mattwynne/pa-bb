@@ -17,6 +17,7 @@ const schemas = {
     pageSize: z.number().int().min(1).max(100).optional(), pageToken: required.optional() }),
   gdrive_list_folder: z.object({ account, folderId: required.describe('Folder ID or root'), pageSize: z.number().int().min(1).max(100).optional(), pageToken: required.optional() }),
   gdrive_get_file: z.object({ account, fileId: required }),
+  gdrive_inspect_sharing: z.object({ account, fileId: required }),
   gdrive_copy_file: z.object({ account, sourceId: required, folderId: required, title: required.max(255).optional() }),
   gdocs_read: z.object({ account, document: required.describe('Google Doc URL or document ID; other file types are not supported.') }),
 };
@@ -25,6 +26,7 @@ const descriptions = {
   gdrive_search_files: 'Search Google Drive files and folders by name or indexed text across connected accounts. Results are paged per account; check incompleteSearch and nextPageToken.',
   gdrive_list_folder: 'List a folder in one Google Drive account. Use folderId root for My Drive.',
   gdrive_get_file: 'Get Google Drive file metadata and a source link in one explicit account.',
+  gdrive_inspect_sharing: 'Read Google-visible sharing for one explicit file or folder/account, including owners, user/group/domain/anyone permissions and provider-supplied inheritance details. Check listingComplete and listingError. Never infer privacy or enumerate all people from this result: group members, ancestor policies and shared-drive membership may not be fully visible. No sharing changes.',
   gdrive_copy_file: 'Copy a file into an explicitly selected folder and account, preserving the original. Only for user-requested copies. Destination permissions may be inherited: inspect its sharing first. Never blindly retry uncertain results; inspect the destination or returned ID. Requires an existing write grant; read-only connections cannot copy.',
   gdocs_read: 'Read the plain text of every tab in a Google Doc, by URL or ID, in one explicit account. May truncate long documents.',
 };

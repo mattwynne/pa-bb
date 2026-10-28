@@ -14,7 +14,7 @@ test('registers read and scope-gated tools, an independent callback, and no conn
   const { harness } = await setup();
   try {
     const selected = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
-    assert.deepEqual(selected.tools.map(t => t.name).sort(), ['gdocs_inspect_for_edit','gdocs_read','gdocs_replace_text','gdrive_auth_status','gdrive_copy_file','gdrive_get_file','gdrive_list_folder','gdrive_search_files']);
+    assert.deepEqual(selected.tools.map(t => t.name).sort(), ['gdocs_inspect_for_edit','gdocs_read','gdocs_replace_text','gdrive_auth_status','gdrive_copy_file','gdrive_get_file','gdrive_inspect_sharing','gdrive_list_folder','gdrive_search_files']);
     assert.deepEqual(selected.skills, ['google-docs-editing']);
     const status = await harness.behavior.callRpc('status', null);
     assert.equal(status.redirectUri, 'https://bb.example/api/v1/plugins/google-drive/http/callback');

@@ -100,6 +100,16 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
         return get(record, params(new URL(`${DRIVE}/files/${encodeURIComponent(id)}`), {
           fields: 'id,name,mimeType,description,modifiedTime,parents,webViewLink,trashed,capabilities(canCopy,canAddChildren)', supportsAllDrives: true }));
       },
+      getSharingMetadata(record, id) {
+        return get(record, params(new URL(`${DRIVE}/files/${encodeURIComponent(id)}`), {
+          fields: 'id,name,mimeType,webViewLink,driveId,shared,owners(displayName,emailAddress,me),capabilities(canShare)', supportsAllDrives: true }));
+      },
+      listPermissions(record, id, pageToken) {
+        return get(record, params(new URL(`${DRIVE}/files/${encodeURIComponent(id)}/permissions`), {
+          supportsAllDrives: true, pageSize: 100, pageToken,
+          fields: 'nextPageToken,permissions(id,type,role,emailAddress,domain,displayName,allowFileDiscovery,deleted,expirationTime,pendingOwner,permissionDetails(permissionType,role,inherited,inheritedFrom))',
+        }));
+      },
       async copyFile(record, sourceId, folderId, name) {
         const accessToken = await verifiedAccess(record);
         const grant = await fetchImpl('https://oauth2.googleapis.com/tokeninfo', {
