@@ -1,10 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createFakePluginHost, makePluginAgentConfigurationContext } from '@get-bb/plugin-sdk/testing';
+import { createFakePluginHost, makePluginAgentConfigurationContext, experimental_scanPublicSdkOnly } from '@get-bb/plugin-sdk/testing';
+import { fileURLToPath } from 'node:url';
 import plugin from '../dist/server.js';
 import { SCOPES } from '../core/service.mjs';
 import { createBbStore } from '../adapters/bb-store.mjs';
 
+test('plugin stays on public SDK APIs; only existing cross-plugin fixtures leave the package', () => {
+  const scan = experimental_scanPublicSdkOnly(fileURLToPath(new URL('../', import.meta.url)), { allow: [
+    /^react(?:-dom\/server)?$/, /^typescript$/, /^@cucumber\/cucumber$/, /^@get-bb\/plugin-sdk\/testing$/,
+    /^\.\.\/\.\.\/\.\.\/google-calendar\/(?:dist\/server\.js|adapters\/bb-store\.mjs|core\/service\.mjs)$/,
+  ] });
+  assert.deepEqual(scan.violations, []); assert.deepEqual(scan.privateDependencies, []);
+});
 async function setup(settings = { clientId: 'web-id', clientSecret: 'private-client-secret' }) {
   const host = createFakePluginHost({ pluginId: 'google-drive', agentSkillIds: ['google-docs-editing'], appUrl: 'https://bb.example', settings });
   await plugin(host.bb);
@@ -14,7 +22,7 @@ test('registers read and scope-gated tools, an independent callback, and no conn
   const { harness } = await setup();
   try {
     const selected = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
-    assert.deepEqual(selected.tools.map(t => t.name).sort(), ['gdocs_inspect_for_edit','gdocs_read','gdocs_replace_text','gdocs_review_edit_example','gdrive_auth_status','gdrive_copy_file','gdrive_get_file','gdrive_inspect_sharing','gdrive_list_folder','gdrive_search_files']);
+    assert.deepEqual(selected.tools.map(t => t.name).sort(), ['gdocs_create_document','gdocs_creation_status','gdocs_inspect_for_edit','gdocs_read','gdocs_replace_text','gdocs_review_edit_example','gdrive_auth_status','gdrive_copy_file','gdrive_get_file','gdrive_inspect_sharing','gdrive_list_folder','gdrive_search_files']);
     assert.deepEqual(selected.skills, ['google-docs-editing']);
     const status = await harness.behavior.callRpc('status', null);
     assert.equal(status.redirectUri, 'https://bb.example/api/v1/plugins/google-drive/http/callback');

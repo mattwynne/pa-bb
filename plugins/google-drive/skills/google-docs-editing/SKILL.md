@@ -1,10 +1,38 @@
 ---
 name: google-docs-editing
-description: Preview or apply a revision-guarded Google Docs replacement under the owner's global per-edit approval setting.
+description: Create a new Google Doc with initial text, recover an interrupted creation, or apply a revision-guarded replacement under the owner's per-edit approval setting.
 ---
 
-Use only explicit user-requested edits, connected account emails and Google Docs
-URLs/IDs. Do not use `gdocs_read`'s potentially incomplete text as edit proof.
+Use only explicit user-requested document mutations and connected account emails.
+Do not use `gdocs_read`'s potentially incomplete text as edit proof.
+
+## New documents
+
+Use `gdocs_create_document({account, operationId, folderId, title, text})` for a
+user-requested new native Doc, not copying or repeated replacements. Generate a
+fresh lowercase UUID v4 once; retain it across interruptions. Choose `root`
+unless the user selected an owned unshared My Drive folder. Shared/unknown
+folders are rejected. `text` is literal plain text (up to 40,000 UTF-16 units),
+with LF paragraph breaks and blank answer spaces; no Markdown/HTML conversion.
+Creation requires an existing owner-authorized Drive write grant. It follows
+the copy tool's user-request authorization, not the replacement-only approval
+setting. Do not change settings, request new credentials, share or invite.
+
+Only `outcome: verified` confirms exact title/destination/body readback. Return
+the Docs link. After any partial, reserved or uncertain outcome, call
+`gdocs_creation_status({account, operationId})` with the SAME key. Repeated
+create calls with that key return a receipt and never write again; status is
+read-only and cannot resume population. A blank or populated Doc may exist even
+when lookup finds nothing. Never generate a new key, replay population or make
+a second Doc merely to compensate. Reconcile with the user first.
+
+Read the [creation guide](../../docs/creation.md) for limits, destination policy,
+receipt semantics and recovery. Implementing/testing this capability does not
+authorize a live document or respondent contact.
+
+## Existing document replacements
+
+Use explicit Google Docs URLs/IDs.
 
 1. Call `gdocs_inspect_for_edit({account, document})`. Require `complete: true`;
    keep the exact `revisionId`, tab ID and existing text.

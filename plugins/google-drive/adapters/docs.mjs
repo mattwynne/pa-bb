@@ -2,7 +2,7 @@ import { docsError } from '../core/docs-edit.mjs';
 const BASE = 'https://docs.googleapis.com/v1/documents';
 const MAX_BYTES = 1_048_576;
 export const DOCS_WRITE_SCOPES = Object.freeze(['documents', 'drive.file', 'drive'].map(name => `https://www.googleapis.com/auth/${name}`));
-async function boundedJson(response) {
+export async function boundedJson(response) {
   if (Number(response.headers.get('content-length')) > MAX_BYTES || !response.body) throw docsError('unsupported_document');
   const reader = response.body.getReader();
   const chunks = [];

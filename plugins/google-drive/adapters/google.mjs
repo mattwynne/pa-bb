@@ -1,4 +1,5 @@
 import { createDocsAdapter } from './docs.mjs';
+import { createDocsCreationAdapter } from './docs-create.mjs';
 
 const AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN = 'https://oauth2.googleapis.com/token';
@@ -78,6 +79,7 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
   }
   return {
     docs: createDocsAdapter({ verifiedAccess, fetchImpl }),
+    creation: createDocsCreationAdapter({ verifiedAccess, fetchImpl }),
     oauth: {
       authorizeUrl({ clientId, redirectUri, state, challenge, scopes, loginHint }) {
         return params(new URL(AUTH), { client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: scopes.join(' '),
