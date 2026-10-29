@@ -1,5 +1,7 @@
 import { createDocsAdapter } from './docs.mjs';
 import { createDocsCreationAdapter } from './docs-create.mjs';
+import { createSharingAdapter } from './sharing.mjs';
+import { boundedJson } from './docs-transport.mjs';
 
 const AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN = 'https://oauth2.googleapis.com/token';
@@ -68,16 +70,16 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
   async function get(record, url) {
     let accessToken = await verifiedAccess(record);
     let response;
-    try { response = await fetchImpl(url, { headers: { authorization: `Bearer ${accessToken}` } }); }
+    try { response = await fetchImpl(url, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(30_000) }); }
     catch { throw new Error('Google Drive is temporarily unavailable'); }
     if (response.status === 401) {
       accessToken = await verifiedAccess(record, true);
-      response = await fetchImpl(url, { headers: { authorization: `Bearer ${accessToken}` } });
+      response = await fetchImpl(url, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(30_000) });
     }
     if (!response.ok) throw failure(response, 'Google Drive request');
-    return response.json();
+    return boundedJson(response);
   }
-  return {
+  const adapter = {
     docs: createDocsAdapter({ verifiedAccess, fetchImpl }),
     creation: createDocsCreationAdapter({ verifiedAccess, fetchImpl }),
     oauth: {
@@ -104,7 +106,7 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
       },
       getSharingMetadata(record, id) {
         return get(record, params(new URL(`${DRIVE}/files/${encodeURIComponent(id)}`), {
-          fields: 'id,name,mimeType,webViewLink,driveId,shared,owners(displayName,emailAddress,me),capabilities(canShare)', supportsAllDrives: true }));
+          fields: 'id,name,mimeType,webViewLink,driveId,shared,trashed,parents,inheritedPermissionsDisabled,owners(displayName,emailAddress,me),capabilities(canShare)', supportsAllDrives: true }));
       },
       listPermissions(record, id, pageToken) {
         return get(record, params(new URL(`${DRIVE}/files/${encodeURIComponent(id)}/permissions`), {
@@ -144,4 +146,5 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
       },
     },
   };
+  return { ...adapter, sharing: createSharingAdapter({ drive: adapter.drive, verifiedAccess, fetchImpl }) };
 }

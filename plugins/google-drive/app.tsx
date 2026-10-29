@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { definePluginApp, useRpc } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './contract.js';
 import { DocsApproval } from './docs-approval.js';
+import { SharingApproval } from './sharing-approval.js';
 import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButton, ConnectionEmpty, ConnectionFooter, ConnectionGuide, ConnectionHeading, ConnectionSetup } from './connection-ui.js';
 import './connection-ui.css';
 import './app.css';
@@ -100,4 +101,5 @@ function DriveSettings() {
 export default definePluginApp(app => {
   app.slots.settingsSection({ id: 'drive-accounts', component: DriveSettings });
   app.slots.pendingInteraction({ id: 'docs-edit-approval', component: DocsApproval });
+  app.slots.pendingInteraction({ id: 'drive-sharing-approval', component: SharingApproval });
 });

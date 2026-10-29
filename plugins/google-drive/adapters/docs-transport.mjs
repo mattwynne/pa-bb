@@ -1,5 +1,5 @@
 // Adapter-private HTTP plumbing. Core services only receive the narrow
-// inspect/replace/create/populate ports, never this general request helper.
+// inspect/replace/create/populate/sharing ports, never this general request helper.
 import { docsError } from '../core/docs-edit.mjs';
 export const DOCS_BASE = 'https://docs.googleapis.com/v1/documents';
 const MAX_BYTES = 1_048_576;
@@ -46,17 +46,18 @@ export function createDocsTransport({ verifiedAccess, fetchImpl = fetch }) {
         return token;
       }
       await access();
-      return async function post(url, body, signal) {
+      return async function post(url, body, signal, options = {}) {
         let token;
         // Recheck identity and grant before EVERY mutation, even after a long
         // owner review. Only pre-submission failures get a no-attempt marker.
         try { token = await access(); signal?.throwIfAborted(); }
         catch (error) { throw policy.beforeSubmissionFailure(error); }
-        // Exactly one POST. No retries, including 401, timeout, transport,
+        // Exactly one mutation request. No retries, including 401, timeout, transport,
         // 429, 5xx or an unreadable response after possible application.
-        const response = await fetchImpl(url, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-          body: JSON.stringify(body), signal: requestSignal(signal) });
+        const response = await fetchImpl(url, { method: options.method || 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: body === undefined ? undefined : JSON.stringify(body), signal: requestSignal(signal) });
         if (!response.ok) throw policy.writeRejection(response.status);
+        if (options.emptyResponse === true && response.status === 204) return {};
         return boundedJson(response);
       };
     },

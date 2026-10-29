@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { readPermissionList } from './permission-list.mjs';
 
 export const SCOPES = Object.freeze(['openid', 'email', 'https://www.googleapis.com/auth/drive']);
 const STATE_MS = 5 * 60 * 1000;
@@ -136,29 +137,15 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
     const id = required(args.fileId, 'fileId');
     if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Use explicit Drive file and folder IDs');
     const metadata = await drive.getSharingMetadata(record, id);
-    const permissions = [];
-    const seen = new Set();
-    let pageToken;
-    let listingComplete = false;
-    let listingError = null;
-    for (let page = 0; page < 10; page++) {
-      try {
-        const result = await drive.listPermissions(record, id, pageToken);
-        if (!Array.isArray(result.permissions)) throw new Error('Incomplete permission response');
-        for (const p of result.permissions) permissions.push({ id: p.id, type: p.type, role: p.role,
-          emailAddress: p.emailAddress, domain: p.domain, displayName: p.displayName,
-          allowFileDiscovery: p.allowFileDiscovery, deleted: p.deleted, expirationTime: p.expirationTime,
-          pendingOwner: p.pendingOwner, permissionDetails: p.permissionDetails?.map(d => ({
-            permissionType: d.permissionType, role: d.role, inherited: d.inherited, inheritedFrom: d.inheritedFrom })) });
-        pageToken = result.nextPageToken;
-        if (!pageToken) { listingComplete = true; break; }
-        if (seen.has(pageToken)) break;
-        seen.add(pageToken);
-      } catch (error) {
-        diagnose('inspect_sharing_permissions', error);
-        listingError = code(error); break;
-      }
-    }
+    const listing = await readPermissionList(token => drive.listPermissions(record, id, token));
+    if (listing.error) diagnose('inspect_sharing_permissions', listing.error);
+    const listingComplete = listing.complete;
+    const listingError = listing.error ? code(listing.error) : listing.complete ? null : 'incomplete_listing';
+    const permissions = listing.permissions.map(p => ({ id: p.id, type: p.type, role: p.role,
+      emailAddress: p.emailAddress, domain: p.domain, displayName: p.displayName,
+      allowFileDiscovery: p.allowFileDiscovery, deleted: p.deleted, expirationTime: p.expirationTime,
+      pendingOwner: p.pendingOwner, permissionDetails: p.permissionDetails?.map(d => ({
+        permissionType: d.permissionType, role: d.role, inherited: d.inherited, inheritedFrom: d.inheritedFrom })) }));
     return { account: record.email, file: fileInfo(metadata), owners: metadata.owners || [],
       sharedDriveId: metadata.driveId || null, shared: metadata.shared ?? null,
       canShare: metadata.capabilities?.canShare ?? null, permissions, listingComplete, listingError,

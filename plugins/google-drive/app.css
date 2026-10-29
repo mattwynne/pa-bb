@@ -12,4 +12,6 @@
 .pa-drive__docs-review dd { margin: 0 0 0.4rem; }
 .pa-drive__docs-review a { text-decoration: underline; }
 .pa-drive__docs-review :is(a, summary):focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.pa-drive__sharing-review p { margin: 0.65rem 0; }
+.pa-drive__sharing-review dl { margin: 0.65rem 0; }
 .pa-drive__docs-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }

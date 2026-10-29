@@ -14,9 +14,41 @@ export function createBbStore(db, migrate) {
     `CREATE TABLE IF NOT EXISTS docs_creations (
       operation_id TEXT PRIMARY KEY, subject TEXT NOT NULL, receipt TEXT NOT NULL
     );`,
+    `CREATE TABLE drive_sharing_operations (
+      operation_id TEXT PRIMARY KEY, subject TEXT NOT NULL, file_id TEXT NOT NULL,
+      state TEXT NOT NULL, receipt TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX drive_sharing_active_file ON drive_sharing_operations(file_id)
+      WHERE state IN ('reviewing','writing','uncertain');`,
   ]);
   const row = item => item && ({ subject: item.subject, email: item.email, refreshToken: item.refresh_token, accessToken: item.access_token, expiresAt: item.expires_at });
   return {
+    async getSharing(operationId) {
+      const row = db.prepare('SELECT state,receipt FROM drive_sharing_operations WHERE operation_id = ?').get(operationId);
+      return row ? { ...JSON.parse(row.receipt), state: row.state } : null;
+    },
+    async reserveSharing(op) {
+      return db.prepare('INSERT OR IGNORE INTO drive_sharing_operations (operation_id,subject,file_id,state,receipt) VALUES (?,?,?,?,?)')
+        .run(op.operationId, op.subject, op.fileId, op.state, JSON.stringify(op)).changes === 1;
+    },
+    async activeSharing(fileId) {
+      return db.prepare("SELECT operation_id FROM drive_sharing_operations WHERE file_id = ? AND state IN ('reviewing','writing','uncertain')").get(fileId)?.operation_id || null;
+    },
+    async claimSharing(operationId, fileId) {
+      return db.prepare("UPDATE OR IGNORE drive_sharing_operations SET state = 'reviewing' WHERE operation_id = ? AND file_id = ? AND state = 'proposed'")
+        .run(operationId, fileId).changes === 1;
+    },
+    async startSharingWrite(op) {
+      return db.prepare("UPDATE drive_sharing_operations SET state = 'writing', receipt = ? WHERE operation_id = ? AND subject = ? AND state = 'reviewing'")
+        .run(JSON.stringify({ ...op, state: 'writing' }), op.operationId, op.subject).changes === 1;
+    },
+    async cancelSharingReview(operationId) {
+      return db.prepare("UPDATE drive_sharing_operations SET state = 'cancelled' WHERE operation_id = ? AND state = 'reviewing'").run(operationId).changes === 1;
+    },
+    async updateSharing(op) {
+      if (db.prepare('UPDATE drive_sharing_operations SET state = ?,receipt = ? WHERE operation_id = ? AND subject = ?')
+        .run(op.state, JSON.stringify(op), op.operationId, op.subject).changes !== 1) throw new Error('Sharing receipt unavailable');
+    },
     async getCreation(operationId) {
       const item = db.prepare('SELECT receipt FROM docs_creations WHERE operation_id = ?').get(operationId);
       return item ? JSON.parse(item.receipt) : null;
