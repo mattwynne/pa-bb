@@ -32,6 +32,7 @@
     "hono": "^4.11.9",
     "react": "19.2.0",
     "react-dom": "^19.2.0",
+    "rrule": "2.8.1",
     "typescript": "5.9.3"
   },
   "scripts": {

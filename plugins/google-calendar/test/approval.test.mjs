@@ -88,6 +88,17 @@ test('delete identifies the verified event, time, calendar and exact recurring s
   }
 });
 
+test('update names occurrence versus series scope without inferring from event IDs', () => {
+  for (const [metadata, effect, button] of [
+    [{ recurringEventId: 'series' }, 'Update only this occurrence', 'Update attendees'],
+    [{ recurrence: ['RRULE:FREQ=WEEKLY'] }, 'Update the entire series', 'Update series'],
+  ]) {
+    const html = render({ ...payload, proposed: { attendees: [] }, context: { ...payload.context, currentEvent: { ...payload.context.currentEvent, id: 'event', ...metadata } } });
+    assert.ok(html.split('<details')[0].includes(effect));
+    assert.ok(html.includes(`>${button}</button>`));
+  }
+});
+
 test('event summaries preserve timezone offsets, DST changes and dates crossing midnight', () => {
   const visible = (start, end, zone) => render({ ...payload, operation: 'delete', proposed: { eventId: payload.eventId }, context: { ...payload.context, currentEvent: { id: payload.eventId, summary: 'Night event', start: { dateTime: start, ...(zone ? { timeZone: zone } : {}) }, end: { dateTime: end } } } }).split('<details')[0];
   // Use a historical transition: tzdata 2026c no longer has a Vancouver
@@ -174,6 +185,49 @@ test('notification checkbox starts off for every operation, regardless of reques
     assert.doesNotMatch(html.split('<details')[0], /All attendees will be notified|Only attendees who/);
     assert.match(html, /&quot;sendUpdates&quot;: &quot;none&quot;/);
   }
+});
+
+test('recurring creation shows weekdays, interval, timezone and end condition above technical details', () => {
+  const proposed = { summary: 'Synthetic recurring appointment', start: '2026-10-29T14:30:00-07:00', end: '2026-10-29T17:00:00-07:00', timeZone: 'America/Vancouver', recurrence: { frequency: 'weekly', byDay: ['TH'] } };
+  for (const [ending, expected] of [
+    [{}, /No end date — repeats indefinitely/],
+    [{ count: 5 }, /Ends after 5 occurrences \(including the first\)/],
+    [{ until: '2026-12-03T21:30:00Z' }, /Ends at Dec 3, 2026.*inclusive cutoff for occurrence starts/],
+  ]) {
+    const html = render({ operation: 'create', proposed: { ...proposed, recurrence: { ...proposed.recurrence, ...ending } } });
+    const visible = html.split('<details')[0];
+    assert.match(visible, /Every week on Thursday/);
+    assert.match(visible, /Oct 29, 2026/);
+    assert.match(visible, /2:30/);
+    assert.match(visible, /5:00/);
+    assert.match(visible, /America\/Vancouver/);
+    assert.match(visible, /Local wall-clock times/);
+    assert.match(visible, expected);
+    assert.match(html, />Create recurring event<\/button>/);
+    assert.doesNotMatch(html, /<input[^>]*checked/);
+  }
+  const multi = render({ operation: 'create', proposed: { ...proposed, recurrence: { frequency: 'weekly', interval: 2, byDay: ['MO', 'TH'], count: 1 } } });
+  assert.match(multi, /Every 2 weeks on Monday, Thursday/);
+  assert.match(multi, /Ends after 1 occurrence \(including the first\)/);
+  const malformed = render({ operation: 'create', proposed: { ...proposed, recurrence: { frequency: 'daily' } } });
+  assert.match(malformed, /Recurrence could not be verified/);
+  assert.match(malformed, /<button disabled=""[^>]*>Create recurring event/);
+});
+
+test('recurring preview never reinterprets server-approved wall time using browser tzdata', () => {
+  const original = Intl.DateTimeFormat;
+  Intl.DateTimeFormat = function(locale, options) {
+    assert.equal(options.timeZone, 'UTC', 'Browser must not recalculate approved local offsets');
+    return new original(locale, options);
+  };
+  try {
+    const html = render({ operation: 'create', proposed: { summary: 'Synthetic', start: '2026-11-05T14:30:00-07:00', end: '2026-11-05T17:00:00-07:00', timeZone: 'America/Vancouver', recurrence: { frequency: 'weekly', byDay: ['TH'] } } });
+    const visible = html.split('<details')[0];
+    assert.match(visible, /2:30 PM – 5:00 PM/);
+    assert.match(visible, /America\/Vancouver · First start offset UTC-07:00/);
+    assert.match(visible, /Every week on Thursday/);
+    assert.doesNotMatch(html, /disabled=""/);
+  } finally { Intl.DateTimeFormat = original; }
 });
 
 test('time formatting preserves offsets without zones and does not silently use browser timezone', () => {

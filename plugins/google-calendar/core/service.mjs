@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { approvalChoice } from '../approval-model.mjs';
+import { prepareRecurrence } from './recurrence.mjs';
 
 export const SCOPES = Object.freeze([
   'openid', 'email',
@@ -217,8 +218,7 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
         if (event && typeof event === 'object' && !Array.isArray(event)) {
           if (typeof event.id === 'string' && event.id !== args.eventId) throw new Error('Unexpected event identity');
           context.currentEvent = {};
-          const fields = ['id', 'summary', 'start', 'end', 'location', 'description'];
-          if (operation === 'delete') fields.push('recurrence', 'recurringEventId', 'originalStartTime');
+          const fields = ['id', 'summary', 'start', 'end', 'location', 'description', 'recurrence', 'recurringEventId', 'originalStartTime'];
           for (const field of fields) {
             if (event[field] !== undefined) context.currentEvent[field] = event[field];
           }
@@ -251,6 +251,7 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
     return choice.notifyAttendees ? 'all' : 'none';
   }
   async function createEvent(args) {
+    const recurrence = prepareRecurrence(args);
     const record = await account(args.account);
     const calendarId = required(args.calendarId, 'calendarId');
     const summary = required(args.summary, 'summary');
@@ -259,9 +260,11 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
     const event = { summary, ...(args.description !== undefined ? { description: args.description } : {}), ...(args.location !== undefined ? { location: args.location } : {}),
       start: args.allDay ? { date: start } : { dateTime: start, ...(args.timeZone ? { timeZone: args.timeZone } : {}) },
       end: args.allDay ? { date: args.end || nextDate(start) } : { dateTime: args.end, ...(args.timeZone ? { timeZone: args.timeZone } : {}) },
-      ...(args.attendees ? { attendees: args.attendees.map(email => ({ email })) } : {}) };
+      ...(args.attendees ? { attendees: args.attendees.map(email => ({ email })) } : {}),
+      ...(recurrence ? { recurrence: [recurrence.rule] } : {}) };
     // Review the effective dates, including the exact all-day default that will be sent.
-    const sendUpdates = await approval('create', { ...args, end: args.allDay ? event.end.date : args.end }, record);
+    const sendUpdates = await approval('create', { ...args, end: args.allDay ? event.end.date : args.end,
+      ...(recurrence ? { recurrence: recurrence.normalized } : {}) }, record);
     return { account: record.email, calendarId, sendUpdates, event: await calendar.insertEvent(record, calendarId, event, sendUpdates) };
   }
   async function updateEvent(args) {

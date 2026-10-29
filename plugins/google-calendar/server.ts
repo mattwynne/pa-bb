@@ -6,6 +6,7 @@ import { createGoogleAdapter } from './adapters/google.mjs';
 import { createCalendarService, SCOPES } from './core/service.mjs';
 import { failureCategory } from './diagnostic.mjs';
 import { approvalChoice } from './approval-model.mjs';
+import { RecurrenceValidationError } from './core/recurrence.mjs';
 
 const text = z.string().min(1);
 const account = text.describe('Connected Google account email (choose explicitly).');
@@ -13,13 +14,20 @@ const target = z.object({ account, calendarId: text });
 const sendUpdates = z.enum(['none', 'all', 'externalOnly']).optional().describe('Requested notification mode. The owner checkbox starts off and overrides this request: unchecked sends none, checked notifies all attendees.');
 const forCalendar = { account, calendarId: text };
 const eventId = { ...forCalendar, eventId: text };
+const recurrence = z.strictObject({
+  frequency: z.literal('weekly'),
+  byDay: z.array(z.enum(['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'])).min(1).max(7).describe('Unique local weekdays; must include the first start date’s weekday.'),
+  interval: z.number().int().min(1).max(52).optional().describe('Every N weeks, Monday week start; default 1.'),
+  count: z.number().int().min(1).max(1000).optional().describe('Total occurrences including the first. Mutually exclusive with until.'),
+  until: z.string().min(1).max(35).optional().describe('Inclusive occurrence-start cutoff: RFC3339 datetime with seconds and explicit offset. Mutually exclusive with count.'),
+}).optional().describe('Timed weekly repeats only. Requires explicit IANA timeZone and start/end with seconds and offsets matching that zone. Omit count and until only when no end date is intended. No raw RRULE.');
 const schemas = {
   gcal_auth_status: z.object({}),
   gcal_list_calendars: z.object({}),
   gcal_list_events: z.object({ ...forCalendar, timeMin: text.optional(), timeMax: text.optional(), maxResults: z.number().optional(), q: text.optional(), timeZone: text.optional(), singleEvents: z.boolean().optional() }),
   gcal_search_events: z.object({ timeMin: text, timeMax: text, calendarSelection: z.enum(['selected','primary','all']).optional(), accounts: z.array(account).min(1).optional(), targets: z.array(target).min(1).optional(), q: text.optional(), timeZone: text.optional(), maxResults: z.number().optional() }),
   gcal_get_event: z.object(eventId),
-  gcal_create_event: z.object({ ...forCalendar, summary: text, start: text, end: text.optional(), description: z.string().optional(), location: z.string().optional(), timeZone: text.optional(), allDay: z.boolean().optional(), attendees: z.array(text).optional(), sendUpdates }),
+  gcal_create_event: z.object({ ...forCalendar, summary: text, start: text, end: text.optional(), description: z.string().optional(), location: z.string().optional(), timeZone: text.optional(), allDay: z.boolean().optional(), attendees: z.array(text).optional(), sendUpdates, recurrence }),
   gcal_update_event: z.object({ ...eventId, summary: z.string().optional(), description: z.string().optional(), location: z.string().optional(), attendees: z.array(text).optional().describe('Complete replacement attendee email list; omitted leaves attendees unchanged, [] removes all attendees.'), start: text.optional(), end: text.optional(), timeZone: text.optional(), moveToCalendarId: text.optional(), sendUpdates }),
   gcal_delete_event: z.object({ ...eventId, sendUpdates }),
   gcal_free_busy: z.object({ account, timeMin: text, timeMax: text, calendarIds: z.array(text).min(1) }),
@@ -30,13 +38,14 @@ const descriptions = {
   gcal_list_events: 'List events from one explicit account and calendar; defaults to the next 30 days.',
   gcal_search_events: 'Search a time range across selected and primary calendars on connected accounts. Prefer this for an agenda spanning calendars.',
   gcal_get_event: 'Read one event by ID from an explicit account and calendar.',
-  gcal_create_event: 'Create an event in an explicit account/calendar after the owner approves it. Attendee notifications default to none.',
-  gcal_update_event: 'Update or move an event after the owner approves it. Attendee notifications default to none.',
-  gcal_delete_event: 'Delete an event after the owner approves it. Attendee notifications default to none.',
+  gcal_create_event: 'Create a one-off or weekly repeating event in an explicit account/calendar after owner approval. Recurring events keep local wall-clock times in the explicit IANA timezone. Notifications default to none. Never blindly retry uncertain writes.',
+  gcal_update_event: 'Update or move the exact event ID after owner approval. For a single recurring occurrence use its expanded instance ID, never the series ID. Recurrence editing and this-and-future changes are not supported. Notifications default to none.',
+  gcal_delete_event: 'Delete the exact event ID after owner approval. For a single recurring occurrence use its expanded instance ID; a series ID deletes the entire series and requires explicit user intent. Notifications default to none.',
   gcal_free_busy: 'Query busy periods for explicit calendars in one Google account.',
 };
 const WRITE_NAMES = new Set(['gcal_create_event','gcal_update_event','gcal_delete_event']);
 const safeError = (error: unknown, write = false) => {
+  if (error instanceof RecurrenceValidationError) return error.message;
   const message = error instanceof Error ? error.message : '';
   if (message.startsWith('Unknown Google account:')) return 'Unknown Google account. Check connected accounts in BB settings.';
   const localErrors = [

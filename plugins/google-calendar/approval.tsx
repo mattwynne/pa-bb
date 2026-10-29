@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import { ConnectionAlert, ConnectionButton, ConnectionDisclosure } from './connection-ui.js';
-import { allDayRange, approvalChoice, attendeeChanges, deletionScope } from './approval-model.mjs';
+import { allDayRange, approvalChoice, attendeeChanges, deletionScope, recurrenceSummary } from './approval-model.mjs';
 
 type Data = Record<string, unknown>;
 const object = (value: unknown): Data => value && typeof value === 'object' && !Array.isArray(value) ? value as Data : {};
@@ -37,7 +37,7 @@ function calendarDate(value: string, month: 'short' | 'long' = 'short') {
   return new Intl.DateTimeFormat('en', { timeZone: 'UTC', ...(month === 'short' ? { weekday: 'short', year: 'numeric' } as const : {}), month, day: 'numeric' }).format(new Date(`${value}T00:00:00Z`));
 }
 
-function EventWhen({ start, end, zone }: { start: unknown; end: unknown; zone?: unknown }) {
+function EventWhen({ start, end, zone, preserveLocal = false }: { start: unknown; end: unknown; zone?: unknown; preserveLocal?: boolean }) {
   const days = allDayRange(start, end);
   if (days) return <p className="pa-calendar__event-when">{calendarDate(days.start)}{days.days > 1 ? ` – ${calendarDate(days.last)}` : ''} · All day</p>;
   // Compact only when both instants and the timezone can be verified. Otherwise
@@ -46,10 +46,13 @@ function EventWhen({ start, end, zone }: { start: unknown; end: unknown; zone?: 
   const validInstant = (raw: string) => /^\d{4}-\d{2}-\d{2}T.+(?:Z|[+-]\d{2}:\d{2})$/.test(raw) && Number.isFinite(Date.parse(raw)) && new Date(`${raw.slice(0, 10)}T00:00:00Z`).toISOString().slice(0, 10) === raw.slice(0, 10);
   if (timeZone && validInstant(first) && validInstant(last)) {
     try {
-      const date = new Intl.DateTimeFormat('en', { timeZone, weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
-      const time = new Intl.DateTimeFormat('en', { timeZone, hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
-      const from = new Date(first), to = new Date(last), sameDay = date.format(from) === date.format(to);
-      return <p className="pa-calendar__event-when">{date.format(from)} · {time.format(from)} – {sameDay ? '' : `${date.format(to)} · `}{time.format(to)}<br />{timeZone}</p>;
+      // Recurring creation has server-validated local offsets. A browser with
+      // older timezone laws must not shift the appointment shown for approval.
+      const displayZone = preserveLocal ? 'UTC' : timeZone;
+      const date = new Intl.DateTimeFormat('en', { timeZone: displayZone, weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+      const time = new Intl.DateTimeFormat('en', { timeZone: displayZone, hour: 'numeric', minute: '2-digit', ...(!preserveLocal ? { timeZoneName: 'short' as const } : {}) });
+      const from = new Date(preserveLocal ? `${first.slice(0, 19)}Z` : first), to = new Date(preserveLocal ? `${last.slice(0, 19)}Z` : last), sameDay = date.format(from) === date.format(to);
+      return <p className="pa-calendar__event-when">{date.format(from)} · {time.format(from)} – {sameDay ? '' : `${date.format(to)} · `}{time.format(to)}<br />{timeZone}{preserveLocal && ` · First start offset ${first.endsWith('Z') ? 'UTC' : `UTC${first.slice(19)}`}`}</p>;
     } catch { /* Keep unformatted dates if the zone is unusable. */ }
   }
   return <div className="pa-calendar__event-when"><TimeRange start={start} end={end} zone={zone} /></div>;
@@ -97,9 +100,10 @@ function ApprovalForm({ interaction, submit }: ApprovalProps) {
   const guests = attendeeChanges(current, proposed.attendees);
   const reviewingGuests = updating && Array.isArray(proposed.attendees);
   const days = creating ? allDayRange(proposed.start, proposed.end) : null;
+  const repeat = creating ? recurrenceSummary(proposed) : null;
   const hasCurrentTime = Boolean(currentStart.dateTime || currentStart.date || currentEnd.dateTime || currentEnd.date);
   const primaryLabel = deleting ? { occurrence: 'Delete occurrence', series: 'Delete series', event: 'Delete event', unknown: 'Delete event' }[scope]
-    : creating ? 'Create event' : reviewingGuests && !rescheduling && !proposed.moveToCalendarId && !['summary', 'location', 'description'].some(field => proposed[field] !== undefined) ? 'Update attendees' : 'Approve change';
+    : creating ? repeat ? 'Create recurring event' : 'Create event' : scope === 'series' ? 'Update series' : reviewingGuests && !rescheduling && !proposed.moveToCalendarId && !['summary', 'location', 'description'].some(field => proposed[field] !== undefined) ? 'Update attendees' : 'Approve change';
   const currentZone = currentStart.timeZone || currentEnd.timeZone;
   // A patch without a zone leaves the event's existing zone in place.
   const proposedZone = proposed.timeZone || currentZone;
@@ -115,7 +119,14 @@ function ApprovalForm({ interaction, submit }: ApprovalProps) {
     <p className="pa-calendar__event-title">{title || 'Event title unavailable'}</p>
     {!creating && !Object.keys(current).length && <p className="pa-calendar__context-note">Current event information is unavailable. Only proposed values are shown; check the event in Google Calendar if needed.</p>}
     {(deleting || (reviewingGuests && !rescheduling)) && hasCurrentTime && <EventWhen start={currentStart.dateTime || currentStart.date} end={currentEnd.dateTime || currentEnd.date} zone={currentZone} />}
-    {creating && rescheduling && <EventWhen start={proposed.start} end={proposed.end} zone={proposedZone} />}
+    {creating && rescheduling && <EventWhen start={proposed.start} end={proposed.end} zone={proposedZone} preserveLocal={repeat?.valid === true} />}
+    {repeat && <div className="pa-calendar__effect">
+      <p className="pa-calendar__effect-title">{repeat.pattern}</p>
+      {repeat.valid ? <>
+        <p>{repeat.count !== undefined ? `Ends after ${repeat.count} occurrence${repeat.count === 1 ? '' : 's'} (including the first).` : repeat.until ? `Ends at ${formatEventTime(repeat.until, proposedZone)} — inclusive cutoff for occurrence starts.` : 'No end date — repeats indefinitely.'}</p>
+        <p>Starts with the appointment above. Local wall-clock times follow {text(proposedZone)}, including daylight-saving changes.</p>
+      </> : <p>Decline this change and request a new proposal.</p>}
+    </div>}
     {days && <div className="pa-calendar__effect"><p className="pa-calendar__effect-title">{days.days === 1 ? 'Create a one-day event' : 'Create an all-day event'}</p>
       <p>{days.days === 1 ? `This event covers ${calendarDate(days.start, 'long')} only.` : 'The dates above include every day this event covers.'}</p></div>}
     {!creating && rescheduling && <div className="pa-calendar__change">
@@ -129,6 +140,12 @@ function ApprovalForm({ interaction, submit }: ApprovalProps) {
       </div>
     </div>)}
     {proposed.moveToCalendarId !== undefined && <p className="pa-calendar__move">Move to calendar: <strong>{text(context.destinationCalendarName) || 'Name unavailable — see Destination calendar ID in Technical details'}</strong></p>}
+    {updating && <div className="pa-calendar__effect">
+      <p className="pa-calendar__effect-title">{{ occurrence: 'Update only this occurrence', series: 'Update the entire series', event: 'Update this event', unknown: 'Change scope could not be verified' }[scope]}</p>
+      {scope === 'series' && <p>This changes the recurring series, not just the first appointment. Decline and use an occurrence ID if you intended one appointment only.</p>}
+      {scope === 'occurrence' && <p>The rest of this recurring event will stay unchanged.</p>}
+      {scope === 'unknown' && <p>Check the event in Google Calendar before approving.</p>}
+    </div>}
     {deleting && <div className="pa-calendar__effect">
       <p className="pa-calendar__effect-title">{{ occurrence: 'Delete only this occurrence', series: 'Delete the entire series', event: 'This will delete the event.', unknown: 'Deletion scope could not be verified' }[scope]}</p>
       {scope === 'occurrence' && <p>The rest of this recurring event will stay unchanged.</p>}
@@ -166,7 +183,7 @@ function ApprovalForm({ interaction, submit }: ApprovalProps) {
     </ConnectionDisclosure>
     {error && <ConnectionAlert>{error}</ConnectionAlert>}
     <div className="pa-calendar__approval-actions">
-      <ConnectionButton tone="primary" className={deleting ? 'pa-calendar__delete-button' : ''} disabled={busy} onClick={() => void decide(true)}>{primaryLabel}</ConnectionButton>
+      <ConnectionButton tone="primary" className={deleting ? 'pa-calendar__delete-button' : ''} disabled={busy || repeat?.valid === false} onClick={() => void decide(true)}>{primaryLabel}</ConnectionButton>
       <ConnectionButton tone="secondary" disabled={busy} onClick={() => void decide(false)}>Decline change</ConnectionButton>
     </div>
   </div>;
