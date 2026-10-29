@@ -1,0 +1,13 @@
+{
+  "name": "bb-plugin-calendar-approval-review",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bb": {
+    "name": "Calendar approval review (synthetic)",
+    "description": "Disposable native approval fixture; no Google access.",
+    "branding": { "icon": "Calendar" },
+    "server": "./test/recurring-preview/server.ts",
+    "app": "./test/recurring-preview/app.tsx"
+  }
+}

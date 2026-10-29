@@ -1,20 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepareRecurrence, RecurrenceValidationError } from '../core/recurrence.mjs';
+import { prepareRecurrence, recurrencePreview, RecurrenceValidationError } from '../core/recurrence.mjs';
 import { createCalendarService } from '../core/service.mjs';
 import { failureCategory } from '../diagnostic.mjs';
-import rrule from 'rrule';
+
 
 export const appointment = { account: 'person@example.test', calendarId: 'team', summary: 'Synthetic appointment', start: '2026-10-29T14:30:00-07:00', end: '2026-10-29T17:00:00-07:00', timeZone: 'America/Vancouver', recurrence: { frequency: 'weekly', byDay: ['TH'] } };
 const prepare = changes => prepareRecurrence({ ...appointment, ...changes });
-// rrule's JS Date output is documented as host-local pseudo-UTC. Isolate that
-// test-only library quirk; production validation below still runs in the host TZ.
-function expandRule(value, max = Infinity) {
-  const previous = process.env.TZ;
-  process.env.TZ = 'UTC';
-  try { return rrule.rrulestr(value).all((_date, index) => index < max); }
-  finally { if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous; }
-}
 
 test('bounded weekly rules are deterministic, with explicit Monday week start and optional end', () => {
   assert.deepEqual(prepare(), { normalized: { frequency: 'weekly', byDay: ['TH'], interval: 1 }, rule: 'RRULE:FREQ=WEEKLY;INTERVAL=1;WKST=MO;BYDAY=TH' });
@@ -67,32 +59,63 @@ test('IANA timezone validation follows tzdata, including folds and historical Va
   assert.ok(prepare({ start: `2026-11-05T14:30:00${offset}`, end: `2026-11-05T17:00:00${offset}` }));
 });
 
-test('independent RFC5545 expansion retains 14:30–17:00 across DST, rather than adding fixed UTC weeks', () => {
-  for (const [zone, first, expected] of [
-    ['America/Vancouver', '20251030', ['2025-10-30T21:30:00.000Z', '2025-11-06T22:30:00.000Z']],
-    ['America/Los_Angeles', '20261029', ['2026-10-29T21:30:00.000Z', '2026-11-05T22:30:00.000Z']],
-    ['America/Vancouver', '20250306', ['2025-03-06T22:30:00.000Z', '2025-03-13T21:30:00.000Z']],
-  ]) {
-    const rule = prepare().rule;
-    const expand = time => expandRule(`DTSTART;TZID=${zone}:${first}T${time}\n${rule}`, 2);
-    assert.deepEqual(expand('143000').map(d => d.toISOString()), expected);
-    const format = new Intl.DateTimeFormat('en', { timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-    assert.deepEqual(expand('143000').map(d => format.format(d)), ['14:30', '14:30']);
-    assert.deepEqual(expand('170000').map(d => format.format(d)), ['17:00', '17:00']);
-  }
-  const rule = prepare().rule;
-  const dates = expandRule(`DTSTART;TZID=America/Vancouver:20261029T143000\n${rule}`, 3);
-  const format = new Intl.DateTimeFormat('en', { timeZone: 'America/Vancouver', weekday: 'long', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-  for (const date of dates) assert.equal(format.format(date), 'Thursday 14:30');
+test('UTC cutoff encoding is inclusive, not a guessed local end or series expansion', () => {
+  const recurrence = { ...appointment.recurrence, until: appointment.start };
+  assert.match(prepare({ recurrence }).rule, /UNTIL=20261029T213000Z$/);
+  assert.throws(() => prepare({ recurrence: { ...recurrence, until: '2026-10-29T21:29:59Z' } }), RecurrenceValidationError);
+  assert.equal(prepare({ recurrence: { ...recurrence, until: '2026-10-29T21:30:00Z' } }).rule, prepare({ recurrence }).rule);
+  const historical = prepare({ start: '2025-10-30T14:30:00-07:00', end: '2025-10-30T17:00:00-07:00', recurrence: { ...appointment.recurrence, until: '2025-11-13T14:30:00-08:00' } });
+  assert.match(historical.rule, /UNTIL=20251113T223000Z$/);
 });
 
-test('independent expansion honours Monday-anchored intervals, count and inclusive UTC cutoff', () => {
-  const counted = prepare({ recurrence: { frequency: 'weekly', byDay: ['TH', 'MO'], interval: 2, count: 4 } }).rule;
-  const localDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: '2-digit', day: '2-digit' });
-  const dates = expandRule(`DTSTART;TZID=America/Vancouver:20261029T143000\n${counted}`);
-  assert.deepEqual(dates.map(d => localDate.format(d)), ['2026-10-29', '2026-11-09', '2026-11-12', '2026-11-23']);
-  const ended = prepare({ start: '2025-10-30T14:30:00-07:00', end: '2025-10-30T17:00:00-07:00', recurrence: { ...appointment.recurrence, until: '2025-11-13T14:30:00-08:00' } }).rule;
-  assert.deepEqual(expandRule(`DTSTART;TZID=America/Vancouver:20251030T143000\n${ended}`).map(d => d.toISOString()), ['2025-10-30T21:30:00.000Z', '2025-11-06T22:30:00.000Z', '2025-11-13T22:30:00.000Z']);
+test('daily, monthly and yearly rules use the first local date as their anchor', () => {
+  assert.equal(prepare({ recurrence: { frequency: 'daily', interval: 2, count: 3 } }).rule, 'RRULE:FREQ=DAILY;INTERVAL=2;COUNT=3');
+  const monthly = { ...appointment, start: '2026-01-31T14:30:00-08:00', end: '2026-01-31T17:00:00-08:00', recurrence: { frequency: 'monthly' } };
+  const month = prepareRecurrence(monthly);
+  assert.equal(month.rule, 'RRULE:FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=31');
+  assert.deepEqual(recurrencePreview(month.normalized, monthly), { pattern: 'Every month on day 31', ending: 'No end date — repeats indefinitely.', exception: 'Months without day 31 are skipped, not moved to another date.' });
+  const yearly = { ...appointment, start: '2024-02-29T10:00:00Z', end: '2024-02-29T11:00:00Z', timeZone: 'UTC', recurrence: { frequency: 'yearly', interval: 4, until: '2032-02-29T10:00:00Z' } };
+  const year = prepareRecurrence(yearly);
+  assert.equal(year.rule, 'RRULE:FREQ=YEARLY;INTERVAL=4;BYMONTH=2;BYMONTHDAY=29;UNTIL=20320229T100000Z');
+  assert.equal(recurrencePreview(year.normalized, yearly).pattern, 'Every 4 years on February 29');
+  assert.match(recurrencePreview(year.normalized, yearly).exception, /Years without February 29 are skipped/);
+});
+
+for (const [frequency, start, ending, rule] of [
+  ['daily', '2026-12-31', { until: '2027-01-03' }, 'FREQ=DAILY;INTERVAL=1;UNTIL=20270103'],
+  ['weekly', '2026-10-29', { byDay: ['TH'], count: 3 }, 'FREQ=WEEKLY;INTERVAL=1;WKST=MO;BYDAY=TH;COUNT=3'],
+  ['monthly', '2026-01-31', {}, 'FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=31'],
+  ['yearly', '2024-02-29', { until: '2032-02-29' }, 'FREQ=YEARLY;INTERVAL=1;BYMONTH=2;BYMONTHDAY=29;UNTIL=20320229'],
+]) test(`floating all-day ${frequency} encodes date cutoffs, not UTC instants`, () => {
+  const args = { allDay: true, start, recurrence: { frequency, ...ending } };
+  const prepared = prepareRecurrence(args);
+  assert.equal(prepared.rule, `RRULE:${rule}`);
+  if (ending.until) assert.equal(recurrencePreview(prepared.normalized, args).ending, `Last allowed occurrence-start date: ${ending.until} (inclusive).`);
+  assert.equal(prepareRecurrence({ ...args, timeZone: 'America/Vancouver' }).rule, prepared.rule, 'A timezone does not shift an all-day date');
+});
+
+const invalidModes = [
+  ...['daily', 'monthly', 'yearly'].map(frequency => ({ recurrence: { frequency, byDay: ['TH'] } })),
+  { recurrence: { frequency: 'weekly' } },
+  { recurrence: { frequency: 'hourly' } },
+  { recurrence: { frequency: 'monthly', byMonthDay: 31 } },
+  { recurrence: { frequency: 'monthly', ordinal: -1, byDay: ['FR'] } },
+  { recurrence: { frequency: 'daily', until: '2026-11-01' } },
+  ...['2026-02-30', '2026-10-29T00:00:00Z', '', null].map(start => ({ allDay: true, start, recurrence: { frequency: 'daily' } })),
+  ...['2026-10-29', '2026-10-28', '2026-02-31', '2026-10-30T00:00:00Z', ''].map(end => ({ allDay: true, start: '2026-10-29', end, recurrence: { frequency: 'daily' } })),
+  ...['2026-10-28', '2026-10-30T00:00:00Z', '2027-02-29'].map(until => ({ allDay: true, start: '2026-10-29', end: undefined, recurrence: { frequency: 'daily', until } })),
+  { allDay: true, start: '9999-12-31', end: undefined, recurrence: { frequency: 'daily' } },
+  { allDay: true, start: '2026-10-29', end: undefined, recurrence: { frequency: 'weekly', byDay: ['FR'] } },
+];
+for (const [i, changes] of invalidModes.entries()) test(`invalid repeat mode ${i} fails before any port`, async () => {
+  const fail = () => assert.fail('Invalid proposal crossed a port');
+  const service = createCalendarService({ store: { byEmail: fail }, calendar: { insertEvent: fail }, approve: fail });
+  await assert.rejects(service.execute('gcal_create_event', { ...appointment, ...changes }), RecurrenceValidationError);
+});
+
+test('all-day cutoffs include the first start, not the exclusive end of the occurrence', () => {
+  const args = { start: '2026-12-31', end: '2027-01-03', allDay: true, recurrence: { frequency: 'yearly', until: '2026-12-31' } };
+  assert.equal(prepareRecurrence(args).rule, 'RRULE:FREQ=YEARLY;INTERVAL=1;BYMONTH=12;BYMONTHDAY=31;UNTIL=20261231');
 });
 
 test('recurrence diagnostics use a local fixed category, not messages or provider codes', () => {

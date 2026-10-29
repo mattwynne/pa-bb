@@ -52,7 +52,8 @@ function EventWhen({ start, end, zone, preserveLocal = false }: { start: unknown
       const date = new Intl.DateTimeFormat('en', { timeZone: displayZone, weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
       const time = new Intl.DateTimeFormat('en', { timeZone: displayZone, hour: 'numeric', minute: '2-digit', ...(!preserveLocal ? { timeZoneName: 'short' as const } : {}) });
       const from = new Date(preserveLocal ? `${first.slice(0, 19)}Z` : first), to = new Date(preserveLocal ? `${last.slice(0, 19)}Z` : last), sameDay = date.format(from) === date.format(to);
-      return <p className="pa-calendar__event-when">{date.format(from)} · {time.format(from)} – {sameDay ? '' : `${date.format(to)} · `}{time.format(to)}<br />{timeZone}{preserveLocal && ` · First start offset ${first.endsWith('Z') ? 'UTC' : `UTC${first.slice(19)}`}`}</p>;
+      const offset = (raw: string) => raw.endsWith('Z') ? 'UTC' : `UTC${raw.slice(19)}`;
+      return <p className="pa-calendar__event-when">{date.format(from)} · {time.format(from)}{preserveLocal && ` (${offset(first)})`} – {sameDay ? '' : `${date.format(to)} · `}{time.format(to)}{preserveLocal && ` (${offset(last)})`}<br />{timeZone}</p>;
     } catch { /* Keep unformatted dates if the zone is unusable. */ }
   }
   return <div className="pa-calendar__event-when"><TimeRange start={start} end={end} zone={zone} /></div>;
@@ -100,10 +101,13 @@ function ApprovalForm({ interaction, submit }: ApprovalProps) {
   const guests = attendeeChanges(current, proposed.attendees);
   const reviewingGuests = updating && Array.isArray(proposed.attendees);
   const days = creating ? allDayRange(proposed.start, proposed.end) : null;
-  const repeat = creating ? recurrenceSummary(proposed) : null;
+  const repeat = creating ? recurrenceSummary(proposed, p.recurrencePreview) : null;
   const hasCurrentTime = Boolean(currentStart.dateTime || currentStart.date || currentEnd.dateTime || currentEnd.date);
-  const primaryLabel = deleting ? { occurrence: 'Delete occurrence', series: 'Delete series', event: 'Delete event', unknown: 'Delete event' }[scope]
-    : creating ? repeat ? 'Create recurring event' : 'Create event' : scope === 'series' ? 'Update series' : reviewingGuests && !rescheduling && !proposed.moveToCalendarId && !['summary', 'location', 'description'].some(field => proposed[field] !== undefined) ? 'Update attendees' : 'Approve change';
+  let primaryLabel = 'Approve change';
+  if (deleting) primaryLabel = { occurrence: 'Delete occurrence', series: 'Delete series', event: 'Delete event', unknown: 'Delete event' }[scope];
+  else if (creating) primaryLabel = repeat ? 'Create recurring event' : 'Create event';
+  else if (scope === 'series') primaryLabel = 'Update series';
+  else if (reviewingGuests && !rescheduling && !proposed.moveToCalendarId && !['summary', 'location', 'description'].some(field => proposed[field] !== undefined)) primaryLabel = 'Update attendees';
   const currentZone = currentStart.timeZone || currentEnd.timeZone;
   // A patch without a zone leaves the event's existing zone in place.
   const proposedZone = proposed.timeZone || currentZone;
@@ -123,11 +127,12 @@ function ApprovalForm({ interaction, submit }: ApprovalProps) {
     {repeat && <div className="pa-calendar__effect">
       <p className="pa-calendar__effect-title">{repeat.pattern}</p>
       {repeat.valid ? <>
-        <p>{repeat.count !== undefined ? `Ends after ${repeat.count} occurrence${repeat.count === 1 ? '' : 's'} (including the first).` : repeat.until ? `Ends at ${formatEventTime(repeat.until, proposedZone)} — inclusive cutoff for occurrence starts.` : 'No end date — repeats indefinitely.'}</p>
-        <p>Starts with the appointment above. Local wall-clock times follow {text(proposedZone)}, including daylight-saving changes.</p>
+        <p>{repeat.ending}</p>
+        {repeat.exception && <p>{repeat.exception}</p>}
+        <p>{days ? 'Starts with the dates above. All-day dates do not shift with timezones.' : `Starts with the appointment above. Repeat starts follow ${text(proposedZone)}, including daylight-saving changes.`}</p>
       </> : <p>Decline this change and request a new proposal.</p>}
     </div>}
-    {days && <div className="pa-calendar__effect"><p className="pa-calendar__effect-title">{days.days === 1 ? 'Create a one-day event' : 'Create an all-day event'}</p>
+    {days && !repeat && <div className="pa-calendar__effect"><p className="pa-calendar__effect-title">{days.days === 1 ? 'Create a one-day event' : 'Create an all-day event'}</p>
       <p>{days.days === 1 ? `This event covers ${calendarDate(days.start, 'long')} only.` : 'The dates above include every day this event covers.'}</p></div>}
     {!creating && rescheduling && <div className="pa-calendar__change">
       {updating && Boolean(currentStart.dateTime || currentStart.date || currentEnd.dateTime || currentEnd.date) && <div className="pa-calendar__change-value pa-calendar__change-value--current"><h4>Current time</h4><TimeRange start={currentStart.dateTime || currentStart.date} end={currentEnd.dateTime || currentEnd.date} zone={currentZone} /></div>}

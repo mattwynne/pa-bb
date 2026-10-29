@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import ts from 'typescript';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { prepareRecurrence, recurrencePreview } from '../core/recurrence.mjs';
 
 // Compile the real component without requiring a BB runtime or a provider.
 const temporary = resolve('test/approval.ui-test.generated.mjs');
@@ -17,6 +18,8 @@ test.after(async () => { await unlink(temporary); await unlink(connection); });
 const proposed = { account: 'person@example.test', calendarId: 'opaque-calendar', eventId: 'opaque-event', start: '2026-10-07T08:00:00-07:00', end: '2026-10-07T08:30:00-07:00', timeZone: 'America/Vancouver', sendUpdates: 'all' };
 const payload = { operation: 'update', account: proposed.account, calendarId: proposed.calendarId, eventId: proposed.eventId, proposed, details: JSON.stringify(proposed), context: { calendarName: 'Team', currentEvent: { summary: 'Weekly catch-up', start: { dateTime: '2026-10-07T07:30:00-07:00', timeZone: 'America/Vancouver' }, end: { dateTime: '2026-10-07T08:00:00-07:00', timeZone: 'America/Vancouver' } } } };
 const render = value => renderToStaticMarkup(createElement(Approval, { interaction: { payload: value }, submit: async () => {} }));
+// The renderer receives only view data prepared at the trusted service boundary.
+const recurring = proposed => ({ operation: 'create', proposed, recurrencePreview: recurrencePreview(prepareRecurrence(proposed).normalized, proposed) });
 
 test('leads with verified title and current/proposed time; IDs and JSON are collapsed', () => {
   const html = render(payload);
@@ -192,42 +195,75 @@ test('recurring creation shows weekdays, interval, timezone and end condition ab
   for (const [ending, expected] of [
     [{}, /No end date — repeats indefinitely/],
     [{ count: 5 }, /Ends after 5 occurrences \(including the first\)/],
-    [{ until: '2026-12-03T21:30:00Z' }, /Ends at Dec 3, 2026.*inclusive cutoff for occurrence starts/],
+    [{ until: '2026-12-03T21:30:00Z' }, /Ends at 2026-12-03T21:30:00Z \(UTC\).*inclusive cutoff for occurrence starts/],
   ]) {
-    const html = render({ operation: 'create', proposed: { ...proposed, recurrence: { ...proposed.recurrence, ...ending } } });
+    const html = render(recurring({ ...proposed, recurrence: { ...proposed.recurrence, ...ending } }));
     const visible = html.split('<details')[0];
     assert.match(visible, /Every week on Thursday/);
     assert.match(visible, /Oct 29, 2026/);
     assert.match(visible, /2:30/);
     assert.match(visible, /5:00/);
     assert.match(visible, /America\/Vancouver/);
-    assert.match(visible, /Local wall-clock times/);
+    assert.match(visible, /Repeat starts follow/);
     assert.match(visible, expected);
     assert.match(html, />Create recurring event<\/button>/);
     assert.doesNotMatch(html, /<input[^>]*checked/);
   }
-  const multi = render({ operation: 'create', proposed: { ...proposed, recurrence: { frequency: 'weekly', interval: 2, byDay: ['MO', 'TH'], count: 1 } } });
+  const multi = render(recurring({ ...proposed, recurrence: { frequency: 'weekly', interval: 2, byDay: ['MO', 'TH'], count: 1 } }));
   assert.match(multi, /Every 2 weeks on Monday, Thursday/);
   assert.match(multi, /Ends after 1 occurrence \(including the first\)/);
-  const malformed = render({ operation: 'create', proposed: { ...proposed, recurrence: { frequency: 'daily' } } });
-  assert.match(malformed, /Recurrence could not be verified/);
-  assert.match(malformed, /<button disabled=""[^>]*>Create recurring event/);
+  for (const pending of [proposed, { ...proposed, recurrence: { frequency: 'daily' } }]) {
+    const legacy = render({ operation: 'create', proposed: pending });
+    assert.match(legacy, /Recurrence could not be verified/);
+    assert.match(legacy, /Decline this change and request a new proposal/);
+    assert.match(legacy, /<button disabled=""[^>]*>Create recurring event/);
+  }
+  const fold = render(recurring({ ...proposed, start: '2025-11-02T01:30:00-07:00', end: '2025-11-02T01:45:00-08:00', recurrence: { frequency: 'weekly', byDay: ['SU'] } }));
+  assert.match(fold, /1:30 AM \(UTC-07:00\) – 1:45 AM \(UTC-08:00\)/);
 });
 
 test('recurring preview never reinterprets server-approved wall time using browser tzdata', () => {
   const original = Intl.DateTimeFormat;
-  Intl.DateTimeFormat = function(locale, options) {
-    assert.equal(options.timeZone, 'UTC', 'Browser must not recalculate approved local offsets');
-    return new original(locale, options);
+  // Stable surrogates for timezone DATABASES, not recurrence expanders: Phoenix
+  // supplies the server's new -07 law; Los Angeles the browser's old -08 law.
+  const zoneData = zone => function(locale, options) {
+    return new original(locale, { ...options, timeZone: options.timeZone === 'America/Vancouver' ? zone : options.timeZone });
   };
   try {
-    const html = render({ operation: 'create', proposed: { summary: 'Synthetic', start: '2026-11-05T14:30:00-07:00', end: '2026-11-05T17:00:00-07:00', timeZone: 'America/Vancouver', recurrence: { frequency: 'weekly', byDay: ['TH'] } } });
+    Intl.DateTimeFormat = zoneData('America/Phoenix');
+    const proposal = recurring({ summary: 'Synthetic', start: '2026-11-05T14:30:00-07:00', end: '2026-11-05T17:00:00-07:00', timeZone: 'America/Vancouver', recurrence: { frequency: 'weekly', byDay: ['TH'], until: '2026-11-05T21:30:00Z' } });
+    Intl.DateTimeFormat = zoneData('America/Los_Angeles');
+    assert.equal(new Intl.DateTimeFormat('en', { timeZone: 'America/Vancouver', hour: 'numeric', minute: '2-digit' }).format(new Date(proposal.proposed.recurrence.until)), '1:30 PM', 'Old browser laws reproduce the original misdisplay');
+    const html = render(proposal);
     const visible = html.split('<details')[0];
-    assert.match(visible, /2:30 PM – 5:00 PM/);
-    assert.match(visible, /America\/Vancouver · First start offset UTC-07:00/);
+    assert.match(visible, /2:30 PM \(UTC-07:00\) – 5:00 PM \(UTC-07:00\)/);
+    assert.match(visible, /America\/Vancouver/);
+    assert.match(visible, /Ends at 2026-11-05T21:30:00Z \(UTC\)/);
+    assert.doesNotMatch(visible, /1:30 PM/);
     assert.match(visible, /Every week on Thursday/);
     assert.doesNotMatch(html, /disabled=""/);
   } finally { Intl.DateTimeFormat = original; }
+});
+
+test('all repeat variants render server-prepared scope, cutoff and skipped-date policy', () => {
+  const cases = [
+    { proposed: { summary: 'Synthetic daily', start: '2026-10-29T14:30:00-07:00', end: '2026-10-29T17:00:00-07:00', timeZone: 'America/Vancouver', recurrence: { frequency: 'daily', interval: 2, count: 4 } }, pattern: /Every 2 days/, ending: /Ends after 4 occurrences/ },
+    { proposed: { summary: 'Synthetic month-end', start: '2026-01-31', end: '2026-02-02', allDay: true, recurrence: { frequency: 'monthly', until: '2026-12-31' } }, pattern: /Every month on day 31/, ending: /Last allowed occurrence-start date: 2026-12-31 \(inclusive\)/, exception: /Months without day 31 are skipped/ },
+    { proposed: { summary: 'Synthetic leap day', start: '2024-02-29', end: '2024-03-01', allDay: true, recurrence: { frequency: 'yearly' } }, pattern: /Every year on February 29/, ending: /No end date — repeats indefinitely/, exception: /Years without February 29 are skipped/ },
+  ];
+  for (const value of cases) {
+    const html = render(recurring(value.proposed));
+    const visible = html.split('<details')[0];
+    assert.match(visible, value.pattern);
+    assert.match(visible, value.ending);
+    if (value.exception) assert.match(visible, value.exception);
+    if (value.proposed.allDay) {
+      assert.match(visible, /All-day dates do not shift with timezones/);
+      assert.doesNotMatch(visible, /Repeat starts follow|exclusive|UTC/);
+    }
+    assert.match(html, />Create recurring event<\/button>/);
+    assert.doesNotMatch(html, /<input[^>]*checked/);
+  }
 });
 
 test('time formatting preserves offsets without zones and does not silently use browser timezone', () => {

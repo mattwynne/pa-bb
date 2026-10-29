@@ -6,7 +6,7 @@ import { createGoogleAdapter } from './adapters/google.mjs';
 import { createCalendarService, SCOPES } from './core/service.mjs';
 import { failureCategory } from './diagnostic.mjs';
 import { approvalChoice } from './approval-model.mjs';
-import { RecurrenceValidationError } from './core/recurrence.mjs';
+import { RecurrenceValidationError, recurrenceSchema } from './core/recurrence.mjs';
 
 const text = z.string().min(1);
 const account = text.describe('Connected Google account email (choose explicitly).');
@@ -14,13 +14,7 @@ const target = z.object({ account, calendarId: text });
 const sendUpdates = z.enum(['none', 'all', 'externalOnly']).optional().describe('Requested notification mode. The owner checkbox starts off and overrides this request: unchecked sends none, checked notifies all attendees.');
 const forCalendar = { account, calendarId: text };
 const eventId = { ...forCalendar, eventId: text };
-const recurrence = z.strictObject({
-  frequency: z.literal('weekly'),
-  byDay: z.array(z.enum(['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'])).min(1).max(7).describe('Unique local weekdays; must include the first start date’s weekday.'),
-  interval: z.number().int().min(1).max(52).optional().describe('Every N weeks, Monday week start; default 1.'),
-  count: z.number().int().min(1).max(1000).optional().describe('Total occurrences including the first. Mutually exclusive with until.'),
-  until: z.string().min(1).max(35).optional().describe('Inclusive occurrence-start cutoff: RFC3339 datetime with seconds and explicit offset. Mutually exclusive with count.'),
-}).optional().describe('Timed weekly repeats only. Requires explicit IANA timeZone and start/end with seconds and offsets matching that zone. Omit count and until only when no end date is intended. No raw RRULE.');
+const recurrence = recurrenceSchema.optional().describe('Daily, weekly, monthly or yearly repeats; timed or all-day. Monthly uses the start day, yearly uses its month/day; nonexistent dates are skipped. Timed events require IANA timeZone and matching offsets. All-day uses dates, with exclusive end. Omit count/until only when no end date is intended. No raw RRULE or ordinal-weekday patterns.');
 const schemas = {
   gcal_auth_status: z.object({}),
   gcal_list_calendars: z.object({}),
@@ -38,7 +32,7 @@ const descriptions = {
   gcal_list_events: 'List events from one explicit account and calendar; defaults to the next 30 days.',
   gcal_search_events: 'Search a time range across selected and primary calendars on connected accounts. Prefer this for an agenda spanning calendars.',
   gcal_get_event: 'Read one event by ID from an explicit account and calendar.',
-  gcal_create_event: 'Create a one-off or weekly repeating event in an explicit account/calendar after owner approval. Recurring events keep local wall-clock times in the explicit IANA timezone. Notifications default to none. Never blindly retry uncertain writes.',
+  gcal_create_event: 'Create a one-off or daily/weekly/monthly/yearly repeating event after owner approval. Supports timed and all-day repeats. Timed starts follow the explicit IANA timezone; all-day dates float. Invalid month-end/leap-day dates are skipped, not shifted. Notifications default to none. Never blindly retry uncertain writes.',
   gcal_update_event: 'Update or move the exact event ID after owner approval. For a single recurring occurrence use its expanded instance ID, never the series ID. Recurrence editing and this-and-future changes are not supported. Notifications default to none.',
   gcal_delete_event: 'Delete the exact event ID after owner approval. For a single recurring occurrence use its expanded instance ID; a series ID deletes the entire series and requires explicit user intent. Notifications default to none.',
   gcal_free_busy: 'Query busy periods for explicit calendars in one Google account.',
@@ -59,7 +53,7 @@ const safeError = (error: unknown, write = false) => {
   return write ? 'Google Calendar change could not be confirmed. It may have completed; check the calendar before retrying.'
     : 'Google Calendar operation failed. Check the connected account and try again.';
 };
-type ApprovalProposal = { operation: string; account: string; calendarId: string; details: Record<string, unknown>; context?: { currentEvent: Record<string, unknown> | null; calendarName: string | null; destinationCalendarName: string | null } };
+type ApprovalProposal = { operation: string; account: string; calendarId: string; details: Record<string, unknown>; recurrencePreview?: { pattern: string; ending: string; exception?: string }; context?: { currentEvent: Record<string, unknown> | null; calendarName: string | null; destinationCalendarName: string | null } };
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 // OAuth responses can contain codes, tokens, and provider diagnostics. Only log
 // a fixed failure category; never log the exception or its raw message.
@@ -164,6 +158,7 @@ export default async function plugin(bb: BbPluginApi) {
               eventId: typeof proposal.details.eventId === 'string' ? proposal.details.eventId : null,
               sendUpdates: typeof proposal.details.sendUpdates === 'string' ? proposal.details.sendUpdates : 'none',
               proposed: JSON.parse(JSON.stringify(proposal.details)),
+              recurrencePreview: proposal.recurrencePreview ?? null,
               context: proposal.context ? JSON.parse(JSON.stringify(proposal.context)) : null,
               details: JSON.stringify(proposal.details) },
             describeSubmission: value => {

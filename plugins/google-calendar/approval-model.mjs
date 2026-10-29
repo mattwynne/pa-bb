@@ -1,5 +1,3 @@
-import { normalizeWeeklyRecurrence } from './core/recurrence.mjs';
-
 /** @typedef {{ email: string, displayName?: string }} Attendee */
 /** @param {unknown} value @returns {Record<string, unknown>} */
 const object = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -67,18 +65,16 @@ export function allDayRange(start, end) {
   return { start: /** @type {string} */ (start), last: new Date(exclusive - 86_400_000).toISOString().slice(0, 10), days: (exclusive - first) / 86_400_000 };
 }
 
-/** Revalidate rule structure in persisted proposals, but leave timezone/offset
- * validation to the server: browser tzdata may be a different version.
- * @param {unknown} value */
-export function recurrenceSummary(value) {
-  try {
-    const recurrence = object(value).recurrence;
-    if (recurrence === undefined) return null;
-    const r = normalizeWeeklyRecurrence(recurrence);
-    const names = { MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday', FR: 'Friday', SA: 'Saturday', SU: 'Sunday' };
-    return { valid: true, pattern: `Every ${r.interval === 1 ? 'week' : `${r.interval} weeks`} on ${r.byDay.map(d => names[d]).join(', ')}`,
-      count: r.count, until: r.until };
-  } catch { return { valid: false, pattern: 'Recurrence could not be verified', count: undefined, until: undefined }; }
+/** Consume server-normalized view data; never interpret recurrence rules or
+ * browser timezone laws. Older pending recurring proposals need a new review.
+ * @param {unknown} proposed @param {unknown} preview */
+export function recurrenceSummary(proposed, preview) {
+  if (object(proposed).recurrence === undefined) return null;
+  const view = object(preview);
+  if (typeof view.pattern !== 'string' || !view.pattern || typeof view.ending !== 'string' || !view.ending) {
+    return { valid: false, pattern: 'Recurrence could not be verified', ending: '' };
+  }
+  return { valid: true, pattern: view.pattern, ending: view.ending, exception: typeof view.exception === 'string' ? view.exception : '' };
 }
 
 /** Explicit consent only. Older submissions have no checkbox and default off.

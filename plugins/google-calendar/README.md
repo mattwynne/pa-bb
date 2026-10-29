@@ -76,11 +76,36 @@ Writes need BB owner approval. **Notify attendees** starts unchecked: off sends 
 
 Supply the explicit connected `account`, `calendarId` and `summary` as usual. This example is a proposal, not an existing appointment. Without `recurrence`, one-off creation is unchanged.
 
-- Only timed **weekly** repeats are supported. `byDay` contains 1–7 unique uppercase weekdays (`MO`, `TU`, `WE`, `TH`, `FR`, `SA`, `SU`) and must include the first start date's local weekday. `interval` is 1–52 weeks, default 1; weeks start Monday.
-- Either omit end conditions for **no end date**, set `count` to 1–1000 total occurrences (including the first), or set `until` to an **inclusive occurrence-start cutoff**. Never set both. `until` is a full RFC3339 datetime with seconds and a UTC offset, not a date-only value. For example, `"until": "2026-12-03T21:30:00Z"` includes an occurrence starting exactly then. Do not invent an end date or count the user did not request.
-- Repeats require an explicit valid IANA `timeZone`. Start/end must contain seconds and offsets matching that zone at those local times, with end after start. Nonexistent spring-gap times and conflicting offsets are rejected; an explicit matching offset disambiguates a fall fold. Missing timezone, raw RRULE text, extra recurrence fields, monthly/yearly rules and recurring all-day events are rejected before approval or provider access.
-- Google receives one recurring series with IANA zones on **both** start and end, not a batch of fixed-UTC appointments. Google expands future local times using its timezone database. Server validation uses the installed runtime's tzdata; governments can change future timezone rules, and provider/runtime databases may differ. Current tzdata no longer predicts a Vancouver fall-back in November 2026; do not hardcode a November UTC offset.
-- Owner approval shows the first appointment, weekdays/interval, timezone and **no end date**, count, or inclusive cutoff. Only an approved proposal is inserted. Notifications still default off. Decline/cancellation creates nothing; uncertain insert outcomes are never retried automatically. Check Google Calendar before considering another attempt.
+| `frequency` | Repeat pattern |
+| --- | --- |
+| `daily` | Every N days |
+| `weekly` | Every N weeks on `byDay`: 1–7 unique weekdays (`MO` through `SU`), including the first start date's weekday. Weeks start Monday. |
+| `monthly` | Every N months on the first appointment's day of month |
+| `yearly` | Every N years on the first appointment's month and day |
+
+For every frequency, `interval` is 1–52, default 1. Supply `byDay` **only** for weekly repeats. Monthly/yearly dates that do not exist are **skipped, not shifted**: January 31 monthly skips February; February 29 yearly skips non-leap years. Approval calls this out. Ordinal-weekday patterns such as “last Friday”, custom RRULEs and exclusions are not supported; do not silently substitute a date-based repeat for them.
+
+Choose one end condition, or neither:
+
+- Omit `count` and `until` for **no end date**. Do not invent an end condition.
+- `count`: 1–1000 total occurrences including the first, not elapsed months/years.
+- `until`: an **inclusive occurrence-start cutoff**. Timed events require a full RFC3339 datetime with whole seconds and an explicit offset; it is normalized and reviewed in UTC. All-day events require a date (`YYYY-MM-DD`). An occurrence starting exactly at the cutoff is included; a multi-day occurrence may finish later. Never set both `count` and `until`.
+
+Timed repeats require an explicit valid IANA `timeZone`. Start/end must contain whole seconds and matching offsets, with end after start. Invalid dates, nonexistent initial spring-gap times and conflicting offsets are rejected before provider access or approval. Explicit matching offsets disambiguate fall folds. Both supplied offsets remain visible in approval, without browser timezone reinterpretation.
+
+All-day repeats use `allDay: true` with **date-only** start and exclusive end; omitted end means the next calendar date. They float without timezone conversion (a supplied `timeZone` has no effect):
+
+```json
+{
+  "start": "2026-12-31",
+  "allDay": true,
+  "recurrence": { "frequency": "yearly", "until": "2030-12-31" }
+}
+```
+
+Google receives **one** recurring event with the paired start/end and generated rule, not a batch of appointments. Google owns expansion and future timezone rules. Timed starts follow the IANA zone; actual occurrence ends also depend on the original duration, particularly across timezone transitions. Runtime/provider timezone databases can differ; future laws can change. The plugin does not implement its own recurrence engine. See [Google's event/recurrence model](https://developers.google.com/workspace/calendar/api/concepts/events-calendars) and [RFC 5545 recurrence rules](https://www.rfc-editor.org/rfc/rfc5545#section-3.3.10).
+
+Owner approval shows the first appointment/dates, repeat pattern, skipped-date policy when relevant, and exact end condition. Only approval inserts the event. Notifications default off; decline/cancellation creates nothing. Older pending recurring proposals without normalized review data must be declined and proposed again. Uncertain inserts are never retried automatically: inspect Google Calendar before considering another attempt.
 
 Update/delete still target **only the exact supplied event ID**, without recurrence editing, occurrence expansion, or “this and future” support. For one appointment, use the expanded instance ID from `gcal_list_events` or `gcal_search_events`, not the series ID. Series IDs affect the whole series and require explicit user intent; approval shows verified series/occurrence scope or warns when scope is unavailable. Creation support is not permission to create the example or invite anyone.
 
@@ -92,6 +117,6 @@ npm test             # builds plugin, runs Cucumber core scenarios and adapter/B
 npm run typecheck
 ```
 
-BB's `bb plugin logs google-calendar` records bounded stage/status categories for failed identity checks, partial calendar discovery/search, and agent tool failures. It never records raw Google messages, account addresses, OAuth secrets, or tool arguments. A connected identity is not proof that a Calendar API read will succeed; verify with a harmless read. Provider failures are covered by synthetic host tests; an installed invalid-recurrence diagnostic was also checked in a credential-free BB preview. See [verification and remaining delivery limits](docs/recurring-creation-verification.md).
+BB's `bb plugin logs google-calendar` records bounded stage/status categories for failed identity checks, partial calendar discovery/search, and agent tool failures. It never records raw Google messages, account addresses, OAuth secrets, or tool arguments. A connected identity is not proof that a Calendar API read will succeed; verify with a harmless read. Provider failures and safe recurrence diagnostics are covered by synthetic host tests; native approvals are checked in a credential-free disposable BB with no Google adapter. See [verification and remaining delivery limits](docs/recurring-creation-verification.md).
 
-The core is in `core/`; `adapters/` contain Google HTTP and BB storage. Gherkin scenarios in `features/` drive the core through fake ports. Managed installation, HTTPS callback and multiple real account connections have previously been verified. Recurring creation has automated and isolated rendered verification; production application and native thread placement remain unverified. A public callback accepts only an expiring, one-use state/PKCE grant initiated from BB; keep the whole BB installation private and single-user.
+The core is in `core/`; `adapters/` contain Google HTTP and BB storage. Gherkin scenarios in `features/` drive the core through fake ports. Managed installation, HTTPS callback and multiple real account connections have previously been verified. Recurring creation has automated and isolated native-thread rendered verification. Actual Google series expansion remains unverified; payload tests are not provider write/readback evidence. A public callback accepts only an expiring, one-use state/PKCE grant initiated from BB; keep the whole BB installation private and single-user.

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { approvalChoice } from '../approval-model.mjs';
-import { prepareRecurrence } from './recurrence.mjs';
+import { prepareRecurrence, recurrencePreview } from './recurrence.mjs';
+import { nextDate } from './event-time.mjs';
 
 export const SCOPES = Object.freeze([
   'openid', 'email',
@@ -29,10 +30,6 @@ const keyFor = (event, calendarId) => {
   return event.iCalUID ? `uid:${event.iCalUID}:${start}` : `event:${calendarId}:${event.id}:${start}`;
 };
 const source = (account, calendarId, summary, eventId) => ({ account, calendarId, calendarSummary: summary || calendarId, eventId });
-const nextDate = (date) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) throw new Error('Invalid all-day start date');
-  return new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
-};
 
 // Ports: store (accounts/pending grants), oauth (Web authorization), calendar (provider calls),
 // approve (a real BB user interaction), and clock. No BB or Google SDK types enter this core.
@@ -208,7 +205,7 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
     const max = limit(args.maxResults);
     return { events: sorted.slice(0, max), count: Math.min(sorted.length, max), truncated: sorted.length > max, failures };
   }
-  async function approval(operation, args, record) {
+  async function approval(operation, args, record, repeat) {
     // Context is a read-only snapshot, not a precondition or a second consent gate.
     // Missing context must never suppress the proposal or imply an old value.
     const context = { currentEvent: null, calendarName: null, destinationCalendarName: null };
@@ -245,7 +242,7 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
       context.calendarName = name(args.calendarId);
       if (args.moveToCalendarId) context.destinationCalendarName = name(args.moveToCalendarId);
     } catch (error) { diagnose('approval_calendar_read', error); }
-    const allowed = await approve({ operation, account: record.email, calendarId: args.calendarId, details: args, context });
+    const allowed = await approve({ operation, account: record.email, calendarId: args.calendarId, details: args, context, ...(repeat ? { recurrencePreview: recurrencePreview(repeat.normalized, args) } : {}) });
     const choice = approvalChoice(allowed === true ? { approved: true } : allowed);
     if (!choice.approved) throw new Error('Calendar change was not approved');
     return choice.notifyAttendees ? 'all' : 'none';
@@ -264,7 +261,7 @@ export function createCalendarService({ store, oauth, calendar, approve = async 
       ...(recurrence ? { recurrence: [recurrence.rule] } : {}) };
     // Review the effective dates, including the exact all-day default that will be sent.
     const sendUpdates = await approval('create', { ...args, end: args.allDay ? event.end.date : args.end,
-      ...(recurrence ? { recurrence: recurrence.normalized } : {}) }, record);
+      ...(recurrence ? { recurrence: recurrence.normalized } : {}) }, record, recurrence);
     return { account: record.email, calendarId, sendUpdates, event: await calendar.insertEvent(record, calendarId, event, sendUpdates) };
   }
   async function updateEvent(args) {
