@@ -5,12 +5,12 @@ establish which plugin generation a BB installation is running. Applying an
 update is separate from permission to change a real spreadsheet.
 
 This surface changes entered values in one existing native Sheets rectangle.
-It has no formula input, imports, structural changes, formatting commands,
+It has no formula input, imports, structural changes, arbitrary formatting commands,
 sharing, notifications or arbitrary Google batch requests. Strings beginning
 with `=`, `+`, `-` or `@` remain literal strings. Numbers and booleans stay typed;
 null and empty text clear values. Existing date/currency formats remain, so use
 the underlying numeric serial/amount only when the user intends that value.
-Date/CAD creation objects are not accepted by editing.
+Explicit `{date: "YYYY-MM-DD"}` civil dates (1900–2100) and `{cad: number}` are also accepted. By default they write the date serial or numeric amount while preserving the existing format. Set `formatTypedValues: true` only when explicitly requested: the review shows each typed cell’s existing number format and the fixed DATE or CAD format to apply. Primitive and null cells never receive a format change.
 
 ## Protocol
 
@@ -25,7 +25,7 @@ Date/CAD creation objects are not accepted by editing.
    mandatory and unaffected by the Docs replacement approval setting. An edit
    cannot apply without its saved preview. Proposals expire after ten minutes.
 4. Only `outcome: verified` means an acknowledged provider response followed by
-   exact bounded readback. It does not certify the rest of the spreadsheet or
+   exact bounded value, format and note readback. It does not certify the rest of the spreadsheet or
    exclude a concurrent overwrite. Return the spreadsheet link.
 
 Limits: 100 cells, 20 columns, 100 rows, rectangular input, 2000 UTF-16 units per
@@ -49,11 +49,11 @@ may be overwritten and asks for a quiet editing window. No false race-free
 promise, rollback or automatic retry is made.
 
 The adapter constructs exactly one typed `updateCells` request, using a start
-coordinate, a complete matrix and the field mask `userEnteredValue`. No caller
+coordinate, a complete matrix and the field mask `userEnteredValue`, followed in the same batch by number-format-only updates for explicitly requested typed cells. No caller
 can supply Google request objects or field masks. [Google's cell contract](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/cells)
 says changing a value erases text/chip runs, so inspection rejects them. The
-request leaves formatting, notes, unrelated cells/tabs and metadata outside its
-write mask. Readback compares target entered values and retained cell
+request leaves notes, unrelated formatting, cells/tabs and metadata outside its
+write masks. Readback compares target entered values and retained cell
 formatting/notes plus tab metadata; it does not read every unrelated cell or
 prove that Google/collaborators changed nothing elsewhere.
 

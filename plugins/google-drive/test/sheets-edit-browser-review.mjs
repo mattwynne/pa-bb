@@ -23,9 +23,9 @@ for (const { id: threadId, state } of threads) {
   if (evidence.overflow || evidence.link) throw Error(`Overflow or real Google link: ${state}`);
   if (state === 'invalid') { if (!evidence.disabled || !evidence.text.includes('incomplete')) throw Error('Invalid card approvable'); }
   else {
-    if (evidence.disabled || evidence.detailsOpen || !evidence.text.includes('owner@example.test') || !evidence.text.includes('cannot prevent') || !evidence.text.includes('Cell formatting and notes stay')) throw Error(`Missing target/limits: ${state}`);
+    if (evidence.disabled || evidence.detailsOpen || !evidence.text.includes('owner@example.test') || !evidence.text.includes('cannot prevent') || !evidence.text.includes('Notes and other formatting stay')) throw Error(`Missing target/limits: ${state}`);
     if (state === 'clear' && !evidence.text.includes('Blank (clear)')) throw Error('Clear not shown');
-    if (state === 'values' && (!evidence.text.includes('Literal string: "=SUM(A1:A2)"') || !evidence.text.includes('Boolean: true'))) throw Error('Typed values missing');
+    if (state === 'values' && (!evidence.text.includes('Literal string: "=SUM(A1:A2)"') || !evidence.text.includes('Boolean: true') || !evidence.text.includes('DATE yyyy-mm-dd') || !evidence.text.includes('CURRENCY'))) throw Error('Typed values missing');
     if (state === 'long' && !evidence.text.includes('<script>synthetic & safe</script>')) throw Error('Escaped long value missing');
     await p.focus(`${sel} summary`); await p.keyboard.press('Enter');
     if (!await p.evaluate(() => document.querySelector('.pa-drive__sheets-review details').open)) throw Error('Keyboard disclosure failed');
@@ -35,7 +35,7 @@ for (const { id: threadId, state } of threads) {
   const cancel = state === 'clear', decline = state === 'invalid' || state === 'long';
   await p.focus(`${sel} button:nth-child(${cancel ? 3 : decline ? 2 : 1})`);
   const focus = await p.evaluate(() => ({ text: document.activeElement.textContent, outline: getComputedStyle(document.activeElement).outlineStyle }));
-  if (focus.outline === 'none' || focus.text !== (cancel ? 'Cancel review' : decline ? 'Decline' : 'Approve values')) throw Error(`Keyboard focus missing: ${state}`);
+  if (focus.outline === 'none' || focus.text !== (cancel ? 'Cancel review' : decline ? 'Decline' : 'Approve edit')) throw Error(`Keyboard focus missing: ${state}`);
   await p.keyboard.press('Enter');
   if (state === 'busy') {
     await p.waitForFunction(() => document.querySelector('.pa-drive__sheets-review')?.getAttribute('aria-busy') === 'true');

@@ -1,5 +1,5 @@
 import { createDocsTransport, rejection } from './docs-transport.mjs';
-import { editRequest, sheetsEditError } from '../core/sheets-edit.mjs';
+import { editRequests, sheetsEditError } from '../core/sheets-edit.mjs';
 const BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 const column = index => { let name = ''; for (let n = index + 1; n; n = Math.floor((n - 1) / 26)) name = String.fromCharCode(65 + (n - 1) % 26) + name; return name; };
 const policy = {
@@ -24,8 +24,8 @@ export function createSheetsEditAdapter({ verifiedAccess, fetchImpl = fetch }) {
     async prepareWrite(record) {
       const post = await transport.prepareWrite(record, policy);
       return { update(input, signal) {
-        const request = editRequest(input);
-        return post(`${BASE}/${encodeURIComponent(input.spreadsheetId)}:batchUpdate`, { requests: [request] }, signal);
+        const requests = editRequests(input);
+        return post(`${BASE}/${encodeURIComponent(input.spreadsheetId)}:batchUpdate`, { requests }, signal);
       } };
     },
   };

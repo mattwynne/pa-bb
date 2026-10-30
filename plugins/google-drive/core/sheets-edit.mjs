@@ -1,7 +1,8 @@
 // One rectangle of literal values. Sheets has no revision/CAS write control.
 import { z } from 'zod';
 import { hash, fileId } from './native-create.mjs';
-import { cellData, SHEETS_MIME } from './sheets.mjs';
+import { SHEETS_MIME } from './sheets.mjs';
+import { cellData } from './sheets-cells.mjs';
 import { docsError } from './docs-edit.mjs';
 import { docsApprovalDecision } from './docs-approval.mjs';
 export const EDIT_CELLS = 100;
@@ -9,15 +10,15 @@ const index = z.number().int().min(0).max(10_000_000);
 const account = z.string().min(1).max(320);
 const sheetId = z.number().int().min(0).max(2_147_483_647);
 const target = { account, spreadsheetId: z.string().regex(/^[\w-]{1,256}$/), sheetId, startRow: index, startColumn: index };
-const literal = z.union([z.string().max(2000), z.number(), z.boolean(), z.null()]);
+const literal = z.union([z.string().max(2000), z.number(), z.boolean(), z.null(), z.object({ date: z.string().length(10).regex(/^\d{4}-\d{2}-\d{2}$/) }).strict(), z.object({ cad: z.number() }).strict()]);
 export const editInspectSchema = z.object({ ...target, rowCount: z.number().int().min(1).max(100), columnCount: z.number().int().min(1).max(20) }).strict().refine(a => a.rowCount * a.columnCount <= EDIT_CELLS);
 export const editStatusSchema = z.object({ account, operationId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/) }).strict();
 export const editRangeSchema = z.object({ ...target, operationId: editStatusSchema.shape.operationId,
-  expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/), values: z.array(z.array(literal).min(1).max(20)).min(1).max(100), preview: z.boolean().default(true),
+  expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/), values: z.array(z.array(literal).min(1).max(20)).min(1).max(100), formatTypedValues: z.boolean().default(false), preview: z.boolean().default(true),
 }).strict().refine(a => a.values.every(r => r.length === a.values[0].length) && a.values.length * a.values[0].length <= EDIT_CELLS
   && a.values.flat().reduce((n, c) => n + (typeof c === 'string' ? c.length : 0), 0) <= 20000);
 const messages = {
-  invalid: 'Use an explicit account, spreadsheet/tab IDs, zero-based range, inspected fingerprint and single-use lowercase UUID v4. Supply a rectangular matrix of at most 100 literal cells, 20 columns, 2000 UTF-16 units per cell and 20000 total. No formula/date/currency objects or arbitrary requests.',
+  invalid: 'Use an explicit account, spreadsheet/tab IDs, zero-based range, inspected fingerprint and single-use lowercase UUID v4. Supply a rectangular matrix of at most 100 literal cells, 20 columns, 2000 UTF-16 units per cell and 20000 total. Use explicit {date} or {cad} objects; no formulas or arbitrary requests.',
   unsupported: 'Editing supports ordinary literal cells only. Formula/calculated cells, rich text, chips, validation, pivot/data-source cells, merged/protected ranges and tables are rejected. Use a smaller ordinary range or edit in Google Sheets.',
   stale: 'The inspected range or tab metadata changed. Nothing new was submitted. Inspect again and prepare a separately requested proposal.',
   conflict: 'This operationId belongs to another account or request. Recover the original operation; never replace the key to bypass uncertainty.',
@@ -33,18 +34,31 @@ const parse = (schema, args) => { const p = schema.safeParse(args); if (!p.succe
 const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, stable(value[k])])) : value;
 const digest = value => hash(JSON.stringify(stable(value)));
 const clone = value => structuredClone(value);
+const isEmptyReply = reply => !!reply && typeof reply === 'object' && !Array.isArray(reply) && Object.keys(reply).length === 0;
 export const SHEETS_RACE_WARNING = 'Google Sheets has no revision/CAS guard. A fresh comparison detects earlier changes but cannot prevent a collaborator editing between comparison and submission. This may overwrite a concurrent edit. Use a quiet editing window. Dependent formulas elsewhere may recalculate.';
 export function literalRows(values) {
   // Validate here too: the internal adapter never accepts raw batch requests.
   parse(editRangeSchema, { account: 'validation', spreadsheetId: 'validation', sheetId: 0, startRow: 0, startColumn: 0,
     operationId: '00000000-0000-4000-8000-000000000000', expectedFingerprint: '0'.repeat(64), values });
-  try { return values.map(row => row.map(value => cellData(value))); } catch { throw sheetsEditError('invalid'); }
+  try { return values.map(row => row.map(value => { const { userEnteredValue } = cellData(value); return userEnteredValue ? { userEnteredValue } : {}; })); } catch { throw sheetsEditError('invalid'); }
 }
 export function editRequest(input) {
   if (!input || Object.keys(input).some(k => !['spreadsheetId', 'sheetId', 'startRow', 'startColumn', 'values'].includes(k)) || !fileId(input.spreadsheetId)
     || !sheetId.safeParse(input.sheetId).success || ![input.startRow, input.startColumn].every(v => index.safeParse(v).success)) throw sheetsEditError('invalid');
   return { updateCells: { start: { sheetId: input.sheetId, rowIndex: input.startRow, columnIndex: input.startColumn },
     rows: literalRows(input.values).map(values => ({ values })), fields: 'userEnteredValue' } };
+}
+// One value rectangle plus tightly scoped number-format-only updates in one batch.
+export function editRequests(input) {
+  const { formatTypedValues = false, ...target } = input;
+  if (typeof formatTypedValues !== 'boolean') throw sheetsEditError('invalid');
+  const requests = [editRequest(target)];
+  if (formatTypedValues) input.values.forEach((row, y) => row.forEach((value, x) => {
+    const format = cellData(value).userEnteredFormat?.numberFormat;
+    if (format) requests.push({ updateCells: { start: { sheetId: input.sheetId, rowIndex: input.startRow + y, columnIndex: input.startColumn + x },
+      rows: [{ values: [{ userEnteredFormat: { numberFormat: format } }] }], fields: 'userEnteredFormat.numberFormat' } });
+  }));
+  return requests;
 }
 export function inspectEditableGrid(meta, data, args) {
   const fail = () => { throw sheetsEditError('unsupported'); };
@@ -117,7 +131,12 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
   async function update(input, signal) {
     const args = parse(editRangeSchema, input), rows = literalRows(args.values), record = await accountRecord(args);
     const range = { sheetId: args.sheetId, startRow: args.startRow, startColumn: args.startColumn, rowCount: rows.length, columnCount: rows[0].length };
-    const requestHash = digest({ subject: record.subject, spreadsheetId: args.spreadsheetId, range, expectedFingerprint: args.expectedFingerprint, rows });
+    const hasTypedValues = args.values.flat().some(value => value && typeof value === 'object');
+    const requestHash = digest({
+      subject: record.subject, spreadsheetId: args.spreadsheetId, range, expectedFingerprint: args.expectedFingerprint, rows,
+      ...(hasTypedValues ? { typedValues: args.values } : {}),
+      ...(args.formatTypedValues ? { formatTypedValues: true } : {}),
+    });
     let op = await operations.get(args.operationId);
     if (op && (op.subject !== record.subject || op.requestHash !== requestHash)) throw sheetsEditError('conflict');
     if (op && op.state !== 'proposed') return receipt(op);
@@ -125,7 +144,11 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
     const before = await load({ ...args, ...range }, record);
     if (digest(before) !== args.expectedFingerprint) throw sheetsEditError('stale');
     const after = clone(before);
-    after.rows.forEach((row, r) => row.forEach((cell, c) => { delete cell.userEnteredValue; Object.assign(cell, rows[r][c]); }));
+    after.rows.forEach((row, r) => row.forEach((cell, c) => {
+      delete cell.userEnteredValue; Object.assign(cell, rows[r][c]);
+      const format = args.formatTypedValues ? cellData(args.values[r][c]).userEnteredFormat?.numberFormat : undefined;
+      if (format) cell.userEnteredFormat = { ...cell.userEnteredFormat, numberFormat: format };
+    }));
     if (digest(before) === digest(after)) throw sheetsEditError('invalid');
     if (!op) {
       op = { operationId: args.operationId, subject: record.subject, spreadsheetId: args.spreadsheetId, range, requestHash,
@@ -137,7 +160,7 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
       }
     }
     const proposal = { account: record.email, spreadsheetId: args.spreadsheetId, title: before.title, tabTitle: before.tabs.find(t => t.sheetId === args.sheetId).title,
-      operationId: op.operationId, range, before: before.rows.map(row => row.map(c => c.userEnteredValue || null)), values: args.values, concurrency: SHEETS_RACE_WARNING };
+      operationId: op.operationId, range, before: before.rows.map(row => row.map(c => c.userEnteredValue || null)), values: args.values, formatTypedValues: args.formatTypedValues, beforeFormats: before.rows.map(row => row.map(c => c.userEnteredFormat?.numberFormat || null)), concurrency: SHEETS_RACE_WARNING };
     if (args.preview) return { ...receipt(op, 'preview'), receiptOnly: false, proposal, writeAttempted: false };
     if (!await operations.claim(op.operationId, op.spreadsheetId)) {
       const current = await operations.get(op.operationId);
@@ -172,6 +195,9 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
       const current = await load({ ...args, ...range }, currentRecord);
       if (digest(current) !== op.beforeHash) return await finish('conflict');
       if (signal?.aborted) return await finish('cancelled');
+      const writeInput = { spreadsheetId: args.spreadsheetId, sheetId: args.sheetId, startRow: args.startRow,
+        startColumn: args.startColumn, values: args.values, formatTypedValues: args.formatTypedValues };
+      const expectedReplyCount = editRequests(writeInput).length;
       // Durable claim precedes the only possible mutation. No compare-and-swap
       // is available at Google: this final comparison cannot close the race.
       if (!await operations.start({ ...op, state: 'writing', writeAttempted: true })) {
@@ -180,13 +206,15 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
       }
       op.state = 'writing'; op.writeAttempted = true; writing = true;
       let response;
-      try { response = await writer.update({ spreadsheetId: args.spreadsheetId, sheetId: args.sheetId, startRow: args.startRow, startColumn: args.startColumn, values: args.values }, signal); }
+      try { response = await writer.update(writeInput, signal); }
       catch (error) {
         diagnose('sheets_edit_write', error);
         if (error?.sheetsWriteAttempted === false) { writing = false; op.writeAttempted = false; op.failureReason = sheetsEditCategory(error); return await finish('not_submitted'); }
         return await finish(error?.sheetsRejected === true ? 'rejected' : 'uncertain');
       }
-      if (response?.spreadsheetId !== args.spreadsheetId || !Array.isArray(response.replies) || response.replies.length !== 1 || !response.replies[0] || typeof response.replies[0] !== 'object' || Array.isArray(response.replies[0]) || Object.keys(response.replies[0]).length !== 0) { diagnose('sheets_edit_write_response', undefined); return await finish('uncertain'); }
+      const validResponse = response?.spreadsheetId === args.spreadsheetId && Array.isArray(response.replies)
+        && response.replies.length === expectedReplyCount && response.replies.every(isEmptyReply);
+      if (!validResponse) { diagnose('sheets_edit_write_response', undefined); return await finish('uncertain'); }
       op.acknowledged = true;
       const observed = await load({ ...args, ...range }, record);
       const matches = digest(observed) === op.afterHash;

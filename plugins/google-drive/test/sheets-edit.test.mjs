@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
-import { createSheetsEditService, editRequest } from '../core/sheets-edit.mjs';
+import { createSheetsEditService, editRequest, editRangeSchema } from '../core/sheets-edit.mjs';
 import { createSheetsEditStore, SHEETS_EDIT_MIGRATION } from '../adapters/sheets-edit-store.mjs';
 import { createSheetsEditAdapter } from '../adapters/sheets-edit.mjs';
+import { hash } from '../core/native-create.mjs';
 import { registerSheetsEditTools } from '../sheets-edit-tools.ts';
 const account = 'synthetic@example.test', target = { account, spreadsheetId: 'sheet-a', sheetId: 7, startRow: 2, startColumn: 1, rowCount: 2, columnCount: 2 };
 const seed = () => ({ spreadsheetId: 'sheet-a', properties: { title: 'Private synthetic workbook' }, sheets: [{ properties: { sheetId: 7, title: "Plan's A1", index: 0, sheetType: 'GRID', gridProperties: { rowCount: 20, columnCount: 10 } } }, { properties: { sheetId: 8, title: 'Other', index: 1, sheetType: 'GRID', gridProperties: { rowCount: 30, columnCount: 12 } } }] });
@@ -23,16 +24,17 @@ async function setup(options = {}) {
     if (u.pathname.endsWith(':batchUpdate')) {
       writes++; options.inRace?.(meta, cells);
       const body = JSON.parse(init.body);
-      assert.deepEqual(Object.keys(body), ['requests']); assert.equal(body.requests.length, 1);
+      assert.deepEqual(Object.keys(body), ['requests']);
       const q = body.requests[0].updateCells;
       assert.equal(q.fields, 'userEnteredValue'); assert.deepEqual(q.start, { sheetId: 7, rowIndex: 2, columnIndex: 1 });
       if (options.status) return Response.json({ private: 'SENTINEL-body-token' }, { status: options.status });
       q.rows.forEach((row, y) => row.values.forEach((value, x) => { delete cells[y][x].userEnteredValue; Object.assign(cells[y][x], value); }));
+      for (const request of body.requests.slice(1)) { const f = request.updateCells; assert.equal(f.fields, 'userEnteredFormat.numberFormat'); const cell = cells[f.start.rowIndex - 2][f.start.columnIndex - 1]; cell.userEnteredFormat = { ...cell.userEnteredFormat, numberFormat: f.rows[0].values[0].userEnteredFormat.numberFormat }; }
       options.afterWrite?.(meta, cells);
       if (options.lost) throw new Error('SENTINEL-provider-token');
       if (options.verifyFailure) failRead = true;
       if (options.onSubmitted) await options.onSubmitted(init.signal);
-      return options.badResponse ? Response.json({ private: 'SENTINEL-body' }) : options.oversize ? new Response('x'.repeat(1048577)) : Response.json({ spreadsheetId: 'sheet-a', replies: options.reply ? [options.reply] : options.nullReply ? [null] : [{}] });
+      return options.badResponse ? Response.json({ private: 'SENTINEL-body' }) : options.oversize ? new Response('x'.repeat(1048577)) : Response.json({ spreadsheetId: 'sheet-a', replies: options.reply ? [options.reply] : options.nullReply ? [null] : body.requests.map(() => ({})) });
     }
     if (u.pathname === '/v4/spreadsheets/sheet-a') {
       reads++; if (failRead || options.readFailure) throw Object.assign(new Error('SENTINEL-provider-private'), { cause: 'SENTINEL-token' });
@@ -84,7 +86,7 @@ test('boundaries reject ragged/oversized matrices, formulas/objects, extra reque
   const h = await setup();
   try {
     const a = await h.input();
-    for (const values of [[], [[]], [[1], [1, 2]], [Array(21).fill(1)], Array.from({ length: 6 }, () => Array(20).fill(1)), [[{ formulaValue: '=1' }]], [[{ date: '2026-01-01' }]], [[Infinity]], [['\ud800']], [['\u0000']], [['a'.repeat(2001)]], Array.from({ length: 11 }, () => ['x'.repeat(2000)])]) await assert.rejects(h.service.update({ ...a, values }));
+    for (const values of [[], [[]], [[1], [1, 2]], [Array(21).fill(1)], Array.from({ length: 6 }, () => Array(20).fill(1)), [[{ formulaValue: '=1' }]], [[{ date: '2026-02-30' }]], [[{ cad: Infinity }]], [[Infinity]], [['\ud800']], [['\u0000']], [['a'.repeat(2001)]], Array.from({ length: 11 }, () => ['x'.repeat(2000)])]) await assert.rejects(h.service.update({ ...a, values }));
     await assert.rejects(h.service.update({ ...a, requests: [] }));
     for (const patch of [{ sheetId: 8 }, { startRow: 999 }, { rowCount: 101 }, { account: 'missing@example.test' }]) await assert.rejects(h.service.inspect({ ...target, ...patch }));
     for (const patch of [{ requests: [] }, { values: [[{ formulaValue: '=1' }]] }]) assert.throws(() => editRequest({ spreadsheetId: 'sheet-a', sheetId: 7, startRow: 2, startColumn: 1, values: [[1]], ...patch }));
@@ -234,4 +236,55 @@ test('false conditional claims report durable terminal/in-flight state rather th
       const r = await h.service.update({ ...a, preview: false }); assert.equal(r.outcome, mode === 'completed-before-claim' ? 'verified' : mode === 'start-refused' ? 'reviewing' : 'not_claimed'); assert.equal(h.writes, 0); assert.equal(r.blockingOperationId, undefined); if (mode === 'claim-refused') assert.match(r.guidance, /No durable claim was obtained/);
     } finally { await h.close(); }
   }
+});
+
+test('typed values preserve formats by default and apply only explicitly requested formats', async () => {
+  for (const formatted of [false, true]) {
+    let proposal; const h = await setup({ approval: (_m,_c,p) => { proposal = p; } });
+    try { const a = await h.input(); a.values = [[{date:'2024-02-29'}, 'literal'], [{cad:-12.5}, null]];
+      const before = structuredClone(h.cells); const preview = await h.service.update({ ...a, formatTypedValues: formatted });
+      assert.equal(preview.proposal.formatTypedValues, formatted);
+      await assert.rejects(h.service.update({ ...a, formatTypedValues: !formatted, preview: false }), e => e.sheetsEditCode === 'conflict');
+      const result = await h.service.update({ ...a, formatTypedValues: formatted, preview: false }); assert.equal(result.outcome, 'verified');
+      assert.equal(h.cells[0][0].userEnteredValue.numberValue, 45351); assert.equal(h.cells[1][0].userEnteredValue.numberValue, -12.5);
+      assert.deepEqual(h.cells[0][0].userEnteredFormat.textFormat, before[0][0].userEnteredFormat.textFormat); assert.equal(h.cells[0][0].note, before[0][0].note);
+      assert.deepEqual(h.cells[0][1].userEnteredFormat, before[0][1].userEnteredFormat);
+      assert.equal(h.cells[0][0].userEnteredFormat.numberFormat.type, formatted ? 'DATE' : 'TEXT');
+      assert.equal(h.cells[1][0].userEnteredFormat.numberFormat.pattern, formatted ? '\"CAD \"#,##0.00;[Red]-\"CAD \"#,##0.00' : before[1][0].userEnteredFormat.numberFormat.pattern);
+      assert.equal(proposal.formatTypedValues, formatted); assert.equal(h.writes, 1);
+    } finally { await h.close(); }
+  }
+});
+test('typed format mismatch is unverified and lost response stays locked', async () => {
+  for (const options of [{ afterWrite: (_m,c) => c[0][0].userEnteredFormat.numberFormat = {type:'TEXT'} }, {lost:true}]) {
+    const h = await setup(options); try { const a = await h.input(); a.values[0][0] = {date:'1900-01-01'}; a.formatTypedValues = true;
+      await h.service.update(a); const r = await h.service.update({...a,preview:false}); assert.equal(r.outcome, options.lost ? 'uncertain' : 'unverified');
+      const status = await h.service.status({account,operationId:a.operationId}); if (options.lost) { assert.equal(status.outcome,'observed_matching'); assert.equal(status.unresolvedLock,true); }
+      await h.service.update({...a,preview:false}); assert.equal(h.writes,1); safe(h);
+    } finally { await h.close(); }
+  }
+});
+
+test('pre-existing primitive proposal hash remains applicable with omitted or false option', async () => {
+  const h = await setup(); try { const a = await h.input(); await h.service.update(a);
+    const op = await h.operations.get(a.operationId);
+    const stable = v => Array.isArray(v) ? v.map(stable) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, stable(v[k])])) : v;
+    const rows = [[{userEnteredValue:{stringValue:'=literal'}},{userEnteredValue:{boolValue:true}}],[{userEnteredValue:{numberValue:75}},{}]];
+    const legacy = hash(JSON.stringify(stable({subject:'subject-a',spreadsheetId:a.spreadsheetId,range:op.range,expectedFingerprint:a.expectedFingerprint,rows})));
+    assert.equal(op.requestHash,legacy); assert.equal((await h.service.update({...a,formatTypedValues:false,preview:false})).outcome,'verified');
+  } finally { await h.close(); }
+});
+
+test('oversized typed dates fail schema before account, provider, or approval work', async () => {
+  const h = await setup();
+  try {
+    const a = await h.input();
+    const calls = h.calls.length; let accountReads = 0;
+    h.accounts.byEmail = async () => { accountReads++; throw Error('unexpected account lookup'); };
+    const invalid = { ...a, values: [[{ date: '2026-01-01' + 'x'.repeat(50000) }]] };
+    assert.equal(editRangeSchema.safeParse(invalid).success, false);
+    await assert.rejects(h.service.update(invalid), e => e.sheetsEditCode === 'invalid');
+    assert.equal(accountReads, 0); assert.equal(h.calls.length, calls);
+    assert.equal(h.approvals, 0); assert.equal(h.writes, 0);
+  } finally { await h.close(); }
 });

@@ -72,7 +72,8 @@ Use `gsheets_inspect_for_edit`, then preview and apply `gsheets_update_range`
 with the same operationId and exact arguments. Follow the separate
 [Sheets editing skill](../google-sheets-editing/SKILL.md) for bounds, mandatory
 owner review, preservation and read-only recovery with `gsheets_edit_status`.
-Editing accepts only literal string/number/boolean/null values, not the creation
-date/CAD objects. Existing number formats remain. Formula editing is unsupported.
+Editing accepts literal string/number/boolean/null and explicit date/CAD objects. Existing number formats remain by default. Formula editing is unsupported.
 Google provides no revision/CAS write guard; a collaborator can still race after
 comparison. Never claim that matching lost-response values establish success.
+
+For existing-range edits, explicit `{date: "YYYY-MM-DD"}` and `{cad: number}` values preserve the existing number format by default. Set `formatTypedValues: true` only when the user requests date/CAD number formats; review shows the affected cells and formats.

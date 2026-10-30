@@ -26,12 +26,18 @@ const p = { account: 'owner@example.test', spreadsheetId: 'sheet-a', operationId
 const render = payload => renderToStaticMarkup(createElement(SheetsEditApproval, { interaction: { id: 'fixture', payload }, submit: async () => {}, cancel: async () => {} }));
 test('exact typed before/after, coordinates, clearing, warning and preservation with escaped strings', () => {
   const html = render(p);
-  for (const text of ['owner@example.test','B3','C3','Literal string:','Boolean: false','Blank (clear)','=SUM(A1)','No revision/CAS','Cell formatting and notes stay','Approve values','Cancel review']) assert.ok(html.includes(text), text);
+  for (const text of ['owner@example.test','B3','C3','Literal string:','Boolean: false','Blank (clear)','=SUM(A1)','No revision/CAS','Notes and other formatting stay','Approve edit','Cancel review']) assert.ok(html.includes(text), text);
   assert.doesNotMatch(html, /<script>/); assert.match(html, /&lt;script&gt;/); assert.match(html, /spreadsheets\/d\/sheet-a\/edit#gid=7/);
 });
 test('incomplete/malformed approvals fail closed and synthetic examples have no live Google link', () => {
-  for (const payload of [null, {}, { ...p, values: [[1]] }, { ...p, before: [[{}, null]] }, { ...p, values: [[{ formulaValue: '=1' }, null]] }, { ...p, spreadsheetId: 'javascript:bad' }]) {
-    const html = render(payload); assert.match(html, /details are incomplete/); assert.match(html, /disabled=""[^>]*>Approve values/); assert.doesNotMatch(html, /href=/);
+  for (const payload of [null, {}, { ...p, values: [[1]] }, { ...p, before: [[{}, null]] }, { ...p, values: [[{ formulaValue: '=1' }, null]] }, { ...p, spreadsheetId: 'javascript:bad' }, { ...p, values: [[{date:'2024-02-29'}, null]], formatTypedValues: true }]) {
+    const html = render(payload); assert.match(html, /details are incomplete/); assert.match(html, /disabled=""[^>]*>Approve edit/); assert.doesNotMatch(html, /href=/);
   }
   const html = render({ ...p, exampleOnly: true }); assert.match(html, /Every choice is a no-op/); assert.doesNotMatch(html, /href=/);
+});
+
+test('typed date and CAD format changes are explicit in approval', () => {
+  const html = render({ ...p, values: [[{date: '2024-02-29'}, {cad: 12.5}]], formatTypedValues: true, beforeFormats: [[{type:'TEXT'}, null]] });
+  for (const text of ['Civil date: 2024-02-29', 'CAD amount: 12.5', 'Number format before:', 'DATE yyyy-mm-dd', 'CURRENCY']) assert.ok(html.includes(text), text);
+  const preserved = render({ ...p, values: [[{date:'2024-02-29'}, {cad:12.5}]], formatTypedValues: false }); assert.match(preserved, /Existing number formats stay/);
 });

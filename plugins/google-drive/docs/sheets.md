@@ -60,8 +60,7 @@ responses share the existing 1 MiB bounded transport, and returned raw cell
 JSON is additionally capped at 100,000 UTF-16 units. Smaller valid ranges are
 the read-only workaround. For a separately requested existing-cell edit, follow
 the [bounded editing protocol](sheets-editing.md): inspection, exact preview,
-mandatory owner review and read-only recovery. It does not accept formulas,
-creation date/CAD objects or arbitrary batch requests.
+mandatory owner review and read-only recovery. It accepts explicit date/CAD objects, preserves existing formats by default, and can apply their fixed number formats only when explicitly requested and reviewed. It does not accept formulas or arbitrary batch requests.
 
 ## Durable creation and verification
 
