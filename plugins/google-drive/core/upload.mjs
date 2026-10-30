@@ -3,19 +3,24 @@ import { creationKey, fileId, hash, validTitle } from './native-create.mjs';
 export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 export const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 export const SHEET = 'application/vnd.google-apps.spreadsheet';
+export const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export const PPTX = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+export const DOC = 'application/vnd.google-apps.document', SLIDES = 'application/vnd.google-apps.presentation';
+export const conversionTypes = Object.freeze({ xlsx_to_sheet: { source: XLSX, result: SHEET }, docx_to_doc: { source: DOCX, result: DOC }, pptx_to_slides: { source: PPTX, result: SLIDES } });
+export const uploadUrl = (id, mime) => mime === DOC ? `https://docs.google.com/document/d/${id}/edit` : mime === SLIDES ? `https://docs.google.com/presentation/d/${id}/edit` : mime === SHEET ? `https://docs.google.com/spreadsheets/d/${id}/edit` : `https://drive.google.com/file/d/${id}/view`;
 const target = { account: z.string().min(1).max(320), operationId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/) };
 export const uploadParameters = z.object({ ...target,
   source: z.object({ host: z.literal('bb-server'), threadId: z.string().regex(/^thr_[a-z0-9]+$/), path: z.string().min(1).max(1024) }).strict().describe('One explicitly requested file relative to this thread’s supported server storage root. Not a client/remote-host path.'),
   expectedSha256: z.string().regex(/^[a-f0-9]{64}$/), folderId: z.string().regex(/^[\w-]{1,256}$/),
   name: z.string().min(1).max(255), mimeType: z.string().min(3).max(255).describe('Explicit ordinary source MIME, never a Google-native type.'),
-  mode: z.enum(['binary', 'xlsx_to_sheet']).default('binary'), preview: z.boolean().default(true),
+  mode: z.enum(['binary', 'xlsx_to_sheet', 'docx_to_doc', 'pptx_to_slides']).default('binary'), preview: z.boolean().default(true),
 }).strict();
 export const uploadStatusParameters = z.object(target).strict();
 const messages = {
-  invalid: 'Select one requested file, explicit ordinary MIME/name, destination, source SHA-256 and lowercase UUID v4. XLSX conversion must be explicit.',
+  invalid: 'Select one requested file, explicit ordinary MIME/name, destination, source SHA-256 and lowercase UUID v4. XLSX, DOCX or PPTX conversion must be explicit with its exact source MIME.',
   source: 'Source is unavailable or unsafe. Only a regular, single-link file in supported local BB-server thread storage is accepted; no hidden/secret paths, symlinks, devices or remote/client files. Maximum 4 MiB.',
   changed: 'The selected source file/version changed. No upload was submitted. Inspect it before making a separately requested operation; do not bypass uncertainty with a new key.',
-  conversion: 'This XLSX is outside the conservative import boundary (structure, archive size, macros, links, connections or unsupported formulas). Raw binary upload remains separate; no conversion was submitted.',
+  conversion: 'This source is outside the conservative XLSX/DOCX/PPTX import boundary (format, structure, archive size, active content, macros, links, connections or unsupported features/formulas). Raw binary upload remains a separate explicit request; no conversion was submitted.',
   duplicate: 'A same-name destination file already exists. Nothing was replaced. Inspect duplicates or explicitly choose another name; never use another key to bypass an uncertain upload.',
   incomplete: 'Destination or duplicate evidence is incomplete. No upload was submitted.',
   conflict: 'This operationId belongs to another account, request or source version. Retain its original account/key for read-only recovery.',
@@ -39,8 +44,8 @@ export function createUploadService({ store, source, upload, assessment, diagnos
   function receipt(op, extra = {}) {
     return { operationId: op.operationId, mode: op.mode, outcome: op.outcome, acknowledged: op.acknowledged === true,
       writeAttempted: ['writing', 'uncertain'].includes(op.claimState) ? 'unknown' : op.writeAttempted,
-      retrySafe: false, ...(op.fileId ? { fileId: op.fileId, url: `https://drive.google.com/file/d/${op.fileId}/view` } : {}),
-      guidance: 'Only verified confirms acknowledged provider completion and bounded readback. Binary verifies captured bytes by provider checksum; conversion is NOT Excel fidelity verification. Keep the original key. Status only reads; never replay, replace the key, repair or delete automatically.', ...extra };
+      retrySafe: false, ...(op.fileId ? { fileId: op.fileId, url: uploadUrl(op.fileId, op.resultMime) } : {}),
+      guidance: 'Only verified confirms acknowledged provider completion and bounded readback. Binary verifies captured bytes by provider checksum; conversion is NOT Office/visual fidelity verification. Keep the original key. Status only reads; never replay, replace the key, repair or delete automatically.', ...extra };
   }
   async function verify(record, op, id) {
     const m = await upload.get(record, id);
@@ -48,16 +53,18 @@ export function createUploadService({ store, source, upload, assessment, diagnos
       && m.parents?.length === 1 && m.parents[0] === op.destinationId && m.appProperties?.paLocalUpload === op.operationId;
     const evidence = op.mode === 'binary' ? { sizeBytes: Number(m.size), md5Checksum: m.md5Checksum, sha256Checksum: m.sha256Checksum,
       checksumMatches: Number(m.size) === op.sizeBytes && m.md5Checksum === op.md5 && (!m.sha256Checksum || m.sha256Checksum === op.sha256) }
-      : await upload.inspectSheet(record, id, op.conversion);
+      : op.mode === 'xlsx_to_sheet' ? await upload.inspectSheet(record, id, op.conversion)
+        : op.mode === 'docx_to_doc' ? await upload.inspectDoc(record, id, op.conversion)
+          : op.mode === 'pptx_to_slides' ? await upload.inspectSlides(record, id, op.conversion) : (() => { throw uploadError('invalid'); })();
     const accessMatches = (await assessment.assessDestination(record, op.destinationId)).fingerprint === op.destinationFingerprint
       && await assessment.verifyCreated(record, id, op.destinationId, op.resultMime, op.allowedAccess);
     return { matches: metadataMatches && accessMatches && (op.mode === 'binary' ? evidence.checksumMatches : evidence.structureMatches),
-      file: { id, name: m.name, mimeType: m.mimeType, destinationId: op.destinationId, url: op.mode === 'binary' ? `https://drive.google.com/file/d/${id}/view` : `https://docs.google.com/spreadsheets/d/${id}/edit` }, evidence };
+      file: { id, name: m.name, mimeType: m.mimeType, destinationId: op.destinationId, url: uploadUrl(id, op.resultMime) }, evidence };
   }
   async function submit(raw, signal, approve) {
     const args = uploadParameters.parse(raw), record = await account(args);
     if (!fileId(args.folderId) || !validTitle(args.name) || !ordinaryMime(args.mimeType)
-      || args.name.startsWith('.') || /[/\\]/.test(args.name) || (args.mode === 'xlsx_to_sheet' && args.mimeType !== XLSX)) throw uploadError('invalid');
+      || args.name.startsWith('.') || /[/\\]/.test(args.name) || (args.mode !== 'binary' && args.mimeType !== conversionTypes[args.mode]?.source)) throw uploadError('invalid');
     const requestHash = hash(JSON.stringify([args.source, args.expectedSha256, args.folderId, args.name, args.mimeType, args.mode]));
     let op = await store.getCreation(args.operationId);
     if (op && (op.kind !== 'upload' || op.subject !== record.subject || op.requestHash !== requestHash)) throw uploadError('conflict');
@@ -68,14 +75,14 @@ export function createUploadService({ store, source, upload, assessment, diagnos
     await upload.prepare(record); // identity and write grant before preview; no mutation
     const payload = { account: record.email, operationId: args.operationId, sourceHost: 'BB server (not your browser/device)',
       sourcePath: captured.location, sourceName: captured.name, size: String(captured.sizeBytes), sha256: captured.sha256,
-      mimeType: args.mimeType, mode: args.mode, title: args.name, destinationId: evidence.destinationId,
+      mimeType: args.mimeType, resultMime: args.mode === 'binary' ? args.mimeType : conversionTypes[args.mode].result, mode: args.mode, title: args.name, destinationId: evidence.destinationId,
       path: evidence.path, owners: evidence.owners, audience: evidence.audience,
-      conversion: args.mode === 'xlsx_to_sheet' ? JSON.stringify(captured.conversion) : 'No conversion — exact bytes.' };
+      conversion: args.mode !== 'binary' ? JSON.stringify(captured.conversion) : 'No conversion — exact bytes.' };
     if (Buffer.byteLength(JSON.stringify(payload)) > 48_000) throw uploadError('review');
     if (!op) {
       op = { operationId: args.operationId, kind: 'upload', subject: record.subject, requestHash, mode: args.mode,
         destinationId: evidence.destinationId, destinationFingerprint: evidence.fingerprint, contextIds: evidence.contextIds,
-        allowedAccess: evidence.allowedAccess, nameHash: hash(args.name), resultMime: args.mode === 'binary' ? args.mimeType : SHEET,
+        allowedAccess: evidence.allowedAccess, nameHash: hash(args.name), resultMime: args.mode === 'binary' ? args.mimeType : conversionTypes[args.mode].result,
         sizeBytes: captured.sizeBytes, sha256: captured.sha256, md5: captured.md5, sourceVersion: captured.version,
         conversion: captured.conversion, resource: `upload:${evidence.destinationId}:${hash(args.name)}`,
         outcome: 'proposed', claimState: 'proposed', writeAttempted: false, acknowledged: false };

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID, createHash } from 'node:crypto';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { createBbStore } from '../adapters/bb-store.mjs';
-import { createUploadService, uploadParameters, uploadMessage } from '../core/upload.mjs';
+import { createUploadService, uploadParameters, uploadMessage, conversionTypes } from '../core/upload.mjs';
 const sha = createHash('sha256').update('fixture').digest('hex');
 const input = () => ({ account: 'owner@example.invalid', operationId: randomUUID(), source: { host: 'bb-server', threadId: 'thr_test', path: 'model.xlsx' }, expectedSha256: sha, folderId: 'dest', name: 'Model.xlsx', mimeType: 'application/test' });
 const yes = async () => ({ outcome: 'submitted', value: { approved: true } });
@@ -16,6 +16,7 @@ async function setup(options = {}) {
   const assessment = { async assessDestination() { if (options.incomplete) throw new Error('PRIVATE_PROVIDER'); return { destinationId: 'dest', fingerprint: drift ? 'drift' : 'original', contextIds: ['dest', 'root'], path: 'My Drive / Foreign parent / Team', owners: 'foreign@example.invalid', audience: 'team@example.invalid — Can edit', allowedAccess: [] }; }, async verifyCreated() { return !options.unexpectedAccess; } };
   const source = { async capture() { if (changed) throw Object.assign(new Error('PRIVATE_SOURCE'), { uploadCode: 'changed' }); return { bytes: Buffer.from('fixture'), sizeBytes: 7, sha256: sha, md5: 'md5', name: 'model.xlsx', location: '/synthetic/thread/model.xlsx', version: 'version', conversion: { tabs: ['Budget'], sourceFormulaCount: 1 } }; } };
   const upload = { async prepare() { if (!granted) throw Object.assign(new Error('PRIVATE_TOKEN'), { uploadCode: 'scope' }); return async r => { writes++; file = { id: 'new', name: r.name, mimeType: r.resultMime, parents: ['dest'], appProperties: { paLocalUpload: r.operationId }, trashed: false, size: '7', md5Checksum: options.checksumMismatch ? 'wrong' : 'md5', sha256Checksum: sha }; if (options.lost) throw new Error('PRIVATE_REPLY'); if (options.rejected) throw Object.assign(new Error('PRIVATE_REJECTION'), { uploadRejected: true }); return { id: 'new' }; }; }, async duplicates() { if (duplicate) throw Object.assign(new Error('PRIVATE_DUPLICATE'), { uploadCode: 'duplicate' }); }, async get() { if (unavailable) throw new Error('PRIVATE_PROVIDER'); return file; }, async find() { return options.empty ? null : 'new'; }, async inspectSheet() { if (options.importReadFailure) throw new Error('PRIVATE_IMPORT'); return { structureMatches: !options.tabMismatch, fidelityVerified: false, observedCalculationErrorCount: 1 }; } };
+  upload.inspectDoc = upload.inspectSlides = upload.inspectSheet;
   const service = createUploadService({ store, source, upload, assessment, clock: () => now, diagnose: (stage, error) => diagnostics.push([stage, uploadMessage(error)]) });
   return { store, service, diagnostics, setDrift() { drift = true; }, change() { changed = true; }, duplicate() { duplicate = true; }, revoke() { granted = false; }, expire() { now = 600001; }, unavailable() { unavailable = true; }, writes: () => writes, close: () => harness.lifecycle.dispose(), reload: () => createUploadService({ store, source, upload, assessment }) };
 }
@@ -44,8 +45,8 @@ for (const kind of ['change', 'setDrift', 'duplicate', 'revoke', 'expire', 'canc
     assert.doesNotMatch(JSON.stringify(h.diagnostics), /PRIVATE/);
   } finally { await h.close(); }
 });
-for (const mode of ['binary', 'xlsx_to_sheet']) test(`${mode}: lost reply observes but never acknowledges, replays or unlocks`, async () => {
-  const h = await setup({ lost: true }), a = { ...input(), mode, mimeType: mode === 'binary' ? 'application/test' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }; try {
+for (const mode of ['binary', 'xlsx_to_sheet', 'docx_to_doc', 'pptx_to_slides']) test(`${mode}: lost reply observes but never acknowledges, replays or unlocks`, async () => {
+  const h = await setup({ lost: true }), a = { ...input(), mode, mimeType: mode === 'binary' ? 'application/test' : conversionTypes[mode].source }; try {
     assert.equal((await h.service.submit({ ...a, preview: false }, undefined, yes)).outcome, 'uncertain');
     const r = await h.reload().status({ account: a.account, operationId: a.operationId }); assert.equal(r.outcome, 'observed_matching'); assert.equal(r.acknowledged, false); assert.equal(r.unresolved, true);
     await h.service.submit({ ...a, preview: false }, undefined, yes); assert.equal(h.writes(), 1);
@@ -62,6 +63,17 @@ for (const options of [{ checksumMismatch: true }, { unexpectedAccess: true }, {
 test('explicit conversion acknowledges only provider import, never checksum equality or Excel fidelity', async () => {
   const h = await setup(), a = { ...input(), mode: 'xlsx_to_sheet', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', preview: false }; try {
     const r = await h.service.submit(a, undefined, yes); assert.equal(r.outcome, 'verified'); assert.equal(r.evidence.fidelityVerified, false); assert.equal(r.evidence.checksumMatches, undefined); assert.equal(r.evidence.observedCalculationErrorCount, 1);
+  } finally { await h.close(); }
+});
+for (const mode of ['docx_to_doc', 'pptx_to_slides']) test(`${mode}: exact source/result binding, native URL and acknowledged readback`, async () => {
+  const h = await setup(), a = { ...input(), mode, mimeType: conversionTypes[mode].source };
+  try {
+    const p = await h.service.submit(a); assert.equal(p.preview.mode, mode); assert.equal(p.preview.resultMime, conversionTypes[mode].result);
+    await assert.rejects(h.service.submit({ ...a, mimeType: 'application/test' }), e => e.uploadCode === 'invalid');
+    const r = await h.service.submit({ ...a, preview: false }, undefined, yes);
+    assert.equal(r.outcome, 'verified'); assert.equal(r.file.mimeType, conversionTypes[mode].result); assert.equal(r.evidence.fidelityVerified, false);
+    assert.match(r.url, mode === 'docx_to_doc' ? /docs.google.com\/document/ : /docs.google.com\/presentation/); assert.equal(h.writes(), 1);
+    assert.equal((await h.reload().submit(a)).receiptOnly, true); assert.equal(h.writes(), 1);
   } finally { await h.close(); }
 });
 test('interrupted review status cancels without writes; acknowledged readback failure can recover read-only', async () => {

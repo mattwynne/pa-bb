@@ -1,4 +1,4 @@
-# Upload a local file or import XLSX
+# Upload a local file or import modern Office files
 
 `gdrive_upload_file` creates one new file; it is not a generic HTTP, sync, directory,
 overwrite or editing API. Existing OAuth, identity verification and Drive write
@@ -26,7 +26,7 @@ example key or a replacement key to bypass uncertainty. Account (1–320), name
 (1–1024), explicit folder and source SHA-256 are required. Unknown fields fail.
 `mode` defaults to `binary`; `preview` defaults to `true`. Apply with identical
 arguments/key and `preview:false`, then approve the exact native owner card.
-Both modes require approval even for apparently private My Drive destinations.
+All modes require approval even for apparently private My Drive destinations.
 No approval setting opts out. Binary contents are **not rendered or fully
 reviewed** in the card. Explicit software-delivery permission is not permission
 to upload actual business files as a test.
@@ -56,7 +56,7 @@ version. Preview, apply, post-approval and last pre-submission capture must agre
 An edit/replacement/timestamp-version change fails, even with identical content.
 Submission sends immutable captured bytes; later local changes do not change the
 already submitted file. Source bytes are not returned to the model, persisted
-in receipts or printed as base64. The original local workbook stays untouched.
+in receipts or printed as base64. The original local file stays untouched.
 
 ### Destination and audience
 
@@ -80,7 +80,7 @@ competing plugin uploads while reviewing or unresolved.
 These claims cannot lock Google: other clients can race checks, create duplicates
 or change access. Native Drive creation offers no atomic unique-name constraint.
 
-## Two intentional modes
+## Intentional modes
 
 ### `binary` (default)
 
@@ -144,13 +144,79 @@ fidelity remain unverified. Never call this a fully verified working financial
 model or silently substitute it for the original XLSX. Use bounded native
 `gsheets_read` for subsequent user-requested investigation.
 
+### `docx_to_doc` and `pptx_to_slides` (explicit requests only)
+
+| Mode | Required source extension and MIME | Native result MIME |
+|---|---|---|
+| `docx_to_doc` | `.docx` · `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | `application/vnd.google-apps.document` |
+| `pptx_to_slides` | `.pptx` · `application/vnd.openxmlformats-officedocument.presentationml.presentation` | `application/vnd.google-apps.presentation` |
+
+Use the same tool/schema above with the exact mode, source MIME/path/digest and
+requested output name. Nothing infers conversion from a filename. The source
+remains unchanged. Google's supported multipart upload/import creates the native
+MIME directly in one submission: supported document/slide structure and editable
+content are retained by Google, not rebuilt as screenshots or static literal
+text. There is no separate metadata/population write or retry.
+
+These modes share **the same ZIP32 reader and all of its existing safety
+invariants** with XLSX. A separate bounded, namespace-aware non-evaluating XML
+inspector admits a narrow passive OOXML subset: Word main body, styles,
+numbering, settings, headers/footers/notes/comments; PowerPoint presentations,
+slides/layouts/masters/notes, styles/themes, and embedded PNG/JPEG/GIF raster
+images with matching types/signatures. Only canonical known part names and
+content types and a fixed internal-relationship list are accepted. Every XML
+part is inspected, even if unreferenced; unknown parts/namespaces, DTDs,
+processing instructions, external schema references, macros, executable/embedded objects, ActiveX, timed animations/commands, fields
+(including DDE), controls, linked templates/assets, external relationships
+(including hyperlinks), connections, extension content and unsupported active
+content fail closed. No source ZIP is extracted or executed; no remote assets,
+links or media are fetched. This is deliberately less permissive than general
+Word/PowerPoint support, not a malicious-file certification.
+
+Legacy `.doc`/`.ppt`, `.docm`/`.pptm`, PDF/image OCR, HTML/RTF/ODT, arbitrary
+conversion formats, charts/embedded packages, SVG/WMF/EMF, audio/video and
+unsupported OOXML extensions are **not supported**. Rejection never silently
+changes the mode to binary. A separate explicit binary request can preserve
+opaque bytes without conversion. The source cap remains **4 MiB**, 512 archive
+entries, 4 MiB per expanded entry and 16 MiB total; primary text is limited to
+40,000 UTF-16 characters and PPTX to 100 slides. Office XML depth is at most 64
+and 100,000 elements per part.
+
+Owner review shows the exact source host/path/name/size/SHA-256/MIME, mode,
+native result type, destination owners/visible audience and bounds. Contents are
+not fully rendered. Approval is mandatory, including private destinations,
+independent of filing and Docs-edit preferences. Fonts/layout, tables/objects,
+animations, media and unsupported features can change or be omitted. Never
+promise full Word/PowerPoint compatibility or visual fidelity.
+
+After an acknowledged create, Docs readback checks native tabs/body/document
+structure and compares normalized main-body text evidence. Slides readback
+checks presentation identity, slide count/order and normalized editable
+shape/table/group text per slide. Order uses per-index text hashes; text-identical
+or empty slides cannot distinguish ordering. The returned evidence contains hashes/counts,
+not source text. It does **not** compare headers/footers, comments, speaker notes,
+masters/layouts or all objects. Native readback is capped at 1 MiB JSON, 10,000
+structural/text nodes and 80,000 text characters (Docs at 20 tabs/depth 32;
+Slides at 100 slides/group depth 16). Oversize, missing API, omission/text
+mismatch or incomplete readback leaves the acknowledged creation unresolved;
+never repair/delete/recreate it automatically. Whitespace-normalized text is
+not exact styling or exhaustive content evidence. `verified` confirms bounded
+native creation/structure/text readback only; `fidelityVerified` is always
+`false`. Native Docs/Slides edit links are returned when an ID is known.
+
+The existing authorized `drive`/`drive.file` grant is accepted by the narrow
+Docs/Slides read adapter. No scopes, settings or credentials are changed.
+Enable the relevant Google Docs/Google Slides API in the provider project as an
+owner setup action if necessary; a missing API/write grant is not permission
+to inspect tokens, broaden OAuth or retry an uncertain import.
+
 ## Receipts, uncertainty and recovery
 
 The existing plugin-owned creation table retains `kind:"upload"` receipts;
 legacy Docs/Sheets/copy/filing/sharing receipts and settings remain unchanged.
 Receipts bind account subject, exact request/mode, source digest/version,
 size/checksums, destination access evidence and name hash. They contain neither
-source bytes nor credentials; conversion receipts retain bounded tab metadata.
+source bytes nor credentials; conversion receipts retain bounded tab metadata or primary text hashes/counts and slide-order evidence, not plain source text.
 The private `paLocalUpload` app-property marker supports read-only lookup.
 
 A durable key is reserved before review/write. Calls with a consumed key never

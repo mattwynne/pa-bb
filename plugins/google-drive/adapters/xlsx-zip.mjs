@@ -3,7 +3,10 @@
 import { inflateRawSync, crc32 } from 'node:zlib';
 import { uploadError } from '../core/upload.mjs';
 const ENTRY = 4 * 1024 * 1024, TOTAL = 16 * 1024 * 1024;
-export function readXlsxZip(bytes) {
+// Shared by the deliberate XLSX, DOCX and PPTX import gates. Keep every ZIP
+// invariant format-independent; callers validate their own parts/XML afterward.
+export const readXlsxZip = readOoxmlZip;
+export function readOoxmlZip(bytes) {
   try {
     if (!Buffer.isBuffer(bytes) || bytes.length < 22) throw uploadError('conversion');
     let end = -1;

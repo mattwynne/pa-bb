@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createDocsTransport } from './docs-transport.mjs';
+import { createOfficeReadback } from './office-readback.mjs';
 import { MAX_UPLOAD_BYTES, uploadError } from '../core/upload.mjs';
 import { fileId } from '../core/native-create.mjs';
 const FILES = 'https://www.googleapis.com/drive/v3/files';
@@ -8,6 +9,7 @@ export function createUploadAdapter({ verifiedAccess, fetchImpl = fetch, sheets 
   const transport = createDocsTransport({ verifiedAccess, fetchImpl });
   const listing = (record, q) => { const u = new URL(FILES); u.search = new URLSearchParams({ q, spaces: 'drive', corpora: 'user', pageSize: '2', fields: 'files(id),nextPageToken,incompleteSearch' }).toString(); return transport.get(record, u); };
   return {
+    ...createOfficeReadback(transport),
     async duplicates(record, parent, name) {
       const p = await listing(record, `trashed = false and ${literal(parent)} in parents and name = ${literal(name)}`);
       if (p.incompleteSearch === true || p.nextPageToken || !Array.isArray(p.files)) throw uploadError('incomplete');

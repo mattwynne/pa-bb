@@ -7,6 +7,7 @@ import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { MAX_UPLOAD_BYTES, uploadError } from '../core/upload.mjs';
 import { inspectXlsx } from './xlsx-import.mjs';
+import { inspectOffice } from './office-import.mjs';
 const digest = (algorithm, bytes) => createHash(algorithm).update(bytes).digest('hex');
 const revision = s => [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':');
 export function createUploadSource({ location, platform = process.platform }) {
@@ -36,7 +37,9 @@ export function createUploadSource({ location, platform = process.platform }) {
       if (revision(before) !== revision(after) || await readlink(`/proc/self/fd/${file.fd}`) !== absolute) throw uploadError('changed');
       const sha256 = digest('sha256', bytes);
       if (sha256 !== expectedSha256) throw uploadError('changed');
-      const conversion = mode === 'xlsx_to_sheet' ? inspectXlsx(bytes, parts.at(-1)) : undefined;
+      if (!['binary', 'xlsx_to_sheet', 'docx_to_doc', 'pptx_to_slides'].includes(mode)) throw uploadError('invalid');
+      const conversion = mode === 'xlsx_to_sheet' ? inspectXlsx(bytes, parts.at(-1))
+        : mode === 'binary' ? undefined : inspectOffice(bytes, parts.at(-1), mode);
       return { bytes, sha256, md5: digest('md5', bytes), sizeBytes: bytes.length, name: parts.at(-1), location: absolute,
         version: digest('sha256', `${root}:${source.path}:${revision(after)}:${sha256}`), conversion };
     } catch (e) { if (e?.uploadCode) throw e; throw uploadError('source'); }

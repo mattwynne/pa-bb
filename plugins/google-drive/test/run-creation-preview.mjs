@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 const source = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const uploadReview = process.env.PA_DRIVE_UPLOAD_REVIEW === '1';
 const fixtureId = uploadReview ? 'drive-upload-review' : 'drive-creation-review';
-const states = uploadReview ? ['binary', 'conversion', 'invalid', 'error'] : ['document', 'spreadsheet', 'invalid', 'error'];
+const states = uploadReview ? ['binary', 'conversion', 'docx', 'pptx', 'invalid', 'error'] : ['document', 'spreadsheet', 'invalid', 'error'];
 const previewFolder = uploadReview ? 'upload-preview' : 'creation-preview';
 const bbRoot = process.env.BB_REVIEW_ROOT || join(source, 'node_modules/bb-app');
 let apps = join(bbRoot, 'apps'); try { await access(apps); } catch { apps = bbRoot; }

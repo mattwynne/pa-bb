@@ -2,20 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createUploadAdapter } from '../adapters/upload.mjs';
 import { createGoogleAdapter } from '../adapters/google.mjs';
+import { conversionTypes, XLSX } from '../core/upload.mjs';
 const record = { subject: 'subject', email: 'owner@example.invalid' };
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
-for (const mode of ['binary', 'conversion']) test(`${mode} multipart preserves every byte and sets explicit metadata MIME without retries`, async () => {
+for (const mode of ['binary', 'xlsx_to_sheet', 'docx_to_doc', 'pptx_to_slides']) test(`${mode} multipart preserves every byte and sets explicit metadata MIME without retries`, async () => {
   const calls = [], bytes = Buffer.from([0, 255, 128, 13, 10, 80, 75]); let identities = 0;
   const adapter = createUploadAdapter({ verifiedAccess: async () => { identities++; return 'PRIVATE_TOKEN'; }, fetchImpl: async (url, init) => {
     calls.push([String(url), init]); return String(url).includes('tokeninfo') ? json({ scope: 'https://www.googleapis.com/auth/drive.file' }) : json({ id: 'new' });
   } });
-  const write = await adapter.prepare(record); await write({ bytes, name: 'model.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resultMime: mode === 'binary' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/vnd.google-apps.spreadsheet', destinationId: 'folder', operationId: 'uuid' });
+  const write = await adapter.prepare(record); await write({ bytes, name: 'model.xlsx', mimeType: mode === 'binary' ? XLSX : conversionTypes[mode].source, resultMime: mode === 'binary' ? XLSX : conversionTypes[mode].result, destinationId: 'folder', operationId: 'uuid' });
   const mutations = calls.filter(c => c[0].includes('/upload/')); assert.equal(mutations.length, 1); assert.equal(identities, 2);
   const [url, req] = mutations[0]; assert.match(url, /uploadType=multipart/); assert.match(req.headers['content-type'], /^multipart\/related; boundary=/);
   const boundary = req.headers['content-type'].split('boundary=')[1], prefixEnd = req.body.indexOf(Buffer.from('\r\n\r\n'), req.body.indexOf(Buffer.from(`\r\n--${boundary}\r\n`))) + 4;
   assert.deepEqual(req.body.subarray(prefixEnd, prefixEnd + bytes.length), bytes);
   const meta = JSON.parse(req.body.subarray(req.body.indexOf('\r\n\r\n') + 4, req.body.indexOf(`\r\n--${boundary}\r\n`)).toString());
-  assert.equal(meta.mimeType, mode === 'binary' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/vnd.google-apps.spreadsheet'); assert.deepEqual(meta.parents, ['folder']); assert.deepEqual(meta.appProperties, { paLocalUpload: 'uuid' });
+  assert.equal(meta.mimeType, mode === 'binary' ? XLSX : conversionTypes[mode].result); assert.ok(req.body.includes(Buffer.from(`Content-Type: ${mode === 'binary' ? XLSX : conversionTypes[mode].source}\r\n`))); assert.deepEqual(meta.parents, ['folder']); assert.deepEqual(meta.appProperties, { paLocalUpload: 'uuid' });
 });
 for (const response of ['transport', 401, 403, 429, 500, 'invalid']) test(`upload ${response} never retries`, async () => {
   let writes = 0;

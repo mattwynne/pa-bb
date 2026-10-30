@@ -10,14 +10,22 @@ await writeFile(connection, compile(await readFile(new URL('../connection-ui.tsx
 await writeFile(component, compile((await readFile(new URL('../upload-approval.tsx', import.meta.url), 'utf8')).replace('./connection-ui.js', './upload-connection.generated.mjs')));
 const { UploadApproval } = await import('./upload-approval.generated.mjs');
 test.after(async () => { await unlink(component); await unlink(connection); });
-const payload = { account: 'owner@example.invalid', operationId: '11111111-1111-4111-8111-111111111111', destinationId: 'folder', path: 'My Drive / Team', owners: 'foreign@example.invalid', audience: 'team@example.invalid — Can edit', title: 'Synthetic <script>', mimeType: 'application/test', sourceHost: 'BB server', sourcePath: '/synthetic/model.xlsx', sourceName: 'model.xlsx', size: '123', sha256: 'a'.repeat(64), mode: 'binary', conversion: 'No conversion' };
+const payload = { account: 'owner@example.invalid', operationId: '11111111-1111-4111-8111-111111111111', destinationId: 'folder', path: 'My Drive / Team', owners: 'foreign@example.invalid', audience: 'team@example.invalid — Can edit', title: 'Synthetic <script>', mimeType: 'application/test', resultMime: 'application/test', sourceHost: 'BB server', sourcePath: '/synthetic/model.xlsx', sourceName: 'model.xlsx', size: '123', sha256: 'a'.repeat(64), mode: 'binary', conversion: 'No conversion' };
 const render = p => renderToStaticMarkup(createElement(UploadApproval, { interaction: { id: 'synthetic', payload: p }, submit: async () => {}, cancel: async () => {} }));
 test('upload approval discloses exact source/version, exposure, no rendered content and mode', () => {
   const html = render(payload);
   for (const text of ['BB server', '/synthetic/model.xlsx', '123', 'a'.repeat(64), 'team@example.invalid', 'not rendered', 'No conversion', 'Approve upload', 'Decline', 'Cancel review', '&lt;script&gt;']) assert.ok(html.includes(text), text);
   assert.doesNotMatch(html, /<script>/);
-  const imported = render({ ...payload, mode: 'xlsx_to_sheet' });
+  const imported = render({ ...payload, mode: 'xlsx_to_sheet', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resultMime: 'application/vnd.google-apps.spreadsheet' });
   for (const text of ['Approve import', 'not byte-preserving', '1,000 cells', 'full Excel fidelity']) assert.ok(imported.includes(text));
+});
+test('DOCX/PPTX exact mode and native result type are mandatory and disclosed', () => {
+  for (const [mode, source, result, label] of [['docx_to_doc', 'wordprocessingml.document', 'document', 'Google Docs'], ['pptx_to_slides', 'presentationml.presentation', 'presentation', 'Google Slides']]) {
+    const p = { ...payload, mode, mimeType: `application/vnd.openxmlformats-officedocument.${source}`, resultMime: `application/vnd.google-apps.${result}` };
+    const html = render(p);
+    for (const text of [label, 'Approve import', mode, p.resultMime, 'Fonts/layout', 'not verify visual fidelity', '40,000', '4 MiB']) assert.ok(html.includes(text), text);
+    assert.match(render({ ...p, resultMime: 'application/vnd.google-apps.spreadsheet' }), /disabled=""[^>]*>Approve import/);
+  }
 });
 test('missing/malformed exact review fields cannot approve', () => {
   for (const key of Object.keys(payload)) assert.match(render({ ...payload, [key]: '' }), /disabled=""[^>]*>Approve upload/);
