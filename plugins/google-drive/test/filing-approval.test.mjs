@@ -63,6 +63,19 @@ test('plain file labels keep exact metadata in collapsed details and legacy payl
   assert.ok(html.indexOf('application/vnd.google-apps.spreadsheet') > html.indexOf('<details>'));
   assert.doesNotMatch(render(payload), /disabled=""[^>]*>Approve filing/);
 });
+test('foreign-parent folder card leads with exact name, creator ownership and visible parent audience; no source loss or transfer claim', () => {
+  const html = render({ ...payload, kind: 'folder', title: 'Synthetic - exact folder', mimeType: 'application/vnd.google-apps.folder',
+    from: 'New folder', to: 'My Drive / Shared / Synthetic - exact folder', sharedAncestors: true,
+    sourceOwners: 'New folder — no existing path.', destinationOwners: 'Shared — owner: partner@example.invalid',
+    sharedAncestorSummary: '“Shared” belongs to partner@example.invalid.',
+    accessChanges: 'partner@example.invalid — may get access through the destination folder (parent access: Owner).',
+    reviewReason: 'A parent folder belongs to another person.' });
+  for (const text of ['Create folder: ', 'Synthetic - exact folder', 'Creator and new folder owner: ', 'owner@example.invalid', 'parent ownership stays unchanged', 'partner@example.invalid', 'may get access', 'parent access: Owner', 'No write has happened']) {
+    assert.ok(html.indexOf(text) >= 0 && html.indexOf(text) < html.indexOf('<details>'), text);
+  }
+  assert.doesNotMatch(html, /Open existing file|may lose some|Ownership, contents, file ID/);
+  assert.doesNotMatch(html, /disabled=""[^>]*>Approve filing/);
+});
 test('missing/invalid filing payload fails closed without links; synthetic preview has no live links', () => {
   for (const p of [null, {}, { ...payload, destinationId: 'javascript:bad' }, { ...payload, operationId: 'bad' }, { ...payload, fileId: '' }, { ...payload, account: '' }, { ...payload, kind: 'copy' }, { ...payload, audience: '' }]) {
     const html = render(p); assert.match(html, /details are incomplete/); assert.match(html, /disabled=""[^>]*>Approve filing/); assert.doesNotMatch(html, /href=/);

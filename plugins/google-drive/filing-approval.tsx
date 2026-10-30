@@ -23,14 +23,14 @@ function Review({ interaction, submit, cancel }: Props) {
   return <section className="pa-drive pa-drive__docs-review pa-drive__filing-review" aria-label="Review filing and inherited access">
     {!valid ? <ConnectionAlert>Filing details are incomplete. Decline and request a fresh inspection.</ConnectionAlert> : <>
       <p className="pa-drive__filing-title"><strong>{text('kind') === 'folder' ? 'Create folder: ' : 'Move existing file: '}{text('title')}</strong></p>
-      <p className="pa-drive__filing-account">Account: {text('account')}</p>
+      <p className="pa-drive__filing-account">{text('kind') === 'folder' ? 'Creator and new folder owner: ' : 'Account: '}{text('account')}</p>
       <section className="pa-drive__filing-impact" aria-label="Access changes">
         <h4>Who may gain or lose access</h4>
         {p.sharedAncestors === true && <p style={{ whiteSpace: 'pre-wrap' }}>{text('sharedAncestorSummary') || text('reviewReason')}</p>}
         <p style={{ whiteSpace: 'pre-wrap' }}>{text('accessChanges') || text('impact')}</p>
       </section>
       <dl><dt>From</dt><dd>{text('from')}</dd><dt>To</dt><dd>{text('to')}</dd></dl>
-      <p>{text('kind') === 'folder' ? 'People may get access through the destination folder. No invitations are sent by this tool.' : 'Existing direct shares stay unchanged. Access through folders may change. Ownership, contents, file ID and link stay the same. No invitations are sent by this tool.'}</p>
+      <p>{text('kind') === 'folder' ? 'The new folder belongs to the creator above; parent ownership stays unchanged. People may get access through the destination folder. No invitations are sent by this tool.' : 'Existing direct shares stay unchanged. Access through folders may change. Ownership, contents, file ID and link stay the same. No invitations are sent by this tool.'}</p>
       <p>No write has happened. Location and access are rechecked before submission.</p>
       <details><summary>Full access and folder details</summary>
         <dl><dt>File type</dt><dd>{filingTypeLabel(text('mimeType'))}</dd>

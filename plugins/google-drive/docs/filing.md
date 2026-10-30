@@ -36,8 +36,16 @@ be owned by the selected account. Each inspected node must have one known owner
 consistent with its complete owner permission row, and both paths must reach
 the selected account's My Drive root. Another person's ancestor is always a
 mandatory review trigger, even if visible item audiences appear equivalent.
-Folder creation retains its separate all-owned ancestry requirement; sharing
-APIs and native document creation policies are unchanged. Shared-drive transfer,
+Folder creation may target an owned or non-owned My Drive parent: Google must
+report `capabilities.canAddChildren=true`, and a complete inspected user permission
+must identify the selected creator as owner or writer of that parent. Readable
+ancestors need not be writable. Every node still needs consistent owner metadata
+and its unique owner permission; the path must reach the selected account's root.
+A non-owned/shared parent or ancestor always requires exact BB-owner review.
+Approval cannot override missing/false capability, reader/unknown authority or
+incomplete inspection. The new folder must be owned by the selected creator;
+parent ownership and permissions are never changed. Sharing APIs, move endpoint
+ownership and native document creation policies are unchanged. Shared-drive transfer,
 limited-access folders, shortcuts and moving folder trees remain unsupported.
 Moves are capability-driven: an ordinary file with a bounded MIME type and
 `capabilities.canMoveItemWithinDrive=true` is eligible, whether a native
@@ -80,8 +88,13 @@ service notifications.
 
 ## Writes and recovery
 
-Folder creation sends exactly one metadata POST with a private appProperties
-operation marker. A move sends exactly one PATCH containing addParents and
+Folder creation shows the exact name/path, creator/new-folder owner, parent
+owners and visible destination audience/effect before review. It rechecks parent,
+ancestry, permissions, capability and exact-name siblings after approval; changes
+refuse before writing. It sends exactly one metadata POST with a private
+appProperties operation marker. Exact name, sole parent, folder type and selected
+creator ownership (including its owner permission identity) are read back; foreign
+parent ownership is not authority to assign the new folder to someone else. A move sends exactly one PATCH containing addParents and
 removeParents, with an empty JSON body. No content is read or rewritten to move
 it. Verification checks ID, the exact MIME type captured by the proposal, exact sole parent, name hash, reviewed
 destination context and preservation of known direct grants. Explicit item-level
@@ -128,7 +141,9 @@ My Drive destinations, duplicate checks, authority/scope refusals, stale/expired
 reviews, alternating owned/non-owned ancestor chains, metadata/permission-owner
 consistency, mandatory review despite equivalent visible item audiences,
 post-preview and post-card owner/access/parent/capability changes, unchanged
-folder-creation policy, same-key replay prevention, active resource exclusion, restart,
+move endpoint ownership and native Docs/Sheets/sharing policies, writable owned/shared/non-owned
+folder parents and ancestors, missing/false canAddChildren, writer versus reader,
+folder creator ownership/readback, same-key replay prevention, active resource exclusion, restart,
 uncertain submission and read-only recovery. Diagnostics use fixed filing stages
 and bounded failure/status categories. Provider bodies, raw exceptions, account
 addresses, names, IDs and credentials never enter logs. No real Drive mutations

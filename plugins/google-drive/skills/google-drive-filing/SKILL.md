@@ -22,6 +22,15 @@ previews a folder, including its destination and visible inherited access.
 identifies this exact request. Before proposing, check exact-name siblings.
 The backend checks again and blocks duplicates; never automatically choose one
 of several same-name folders or compensate with another new folder name.
+Owned or non-owned My Drive parents are supported only with Google's explicit
+canAddChildren capability and complete inspected owner/writer permission for
+the selected creator. Readable foreign ancestors are allowed, but every node's
+owner/access must be consistent and the path must reach the selected account's
+root. A shared/non-owned parent or ancestor requires exact BB-owner approval.
+The card shows exact name/path, creator/new-folder owner, parent owners and
+visible inherited audience/effect. Approval cannot override a capability denial,
+unknown access or incomplete inspection. The new folder must belong to the
+selected creator; parent ownership/access stay unchanged.
 
 Use the SAME arguments/key with preview=false for the requested creation.
 Owner-only filing follows explicit user intent and existing Drive write consent,
@@ -50,12 +59,12 @@ Google service notifications. Do not unshare folders to make them supported.
 Owned My Drive files are supported when Google reports
 `capabilities.canMoveItemWithinDrive=true`, an owned writable destination and
 existing `drive`/`drive.file` consent. Fully inspectable non-owned My Drive
-ancestors are permitted for moves only, with mandatory exact owner approval
+ancestors are permitted for moves, with mandatory exact owner approval
 even when visible audiences appear equivalent. The card shows old/new paths,
 path owners and potential inherited-access gains/losses. Both paths must reach
 the selected account's root; unknown/inconsistent owners or incomplete
-permission lists still block. Folder creation retains its all-owned ancestry
-policy. This includes native Docs/Sheets/Slides,
+permission lists still block. Unlike folder creation's writable-parent policy,
+move source files and destination folders must still be owned. This includes native Docs/Sheets/Slides,
 PDFs, images and other uploaded/native types, not a MIME allowlist. Missing or
 false capability, trash, unknown MIME/authority, shared drives, folder-tree moves
 and limited-access ancestry fail before writing. Owned shared My Drive folders
@@ -68,7 +77,8 @@ bypass a filing refusal.
 
 ## Recovery
 
-Only `outcome:verified` confirms exact parent/name/type readback. Return the
+Only `outcome:verified` confirms exact parent/name/type and selected-creator
+ownership readback for folder creation (or preserved owned-file identity for moves). Return the
 folder link and the SAME existing file's link (native Docs/Sheets/Slides or a canonical Drive link). Existing URLs remain valid; no replacement ID is created. This is metadata verification,
 not a complete content or visual-rendering certification. Another actor can
 race final inspection; no provider transaction/CAS guarantee or automatic

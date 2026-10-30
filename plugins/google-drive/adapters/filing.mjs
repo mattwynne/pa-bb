@@ -44,9 +44,10 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
     u.search = new URLSearchParams({ pageSize: '100', supportsAllDrives: 'false', fields: 'nextPageToken,permissions(id,type,role,emailAddress,domain,allowFileDiscovery,expirationTime,pendingOwner,deleted,permissionDetails(inherited,inheritedFrom,role,permissionType))', ...(pageToken ? { pageToken } : {}) }).toString();
     return transport.get(record, u);
   }
-  // Only moves may inspect non-owned *ancestors*. The file and destination
-  // themselves stay owned, and folder creation retains its all-owned policy.
-  async function chain(record, id, rootId, sharedAncestors = false) {
+  // Readable foreign ancestry is inspectable, never authority by itself. Only
+  // folder creation may target a foreign parent; move endpoints stay owned.
+  // A created folder's readback must still start with the selected owner.
+  async function chain(record, id, rootId, foreignParent = false) {
     const result = [], visited = new Set();
     for (let depth = 0; depth < 33; depth++) {
       const m = await get(record, id);
@@ -55,7 +56,7 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
         || m.owners?.length !== 1 || typeof m.owners[0].me !== 'boolean' || typeof m.owners[0].emailAddress !== 'string'
         || !/^[^\s@]+@[^\s@]+$/.test(m.owners[0].emailAddress) || m.owners[0].emailAddress.length > 320) throw filingError('unsupported');
       const owned = m.owners[0].emailAddress.toLowerCase() === record.email.toLowerCase();
-      if (m.owners[0].me !== owned || (!owned && (!sharedAncestors || !depth || m.id === rootId))) throw filingError('unsupported');
+      if (m.owners[0].me !== owned || (!owned && ((!depth && !foreignParent) || m.id === rootId))) throw filingError('unsupported');
       if (depth && m.mimeType !== FOLDER) throw filingError('unsupported');
       visited.add(m.id);
       const list = await readPermissionList(token => permissions(record, m.id, token));
@@ -106,13 +107,17 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
   }
   async function propose(record, kind, request) {
     const rootId = await root(record);
-    const destination = await chain(record, kind === 'folder' ? request.parentId : request.folderId, rootId, kind === 'move');
+    const destination = await chain(record, kind === 'folder' ? request.parentId : request.folderId, rootId, kind === 'folder');
     const dest = destination[0].metadata;
     if (dest.mimeType !== FOLDER || dest.capabilities?.canAddChildren !== true) throw filingError('unsupported');
+    // Provider capability AND inspected permission evidence are required. Owner
+    // approval cannot promote a reader, fill unknown access or override Google.
+    if (kind === 'folder' && !destination[0].permissions.some(p => p.type === 'user'
+      && p.emailAddress === record.email.toLowerCase() && ['owner', 'writer'].includes(p.role))) throw filingError('unsupported');
     let source = null;
     if (kind === 'folder') await exactFolder(record, dest.id, request.name);
     else {
-      source = await chain(record, request.fileId, rootId, true);
+      source = await chain(record, request.fileId, rootId);
       const file = source[0].metadata;
       if (!movableType(file.mimeType) || file.capabilities?.canMoveItemWithinDrive !== true || file.parents?.length !== 1
         || file.parents[0] !== (request.expectedParentId === 'root' ? rootId : request.expectedParentId) || dest.id === file.parents[0]) throw filingError('unsupported');
@@ -131,7 +136,11 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
     };
     const describeOwners = items => items ? [...items].reverse().map(i => `${i.metadata.name} — owner: ${i.metadata.owners[0].emailAddress}`).join('\n') : 'New folder — no existing path.';
     const accessChanges = () => {
-      if (!source) return 'People with access to the destination may also get access to the new folder.';
+      if (!source) {
+        const visible = dest && destination[0].permissions.filter(p => p.emailAddress?.toLowerCase() !== record.email.toLowerCase());
+        return visible.length ? [...new Set(visible.map(p => `${principal(p)} — may get access through the destination folder (parent access: ${filingRoleLabel(p.role)}).`))].join('\n')
+          : 'People with access to the destination may also get access to the new folder.';
+      }
       const before = source[0].permissions, after = [...destination[0].permissions, ...direct(source)];
       const external = p => p.emailAddress?.toLowerCase() !== record.email.toLowerCase();
       const strongest = (items, p) => Math.max(0, ...items.filter(q => accessKey(q) === accessKey(p)).map(q => rank[q.role]));
@@ -145,7 +154,10 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
       resource: kind === 'folder' ? `folder:${record.subject}:${dest.id}:${filingHash(request.name)}` : `file:${request.fileId}`,
       fingerprint: filingHash([kind, destination, source]), destinationFingerprint: filingHash(destination), titleHash: filingHash(title),
       directBefore: source ? direct(source) : null, directEvidenceVersion: 1,
-      allowedAccess: [...destination[0].permissions, ...(source?.[0].permissions || [])].map(p => [accessKey(p), rank[p.role]]),
+      allowedAccess: [...destination[0].permissions, ...(source?.[0].permissions || []),
+        // The creator owns the NEW folder, not its parent. Parent writer access
+        // must not make exact creator-ownership readback look unexpected.
+        ...(kind === 'folder' ? [{ type: 'user', emailAddress: record.email, role: 'owner' }] : [])].map(p => [accessKey(p), rank[p.role]]),
       requiresApproval: sharedAncestors || nonOwners.length > 0,
       preview: { kind, account: record.email, title, sharedAncestors, mimeType: source ? source[0].metadata.mimeType : FOLDER, from: source ? source.slice(1).reverse().map(i => i.metadata.name).join(' / ') : 'New folder',
         to: [...destination].reverse().map(i => i.metadata.name).join(' / ') + (kind === 'folder' ? ` / ${request.name}` : ''),
@@ -162,8 +174,8 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
     return proposal;
   }
   async function verify(record, op) {
-    const rootId = await root(record), destination = await chain(record, op.destinationId, rootId, op.kind === 'move');
-    const current = await chain(record, op.fileId, rootId, op.kind === 'move'), m = current[0].metadata;
+    const rootId = await root(record), destination = await chain(record, op.destinationId, rootId, op.kind === 'folder');
+    const current = await chain(record, op.fileId, rootId), m = current[0].metadata;
     const visibleAccess = current[0].permissions.map(p => ({ type: p.type, role: p.role, audience: principal(p) }));
     // Preserve legacy receipt verification; new receipts retain explicit direct
     // evidence even when a principal also appears on the inspected ancestry.

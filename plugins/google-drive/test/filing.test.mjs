@@ -32,7 +32,8 @@ async function setup(options = {}) {
       if (options.reject) return Response.json({ secret: 'private-body' }, { status: options.reject });
       const body = JSON.parse(init.body); assert.deepEqual(Object.keys(body).sort(), ['appProperties', 'mimeType', 'name', 'parents']);
       assert.equal(body.mimeType, FOLDER); marker = body.appProperties.paFilingCreation;
-      files.set('new-folder', meta('new-folder', body.name, FOLDER, body.parents));
+      files.set('new-folder', { ...meta('new-folder', body.name, FOLDER, body.parents), ...options.newFolderMetadata });
+      if (options.newFolderPermissions) permissionRows.set('new-folder', options.newFolderPermissions);
       if (options.lost) throw Object.assign(new Error('private-error'), { cause: 'private-cause', code: 'private-code' });
       return options.badJson ? new Response('private-unreadable') : Response.json({ id: 'new-folder' });
     }
@@ -145,7 +146,7 @@ test('shared source ancestry and source-only inherited loss are summarized witho
     assert.equal(h.writes(), 0);
   } finally { await h.close(); }
 });
-test('ancestor authority remains complete and consistent; folder creation policy is not widened', async () => {
+test('ancestor authority remains complete and consistent; move endpoint ownership is not widened', async () => {
   const mutations = [
     h => { h.files.get('foreign-ancestor').owners = []; },
     h => { delete h.files.get('foreign-ancestor').owners[0].me; },
@@ -171,9 +172,6 @@ test('ancestor authority remains complete and consistent; folder creation policy
     try { await assert.rejects(h.s.move({ ...moveArgs(), preview: false })); assert.equal(h.writes(), 0); safe(h); }
     finally { await h.close(); }
   }
-  const h = await setup(); alternatingPath(h);
-  try { await assert.rejects(h.s.createFolder({ ...folderArgs(), parentId: 'dest-id', preview: false })); assert.equal(h.writes(), 0); }
-  finally { await h.close(); }
 });
 test('all shared-ancestor authority is rechecked after preview and after owner approval; changed state never writes', async () => {
   for (const when of ['preview', 'approval']) for (const change of ['owner', 'permission', 'parent', 'capability', 'partial', 'account']) {
@@ -230,6 +228,155 @@ test('overlapping direct/ancestor principals preserve explicit direct role and d
       assert.equal(op.directBefore.find(p => p.id === otherWriter.id).role, mixed ? 'reader' : 'writer');
       const r = await h.s.move({ ...a, preview: false }, undefined, async () => ({ outcome: 'submitted', value: { approved: true } }));
       assert.equal(r.outcome, ['kept', 'mixed-kept'].includes(mode) ? 'verified' : 'uncertain', mode); assert.equal(h.writes(), 1); safe(h);
+    } finally { await h.close(); }
+  }
+});
+// Parent ownership is independent of the selected creator's writable authority.
+function folderPath(h, mode = 'foreign-parent') {
+  const a = { ...folderArgs(), parentId: 'dest-id', name: 'Synthetic - exact folder' };
+  if (mode === 'owned') return a;
+  if (mode === 'owned-shared') { h.permissionRows.set('dest-id', [owner, group]); return a; }
+  const { foreignOwner, selectedWriter } = alternatingPath(h);
+  if (mode === 'foreign-parent') {
+    h.files.get('dest-id').owners = [{ me: false, emailAddress: foreignOwner.emailAddress }];
+    h.permissionRows.set('dest-id', [foreignOwner, selectedWriter]);
+  }
+  return a;
+}
+const yes = async () => ({ outcome: 'submitted', value: { approved: true } });
+test('owned/shared/foreign parent and ancestors create exactly once; creator owns new folder, parent ownership unchanged', async () => {
+  for (const mode of ['owned', 'owned-shared', 'foreign-ancestor', 'foreign-parent']) {
+    const h = await setup(), a = folderPath(h, mode), before = structuredClone(h.files.get('dest-id'));
+    try {
+      const p = await h.s.createFolder(a); assert.equal(p.requiresApproval, mode !== 'owned'); assert.equal(h.writes(), 0);
+      assert.equal(p.preview.title, 'Synthetic - exact folder'); assert.ok(p.preview.to.endsWith(' / Synthetic - exact folder'));
+      if (mode === 'foreign-parent') {
+        h.options.newFolderPermissions = [owner, { ...group, id: 'foreign-owner', type: 'user', emailAddress: 'partner@example.invalid' }];
+        assert.match(p.preview.destinationOwners, /Synthetic destination — owner: partner@example.invalid/);
+        assert.match(p.preview.accessChanges, /partner@example.invalid — may get access.*parent access: Owner/);
+        assert.match(p.preview.sharedAncestorSummary, /Synthetic destination.*belongs to partner@example.invalid/);
+      }
+      let reviewed = 0;
+      const r = await h.s.createFolder({ ...a, preview: false }, undefined, async card => {
+        reviewed++; assert.deepEqual(card, { ...p.preview, operationId: a.operationId }); assert.equal(h.writes(), 0); return yes();
+      });
+      assert.equal(reviewed, mode === 'owned' ? 0 : 1); assert.equal(r.outcome, 'verified'); assert.equal(h.writes(), 1);
+      assert.deepEqual(h.files.get('dest-id'), before); assert.deepEqual(h.files.get('new-folder').owners, [{ me: true, emailAddress: account }]);
+      await h.s.createFolder({ ...a, preview: false }); assert.equal((await h.service().status(statusArgs(a))).outcome, 'verified'); assert.equal(h.writes(), 1);
+      const writes = h.calls.filter(c => c.url.pathname.startsWith('/drive/') && c.init.method && c.init.method !== 'GET'); assert.equal(writes.length, 1); assert.equal(writes[0].init.method, 'POST');
+      assert.deepEqual(JSON.parse(writes[0].init.body), { name: a.name, mimeType: FOLDER, parents: ['dest-id'], appProperties: { paFilingCreation: a.operationId } });
+      assert.ok(h.calls.some(c => c.url.searchParams.get('q')?.includes("name = 'Synthetic - exact folder'"))); safe(h);
+    } finally { await h.close(); }
+  }
+});
+test('folder authority refuses missing/false capability, reader/unknown permissions, incomplete or inconsistent ancestry before review', async () => {
+  const mutations = [
+    h => { h.files.get('dest-id').capabilities.canAddChildren = false; },
+    h => { delete h.files.get('dest-id').capabilities.canAddChildren; },
+    h => { h.files.get('dest-id').capabilities.canAddChildren = 'true'; },
+    h => { h.permissionRows.get('dest-id')[1].role = 'reader'; },
+    h => { h.permissionRows.get('dest-id')[1].role = 'commenter'; },
+    h => { h.permissionRows.get('dest-id').pop(); },
+    h => { h.files.get('dest-id').owners[0].me = true; },
+    h => { h.files.get('dest-id').owners = []; },
+    h => { h.permissionRows.get('dest-id')[0].emailAddress = 'different@example.invalid'; },
+    h => { h.permissionRows.get('dest-id').push(owner); },
+    h => { h.files.get('foreign-ancestor').owners[0].me = true; },
+    h => { h.permissionRows.set('foreign-ancestor', [owner]); },
+    h => { h.files.get('root-id').owners = [{ me: false, emailAddress: 'partner@example.invalid' }]; },
+    h => { h.options.pagedPermissions = true; }, h => { h.options.permissionError = true; },
+    h => { h.files.get('dest-id').driveId = 'shared-drive'; },
+    h => { h.files.get('foreign-ancestor').inheritedPermissionsDisabled = true; },
+    h => { h.files.get('dest-id').mimeType = 'application/vnd.google-apps.shortcut'; },
+    h => { h.files.get('foreign-ancestor').parents = ['owned-middle']; },
+    h => { h.options.scope = 'drive.readonly'; }, h => { h.options.wrongIdentity = true; },
+  ];
+  for (const mutate of mutations) {
+    const h = await setup(), a = folderPath(h); mutate(h);
+    try { await assert.rejects(h.s.createFolder({ ...a, preview: false }, undefined, () => { throw Error('Must not review'); })); assert.equal(h.writes(), 0); safe(h); }
+    finally { await h.close(); }
+  }
+});
+test('folder post-preview/post-card owner, access, path, capability, identity and exact-name duplicate changes refuse before POST', async () => {
+  for (const when of ['preview', 'card']) for (const change of ['owner', 'access', 'path', 'capability', 'missing-capability', 'reader', 'incomplete', 'duplicate', 'duplicate-page', 'identity']) {
+    const h = await setup(), a = folderPath(h);
+    const mutate = () => {
+      if (change === 'owner') { h.files.get('dest-id').owners[0].emailAddress = 'new@example.invalid'; h.permissionRows.get('dest-id')[0].emailAddress = 'new@example.invalid'; }
+      if (change === 'access') h.permissionRows.get('dest-id').push(group);
+      if (change === 'path') h.files.get('dest-id').parents = ['root-id'];
+      if (change === 'capability') h.files.get('dest-id').capabilities.canAddChildren = false;
+      if (change === 'missing-capability') delete h.files.get('dest-id').capabilities.canAddChildren;
+      if (change === 'reader') h.permissionRows.get('dest-id')[1].role = 'reader';
+      if (change === 'incomplete') h.options.pagedPermissions = true;
+      if (change === 'duplicate') h.options.duplicate = true;
+      if (change === 'duplicate-page') h.options.pagedDuplicates = true;
+      if (change === 'identity') h.options.wrongIdentity = true;
+    };
+    try {
+      await h.s.createFolder(a); if (when === 'preview') mutate();
+      const r = await h.s.createFolder({ ...a, preview: false }, undefined, async () => { if (when === 'card') mutate(); return yes(); });
+      assert.ok(['stale', 'not_submitted'].includes(r.outcome), `${when}/${change}: ${r.outcome}`); assert.equal(h.writes(), 0); safe(h);
+    } finally { await h.close(); }
+  }
+});
+test('foreign folder approvals decline/cancel/expire/abort/restart safely; no alternate-key cleanup or replay', async () => {
+  for (const decision of [{ outcome: 'submitted', value: { approved: false } }, { outcome: 'cancelled' }, { outcome: 'submitted', value: { approved: true, extra: true } }]) {
+    const h = await setup(), a = folderPath(h);
+    try { const r = await h.s.createFolder({ ...a, preview: false }, undefined, async () => decision); assert.ok(['declined', 'cancelled'].includes(r.outcome)); await h.s.createFolder({ ...a, preview: false }, undefined, yes); assert.equal(h.writes(), 0); }
+    finally { await h.close(); }
+  }
+  for (const mode of ['expired', 'aborted', 'restart']) {
+    const h = await setup(), a = folderPath(h), controller = new AbortController();
+    try {
+      const r = await h.s.createFolder({ ...a, preview: false }, controller.signal, async () => {
+        if (mode === 'expired') h.tick(600_000);
+        if (mode === 'aborted') controller.abort();
+        if (mode === 'restart') assert.equal((await h.service().status(statusArgs(a))).outcome, 'cancelled');
+        return yes();
+      });
+      assert.ok(['expired', 'not_submitted'].includes(r.outcome), `${mode}: ${r.outcome}`); assert.equal(h.writes(), 0); safe(h);
+    } finally { await h.close(); }
+  }
+});
+test('foreign folder lost-response recovery requires exact owned creation readback; unknown writes never recreate/delete', async () => {
+  for (const mode of ['matching', 'empty', 'ambiguous', 'incomplete', 'foreign-owner', 'inconsistent-owner', 'wrong-name', 'wrong-parent', 'wrong-type']) {
+    const h = await setup({ lost: true, emptyRecovery: mode === 'empty', ambiguousRecovery: mode === 'ambiguous', incompleteRecovery: mode === 'incomplete' }), a = folderPath(h);
+    try {
+      assert.equal((await h.s.createFolder({ ...a, preview: false }, undefined, yes)).outcome, 'uncertain');
+      const f = h.files.get('new-folder');
+      if (mode === 'foreign-owner') { f.owners = [{ me: false, emailAddress: 'partner@example.invalid' }]; h.permissionRows.set(f.id, [{ ...owner, emailAddress: 'partner@example.invalid' }]); }
+      if (mode === 'inconsistent-owner') h.permissionRows.set(f.id, [{ ...owner, emailAddress: 'different@example.invalid' }]);
+      if (mode === 'wrong-name') f.name = 'Different name';
+      if (mode === 'wrong-parent') f.parents = ['root-id'];
+      if (mode === 'wrong-type') f.mimeType = DOC;
+      const r = await h.service().status(statusArgs(a)); assert.equal(r.outcome, mode === 'matching' ? 'verified' : ['foreign-owner', 'inconsistent-owner'].includes(mode) ? 'verification_unavailable' : 'uncertain', mode);
+      await h.s.createFolder({ ...a, preview: false }, undefined, yes); assert.equal(h.writes(), 1);
+      if (mode !== 'matching') {
+        // Even an empty name lookup cannot bypass the original unresolved resource.
+        h.files.delete('new-folder'); await assert.rejects(h.s.createFolder({ ...a, operationId: randomUUID(), preview: false }, undefined, yes), e => e.filingCode === 'busy');
+      }
+      assert.equal(h.writes(), 1); assert.ok(h.calls.every(c => !['DELETE', 'PATCH'].includes(c.init.method))); safe(h);
+    } finally { await h.close(); }
+  }
+});
+test('acknowledged folder POST with foreign/mismatched creator owner or unexpected access stays uncertain, locked and never replays/cleans up', async () => {
+  for (const mode of ['foreign-owner', 'inconsistent-owner', 'unexpected-access']) {
+    const h = await setup(), a = folderPath(h);
+    if (mode === 'foreign-owner') {
+      h.options.newFolderMetadata = { owners: [{ me: false, emailAddress: 'partner@example.invalid' }] };
+      h.options.newFolderPermissions = [{ ...owner, emailAddress: 'partner@example.invalid' }];
+    }
+    if (mode === 'inconsistent-owner') h.options.newFolderPermissions = [{ ...owner, emailAddress: 'different@example.invalid' }];
+    if (mode === 'unexpected-access') h.options.newFolderPermissions = [owner, { ...group, emailAddress: 'unexpected@example.invalid' }];
+    try {
+      const r = await h.s.createFolder({ ...a, preview: false }, undefined, yes);
+      assert.equal(r.outcome, 'uncertain', mode); assert.equal(r.fileId, 'new-folder'); assert.equal(h.writes(), 1);
+      assert.equal((await h.store.filing.get(a.operationId)).state, 'uncertain');
+      await h.service().status(statusArgs(a)); await h.s.createFolder({ ...a, preview: false }, undefined, yes);
+      assert.equal(h.writes(), 1); assert.ok(h.files.has('new-folder')); // never delete a partial result
+      // Provider absence later is not authority to bypass the retained resource lock.
+      h.files.delete('new-folder'); await assert.rejects(h.s.createFolder({ ...a, operationId: randomUUID(), preview: false }, undefined, yes), e => e.filingCode === 'busy');
+      assert.equal(h.writes(), 1); assert.ok(h.calls.every(c => !['DELETE', 'PATCH'].includes(c.init.method))); safe(h);
     } finally { await h.close(); }
   }
 });

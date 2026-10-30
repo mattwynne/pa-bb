@@ -30,10 +30,10 @@ for (const { id: threadId, state } of threads) {
     await p.focus(`${el} button:nth-child(2)`);
   } else {
     if (evidence.disabled || evidence.detailsOpen || !evidence.impactVisible) throw Error(`Summary hidden or invalid defaults: ${state}`);
-    const pathText = state === 'folder' ? 'My Drive / New organization / Partnership / Synthetic course folder' : 'My Drive / Shared administration / New organization / Partnership';
-    for (const text of ['owner@example.invalid', pathText, 'Who may gain or lose access', 'No write has happened', ...(state === 'folder' ? ['People with access'] : ['partner@example.invalid', 'old-team@example.invalid', 'belongs to', 'editing access', 'viewing access'])]) if (!evidence.text.includes(text)) throw Error(`Missing ${text}: ${state}`);
+    const pathText = state === 'folder' ? 'My Drive / Shared administration / Partnership / Synthetic - exact folder' : 'My Drive / Shared administration / New organization / Partnership';
+    for (const text of ['owner@example.invalid', pathText, 'Who may gain or lose access', 'No write has happened', ...(state === 'folder' ? ['Creator and new folder owner:', 'parent ownership stays unchanged', 'partner@example.invalid', 'belongs to', 'may get access', 'parent access: Owner'] : ['partner@example.invalid', 'old-team@example.invalid', 'belongs to', 'editing access', 'viewing access'])]) if (!evidence.text.includes(text)) throw Error(`Missing ${text}: ${state}`);
     if (/application\/|Current path owners|Destination path owners/.test(evidence.text)) throw Error('Technical inventory is not collapsed');
-    if (state === 'folder' && /partner@example.invalid|old-team@example.invalid|belongs to another person/.test(evidence.text)) throw Error('Folder fixture widened ancestry policy');
+    if (state === 'folder' && /old-team@example.invalid|may lose/.test(evidence.text)) throw Error('New folder incorrectly claims a source audience loss');
     if (state === 'move' || state === 'folder') await p.shot({ type: 'jpeg', maxEdge: 1280, quality: 70 });
     await p.focus(`${el} summary`); await p.keyboard.press('Enter');
     const expanded = await p.evaluate(() => { const e = document.querySelector('.pa-drive__docs-review'); return { open: e.querySelector('details').open, text: e.innerText }; });
