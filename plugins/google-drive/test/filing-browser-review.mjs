@@ -10,7 +10,7 @@ const rpc = (method, input) => p.evaluate(async ({ method, input }) => {
   if (!r.ok) throw Error('Synthetic fixture RPC failed'); return (await r.json()).result;
 }, { method, input });
 const threads = await p.evaluate(async () => (await (await fetch('/api/v1/threads?projectId=proj_personal')).json()).map(t => ({ id: t.id, state: t.title.replace('Synthetic filing review: ', ''), status: t.status })));
-if (threads.length !== 6 || threads.some(t => t.status !== 'pending')) throw Error('Expected six inert review threads');
+if (threads.length !== 7 || threads.some(t => t.status !== 'pending')) throw Error('Expected seven inert review threads');
 let reviewed = 0;
 for (const { id: threadId, state } of threads) {
   const count = await p.evaluate(async id => (await (await fetch(`/api/v1/threads/${id}/interactions`)).json()).length, threadId);
@@ -25,6 +25,19 @@ for (const { id: threadId, state } of threads) {
       impactVisible: !impact || impact.getBoundingClientRect().bottom <= (scroll?.getBoundingClientRect().bottom ?? innerHeight) };
   });
   if (evidence.overflow || evidence.links) throw Error(`Unexpected overflow/live link: ${state}`);
+  if (state === 'task') {
+    for (const text of ['File 6 requested items', 'Business plan', 'Marketing workbook', 'Résumé', 'Market evidence', 'Finance sheet', 'Create folder: Requested folder', 'One approval', 'Earlier items may complete', 'No access change found', 'may gain editing access']) if (!evidence.text.includes(text)) throw Error(`Missing task summary: ${text}`);
+    if (evidence.disabled || evidence.detailsOpen) throw Error('Task defaults invalid');
+    await p.shot({ type: 'jpeg', maxEdge: 1280, quality: 70 });
+    await p.focus(`${el} summary`); await p.keyboard.press('Enter');
+    if (!(await p.evaluate(() => document.querySelector('.pa-drive__docs-review details').open))) throw Error('Task keyboard details failed');
+    await p.keyboard.press('Enter'); await p.focus(`${el} button`);
+    const focus = await p.evaluate(() => ({ text: document.activeElement.textContent, outline: getComputedStyle(document.activeElement).outlineStyle }));
+    if (focus.text !== 'Approve filing' || focus.outline === 'none') throw Error('Task keyboard focus missing');
+    await p.keyboard.press('Enter'); await p.waitForFunction(() => !document.querySelector('.pa-drive__docs-review'));
+    const r = await rpc('result', { threadId }); if (r?.outcome !== 'submitted' || r.value.approved !== true) throw Error('Task no-op receipt failed');
+    reviewed++; continue;
+  }
   if (state === 'invalid') {
     if (!evidence.disabled || !evidence.text.includes('incomplete')) throw Error('Invalid filing is approvable');
     await p.focus(`${el} button:nth-child(2)`);

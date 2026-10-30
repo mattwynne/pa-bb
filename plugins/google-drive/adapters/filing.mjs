@@ -67,6 +67,7 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
           || !['user', 'group', 'domain', 'anyone'].includes(p.type) || !['owner', 'reader', 'commenter', 'writer'].includes(p.role)
           || (['user', 'group'].includes(p.type) && (typeof p.emailAddress !== 'string' || !/^[^\s@]+@[^\s@]+$/.test(p.emailAddress) || p.emailAddress.length > 320))
           || (p.type === 'domain' && (typeof p.domain !== 'string' || !p.domain))
+          || (p.expirationTime !== undefined && (typeof p.expirationTime !== 'string' || !Number.isFinite(Date.parse(p.expirationTime))))
           || (['domain', 'anyone'].includes(p.type) && typeof p.allowFileDiscovery !== 'boolean')) throw filingError('unsupported');
         seen.add(p.id);
       }
@@ -163,6 +164,21 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
       return others.length ? [...new Set(others.map(p => `${principal(p)} — ${filingRoleLabel(p.role)}`))].join('\n') : 'Only the file owner appears in this access list.';
     };
     const describeOwners = items => items ? [...items].reverse().map(i => `${i.metadata.name} — owner: ${i.metadata.owners[0].emailAddress}`).join('\n') : 'New folder — no existing path.';
+    // Structured effective roles drive consent, never display text or parent ownership.
+    const before = source?.[0].permissions || [];
+    const after = [...destination[0].permissions, ...(source ? direct(source) : [])];
+    const external = p => p.emailAddress?.toLowerCase() !== record.email.toLowerCase();
+    const strongest = (items, p) => Math.max(0, ...items.filter(q => accessKey(q) === accessKey(p)).map(q => rank[q.role]));
+    // For each role threshold, retain the longest effective grant lifetime.
+    // null means permanent; 0 means no grant. This catches same-role duration changes.
+    const lifetime = (items, p) => [1, 2, 3, 4].map(level => {
+      const grants = items.filter(q => accessKey(q) === accessKey(p) && rank[q.role] >= level);
+      return grants.some(q => !q.expirationTime) ? null : Math.max(0, ...grants.map(q => Date.parse(q.expirationTime)));
+    });
+    const accessFacts = [...new Map([...before, ...after].filter(external).map(p => [accessKey(p), {
+      principal: accessKey(p), before: strongest(before, p), after: strongest(after, p),
+      beforeLifetime: lifetime(before, p), afterLifetime: lifetime(after, p),
+    }])).values()].filter(p => p.before !== p.after || filingHash(p.beforeLifetime) !== filingHash(p.afterLifetime));
     const accessChanges = () => {
       if (!source) {
         const visible = dest && destination[0].permissions.filter(p => p.emailAddress?.toLowerCase() !== record.email.toLowerCase());
@@ -174,7 +190,11 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
       const strongest = (items, p) => Math.max(0, ...items.filter(q => accessKey(q) === accessKey(p)).map(q => rank[q.role]));
       const gains = after.filter(p => external(p) && rank[p.role] > strongest(before, p)).map(p => `${principal(p)} — may gain ${filingAccessLabel(p.role)} access.`);
       const losses = before.filter(p => external(p) && rank[p.role] > strongest(after, p)).map(p => `${principal(p)} — may lose some or all ${filingAccessLabel(p.role)} access from folders.`);
-      return [...new Set([...gains, ...losses])].join('\n') || 'No access change was found in the visible lists. Other ways of accessing the file may still exist.';
+      const durations = accessFacts.filter(f => f.before === f.after).map(f => {
+        const p = [...before, ...after].find(p => accessKey(p) === f.principal);
+        return `${principal(p)} — may change how long access lasts (expiration or permanence changes).`;
+      });
+      return [...new Set([...gains, ...losses, ...durations])].join('\n') || 'No access change was found in the visible lists. Other ways of accessing the file may still exist.';
     };
     const title = kind === 'folder' ? request.name : source[0].metadata.name;
     const proposal = { contextIds: [...new Set([...destination, ...(source || [])].map(i => i.metadata.id))], destinationId: dest.id, sourceParentId: source?.[0].metadata.parents[0], fileId: source?.[0].metadata.id,
@@ -186,13 +206,13 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
         // The creator owns the NEW folder, not its parent. Parent writer access
         // must not make exact creator-ownership readback look unexpected.
         ...(kind === 'folder' ? [{ type: 'user', emailAddress: record.email, role: 'owner' }] : [])].map(p => [accessKey(p), rank[p.role]]),
-      requiresApproval: sharedAncestors || nonOwners.length > 0,
+      accessFacts, requiresApproval: accessFacts.length > 0,
       preview: { kind, account: record.email, title, sharedAncestors, mimeType: source ? source[0].metadata.mimeType : FOLDER, from: source ? source.slice(1).reverse().map(i => i.metadata.name).join(' / ') : 'New folder',
         to: [...destination].reverse().map(i => i.metadata.name).join(' / ') + (kind === 'folder' ? ` / ${request.name}` : ''),
         sourceAudience: source ? describeAccess(source[0]) : 'New folder — no existing audience.', destinationAudience: describeAccess(destination[0]),
         sourceOwners: describeOwners(source?.slice(1)), destinationOwners: describeOwners(destination), accessChanges: accessChanges(),
         sharedAncestorSummary: [...new Map(context.filter(i => i.metadata.owners[0].me !== true).map(i => [i.metadata.id, `“${i.metadata.name}” belongs to ${i.metadata.owners[0].emailAddress}.`])).values()].join('\n'),
-        reviewReason: sharedAncestors ? 'A parent folder belongs to another person. Your approval is required even if the visible access lists look the same.' : 'Review who may gain or lose access from folders.',
+        reviewReason: 'Review changes to who may gain or lose access from folders. Parent ownership alone does not require approval.',
         destinationId: dest.id, sourceParentId: source?.[0].metadata.parents[0] || '', fileId: source?.[0].metadata.id || '', audience: audience.length ? audience.join('\n') : 'Only the file owner appears in the inspected access lists.',
         impact: kind === 'folder'
           ? 'The new folder may get the destination’s access. There is no existing source file or access to remove. Group members, organization rules and other ways of accessing the folder are not fully visible.'

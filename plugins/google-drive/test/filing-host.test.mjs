@@ -16,13 +16,13 @@ async function setup(options = {}) {
       calls++;
       if (options.fail) throw Object.assign(new Error('private-token-account-content'), { code: 'private-provider-code', cause: 'private-cause', status: 503 });
       return { mimeType: options.mimeType || 'application/vnd.google-apps.document', resource: 'file:doc-id', fingerprint: mismatch ? 'different' : 'same', destinationId: 'dest-id', sourceParentId: 'root-id', fileId: 'doc-id', requiresApproval: options.shared !== false,
-        preview: { kind, account, mimeType: options.mimeType || 'application/vnd.google-apps.document', title: 'Synthetic file', from: 'My Drive', to: 'My Drive / Synthetic team', destinationId: 'dest-id', fileId: 'doc-id', sourceAudience: 'Owner only', destinationAudience: 'group: team@example.invalid — writer', audience: 'group: team@example.invalid — writer', impact: 'Inherited access changes; no permission edits.' } };
+        preview: { kind, account, mimeType: options.mimeType || 'application/vnd.google-apps.document', title: 'Synthetic file', from: 'My Drive', to: 'My Drive / Synthetic team', destinationId: 'dest-id', fileId: 'doc-id', sourceAudience: 'Owner only', destinationAudience: 'group: team@example.invalid — writer', audience: 'group: team@example.invalid — writer', impact: 'Inherited access changes; no permission edits.', accessChanges: 'Partner may gain editing access.' } };
     },
     async prepare() { return async () => { writes++; if (options.lost) throw new Error('private-response-lost'); return { id: 'doc-id' }; }; },
     async verify() { return { matches: true, visibleAccess: [] }; },
     async findFolder() { return null; },
   };
-  async function plugin(bb) { registerFilingTools(bb, createBbStore(bb.storage.database(), (db, statements) => bb.storage.migrate(db, statements)), { filing }); bb.agents.configure(() => ({ tools: FILING_TOOLS, skills: [] })); }
+  async function plugin(bb) { registerFilingTools(bb, createBbStore(bb.storage.database(), (db, statements) => bb.storage.migrate(db, statements)), { filing }, async () => options.filingPolicy !== 'never'); bb.agents.configure(() => ({ tools: FILING_TOOLS, skills: [] })); }
   await plugin(h.bb);
   return { ...h, store, writes: () => writes, calls: () => calls, stale: () => { mismatch = true; }, plugin };
 }
@@ -57,6 +57,27 @@ test('same native move schema and review support Sheets and binary files without
       const result = parse(await done); assert.equal(result.outcome, 'verified'); assert.equal(result.url, url); assert.equal(h.writes(), 1);
     } finally { await h.harness.lifecycle.dispose(); }
   }
+});
+test('separate Never filing policy suppresses native card; capabilities report actual policy without provider calls', async () => {
+  const h = await setup({ filingPolicy: 'never' });
+  try {
+    assert.deepEqual(await h.harness.behavior.callRpc('filingCapabilities', null), { contract: 'filing-task-v1', approval: 'never', maxItems: 20, destinations: 'existing', recovery: 'individual-no-replay' });
+    assert.equal(h.calls(), 0);
+    const r = parse(await h.harness.behavior.callAgentTool('gdrive_move_file', input()));
+    assert.equal(r.outcome, 'verified'); assert.match(r.accessChanges, /gain/); assert.equal(h.harness.inspection.pendingInteractions.length, 0);
+  } finally { await h.harness.lifecycle.dispose(); }
+});
+test('task uses one native host review and preserves task/child no-replay across reload', async () => {
+  const h = await setup(); let next;
+  const { account: ignored, preview: ignoredPreview, ...item } = input();
+  const a = { account, operationId: randomUUID(), items: [{ ...item, kind: 'move' }], preview: false };
+  try {
+    const done = h.harness.behavior.callAgentTool('gdrive_filing_task', a), form = await pending(h.harness);
+    assert.equal(form.payload.kind, 'task'); assert.equal(form.payload.items.length, 1); assert.equal(h.writes(), 0);
+    h.harness.behavior.submitInteraction(form.id, { approved: true }); assert.equal(parse(await done).outcome, 'verified'); assert.equal(h.writes(), 1);
+    next = await h.harness.lifecycle.reload(h.plugin);
+    assert.equal(parse(await next.harness.behavior.callAgentTool('gdrive_filing_task', a)).outcome, 'verified'); assert.equal(h.writes(), 1);
+  } finally { await next?.harness.lifecycle.dispose(); await h.harness.lifecycle.dispose(); }
 });
 test('owner-only exact request does not introduce a redundant card; preview never writes', async () => {
   const h = await setup({ shared: false });

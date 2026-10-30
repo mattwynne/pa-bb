@@ -1,165 +1,129 @@
-# Folder creation and existing-file filing
+# Requested Drive filing
 
-This bounded workflow adds three native tools, not a general Drive manager:
+Filing preserves existing file IDs and URLs. It never copies files, edits content,
+changes permissions, transfers ownership or sends invitations. Google may still
+send its own service notifications. Use only for user-requested filing, never
+real provider writes as engineering tests.
 
-- `gdrive_create_folder`: explicit connected account, lowercase UUID v4
-  operationId, parentId (`root` or ID), name and preview (default true).
-- `gdrive_move_file`: explicit account, UUID, existing owned fileId,
-  expectedParentId, destination folderId and preview (default true).
-- `gdrive_filing_status`: read-only recovery with the same account/UUID.
+## Tools and task review
 
-Use the [filing skill](../skills/google-drive-filing/SKILL.md) for operating
-instructions. Discovery should help resolve the user's intended organization;
-a matching client folder under an old organization is not consent to use it.
-Search and exact sibling lookup are provider observations, not global absence
-proof. Existing duplicates require inspection, not automatic reuse or another
-creation. The backend rejects any exact-name folder in the selected parent and
-incomplete duplicate lookups.
+- `gdrive_create_folder`: explicit account, single-use lowercase UUID v4
+  `operationId`, `parentId` (`root` or ID), `name`, `preview` (default true).
+- `gdrive_move_file`: account, UUID, `fileId`, `expectedParentId`, `folderId`, preview.
+- `gdrive_filing_task`: account, task UUID, preview, and 1–20 exact `items`.
+  Each item has `kind: "move"` or `kind: "folder"` and the corresponding tool's
+  arguments except account/preview. Each item needs its own distinct UUID.
+- `gdrive_filing_status`: account and the same task or individual UUID. Recovery
+  never submits a provider write.
 
-## Provider support versus plugin policy
+Preview first; apply with **identical arguments and keys**, changing only
+`preview:false`. For a requested batch, use the task tool rather than separate
+per-file calls. One concise native review covers all exact items, destinations,
+requested folder creations and access effects in that task. No agent can supply
+approval via arguments or carry consent into another task. Existing operation
+keys cannot be adopted into a new task. Task preview payloads are capped at
+64 KB; larger requests must be explicitly split, not clipped.
 
-Google supports folders via `files.create` with
-`application/vnd.google-apps.folder`, and moves via a metadata-only
-`files.update` PATCH with addParents/removeParents. A move retains the file's ID
-and link. Full `drive` access already authorizes these API classes, subject to
-Google's per-item capabilities and policy; `drive.file` is also accepted only
-for items actually accessible to that grant. IDs alone do not authorize them.
-No new scopes or credentials are requested. The separate Docs-editing diagnostic
-accepts Docs-only grants and cannot independently prove filing authorization.
+All destinations must already exist and be inspectable at preview. A task can
+include folder creation alongside moves to existing destinations, but cannot
+move into a folder created within that same task. Create and verify that folder,
+then inspect it before proposing a task targeting it. This can require a separate
+review for creation and the later task; consent is never silently reused across
+the two. There is no provider transaction or CAS guarantee.
 
-Native Docs/Sheets creation still deliberately permits only root or owned,
-visibly owner-only folders. That is an implementation policy, not a universal
-Google restriction. Filing supports owned shared **My Drive** folders with an
-exact inherited-access review. A move may traverse readable non-owned My Drive
-ancestors, but the source file and writable destination themselves must still
-be owned by the selected account. Each inspected node must have one known owner
-consistent with its complete owner permission row, and both paths must reach
-the selected account's My Drive root. Another person's ancestor is always a
-mandatory review trigger, even if visible item audiences appear equivalent.
-Folder creation may target an owned or non-owned My Drive parent: Google must
-report `capabilities.canAddChildren=true`, and a complete inspected user permission
-must identify the selected creator as owner or writer of that parent. Readable
-ancestors need not be writable. Every node still needs consistent owner metadata
-and its unique owner permission; the path must reach the selected account's root.
-A non-owned/shared parent or ancestor always requires exact BB-owner review.
-Approval cannot override missing/false capability, reader/unknown authority or
-incomplete inspection. The new folder must be owned by the selected creator;
-parent ownership and permissions are never changed. Sharing APIs, move endpoint
-ownership and native document creation policies are unchanged. Shared-drive transfer,
-limited-access folders, shortcuts and moving folder trees remain unsupported.
-Moves are capability-driven: an ordinary file with a bounded MIME type and
-`capabilities.canMoveItemWithinDrive=true` is eligible, whether a native
-Doc/Sheet/Slide, PDF, image, Office file, archive or another uploaded/native type.
-There is no MIME allowlist. A missing/false capability refuses the move; file
-bodies and cells are never fetched to decide eligibility. Names, MIME and other
-provider metadata are untrusted data, not executable instructions. Shortcuts are
-explicitly rejected without following their targets: moving the pointer would
-not file the target. Folder-tree moves require a different access policy and
-remain unsupported. An inherited writer detail can refer to the same owner; inheritance alone does
-not establish another person's access.
+Tasks are not atomic. Each item keeps an individual durable mutation receipt,
+claim, pre-write revalidation and readback. Processing stops at the first
+non-verified result, material change, expiry, cancellation or interruption.
+Earlier items may have completed; later items may remain proposed. A partial
+result includes each receipt and access impact. Failed preparation retains a task
+receipt with prepared and unprepared children. An abandoned preparation/review
+becomes interrupted on recovery; consent never survives a lost invocation. Never replay a task to finish
+its remainder. Inspect the same task/child keys and report exactly what completed.
+A separately requested continuation needs fresh inspection and any required review.
 
-All relevant item/ancestor permissions are read with bounded pagination
-(ten pages each; at most 32 ancestors). Incomplete/unknown authority fails
-closed. Visible non-owner permissions require a native BB owner review, showing
-account, exact item, old/new path, each path's owners and visible audiences.
-Potential visible inherited-access gains/increases and losses/reductions are
-shown separately from preserved direct grants. Ancestor folder ownership is
-not presented as ownership transfer of the file. These are access-impact
-observations, not a promise about downstream effective access. The card leads
-with these potential access changes and any other person's parent-folder
-ownership. Complete access lists, repeated path owners, exact MIME metadata and
-recovery limits remain available under **Full access and folder details**.
-Friendly file/permission labels affect presentation only, never file eligibility
-or authority. While a choice is being sent, visible submission feedback does
-not claim that the Google move has begun or completed. Owner-only filing uses
-explicit requested intent and existing Google write consent, like document
-creation; the Docs-edit approval setting has no role. State is rechecked after
-review and previews expire after ten minutes. At most 40 distinct audience/role
-summaries are shown; larger summaries are rejected, not silently clipped.
+## Owner-controlled filing policy
 
-No permission endpoint, invitation, ownership transfer, content insertion,
-format change or file copy is submitted. Google nevertheless re-evaluates
-inherited access on a move. Destination audiences may gain access and source-only
-inherited audiences may lose it; direct grants are not rewritten. Groups,
-domain policies and organizational access are not exhaustively enumerated.
-Neither an owner-only listing nor shared=false proves exhaustive privacy.
-The workflow requests no invitations, but does not claim to suppress all Google
-service notifications.
+Google Drive Settings has **Approval for filing I request**:
 
-## Writes and recovery
+- **Only when access changes** (default): review meaningful visible audience or
+  role/duration changes, including gains, reductions, expiration/permanence changes
+  and potential source-inherited losses.
+  Creating a folder with a visible external destination audience counts as a gain.
+- **Never for filing I request**: suppress filing cards for requested folder
+  creation and moves. Report access effects afterward. All capability, inspection,
+  claim, revalidation, verification and uncertain-write recovery checks stay on.
 
-Folder creation shows the exact name/path, creator/new-folder owner, parent
-owners and visible destination audience/effect before review. It rechecks parent,
-ancestry, permissions, capability and exact-name siblings after approval; changes
-refuse before writing. It sends exactly one metadata POST with a private
-appProperties operation marker. Exact name, sole parent, folder type and selected
-creator ownership (including its owner permission identity) are read back; foreign
-parent ownership is not authority to assign the new folder to someone else. A move sends exactly one PATCH containing addParents and
-removeParents, with an empty JSON body. No content is read or rewritten to move
-it. Verification checks ID, the exact MIME type captured by the proposal, exact sole parent, name hash, reviewed
-destination context and preservation of known direct grants. Explicit item-level
-grants remain direct evidence even when the same principal also appears on an
-ancestor. For mixed direct/inherited permission details, the known direct role
-is preserved separately from the stronger effective role. New receipts verify
-that direct evidence; legacy receipts retain their original readback semantics
-without migration or replay. It does not certify byte-for-byte text or rendered
-appearance.
+Only the owner changes this setting. Tool arguments cannot override it. The
+existing Docs text/formatting approval setting is independent; uploads and explicit
+sharing mutations keep their own policies.
 
-Plugin-owned SQLite receipts and a unique active resource index survive reload.
-Keys are bound to account, kind and exact request; terminal/same-key repeats
-return historical receipts without another Google write. Exact folder requests
-and same-file moves are serialized within filing; external actors and other
-operations can still race the final live inspection. There is no provider-side
-transaction/CAS claim. No rollback or data cleanup hides partial results.
-Reviewed shared native Docs/Sheets creation coordinates locally with sharing
-changes to inspected ancestors and, once known, the new file. Filing conflicts
-only when it moves that exact new file; independent operations can share an
-ancestor. These claims cannot exclude changes from another Google client.
+Consent decisions compare structured audience identities and effective role
+ranks from complete inspected lists, including preserved direct grants. They do
+not compare display strings. For each effective role threshold they also compare
+how long grants last, so extending expiring access to permanent access is reviewed. Shared ancestry, another person's ownership of an
+ancestor, and generic caveats about group membership or organizational policy
+are not independently meaningful changes. Reliably unchanged audiences/roles
+with preserved direct shares execute without a card under the default policy.
+Unknown or inconsistent owner/authority and incomplete listings still block;
+a potential inherited loss is reviewed rather than assumed safe.
 
-After any ambiguous submission, retain the same key and inspect status. Folder
-recovery searches the private marker; an empty, paged, incomplete or ambiguous
-result remains uncertain and never authorizes recreation. Matching folder
-identity/parent readback can verify the saved creation. An interrupted move can
-still finish later: matching current metadata reports observed_matching, keeps
-the lock and does not establish attribution or terminal request completion.
-There is no force-unlock/retry control. Operators must reconcile unresolved
-moves rather than silently submitting another key. A later location/name change
-on a historically verified receipt reports changed_since_verification.
+## Supported operations and evidence
 
-`writeAttempted` refers to the original operation. Status and repeated mutation
-calls do not issue writes even when the receipt records a historical submission.
-`verified` is successful readback, not proof of recipient access, notifications,
-privacy or absence of a concurrent edit after the read.
+Moves require an owned ordinary file, an owned writable My Drive destination,
+`canMoveItemWithinDrive=true` and existing `drive`/`drive.file` consent. Native
+Docs/Sheets/Slides, PDFs, Office and other bounded ordinary MIME types are
+capability-driven, not allowlisted. Bodies/cells are never read for filing.
+Shared drives, trash, folder trees, shortcuts and limited-access ancestry are
+unsupported. A shortcut would move its pointer, not its target.
 
-## Verification and diagnostics
+Folder creation supports owned or non-owned My Drive parents with
+`canAddChildren=true` and complete explicit selected-user owner/writer evidence.
+The creator must own the new folder; parent ownership stays unchanged. Exact-name
+duplicates and incomplete sibling lookups block, rather than selecting or creating
+an alternative automatically.
 
-Legacy Docs-only receipts remain readable (their absent MIME means native Doc),
-without a storage migration or replay. Native Docs/Sheets/Slides retain their
-canonical editor links; other types use an ID-based Drive link. The file is not
-recreated and any existing source URL remains valid.
+Each path must reach the selected account's My Drive root. Fully readable foreign
+ancestors are allowed, with consistent unique metadata/permission owners. Complete
+bounded permission pagination (ten pages per item, at most 32 ancestors) and at
+most 40 audience/role summaries are required. These are Google-visible facts,
+not exhaustive privacy: group members, domain policies and other access routes
+are not fully enumerated. A generic caveat does not itself mean inheritance is
+unknown. Authority and explicit direct-grant evidence are not bypassed by review.
 
-Synthetic tests exercise exact requests, preserved file identity across native
-and binary/custom MIME types, missing/false capabilities, shortcut/folder
-refusals, MIME and permission changes, legacy receipts, shared
-My Drive destinations, duplicate checks, authority/scope refusals, stale/expired
-reviews, alternating owned/non-owned ancestor chains, metadata/permission-owner
-consistency, mandatory review despite equivalent visible item audiences,
-post-preview and post-card owner/access/parent/capability changes, unchanged
-move endpoint ownership and native Docs/Sheets/sharing policies, writable owned/shared/non-owned
-folder parents and ancestors, missing/false canAddChildren, writer versus reader,
-folder creator ownership/readback, same-key replay prevention, active resource exclusion, restart,
-uncertain submission and read-only recovery. Diagnostics use fixed filing stages
-and bounded failure/status categories. Provider bodies, raw exceptions, account
-addresses, names, IDs and credentials never enter logs. No real Drive mutations
-are engineering tests.
+Inspection includes both paths, permissions, capabilities and identity/scope.
+Revalidation after review must match the exact persisted fingerprint before each
+write. Proposals expire ten minutes after preview. A move sends one metadata
+PATCH with addParents/removeParents and an empty body. Folder creation sends one
+metadata POST with a private operation marker. Readback verifies identity, MIME,
+name, sole parent, destination facts, known direct grants and bounded observed
+access; it does not certify actual recipient access or exhaustive privacy.
+Another client can race final inspection; there is no automatic rollback.
 
-Source tests are not live delivery proof. Full isolated plugin build/host tests,
-native BB rendered desktop/narrow/keyboard review, safe failure diagnostics and
-an authorized targeted activation are delivery gates. Until these finish, this
-capability must be described as source-only, not installed/available. Actual
-user-requested filing is separate from synthetic engineering tests and requires
-its own permitted runtime tools and current inspections.
+## Durable recovery and diagnostics
 
-Provider references: [folders and moves](https://developers.google.com/workspace/drive/api/guides/folder),
-[permission propagation](https://developers.google.com/workspace/drive/api/guides/manage-sharing),
-[file capabilities](https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File.FIELDS.capabilities).
+SQLite single-use receipts survive reload. Same-key terminal calls return saved
+receipts, never another mutation. Local resource/access claims coordinate filing,
+sharing and native creation; they cannot exclude external Google clients.
+
+After uncertainty use `gdrive_filing_status` with the **same account and key**.
+Folder lookup uses its private marker, never name. Empty/ambiguous lookup does
+not prove absence. Matching readback can verify a saved folder creation. For an
+interrupted move, matching metadata is `observed_matching`, not verified: the
+original request could still be in flight. Its unresolved lock remains held.
+Never retry, replace a key, force-unlock, roll back or clean up to hide uncertainty.
+A later divergence from historical success is `changed_since_verification`.
+`writeAttempted` refers to the original operation, not a write by status.
+Legacy Docs-only receipts remain readable without migration or replay.
+
+Tests use synthetic providers, temporary real SQLite and native no-op review
+cards. Test meaningful/unchanged access, task scope, policy separation, cancellation,
+expiry, revalidation, claims, partial completion, restart and no-replay recovery.
+Fixed diagnostic stages and bounded categories must not expose provider bodies,
+raw exceptions, account addresses, file names/IDs or credentials. Build/tests are
+not applied-code evidence: targeted local-path reload and native rendered
+wide/narrow/keyboard review remain separate delivery gates.
+
+See the [filing skill](../skills/google-drive-filing/SKILL.md) and provider
+[folders/moves](https://developers.google.com/workspace/drive/api/guides/folder),
+[permissions](https://developers.google.com/workspace/drive/api/guides/manage-sharing),
+[capabilities](https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File.FIELDS.capabilities).

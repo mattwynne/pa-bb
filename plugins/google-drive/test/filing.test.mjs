@@ -76,7 +76,7 @@ async function setup(options = {}) {
   };
   const adapter = createGoogleAdapter({ store, getClient: async () => ({}), fetchImpl });
   const diagnose = (stage, error) => logs.push(`Google Drive ${stage} ${filingCategory(error)} ${failureCategory(error)}`);
-  const service = () => createFilingService({ store, operations: store.filing, filing: adapter.filing, diagnose, clock: () => clock });
+  const service = () => createFilingService({ store, operations: store.filing, filing: adapter.filing, diagnose, clock: () => clock, requireApproval: async () => options.filingApproval !== 'never' });
   const s = service();
   return { ...h, store, s, service, adapter, files, permissionRows, calls, options, logs, writes: () => writes, content: () => storedContent,
     tick: ms => { clock += ms; }, close: () => h.harness.lifecycle.dispose() };
@@ -130,7 +130,7 @@ test('alternating-owned ancestry permits owned Sheet move only after exact revie
     assert.match(p.preview.audience, /partner@example.invalid — Owner/);
     assert.match(p.preview.accessChanges, /partner@example.invalid — may gain editing access/);
     assert.match(p.preview.sharedAncestorSummary, /“Synthetic shared administration” belongs to partner@example.invalid/);
-    assert.match(p.preview.reviewReason, /parent folder belongs to another person/);
+    assert.match(p.preview.reviewReason, /Parent ownership alone does not require approval/);
     const r = await h.s.move({ ...a, preview: false }, undefined, async card => {
       assert.deepEqual(card, { ...p.preview, operationId: a.operationId }); assert.equal(h.writes(), 0);
       return { outcome: 'submitted', value: { approved: true } };
@@ -143,14 +143,28 @@ test('alternating-owned ancestry permits owned Sheet move only after exact revie
     assert.equal(h.content(), 'private-original-content'); safe(h);
   } finally { await h.close(); }
 });
-test('non-owned ancestor independently mandates review even with equivalent visible item audiences; decline and invalid approval never write', async () => {
-  for (const decision of [{ outcome: 'submitted', value: { approved: false } }, { outcome: 'cancelled' }, { outcome: 'submitted', value: { approved: true, bypass: true } }]) {
-    const h = await setup(); alternatingPath(h, { visibleWriter: false });
+test('non-owned ancestor alone never requires review when effective access is unchanged', async () => {
+  for (const existingShare of [false, true]) {
+    const h = await setup(), a = moveArgs(); const { otherWriter } = alternatingPath(h, { visibleWriter: existingShare });
+    if (existingShare) h.permissionRows.set('doc-id', [owner, { ...otherWriter, permissionDetails: [{ inherited: false, role: 'writer' }] }]);
     try {
-      const p = await h.s.move(moveArgs()); assert.equal(p.requiresApproval, true);
+      const p = await h.s.move(a); assert.equal(p.requiresApproval, false);
       assert.match(p.preview.accessChanges, /No access change was found/);
-      const r = await h.s.move({ ...moveArgs(), preview: false }, undefined, async () => decision);
-      assert.ok(['declined', 'cancelled'].includes(r.outcome)); assert.equal(h.writes(), 0);
+      const r = await h.s.move({ ...a, preview: false }, undefined, async () => { throw new Error('Unexpected card'); });
+      assert.equal(r.outcome, 'verified'); assert.equal(h.writes(), 1);
+    } finally { await h.close(); }
+  }
+});
+test('same-role grant expiration changes require review; equivalent preserved grants do not', async () => {
+  for (const [beforeExpiry, afterExpiry, expected] of [[undefined, undefined, false], ['2030-01-01T00:00:00Z', undefined, true], [undefined, '2030-01-01T00:00:00Z', true], ['2030-01-01T00:00:00Z', '2031-01-01T00:00:00Z', true]]) {
+    const h = await setup(), a = moveArgs();
+    const grant = expirationTime => ({ ...group, expirationTime, permissionDetails: [{ inherited: true, inheritedFrom: 'source-folder', role: 'writer' }] });
+    const source = structuredClone(h.files.get('dest-id')); source.id = 'source-folder'; h.files.set(source.id, source); h.files.get('doc-id').parents = [source.id]; a.expectedParentId = source.id;
+    h.permissionRows.set(source.id, [owner, grant(beforeExpiry)]); h.permissionRows.set('doc-id', [owner, grant(beforeExpiry)]); h.permissionRows.set('dest-id', [owner, grant(afterExpiry)]);
+    try {
+      const p = await h.s.move(a); assert.equal(p.requiresApproval, expected);
+      if (expected) assert.match(p.preview.accessChanges, /how long access lasts/);
+      assert.equal(h.writes(), 0);
     } finally { await h.close(); }
   }
 });
@@ -464,14 +478,14 @@ test('unsupported source metadata and missing/false capability reject before any
 test('shared native and binary moves revalidate exact audiences, parents, MIME and capability after review', async () => {
   for (const mimeType of ['application/vnd.google-apps.spreadsheet', 'application/pdf', 'application/x-next-file-type']) {
     for (const change of ['none', 'parent', 'permissions', 'mime', 'capability', 'destination']) {
-      const h = await setup({ mimeType, shared: true, directSource: true }), a = moveArgs();
+      const h = await setup({ mimeType, shared: true }), a = moveArgs();
       try {
         const p = await h.s.move(a); assert.equal(p.requiresApproval, true); let reviewed = false;
         const r = await h.s.move({ ...a, preview: false }, undefined, async card => {
           reviewed = true; assert.equal(h.writes(), 0); assert.equal(card.mimeType, mimeType); assert.equal(card.fileId, a.fileId); assert.equal(card.destinationId, a.folderId);
           assert.match(card.destinationAudience, /team@example.invalid/);
           if (change === 'parent') h.files.get('doc-id').parents = ['dest-id'];
-          if (change === 'permissions') h.options.directSource = false;
+          if (change === 'permissions') h.permissionRows.set('dest-id', [owner, { ...group, role: 'reader' }]);
           if (change === 'mime') h.files.get('doc-id').mimeType = 'image/jpeg';
           if (change === 'capability') h.files.get('doc-id').capabilities.canMoveItemWithinDrive = false;
           if (change === 'destination') h.files.get('dest-id').parents = ['doc-id'];

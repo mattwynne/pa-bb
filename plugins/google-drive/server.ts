@@ -13,6 +13,7 @@ import { registerSharingTools, SHARING_TOOLS } from './sharing-tools.js';
 import { registerSheetsTools, SHEETS_TOOLS } from './sheets-tools.js';
 import { registerSheetsEditTools, SHEETS_EDIT_TOOLS } from './sheets-edit-tools.js';
 import { registerFilingTools, FILING_TOOLS } from './filing-tools.js';
+import { filingApprovalSetting } from './filing-policy.js';
 import { registerUploadTools, UPLOAD_TOOLS } from './upload-tools.js';
 
 const required = z.string().min(1);
@@ -87,6 +88,7 @@ export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
     clientId: { type: 'string', label: 'Web OAuth client ID', description: 'First time? Follow the setup guide below.', default: '' },
     clientSecret: { type: 'string', label: 'Client secret', secret: true },
+    filingApproval: filingApprovalSetting,
     requireDocsApproval: { type: 'boolean', label: 'Require approval for Google Docs edits', default: true,
       description: 'Applies to all documents and connected accounts. Turn off to let agents apply text replacements and formatting you request without a separate approval card. Revision checks and readback verification stay on. Does not change Google access or approval for other actions.' },
   });
@@ -172,7 +174,7 @@ export default async function plugin(bb: BbPluginApi) {
   registerSharingTools(bb, store, adapter);
   registerSheetsTools(bb, store, adapter);
   registerSheetsEditTools(bb, store, store.sheetsEdits, adapter.drive, adapter.sheetsEdit);
-  registerFilingTools(bb, store, adapter);
+  registerFilingTools(bb, store, adapter, async () => (await settings.get()).filingApproval !== 'never');
   registerUploadTools(bb, store, adapter);
   bb.agents.configure(() => ({
     tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES, DOCS_REVIEW_TOOL, ...DOCS_CREATION_TOOLS, ...SHARING_TOOLS, ...SHEETS_TOOLS, ...FORMAT_TOOLS,

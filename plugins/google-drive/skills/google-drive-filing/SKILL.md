@@ -26,18 +26,22 @@ Owned or non-owned My Drive parents are supported only with Google's explicit
 canAddChildren capability and complete inspected owner/writer permission for
 the selected creator. Readable foreign ancestors are allowed, but every node's
 owner/access must be consistent and the path must reach the selected account's
-root. A shared/non-owned parent or ancestor requires exact BB-owner approval.
+root. Review depends on meaningful access changes under the separate filing policy, not parent ownership alone.
 The card shows exact name/path, creator/new-folder owner, parent owners and
 visible inherited audience/effect. Approval cannot override a capability denial,
 unknown access or incomplete inspection. The new folder must belong to the
 selected creator; parent ownership/access stay unchanged.
 
 Use the SAME arguments/key with preview=false for the requested creation.
-Owner-only filing follows explicit user intent and existing Drive write consent,
-like native document creation. A visible non-owner audience anywhere in the
-inspected source/destination ancestry requires an exact BB-owner approval card.
-Do not approve it yourself or treat waiting/preview/approval as completion.
-No setting bypasses required shared-audience review.
+Unchanged access follows explicit user intent and existing Drive write consent.
+Default filing policy is **Only when access changes**: structured audience/role
+or grant-duration changes require owner review; shared ancestry and generic access caveats alone
+do not. The owner may select **Never for filing I request** in Google Drive
+Settings. Agents must never change that preference or override it via arguments.
+Never mode suppresses filing cards only; inspection, capability, revalidation,
+verification and recovery checks remain mandatory. Report access changes afterward.
+Docs editing, upload and explicit sharing approvals remain independent.
+Do not approve a card yourself or treat waiting/preview/approval as completion.
 
 ## Move the existing file
 
@@ -49,7 +53,7 @@ preview=false applies subject to fresh inspection and any required owner card.
 
 The operation preserves the ID/URL and submits only a parent metadata PATCH;
 it never copies/recreates the file, reads its body, changes text/styles/cells/bytes, transfers ownership or
-calls permission endpoints. Existing direct grants are not rewritten. Moving
+calls permission-write endpoints. Existing direct grants are not rewritten. Moving
 can give destination audiences inherited access and remove source-only inherited
 access. Inspection is Google-visible evidence, not exhaustive privacy: group
 membership, domain policies and other access routes are not fully enumerated.
@@ -59,8 +63,8 @@ Google service notifications. Do not unshare folders to make them supported.
 Owned My Drive files are supported when Google reports
 `capabilities.canMoveItemWithinDrive=true`, an owned writable destination and
 existing `drive`/`drive.file` consent. Fully inspectable non-owned My Drive
-ancestors are permitted for moves, with mandatory exact owner approval
-even when visible audiences appear equivalent. The card shows old/new paths,
+ancestors are permitted for moves. Reliably unchanged effective audiences/roles
+and preserved direct shares do not require a card under the default policy. The card shows old/new paths,
 path owners and potential inherited-access gains/losses. Both paths must reach
 the selected account's root; unknown/inconsistent owners or incomplete
 permission lists still block. Unlike folder creation's writable-parent policy,
@@ -68,12 +72,28 @@ move source files and destination folders must still be owned. This includes nat
 PDFs, images and other uploaded/native types, not a MIME allowlist. Missing or
 false capability, trash, unknown MIME/authority, shared drives, folder-tree moves
 and limited-access ancestry fail before writing. Owned shared My Drive folders
-are supported as destinations after review. Shortcuts are rejected: moving a
+are supported as destinations subject to the filing policy. Shortcuts are rejected: moving a
 shortcut would move only its pointer, not the target; neither is followed or
 moved implicitly. Folder creation remains a separate operation. A Docs-editing scope
 probe alone does not establish filing authorization. Never expand OAuth,
 change permissions/settings or use browser/raw API/alternate credentials to
 bypass a filing refusal.
+
+## One requested task, one review
+
+Use `gdrive_filing_task({account, operationId, preview:true, items:[...]})`
+for a requested batch instead of repeated per-file cards. Each item includes
+`kind:'move'` or `kind:'folder'` and that operation's exact arguments except
+account/preview, with its own distinct UUID. Up to 20 items and a bounded review
+payload are supported. Apply identical arguments/keys with preview=false.
+One owner card covers the exact items/destinations, requested folder creations
+and reviewed impacts when required by policy. Consent expires on material changes
+or after ten minutes; never invent consent, cache it or reuse it for another task.
+All destinations must already exist. A new destination must be created/verified
+and inspected before proposing moves into it; cross-task approval is not reused.
+Tasks are not atomic and stop on the first non-verified item. Report partial
+completion and every individual receipt; never replay the task to finish the rest.
+Use status with the same task key and individual child keys after interruption.
 
 ## Recovery
 

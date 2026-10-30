@@ -18,7 +18,7 @@ const freePort = () => new Promise((resolve, reject) => { const s = createServer
 const port = await freePort(), daemonPort = await freePort();
 const root = await mkdtemp(join(tmpdir(), 'drive-filing-review-')), fixture = join(root, 'drive-filing-review');
 await mkdir(join(root, 'home'));
-for (const file of ['filing-approval.tsx', 'core/file-link.mjs', 'core/filing-presentation.mjs', 'app.css', 'connection-ui.tsx', 'connection-ui.css', 'test/filing-preview/app.tsx', 'test/filing-preview/server.ts']) {
+for (const file of ['filing-policy.ts', 'filing-approval.tsx', 'core/file-link.mjs', 'core/filing-presentation.mjs', 'app.css', 'connection-ui.tsx', 'connection-ui.css', 'test/filing-preview/app.tsx', 'test/filing-preview/server.ts']) {
   await mkdir(dirname(join(fixture, file)), { recursive: true }); await cp(join(source, file), join(fixture, file));
 }
 await cp(join(source, 'test/filing-preview/package.json'), join(fixture, 'package.json'));
@@ -47,7 +47,7 @@ try {
   assert.ok(connected, 'Disposable daemon must connect');
   const installed = JSON.parse(await command('plugin', 'install', fixture, '--yes', '--json')); assert.equal(installed.plugin.status, 'running');
   const threads = {};
-  for (const state of ['move', 'folder', 'invalid', 'error', 'busy', 'cancel']) {
+  for (const state of ['task', 'move', 'folder', 'invalid', 'error', 'busy', 'cancel']) {
     const result = await api('threads', { projectId: 'proj_personal', origin: 'sdk', providerId: 'codex', model: 'synthetic-inert-never-dispatch', title: `Synthetic filing review: ${state}`, input: [{ type: 'text', text: 'Inert native filing fixture; never dispatch.' }], environment: { type: 'host', hostId: enrollment.hostId, workspace: { type: 'personal' } }, sendAt: 4102444800000 });
     const t = result.thread ?? result; assert.equal(t.status, 'pending'); threads[state] = t.id;
     await api('plugins/drive-filing-review/rpc/stage', { threadId: t.id, state });

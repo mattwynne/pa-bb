@@ -2,16 +2,18 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { fileLink } from './file-link.mjs';
+import { createFilingTaskRunner, makeFilingTaskParameters } from './filing-task.mjs';
 export const filingId = z.string().regex(/^[\w-]{1,256}$/);
 const target = { account: z.string().trim().min(1).max(320), operationId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/) };
 export const folderParameters = z.object({ ...target, parentId: filingId, name: z.string().min(1).max(255), preview: z.boolean().default(true) }).strict();
 export const moveParameters = z.object({ ...target, fileId: filingId, expectedParentId: filingId, folderId: filingId, preview: z.boolean().default(true) }).strict();
 export const filingStatusParameters = z.object(target).strict();
+export const filingTaskParameters = makeFilingTaskParameters();
 export const filingHash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const messages = {
   invalid: 'Use an explicit connected account, lowercase UUID v4 operationId and exact folder/file IDs. Folder names must be bounded ordinary text.',
   account: 'Select an explicit connected Google Drive account.',
-  unsupported: 'Filing supports folder creation in fully inspected writable My Drive parents, including non-owned parents with mandatory review; the selected creator must own the new folder. Existing owned files may move into owned writable folders through inspected non-owned ancestors with mandatory review. Google capability and consistent visible authority are required. Folder-tree moves, shared drives, shortcuts, limited-access ancestry, trash and unknown or inconsistent authority are not supported.',
+  unsupported: 'Filing supports folder creation in fully inspected writable My Drive parents, including non-owned parents with inspected access; the selected creator must own the new folder. Existing owned files may move into owned writable folders through inspected non-owned ancestors. Meaningful access changes use the separate filing approval policy. Google capability and consistent visible authority are required. Folder-tree moves, shared drives, shortcuts, limited-access ancestry, trash and unknown or inconsistent authority are not supported.',
   incomplete: 'The folder, ancestry or permission listing is incomplete. No new filing write was submitted; inspect any existing operation before retrying.',
   duplicate: 'An exact-name folder already exists in the selected parent. Inspect it and its sharing; do not automatically create another or select an ambiguous duplicate.',
   scope: 'Filing requires an existing owner-authorized drive or drive.file grant and access to these items. It never expands OAuth. Docs-only and read-only grants are insufficient.',
@@ -25,10 +27,10 @@ const messages = {
 export function filingError(code) { return Object.assign(new Error(messages[code] || 'Filing is unavailable. Inspect the saved operation; never blindly retry.'), { filingCode: code }); }
 export const filingCategory = error => Object.hasOwn(messages, error?.filingCode) ? error.filingCode : 'unknown';
 export const filingMessage = error => messages[error?.filingCode] || 'Filing inspection or writing is unavailable. If submission may have started, use gdrive_filing_status with the same account and operationId; never blindly retry.';
-export function createFilingService({ store, operations, filing, approve = async (_payload, _signal) => ({ outcome: 'cancelled' }), diagnose = (_stage, _error) => {}, clock = () => Date.now() }) {
+export function createFilingService({ store, operations, filing, approve = async (_payload, _signal) => ({ outcome: 'cancelled' }), diagnose = (_stage, _error) => {}, clock = () => Date.now(), requireApproval = async () => true }) {
   const active = new Set();
   const receipt = (op, extra = {}) => ({ operationId: op.operationId, kind: op.kind, outcome: op.state, fileId: op.fileId || null,
-    destinationId: op.destinationId, retrySafe: false, writeAttempted: ['writing', 'uncertain'].includes(op.state) ? 'unknown' : op.writeAttempted,
+    destinationId: op.destinationId, accessChanges: op.preview?.accessChanges, retrySafe: false, writeAttempted: ['writing', 'uncertain'].includes(op.state) ? 'unknown' : op.writeAttempted,
     // Receipts written by the original Docs-only implementation lack mimeType.
     mimeType: op.mimeType ?? (op.kind === 'folder' ? 'application/vnd.google-apps.folder' : 'application/vnd.google-apps.document'),
     ...(op.fileId ? { url: fileLink(op.fileId, op.mimeType ?? (op.kind === 'folder' ? 'application/vnd.google-apps.folder' : 'application/vnd.google-apps.document')) } : {}),
@@ -62,14 +64,15 @@ export function createFilingService({ store, operations, filing, approve = async
     let stage = 'approval';
     try {
       signal?.throwIfAborted();
-      // Ordinary owner-only filing uses the explicit request, like native creation.
-      // Shared/possibly changed audiences always require exact native owner review.
-      if (op.requiresApproval) {
+      // Only meaningful access changes need review under the separate owner policy.
+      let ownerApproved = false;
+      if (op.requiresApproval && await requireApproval()) {
         const d = await requestApproval({ ...op.preview, operationId }, signal);
         if (d?.outcome !== 'submitted' || d.value?.approved !== true || Object.keys(d.value).length !== 1) {
           if (d?.outcome !== 'submitted') diagnose('filing_approval_cancelled', null);
           await save(op, d?.outcome === 'submitted' && d.value?.approved === false ? 'declined' : 'cancelled'); return receipt(op);
         }
+        ownerApproved = true;
       }
       if (clock() - op.createdAt >= 600_000) { await save(op, 'expired'); return receipt(op); }
       stage = 'revalidate';
@@ -81,6 +84,14 @@ export function createFilingService({ store, operations, filing, approve = async
       if (clock() - op.createdAt >= 600_000) { await save(op, 'expired'); return receipt(op); }
       stage = 'reserve_write';
       if (!await operations.start(op)) throw filingError('stale');
+      // Last awaited policy check immediately before submission. Never-mode
+      // consent cannot survive an owner tightening policy while checks were pending.
+      if (op.requiresApproval && !ownerApproved && await requireApproval()) {
+        op.writeAttempted = false;
+        await save(op, 'not_submitted');
+        return receipt(op, { error: 'Filing approval policy changed before submission. No write was submitted; inspect this receipt before a fresh requested proposal.' });
+      }
+      signal?.throwIfAborted();
       op.state = 'writing'; op.writeAttempted = true;
       stage = 'write';
       const writeSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, 600_000 - (clock() - op.createdAt)))]) : AbortSignal.timeout(Math.max(1, 600_000 - (clock() - op.createdAt)));
@@ -105,6 +116,7 @@ export function createFilingService({ store, operations, filing, approve = async
     const parsed = filingStatusParameters.safeParse(input); if (!parsed.success) throw filingError('invalid');
     const r = await record(parsed.data), op = await operations.get(parsed.data.operationId);
     if (!op || op.subject !== r.subject) throw filingError('unknown');
+    if (op.kind === 'task') return taskRunner.status(op, parsed.data.account);
     if (active.has(op.operationId)) return receipt(op, { inProgress: true });
     if (op.state === 'reviewing') { await operations.cancelReview(op.operationId); return receipt(await operations.get(op.operationId), { receiptOnly: true }); }
     if (!['writing', 'uncertain', 'verified'].includes(op.state)) return receipt(op, { receiptOnly: true });
@@ -123,5 +135,6 @@ export function createFilingService({ store, operations, filing, approve = async
       return receipt(op, { readbackMatches: observed.matches, visibleAccess: observed.visibleAccess });
     } catch (error) { diagnose('filing_status', error); return receipt(op, { outcome: 'verification_unavailable', error: filingMessage(error) }); }
   }
-  return { createFolder: (args, signal, approval) => change('folder', args, signal, approval), move: (args, signal, approval) => change('move', args, signal, approval), status };
+  const taskRunner = createFilingTaskRunner({ operations, record, change, status, save, active, requireApproval, approve, diagnose, clock });
+  return { task: taskRunner.run, createFolder: (args, signal, approval) => change('folder', args, signal, approval), move: (args, signal, approval) => change('move', args, signal, approval), status };
 }
