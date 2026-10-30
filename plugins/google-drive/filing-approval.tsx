@@ -32,7 +32,7 @@ function Review({ interaction, submit, cancel }: Props) {
         <p><strong>File {taskItems.length} requested items</strong></p><p>Account: {text('account')}</p>
         <p>Destination{new Set(taskItems.map(i => i.destinationId)).size === 1 ? '' : 's'}: {[...new Set(taskItems.map(i => String(i.to)))].join(' · ')}</p>
         <ul className="pa-drive__filing-task-list">{taskItems.map((i, n) => <li key={n}><strong>{i.kind === 'folder' ? 'Create folder: ' : 'Move: '}{String(i.title)}</strong>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{i.requiresApproval ? String(i.accessChanges) : 'No access change found in inspected lists.'}</p>
+          <p style={{ whiteSpace: 'pre-wrap' }}>{i.kind === 'folder' ? 'Empty folder inherits the selected destination’s access; no existing document is disclosed. Later file moves are evaluated separately.' : i.requiresApproval ? String(i.accessChanges) : 'No access change found in inspected lists.'}</p>
           <details><summary>Location and access details</summary><p>From: {String(i.from)}</p><p>To: {String(i.to)}</p>
             <dl><dt>Current visible access</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{String(i.sourceAudience)}</dd>
               <dt>Destination visible access</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{String(i.destinationAudience)}</dd>

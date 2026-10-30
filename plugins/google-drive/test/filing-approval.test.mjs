@@ -63,7 +63,15 @@ test('plain file labels keep exact metadata in collapsed details and legacy payl
   assert.ok(html.indexOf('application/vnd.google-apps.spreadsheet') > html.indexOf('<details>'));
   assert.doesNotMatch(render(payload), /disabled=""[^>]*>Approve filing/);
 });
-test('foreign-parent folder card leads with exact name, creator ownership and visible parent audience; no source loss or transfer claim', () => {
+test('task explains approval-free empty-folder inheritance separately from moved-file access', () => {
+  const html = render({ kind: 'task', account: payload.account, operationId: payload.operationId,
+    items: [{ ...payload, kind: 'folder', title: 'Empty shared folder', accessChanges: 'Inherited destination audience.', requiresApproval: false },
+      { ...payload, kind: 'move', accessChanges: 'Partner may gain access.', requiresApproval: true }] });
+  assert.match(html, /Empty folder inherits the selected destination/);
+  assert.match(html, /no existing document is disclosed/);
+  assert.match(html, /Later file moves are evaluated separately/);
+});
+test('legacy foreign-parent folder card leads with exact name, creator ownership and visible parent audience; no source loss or transfer claim', () => {
   const html = render({ ...payload, kind: 'folder', title: 'Synthetic - exact folder', mimeType: 'application/vnd.google-apps.folder',
     from: 'New folder', to: 'My Drive / Shared / Synthetic - exact folder', sharedAncestors: true,
     sourceOwners: 'New folder — no existing path.', destinationOwners: 'Shared — owner: partner@example.invalid',

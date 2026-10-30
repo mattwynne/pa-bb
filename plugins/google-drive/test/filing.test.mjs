@@ -282,7 +282,7 @@ test('owned/shared/foreign parent and ancestors create exactly once; creator own
   for (const mode of ['owned', 'owned-shared', 'foreign-ancestor', 'foreign-parent']) {
     const h = await setup(), a = folderPath(h, mode), before = structuredClone(h.files.get('dest-id'));
     try {
-      const p = await h.s.createFolder(a); assert.equal(p.requiresApproval, mode !== 'owned'); assert.equal(h.writes(), 0);
+      const p = await h.s.createFolder(a); assert.equal(p.requiresApproval, false); assert.equal(h.writes(), 0);
       assert.equal(p.preview.title, 'Synthetic - exact folder'); assert.ok(p.preview.to.endsWith(' / Synthetic - exact folder'));
       if (mode === 'foreign-parent') {
         h.options.newFolderPermissions = [owner, { ...group, id: 'foreign-owner', type: 'user', emailAddress: 'partner@example.invalid' }];
@@ -294,7 +294,7 @@ test('owned/shared/foreign parent and ancestors create exactly once; creator own
       const r = await h.s.createFolder({ ...a, preview: false }, undefined, async card => {
         reviewed++; assert.deepEqual(card, { ...p.preview, operationId: a.operationId }); assert.equal(h.writes(), 0); return yes();
       });
-      assert.equal(reviewed, mode === 'owned' ? 0 : 1); assert.equal(r.outcome, 'verified'); assert.equal(h.writes(), 1);
+      assert.equal(reviewed, 0); assert.equal(r.outcome, 'verified'); assert.equal(h.writes(), 1);
       assert.deepEqual(h.files.get('dest-id'), before); assert.deepEqual(h.files.get('new-folder').owners, [{ me: true, emailAddress: account }]);
       await h.s.createFolder({ ...a, preview: false }); assert.equal((await h.service().status(statusArgs(a))).outcome, 'verified'); assert.equal(h.writes(), 1);
       const writes = h.calls.filter(c => c.url.pathname.startsWith('/drive/') && c.init.method && c.init.method !== 'GET'); assert.equal(writes.length, 1); assert.equal(writes[0].init.method, 'POST');
@@ -302,6 +302,28 @@ test('owned/shared/foreign parent and ancestors create exactly once; creator own
       assert.ok(h.calls.some(c => c.url.searchParams.get('q')?.includes("name = 'Synthetic - exact folder'"))); safe(h);
     } finally { await h.close(); }
   }
+});
+test('shared empty-folder task needs no card and does not authorize a later document move', async () => {
+  const h = await setup(), folder = folderPath(h, 'owned-shared');
+  try {
+    const { account: ignored, ...child } = folder;
+    const task = { account, operationId: randomUUID(), items: [{ kind: 'folder', ...child }] };
+    const p = await h.s.task(task); assert.equal(p.items[0].requiresApproval, false);
+    const r = await h.s.task({ ...task, preview: false }, undefined, () => { throw new Error('empty folder must not request approval'); });
+    assert.equal(r.outcome, 'verified'); assert.equal(h.writes(), 1);
+    h.permissionRows.set('new-folder', [owner, group]);
+    const move = { ...moveArgs(), folderId: 'new-folder' };
+    assert.equal((await h.s.move(move)).requiresApproval, true);
+    let reviews = 0;
+    const cancel = async () => { reviews++; return { outcome: 'cancelled' }; };
+    const refused = await h.s.move({ ...move, preview: false }, undefined, cancel);
+    assert.notEqual(refused.outcome, 'verified'); assert.equal(h.writes(), 1);
+    const { account: unused, ...moveItem } = { ...move, operationId: randomUUID() };
+    const later = { account, operationId: randomUUID(), items: [{ kind: 'move', ...moveItem }] };
+    assert.equal((await h.s.task(later)).items[0].requiresApproval, true);
+    assert.notEqual((await h.s.task({ ...later, preview: false }, undefined, cancel)).outcome, 'verified');
+    assert.equal(reviews, 2); assert.equal(h.writes(), 1);
+  } finally { await h.close(); }
 });
 test('folder authority refuses missing/false capability, reader/unknown permissions, incomplete or inconsistent ancestry before review', async () => {
   const mutations = [
@@ -331,8 +353,8 @@ test('folder authority refuses missing/false capability, reader/unknown permissi
     finally { await h.close(); }
   }
 });
-test('folder post-preview/post-card owner, access, path, capability, identity and exact-name duplicate changes refuse before POST', async () => {
-  for (const when of ['preview', 'card']) for (const change of ['owner', 'access', 'path', 'capability', 'missing-capability', 'reader', 'incomplete', 'duplicate', 'duplicate-page', 'identity']) {
+test('folder post-preview owner, access, path, capability, identity and exact-name duplicate changes refuse before POST without a card', async () => {
+  for (const when of ['preview']) for (const change of ['owner', 'access', 'path', 'capability', 'missing-capability', 'reader', 'incomplete', 'duplicate', 'duplicate-page', 'identity']) {
     const h = await setup(), a = folderPath(h);
     const mutate = () => {
       if (change === 'owner') { h.files.get('dest-id').owners[0].emailAddress = 'new@example.invalid'; h.permissionRows.get('dest-id')[0].emailAddress = 'new@example.invalid'; }
@@ -353,21 +375,14 @@ test('folder post-preview/post-card owner, access, path, capability, identity an
     } finally { await h.close(); }
   }
 });
-test('foreign folder approvals decline/cancel/expire/abort/restart safely; no alternate-key cleanup or replay', async () => {
-  for (const decision of [{ outcome: 'submitted', value: { approved: false } }, { outcome: 'cancelled' }, { outcome: 'submitted', value: { approved: true, extra: true } }]) {
-    const h = await setup(), a = folderPath(h);
-    try { const r = await h.s.createFolder({ ...a, preview: false }, undefined, async () => decision); assert.ok(['declined', 'cancelled'].includes(r.outcome)); await h.s.createFolder({ ...a, preview: false }, undefined, yes); assert.equal(h.writes(), 0); }
-    finally { await h.close(); }
-  }
-  for (const mode of ['expired', 'aborted', 'restart']) {
+test('foreign empty folder expiry and abort still prevent submission without approval', async () => {
+  for (const mode of ['expired', 'aborted']) {
     const h = await setup(), a = folderPath(h), controller = new AbortController();
     try {
-      const r = await h.s.createFolder({ ...a, preview: false }, controller.signal, async () => {
-        if (mode === 'expired') h.tick(600_000);
-        if (mode === 'aborted') controller.abort();
-        if (mode === 'restart') assert.equal((await h.service().status(statusArgs(a))).outcome, 'cancelled');
-        return yes();
-      });
+      await h.s.createFolder(a);
+      if (mode === 'expired') h.tick(600_000);
+      if (mode === 'aborted') controller.abort();
+      const r = await h.s.createFolder({ ...a, preview: false }, controller.signal, () => { throw new Error('no folder card'); });
       assert.ok(['expired', 'not_submitted'].includes(r.outcome), `${mode}: ${r.outcome}`); assert.equal(h.writes(), 0); safe(h);
     } finally { await h.close(); }
   }
@@ -535,7 +550,7 @@ test('shared destination requires exact approval; no inherited-access categorica
     assert.equal(r.outcome, 'verified'); assert.equal(card.operationId, a.operationId); assert.equal(card.to, 'My Drive / Synthetic destination'); assert.equal(h.writes(), 1); safe(h);
   } finally { await h.close(); }
 });
-test('shared parent folder creation also requires review and makes no ACL write', async () => {
+test('shared parent empty folder creation requires no review and makes no ACL write', async () => {
   const h = await setup({ shared: true }), a = { ...folderArgs(), parentId: 'dest-id', preview: false };
   try { const r = await h.s.createFolder(a, undefined, async () => ({ outcome: 'submitted', value: { approved: true } })); assert.equal(r.outcome, 'verified'); assert.equal(h.writes(), 1); }
   finally { await h.close(); }

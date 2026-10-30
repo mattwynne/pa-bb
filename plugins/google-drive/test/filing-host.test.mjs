@@ -61,7 +61,7 @@ test('same native move schema and review support Sheets and binary files without
 test('separate Never filing policy suppresses native card; capabilities report actual policy without provider calls', async () => {
   const h = await setup({ filingPolicy: 'never' });
   try {
-    assert.deepEqual(await h.harness.behavior.callRpc('filingCapabilities', null), { contract: 'filing-task-v1', approval: 'never', maxItems: 20, destinations: 'existing', recovery: 'individual-no-replay' });
+    assert.deepEqual(await h.harness.behavior.callRpc('filingCapabilities', null), { contract: 'filing-task-v1', approval: 'never', emptyFolderApproval: 'none', maxItems: 20, destinations: 'existing', recovery: 'individual-no-replay' });
     assert.equal(h.calls(), 0);
     const r = parse(await h.harness.behavior.callAgentTool('gdrive_move_file', input()));
     assert.equal(r.outcome, 'verified'); assert.match(r.accessChanges, /gain/); assert.equal(h.harness.inspection.pendingInteractions.length, 0);

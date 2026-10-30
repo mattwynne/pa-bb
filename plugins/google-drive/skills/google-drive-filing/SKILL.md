@@ -26,16 +26,20 @@ Owned or non-owned My Drive parents are supported only with Google's explicit
 canAddChildren capability and complete inspected owner/writer permission for
 the selected creator. Readable foreign ancestors are allowed, but every node's
 owner/access must be consistent and the path must reach the selected account's
-root. Review depends on meaningful access changes under the separate filing policy, not parent ownership alone.
-The card shows exact name/path, creator/new-folder owner, parent owners and
-visible inherited audience/effect. Approval cannot override a capability denial,
+root. Creating an EMPTY folder in an explicitly user-selected shared destination
+requires no filing approval merely for inherited audience/roles, including
+another person owning an ancestor. No existing document is disclosed. Do not ask
+again merely because that selected destination is shared. This applies equally
+to standalone creation and folder items in tasks. The preview reports exact
+name/path, creator/new-folder owner, parent owners and inherited audience/effect.
+Approval cannot override a capability denial,
 unknown access or incomplete inspection. The new folder must belong to the
 selected creator; parent ownership/access stay unchanged.
 
 Use the SAME arguments/key with preview=false for the requested creation.
 Unchanged access follows explicit user intent and existing Drive write consent.
 Default filing policy is **Only when access changes**: structured audience/role
-or grant-duration changes require owner review; shared ancestry and generic access caveats alone
+or grant-duration changes to moved existing files require owner review; empty-folder inheritance, shared ancestry and generic access caveats alone
 do not. The owner may select **Never for filing I request** in Google Drive
 Settings. Agents must never change that preference or override it via arguments.
 Never mode suppresses filing cards only; inspection, capability, revalidation,
@@ -90,7 +94,10 @@ One owner card covers the exact items/destinations, requested folder creations
 and reviewed impacts when required by policy. Consent expires on material changes
 or after ten minutes; never invent consent, cache it or reuse it for another task.
 All destinations must already exist. A new destination must be created/verified
-and inspected before proposing moves into it; cross-task approval is not reused.
+and inspected before proposing moves into it. This existing-destination limit is
+separate from approval policy: empty-folder creation itself needs no access card.
+Evaluate meaningful gains/losses on each later document move independently;
+creating the folder never authorizes later exposure. Cross-task approval is not reused.
 Tasks are not atomic and stop on the first non-verified item. Report partial
 completion and every individual receipt; never replay the task to finish the rest.
 Use status with the same task key and individual child keys after interruption.

@@ -206,7 +206,9 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
         // The creator owns the NEW folder, not its parent. Parent writer access
         // must not make exact creator-ownership readback look unexpected.
         ...(kind === 'folder' ? [{ type: 'user', emailAddress: record.email, role: 'owner' }] : [])].map(p => [accessKey(p), rank[p.role]]),
-      accessFacts, requiresApproval: accessFacts.length > 0,
+      // Empty folders disclose no existing document. Keep inheritance evidence for
+      // readback/reporting, but evaluate every later document move independently.
+      accessFacts, requiresApproval: kind === 'move' && accessFacts.length > 0,
       preview: { kind, account: record.email, title, sharedAncestors, mimeType: source ? source[0].metadata.mimeType : FOLDER, from: source ? source.slice(1).reverse().map(i => i.metadata.name).join(' / ') : 'New folder',
         to: [...destination].reverse().map(i => i.metadata.name).join(' / ') + (kind === 'folder' ? ` / ${request.name}` : ''),
         sourceAudience: source ? describeAccess(source[0]) : 'New folder — no existing audience.', destinationAudience: describeAccess(destination[0]),

@@ -27,9 +27,10 @@ keys cannot be adopted into a new task. Task preview payloads are capped at
 All destinations must already exist and be inspectable at preview. A task can
 include folder creation alongside moves to existing destinations, but cannot
 move into a folder created within that same task. Create and verify that folder,
-then inspect it before proposing a task targeting it. This can require a separate
-review for creation and the later task; consent is never silently reused across
-the two. There is no provider transaction or CAS guarantee.
+then inspect it before proposing a task targeting it. This is an existing-destination limitation, not an approval requirement for
+empty-folder creation. Inheriting the explicitly selected destination's audience
+needs no filing card. Later moves independently evaluate document exposure;
+creation never authorizes that exposure or carries consent into the later task. There is no provider transaction or CAS guarantee.
 
 Tasks are not atomic. Each item keeps an individual durable mutation receipt,
 claim, pre-write revalidation and readback. Processing stops at the first
@@ -48,7 +49,10 @@ Google Drive Settings has **Approval for filing I request**:
 - **Only when access changes** (default): review meaningful visible audience or
   role/duration changes, including gains, reductions, expiration/permanence changes
   and potential source-inherited losses.
-  Creating a folder with a visible external destination audience counts as a gain.
+  Empty-folder creation in an explicitly user-selected destination is exempt:
+  inheriting existing audience/roles (including a non-owned ancestor) discloses no
+  existing document, for standalone creation and folder items in tasks. Do not
+  ask again merely because the selected destination is shared.
 - **Never for filing I request**: suppress filing cards for requested folder
   creation and moves. Report access effects afterward. All capability, inspection,
   claim, revalidation, verification and uncertain-write recovery checks stay on.

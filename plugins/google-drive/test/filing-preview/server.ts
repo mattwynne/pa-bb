@@ -30,7 +30,7 @@ export default function plugin(bb: BbPluginApi) {
       void bb.ui.requestInput({ threadId, rendererId: 'drive-filing-approval', title: 'Review filing and inherited access (synthetic)',
         payload: state === 'invalid' ? { reviewState: state } : state === 'task' ? { kind: 'task', account: payload.account, operationId: payload.operationId,
           items: ['Business plan', 'Marketing workbook', 'Résumé', 'Market evidence', 'Finance sheet', 'Requested folder'].map((title, n) => ({ ...payload,
-            kind: n === 5 ? 'folder' : 'move', title, operationId: `${n + 2}1111111-1111-4111-8111-111111111111`, requiresApproval: n > 1,
+            kind: n === 5 ? 'folder' : 'move', title, operationId: `${n + 2}1111111-1111-4111-8111-111111111111`, requiresApproval: n > 1 && n !== 5,
             accessChanges: n < 2 ? 'No access change was found in the visible lists.' : 'partner@example.invalid — may gain editing access.' })) } : payload,
         describeSubmission: () => ({ title: 'Synthetic filing choice recorded — no Google write' }),
       }).then(result => results.set(threadId, result), () => results.set(threadId, { outcome: 'interrupted' }));
