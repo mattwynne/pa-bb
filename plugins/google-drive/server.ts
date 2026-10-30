@@ -12,6 +12,7 @@ import { registerDocsCreationTools, DOCS_CREATION_TOOLS } from './docs-create-to
 import { registerSharingTools, SHARING_TOOLS } from './sharing-tools.js';
 import { registerSheetsTools, SHEETS_TOOLS } from './sheets-tools.js';
 import { registerSheetsEditTools, SHEETS_EDIT_TOOLS } from './sheets-edit-tools.js';
+import { registerFilingTools, FILING_TOOLS } from './filing-tools.js';
 
 const required = z.string().min(1);
 const account = required.describe('Email of the connected Google Drive account.');
@@ -156,9 +157,10 @@ export default async function plugin(bb: BbPluginApi) {
   registerSharingTools(bb, store, adapter);
   registerSheetsTools(bb, store, adapter);
   registerSheetsEditTools(bb, store, store.sheetsEdits, adapter.drive, adapter.sheetsEdit);
+  registerFilingTools(bb, store, adapter);
   bb.agents.configure(() => ({
     tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES, DOCS_REVIEW_TOOL, ...DOCS_CREATION_TOOLS, ...SHARING_TOOLS, ...SHEETS_TOOLS, ...FORMAT_TOOLS,
-      ...SHEETS_EDIT_TOOLS],
-    skills: ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing'],
+      ...SHEETS_EDIT_TOOLS, ...FILING_TOOLS],
+    skills: ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing', 'google-drive-filing'],
   }));
 }

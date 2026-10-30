@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { createFakePluginHost, makePluginAgentConfigurationContext } from '@get-bb/plugin-sdk/testing';
 import plugin from '../dist/server.js';
 import { createBbStore } from '../adapters/bb-store.mjs';
+import { SHEETS_EDIT_MIGRATION } from '../adapters/sheets-edit-store.mjs';
 const account = 'synthetic@example.test', subject = 'subject-sheet', sheetId = 1823456789;
 const target = { account, spreadsheetId: 'sheet-a', sheetId, startRow: 2, startColumn: 1, rowCount: 1, columnCount: 2 };
 const parse = r => { assert.notEqual(r.isError, true, r.content[0].text); return JSON.parse(r.content[0].text); };
@@ -16,7 +17,7 @@ async function pending(h) {
   throw Error('No synthetic spreadsheet approval');
 }
 async function setup(options = {}) {
-  const host = createFakePluginHost({ pluginId: 'google-drive', settings: { requireDocsApproval: false }, agentSkillIds: ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing'] });
+  const host = createFakePluginHost({ pluginId: 'google-drive', settings: { requireDocsApproval: false }, agentSkillIds: ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing', 'google-drive-filing'] });
   const calls = [], originalFetch = globalThis.fetch;
   const state = { scope: 'drive.file', identity: subject, writes: 0,
     cells: [{ userEnteredValue: { stringValue: 'Before' }, userEnteredFormat: { numberFormat: { type: 'TEXT' }, textFormat: { bold: true } }, note: 'Keep note' }, { userEnteredValue: { boolValue: false } }] };
@@ -50,9 +51,14 @@ async function setup(options = {}) {
     throw new Error('SENTINEL-unexpected-boundary');
   };
   let current = host;
-  // Seed the real previous migration history (all current entries except the
-  // new trailing Sheets edit schema), then install the real updated factory.
-  const old = createBbStore(host.bb.storage.database(), (db, statements) => host.bb.storage.migrate(db, statements.slice(0, -1)));
+  // Seed the history strictly before Sheets editing, even after later filing
+  // migrations append. Preserve the old-schema assertion and receipt coverage.
+  const old = createBbStore(host.bb.storage.database(), (db, statements) => {
+    const boundary = statements.indexOf(SHEETS_EDIT_MIGRATION);
+    assert.ok(boundary > 0, 'Sheets migration boundary must exist');
+    assert.equal(statements.lastIndexOf(SHEETS_EDIT_MIGRATION), boundary, 'Sheets migration boundary must be unique');
+    host.bb.storage.migrate(db, statements.slice(0, boundary));
+  });
   const accountRecord = { subject, email: account, refreshToken: 'SENTINEL-refresh', accessToken: 'SENTINEL-access', expiresAt: Date.now() + 600000 };
   await old.addAccount(accountRecord);
   const legacy = {

@@ -1,0 +1,9 @@
+{
+  "name": "bb-plugin-drive-filing-review",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bb": { "name": "Drive filing review", "description": "Synthetic approval review only; no Google access.", "branding": { "icon": "FolderOpen" }, "server": "./test/filing-preview/server.ts", "app": "./test/filing-preview/app.tsx" },
+  "dependencies": { "zod": "4.6.5" },
+  "devDependencies": { "@get-bb/plugin-sdk": "0.6.80", "react": "19.2.0" }
+}
