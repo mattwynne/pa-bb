@@ -57,7 +57,13 @@ account, exact item, old/new path, each path's owners and visible audiences.
 Potential visible inherited-access gains/increases and losses/reductions are
 shown separately from preserved direct grants. Ancestor folder ownership is
 not presented as ownership transfer of the file. These are access-impact
-observations, not a promise about downstream effective access. Owner-only filing uses
+observations, not a promise about downstream effective access. The card leads
+with these potential access changes and any other person's parent-folder
+ownership. Complete access lists, repeated path owners, exact MIME metadata and
+recovery limits remain available under **Full access and folder details**.
+Friendly file/permission labels affect presentation only, never file eligibility
+or authority. While a choice is being sent, visible submission feedback does
+not claim that the Google move has begun or completed. Owner-only filing uses
 explicit requested intent and existing Google write consent, like document
 creation; the Docs-edit approval setting has no role. State is rechecked after
 review and previews expire after ten minutes. At most 40 distinct audience/role

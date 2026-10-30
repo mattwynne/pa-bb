@@ -106,9 +106,10 @@ test('alternating-owned ancestry permits owned Sheet move only after exact revie
     const p = await h.s.move(a); assert.equal(p.requiresApproval, true); assert.equal(h.writes(), 0);
     assert.equal(p.preview.to, 'My Drive / Synthetic shared administration / Synthetic work / Synthetic destination');
     assert.match(p.preview.destinationOwners, /Synthetic shared administration — owner: partner@example.invalid/);
-    assert.match(p.preview.audience, /partner@example.invalid — owner/);
-    assert.match(p.preview.accessChanges, /partner@example.invalid — may gain\/increase to writer/);
-    assert.match(p.preview.reviewReason, /ancestor belongs to another person/);
+    assert.match(p.preview.audience, /partner@example.invalid — Owner/);
+    assert.match(p.preview.accessChanges, /partner@example.invalid — may gain editing access/);
+    assert.match(p.preview.sharedAncestorSummary, /“Synthetic shared administration” belongs to partner@example.invalid/);
+    assert.match(p.preview.reviewReason, /parent folder belongs to another person/);
     const r = await h.s.move({ ...a, preview: false }, undefined, async card => {
       assert.deepEqual(card, { ...p.preview, operationId: a.operationId }); assert.equal(h.writes(), 0);
       return { outcome: 'submitted', value: { approved: true } };
@@ -126,7 +127,7 @@ test('non-owned ancestor independently mandates review even with equivalent visi
     const h = await setup(); alternatingPath(h, { visibleWriter: false });
     try {
       const p = await h.s.move(moveArgs()); assert.equal(p.requiresApproval, true);
-      assert.match(p.preview.accessChanges, /No gain or loss identified/);
+      assert.match(p.preview.accessChanges, /No access change was found/);
       const r = await h.s.move({ ...moveArgs(), preview: false }, undefined, async () => decision);
       assert.ok(['declined', 'cancelled'].includes(r.outcome)); assert.equal(h.writes(), 0);
     } finally { await h.close(); }
@@ -140,7 +141,7 @@ test('shared source ancestry and source-only inherited loss are summarized witho
   try {
     const p = await h.s.move(a); assert.equal(p.requiresApproval, true);
     assert.match(p.preview.sourceOwners, /partner@example.invalid/);
-    assert.match(p.preview.accessChanges, /partner@example.invalid — may lose\/reduce inherited writer access/);
+    assert.match(p.preview.accessChanges, /partner@example.invalid — may lose some or all editing access from folders/);
     assert.equal(h.writes(), 0);
   } finally { await h.close(); }
 });
@@ -236,6 +237,8 @@ test('folder preview then one create, exact readback, repeat/status never write 
   const h = await setup(), a = folderArgs();
   try {
     const p = await h.s.createFolder(a); assert.equal(p.outcome, 'proposed'); assert.equal(p.requiresApproval, false); assert.equal(h.writes(), 0);
+    assert.match(p.preview.impact, /new folder.*no existing source file/);
+    assert.doesNotMatch(p.preview.impact, /Moving|old folder/);
     const r = await h.s.createFolder({ ...a, preview: false }); assert.equal(r.outcome, 'verified'); assert.equal(r.fileId, 'new-folder'); assert.equal(h.writes(), 1);
     assert.equal((await h.s.createFolder({ ...a, preview: false })).receiptOnly, true);
     assert.equal((await h.s.status(statusArgs(a))).outcome, 'verified'); assert.equal(h.writes(), 1); safe(h);

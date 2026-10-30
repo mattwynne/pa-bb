@@ -1,6 +1,7 @@
 import { createDocsTransport } from './docs-transport.mjs';
 import { readPermissionList } from '../core/permission-list.mjs';
 import { filingError, filingHash, filingId } from '../core/filing.mjs';
+import { filingRoleLabel, filingAudienceLabel, filingAccessLabel } from '../core/filing-presentation.mjs';
 const FILES = 'https://www.googleapis.com/drive/v3/files';
 const FOLDER = 'application/vnd.google-apps.folder', DOC = 'application/vnd.google-apps.document';
 // Capability-driven, not a native/binary MIME allowlist. Shortcuts would move the
@@ -12,7 +13,7 @@ const fields = 'id,name,mimeType,trashed,parents,driveId,inheritedPermissionsDis
 const literal = value => `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`;
 const accessKey = p => JSON.stringify([p.type, p.emailAddress?.toLowerCase() || p.domain || '', p.type === 'anyone' ? p.allowFileDiscovery : null]);
 const rank = { reader: 1, commenter: 2, writer: 3, owner: 4 };
-const principal = p => p.type === 'anyone' ? (p.allowFileDiscovery ? 'Anyone — publicly discoverable' : 'Anyone with the link') : `${p.type}: ${p.emailAddress || p.domain || 'unknown audience'}`;
+const principal = filingAudienceLabel;
 const canon = p => ({ id: p.id, type: p.type, role: p.role, emailAddress: p.emailAddress?.toLowerCase(), domain: p.domain,
   allowFileDiscovery: p.allowFileDiscovery, expirationTime: p.expirationTime, pendingOwner: p.pendingOwner,
   permissionDetails: p.permissionDetails?.map(d => ({ inherited: d.inherited, inheritedFrom: d.inheritedFrom, role: d.role, permissionType: d.permissionType }))
@@ -122,21 +123,21 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
     // A foreign folder owner is an audience/authority fact too, even if its
     // owner permission does not propagate to the owned destination as owner.
     const nonOwners = context.flatMap(i => i.permissions.filter(p => p.role !== 'owner' || p.emailAddress?.toLowerCase() !== record.email.toLowerCase()));
-    const audience = [...new Set(nonOwners.map(p => `${principal(p)} — ${p.role}`))];
+    const audience = [...new Set(nonOwners.map(p => `${principal(p)} — ${filingRoleLabel(p.role)}`))];
     if (audience.length > 40) throw filingError('unsupported'); // no clipped audience card
     const describeAccess = item => {
       const others = item.permissions.filter(p => p.role !== 'owner');
-      return others.length ? [...new Set(others.map(p => `${principal(p)} — ${p.role}`))].join('\n') : 'Only the owner principal appeared in this listing.';
+      return others.length ? [...new Set(others.map(p => `${principal(p)} — ${filingRoleLabel(p.role)}`))].join('\n') : 'Only the file owner appears in this access list.';
     };
     const describeOwners = items => items ? [...items].reverse().map(i => `${i.metadata.name} — owner: ${i.metadata.owners[0].emailAddress}`).join('\n') : 'New folder — no existing path.';
     const accessChanges = () => {
-      if (!source) return 'Destination visible audiences may inherit access to the new folder.';
+      if (!source) return 'People with access to the destination may also get access to the new folder.';
       const before = source[0].permissions, after = [...destination[0].permissions, ...direct(source)];
       const external = p => p.emailAddress?.toLowerCase() !== record.email.toLowerCase();
       const strongest = (items, p) => Math.max(0, ...items.filter(q => accessKey(q) === accessKey(p)).map(q => rank[q.role]));
-      const gains = after.filter(p => external(p) && rank[p.role] > strongest(before, p)).map(p => `${principal(p)} — may gain/increase to ${p.role}`);
-      const losses = before.filter(p => external(p) && rank[p.role] > strongest(after, p)).map(p => `${principal(p)} — may lose/reduce inherited ${p.role} access`);
-      return [...new Set([...gains, ...losses])].join('\n') || 'No gain or loss identified in the visible item/destination listings; this is not exhaustive access proof.';
+      const gains = after.filter(p => external(p) && rank[p.role] > strongest(before, p)).map(p => `${principal(p)} — may gain ${filingAccessLabel(p.role)} access.`);
+      const losses = before.filter(p => external(p) && rank[p.role] > strongest(after, p)).map(p => `${principal(p)} — may lose some or all ${filingAccessLabel(p.role)} access from folders.`);
+      return [...new Set([...gains, ...losses])].join('\n') || 'No access change was found in the visible lists. Other ways of accessing the file may still exist.';
     };
     const title = kind === 'folder' ? request.name : source[0].metadata.name;
     const proposal = { contextIds: [...new Set([...destination, ...(source || [])].map(i => i.metadata.id))], destinationId: dest.id, sourceParentId: source?.[0].metadata.parents[0], fileId: source?.[0].metadata.id,
@@ -150,9 +151,12 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
         to: [...destination].reverse().map(i => i.metadata.name).join(' / ') + (kind === 'folder' ? ` / ${request.name}` : ''),
         sourceAudience: source ? describeAccess(source[0]) : 'New folder — no existing audience.', destinationAudience: describeAccess(destination[0]),
         sourceOwners: describeOwners(source?.slice(1)), destinationOwners: describeOwners(destination), accessChanges: accessChanges(),
-        reviewReason: sharedAncestors ? 'An inspected ancestor belongs to another person. Exact owner approval is required even if visible audiences appear equivalent.' : 'Review the visible inherited-access impact.',
-        destinationId: dest.id, sourceParentId: source?.[0].metadata.parents[0] || '', fileId: source?.[0].metadata.id || '', audience: audience.length ? audience.join('\n') : 'Only the owner principal appeared in the inspected listings.',
-        impact: 'Google re-evaluates inherited access when filing. Destination audiences may gain access; source-only inherited audiences may lose it. Direct grants are not rewritten. Group membership, domain policies and other access routes are not exhaustively visible.',
+        sharedAncestorSummary: [...new Map(context.filter(i => i.metadata.owners[0].me !== true).map(i => [i.metadata.id, `“${i.metadata.name}” belongs to ${i.metadata.owners[0].emailAddress}.`])).values()].join('\n'),
+        reviewReason: sharedAncestors ? 'A parent folder belongs to another person. Your approval is required even if the visible access lists look the same.' : 'Review who may gain or lose access from folders.',
+        destinationId: dest.id, sourceParentId: source?.[0].metadata.parents[0] || '', fileId: source?.[0].metadata.id || '', audience: audience.length ? audience.join('\n') : 'Only the file owner appears in the inspected access lists.',
+        impact: kind === 'folder'
+          ? 'The new folder may get the destination’s access. There is no existing source file or access to remove. Group members, organization rules and other ways of accessing the folder are not fully visible.'
+          : 'Moving may give people access through the destination folder or remove access they had through the old folder. Existing direct shares stay unchanged. Group members, organization rules and other ways of accessing the file are not fully visible.',
       } };
     if (Buffer.byteLength(JSON.stringify(proposal.preview), 'utf8') > 48_000) throw filingError('unsupported');
     return proposal;

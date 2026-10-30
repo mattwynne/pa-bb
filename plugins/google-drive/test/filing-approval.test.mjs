@@ -10,7 +10,7 @@ const componentFile = new URL('./filing-approval.generated.mjs', import.meta.url
 const connectionFile = new URL('./filing-connection.generated.mjs', import.meta.url);
 const compile = text => ts.transpileModule(text, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext } }).outputText;
 await writeFile(connectionFile, compile(await readFile(new URL('../connection-ui.tsx', import.meta.url), 'utf8')));
-await writeFile(componentFile, compile((await readFile(new URL('../filing-approval.tsx', import.meta.url), 'utf8')).replace('./connection-ui.js', './filing-connection.generated.mjs').replace('./core/file-link.mjs', '../core/file-link.mjs')));
+await writeFile(componentFile, compile((await readFile(new URL('../filing-approval.tsx', import.meta.url), 'utf8')).replace('./connection-ui.js', './filing-connection.generated.mjs').replaceAll("'./core/", "'../core/")));
 const { FilingApproval } = await import('./filing-approval.generated.mjs');
 test.after(async () => { await unlink(componentFile); await unlink(connectionFile); });
 const payload = { kind: 'move', account: 'owner@example.invalid', operationId: '11111111-1111-4111-8111-111111111111', fileId: 'doc-id', destinationId: 'dest-id',
@@ -29,7 +29,11 @@ test('shared-ancestor review shows exact path owners and potential gains/losses;
     accessChanges: 'user: partner@example.invalid — may gain/increase to writer\nuser: old@example.invalid — may lose/reduce inherited reader access',
     reviewReason: 'An inspected ancestor belongs to another person. Exact owner approval is required even if visible audiences appear equivalent.' };
   const html = render(shared);
-  for (const text of ['Current path owners', 'Destination path owners', 'Potential inherited-access changes', 'partner@example.invalid', 'old@example.invalid', 'may gain/increase', 'may lose/reduce', 'even if visible audiences appear equivalent']) assert.ok(html.includes(text), text);
+  for (const text of ['Current path owners', 'Destination path owners', 'Who may gain or lose access', 'partner@example.invalid', 'old@example.invalid', 'may gain/increase', 'may lose/reduce', 'even if visible audiences appear equivalent']) assert.ok(html.includes(text), text);
+  assert.ok(html.indexOf('Who may gain or lose access') < html.indexOf('<details>'));
+  assert.ok(html.indexOf('may gain/increase') < html.indexOf('<details>'));
+  assert.ok(html.indexOf('Full access and folder details') < html.indexOf('Current path owners'));
+  assert.doesNotMatch(html, /<details open/);
   assert.match(html, /Shared &lt;administration&gt;/);
   for (const field of ['sourceOwners', 'destinationOwners', 'accessChanges', 'reviewReason']) {
     assert.match(render({ ...shared, [field]: '' }), /disabled=""[^>]*>Approve filing/);
@@ -47,6 +51,17 @@ test('native and binary cards use file labels, escaped MIME and canonical links,
     for (const text of ['Move existing file:', 'Open existing file', 'File ID', 'File type', url]) assert.ok(html.includes(text), text);
     assert.doesNotMatch(html, /<script>|javascript:|Move existing document/);
   }
+});
+test('plain file labels keep exact metadata in collapsed details and legacy payloads remain reviewable', () => {
+  const html = render({ ...payload, mimeType: 'application/vnd.google-apps.spreadsheet', sharedAncestors: true,
+    sourceOwners: 'Root — owner: owner@example.invalid', destinationOwners: 'Shared — owner: partner@example.invalid',
+    sharedAncestorSummary: '“Shared <folder>” belongs to partner@example.invalid.',
+    accessChanges: 'partner@example.invalid — may gain access: Can edit', reviewReason: 'A parent folder belongs to another person.' });
+  for (const text of ['Google Sheet', 'Technical file type', 'Existing direct shares stay unchanged', 'Access through folders may change', 'Ownership, contents, file ID and link stay the same', 'Only a verified tool result confirms completion', 'role="status"', 'aria-live="polite"']) assert.ok(html.includes(text), text);
+  assert.match(html, /Shared &lt;folder&gt;/);
+  assert.ok(html.indexOf('belongs to partner') < html.indexOf('<details>'));
+  assert.ok(html.indexOf('application/vnd.google-apps.spreadsheet') > html.indexOf('<details>'));
+  assert.doesNotMatch(render(payload), /disabled=""[^>]*>Approve filing/);
 });
 test('missing/invalid filing payload fails closed without links; synthetic preview has no live links', () => {
   for (const p of [null, {}, { ...payload, destinationId: 'javascript:bad' }, { ...payload, operationId: 'bad' }, { ...payload, fileId: '' }, { ...payload, account: '' }, { ...payload, kind: 'copy' }, { ...payload, audience: '' }]) {

@@ -15,3 +15,11 @@
 .pa-drive__sharing-review p { margin: 0.65rem 0; }
 .pa-drive__sharing-review dl { margin: 0.65rem 0; }
 .pa-drive__docs-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.pa-drive__filing-review p, .pa-drive__filing-review dl { margin: 0.5rem 0; }
+.pa-drive__filing-review .pa-drive__filing-title { margin-top: 0; }
+.pa-drive__filing-review .pa-drive__filing-account { margin-top: 0.2rem; color: var(--muted-foreground); }
+.pa-drive__filing-impact { padding: 0.55rem 0.65rem; border: 1px solid var(--border); border-radius: 0.4rem; background: var(--muted); }
+.pa-drive__filing-impact h4 { margin: 0; }
+.pa-drive__filing-impact p:last-child { margin-bottom: 0; }
+.pa-drive__filing-review .pa-drive__filing-status { margin: 0; }
+.pa-drive__filing-status:not(:empty) { padding-top: 0.5rem; }
