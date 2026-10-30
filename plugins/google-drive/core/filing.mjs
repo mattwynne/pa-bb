@@ -1,6 +1,7 @@
-// Bounded filing only: one folder or one existing native Doc. Never content/ACL writes.
+// Bounded filing only: one folder or one existing file. Never content/ACL writes.
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { fileLink } from './file-link.mjs';
 export const filingId = z.string().regex(/^[\w-]{1,256}$/);
 const target = { account: z.string().trim().min(1).max(320), operationId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/) };
 export const folderParameters = z.object({ ...target, parentId: filingId, name: z.string().min(1).max(255), preview: z.boolean().default(true) }).strict();
@@ -8,16 +9,16 @@ export const moveParameters = z.object({ ...target, fileId: filingId, expectedPa
 export const filingStatusParameters = z.object(target).strict();
 export const filingHash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const messages = {
-  invalid: 'Use an explicit connected account, lowercase UUID v4 operationId and exact folder/document IDs. Folder names must be bounded ordinary text.',
+  invalid: 'Use an explicit connected account, lowercase UUID v4 operationId and exact folder/file IDs. Folder names must be bounded ordinary text.',
   account: 'Select an explicit connected Google Drive account.',
-  unsupported: 'Filing supports owned My Drive folders and existing owned native Google Docs only. Shared drives, shortcuts, limited-access ancestry, trash and unknown authority are not supported.',
+  unsupported: 'Filing supports owned My Drive folder creation and existing owned files that Google reports movable. Folder-tree moves, shared drives, shortcuts, limited-access ancestry, trash and unknown authority are not supported.',
   incomplete: 'The folder, ancestry or permission listing is incomplete. No new filing write was submitted; inspect any existing operation before retrying.',
   duplicate: 'An exact-name folder already exists in the selected parent. Inspect it and its sharing; do not automatically create another or select an ambiguous duplicate.',
   scope: 'Filing requires an existing owner-authorized drive or drive.file grant and access to these items. It never expands OAuth. Docs-only and read-only grants are insufficient.',
   conflict: 'This operationId belongs to another account or request. Inspect the original operation; do not replace its key to bypass uncertainty.',
   unknown: 'No filing receipt exists for this account and operationId. This does not establish whether a previous write applied.',
   sharing_busy: 'A reviewed or unresolved sharing operation affects the item or its ancestry. Inspect its original gdrive_sharing_status receipt before filing; do not bypass an unknown permission write.',
-  busy: 'Another filing operation for this document or exact folder request is reviewing, writing or unresolved. Inspect its operationId; do not bypass it with a new key.',
+  busy: 'Another filing operation for this file or exact folder request is reviewing, writing or unresolved. Inspect its operationId; do not bypass it with a new key.',
   stale: 'The source, destination, visible access or authority changed since preview. No new write was submitted. Inspect before a separately requested proposal.',
   rejected: 'Google rejected the filing write. The key remains consumed; inspect authorization, policy and current location before proposing a new operation.',
 };
@@ -28,8 +29,10 @@ export function createFilingService({ store, operations, filing, approve = async
   const active = new Set();
   const receipt = (op, extra = {}) => ({ operationId: op.operationId, kind: op.kind, outcome: op.state, fileId: op.fileId || null,
     destinationId: op.destinationId, retrySafe: false, writeAttempted: ['writing', 'uncertain'].includes(op.state) ? 'unknown' : op.writeAttempted,
-    ...(op.fileId ? { url: op.kind === 'folder' ? `https://drive.google.com/drive/folders/${op.fileId}` : `https://docs.google.com/document/d/${op.fileId}/edit` } : {}),
-    guidance: 'Preview/approval is not completion. Only verified confirms exact parent readback; it does not certify exhaustive privacy or document rendering. After interruption use gdrive_filing_status with the SAME account and operationId. Never replay, roll back or replace a key to bypass uncertainty.', ...extra });
+    // Receipts written by the original Docs-only implementation lack mimeType.
+    mimeType: op.mimeType ?? (op.kind === 'folder' ? 'application/vnd.google-apps.folder' : 'application/vnd.google-apps.document'),
+    ...(op.fileId ? { url: fileLink(op.fileId, op.mimeType ?? (op.kind === 'folder' ? 'application/vnd.google-apps.folder' : 'application/vnd.google-apps.document')) } : {}),
+    guidance: 'Preview/approval is not completion. Only verified confirms exact parent readback; it does not certify exhaustive privacy, file content or rendering. After interruption use gdrive_filing_status with the SAME account and operationId. Never replay, roll back or replace a key to bypass uncertainty.', ...extra });
   async function record(args) { const r = await store.byEmail(args.account); if (!r) throw filingError('account'); return r; }
   async function save(op, state) { op.state = state; await operations.save(op); }
   async function checkSharing(inspected) {

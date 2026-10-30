@@ -3,6 +3,11 @@ import { readPermissionList } from '../core/permission-list.mjs';
 import { filingError, filingHash, filingId } from '../core/filing.mjs';
 const FILES = 'https://www.googleapis.com/drive/v3/files';
 const FOLDER = 'application/vnd.google-apps.folder', DOC = 'application/vnd.google-apps.document';
+// Capability-driven, not a native/binary MIME allowlist. Shortcuts would move the
+// pointer, not its target; folder trees need a separate access policy.
+const movableType = mime => typeof mime === 'string' && mime.length <= 255
+  && /^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$/.test(mime)
+  && ![FOLDER, 'application/vnd.google-apps.shortcut'].includes(mime);
 const fields = 'id,name,mimeType,trashed,parents,driveId,inheritedPermissionsDisabled,owners(me,emailAddress),capabilities(canAddChildren,canMoveItemWithinDrive)';
 const literal = value => `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`;
 const accessKey = p => JSON.stringify([p.type, p.emailAddress?.toLowerCase() || p.domain || '', p.type === 'anyone' ? p.allowFileDiscovery : null]);
@@ -92,7 +97,7 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
     else {
       source = await chain(record, request.fileId, rootId);
       const file = source[0].metadata;
-      if (file.mimeType !== DOC || file.capabilities?.canMoveItemWithinDrive !== true || file.parents?.length !== 1
+      if (!movableType(file.mimeType) || file.capabilities?.canMoveItemWithinDrive !== true || file.parents?.length !== 1
         || file.parents[0] !== (request.expectedParentId === 'root' ? rootId : request.expectedParentId) || dest.id === file.parents[0]) throw filingError('unsupported');
     }
     await prepare(record); // scope/identity before offering a proposal, never upgrades grants
@@ -105,12 +110,13 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
     };
     const title = kind === 'folder' ? request.name : source[0].metadata.name;
     const proposal = { contextIds: [...new Set([...destination, ...(source || [])].map(i => i.metadata.id))], destinationId: dest.id, sourceParentId: source?.[0].metadata.parents[0], fileId: source?.[0].metadata.id,
+      mimeType: source ? source[0].metadata.mimeType : FOLDER,
       resource: kind === 'folder' ? `folder:${record.subject}:${dest.id}:${filingHash(request.name)}` : `file:${request.fileId}`,
       fingerprint: filingHash([kind, destination, source]), destinationFingerprint: filingHash(destination), titleHash: filingHash(title),
       directBefore: source ? direct(source) : null,
       allowedAccess: [...destination[0].permissions, ...(source?.[0].permissions || [])].map(p => [accessKey(p), rank[p.role]]),
       requiresApproval: nonOwners.length > 0,
-      preview: { kind, account: record.email, title, from: source ? source.slice(1).reverse().map(i => i.metadata.name).join(' / ') : 'New folder',
+      preview: { kind, account: record.email, title, mimeType: source ? source[0].metadata.mimeType : FOLDER, from: source ? source.slice(1).reverse().map(i => i.metadata.name).join(' / ') : 'New folder',
         to: [...destination].reverse().map(i => i.metadata.name).join(' / ') + (kind === 'folder' ? ` / ${request.name}` : ''),
         sourceAudience: source ? describeAccess(source[0]) : 'New folder — no existing audience.', destinationAudience: describeAccess(destination[0]),
         destinationId: dest.id, sourceParentId: source?.[0].metadata.parents[0] || '', fileId: source?.[0].metadata.id || '', audience: audience.length ? audience.join('\n') : 'Only the owner principal appeared in the inspected listings.',
@@ -124,7 +130,7 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
     const current = await chain(record, op.fileId, rootId), m = current[0].metadata;
     const visibleAccess = current[0].permissions.map(p => ({ type: p.type, role: p.role, audience: principal(p) }));
     const noUnexpectedAccess = current[0].permissions.every(p => op.allowedAccess.some(([key, max]) => key === accessKey(p) && rank[p.role] <= max));
-    return { matches: m.id === op.fileId && m.mimeType === (op.kind === 'folder' ? FOLDER : DOC) && m.parents?.length === 1 && m.parents[0] === op.destinationId
+    return { matches: m.id === op.fileId && m.mimeType === (op.kind === 'folder' ? FOLDER : (op.mimeType ?? DOC)) && m.parents?.length === 1 && m.parents[0] === op.destinationId
       && filingHash(m.name) === op.titleHash && filingHash(destination) === op.destinationFingerprint && noUnexpectedAccess
       && (op.kind === 'folder' || op.directBefore.every(before => current[0].permissions.some(({ permissionDetails, ...p }) => filingHash(p) === filingHash(before)))), visibleAccess };
   }

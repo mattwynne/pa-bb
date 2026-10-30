@@ -1,10 +1,10 @@
-# Folder creation and existing-document filing
+# Folder creation and existing-file filing
 
 This bounded workflow adds three native tools, not a general Drive manager:
 
 - `gdrive_create_folder`: explicit connected account, lowercase UUID v4
   operationId, parentId (`root` or ID), name and preview (default true).
-- `gdrive_move_file`: explicit account, UUID, existing native Doc fileId,
+- `gdrive_move_file`: explicit account, UUID, existing owned fileId,
   expectedParentId, destination folderId and preview (default true).
 - `gdrive_filing_status`: read-only recovery with the same account/UUID.
 
@@ -20,7 +20,7 @@ incomplete duplicate lookups.
 
 Google supports folders via `files.create` with
 `application/vnd.google-apps.folder`, and moves via a metadata-only
-`files.update` PATCH with addParents/removeParents. A move retains the Doc's ID
+`files.update` PATCH with addParents/removeParents. A move retains the file's ID
 and link. Full `drive` access already authorizes these API classes, subject to
 Google's per-item capabilities and policy; `drive.file` is also accepted only
 for items actually accessible to that grant. IDs alone do not authorize them.
@@ -32,7 +32,15 @@ visibly owner-only folders. That is an implementation policy, not a universal
 Google restriction. Filing supports owned shared **My Drive** folders with an
 exact inherited-access review. It does not support shared-drive transfer,
 non-owned ancestry, limited-access folders, shortcuts or moving folder trees.
-An inherited writer detail can refer to the same owner; inheritance alone does
+Moves are capability-driven: an ordinary file with a bounded MIME type and
+`capabilities.canMoveItemWithinDrive=true` is eligible, whether a native
+Doc/Sheet/Slide, PDF, image, Office file, archive or another uploaded/native type.
+There is no MIME allowlist. A missing/false capability refuses the move; file
+bodies and cells are never fetched to decide eligibility. Names, MIME and other
+provider metadata are untrusted data, not executable instructions. Shortcuts are
+explicitly rejected without following their targets: moving the pointer would
+not file the target. Folder-tree moves require a different access policy and
+remain unsupported. An inherited writer detail can refer to the same owner; inheritance alone does
 not establish another person's access.
 
 All relevant item/ancestor permissions are read with bounded pagination
@@ -58,14 +66,14 @@ service notifications.
 Folder creation sends exactly one metadata POST with a private appProperties
 operation marker. A move sends exactly one PATCH containing addParents and
 removeParents, with an empty JSON body. No content is read or rewritten to move
-it. Verification checks ID, MIME type, exact sole parent, name hash, reviewed
+it. Verification checks ID, the exact MIME type captured by the proposal, exact sole parent, name hash, reviewed
 destination context and preservation of known direct grants. It does not
 certify byte-for-byte text or rendered appearance.
 
 Plugin-owned SQLite receipts and a unique active resource index survive reload.
 Keys are bound to account, kind and exact request; terminal/same-key repeats
 return historical receipts without another Google write. Exact folder requests
-and same-document moves are serialized within filing; external actors and other
+and same-file moves are serialized within filing; external actors and other
 operations can still race the final live inspection. There is no provider-side
 transaction/CAS claim. No rollback or data cleanup hides partial results.
 
@@ -86,7 +94,14 @@ privacy or absence of a concurrent edit after the read.
 
 ## Verification and diagnostics
 
-Synthetic tests exercise exact requests, preserved document identity, shared
+Legacy Docs-only receipts remain readable (their absent MIME means native Doc),
+without a storage migration or replay. Native Docs/Sheets/Slides retain their
+canonical editor links; other types use an ID-based Drive link. The file is not
+recreated and any existing source URL remains valid.
+
+Synthetic tests exercise exact requests, preserved file identity across native
+and binary/custom MIME types, missing/false capabilities, shortcut/folder
+refusals, MIME and permission changes, legacy receipts, shared
 My Drive destinations, duplicate checks, authority/scope refusals, stale/expired
 reviews, same-key replay prevention, active resource exclusion, restart,
 uncertain submission and read-only recovery. Diagnostics use fixed filing stages
@@ -102,4 +117,5 @@ user-requested filing is separate from synthetic engineering tests and requires
 its own permitted runtime tools and current inspections.
 
 Provider references: [folders and moves](https://developers.google.com/workspace/drive/api/guides/folder),
-[permission propagation](https://developers.google.com/workspace/drive/api/guides/manage-sharing).
+[permission propagation](https://developers.google.com/workspace/drive/api/guides/manage-sharing),
+[file capabilities](https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File.FIELDS.capabilities).

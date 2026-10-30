@@ -10,7 +10,7 @@ const componentFile = new URL('./filing-approval.generated.mjs', import.meta.url
 const connectionFile = new URL('./filing-connection.generated.mjs', import.meta.url);
 const compile = text => ts.transpileModule(text, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext } }).outputText;
 await writeFile(connectionFile, compile(await readFile(new URL('../connection-ui.tsx', import.meta.url), 'utf8')));
-await writeFile(componentFile, compile((await readFile(new URL('../filing-approval.tsx', import.meta.url), 'utf8')).replace('./connection-ui.js', './filing-connection.generated.mjs')));
+await writeFile(componentFile, compile((await readFile(new URL('../filing-approval.tsx', import.meta.url), 'utf8')).replace('./connection-ui.js', './filing-connection.generated.mjs').replace('./core/file-link.mjs', '../core/file-link.mjs')));
 const { FilingApproval } = await import('./filing-approval.generated.mjs');
 test.after(async () => { await unlink(componentFile); await unlink(connectionFile); });
 const payload = { kind: 'move', account: 'owner@example.invalid', operationId: '11111111-1111-4111-8111-111111111111', fileId: 'doc-id', destinationId: 'dest-id',
@@ -22,6 +22,19 @@ test('filing card shows exact account/location/audience and no-content/no-permis
   assert.match(html, /&lt;script&gt;bad&lt;\/script&gt;/); assert.doesNotMatch(html, /<script>/);
   assert.match(html, /https:\/\/drive.google.com\/drive\/folders\/dest-id/);
   assert.match(html, /https:\/\/docs.google.com\/document\/d\/doc-id\/edit/);
+});
+test('native and binary cards use file labels, escaped MIME and canonical links, never provider URLs', () => {
+  for (const [mimeType, url] of [
+    ['application/vnd.google-apps.spreadsheet', 'https://docs.google.com/spreadsheets/d/doc-id/edit'],
+    ['application/vnd.google-apps.presentation', 'https://docs.google.com/presentation/d/doc-id/edit'],
+    ['application/pdf', 'https://drive.google.com/file/d/doc-id/view'],
+    ['application/x-next-file-type', 'https://drive.google.com/file/d/doc-id/view'],
+    ['<script>private-bad</script>', 'https://drive.google.com/file/d/doc-id/view'],
+  ]) {
+    const html = render({ ...payload, mimeType, url: 'javascript:private-bad' });
+    for (const text of ['Move existing file:', 'Open existing file', 'File ID', 'File type', url]) assert.ok(html.includes(text), text);
+    assert.doesNotMatch(html, /<script>|javascript:|Move existing document/);
+  }
 });
 test('missing/invalid filing payload fails closed without links; synthetic preview has no live links', () => {
   for (const p of [null, {}, { ...payload, destinationId: 'javascript:bad' }, { ...payload, operationId: 'bad' }, { ...payload, fileId: '' }, { ...payload, account: '' }, { ...payload, kind: 'copy' }, { ...payload, audience: '' }]) {

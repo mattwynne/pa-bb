@@ -27,6 +27,8 @@ for (const { id: threadId, state } of threads) {
     await p.focus(`${el} button:nth-child(2)`);
   } else {
     if (evidence.disabled || evidence.detailsOpen) throw Error('Invalid defaults');
+    if (state !== 'folder' && !evidence.text.includes('Move existing file:')) throw Error('Document-only label remains');
+    if (!evidence.text.includes(state === 'folder' ? 'application/vnd.google-apps.folder' : state === 'move' ? 'application/vnd.google-apps.spreadsheet' : 'application/pdf')) throw Error('Missing exact file type');
     for (const text of ['owner@example.invalid', 'My Drive / New organization / Partnership', 'team@example.invalid', 'No write has happened', 'Example only']) if (!evidence.text.includes(text)) throw Error(`Missing ${text}: ${state}`);
     await p.focus(`${el} summary`); await p.keyboard.press('Enter');
     if (!(await p.evaluate(() => document.querySelector('.pa-drive__docs-review details').open && document.querySelector('.pa-drive__docs-review details').innerText.includes('no automatic rollback')))) throw Error('Keyboard disclosure failed');

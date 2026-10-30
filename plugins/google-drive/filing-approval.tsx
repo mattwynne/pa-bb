@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { fileLink } from './core/file-link.mjs';
 import { ConnectionAlert, ConnectionButton } from './connection-ui.js';
 type Props = { interaction: { id: string; payload: unknown }; submit(value: { approved: boolean }): Promise<void>; cancel(): Promise<void> };
 export function FilingApproval(props: Props) { return <Review key={props.interaction.id} {...props} />; }
@@ -18,21 +19,22 @@ function Review({ interaction, submit, cancel }: Props) {
   }
   return <section className="pa-drive pa-drive__docs-review" aria-label="Review filing and inherited access" aria-busy={busy}>
     {!valid ? <ConnectionAlert>Filing details are incomplete. Decline and request a fresh inspection.</ConnectionAlert> : <>
-      <p><strong>{text('kind') === 'folder' ? 'Create folder: ' : 'Move existing document: '}{text('title')}</strong></p>
+      <p><strong>{text('kind') === 'folder' ? 'Create folder: ' : 'Move existing file: '}{text('title')}</strong></p>
       <dl><dt>Account</dt><dd>{text('account')}</dd><dt>From</dt><dd>{text('from')}</dd><dt>To</dt><dd>{text('to')}</dd>
+        {text('mimeType') && <><dt>File type</dt><dd>{text('mimeType')}</dd></>}
         <dt>Current visible access</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{text('sourceAudience')}</dd>
         <dt>Destination visible access</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{text('destinationAudience')}</dd></dl>
       {p.exampleOnly === true ? <p>Example only — all choices are no-ops, with no Google access.</p> : <>
         <a href={`https://drive.google.com/drive/folders/${encodeURIComponent(text('destinationId'))}`} target="_blank" rel="noreferrer">Open destination ↗</a>
-        {text('kind') === 'move' && <p><a href={`https://docs.google.com/document/d/${encodeURIComponent(text('fileId'))}/edit`} target="_blank" rel="noreferrer">Open existing document ↗</a></p>}
+        {text('kind') === 'move' && <p><a href={fileLink(text('fileId'), text('mimeType') || 'application/vnd.google-apps.document')} target="_blank" rel="noreferrer">Open existing file ↗</a></p>}
       </>}
       <p>{text('impact')}</p>
-      <p>No permissions, ownership, content or invitations are changed explicitly. A move keeps the document’s ID and URL. Filing can still change inherited access.</p>
+      <p>No permissions, ownership, content or invitations are changed explicitly. A move keeps the file’s ID and URL. Filing can still change inherited access.</p>
       <p>No write has happened. Approval expires ten minutes after preview. Live location, authority and visible access are rechecked before submission.</p>
       <details><summary>Concurrency and recovery</summary>
         <p style={{ whiteSpace: 'pre-wrap' }}>Other inspected ancestry may also carry access: {text('audience')}</p>
         <p>Another actor can race the final inspection. Readback detects differences; no automatic rollback occurs. After interruption, inspect this operation rather than repeating it.</p>
-        <dl><dt>Destination ID</dt><dd>{text('destinationId')}</dd>{text('kind') === 'move' && <><dt>Document ID</dt><dd>{text('fileId')}</dd></>}<dt>Operation ID</dt><dd>{text('operationId')}</dd></dl>
+        <dl><dt>Destination ID</dt><dd>{text('destinationId')}</dd>{text('kind') === 'move' && <><dt>File ID</dt><dd>{text('fileId')}</dd></>}<dt>Operation ID</dt><dd>{text('operationId')}</dd></dl>
       </details>
     </>}
     {error && <ConnectionAlert>{error}</ConnectionAlert>}

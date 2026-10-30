@@ -15,8 +15,8 @@ async function setup(options = {}) {
     async propose(_record, kind) {
       calls++;
       if (options.fail) throw Object.assign(new Error('private-token-account-content'), { code: 'private-provider-code', cause: 'private-cause', status: 503 });
-      return { resource: 'file:doc-id', fingerprint: mismatch ? 'different' : 'same', destinationId: 'dest-id', sourceParentId: 'root-id', fileId: 'doc-id', requiresApproval: options.shared !== false,
-        preview: { kind, account, title: 'Synthetic Doc', from: 'My Drive', to: 'My Drive / Synthetic team', destinationId: 'dest-id', fileId: 'doc-id', sourceAudience: 'Owner only', destinationAudience: 'group: team@example.invalid — writer', audience: 'group: team@example.invalid — writer', impact: 'Inherited access changes; no permission edits.' } };
+      return { mimeType: options.mimeType || 'application/vnd.google-apps.document', resource: 'file:doc-id', fingerprint: mismatch ? 'different' : 'same', destinationId: 'dest-id', sourceParentId: 'root-id', fileId: 'doc-id', requiresApproval: options.shared !== false,
+        preview: { kind, account, mimeType: options.mimeType || 'application/vnd.google-apps.document', title: 'Synthetic file', from: 'My Drive', to: 'My Drive / Synthetic team', destinationId: 'dest-id', fileId: 'doc-id', sourceAudience: 'Owner only', destinationAudience: 'group: team@example.invalid — writer', audience: 'group: team@example.invalid — writer', impact: 'Inherited access changes; no permission edits.' } };
     },
     async prepare() { return async () => { writes++; if (options.lost) throw new Error('private-response-lost'); return { id: 'doc-id' }; }; },
     async verify() { return { matches: true, visibleAccess: [] }; },
@@ -42,6 +42,22 @@ test('filing native registrations and exact shared-audience approval lifecycle',
     assert.equal(parse(await h.harness.behavior.callAgentTool('gdrive_filing_status', { account, operationId: a.operationId })).outcome, 'verified'); assert.equal(h.writes(), 1);
   } finally { await h.harness.lifecycle.dispose(); }
 });
+test('same native move schema and review support Sheets and binary files without a separate workflow', async () => {
+  for (const [mimeType, url] of [
+    ['application/vnd.google-apps.spreadsheet', 'https://docs.google.com/spreadsheets/d/doc-id/edit'],
+    ['application/pdf', 'https://drive.google.com/file/d/doc-id/view'],
+  ]) {
+    const h = await setup({ mimeType });
+    try {
+      const a = input();
+      const p = parse(await h.harness.behavior.callAgentTool('gdrive_move_file', { ...a, preview: true })); assert.equal(p.mimeType, mimeType); assert.equal(h.writes(), 0);
+      const done = h.harness.behavior.callAgentTool('gdrive_move_file', a), form = await pending(h.harness);
+      assert.equal(form.payload.mimeType, mimeType); assert.equal(form.payload.fileId, a.fileId); assert.equal(form.payload.operationId, a.operationId);
+      h.harness.behavior.submitInteraction(form.id, { approved: true });
+      const result = parse(await done); assert.equal(result.outcome, 'verified'); assert.equal(result.url, url); assert.equal(h.writes(), 1);
+    } finally { await h.harness.lifecycle.dispose(); }
+  }
+});
 test('owner-only exact request does not introduce a redundant card; preview never writes', async () => {
   const h = await setup({ shared: false });
   try { const a = input(); assert.equal(parse(await h.harness.behavior.callAgentTool('gdrive_move_file', { ...a, preview: true })).outcome, 'proposed'); assert.equal(h.writes(), 0); assert.equal(parse(await h.harness.behavior.callAgentTool('gdrive_move_file', a)).outcome, 'verified'); assert.equal(h.harness.inspection.pendingInteractions.length, 0); }
@@ -65,7 +81,7 @@ test('unknown-account/provider boundary errors are safe and attributable, withou
       const a = input(); if (!fail) a.account = 'unknown@example.invalid';
       const r = await h.harness.behavior.callAgentTool('gdrive_move_file', a); assert.equal(r.isError, true); assert.equal(h.writes(), 0);
       const logs = JSON.stringify(h.harness.inspection.logEntries); assert.match(logs, /filing_agent_tool/);
-      assert.doesNotMatch(logs + JSON.stringify(r), /private-|owner@example|unknown@example|Synthetic Doc|doc-id|dest-id|team@example/);
+      assert.doesNotMatch(logs + JSON.stringify(r), /private-|owner@example|unknown@example|Synthetic file|doc-id|dest-id|team@example/);
     } finally { await h.harness.lifecycle.dispose(); }
   }
 });

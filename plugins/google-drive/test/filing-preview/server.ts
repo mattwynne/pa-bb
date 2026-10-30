@@ -10,7 +10,8 @@ export default function plugin(bb: BbPluginApi) {
   }, {
     async stage({ threadId, state }) {
       results.delete(threadId);
-      const payload = { kind: state === 'folder' ? 'folder' : 'move', account: 'owner@example.invalid', title: 'Synthetic partnership draft — existing document with a long title',
+      const payload = { kind: state === 'folder' ? 'folder' : 'move', account: 'owner@example.invalid', title: state === 'folder' ? 'Synthetic course folder' : 'Synthetic marketing workbook or uploaded PDF — existing file with a long title',
+        mimeType: state === 'folder' ? 'application/vnd.google-apps.folder' : state === 'move' ? 'application/vnd.google-apps.spreadsheet' : 'application/pdf',
         operationId: '11111111-1111-4111-8111-111111111111', fileId: 'synthetic-doc', destinationId: 'synthetic-destination',
         from: state === 'folder' ? 'New folder' : 'My Drive / Old organization', to: 'My Drive / New organization / Partnership',
         sourceAudience: state === 'folder' ? 'New folder — no existing audience.' : 'Only the owner principal appeared in the current listing.',

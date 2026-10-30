@@ -18,7 +18,7 @@ const freePort = () => new Promise((resolve, reject) => { const s = createServer
 const port = await freePort(), daemonPort = await freePort();
 const root = await mkdtemp(join(tmpdir(), 'drive-filing-review-')), fixture = join(root, 'drive-filing-review');
 await mkdir(join(root, 'home'));
-for (const file of ['filing-approval.tsx', 'app.css', 'connection-ui.tsx', 'connection-ui.css', 'test/filing-preview/app.tsx', 'test/filing-preview/server.ts']) {
+for (const file of ['filing-approval.tsx', 'core/file-link.mjs', 'app.css', 'connection-ui.tsx', 'connection-ui.css', 'test/filing-preview/app.tsx', 'test/filing-preview/server.ts']) {
   await mkdir(dirname(join(fixture, file)), { recursive: true }); await cp(join(source, file), join(fixture, file));
 }
 await cp(join(source, 'test/filing-preview/package.json'), join(fixture, 'package.json'));

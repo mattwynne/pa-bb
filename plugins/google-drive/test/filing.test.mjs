@@ -22,6 +22,7 @@ async function setup(options = {}) {
   files.set('dest-id', meta('dest-id', 'Synthetic destination', FOLDER, ['root-id']));
   files.set('doc-id', meta('doc-id', 'Synthetic existing Doc', DOC, ['root-id']));
   const content = 'private-original-content'; let storedContent = content, marker, writes = 0, clock = 1000;
+  if (options.mimeType) files.get('doc-id').mimeType = options.mimeType;
   const fetchImpl = async (url, init = {}) => {
     const u = new URL(String(url)); calls.push({ url: u, init });
     if (u.pathname.endsWith('/userinfo')) return Response.json({ sub: options.wrongIdentity ? 'other' : 'subject', email: account, email_verified: true });
@@ -41,6 +42,7 @@ async function setup(options = {}) {
       assert.deepEqual(JSON.parse(init.body), {});
       if (options.reject) return Response.json({ secret: 'private-body' }, { status: options.reject });
       files.get('doc-id').parents = ['dest-id'];
+      if (options.typeAfterWrite) files.get('doc-id').mimeType = options.typeAfterWrite;
       if (options.lost) throw Object.assign(new Error('private-error'), { cause: 'private-cause', code: 'private-code' });
       return options.badJson ? new Response('private-unreadable') : Response.json({ id: 'doc-id' });
     }
@@ -53,7 +55,7 @@ async function setup(options = {}) {
     if (u.pathname.endsWith('/permissions')) {
       if (options.permissionError) return Response.json({ private: 'private-response' }, { status: 503 });
       const inherited = id === 'dest-id' || (id === 'doc-id' && files.get('doc-id').parents[0] === 'dest-id') ? extra : [];
-      const list = [owner, ...inherited, ...(options.unexpectedAccess && writes && id === 'doc-id' ? [{ ...group, id: 'unexpected', emailAddress: 'other@example.invalid' }] : []), ...(options.directSource && id === 'doc-id' ? [{ ...group, id: 'direct', permissionDetails: [{ inherited: false }] }] : [])];
+      const list = [owner, ...inherited, ...(options.unexpectedAccess && writes && id === 'doc-id' ? [{ ...group, id: 'unexpected', emailAddress: 'other@example.invalid' }] : []), ...(options.directSource && !(options.dropDirectAfterWrite && writes) && id === 'doc-id' ? [{ ...group, id: 'direct', permissionDetails: [{ inherited: false }] }] : [])];
       return Response.json({ permissions: list, ...(options.pagedPermissions ? { nextPageToken: 'private-page' } : {}) });
     }
     if (files.has(id)) {
@@ -95,6 +97,98 @@ test('move preserves ID, URL and content; one metadata-only PATCH, never copy/pe
     assert.equal(h.writes(), 1); await h.s.move({ ...a, preview: false }); await h.s.status(statusArgs(a)); assert.equal(h.writes(), 1);
     assert.ok(h.calls.every(c => !c.url.pathname.includes('/copy') && (!c.init.method || c.init.method === 'PATCH' || c.url.pathname.endsWith('/tokeninfo')))); safe(h);
   } finally { await h.close(); }
+});
+const moveTypes = [
+  [DOC, 'https://docs.google.com/document/d/doc-id/edit'],
+  ['application/vnd.google-apps.spreadsheet', 'https://docs.google.com/spreadsheets/d/doc-id/edit'],
+  ['application/vnd.google-apps.presentation', 'https://docs.google.com/presentation/d/doc-id/edit'],
+  ...['application/pdf', 'image/png', 'text/plain', 'video/mp4', 'application/zip', 'application/x-next-file-type', 'application/vnd.google-apps.form']
+    .map(type => [type, 'https://drive.google.com/file/d/doc-id/view']),
+];
+for (const [mimeType, url] of moveTypes) test(`capability-driven move preserves identity and metadata without body reads or content/ACL edits: ${mimeType}`, async () => {
+  const h = await setup({ mimeType }), a = moveArgs();
+  const before = structuredClone(h.files.get('doc-id'));
+  try {
+    const p = await h.s.move(a); assert.equal(p.mimeType, mimeType); assert.equal(p.preview.mimeType, mimeType); assert.equal(p.url, url); assert.equal(h.writes(), 0);
+    const r = await h.s.move({ ...a, preview: false }); assert.equal(r.outcome, 'verified'); assert.equal(r.fileId, a.fileId); assert.equal(r.url, url); assert.equal(r.mimeType, mimeType);
+    assert.deepEqual(h.files.get('doc-id'), { ...before, parents: ['dest-id'] }); assert.equal(h.content(), 'private-original-content');
+    await h.s.move({ ...a, preview: false }); assert.equal((await h.service().status(statusArgs(a))).outcome, 'verified'); assert.equal(h.writes(), 1);
+    assert.ok(h.calls.every(c => !c.url.searchParams.has('alt') && !/\/export|\/copy|\/download/.test(c.url.pathname)));
+    assert.deepEqual(h.calls.filter(c => c.init.method === 'PATCH').map(c => JSON.parse(c.init.body)), [{}]); safe(h);
+  } finally { await h.close(); }
+});
+test('unsupported source metadata and missing/false capability reject before any write, regardless of MIME', async () => {
+  const mutations = [
+    f => { f.mimeType = FOLDER; }, f => { f.mimeType = 'application/vnd.google-apps.shortcut'; },
+    ...[undefined, '', 'not-a-type', 'application/pdf\n', 'x/'.padEnd(256, 'a')].map(mime => f => { f.mimeType = mime; }),
+    f => { delete f.capabilities.canMoveItemWithinDrive; }, f => { f.capabilities.canMoveItemWithinDrive = false; },
+    f => { f.capabilities.canMoveItemWithinDrive = 'true'; }, f => { f.driveId = 'shared'; }, f => { f.owners[0].me = false; },
+    f => { f.trashed = true; }, f => { f.parents = []; }, f => { f.parents = ['root-id', 'dest-id']; }, f => { f.parents = ['unknown']; },
+    f => { f.inheritedPermissionsDisabled = true; },
+  ];
+  for (const mutate of mutations) {
+    const h = await setup({ mimeType: 'application/pdf' });
+    try {
+      mutate(h.files.get('doc-id'));
+      await assert.rejects(h.s.move({ ...moveArgs(), preview: false }), error => {
+        if (h.files.get('doc-id').mimeType === FOLDER) assert.match(error.message, /folder creation.*Folder-tree moves.*not supported/);
+        return true;
+      });
+      assert.equal(h.writes(), 0); safe(h);
+    }
+    finally { await h.close(); }
+  }
+});
+test('shared native and binary moves revalidate exact audiences, parents, MIME and capability after review', async () => {
+  for (const mimeType of ['application/vnd.google-apps.spreadsheet', 'application/pdf', 'application/x-next-file-type']) {
+    for (const change of ['none', 'parent', 'permissions', 'mime', 'capability', 'destination']) {
+      const h = await setup({ mimeType, shared: true, directSource: true }), a = moveArgs();
+      try {
+        const p = await h.s.move(a); assert.equal(p.requiresApproval, true); let reviewed = false;
+        const r = await h.s.move({ ...a, preview: false }, undefined, async card => {
+          reviewed = true; assert.equal(h.writes(), 0); assert.equal(card.mimeType, mimeType); assert.equal(card.fileId, a.fileId); assert.equal(card.destinationId, a.folderId);
+          assert.match(card.destinationAudience, /team@example.invalid/);
+          if (change === 'parent') h.files.get('doc-id').parents = ['dest-id'];
+          if (change === 'permissions') h.options.directSource = false;
+          if (change === 'mime') h.files.get('doc-id').mimeType = 'image/jpeg';
+          if (change === 'capability') h.files.get('doc-id').capabilities.canMoveItemWithinDrive = false;
+          if (change === 'destination') h.files.get('dest-id').parents = ['doc-id'];
+          return { outcome: 'submitted', value: { approved: true } };
+        });
+        assert.equal(reviewed, true); assert.equal(r.outcome, change === 'none' ? 'verified' : ['permissions', 'mime'].includes(change) ? 'stale' : 'not_submitted');
+        assert.equal(h.writes(), change === 'none' ? 1 : 0); safe(h);
+      } finally { await h.close(); }
+    }
+  }
+});
+test('non-Doc lost responses retain read-only unresolved locks; type/direct-grant readback changes never verify', async () => {
+  for (const mimeType of ['application/vnd.google-apps.spreadsheet', 'application/pdf']) {
+    for (const options of [{ lost: true }, { typeAfterWrite: 'image/jpeg' }, { directSource: true, dropDirectAfterWrite: true }]) {
+      const h = await setup({ mimeType, ...options }), a = moveArgs();
+      try {
+        const r = await h.s.move({ ...a, preview: false }, undefined, async () => ({ outcome: 'submitted', value: { approved: true } }));
+        assert.equal(r.outcome, 'uncertain');
+        const status = await h.service().status(statusArgs(a)); assert.equal(status.outcome, options.lost ? 'observed_matching' : 'uncertain'); assert.equal(status.unresolved, true);
+        await h.s.move({ ...a, preview: false }); assert.equal(h.writes(), 1);
+        await assert.rejects(h.s.move({ ...moveArgs(), expectedParentId: 'dest-id', folderId: 'root', preview: false }), e => e.filingCode === 'busy'); safe(h);
+      } finally { await h.close(); }
+    }
+  }
+});
+test('legacy Docs-only verified/proposed receipts and folder receipts remain readable without migration or replay', async () => {
+  for (const kind of ['move', 'folder']) {
+    const h = await setup(), a = kind === 'move' ? moveArgs() : folderArgs();
+    try {
+      const change = kind === 'move' ? h.s.move : h.s.createFolder;
+      await change(a);
+      let op = await h.store.filing.get(a.operationId); delete op.mimeType; delete op.preview.mimeType; await h.store.filing.save(op);
+      assert.equal((await change({ ...a, preview: false })).outcome, 'verified'); assert.equal(h.writes(), 1);
+      op = await h.store.filing.get(a.operationId); delete op.mimeType; await h.store.filing.save(op);
+      const r = await h.service().status(statusArgs(a)); assert.equal(r.outcome, 'verified');
+      assert.equal(r.url, kind === 'move' ? 'https://docs.google.com/document/d/doc-id/edit' : 'https://drive.google.com/drive/folders/new-folder');
+      await change({ ...a, preview: false }); assert.equal(h.writes(), 1);
+    } finally { await h.close(); }
+  }
 });
 test('shared destination requires exact approval; no inherited-access categorical rejection', async () => {
   const h = await setup({ shared: true }), a = moveArgs();
