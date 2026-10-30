@@ -1,3 +1,4 @@
+import { claimFilingAccess } from './access-claims.mjs';
 // Plugin-owned receipts; append the migration after every already-applied entry.
 export const FILING_MIGRATION = `CREATE TABLE drive_filing_operations (
   operation_id TEXT PRIMARY KEY, subject TEXT NOT NULL, resource TEXT NOT NULL,
@@ -16,8 +17,9 @@ export function createFilingStore(db) {
         .run(op.operationId, op.subject, op.resource, op.state, JSON.stringify(op)).changes === 1;
     },
     async claim(op) {
-      return db.prepare("UPDATE OR IGNORE drive_filing_operations SET state = 'reviewing' WHERE operation_id = ? AND subject = ? AND state = 'proposed'")
-        .run(op.operationId, op.subject).changes === 1;
+      return claimFilingAccess(db, op.contextIds, () =>
+        db.prepare("UPDATE OR IGNORE drive_filing_operations SET state = 'reviewing' WHERE operation_id = ? AND subject = ? AND state = 'proposed'")
+          .run(op.operationId, op.subject).changes === 1);
     },
     async start(op) {
       return db.prepare("UPDATE drive_filing_operations SET state = 'writing',receipt = ? WHERE operation_id = ? AND subject = ? AND state = 'reviewing'")

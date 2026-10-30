@@ -2,6 +2,7 @@
 // Only the backend opens it; neither tokens nor pending PKCE verifiers reach RPC/UI.
 import { createSheetsEditStore, SHEETS_EDIT_MIGRATION } from './sheets-edit-store.mjs';
 import { createFilingStore, FILING_MIGRATION } from './filing-store.mjs';
+import { claimSharingAccess } from './access-claims.mjs';
 export function createBbStore(db, migrate) {
   migrate(db, [
     `CREATE TABLE IF NOT EXISTS drive_accounts (
@@ -70,8 +71,9 @@ export function createBbStore(db, migrate) {
       return db.prepare("SELECT operation_id FROM drive_sharing_operations WHERE file_id = ? AND state IN ('reviewing','writing','uncertain')").get(fileId)?.operation_id || null;
     },
     async claimSharing(operationId, fileId) {
-      return db.prepare("UPDATE OR IGNORE drive_sharing_operations SET state = 'reviewing' WHERE operation_id = ? AND file_id = ? AND state = 'proposed'")
-        .run(operationId, fileId).changes === 1;
+      return claimSharingAccess(db, fileId, () =>
+        db.prepare("UPDATE OR IGNORE drive_sharing_operations SET state = 'reviewing' WHERE operation_id = ? AND file_id = ? AND state = 'proposed'")
+          .run(operationId, fileId).changes === 1);
     },
     async startSharingWrite(op) {
       return db.prepare("UPDATE drive_sharing_operations SET state = 'writing', receipt = ? WHERE operation_id = ? AND subject = ? AND state = 'reviewing'")

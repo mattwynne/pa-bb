@@ -114,7 +114,7 @@ test('same key/request joins receipt, different request conflicts, and competing
     const first = apply(h, input);
     while (!release) await new Promise(resolve => setImmediate(resolve));
     assert.equal((await apply(h, input)).outcome, 'reviewing'); assert.equal((await status(h, input)).inProgress, true);
-    await assert.rejects(apply(h, request()), /Another sharing operation/);
+    await assert.rejects(apply(h, request()), e => e.sharingCode === 'busy');
     await assert.rejects(h.service.change({ ...input, role: 'reader' }), /different request/);
     release({ outcome: 'submitted', value: { approved: true } });
     assert.equal((await first).outcome, 'verified'); assert.equal(h.writes().length, 1);
@@ -128,9 +128,13 @@ for (const options of [{ lostReply: true }, { badJson: true }, { reject: 503 }, 
       assert.equal((await apply(h, input)).receiptOnly, true); assert.equal(h.writes().length, 1);
       h.state.failReads = false;
       const recovered = await status(h, input);
-      assert.equal(recovered.outcome, options.lostReply || options.badJson || options.afterWrite && h.state.permissions.find(p => p.id === other.id).role === 'reader' ? 'verified' : 'uncertain');
+      const expected = options.lostReply || options.badJson ? 'observed_matching'
+        : options.afterWrite && h.state.permissions.find(p => p.id === other.id).role === 'reader' ? 'verified' : 'uncertain';
+      assert.equal(recovered.outcome, expected);
       assert.equal(h.writes().length, 1);
-      if (recovered.outcome === 'uncertain') await assert.rejects(apply(h, request({ audience: { type: 'user', emailAddress: 'another@example.test' } })), /Another sharing operation/);
+      if (recovered.outcome !== 'verified') {
+        await assert.rejects(apply(h, request({ audience: { type: 'user', emailAddress: 'another@example.test' } })), e => e.sharingCode === 'busy');
+      }
     } finally { await h.close(); }
   });
 }

@@ -457,6 +457,19 @@ test('unresolved permission work on source/destination/ancestry prevents filing 
     } finally { await h.close(); }
   }
 });
+test('sharing claimed after the initial check prevents the filing claim and every provider write', async () => {
+  const h = await setup(), claim = h.store.filing.claim;
+  h.store.filing.claim = async op => {
+    const share = { operationId: randomUUID(), subject: 'subject', fileId: 'dest-id', state: 'proposed' };
+    await h.store.reserveSharing(share);
+    assert.equal(await h.store.claimSharing(share.operationId, share.fileId), true);
+    return claim(op);
+  };
+  try {
+    await assert.rejects(h.s.move({ ...moveArgs(), preview: false }), e => e.filingCode === 'busy');
+    assert.equal(h.writes(), 0); safe(h);
+  } finally { await h.close(); }
+});
 test('reservation/persistence failure cannot authorize replay; marker recovers a lost durable folder ID', async () => {
   const h = await setup(), a = folderArgs(), originalReserve = h.store.filing.reserve;
   try {

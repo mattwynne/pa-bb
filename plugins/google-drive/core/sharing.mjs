@@ -33,7 +33,7 @@ const messages = {
   scope_required: 'Sharing requires an existing owner-authorized Drive write grant. Read-only grants cannot change sharing. This tool never broadens OAuth access.',
   conflict: 'This operationId belongs to a different request or account. Inspect the original operation; do not generate a new key to bypass an uncertain write.',
   unknown_operation: 'No sharing receipt exists for this account and operationId. This is not proof that no permission change occurred elsewhere.',
-  busy: 'Another sharing operation for this exact item is reviewing, writing or unresolved. Inspect its operationId before making a new proposal.',
+  busy: 'Another sharing or filing operation affecting this item is reviewing, writing or unresolved. Inspect its original operation receipt before making a new proposal.',
   stale: 'Sharing, authority or target details changed since preview, or the preview expired. No new write was submitted. Inspect and make a fresh proposal.',
   invalid: 'The sharing request or approval is invalid. No new write was submitted.',
   rejected: 'Google rejected the sharing request (invalid request, policy, authority or conflict). No successful change is established. Inspect live sharing and authorization before a separately requested new proposal; this key remains consumed.',
@@ -100,6 +100,7 @@ export function createSharingService({ store, sharing, approve = async (_payload
       stage = 'write';
       const result = await writer(request, op.permissionId, writeSignal);
       if (result.permissionId) op.permissionId = result.permissionId;
+      op.providerAcknowledged = true;
       await save(op, 'uncertain'); // save provider ID before verification
       stage = 'verify';
       const verified = await sharing.verify(r, op);
@@ -133,6 +134,17 @@ export function createSharingService({ store, sharing, approve = async (_payload
       // merely because a later, separately authorized change now exists.
       if (op.state === 'verified' && !observed.matches) return receipt(op, { outcome: 'changed_since_verification', readbackMatches: false });
       if (observed.permissionId) op.permissionId = observed.permissionId;
+      // A matching observation cannot establish that a lost-response request
+      // finished. Legacy receipts without acknowledgement are conservative too.
+      if (op.state !== 'verified' && op.providerAcknowledged !== true) {
+        if (!observed.matches) diagnose('sharing_recovery_mismatch', null);
+        return receipt(op, {
+          outcome: observed.matches ? 'observed_matching' : 'uncertain',
+          readbackMatches: observed.matches,
+          unresolved: true,
+          guidance: 'Current sharing was observed only; an unacknowledged request may still complete. The item remains locked. Never replay or replace the operationId.',
+        });
+      }
       await save(op, observed.matches ? 'verified' : 'uncertain');
       if (!observed.matches) diagnose('sharing_recovery_mismatch', null);
       return receipt(op);

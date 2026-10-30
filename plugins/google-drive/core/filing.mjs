@@ -18,7 +18,7 @@ const messages = {
   conflict: 'This operationId belongs to another account or request. Inspect the original operation; do not replace its key to bypass uncertainty.',
   unknown: 'No filing receipt exists for this account and operationId. This does not establish whether a previous write applied.',
   sharing_busy: 'A reviewed or unresolved sharing operation affects the item or its ancestry. Inspect its original gdrive_sharing_status receipt before filing; do not bypass an unknown permission write.',
-  busy: 'Another filing operation for this file or exact folder request is reviewing, writing or unresolved. Inspect its operationId; do not bypass it with a new key.',
+  busy: 'Another filing or sharing operation affecting this file, folder request or inspected ancestry is reviewing, writing or unresolved. Inspect its original operation receipt; do not bypass it with a new key.',
   stale: 'The source, destination, visible access or authority changed since preview. No new write was submitted. Inspect before a separately requested proposal.',
   rejected: 'Google rejected the filing write. The key remains consumed; inspect authorization, policy and current location before proposing a new operation.',
 };
