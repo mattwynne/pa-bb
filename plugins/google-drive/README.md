@@ -13,7 +13,8 @@ An independent Google Drive and Docs plugin with explicitly consented full Drive
 | `gdrive_inspect_sharing` | Read visible owners and paginated sharing permissions; explicit incompleteness/inheritance limits |
 | `gdrive_change_sharing` | Preview/approve one direct named or public-link grant/change/revoke on an owned My Drive file/folder; durable single-use receipt |
 | `gdrive_sharing_status` | Read-only permission recovery; never retries a write or invitation |
-| `gdrive_copy_file` | Scope-gated copy into an explicit folder; requires write consent |
+| `gdrive_copy_file` | Single-use keyed copy into an explicit folder; requires write consent |
+| `gdrive_copy_status` | Read-only recovery of the same copy operation; never replays a write |
 | `gdrive_create_folder` | Preview/create one explicitly located My Drive folder; duplicate checks and durable recovery |
 | `gdrive_move_file` | Preview/move an existing owned native or uploaded file without copying or content changes; capability checks and inherited-access review |
 | `gdrive_filing_status` | Read-only folder/move recovery; never replays uncertain writes |

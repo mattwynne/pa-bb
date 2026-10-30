@@ -17,7 +17,7 @@ async function pending(h) {
   throw Error('No synthetic spreadsheet approval');
 }
 async function setup(options = {}) {
-  const host = createFakePluginHost({ pluginId: 'google-drive', settings: { requireDocsApproval: false }, agentSkillIds: ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing', 'google-drive-filing'] });
+  const host = createFakePluginHost({ pluginId: 'google-drive', settings: { requireDocsApproval: false }, agentSkillIds: ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing', 'google-drive-filing', 'google-drive-copy'] });
   const calls = [], originalFetch = globalThis.fetch;
   const state = { scope: 'drive.file', identity: subject, writes: 0,
     cells: [{ userEnteredValue: { stringValue: 'Before' }, userEnteredFormat: { numberFormat: { type: 'TEXT' }, textFormat: { bold: true } }, note: 'Keep note' }, { userEnteredValue: { boolValue: false } }] };

@@ -24,7 +24,8 @@ const schemas = {
   gdrive_list_folder: z.object({ account, folderId: required.describe('Folder ID or root'), pageSize: z.number().int().min(1).max(100).optional(), pageToken: required.optional() }),
   gdrive_get_file: z.object({ account, fileId: required }),
   gdrive_inspect_sharing: z.object({ account, fileId: required }),
-  gdrive_copy_file: z.object({ account, sourceId: required, folderId: required, title: required.max(255).optional() }),
+  gdrive_copy_file: z.object({ account, sourceId: required, folderId: required, title: required.max(255).optional(), operationId: z.string({ error: 'A fresh lowercase UUID v4 operationId is required; older calls without a key are no longer accepted.' }).regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, 'Use a lowercase UUID v4 and retain it for recovery.').describe('Fresh lowercase UUID v4 for this copy; retain it for recovery.') }),
+  gdrive_copy_status: z.object({ account, operationId: required.describe('The same lowercase UUID v4 used for the copy.') }),
   gdocs_read: z.object({ account, document: required.describe('Google Doc URL or document ID; other file types are not supported.'), cursor: z.string().min(1).max(128).optional().describe('Opaque single-use continuation from the preceding page; repeat the same account and document.') }),
 };
 const descriptions = {
@@ -33,7 +34,8 @@ const descriptions = {
   gdrive_list_folder: 'List a folder in one Google Drive account. Use folderId root for My Drive.',
   gdrive_get_file: 'Get Google Drive file metadata and a source link in one explicit account.',
   gdrive_inspect_sharing: 'Read Google-visible sharing for one explicit file or folder/account, including owners, user/group/domain/anyone permissions and provider-supplied inheritance details. Check listingComplete and listingError. Never infer privacy or enumerate all people from this result: group members, ancestor policies and shared-drive membership may not be fully visible. No sharing changes.',
-  gdrive_copy_file: 'Copy a file into an explicitly selected folder and account, preserving the original. Only for user-requested copies. Destination permissions may be inherited: inspect its sharing first. Never blindly retry uncertain results; inspect the destination or returned ID. Requires an existing write grant; read-only connections cannot copy.',
+  gdrive_copy_file: 'Copy a file into an explicit account and folder only when requested. Requires a fresh lowercase UUID v4 operationId and existing Drive write consent. Inspect destination sharing first. Same-key calls return a receipt; never replay uncertain writes. Use gdrive_copy_status with the same account and key.',
+  gdrive_copy_status: 'Read-only recovery of a keyed copy. A matching marker after an unacknowledged write is an observation, not proof of completion. Never replay or replace the key.',
   gdocs_read: 'Read a bounded plain-text projection of a Google Doc, including child tabs. Follow each nextCursor with the same account and document; pages are one short-lived snapshot, not edit proof. The provider JSON limit is 8 MiB.',
 };
 function safeError(error: unknown): string {
@@ -49,6 +51,13 @@ function safeError(error: unknown): string {
   if ((error as { code?: string })?.code === 'docs_cursor_expired') return 'This Docs continuation is unavailable. Start a fresh read.';
   if ((error as { code?: string })?.code === 'docs_read_capacity') return 'Docs read capacity is full or the output is too large. Finish an active read or start again later.';
   if ((error as { code?: string })?.code === 'response_too_large') return 'Google response exceeds the supported size limit. For a Google Doc, download it as plain text to read it without formatting.';
+  const copyCode = (error as { copyCode?: string })?.copyCode;
+  if (copyCode === 'invalid') return 'Copy requires an explicit account, source and destination IDs and a fresh lowercase UUID v4 operationId. Older calls without a key are no longer accepted; retain the key for recovery.';
+  if (copyCode === 'account') return 'Unknown connected Google Drive account.';
+  if (copyCode === 'conflict') return 'This operationId belongs to another account, operation or request. Use the original key and account for recovery; do not replace it to bypass uncertainty.';
+  if (copyCode === 'unknown') return 'No copy receipt exists for this account and operationId. This does not establish that no copy exists.';
+  if (copyCode === 'source') return 'Source is not a copyable file or its metadata is unavailable.';
+  if (copyCode === 'destination') return 'Destination is not a writable folder or its metadata is unavailable.';
   if ((error as { code?: string })?.code === 'copy_scope_required') return 'Copy requires write access. Reconnect the Drive account in BB settings and approve full Drive access; existing read-only grants cannot copy.';
   if (['Use explicit Drive file and folder IDs', 'Copy title is too long', 'Source is not a copyable file', 'Destination is not a writable folder', 'sourceId is required', 'title is required'].includes(message)) return message;
   if (localErrors.includes(message)) return message;
@@ -166,6 +175,6 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.configure(() => ({
     tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES, DOCS_REVIEW_TOOL, ...DOCS_CREATION_TOOLS, ...SHARING_TOOLS, ...SHEETS_TOOLS, ...FORMAT_TOOLS,
       ...SHEETS_EDIT_TOOLS, ...FILING_TOOLS],
-    skills: ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing', 'google-drive-filing'],
+    skills: ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing', 'google-drive-filing', 'google-drive-copy'],
   }));
 }

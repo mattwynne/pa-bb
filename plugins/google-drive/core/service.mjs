@@ -1,3 +1,4 @@
+import { createCopyService } from './copy.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { readPermissionList } from './permission-list.mjs';
 import { createDocsReader } from './docs-read.mjs';
@@ -138,37 +139,9 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
         role: p.role, discovery: p.allowFileDiscovery === true ? 'discoverable' : p.allowFileDiscovery === false ? 'link' : 'unknown' })),
       visibility: 'Google-visible permissions only; not an exhaustive list of people with access. Group membership, domain audiences, ancestor policies and shared-drive membership may not be fully visible. Missing inheritance details mean unknown, not direct access. An empty list or shared=false does not establish privacy.' };
   }
-  async function copyFile(args) {
-    const record = await account(args.account);
-    const sourceId = required(args.sourceId, 'sourceId');
-    const folderId = required(args.folderId, 'folderId');
-    if (![sourceId, folderId].every(id => /^[a-zA-Z0-9_-]+$/.test(id))) throw new Error('Use explicit Drive file and folder IDs');
-    const title = args.title === undefined ? undefined : required(args.title, 'title');
-    if (title && title.length > 255) throw new Error('Copy title is too long');
-    const source = await drive.getFile(record, sourceId);
-    const destination = await drive.getFile(record, folderId);
-    if (source.trashed || source.mimeType === FOLDER || source.mimeType === 'application/vnd.google-apps.shortcut' || source.capabilities?.canCopy !== true)
-      throw new Error('Source is not a copyable file');
-    if (destination.trashed || destination.mimeType !== FOLDER || destination.capabilities?.canAddChildren !== true)
-      throw new Error('Destination is not a writable folder');
-    const result = await drive.copyFile(record, sourceId, folderId, title ?? source.name);
-    if (!result.id) {
-      diagnose('copy_outcome_uncertain', null);
-      return { account: record.email, outcome: 'uncertain', retrySafe: false,
-        guidance: 'Do not repeat the copy. Inspect the destination folder first; a copy may exist.' };
-    }
-    try {
-      const file = await drive.getFile(record, result.id);
-      if (file.id !== result.id || !file.parents?.includes(destination.id || folderId) || file.trashed) throw new Error('Copy verification failed');
-      return { account: record.email, outcome: 'verified', file: fileInfo(file) };
-    } catch (error) {
-      diagnose('copy_verification', error);
-      return { account: record.email, outcome: 'verification_unavailable', file: fileInfo({ id: result.id }), retrySafe: false,
-        guidance: 'Copy returned an ID but verification failed. Inspect this file; do not copy again.' };
-    }
-  }
+  const copies = createCopyService({ store, drive, fileInfo, diagnose });
   const tools = { gdrive_auth_status: authStatus, gdrive_search_files: searchFiles, gdrive_list_folder: listFolder,
-    gdrive_get_file: getFile, gdrive_inspect_sharing: inspectSharing, gdrive_copy_file: copyFile, gdocs_read: docsReader.read };
+    gdrive_get_file: getFile, gdrive_inspect_sharing: inspectSharing, gdrive_copy_file: copies.copy, gdrive_copy_status: copies.status, gdocs_read: docsReader.read };
   async function execute(name, args = {}, reader = '') {
     if (!Object.hasOwn(tools, name)) throw new Error('Unknown Google Drive tool');
     return tools[name](args, reader);

@@ -2,7 +2,11 @@
 export function createMemoryStore() {
   const records = new Map();
   const pending = new Map();
+  const creations = new Map();
   return {
+    async getCreation(id) { const value = creations.get(id); return value ? structuredClone(value) : null; },
+    async reserveCreation(op) { if (creations.has(op.operationId)) return false; creations.set(op.operationId, structuredClone(op)); return true; },
+    async updateCreation(op) { if (!creations.has(op.operationId)) throw new Error('Creation receipt unavailable'); creations.set(op.operationId, structuredClone(op)); },
     async accounts() { return [...records.values()].map(x => ({ ...x })); },
     async byEmail(email) { return [...records.values()].find(x => x.email.toLowerCase() === email.toLowerCase()) || null; },
     async bySubject(subject) { return records.get(subject) ? { ...records.get(subject) } : null; },

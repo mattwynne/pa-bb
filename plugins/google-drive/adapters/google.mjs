@@ -111,7 +111,7 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
       },
       getFile(record, id) {
         return get(record, params(new URL(`${DRIVE}/files/${encodeURIComponent(id)}`), {
-          fields: 'id,name,mimeType,description,modifiedTime,parents,webViewLink,trashed,capabilities(canCopy,canAddChildren)', supportsAllDrives: true }));
+          fields: 'id,name,mimeType,description,modifiedTime,parents,webViewLink,trashed,driveId,appProperties,capabilities(canCopy,canAddChildren)', supportsAllDrives: true }));
       },
       getSharingMetadata(record, id) {
         return get(record, params(new URL(`${DRIVE}/files/${encodeURIComponent(id)}`), {
@@ -123,32 +123,36 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
           fields: 'nextPageToken,permissions(id,type,role,emailAddress,domain,displayName,allowFileDiscovery,deleted,expirationTime,pendingOwner,permissionDetails(permissionType,role,inherited,inheritedFrom))',
         }));
       },
-      async copyFile(record, sourceId, folderId, name) {
+      async prepareCopy(record) {
         const accessToken = await verifiedAccess(record);
         const grant = await fetchImpl('https://oauth2.googleapis.com/tokeninfo', {
           method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({ access_token: accessToken }),
         });
         if (!grant.ok) throw failure(grant, 'Google scope inspection');
-        const scopes = new Set(String((await grant.json()).scope || '').split(/\s+/));
+        const scopes = new Set(String((await boundedJson(grant)).scope || '').split(/\s+/));
         if (!scopes.has('https://www.googleapis.com/auth/drive.file') && !scopes.has('https://www.googleapis.com/auth/drive'))
-          throw Object.assign(new Error('Copy requires a separately authorized write grant; current read-only access cannot copy.'), { code: 'copy_scope_required' });
-        // Exactly one POST. Neither transport failures nor 401/5xx are retried.
-        let response;
-        try {
-          response = await fetchImpl(params(new URL(`${DRIVE}/files/${encodeURIComponent(sourceId)}/copy`), {
-            supportsAllDrives: true, fields: 'id',
-          }), { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
-            body: JSON.stringify({ parents: [folderId], ...(name === undefined ? {} : { name }) }) });
-        } catch { return { outcome: 'uncertain', retrySafe: false }; }
-        if (!response.ok) {
-          if (response.status >= 500 || response.status === 408) return { outcome: 'uncertain', retrySafe: false };
-          throw failure(response, 'Google copy');
-        }
-        let id;
-        try { id = (await response.json()).id; } catch { /* Unknown write result. */ }
-        if (!id) return { outcome: 'uncertain', retrySafe: false };
-        return { id };
+          throw Object.assign(new Error('Copy scope required'), { code: 'copy_scope_required' });
+        return async (sourceId, folderId, name, operationId) => {
+          let response;
+          try {
+            response = await fetchImpl(params(new URL(`${DRIVE}/files/${encodeURIComponent(sourceId)}/copy`), {
+              supportsAllDrives: true, fields: 'id',
+            }), { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+              body: JSON.stringify({ parents: [folderId], name, appProperties: { paCopyCreation: operationId } }), signal: AbortSignal.timeout(30_000) });
+          } catch { return { failure: 'transport' }; }
+          if (!response.ok) return { failure: 'http', status: response.status, notCreated: [400, 401, 403, 404].includes(response.status) };
+          try { return { id: (await boundedJson(response)).id }; }
+          catch (error) { return { failure: error?.code === 'response_too_large' ? 'oversized' : 'invalid_response' }; }
+        };
+      },
+      findCopy(record, operationId, driveId) {
+        return get(record, params(new URL(`${DRIVE}/files`), {
+          q: `trashed = false and appProperties has { key='paCopyCreation' and value='${operationId}' }`,
+          spaces: 'drive', corpora: driveId ? 'drive' : 'user', driveId,
+          supportsAllDrives: true, includeItemsFromAllDrives: true, pageSize: 2,
+          fields: 'files(id),nextPageToken,incompleteSearch',
+        }));
       },
       readDoc(record, id) {
         return get(record, params(new URL(`${DOCS}/documents/${encodeURIComponent(id)}`), { includeTabsContent: true }), MAX_DOC_READ_BYTES);

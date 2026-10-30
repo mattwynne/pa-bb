@@ -15,7 +15,7 @@ test('plugin stays on public SDK APIs; only existing cross-plugin fixtures leave
   assert.deepEqual(scan.violations, []); assert.deepEqual(scan.privateDependencies, []);
 });
 async function setup(settings = { clientId: 'web-id', clientSecret: 'private-client-secret' }) {
-  const host = createFakePluginHost({ pluginId: 'google-drive', agentSkillIds: ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing', 'google-drive-filing'], appUrl: 'https://bb.example', settings });
+  const host = createFakePluginHost({ pluginId: 'google-drive', agentSkillIds: ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing', 'google-drive-filing', 'google-drive-copy'], appUrl: 'https://bb.example', settings });
   await plugin(host.bb);
   return host;
 }
@@ -23,8 +23,8 @@ test('registers read and scope-gated tools, an independent callback, and no conn
   const { harness } = await setup();
   try {
     const selected = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
-    assert.deepEqual(selected.tools.map(t => t.name).sort(), ['gdocs_create_document','gdocs_creation_status','gdocs_format_document','gdocs_formatting_status','gdocs_inspect_for_edit','gdocs_inspect_formatting','gdocs_read','gdocs_replace_text','gdocs_review_edit_example','gdocs_review_format_example','gdrive_auth_status','gdrive_change_sharing','gdrive_copy_file','gdrive_get_file','gdrive_inspect_sharing','gdrive_list_folder','gdrive_search_files','gdrive_sharing_status','gsheets_create_spreadsheet','gsheets_creation_status','gsheets_read'].concat(SHEETS_EDIT_TOOLS, ['gdrive_create_folder', 'gdrive_move_file', 'gdrive_filing_status']).sort());
-    assert.deepEqual(selected.skills, ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing', 'google-drive-filing']);
+    assert.deepEqual(selected.tools.map(t => t.name).sort(), ['gdocs_create_document','gdocs_creation_status','gdocs_format_document','gdocs_formatting_status','gdocs_inspect_for_edit','gdocs_inspect_formatting','gdocs_read','gdocs_replace_text','gdocs_review_edit_example','gdocs_review_format_example','gdrive_auth_status','gdrive_change_sharing','gdrive_copy_file','gdrive_copy_status','gdrive_get_file','gdrive_inspect_sharing','gdrive_list_folder','gdrive_search_files','gdrive_sharing_status','gsheets_create_spreadsheet','gsheets_creation_status','gsheets_read'].concat(SHEETS_EDIT_TOOLS, ['gdrive_create_folder', 'gdrive_move_file', 'gdrive_filing_status']).sort());
+    assert.deepEqual(selected.skills, ['google-docs-editing', 'google-drive-sharing', 'google-sheets', 'google-sheets-editing', 'google-drive-filing', 'google-drive-copy']);
     const status = await harness.behavior.callRpc('status', null);
     assert.equal(status.redirectUri, 'https://bb.example/api/v1/plugins/google-drive/http/callback');
     assert.deepEqual(status.accounts, []);
