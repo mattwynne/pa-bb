@@ -11,7 +11,9 @@ remain the caller's responsibility. Use only explicitly user-requested changes.
    exact paragraph `tabId`, `startIndex` and `endIndex` values. The general reader
    and replacement inspector are not substitutes for this style inspection.
 2. Generate one lowercase UUID and call `gdocs_format_document` with
-   `operationId`, `expectedRevisionId`, `ranges` and/or `page`. Preview defaults
+   `operationId`, `expectedRevisionId`, `ranges` and/or `page`. For page colour
+   only, use `page: {"tabId":"TAB_ID","backgroundColor":"#F4F1E8"}` and omit
+   size/margins to preserve them. Preview defaults
    to true. It saves an exact bounded proposal, not a write or write grant.
 3. Repeat the **same** arguments and key with `preview: false` within ten minutes
    to apply under the owner's current Google Docs approval setting. By default
@@ -67,10 +69,15 @@ Example (replace indices/revision with the inspected values, not guesses):
   foreground. Paragraphs: 0–72 pt before/after, 100–200% line spacing in 0.01 increments and
   START/CENTER/END/JUSTIFIED alignment. START/END follow paragraph direction;
   they are not necessarily physical left/right alignment.
-- Page: **one explicit tab**, existing PAGES mode, portrait Letter 612 × 792 pt,
-  18–144 pt margins. 61.2 pt is 0.85 inch. Other page/background/orientation
-  properties and other tabs stay unchanged. White page background is not set
-  by this surface; inspect the existing background rather than promising it.
+- Page: **one explicit tab**, existing PAGES mode. `backgroundColor` is an
+  opaque six-digit `#RRGGBB` page colour, not paragraph/text shading. No named
+  colours, alpha, transparency or reset-to-inherited requests. Colour-only
+  requests preserve page size, orientation, all margins, text/styles and other
+  tabs. Optional `size: LETTER` selects portrait 612 × 792 pt (an existing flipped
+  orientation is rejected for that size change). Each optional margin is 18–144
+  pt; 61.2 pt is 0.85 inch. Omitted properties are never added to the update mask.
+  At least one page property besides tabId is required. Unknown existing
+  background fields fail closed when replacing the background.
 - Explicit fields use narrow masks, never `*`. Text-run splits are normalized;
   known named-style inheritance is resolved for comparison, without guessing
   unknown editor defaults. All tab text, paragraph indices, unrequested styles,
@@ -88,7 +95,7 @@ Example (replace indices/revision with the inspected values, not guesses):
   a semantic heading or an updated reusable heading preset.
 - No pricing tables, table rules/cell fills, lists, real headers/footers,
   automatic page numbers, inline orange-dot/wordmark composition, text-run
-  subranges, objects, suggestions, page background changes, pageless layout,
+  subranges, objects, suggestions, pageless layout,
   section margin/column/orientation overrides or arbitrary API requests.
   Documents containing unsupported structures in any tab are rejected, not
   silently projected into a partial edit. Existing links and other ordinary
@@ -135,7 +142,10 @@ No polling/retry/recovery background service runs.
 synthetic data. Every choice is a no-op, with `exampleOnly: true` and
 `writeAttempted: false`; no account, token or Google document is accessed. The
 same fixed card is available as `bb google-drive review-format-example --thread
-THREAD_ID` for owner-led manual review. The CLI must remain connected until the
+THREAD_ID` for owner-led manual review. Use native `state: "background"` or CLI
+`--state background` for the fixed colour-only example; every choice is still a
+no-op. The summary shows the exact colour/tab without inventing Letter or margin
+changes. The CLI must remain connected until the
 choice; it is a rendering probe, not proof of native deferred-tool delivery. A
 waiting notice proves only host acceptance, not that a client displayed it.
 The native lifecycle must be observed separately from provider writes.
@@ -154,6 +164,16 @@ and validated transport status, never account/document content, arguments, raw
 errors, tokens or provider bodies. Synthetic secret sentinels exercise failure
 redaction. Safe live read/log checks establish deployment only, not provider
 write correctness or actual font rendering.
+
+Page colour uses `updateDocumentStyle` with an explicit `tabId`,
+`documentStyle: {background: {color: {color: {rgbColor: {red, green, blue}}}}}`
+and mask `background`. The extra color level is required: Background.color is
+OptionalColor, whose color is the RGB Color. This preserves existing unrelated
+DocumentStyle properties; it does not use a wildcard, omit the tab, or change
+paragraph shading. Colour readback uses the existing bounded RGB numeric
+normalization; unknown provider normalization remains uncertain and never causes
+a retry. Actual Docs colour application is not part of engineering tests and is
+complete only after a separately requested native operation returns verified.
 
 API contracts: [requests](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request),
 [tab-scoped document style](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents#DocumentTab),

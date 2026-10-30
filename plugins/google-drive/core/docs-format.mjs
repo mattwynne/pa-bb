@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { documentId, inspectDocument, docsError, docsErrorMessage } from './docs-edit.mjs';
 import { docsApprovalDecision, diagnoseDocsApproval } from './docs-approval.mjs';
+import { pageFormat } from './docs-page-format.mjs';
 const target = { account: z.string().min(1).max(320), document: z.string().min(1).max(1024) };
 const nonempty = shape => z.object(shape).strict().refine(v => Object.keys(v).length > 0);
 export const textFormat = nonempty({ fontFamily: z.string().regex(/^[A-Za-z][A-Za-z0-9 -]{0,79}$/).optional(),
@@ -18,8 +19,7 @@ export const formatSchema = z.object({ ...target, operationId: formatStatusSchem
   expectedRevisionId: z.string().min(1).max(2048), preview: z.boolean().default(true),
   ranges: z.array(z.object({ tabId: z.string().min(1).max(256), startIndex: z.number().int().min(1), endIndex: z.number().int().min(2),
     textStyle: textFormat.optional(), paragraphStyle: paragraphFormat.optional() }).strict().refine(r => r.textStyle || r.paragraphStyle)).max(16).default([]),
-  page: z.object({ tabId: z.string().min(1).max(256), size: z.literal('LETTER'), marginTopPt: z.number().min(18).max(144), marginBottomPt: z.number().min(18).max(144),
-    marginLeftPt: z.number().min(18).max(144), marginRightPt: z.number().min(18).max(144) }).strict().optional(),
+  page: pageFormat.optional(),
 }).strict().refine(v => v.page || v.ranges.length);
 const messages = {
   invalid: 'Use inspected whole-paragraph UTF-16 ranges, a current revision and a single-use lowercase UUID. At most 16 nonoverlapping ranges and 8000 selected UTF-16 units are supported. No arbitrary Google API requests.',
@@ -36,13 +36,16 @@ export const formatMessage = error => (messages[error?.formatCode] || (error?.do
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const clone = value => structuredClone(value);
 const pt = magnitude => ({ magnitude, unit: 'PT' });
+const rgbRead = z.object({ red: z.number().min(0).max(1).optional(), green: z.number().min(0).max(1).optional(), blue: z.number().min(0).max(1).optional() }).strict();
+const backgroundRead = z.object({ color: z.object({ color: z.object({ rgbColor: rgbRead.optional() }).strict().optional() }).strict().optional() }).strict().optional();
+const rgb = hex => Object.fromEntries(['red', 'green', 'blue'].map((key, i) => [key, parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255]));
 export function stylePatch(range) {
   const textStyle = {}, paragraphStyle = {};
   for (const [key, value] of Object.entries(range.textStyle || {})) {
     if (key === 'fontFamily') textStyle.weightedFontFamily = { fontFamily: value };
     if (key === 'sizePt') textStyle.fontSize = pt(value);
     if (key === 'bold') textStyle.bold = value;
-    if (key === 'foregroundColor') textStyle.foregroundColor = { color: { rgbColor: Object.fromEntries(['red', 'green', 'blue'].map((k, i) => [k, parseInt(value.slice(1 + i * 2, 3 + i * 2), 16) / 255])) } };
+    if (key === 'foregroundColor') textStyle.foregroundColor = { color: { rgbColor: rgb(value) } };
   }
   for (const [key, value] of Object.entries(range.paragraphStyle || {})) {
     if (key === 'spaceAbovePt') paragraphStyle.spaceAbove = pt(value);
@@ -62,9 +65,14 @@ export function formatRequests(args) {
   }
   if (args.page) {
     const p = args.page;
-    requests.push({ updateDocumentStyle: { tabId: p.tabId, documentStyle: { pageSize: { width: pt(612), height: pt(792) },
-      marginTop: pt(p.marginTopPt), marginBottom: pt(p.marginBottomPt), marginLeft: pt(p.marginLeftPt), marginRight: pt(p.marginRightPt) },
-      fields: 'pageSize,marginTop,marginBottom,marginLeft,marginRight' } });
+    const documentStyle = {};
+    if (p.size) documentStyle.pageSize = { width: pt(612), height: pt(792) };
+    for (const side of ['Top', 'Bottom', 'Left', 'Right']) {
+      if (p[`margin${side}Pt`] !== undefined) documentStyle[`margin${side}`] = pt(p[`margin${side}Pt`]);
+    }
+    // Background.color is OptionalColor, whose color is the RGB Color.
+    if (p.backgroundColor) documentStyle.background = { color: { color: { rgbColor: rgb(p.backgroundColor) } } };
+    requests.push({ updateDocumentStyle: { tabId: p.tabId, documentStyle, fields: Object.keys(documentStyle).join(',') } });
   }
   return requests;
 }
@@ -171,7 +179,13 @@ export function inspectFormatting(doc, id) {
 function plan(doc, args) {
   const inspected = inspectFormatting(doc, documentId(args.document));
   if (inspected.revisionId !== args.expectedRevisionId) throw formatError('stale');
-  if (args.page && !tabs(doc).some(t => t.tabProperties.tabId === args.page.tabId && t.documentTab.documentStyle?.documentFormat?.documentMode === 'PAGES' && t.documentTab.documentStyle?.flipPageOrientation !== true)) throw formatError('unsupported');
+  if (args.page) {
+    const style = tabs(doc).find(t => t.tabProperties.tabId === args.page.tabId)?.documentTab.documentStyle;
+    if (style?.documentFormat?.documentMode !== 'PAGES' || (args.page.size && style.flipPageOrientation === true)) throw formatError('unsupported');
+    // The documented Background has only color. Do not replace unknown future
+    // background properties through its whole-field mask.
+    if (args.page.backgroundColor && !backgroundRead.safeParse(style.background).success) throw formatError('unsupported');
+  }
   let units = 0;
   const selections = [];
   for (const range of args.ranges) {

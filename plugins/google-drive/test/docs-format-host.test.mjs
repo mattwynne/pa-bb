@@ -14,6 +14,7 @@ async function pending(h) {
 async function setup(options = {}) {
   const host = createFakePluginHost({ pluginId: 'google-drive', settings: { requireDocsApproval: options.approvalRequired ?? true } });
   let doc = document('Title\n'), writes = 0, calls = 0;
+  if (options.background) doc.tabs[0].documentTab.documentStyle = { documentFormat: { documentMode: 'PAGES' }, marginLeft: { magnitude: 54, unit: 'PT' } };
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     calls++;
@@ -25,9 +26,12 @@ async function setup(options = {}) {
     if (path.endsWith(':batchUpdate')) {
       writes++;
       const body = JSON.parse(init.body);
-      assert.deepEqual(body, { writeControl: { requiredRevisionId: 'rev-a' }, requests: [{ updateTextStyle: { range: { tabId: 'tab-a', startIndex: 1, endIndex: 7 }, textStyle: { fontSize: { magnitude: 30, unit: 'PT' } }, fields: 'fontSize' } }] });
+      assert.deepEqual(body, options.background
+        ? { writeControl: { requiredRevisionId: 'rev-a' }, requests: [{ updateDocumentStyle: { tabId: 'tab-a', documentStyle: { background: { color: { color: { rgbColor: { red: 244 / 255, green: 241 / 255, blue: 232 / 255 } } } } }, fields: 'background' } }] }
+        : { writeControl: { requiredRevisionId: 'rev-a' }, requests: [{ updateTextStyle: { range: { tabId: 'tab-a', startIndex: 1, endIndex: 7 }, textStyle: { fontSize: { magnitude: 30, unit: 'PT' } }, fields: 'fontSize' } }] });
       if (options.lost) throw new Error('private-provider-token');
-      doc.tabs[0].documentTab.body.content[1].paragraph.elements[0].textRun.textStyle.fontSize = { magnitude: 30, unit: 'PT' };
+      if (options.background) doc.tabs[0].documentTab.documentStyle.background = { color: { color: { rgbColor: { red: Math.fround(244 / 255), green: Math.fround(241 / 255), blue: Math.fround(232 / 255) } } } };
+      else doc.tabs[0].documentTab.body.content[1].paragraph.elements[0].textRun.textStyle.fontSize = { magnitude: 30, unit: 'PT' };
       doc.revisionId = 'rev-b';
       return Response.json({ documentId: 'doc-a', replies: [{}], writeControl: { requiredRevisionId: 'rev-b' } });
     }
@@ -69,13 +73,30 @@ test('owner setting disables formatting cards live and survives reload without w
     assert.doesNotMatch(JSON.stringify(replacement.harness.inspection.logEntries), /private-|writer@example|Title/);
   } finally { await replacement?.harness.lifecycle.dispose(); await h.close(); }
 });
+test('native colour-only schema and adapter preserve omitted layout with the same revision/recovery guard', async () => {
+  const h = await setup({ background: true, approvalRequired: false });
+  try {
+    const request = { ...input, ranges: [], page: { tabId: 'tab-a', backgroundColor: '#F4F1E8' } };
+    const b = h.harness.behavior;
+    const preview = parse(await b.callAgentTool('gdocs_format_document', request)); assert.equal(h.writes(), 0);
+    assert.deepEqual(preview.proposal.page.after, request.page);
+    const r = parse(await b.callAgentTool('gdocs_format_document', { ...request, preview: false }));
+    assert.equal(r.outcome, 'verified'); assert.equal(r.approval, 'disabled_in_settings'); assert.equal(h.writes(), 1);
+    const inspected = parse(await b.callAgentTool('gdocs_inspect_formatting', { account, document: 'doc-a' }));
+    assert.deepEqual(inspected.tabStyles[0].documentStyle.marginLeft, { magnitude: 54, unit: 'PT' });
+    assert.equal(parse(await b.callAgentTool('gdocs_formatting_status', { account, operationId })).outcome, 'verified');
+  } finally { await h.close(); }
+});
 test('fixed synthetic review tool cannot reach Google, even when approved', async () => {
   const h = await setup({ fail: true });
   try {
-    const done = h.harness.behavior.callAgentTool('gdocs_review_format_example', {});
-    const form = await pending(h.harness); assert.equal(form.payload.exampleOnly, true);
-    h.harness.behavior.submitInteraction(form.id, { approved: true });
-    assert.deepEqual(parse(await done), { outcome: 'approved', exampleOnly: true, writeAttempted: false });
+    for (const state of ['formatting', 'background']) {
+      const done = h.harness.behavior.callAgentTool('gdocs_review_format_example', { state });
+      const form = await pending(h.harness); assert.equal(form.payload.exampleOnly, true);
+      if (state === 'background') { assert.deepEqual(form.payload.selections, []); assert.deepEqual(form.payload.page.after, { tabId: 'main', backgroundColor: '#F4F1E8' }); }
+      h.harness.behavior.submitInteraction(form.id, { approved: true });
+      assert.deepEqual(parse(await done), { outcome: 'approved', exampleOnly: true, writeAttempted: false });
+    }
     assert.equal(h.calls(), 0); assert.equal(h.writes(), 0);
   } finally { await h.close(); }
 });

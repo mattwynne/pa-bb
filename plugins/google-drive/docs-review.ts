@@ -46,11 +46,12 @@ export function registerDocsReview(bb: BbPluginApi, inspectAuthorization: (accou
     }),
     'review-format-example': cliCommand({
       summary: 'Open the synthetic formatting approval card; all choices are no-ops with no Google access.',
-      options: { thread: { type: 'string', description: 'Thread for the example; defaults to the invoking thread.' } },
+      options: { thread: { type: 'string', description: 'Thread for the example; defaults to the invoking thread.' },
+        state: { type: 'enum', values: ['formatting', 'background'], default: 'formatting', description: 'Fixed synthetic formatting or colour-only page example.' } },
       async run(input, ctx) {
         const threadId = input.options.thread || ctx.threadId;
         if (!threadId) throw new PluginCliError('A thread is required for this review.', { code: 'thread_required', hint: 'Pass --thread with the thread ID where the example should appear.' });
-        return { exitCode: 0, stdout: JSON.stringify(await reviewFormatExample(bb, threadId, ctx.signal)) };
+        return { exitCode: 0, stdout: JSON.stringify(await reviewFormatExample(bb, threadId, ctx.signal, input.options.state)) };
       },
     }),
     'review-edit-example': cliCommand({

@@ -24,8 +24,8 @@ export function applyRequests(doc, requests) {
   for (const request of requests) {
     if (request.updateDocumentStyle) {
       const q = request.updateDocumentStyle;
-      assert.equal(q.fields, 'pageSize,marginTop,marginBottom,marginLeft,marginRight');
-      assert.deepEqual(q.documentStyle.pageSize, { width: { magnitude: 612, unit: 'PT' }, height: { magnitude: 792, unit: 'PT' } });
+      assert.equal(q.fields, Object.keys(q.documentStyle).join(','));
+      if (q.documentStyle.pageSize) assert.deepEqual(q.documentStyle.pageSize, { width: { magnitude: 612, unit: 'PT' }, height: { magnitude: 792, unit: 'PT' } });
       Object.assign(all.find(t => t.tabProperties.tabId === q.tabId).documentTab.documentStyle, q.documentStyle);
     } else {
       const q = request.updateTextStyle || request.updateParagraphStyle;
@@ -81,6 +81,65 @@ test('inspection returns exact UTF-16 ranges and raw styles; requests are tab sc
     assert.equal(requests[2].updateDocumentStyle.tabId, 'tab-a');
     assert.equal(requests[0].updateParagraphStyle.paragraphStyle.lineSpacing, 120);
     assert.equal(preview.proposal.selections[0].paragraphs[0].text, 'Title 😀\n');
+  } finally { await h.close(); }
+});
+test('opaque page colour has the documented nested shape, exact tab/mask and preserves all omitted layout/text', async () => {
+  const h = await setup();
+  try {
+    Object.assign(h.doc.tabs[0].documentTab.documentStyle, { marginLeft: { magnitude: 54, unit: 'PT' }, marginRight: { magnitude: 63, unit: 'PT' }, background: { color: {} }, flipPageOrientation: true });
+    const before = structuredClone(h.doc);
+    const a = { ...args(), ranges: [], page: { tabId: 'tab-a', backgroundColor: '#F4F1E8' } };
+    const expectedBackground = { color: { color: { rgbColor: { red: 244 / 255, green: 241 / 255, blue: 232 / 255 } } } };
+    assert.deepEqual(formatRequests(a), [{ updateDocumentStyle: { tabId: 'tab-a', documentStyle: { background: expectedBackground }, fields: 'background' } }]);
+    const preview = await h.service.format(a); assert.equal(h.writes, 0);
+    assert.deepEqual(preview.proposal.page.after, a.page); assert.deepEqual(preview.proposal.selections, []);
+    const result = await h.service.format({ ...a, preview: false }); assert.equal(result.outcome, 'verified'); assert.equal(h.approvals, 1);
+    const expected = structuredClone(before); expected.revisionId = 'rev-b'; expected.tabs[0].documentTab.documentStyle.background = expectedBackground;
+    assert.deepEqual(h.doc, expected);
+    assert.equal((await h.service.format({ ...a, preview: false })).outcome, 'verified'); assert.equal(h.writes, 1);
+  } finally { await h.close(); }
+});
+test('individual margin and combined colour/layout use only the requested page fields', async () => {
+  const h = await setup();
+  try {
+    const a = { ...args(), ranges: [], page: { tabId: 'tab-a', marginLeftPt: 61.2, backgroundColor: '#000000' } };
+    assert.equal(formatRequests(a)[0].updateDocumentStyle.fields, 'marginLeft,background');
+    assert.equal((await h.service.format({ ...a, preview: false })).outcome, 'verified');
+    assert.equal(h.doc.tabs[0].documentTab.documentStyle.pageSize.width.magnitude, 595);
+    const all = args(); all.page.backgroundColor = '#FFFFFF';
+    assert.equal(formatRequests(all).at(-1).updateDocumentStyle.fields, 'pageSize,marginTop,marginBottom,marginLeft,marginRight,background');
+  } finally { await h.close(); }
+});
+test('background rejects empty/alpha/named/raw/shading requests, wrong tabs and unsupported layout before writes', async () => {
+  const h = await setup();
+  try {
+    for (const page of [{ tabId: 'tab-a' }, { tabId: 'tab-a', backgroundColor: undefined }, { tabId: 'tab-a', backgroundColor: '#F4F1E880' },
+      { tabId: 'tab-a', backgroundColor: 'paper' }, { backgroundColor: '#F4F1E8' }, { tabId: 'tab-b', backgroundColor: '#F4F1E8' },
+      { tabId: 'tab-a', backgroundColor: '#F4F1E8', color: {} }, { tabId: 'tab-a', backgroundColor: { red: 1 } }]) {
+      await assert.rejects(h.service.format({ ...args(), ranges: [], page }));
+    }
+    const a = args(); a.ranges[0].paragraphStyle.backgroundColor = '#F4F1E8'; await assert.rejects(h.service.format(a));
+    h.doc.tabs[0].documentTab.documentStyle.background = { color: {}, futureField: true };
+    await assert.rejects(h.service.format({ ...args(), ranges: [], page: { tabId: 'tab-a', backgroundColor: '#F4F1E8' } }));
+    delete h.doc.tabs[0].documentTab.documentStyle.background; h.doc.tabs[0].documentTab.documentStyle.documentFormat.documentMode = 'PAGELESS';
+    await assert.rejects(h.service.format({ ...args(), ranges: [], page: { tabId: 'tab-a', backgroundColor: '#F4F1E8' } }));
+    assert.equal(h.writes, 0); assert.equal(h.approvals, 0);
+  } finally { await h.close(); }
+});
+test('background readback detects wrong colour or unrelated layout changes; lost responses never gain success', async () => {
+  const colour = () => ({ ...args(), ranges: [], page: { tabId: 'tab-a', backgroundColor: '#F4F1E8' } });
+  for (const mutate of [d => { d.tabs[0].documentTab.documentStyle.background.color.color.rgbColor.red = 0.5; },
+    d => { d.tabs[0].documentTab.documentStyle.marginLeft = { magnitude: 40, unit: 'PT' }; }]) {
+    const h = await setup({ afterWrite: mutate });
+    try { assert.equal((await h.service.format({ ...colour(), preview: false })).outcome, 'uncertain'); assert.equal(h.writes, 1); }
+    finally { await h.close(); }
+  }
+  const h = await setup({ lost: true });
+  try {
+    assert.equal((await h.service.format({ ...colour(), preview: false })).outcome, 'uncertain');
+    const r = await h.service.status({ account, operationId: key });
+    assert.equal(r.outcome, 'observed_matching'); assert.equal(r.providerAcknowledged, false); assert.equal(h.writes, 1);
+    assert.equal((await h.store.getFormatting(key)).state, 'uncertain');
   } finally { await h.close(); }
 });
 test('mandatory approval, atomic batch and exact all-tab API style/text verification; repeated keys never write', async () => {

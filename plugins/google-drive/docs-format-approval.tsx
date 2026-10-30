@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { z } from 'zod';
 import { ConnectionAlert, ConnectionButton } from './connection-ui.js';
+import { pageFormat } from './core/docs-page-format.mjs';
 const record = z.record(z.string(), z.unknown());
 const selection = z.object({ tabId: z.string().min(1), startIndex: z.number().int(), endIndex: z.number().int(),
   textStyle: record.optional(), paragraphStyle: record.optional(), paragraphs: z.array(z.object({ text: z.string(), paragraphStyle: record,
     runs: z.array(z.object({ startIndex: z.number(), endIndex: z.number(), textStyle: record })) })).min(1) });
 const payloadSchema = z.object({ account: z.string().min(1), documentId: z.string().regex(/^[\w-]{1,256}$/),
   operationId: z.string().uuid(), title: z.string(), expectedRevisionId: z.string().min(1), exampleOnly: z.boolean().optional(),
-  selections: z.array(selection).max(16), page: z.object({ before: record, after: record }).nullable(), limits: z.string(),
+  selections: z.array(selection).max(16), page: z.object({ before: record, after: pageFormat }).nullable(), limits: z.string(),
 }).refine(p => p.selections.length || p.page);
 type Props = { interaction: { id: string; payload: unknown }; submit(value: { approved: boolean }): Promise<void>; cancel(): Promise<void> };
 export function DocsFormatApproval(props: Props) { return <Review key={props.interaction.id} {...props} />; }
@@ -36,7 +37,11 @@ function Review({ interaction, submit, cancel }: Props) {
         <p>Sizes and paragraph spacing are points (pt). Line spacing is a percentage: 120 means 1.2 lines. START/END follow text direction.</p>
         <details><summary>Before: explicit paragraph and text-run styles</summary><pre>{JSON.stringify(s.paragraphs.map(({ paragraphStyle, runs }) => ({ paragraphStyle, runs })), null, 2)}</pre><p>Missing properties inherit named or editor defaults; they are not known zero values.</p></details>
       </section>)}
-      {p.page && <section aria-label="Page changes"><h4>Page layout</h4><p>Letter portrait: 612 × 792 pt. Margins below are in points (72 pt = 1 inch). Other tabs stay unchanged.</p>
+      {p.page && <section aria-label="Page changes"><h4>Page appearance and layout</h4>
+        <p>Only the listed page properties change. Other page settings and tabs stay unchanged.</p>
+        {p.page.after.size && <p>Letter portrait: 612 × 792 pt.</p>}
+        {Object.keys(p.page.after).some(key => key.startsWith('margin')) && <p>Margins are in points (72 pt = 1 inch).</p>}
+        {p.page.after.backgroundColor && <p><strong>Page background: {p.page.after.backgroundColor}</strong> (opaque colour, not paragraph shading).</p>}
         <pre>{settings(p.page.after)}</pre><details><summary>Before: page style</summary><pre>{JSON.stringify(p.page.before, null, 2)}</pre></details></section>}
       <p>{p.limits}</p>
       <p>No write has happened. Approval submits one revision-guarded batch; changed revisions are rejected. This does not create tables, headers, footers or semantic headings. Only verified readback confirms completion, never actual font rendering.</p>

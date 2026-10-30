@@ -44,8 +44,11 @@ in tool arguments. Only user-requested formatting is authorized.
 
 Ranges support textStyle fontFamily/sizePt/bold/foregroundColor and paragraphStyle
 spaceAbovePt/spaceBelowPt/lineSpacing/alignment. lineSpacing=120 means 1.2 lines.
-Optional page includes explicit tabId, size=LETTER and four margin*Pt values;
-61.2 pt is .85 inch. At most 16 nonoverlapping whole-paragraph ranges and 8000
+Optional page requires explicit tabId and at least one property: opaque hex
+backgroundColor, size=LETTER, or individual margin*Pt values. For colour only use
+`page: {tabId: "TAB_ID", backgroundColor: "#F4F1E8"}` and omit size/margins to
+preserve them. No alpha, transparency, named colour or paragraph shading. 61.2 pt
+is .85 inch. At most 16 nonoverlapping whole-paragraph ranges and 8000
 selected UTF-16 units. No raw API requests, partial runs, text insertions,
 semantic heading/named-style-definition updates, tables, lists, real headers or
 footers, page numbers or inline coloured-dot composition. Report unsupported
@@ -61,7 +64,8 @@ unknown writes remain blocked pending owner reconciliation; there is no force
 unlock. See the [formatting guide](../../docs/formatting.md) before use.
 
 `gdocs_review_format_example({})` opens a fixed synthetic no-op card without
-Google access. `bb google-drive review-format-example --thread THREAD_ID` opens
+Google access; optional `state: "background"` selects its colour-only example.
+`bb google-drive review-format-example --thread THREAD_ID --state background` opens
 the same card for manual review; keep the CLI connected until the choice. Its
 receipt is not proof of the native deferred-tool lifecycle. A waiting notice is not proof it rendered. End the originating
 turn if waiting and let the owner review in ordinary BB. Do not use a live Doc
