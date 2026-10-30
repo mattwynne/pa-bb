@@ -1,11 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readPermissionList } from './permission-list.mjs';
+import { createDocsReader } from './docs-read.mjs';
 
 export const SCOPES = Object.freeze(['openid', 'email', 'https://www.googleapis.com/auth/drive']);
 const STATE_MS = 5 * 60 * 1000;
 const FOLDER = 'application/vnd.google-apps.folder';
 const DOCUMENT = 'application/vnd.google-apps.document';
-const MAX_TEXT = 100_000;
 const required = (value, label) => {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is required`);
   return value.trim();
@@ -23,24 +23,6 @@ const fileInfo = file => ({
     : file.mimeType === DOCUMENT ? `https://docs.google.com/document/d/${encodeURIComponent(file.id)}/edit`
       : `https://drive.google.com/file/d/${encodeURIComponent(file.id)}/view` : null),
 });
-function textFromElements(elements) {
-  let result = '';
-  for (const item of elements || []) {
-    if (item.paragraph) for (const part of item.paragraph.elements || []) result += part.textRun?.content || '';
-    if (item.table) for (const row of item.table.tableRows || []) for (const cell of row.tableCells || []) result += textFromElements(cell.content) + '\t';
-    if (item.tableOfContents) result += textFromElements(item.tableOfContents.content);
-  }
-  return result;
-}
-function textFromTabs(tabs) {
-  let result = '';
-  for (const tab of tabs || []) {
-    if (tab.documentTab?.body?.content) result += textFromElements(tab.documentTab.body.content);
-    result += textFromTabs(tab.childTabs);
-  }
-  return result;
-}
-
 // Ports are plugin-owned storage, Google OAuth, Google Drive/Docs reads, and clock.
 export function createDriveService({ store, oauth, drive, diagnose = /** @type {(stage: string, error: unknown) => void} */ (() => {}), clock = () => Date.now() }) {
   async function account(email) {
@@ -48,6 +30,8 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
     if (!record) throw new Error('Unknown Google Drive account. Check connected accounts in BB settings.');
     return record;
   }
+  const docsReader = createDocsReader({ account, getFile: (record, id) => drive.getFile(record, id),
+    readDocument: (record, id) => drive.readDoc(record, id), clock });
   /** @param {{ clientId: string, redirectUri: string, subject?: string }} args */
   async function beginConnect({ clientId, redirectUri, subject }) {
     const existing = subject === undefined ? null : await store.bySubject(required(subject, 'subject'));
@@ -80,6 +64,7 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
       if (!previous || createHash('sha256').update(previous.refreshToken).digest('hex') !== pending.reconnect.refreshHash
         || !await store.replaceAccount(next, previous.refreshToken)) throw new Error('Reconnect account changed; start again');
     } else await store.addAccount(next);
+    docsReader.invalidate();
     return { subject: identity.sub, email: identity.email };
   }
   async function authStatus() {
@@ -182,29 +167,11 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
         guidance: 'Copy returned an ID but verification failed. Inspect this file; do not copy again.' };
     }
   }
-  async function readDoc(args) {
-    const record = await account(args.account);
-    const input = required(args.document, 'document');
-    let id = input;
-    if (/^https:\/\//.test(input)) {
-      const url = new URL(input);
-      if (url.hostname !== 'docs.google.com' || !/^\/document\/d\/[a-zA-Z0-9_-]+(?:\/|$)/.test(url.pathname)) throw new Error('Use a Google Docs URL or document ID');
-      id = url.pathname.split('/')[3];
-    }
-    if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Use a Google Docs URL or document ID');
-    const metadata = await drive.getFile(record, id);
-    if (metadata.mimeType !== DOCUMENT) throw new Error('This file is not a Google Doc; reading other formats is not supported yet');
-    const doc = await drive.readDoc(record, id);
-    const text = doc.tabs?.length ? textFromTabs(doc.tabs) : textFromElements(doc.body?.content);
-    return { account: record.email, documentId: id, title: doc.title || metadata.name,
-      url: metadata.webViewLink || `https://docs.google.com/document/d/${encodeURIComponent(id)}/edit`,
-      text: text.slice(0, MAX_TEXT), truncated: text.length > MAX_TEXT };
-  }
   const tools = { gdrive_auth_status: authStatus, gdrive_search_files: searchFiles, gdrive_list_folder: listFolder,
-    gdrive_get_file: getFile, gdrive_inspect_sharing: inspectSharing, gdrive_copy_file: copyFile, gdocs_read: readDoc };
-  async function execute(name, args = {}) {
+    gdrive_get_file: getFile, gdrive_inspect_sharing: inspectSharing, gdrive_copy_file: copyFile, gdocs_read: docsReader.read };
+  async function execute(name, args = {}, reader = '') {
     if (!Object.hasOwn(tools, name)) throw new Error('Unknown Google Drive tool');
-    return tools[name](args);
+    return tools[name](args, reader);
   }
-  return { beginConnect, finishConnect, removeAccount: subject => store.removeAccount(required(subject, 'subject')), execute };
+  return { beginConnect, finishConnect, removeAccount: async subject => { docsReader.invalidate(); return store.removeAccount(required(subject, 'subject')); }, execute, dispose: docsReader.dispose };
 }

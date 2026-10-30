@@ -4,7 +4,7 @@ description: Create Google Docs, apply bounded revision-guarded text or formatti
 ---
 
 Use only explicit user-requested document mutations and connected account emails.
-Do not use `gdocs_read`'s potentially incomplete text as edit proof.
+For general reading, follow every `gdocs_read` nextCursor with the same account and document in the same thread until complete. Pages are a short-lived snapshot of a lossy text projection; restart if a cursor expires. The provider JSON response is limited to 8 MiB. Do not use this output as edit proof.
 
 ## New documents
 

@@ -1,6 +1,6 @@
 # Bounded Google Docs editing
 
-`gdocs_read` is unchanged and remains the general, possibly truncated text reader.
+`gdocs_read` remains the general text projection reader, separate from edit inspection. Follow its single-use `nextCursor` pages in the same thread to consume a bounded snapshot; it never supplies edit proof. Its separate 8 MiB provider JSON limit still applies.
 Its output **does not authorize edits**. Use the separate complete inspection.
 
 ## Tools

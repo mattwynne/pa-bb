@@ -25,7 +25,7 @@ const schemas = {
   gdrive_get_file: z.object({ account, fileId: required }),
   gdrive_inspect_sharing: z.object({ account, fileId: required }),
   gdrive_copy_file: z.object({ account, sourceId: required, folderId: required, title: required.max(255).optional() }),
-  gdocs_read: z.object({ account, document: required.describe('Google Doc URL or document ID; other file types are not supported.') }),
+  gdocs_read: z.object({ account, document: required.describe('Google Doc URL or document ID; other file types are not supported.'), cursor: z.string().min(1).max(128).optional().describe('Opaque single-use continuation from the preceding page; repeat the same account and document.') }),
 };
 const descriptions = {
   gdrive_auth_status: 'Show connected Google Drive accounts and reauthorization status.',
@@ -34,7 +34,7 @@ const descriptions = {
   gdrive_get_file: 'Get Google Drive file metadata and a source link in one explicit account.',
   gdrive_inspect_sharing: 'Read Google-visible sharing for one explicit file or folder/account, including owners, user/group/domain/anyone permissions and provider-supplied inheritance details. Check listingComplete and listingError. Never infer privacy or enumerate all people from this result: group members, ancestor policies and shared-drive membership may not be fully visible. No sharing changes.',
   gdrive_copy_file: 'Copy a file into an explicitly selected folder and account, preserving the original. Only for user-requested copies. Destination permissions may be inherited: inspect its sharing first. Never blindly retry uncertain results; inspect the destination or returned ID. Requires an existing write grant; read-only connections cannot copy.',
-  gdocs_read: 'Read the plain text of every tab in a Google Doc, by URL or ID, in one explicit account. May truncate long documents.',
+  gdocs_read: 'Read a bounded plain-text projection of a Google Doc, including child tabs. Follow each nextCursor with the same account and document; pages are one short-lived snapshot, not edit proof. The provider JSON limit is 8 MiB.',
 };
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
@@ -45,6 +45,9 @@ function safeError(error: unknown): string {
     'This file is not a Google Doc; reading other formats is not supported yet',
     'account is required', 'folderId is required', 'fileId is required', 'document is required',
   ];
+  if ((error as { code?: string })?.code === 'docs_read_incomplete') return 'The Google Doc tabs could not be read completely.';
+  if ((error as { code?: string })?.code === 'docs_cursor_expired') return 'This Docs continuation is unavailable. Start a fresh read.';
+  if ((error as { code?: string })?.code === 'docs_read_capacity') return 'Docs read capacity is full or the output is too large. Finish an active read or start again later.';
   if ((error as { code?: string })?.code === 'response_too_large') return 'Google response exceeds the supported size limit. For a Google Doc, download it as plain text to read it without formatting.';
   if ((error as { code?: string })?.code === 'copy_scope_required') return 'Copy requires write access. Reconnect the Drive account in BB settings and approve full Drive access; existing read-only grants cannot copy.';
   if (['Use explicit Drive file and folder IDs', 'Copy title is too long', 'Source is not a copyable file', 'Destination is not a writable folder', 'sourceId is required', 'title is required'].includes(message)) return message;
@@ -86,7 +89,9 @@ export default async function plugin(bb: BbPluginApi) {
     return new URL(`/api/v1/plugins/${bb.pluginId}/http/callback`, origin).toString();
   };
   const diagnose = (stage: string, error: unknown) => bb.log.warn(`Google Drive ${stage} ${failureCategory(error)}`);
-  const service = () => createDriveService({ store, oauth: adapter.oauth, drive: adapter.drive, diagnose });
+  const instance = createDriveService({ store, oauth: adapter.oauth, drive: adapter.drive, diagnose });
+  const service = () => instance;
+  bb.onDispose(() => instance.dispose());
   bb.rpc.register(rpcContract, {
     async status() {
       const { clientId, clientSecret } = await getClient();
@@ -141,8 +146,8 @@ export default async function plugin(bb: BbPluginApi) {
   }, { auth: 'none' });
   for (const [name, parameters] of Object.entries(schemas)) {
     bb.agents.registerTool({ name, description: descriptions[name as keyof typeof descriptions], parameters,
-      async execute(args) {
-        try { return { content: [{ type: 'text' as const, text: JSON.stringify(await service().execute(name, args as Record<string, unknown>)) }] }; }
+      async execute(args, context) {
+        try { return { content: [{ type: 'text' as const, text: JSON.stringify(await service().execute(name, args as Record<string, unknown>, context.threadId)) }] }; }
         catch (error) {
           diagnose(`agent_tool ${name}`, error);
           return { content: [{ type: 'text' as const, text: safeError(error) }], isError: true };

@@ -86,12 +86,12 @@ test('larger general-read allowance does not relax the editing inspection limit'
 
 test('host tool reads large Docs and reports oversized responses distinctly without leaking account/provider data', async () => {
   const original = globalThis.fetch;
-  let oversized = false;
+  let oversized = false, long = false;
   globalThis.fetch = async url => {
     if (String(url).endsWith('/userinfo')) return Response.json({ sub: record.subject, email: record.email, email_verified: true });
     if (String(url).includes('docs.googleapis.com')) return oversized
       ? new Response('private-provider-content', { headers: { 'content-length': String(8 * MiB + 1) } })
-      : Response.json(document());
+      : Response.json(document(long ? 'x'.repeat(100_001) : 'main\n'));
     return Response.json({ id: 'private-doc-id', name: 'private-title', mimeType: 'application/vnd.google-apps.document' });
   };
   const host = createFakePluginHost({ pluginId: 'google-drive', agentSkillIds: ['google-docs-editing', 'google-drive-sharing'] });
@@ -103,6 +103,13 @@ test('host tool reads large Docs and reports oversized responses distinctly with
     const result = await host.harness.behavior.callAgentTool('gdocs_read', args);
     assert.notEqual(result.isError, true);
     assert.equal(JSON.parse(result.content[0].text).text, 'main\ncell\n\tcontents\nchild\n');
+    long = true;
+    const first = JSON.parse((await host.harness.behavior.callAgentTool('gdocs_read', args)).content[0].text);
+    const second = await host.harness.behavior.callAgentTool('gdocs_read', { ...args, cursor: first.nextCursor });
+    assert.equal(JSON.parse(second.content[0].text).complete, true);
+    const replay = await host.harness.behavior.callAgentTool('gdocs_read', { ...args, cursor: first.nextCursor });
+    assert.equal(replay.isError, true);
+    assert.match(replay.content[0].text, /Start a fresh read/);
     oversized = true;
     const failed = await host.harness.behavior.callAgentTool('gdocs_read', args);
     assert.equal(failed.isError, true);
@@ -110,6 +117,8 @@ test('host tool reads large Docs and reports oversized responses distinctly with
     assert.doesNotMatch(failed.content[0].text, /connected account|copy|reconnect/i);
     const logs = JSON.stringify(host.harness.inspection.logEntries);
     assert.match(logs, /agent_tool gdocs_read response_too_large/);
+    assert.match(logs, /agent_tool gdocs_read docs_cursor_expired/);
+    assert.doesNotMatch(logs + JSON.stringify(replay), new RegExp(first.nextCursor));
     assert.doesNotMatch(logs + JSON.stringify(failed), /private-|reader@example|synthetic-subject/);
     assert.equal(failureCategory({ code: 'private-untrusted-code' }), 'unknown');
   } finally { await host.harness.lifecycle.dispose(); globalThis.fetch = original; }
