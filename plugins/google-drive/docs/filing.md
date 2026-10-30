@@ -30,8 +30,15 @@ accepts Docs-only grants and cannot independently prove filing authorization.
 Native Docs/Sheets creation still deliberately permits only root or owned,
 visibly owner-only folders. That is an implementation policy, not a universal
 Google restriction. Filing supports owned shared **My Drive** folders with an
-exact inherited-access review. It does not support shared-drive transfer,
-non-owned ancestry, limited-access folders, shortcuts or moving folder trees.
+exact inherited-access review. A move may traverse readable non-owned My Drive
+ancestors, but the source file and writable destination themselves must still
+be owned by the selected account. Each inspected node must have one known owner
+consistent with its complete owner permission row, and both paths must reach
+the selected account's My Drive root. Another person's ancestor is always a
+mandatory review trigger, even if visible item audiences appear equivalent.
+Folder creation retains its separate all-owned ancestry requirement; sharing
+APIs and native document creation policies are unchanged. Shared-drive transfer,
+limited-access folders, shortcuts and moving folder trees remain unsupported.
 Moves are capability-driven: an ordinary file with a bounded MIME type and
 `capabilities.canMoveItemWithinDrive=true` is eligible, whether a native
 Doc/Sheet/Slide, PDF, image, Office file, archive or another uploaded/native type.
@@ -46,7 +53,11 @@ not establish another person's access.
 All relevant item/ancestor permissions are read with bounded pagination
 (ten pages each; at most 32 ancestors). Incomplete/unknown authority fails
 closed. Visible non-owner permissions require a native BB owner review, showing
-account, exact item, old/new path and visible audiences. Owner-only filing uses
+account, exact item, old/new path, each path's owners and visible audiences.
+Potential visible inherited-access gains/increases and losses/reductions are
+shown separately from preserved direct grants. Ancestor folder ownership is
+not presented as ownership transfer of the file. These are access-impact
+observations, not a promise about downstream effective access. Owner-only filing uses
 explicit requested intent and existing Google write consent, like document
 creation; the Docs-edit approval setting has no role. State is rechecked after
 review and previews expire after ten minutes. At most 40 distinct audience/role
@@ -67,8 +78,13 @@ Folder creation sends exactly one metadata POST with a private appProperties
 operation marker. A move sends exactly one PATCH containing addParents and
 removeParents, with an empty JSON body. No content is read or rewritten to move
 it. Verification checks ID, the exact MIME type captured by the proposal, exact sole parent, name hash, reviewed
-destination context and preservation of known direct grants. It does not
-certify byte-for-byte text or rendered appearance.
+destination context and preservation of known direct grants. Explicit item-level
+grants remain direct evidence even when the same principal also appears on an
+ancestor. For mixed direct/inherited permission details, the known direct role
+is preserved separately from the stronger effective role. New receipts verify
+that direct evidence; legacy receipts retain their original readback semantics
+without migration or replay. It does not certify byte-for-byte text or rendered
+appearance.
 
 Plugin-owned SQLite receipts and a unique active resource index survive reload.
 Keys are bound to account, kind and exact request; terminal/same-key repeats
@@ -103,7 +119,10 @@ Synthetic tests exercise exact requests, preserved file identity across native
 and binary/custom MIME types, missing/false capabilities, shortcut/folder
 refusals, MIME and permission changes, legacy receipts, shared
 My Drive destinations, duplicate checks, authority/scope refusals, stale/expired
-reviews, same-key replay prevention, active resource exclusion, restart,
+reviews, alternating owned/non-owned ancestor chains, metadata/permission-owner
+consistency, mandatory review despite equivalent visible item audiences,
+post-preview and post-card owner/access/parent/capability changes, unchanged
+folder-creation policy, same-key replay prevention, active resource exclusion, restart,
 uncertain submission and read-only recovery. Diagnostics use fixed filing stages
 and bounded failure/status categories. Provider bodies, raw exceptions, account
 addresses, names, IDs and credentials never enter logs. No real Drive mutations

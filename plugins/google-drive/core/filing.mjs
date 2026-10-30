@@ -11,7 +11,7 @@ export const filingHash = value => createHash('sha256').update(JSON.stringify(va
 const messages = {
   invalid: 'Use an explicit connected account, lowercase UUID v4 operationId and exact folder/file IDs. Folder names must be bounded ordinary text.',
   account: 'Select an explicit connected Google Drive account.',
-  unsupported: 'Filing supports owned My Drive folder creation and existing owned files that Google reports movable. Folder-tree moves, shared drives, shortcuts, limited-access ancestry, trash and unknown authority are not supported.',
+  unsupported: 'Filing supports owned My Drive folder creation and existing owned files that Google reports movable into owned writable folders. Moves may traverse fully inspected non-owned My Drive ancestors with mandatory review; folder creation still requires owned ancestry. Folder-tree moves, shared drives, shortcuts, limited-access ancestry, trash and unknown or inconsistent authority are not supported.',
   incomplete: 'The folder, ancestry or permission listing is incomplete. No new filing write was submitted; inspect any existing operation before retrying.',
   duplicate: 'An exact-name folder already exists in the selected parent. Inspect it and its sharing; do not automatically create another or select an ambiguous duplicate.',
   scope: 'Filing requires an existing owner-authorized drive or drive.file grant and access to these items. It never expands OAuth. Docs-only and read-only grants are insufficient.',

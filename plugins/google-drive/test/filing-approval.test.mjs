@@ -23,6 +23,18 @@ test('filing card shows exact account/location/audience and no-content/no-permis
   assert.match(html, /https:\/\/drive.google.com\/drive\/folders\/dest-id/);
   assert.match(html, /https:\/\/docs.google.com\/document\/d\/doc-id\/edit/);
 });
+test('shared-ancestor review shows exact path owners and potential gains/losses; incomplete owner evidence cannot be approved', () => {
+  const shared = { ...payload, sharedAncestors: true, sourceOwners: 'My Drive — owner: owner@example.invalid',
+    destinationOwners: 'Shared <administration> — owner: partner@example.invalid',
+    accessChanges: 'user: partner@example.invalid — may gain/increase to writer\nuser: old@example.invalid — may lose/reduce inherited reader access',
+    reviewReason: 'An inspected ancestor belongs to another person. Exact owner approval is required even if visible audiences appear equivalent.' };
+  const html = render(shared);
+  for (const text of ['Current path owners', 'Destination path owners', 'Potential inherited-access changes', 'partner@example.invalid', 'old@example.invalid', 'may gain/increase', 'may lose/reduce', 'even if visible audiences appear equivalent']) assert.ok(html.includes(text), text);
+  assert.match(html, /Shared &lt;administration&gt;/);
+  for (const field of ['sourceOwners', 'destinationOwners', 'accessChanges', 'reviewReason']) {
+    assert.match(render({ ...shared, [field]: '' }), /disabled=""[^>]*>Approve filing/);
+  }
+});
 test('native and binary cards use file labels, escaped MIME and canonical links, never provider URLs', () => {
   for (const [mimeType, url] of [
     ['application/vnd.google-apps.spreadsheet', 'https://docs.google.com/spreadsheets/d/doc-id/edit'],

@@ -16,7 +16,7 @@ async function setup(options = {}) {
   const h = createFakePluginHost({ pluginId: 'google-drive' });
   const store = createBbStore(h.bb.storage.database(), (db, statements) => h.bb.storage.migrate(db, statements));
   await store.addAccount({ subject: 'subject', email: account, accessToken: 'private-access-token', refreshToken: 'private-refresh', expiresAt: Date.now() + 600_000 });
-  const calls = [], logs = [], files = new Map(), extra = options.shared ? [group] : [];
+  const calls = [], logs = [], files = new Map(), permissionRows = new Map(), extra = options.shared ? [group] : [];
   function meta(id, name, mimeType, parents) { return { id, name, mimeType, parents, trashed: false, owners: [{ me: true, emailAddress: account }], capabilities: { canAddChildren: true, canMoveItemWithinDrive: true } }; }
   files.set('root-id', meta('root-id', 'My Drive', FOLDER));
   files.set('dest-id', meta('dest-id', 'Synthetic destination', FOLDER, ['root-id']));
@@ -38,10 +38,11 @@ async function setup(options = {}) {
     }
     if (init.method === 'PATCH') {
       writes++;
-      assert.equal(u.pathname, '/drive/v3/files/doc-id'); assert.equal(u.searchParams.get('addParents'), 'dest-id'); assert.equal(u.searchParams.get('removeParents'), 'root-id');
+      assert.equal(u.pathname, '/drive/v3/files/doc-id'); assert.equal(u.searchParams.get('addParents'), 'dest-id'); assert.equal(u.searchParams.get('removeParents'), files.get('doc-id').parents[0]);
       assert.deepEqual(JSON.parse(init.body), {});
       if (options.reject) return Response.json({ secret: 'private-body' }, { status: options.reject });
       files.get('doc-id').parents = ['dest-id'];
+      if (options.docPermissionsAfterWrite) permissionRows.set('doc-id', options.docPermissionsAfterWrite);
       if (options.typeAfterWrite) files.get('doc-id').mimeType = options.typeAfterWrite;
       if (options.lost) throw Object.assign(new Error('private-error'), { cause: 'private-cause', code: 'private-code' });
       return options.badJson ? new Response('private-unreadable') : Response.json({ id: 'doc-id' });
@@ -55,7 +56,7 @@ async function setup(options = {}) {
     if (u.pathname.endsWith('/permissions')) {
       if (options.permissionError) return Response.json({ private: 'private-response' }, { status: 503 });
       const inherited = id === 'dest-id' || (id === 'doc-id' && files.get('doc-id').parents[0] === 'dest-id') ? extra : [];
-      const list = [owner, ...inherited, ...(options.unexpectedAccess && writes && id === 'doc-id' ? [{ ...group, id: 'unexpected', emailAddress: 'other@example.invalid' }] : []), ...(options.directSource && !(options.dropDirectAfterWrite && writes) && id === 'doc-id' ? [{ ...group, id: 'direct', permissionDetails: [{ inherited: false }] }] : [])];
+      const list = permissionRows.get(id) || (id === 'doc-id' && files.get(id).parents[0] === 'dest-id' ? permissionRows.get('dest-id') : null) || [owner, ...inherited, ...(options.unexpectedAccess && writes && id === 'doc-id' ? [{ ...group, id: 'unexpected', emailAddress: 'other@example.invalid' }] : []), ...(options.directSource && !(options.dropDirectAfterWrite && writes) && id === 'doc-id' ? [{ ...group, id: 'direct', permissionDetails: [{ inherited: false }] }] : [])];
       return Response.json({ permissions: list, ...(options.pagedPermissions ? { nextPageToken: 'private-page' } : {}) });
     }
     if (files.has(id)) {
@@ -76,10 +77,161 @@ async function setup(options = {}) {
   const diagnose = (stage, error) => logs.push(`Google Drive ${stage} ${filingCategory(error)} ${failureCategory(error)}`);
   const service = () => createFilingService({ store, operations: store.filing, filing: adapter.filing, diagnose, clock: () => clock });
   const s = service();
-  return { ...h, store, s, service, files, calls, options, logs, writes: () => writes, content: () => storedContent,
+  return { ...h, store, s, service, files, permissionRows, calls, options, logs, writes: () => writes, content: () => storedContent,
     tick: ms => { clock += ms; }, close: () => h.harness.lifecycle.dispose() };
 }
-function safe(h) { assert.doesNotMatch(h.logs.join('\n'), /private-|owner@example|Synthetic|doc-id|dest-id|subject|team@example/); }
+function safe(h) { assert.doesNotMatch(h.logs.join('\n'), /private-|example\.invalid|Synthetic|doc-id|dest-id|subject|foreign-ancestor|owned-middle/); }
+// Owned destination -> owned parent -> another person's folder -> owned root.
+// No real account, file, credential or provider is involved.
+function alternatingPath(h, { visibleWriter = true, sourcePath = false } = {}) {
+  const ancestor = structuredClone(h.files.get('dest-id'));
+  ancestor.id = 'foreign-ancestor'; ancestor.name = 'Synthetic shared administration';
+  ancestor.owners = [{ me: false, emailAddress: 'partner@example.invalid' }];
+  const middle = structuredClone(h.files.get('dest-id'));
+  middle.id = 'owned-middle'; middle.name = 'Synthetic work'; middle.parents = [ancestor.id];
+  h.files.set(ancestor.id, ancestor); h.files.set(middle.id, middle);
+  h.files.get('dest-id').parents = [middle.id];
+  if (sourcePath) h.files.get('doc-id').parents = [middle.id];
+  const foreignOwner = { ...owner, id: 'foreign-owner', emailAddress: 'partner@example.invalid' };
+  const selectedWriter = { ...owner, role: 'writer', permissionDetails: [{ inherited: false, role: 'writer' }] };
+  h.permissionRows.set(ancestor.id, [foreignOwner, selectedWriter]);
+  const otherWriter = { ...group, id: 'foreign-owner', type: 'user', emailAddress: 'partner@example.invalid', permissionDetails: [{ inherited: true, inheritedFrom: ancestor.id, role: 'writer' }] };
+  for (const id of [middle.id, 'dest-id']) h.permissionRows.set(id, [owner, ...(visibleWriter ? [otherWriter] : [])]);
+  return { ancestor, middle, otherWriter, foreignOwner, selectedWriter };
+}
+test('alternating-owned ancestry permits owned Sheet move only after exact review, with owners, paths and access impact', async () => {
+  const h = await setup({ mimeType: 'application/vnd.google-apps.spreadsheet' }), a = moveArgs();
+  alternatingPath(h);
+  try {
+    const p = await h.s.move(a); assert.equal(p.requiresApproval, true); assert.equal(h.writes(), 0);
+    assert.equal(p.preview.to, 'My Drive / Synthetic shared administration / Synthetic work / Synthetic destination');
+    assert.match(p.preview.destinationOwners, /Synthetic shared administration — owner: partner@example.invalid/);
+    assert.match(p.preview.audience, /partner@example.invalid — owner/);
+    assert.match(p.preview.accessChanges, /partner@example.invalid — may gain\/increase to writer/);
+    assert.match(p.preview.reviewReason, /ancestor belongs to another person/);
+    const r = await h.s.move({ ...a, preview: false }, undefined, async card => {
+      assert.deepEqual(card, { ...p.preview, operationId: a.operationId }); assert.equal(h.writes(), 0);
+      return { outcome: 'submitted', value: { approved: true } };
+    });
+    assert.equal(r.outcome, 'verified'); assert.equal(h.writes(), 1);
+    assert.equal((await h.service().status(statusArgs(a))).outcome, 'verified');
+    await h.s.move({ ...a, preview: false }); assert.equal(h.writes(), 1);
+    const writes = h.calls.filter(c => c.url.pathname.startsWith('/drive/') && c.init.method && c.init.method !== 'GET');
+    assert.equal(writes.length, 1); assert.equal(writes[0].init.method, 'PATCH'); assert.deepEqual(JSON.parse(writes[0].init.body), {});
+    assert.equal(h.content(), 'private-original-content'); safe(h);
+  } finally { await h.close(); }
+});
+test('non-owned ancestor independently mandates review even with equivalent visible item audiences; decline and invalid approval never write', async () => {
+  for (const decision of [{ outcome: 'submitted', value: { approved: false } }, { outcome: 'cancelled' }, { outcome: 'submitted', value: { approved: true, bypass: true } }]) {
+    const h = await setup(); alternatingPath(h, { visibleWriter: false });
+    try {
+      const p = await h.s.move(moveArgs()); assert.equal(p.requiresApproval, true);
+      assert.match(p.preview.accessChanges, /No gain or loss identified/);
+      const r = await h.s.move({ ...moveArgs(), preview: false }, undefined, async () => decision);
+      assert.ok(['declined', 'cancelled'].includes(r.outcome)); assert.equal(h.writes(), 0);
+    } finally { await h.close(); }
+  }
+});
+test('shared source ancestry and source-only inherited loss are summarized without removing direct grants', async () => {
+  const h = await setup(), a = moveArgs();
+  const { otherWriter } = alternatingPath(h, { sourcePath: true });
+  h.files.get('dest-id').parents = ['root-id']; h.permissionRows.set('dest-id', [owner]);
+  h.permissionRows.set('doc-id', [owner, otherWriter]); a.expectedParentId = 'owned-middle';
+  try {
+    const p = await h.s.move(a); assert.equal(p.requiresApproval, true);
+    assert.match(p.preview.sourceOwners, /partner@example.invalid/);
+    assert.match(p.preview.accessChanges, /partner@example.invalid — may lose\/reduce inherited writer access/);
+    assert.equal(h.writes(), 0);
+  } finally { await h.close(); }
+});
+test('ancestor authority remains complete and consistent; folder creation policy is not widened', async () => {
+  const mutations = [
+    h => { h.files.get('foreign-ancestor').owners = []; },
+    h => { delete h.files.get('foreign-ancestor').owners[0].me; },
+    h => { h.files.get('foreign-ancestor').owners[0].me = true; },
+    h => { h.files.get('foreign-ancestor').owners[0].emailAddress = account; },
+    h => { h.permissionRows.set('foreign-ancestor', [owner]); },
+    h => { h.permissionRows.set('foreign-ancestor', []); },
+    h => { h.permissionRows.get('foreign-ancestor').push(owner); },
+    h => { h.permissionRows.get('foreign-ancestor')[0].type = 'group'; },
+    h => { h.files.get('foreign-ancestor').driveId = 'shared-drive'; },
+    h => { h.files.get('foreign-ancestor').inheritedPermissionsDisabled = true; },
+    h => { h.files.get('foreign-ancestor').parents = []; },
+    h => { h.files.get('foreign-ancestor').parents = ['owned-middle']; },
+    h => { h.options.pagedPermissions = true; },
+    h => { h.options.permissionError = true; },
+    h => { h.files.get('dest-id').capabilities.canAddChildren = false; },
+    h => { delete h.files.get('doc-id').capabilities.canMoveItemWithinDrive; },
+    h => { h.files.get('dest-id').owners = [{ me: false, emailAddress: 'partner@example.invalid' }]; },
+    h => { h.files.get('doc-id').owners = [{ me: false, emailAddress: 'partner@example.invalid' }]; },
+  ];
+  for (const mutate of mutations) {
+    const h = await setup(); alternatingPath(h); mutate(h);
+    try { await assert.rejects(h.s.move({ ...moveArgs(), preview: false })); assert.equal(h.writes(), 0); safe(h); }
+    finally { await h.close(); }
+  }
+  const h = await setup(); alternatingPath(h);
+  try { await assert.rejects(h.s.createFolder({ ...folderArgs(), parentId: 'dest-id', preview: false })); assert.equal(h.writes(), 0); }
+  finally { await h.close(); }
+});
+test('all shared-ancestor authority is rechecked after preview and after owner approval; changed state never writes', async () => {
+  for (const when of ['preview', 'approval']) for (const change of ['owner', 'permission', 'parent', 'capability', 'partial', 'account']) {
+    const h = await setup(), a = moveArgs(); alternatingPath(h);
+    const mutate = () => {
+      if (change === 'owner') {
+        h.files.get('foreign-ancestor').owners[0].emailAddress = 'new-owner@example.invalid';
+        h.permissionRows.get('foreign-ancestor')[0].emailAddress = 'new-owner@example.invalid';
+      }
+      if (change === 'permission') h.permissionRows.get('foreign-ancestor')[1].role = 'reader';
+      if (change === 'parent') h.files.get('owned-middle').parents = ['root-id'];
+      if (change === 'capability') h.files.get('dest-id').capabilities.canAddChildren = false;
+      if (change === 'partial') h.options.pagedPermissions = true;
+      if (change === 'account') h.options.wrongIdentity = true;
+    };
+    try {
+      await h.s.move(a); if (when === 'preview') mutate();
+      const r = await h.s.move({ ...a, preview: false }, undefined, async () => { if (when === 'approval') mutate(); return { outcome: 'submitted', value: { approved: true } }; });
+      assert.ok(['stale', 'not_submitted'].includes(r.outcome), `${when} ${change}: ${r.outcome}`); assert.equal(h.writes(), 0); safe(h);
+    } finally { await h.close(); }
+  }
+});
+test('same-owner inherited writer rows remain inspectable without confusing the unique other-owner permission row', async () => {
+  const h = await setup(); alternatingPath(h);
+  h.permissionRows.get('owned-middle').push({ ...owner, id: 'selected-inherited-writer', role: 'writer', permissionDetails: [{ inherited: true, inheritedFrom: 'foreign-ancestor', role: 'writer' }] });
+  try { assert.equal((await h.s.move(moveArgs())).requiresApproval, true); assert.equal(h.writes(), 0); }
+  finally { await h.close(); }
+});
+test('shared-ancestor lost-response recovery survives restart and never unlocks/replays the parent PATCH', async () => {
+  const h = await setup({ lost: true }), a = moveArgs(); alternatingPath(h);
+  try {
+    assert.equal((await h.s.move({ ...a, preview: false }, undefined, async () => ({ outcome: 'submitted', value: { approved: true } }))).outcome, 'uncertain');
+    const observed = await h.service().status(statusArgs(a)); assert.equal(observed.outcome, 'observed_matching'); assert.equal(observed.unresolved, true);
+    await h.s.move({ ...a, preview: false }); assert.equal(h.writes(), 1);
+    await assert.rejects(h.s.move({ ...moveArgs(), expectedParentId: 'dest-id', folderId: 'root', preview: false }), e => e.filingCode === 'busy');
+    h.files.get('foreign-ancestor').name = 'Changed since review';
+    assert.equal((await h.service().status(statusArgs(a))).outcome, 'uncertain'); assert.equal(h.writes(), 1); safe(h);
+  } finally { await h.close(); }
+});
+test('overlapping direct/ancestor principals preserve explicit direct role and detect its loss after moving', async () => {
+  for (const mode of ['kept', 'removed', 'inherited-only', 'mixed-kept', 'mixed-lost']) {
+    const h = await setup(), a = moveArgs();
+    const { otherWriter } = alternatingPath(h, { sourcePath: true });
+    a.expectedParentId = 'owned-middle';
+    const mixed = mode.startsWith('mixed');
+    const directRow = { ...otherWriter, permissionDetails: [{ inherited: false, role: mixed ? 'reader' : 'writer' }, ...(mixed ? otherWriter.permissionDetails : [])] };
+    h.permissionRows.set('doc-id', [owner, directRow]);
+    // Destination still provides the overlapping inherited writer. A retained
+    // inherited row alone must not certify preservation of the direct grant.
+    h.options.docPermissionsAfterWrite = [owner, ...(['kept', 'mixed-kept'].includes(mode) ? [directRow] : mode === 'removed' ? [] : [otherWriter])];
+    try {
+      const p = await h.s.move(a); assert.doesNotMatch(p.preview.accessChanges, /may lose/);
+      const op = await h.store.filing.get(a.operationId);
+      assert.equal(op.directBefore.find(p => p.id === otherWriter.id).role, mixed ? 'reader' : 'writer');
+      const r = await h.s.move({ ...a, preview: false }, undefined, async () => ({ outcome: 'submitted', value: { approved: true } }));
+      assert.equal(r.outcome, ['kept', 'mixed-kept'].includes(mode) ? 'verified' : 'uncertain', mode); assert.equal(h.writes(), 1); safe(h);
+    } finally { await h.close(); }
+  }
+});
 test('folder preview then one create, exact readback, repeat/status never write again', async () => {
   const h = await setup(), a = folderArgs();
   try {
@@ -181,9 +333,9 @@ test('legacy Docs-only verified/proposed receipts and folder receipts remain rea
     try {
       const change = kind === 'move' ? h.s.move : h.s.createFolder;
       await change(a);
-      let op = await h.store.filing.get(a.operationId); delete op.mimeType; delete op.preview.mimeType; await h.store.filing.save(op);
+      let op = await h.store.filing.get(a.operationId); delete op.mimeType; delete op.preview.mimeType; delete op.directEvidenceVersion; await h.store.filing.save(op);
       assert.equal((await change({ ...a, preview: false })).outcome, 'verified'); assert.equal(h.writes(), 1);
-      op = await h.store.filing.get(a.operationId); delete op.mimeType; await h.store.filing.save(op);
+      op = await h.store.filing.get(a.operationId); delete op.mimeType; delete op.directEvidenceVersion; await h.store.filing.save(op);
       const r = await h.service().status(statusArgs(a)); assert.equal(r.outcome, 'verified');
       assert.equal(r.url, kind === 'move' ? 'https://docs.google.com/document/d/doc-id/edit' : 'https://drive.google.com/drive/folders/new-folder');
       await change({ ...a, preview: false }); assert.equal(h.writes(), 1);

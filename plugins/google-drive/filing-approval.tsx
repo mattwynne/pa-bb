@@ -10,7 +10,8 @@ function Review({ interaction, submit, cancel }: Props) {
   const valid = ['account', 'title', 'from', 'to', 'destinationId', 'sourceAudience', 'destinationAudience', 'audience', 'impact', 'operationId'].every(k => text(k).length > 0)
     && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(text('operationId'))
     && /^[\w-]{1,256}$/.test(text('destinationId')) && ['folder', 'move'].includes(text('kind'))
-    && (text('kind') !== 'move' || /^[\w-]{1,256}$/.test(text('fileId')));
+    && (text('kind') !== 'move' || /^[\w-]{1,256}$/.test(text('fileId')))
+    && (p.sharedAncestors !== true || ['sourceOwners', 'destinationOwners', 'accessChanges', 'reviewReason'].every(k => text(k).length > 0));
   async function decide(approved?: boolean) {
     setBusy(true); setError('');
     try { if (approved === undefined) await cancel(); else await submit({ approved }); }
@@ -23,7 +24,12 @@ function Review({ interaction, submit, cancel }: Props) {
       <dl><dt>Account</dt><dd>{text('account')}</dd><dt>From</dt><dd>{text('from')}</dd><dt>To</dt><dd>{text('to')}</dd>
         {text('mimeType') && <><dt>File type</dt><dd>{text('mimeType')}</dd></>}
         <dt>Current visible access</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{text('sourceAudience')}</dd>
-        <dt>Destination visible access</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{text('destinationAudience')}</dd></dl>
+        <dt>Destination visible access</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{text('destinationAudience')}</dd>
+        {text('sourceOwners') && <><dt>Current path owners</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{text('sourceOwners')}</dd></>}
+        {text('destinationOwners') && <><dt>Destination path owners</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{text('destinationOwners')}</dd></>}
+        {text('accessChanges') && <><dt>Potential inherited-access changes</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{text('accessChanges')}</dd></>}
+      </dl>
+      {text('reviewReason') && <p>{text('reviewReason')}</p>}
       {p.exampleOnly === true ? <p>Example only — all choices are no-ops, with no Google access.</p> : <>
         <a href={`https://drive.google.com/drive/folders/${encodeURIComponent(text('destinationId'))}`} target="_blank" rel="noreferrer">Open destination ↗</a>
         {text('kind') === 'move' && <p><a href={fileLink(text('fileId'), text('mimeType') || 'application/vnd.google-apps.document')} target="_blank" rel="noreferrer">Open existing file ↗</a></p>}

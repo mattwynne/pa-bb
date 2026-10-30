@@ -48,8 +48,14 @@ No invitations are sent by this workflow; do not promise suppression of all
 Google service notifications. Do not unshare folders to make them supported.
 
 Owned My Drive files are supported when Google reports
-`capabilities.canMoveItemWithinDrive=true`, with inspectable owned ancestry and
-existing `drive`/`drive.file` consent. This includes native Docs/Sheets/Slides,
+`capabilities.canMoveItemWithinDrive=true`, an owned writable destination and
+existing `drive`/`drive.file` consent. Fully inspectable non-owned My Drive
+ancestors are permitted for moves only, with mandatory exact owner approval
+even when visible audiences appear equivalent. The card shows old/new paths,
+path owners and potential inherited-access gains/losses. Both paths must reach
+the selected account's root; unknown/inconsistent owners or incomplete
+permission lists still block. Folder creation retains its all-owned ancestry
+policy. This includes native Docs/Sheets/Slides,
 PDFs, images and other uploaded/native types, not a MIME allowlist. Missing or
 false capability, trash, unknown MIME/authority, shared drives, folder-tree moves
 and limited-access ancestry fail before writing. Owned shared My Drive folders
