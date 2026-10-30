@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import plugin from '../dist/server.js';
 import { createBbStore } from '../adapters/bb-store.mjs';
@@ -172,6 +172,29 @@ test('same key never replays including concurrent calls, reload, account/request
     assert.equal(interrupted.outcome, 'reserved'); assert.equal(interrupted.writeAttempted, 'unknown'); assert.equal(h.calls.length, before);
     safeLogs(h);
   } finally { await replacement?.harness.lifecycle.dispose(); await h.close(); }
+});
+test('historical pre-Sheets Docs receipt without kind retains independent legacy hashes and read-only recovery', async () => {
+  const h = await setup(); const input = args();
+  const legacyHash = value => createHash('sha256').update(value).digest('hex');
+  try {
+    await h.service.create(input); // Seed only the synthetic provider's populated document.
+    const legacyInput = { ...input, operationId: randomUUID() };
+    const receipt = { operationId: legacyInput.operationId, subject: 'subject-a', destinationId: 'root-a',
+      requestHash: legacyHash(JSON.stringify(['root', legacyInput.title, legacyInput.text])),
+      titleHash: legacyHash(legacyInput.title), textHash: legacyHash(legacyInput.text + '\n'),
+      documentId: 'doc-a', outcome: 'verified', writeAttempted: true };
+    assert.equal(Object.hasOwn(receipt, 'kind'), false);
+    assert.equal(await h.store.reserveCreation(receipt), true);
+    const count = h.calls.length;
+    const result = parse(await h.harness.behavior.callAgentTool('gdocs_create_document', legacyInput));
+    assert.equal(result.receiptOnly, true); assert.equal(result.outcome, 'verified'); assert.equal(h.calls.length, count);
+    assert.equal((await h.service.inspect({ account, operationId: legacyInput.operationId })).outcome, 'verified');
+    const conflict = await h.harness.behavior.callAgentTool('gsheets_create_spreadsheet', {
+      account, operationId: legacyInput.operationId, title: legacyInput.title, tabs: [{ title: 'Plan', rows: [['Header']] }],
+    });
+    assert.equal(conflict.isError, true); assert.match(conflict.content[0].text, /different account or request/);
+    assert.equal(h.writes().length, 2); safeLogs(h);
+  } finally { await h.close(); }
 });
 test('create timeout or malformed response retains key; read-only recovery locates blank document and link without population', async () => {
   for (const options of [{ createFailure: true }, { createBadJson: true }]) {

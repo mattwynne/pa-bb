@@ -1,6 +1,7 @@
 import { createDocsAdapter } from './docs.mjs';
 import { createDocsCreationAdapter } from './docs-create.mjs';
 import { createSharingAdapter } from './sharing.mjs';
+import { createSheetsAdapter } from './sheets.mjs';
 import { boundedJson } from './docs-transport.mjs';
 
 const AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -85,6 +86,7 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
   const adapter = {
     docs: createDocsAdapter({ verifiedAccess, fetchImpl }),
     creation: createDocsCreationAdapter({ verifiedAccess, fetchImpl }),
+    sheets: createSheetsAdapter({ verifiedAccess, fetchImpl }),
     oauth: {
       authorizeUrl({ clientId, redirectUri, state, challenge, scopes, loginHint }) {
         return params(new URL(AUTH), { client_id: clientId, redirect_uri: redirectUri, response_type: 'code', scope: scopes.join(' '),

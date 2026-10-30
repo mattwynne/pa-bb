@@ -9,6 +9,7 @@ import { registerDocsTools, DOCS_TOOL_NAMES, docsAuthorizationInspector } from '
 import { registerDocsReview, DOCS_REVIEW_TOOL } from './docs-review.js';
 import { registerDocsCreationTools, DOCS_CREATION_TOOLS } from './docs-create-tools.js';
 import { registerSharingTools, SHARING_TOOLS } from './sharing-tools.js';
+import { registerSheetsTools, SHEETS_TOOLS } from './sheets-tools.js';
 
 const required = z.string().min(1);
 const account = required.describe('Email of the connected Google Drive account.');
@@ -150,5 +151,6 @@ export default async function plugin(bb: BbPluginApi) {
   registerDocsReview(bb, docsAuthorizationInspector(bb, store, adapter));
   registerDocsCreationTools(bb, store, adapter);
   registerSharingTools(bb, store, adapter);
-  bb.agents.configure(() => ({ tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES, DOCS_REVIEW_TOOL, ...DOCS_CREATION_TOOLS, ...SHARING_TOOLS], skills: ['google-docs-editing', 'google-drive-sharing'] }));
+  registerSheetsTools(bb, store, adapter);
+  bb.agents.configure(() => ({ tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES, DOCS_REVIEW_TOOL, ...DOCS_CREATION_TOOLS, ...SHARING_TOOLS, ...SHEETS_TOOLS], skills: ['google-docs-editing', 'google-drive-sharing', 'google-sheets'] }));
 }
