@@ -369,3 +369,63 @@ test('rejected, malformed success, unapplied lost request and unavailable recove
     } finally { await h.close(); }
   }
 });
+
+test('page-only inspection and formatting preserve structured bodies across tabs', async () => {
+  const h = await setup();
+  try {
+    const body = h.doc.tabs[0].documentTab.body.content;
+    body[1] = { startIndex: 1, endIndex: 10, table: { tableRows: [{ tableCells: [{ content: [{ startIndex: 3, endIndex: 8, paragraph: { elements: [{ textRun: { content: 'private table text' } }] } }] }] }] } };
+    h.doc.tabs[0].childTabs[0].documentTab.inlineObjects = { object1: { inlineObjectProperties: { embeddedObject: { title: 'private object' } } } };
+    const before = structuredClone(h.doc), a = { ...args(), ranges: [], page: { tabId: 'tab-a', backgroundColor: '#123456' } };
+    await assert.rejects(h.service.inspect({ account, document: 'doc-a' }));
+    const inspected = await h.service.inspect({ account, document: 'doc-a', mode: 'page' });
+    assert.equal(inspected.complete, true); assert.equal(inspected.revisionId, 'rev-a'); assert.equal(inspected.tabs.length, 2);
+    assert.doesNotMatch(JSON.stringify(inspected), /private table text|private object/);
+    await assert.rejects(h.service.format(args()));
+    assert.equal((await h.service.format({ ...a, preview: false })).outcome, 'verified');
+    const expected = structuredClone(before); expected.revisionId = 'rev-b'; expected.tabs[0].documentTab.documentStyle.background = h.doc.tabs[0].documentTab.documentStyle.background;
+    assert.deepEqual(h.doc, expected); assert.equal(h.writes, 1);
+  } finally { await h.close(); }
+});
+test('page-only rejects malformed, partial, suggested or unknown page state before submission', async () => {
+  const changes = [
+    d => { d.tabs[0].documentTab.body.content[1] = { startIndex: 1, endIndex: 10, table: {} }; },
+    d => { d.tabs[0].documentTab.body.content[1].startIndex = 2; },
+    d => { d.tabs[0].childTabs[0].tabProperties.tabId = 'tab-a'; },
+    d => { d.tabs[0].documentTab.documentStyle.futureStyle = {}; },
+    d => { d.tabs[0].documentTab.documentStyle.suggestedDocumentStyleChanges = { private: {} }; },
+    d => { d.tabs[0].documentTab.documentStyle.documentFormat = { documentMode: 'PAGES', unknown: true }; },
+    d => { d.tabs[0].documentTab.documentStyle.pageSize = { width: {} }; },
+  ];
+  for (const change of changes) {
+    const h = await setup();
+    try { change(h.doc); await assert.rejects(h.service.format({ ...args(), ranges: [], page: { tabId: 'tab-a', marginTopPt: 60 } })); assert.equal(h.writes, 0); }
+    finally { await h.close(); }
+  }
+});
+test('page-only structured readback detects unrelated drift and lost responses stay observations', async () => {
+  for (const options of [{ afterWrite: d => { d.tabs[0].documentTab.body.content[1].table.tableRows[0].tableCells[0].content[0].paragraph.elements[0].textRun.content = 'changed'; } }, { lost: true }]) {
+    const h = await setup(options);
+    try {
+      h.doc.tabs[0].documentTab.body.content[1] = { startIndex: 1, endIndex: 10, table: { tableRows: [{ tableCells: [{ content: [{ paragraph: { elements: [{ textRun: { content: 'private table text' } }] } }] }] }] } };
+      const a = { ...args(), ranges: [], page: { tabId: 'tab-a', marginTopPt: 60 } };
+      assert.equal((await h.service.format({ ...a, preview: false })).outcome, 'uncertain');
+      const status = await h.service.status({ account, operationId: key });
+      assert.equal(status.outcome, options.lost ? 'observed_matching' : 'uncertain');
+      assert.doesNotMatch(JSON.stringify(status), /private table text/); assert.equal(h.writes, 1);
+    } finally { await h.close(); }
+  }
+});
+
+test('page-only revision and approval revalidation prevent writes on structured documents', async () => {
+  for (const options of [{ stale: true }, { approval: (_p, d) => { d.tabs[0].documentTab.body.content[1].table.tableRows[0].tableCells[0].content[0].paragraph.elements[0].textRun.content = 'changed'; } }]) {
+    const h = await setup(options);
+    try {
+      h.doc.tabs[0].documentTab.body.content[1] = { startIndex: 1, endIndex: 10, table: { tableRows: [{ tableCells: [{ content: [{ paragraph: { elements: [{ textRun: { content: 'private data' } }] } }] }] }] } };
+      const a = { ...args(), ranges: [], page: { tabId: 'tab-a', marginTopPt: 60 }, expectedRevisionId: options.stale ? 'old' : 'rev-a' };
+      if (options.stale) await assert.rejects(h.service.format(a), /revision/);
+      else assert.equal((await h.service.format({ ...a, preview: false })).outcome, 'not_submitted');
+      assert.equal(h.writes, 0); assert.doesNotMatch(JSON.stringify(h.logs), /private data/);
+    } finally { await h.close(); }
+  }
+});

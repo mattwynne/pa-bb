@@ -6,8 +6,9 @@ remain the caller's responsibility. Use only explicitly user-requested changes.
 
 ## Workflow
 
-1. Call `gdocs_inspect_formatting({account, document})` for an explicit connected
-   account and Docs ID/URL. Require `complete: true`. Keep its `revisionId` and
+1. Call `gdocs_inspect_formatting({account, document})` for paragraph ranges, or
+   `gdocs_inspect_formatting({account, document, mode: "page"})` for page-only
+   changes on an explicit connected account and Docs ID/URL. Require `complete: true`. Keep its `revisionId` and
    exact paragraph `tabId`, `startIndex` and `endIndex` values. The general reader
    and replacement inspector are not substitutes for this style inspection.
 2. Generate one lowercase UUID and call `gdocs_format_document` with
@@ -65,6 +66,9 @@ Example (replace indices/revision with the inspected values, not guesses):
 - Up to 16 disjoint ranges, 8,000 selected UTF-16 units and a 48 KB proposal.
   All tabs must pass complete inspection: at most 16 tabs, 50,000 body UTF-16
   units and 1 MiB provider JSON, with no clipping. Nested tabs are explicit.
+  Page-only inspection accepts bounded tables, objects, headers and other body
+  structures without exposing their contents; it compares the complete provider
+  representation on readback. Unknown or suggested target page styles fail closed.
 - Text: font family (bounded ASCII API name), 6–72 pt size, bold and hex RGB
   foreground. Paragraphs: 0–72 pt before/after, 100–200% line spacing in 0.01 increments and
   START/CENTER/END/JUSTIFIED alignment. START/END follow paragraph direction;
@@ -97,8 +101,10 @@ Example (replace indices/revision with the inspected values, not guesses):
   automatic page numbers, inline orange-dot/wordmark composition, text-run
   subranges, objects, suggestions, pageless layout,
   section margin/column/orientation overrides or arbitrary API requests.
-  Documents containing unsupported structures in any tab are rejected, not
-  silently projected into a partial edit. Existing links and other ordinary
+  Paragraph-range requests containing unsupported structures in any tab are rejected,
+  not silently projected into a partial edit. Page-only requests preserve those
+  structures and require exact unchanged readback; unrecognized or incomplete
+  structure envelopes fail closed. Existing links and other ordinary
   text styles are preserved; the tool does not modify link destinations.
 - Font-family readback verifies only the API name. It never proves Inter (or
   another font) is available in the Docs menu or actually rendered. No silent

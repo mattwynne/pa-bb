@@ -32,8 +32,10 @@ authorize a live document or respondent contact.
 
 ## Formatting existing documents without a browser
 
-Use `gdocs_inspect_formatting({account, document})`; require complete inspection
-and copy its exact whole-paragraph UTF-16 indices, tab IDs and revision.
+Use `gdocs_inspect_formatting({account, document})` for paragraph ranges or
+`gdocs_inspect_formatting({account, document, mode: "page"})` for page-only changes
+on structured documents; require complete inspection and copy its tab IDs and
+revision. Paragraph ranges also require the exact whole-paragraph UTF-16 indices.
 `gdocs_format_document({account, document, operationId, expectedRevisionId,
 ranges, page?, preview?})` previews by default. Generate one lowercase UUID and
 retain it. Set preview=false with otherwise identical arguments to request
@@ -50,7 +52,7 @@ backgroundColor, size=LETTER, or individual margin*Pt values. For colour only us
 preserve them. No alpha, transparency, named colour or paragraph shading. 61.2 pt
 is .85 inch. At most 16 nonoverlapping whole-paragraph ranges and 8000
 selected UTF-16 units. No raw API requests, partial runs, text insertions,
-semantic heading/named-style-definition updates, tables, lists, real headers or
+semantic heading/named-style-definition updates, table/list edits, real headers or
 footers, page numbers or inline coloured-dot composition. Report unsupported
 layout features rather than claiming the brand design is fully applied.
 

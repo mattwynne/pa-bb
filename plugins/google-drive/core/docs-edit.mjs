@@ -33,7 +33,7 @@ export function documentId(input) {
   return id;
 }
 const populated = value => value != null && (typeof value !== 'object' || Object.keys(value).length > 0);
-function rejectSuggestions(value) {
+export function rejectSuggestions(value) {
   if (!value || typeof value !== 'object') return;
   for (const [key, child] of Object.entries(value)) {
     if ((key.startsWith('suggested') || key === 'suggestions') && populated(child)) throw docsError('unsupported_document');

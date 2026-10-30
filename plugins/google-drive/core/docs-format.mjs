@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
-import { documentId, inspectDocument, docsError, docsErrorMessage } from './docs-edit.mjs';
+import { documentId, inspectDocument, rejectSuggestions, docsError, docsErrorMessage } from './docs-edit.mjs';
 import { docsApprovalDecision, diagnoseDocsApproval } from './docs-approval.mjs';
 import { pageFormat } from './docs-page-format.mjs';
 const target = { account: z.string().min(1).max(320), document: z.string().min(1).max(1024) };
@@ -13,7 +13,7 @@ export const textFormat = nonempty({ fontFamily: z.string().regex(/^[A-Za-z][A-Z
 export const paragraphFormat = nonempty({ spaceAbovePt: z.number().min(0).max(72).optional(),
   spaceBelowPt: z.number().min(0).max(72).optional(), lineSpacing: z.number().min(100).max(200).refine(v => Math.abs(v * 100 - Math.round(v * 100)) < 1e-8, 'Use line-spacing percentages in 0.01 increments.').describe('Line spacing percentage from 100 to 200, in 0.01 increments; 120 means 1.2 lines.').optional(),
   alignment: z.enum(['START', 'CENTER', 'END', 'JUSTIFIED']).optional() });
-export const formatInspectSchema = z.object(target).strict();
+export const formatInspectSchema = z.object({ ...target, mode: z.enum(['paragraphs', 'page']).default('paragraphs').describe('Use page for page-only formatting on bounded structured documents; paragraphs retains strict text-range inspection.') }).strict();
 export const formatStatusSchema = z.object({ account: target.account, operationId: z.uuid().regex(/^[0-9a-f-]+$/) }).strict();
 export const formatSchema = z.object({ ...target, operationId: formatStatusSchema.shape.operationId,
   expectedRevisionId: z.string().min(1).max(2048), preview: z.boolean().default(true),
@@ -23,7 +23,7 @@ export const formatSchema = z.object({ ...target, operationId: formatStatusSchem
 }).strict().refine(v => v.page || v.ranges.length);
 const messages = {
   invalid: 'Use inspected whole-paragraph UTF-16 ranges, a current revision and a single-use lowercase UUID. At most 16 nonoverlapping ranges and 8000 selected UTF-16 units are supported. No arbitrary Google API requests.',
-  unsupported: 'Formatting requires complete simple body paragraphs in paginated Docs. Tables, lists, suggestions, headers/footers, objects, section overrides and other unsupported structures are rejected. Use the general reader for other documents.',
+  unsupported: 'Formatting requires a complete supported inspection. Paragraph ranges require simple paginated body paragraphs; page-only changes require an inspectable paged tab and complete bounded document. Suggestions or unverifiable page styles are rejected.',
   stale: 'The revision or exact inspected document changed. Nothing new was submitted. Inspect again and prepare a separately requested proposal.',
   conflict: 'This operationId belongs to another request/account. Recover the original operation; never replace a key to bypass uncertainty.',
   busy: 'Another formatting operation is reviewing, writing or unresolved on this document. Recover that operation before another proposal.',
@@ -136,7 +136,91 @@ function canonical(doc, ranges = []) {
 // Docs exposes lineSpacing as float32. A requested human-scale percentage can
 // return the adjacent float32 bin (e.g. 120 -> 120.00001). Accommodate only that
 // selected field; never round all styles, named definitions or unrelated text.
+
+// Page-only operations preserve the entire provider response, including opaque
+// body structures. Validate the envelope independently of paragraph editability.
+const pageStyleKeys = new Set(['background', 'pageSize', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'marginHeader', 'marginFooter', 'flipPageOrientation', 'documentFormat', 'defaultHeaderId', 'defaultFooterId', 'firstPageHeaderId', 'firstPageFooterId', 'evenPageHeaderId', 'evenPageFooterId', 'useFirstPageHeaderFooter', 'useEvenPageHeaderFooter']);
+const object = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+function inspectPageDocument(doc, id) {
+  const fail = () => { throw formatError('unsupported'); };
+  if (!object(doc) || doc.documentId !== id || typeof doc.revisionId !== 'string' || !doc.revisionId.length || doc.revisionId.length > 2048 || doc.suggestionsViewMode !== 'SUGGESTIONS_INLINE' || !Array.isArray(doc.tabs) || !doc.tabs.length || Buffer.byteLength(JSON.stringify(doc), 'utf8') > 1_048_576) fail();
+  rejectSuggestions(doc);
+  if (doc.documentStyle && Object.keys(doc.documentStyle).length) fail();
+  const found = [], seen = new Set();
+  let bodyUnits = 0;
+  function structure(item, depth = 0) {
+    if (depth > 32 || !object(item)) fail();
+    const kinds = ['sectionBreak', 'paragraph', 'table', 'tableOfContents'].filter(k => Object.hasOwn(item, k));
+    if (kinds.length !== 1 || !object(item[kinds[0]])) fail();
+    if (item.paragraph) {
+      if (!Array.isArray(item.paragraph.elements) || !item.paragraph.elements.length) fail();
+      for (const e of item.paragraph.elements) {
+        if (!object(e)) fail();
+        const variants = ['textRun', 'autoText', 'pageBreak', 'columnBreak', 'footnoteReference', 'horizontalRule', 'equation', 'inlineObjectElement', 'person', 'richLink', 'dateElement'].filter(k => Object.hasOwn(e, k));
+        if (variants.length !== 1 || !object(e[variants[0]]) || (e.textRun && typeof e.textRun.content !== 'string')) fail();
+      }
+    }
+    if (item.table) {
+      if (!Array.isArray(item.table.tableRows) || !item.table.tableRows.length) fail();
+      for (const row of item.table.tableRows) {
+        if (!object(row) || !Array.isArray(row.tableCells) || !row.tableCells.length) fail();
+        for (const cell of row.tableCells) {
+          if (!object(cell) || !Array.isArray(cell.content) || !cell.content.length) fail();
+          for (const child of cell.content) structure(child, depth + 1);
+        }
+      }
+    }
+    if (item.tableOfContents) {
+      if (!Array.isArray(item.tableOfContents.content) || !item.tableOfContents.content.length) fail();
+      for (const child of item.tableOfContents.content) structure(child, depth + 1);
+    }
+  }
+  function visit(nodes, depth = 0) {
+    if (depth > 16 || !Array.isArray(nodes)) fail();
+    for (const tab of nodes) {
+      if (!object(tab) || Object.keys(tab).some(k => !['tabProperties', 'documentTab', 'childTabs'].includes(k)) || !object(tab.tabProperties) || !object(tab.documentTab)) fail();
+      const id = tab.tabProperties.tabId, data = tab.documentTab;
+      if (typeof id !== 'string' || !id.length || id.length > 256 || seen.has(id) || seen.size >= 16 || !object(data.body) || !Array.isArray(data.body.content) || data.body.content.length < 2) fail();
+      seen.add(id);
+      let index = 0;
+      for (const item of data.body.content) {
+        if (!object(item) || (item.startIndex ?? 0) !== index || !Number.isSafeInteger(item.endIndex) || item.endIndex <= index || item.endIndex > 50001) fail();
+        structure(item);
+        index = item.endIndex;
+      }
+      bodyUnits += index;
+      if (bodyUnits > 50000) fail();
+      if (data.documentStyle !== undefined && !object(data.documentStyle)) fail();
+      found.push({ tabId: id, title: typeof tab.tabProperties.title === 'string' ? tab.tabProperties.title.slice(0, 256) : '', documentStyle: data.documentStyle || {} });
+      if (tab.childTabs !== undefined) visit(tab.childTabs, depth + 1);
+    }
+  }
+  visit(doc.tabs);
+  return { documentId: id, revisionId: doc.revisionId, title: typeof doc.title === 'string' ? doc.title.slice(0, 500) : '', tabs: found.map(({ documentStyle, ...t }) => t), tabStyles: found.map(({ tabId, documentStyle }) => ({ tabId, documentStyle })) };
+}
+function validatePageStyle(style, page) {
+  if (!object(style) || Object.keys(style).some(k => !pageStyleKeys.has(k)) || !object(style.documentFormat) || Object.keys(style.documentFormat).some(k => k !== 'documentMode') || style.documentFormat.documentMode !== 'PAGES' || (page.size && style.flipPageOrientation === true)) throw formatError('unsupported');
+  if (!backgroundRead.safeParse(style.background).success) throw formatError('unsupported');
+  const dimension = z.object({ magnitude: z.number().finite().optional(), unit: z.literal('PT') }).strict();
+  const size = z.object({ width: dimension, height: dimension }).strict();
+  if (style.pageSize !== undefined && !size.safeParse(style.pageSize).success) throw formatError('unsupported');
+  for (const key of ['marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'marginHeader', 'marginFooter']) if (style[key] !== undefined && !dimension.safeParse(style[key]).success) throw formatError('unsupported');
+  for (const key of ['flipPageOrientation', 'useFirstPageHeaderFooter', 'useEvenPageHeaderFooter']) if (style[key] !== undefined && typeof style[key] !== 'boolean') throw formatError('unsupported');
+  for (const key of ['defaultHeaderId', 'defaultFooterId', 'firstPageHeaderId', 'firstPageFooterId', 'evenPageHeaderId', 'evenPageFooterId']) if (style[key] !== undefined && typeof style[key] !== 'string') throw formatError('unsupported');
+}
+function pageCanonical(doc, page) {
+  const copy = clone(doc); delete copy.revisionId;
+  // Normalize only fields explicitly written. Everything else, including opaque
+  // tables and unrelated styles, must compare exactly.
+  const style = tabs(copy).find(t => t.tabProperties.tabId === page.tabId)?.documentTab.documentStyle;
+  if (!style) throw formatError('unsupported');
+  const fields = Object.keys(formatRequests({ ranges: [], page })[0].updateDocumentStyle.documentStyle);
+  for (const field of fields) if (Object.hasOwn(style, field)) style[field] = normalized(style[field]);
+  return copy;
+}
+
 export function formattingReadbackMatches(doc, op) {
+  if (op.pageOnly === true) return isDeepStrictEqual(pageCanonical(doc, op.request.page), op.expected);
   const observed = canonical(doc, op.request.ranges);
   const expectedTabs = tabs(op.expected);
   for (const actualTab of tabs(observed)) {
@@ -176,15 +260,14 @@ export function inspectFormatting(doc, id) {
     inheritance: 'Styles shown are explicit API properties only. Missing values inherit named/default styles; no font rendering or availability is established. Named styles are not changed.',
   };
 }
-function plan(doc, args) {
-  const inspected = inspectFormatting(doc, documentId(args.document));
+function plan(doc, args, legacy = false) {
+  const pageOnly = args.ranges.length === 0 && !legacy;
+  const inspected = pageOnly ? inspectPageDocument(doc, documentId(args.document)) : inspectFormatting(doc, documentId(args.document));
   if (inspected.revisionId !== args.expectedRevisionId) throw formatError('stale');
   if (args.page) {
     const style = tabs(doc).find(t => t.tabProperties.tabId === args.page.tabId)?.documentTab.documentStyle;
-    if (style?.documentFormat?.documentMode !== 'PAGES' || (args.page.size && style.flipPageOrientation === true)) throw formatError('unsupported');
-    // The documented Background has only color. Do not replace unknown future
-    // background properties through its whole-field mask.
-    if (args.page.backgroundColor && !backgroundRead.safeParse(style.background).success) throw formatError('unsupported');
+    if (pageOnly) validatePageStyle(style, args.page);
+    else if (style?.documentFormat?.documentMode !== 'PAGES' || (args.page.size && style.flipPageOrientation === true) || (args.page.backgroundColor && !backgroundRead.safeParse(style.background).success)) throw formatError('unsupported');
   }
   let units = 0;
   const selections = [];
@@ -197,7 +280,7 @@ function plan(doc, args) {
     selections.push({ ...range, paragraphs });
   }
   const expected = clone(doc);
-  for (const tab of tabs(expected)) {
+  for (const tab of pageOnly ? [] : tabs(expected)) {
     for (const item of tab.documentTab.body.content) {
       if (!item.paragraph) continue;
       const r = args.ranges.find(r => r.tabId === tab.tabProperties.tabId && item.startIndex >= r.startIndex && item.endIndex <= r.endIndex);
@@ -216,7 +299,7 @@ function plan(doc, args) {
     selections, page: args.page ? { before: inspected.tabStyles.find(t => t.tabId === args.page.tabId).documentStyle, after: args.page } : null,
     limits: 'Only listed explicit properties change. Text, paragraph boundaries and named styles stay unchanged. Inherited values become explicit overrides for the selected properties. Font-family readback does not establish rendering or font-menu availability.' };
   if (Buffer.byteLength(JSON.stringify(proposal), 'utf8') > 48_000) throw formatError('invalid');
-  return { proposal, before: hash(canonical(doc)), expected: canonical(expected, args.ranges) };
+  return { proposal, ...(pageOnly ? { pageOnly: true } : {}), before: hash(pageOnly ? pageCanonical(doc, args.page) : canonical(doc)), expected: pageOnly ? pageCanonical(expected, args.page) : canonical(expected, args.ranges) };
 }
 export function createDocsFormatService({ store, drive, docs, approve = async (_p, _s) => /** @type {unknown} */ ({ outcome: 'cancelled', reason: 'request-aborted' }), diagnose = (_stage, _error) => {}, clock = () => Date.now(), approvalRequired = async () => true }) {
   const active = new Set();
@@ -225,10 +308,10 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
     catch { throw docsError('approval_policy_unavailable'); }
   }
   async function record(account) { const r = await store.byEmail(account); if (!r) throw docsError('unknown_account'); return r; }
-  async function load(r, id) {
+  async function load(r, id, pageOnly = false) {
     const file = await drive.getFile(r, id);
     if (file.id !== id || file.trashed !== false || file.mimeType !== 'application/vnd.google-apps.document') throw docsError('wrong_type');
-    const doc = await docs.inspect(r, id); inspectFormatting(doc, id); return doc;
+    const doc = await docs.inspect(r, id); if (pageOnly) inspectPageDocument(doc, id); else inspectFormatting(doc, id); return doc;
   }
   const receipt = (op, extra = {}) => ({ operationId: op.operationId, documentId: op.documentId, outcome: op.state, retrySafe: false, approval: op.approval || 'not_checked',
     providerAcknowledged: typeof op.appliedRevision === 'string' && !!op.appliedRevision,
@@ -237,7 +320,9 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
   async function save(op, state) { op.state = state; await store.updateFormatting(op); }
   async function inspect(input) {
     const args = formatInspectSchema.parse(input), r = await record(args.account);
-    const result = inspectFormatting(await load(r, documentId(args.document)), documentId(args.document));
+    const id = documentId(args.document), pageOnly = args.mode === 'page';
+    const doc = await load(r, id, pageOnly);
+    const result = pageOnly ? inspectPageDocument(doc, id) : inspectFormatting(doc, id);
     const { tabs: tabText, ...rest } = result;
     return { account: r.email, ...rest, tabs: tabText.map(({ runs, text, ...t }) => t), complete: true };
   }
@@ -249,7 +334,7 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
     let op = await store.getFormatting(args.operationId);
     if (op && (op.subject !== r.subject || op.requestHash !== requestHash)) throw formatError('conflict');
     if (!op) {
-      const prepared = plan(await load(r, id), args);
+      const prepared = plan(await load(r, id, args.ranges.length === 0), args);
       op = { operationId: args.operationId, subject: r.subject, documentId: id, requestHash, request,
         ...prepared, createdAt: clock(), state: 'proposed' };
       if (!await store.reserveFormatting(op)) return format(input, signal, requestApproval); // local reservation race only
@@ -272,7 +357,7 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
         ownerApproved = true;
       }
       stage = 'revalidate';
-      const fresh = plan(await load(r, id), args);
+      const fresh = plan(await load(r, id, op.pageOnly === true), args, op.pageOnly !== true);
       if (fresh.before !== op.before) throw formatError('stale');
       if (clock() - op.createdAt >= 600_000) { await save(op, 'expired'); return receipt(op, { writeAttempted: false }); }
       signal?.throwIfAborted();
@@ -292,7 +377,7 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
       op.appliedRevision = result?.documentId === id && Array.isArray(result.replies) && result.replies.length === formatRequests(args).length
         && typeof revision === 'string' && revision.length > 0 && revision.length <= 2048 ? revision : null;
       await save(op, 'uncertain');
-      const after = await load(r, id);
+      const after = await load(r, id, op.pageOnly === true);
       const matches = op.appliedRevision !== null && after.revisionId === op.appliedRevision && formattingReadbackMatches(after, op);
       if (!matches) diagnose('docs_format_verification_mismatch', null);
       await save(op, matches ? 'verified' : 'uncertain');
@@ -314,7 +399,7 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
     // Never clear a reviewing lock on read: another process may still own it.
     if (!['writing', 'uncertain', 'verified'].includes(op.state)) return receipt(op, { historical: true, writeAttempted: false });
     try {
-      const after = await load(r, op.documentId), matches = formattingReadbackMatches(after, op);
+      const after = await load(r, op.documentId, op.pageOnly === true), matches = formattingReadbackMatches(after, op);
       const evidence = { observedRevisionId: after.revisionId, responseRevisionMatchesReadback: !!op.appliedRevision && after.revisionId === op.appliedRevision };
       if (op.state === 'verified' && !matches) return receipt(op, { ...evidence, outcome: 'changed_since_verification', readbackMatches: false, writeAttempted: false });
       // Exact present state proves readback, not causality/HTTP completion. Never
