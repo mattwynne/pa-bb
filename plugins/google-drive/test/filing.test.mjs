@@ -78,9 +78,29 @@ async function setup(options = {}) {
   const diagnose = (stage, error) => logs.push(`Google Drive ${stage} ${filingCategory(error)} ${failureCategory(error)}`);
   const service = () => createFilingService({ store, operations: store.filing, filing: adapter.filing, diagnose, clock: () => clock });
   const s = service();
-  return { ...h, store, s, service, files, permissionRows, calls, options, logs, writes: () => writes, content: () => storedContent,
+  return { ...h, store, s, service, adapter, files, permissionRows, calls, options, logs, writes: () => writes, content: () => storedContent,
     tick: ms => { clock += ms; }, close: () => h.harness.lifecycle.dispose() };
 }
+test('shared native destination assessment uses complete ancestry and explicit user authority', async () => {
+  const h = await setup({ shared: true });
+  try {
+    const record = await h.store.byEmail(account);
+    const first = await h.adapter.filing.assessDestination(record, 'dest-id');
+    assert.deepEqual(first.contextIds, ['dest-id', 'root-id']);
+    assert.match(first.audience, /team@example.invalid/);
+    h.files.get('dest-id').owners = [{ me: false, emailAddress: 'partner@example.invalid' }];
+    h.permissionRows.set('dest-id', [{ ...owner, id: 'foreign-owner', emailAddress: 'partner@example.invalid' }, { ...owner, role: 'writer' }, group]);
+    assert.match((await h.adapter.filing.assessDestination(record, 'dest-id')).owners, /partner@example.invalid/);
+    h.files.get('dest-id').owners = [{ me: true, emailAddress: account }];
+    h.permissionRows.delete('dest-id');
+    h.files.get('dest-id').parents = ['missing'];
+    await assert.rejects(h.adapter.filing.assessDestination(record, 'dest-id'));
+    h.files.get('dest-id').parents = ['root-id'];
+    h.permissionRows.set('dest-id', [{ ...owner, role: 'reader' }, group]);
+    await assert.rejects(h.adapter.filing.assessDestination(record, 'dest-id'));
+    assert.equal(h.writes(), 0);
+  } finally { await h.close(); }
+});
 function safe(h) { assert.doesNotMatch(h.logs.join('\n'), /private-|example\.invalid|Synthetic|doc-id|dest-id|subject|foreign-ancestor|owned-middle/); }
 // Owned destination -> owned parent -> another person's folder -> owned root.
 // No real account, file, credential or provider is involved.

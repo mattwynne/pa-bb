@@ -46,11 +46,20 @@ async function setup(options = {}) {
       return Response.json({ documentId: 'doc-a', replies: [{}] });
     }
     if (u.pathname === '/drive/v3/files') return Response.json({ files: created && !options.noSearchResult ? [{ id: 'doc-a' }, ...(options.duplicateMatch ? [{ id: 'doc-b' }] : [])] : [], ...(options.pagedSearch ? { nextPageToken: 'private-page-token' } : {}) });
-    if (u.pathname.endsWith('/permissions')) return Response.json({ permissions: [{ type: 'user', role: 'owner', emailAddress: account }], ...(options.pagedPermissions ? { nextPageToken: 'private-token' } : {}) });
+    if (u.pathname.endsWith('/permissions')) return Response.json({ permissions: options.sharedEvidence
+      ? [{ id: 'owner', type: 'user', role: 'owner', emailAddress: account }, { id: 'team', type: 'group', role: 'writer', emailAddress: 'team@example.invalid' }]
+      : [{ type: 'user', role: 'owner', emailAddress: account }], ...(options.pagedPermissions ? { nextPageToken: 'private-token' } : {}) });
     if (u.pathname.includes('/drive/v3/files/')) {
       const fileId = u.pathname.split('/').at(-1);
+      if (options.sharedEvidence && u.searchParams.get('supportsAllDrives') === 'false' && u.searchParams.get('fields')?.includes('inheritedPermissionsDisabled')) {
+        const id = fileId === 'root' ? 'root-a' : fileId;
+        return Response.json({ id, name: id === 'root-a' ? 'My Drive' : id === 'doc-a' ? 'Synthetic interview' : 'Team',
+          mimeType: id === 'doc-a' ? 'application/vnd.google-apps.document' : 'application/vnd.google-apps.folder',
+          parents: id === 'root-a' ? undefined : [id === 'doc-a' ? 'folder-a' : 'root-a'], trashed: false,
+          owners: [{ me: true, emailAddress: account }], capabilities: { canAddChildren: true, canMoveItemWithinDrive: true } });
+      }
       if (fileId !== 'doc-a') {
-        if (u.searchParams.get('fields')?.includes('owners')) return Response.json({ id: fileId, shared: options.shared === true, driveId: options.sharedDrive ? 'drive-a' : undefined, owners: [{ me: !options.notOwned }] });
+        if (u.searchParams.get('fields')?.includes('owners')) return Response.json({ id: fileId, shared: options.shared === true || options.sharedEvidence === true, driveId: options.sharedDrive ? 'drive-a' : undefined, owners: [{ me: !options.notOwned }] });
         return Response.json({ id: fileId === 'root' ? 'root-a' : fileId, trashed: false, mimeType: 'application/vnd.google-apps.folder', capabilities: { canAddChildren: !options.notWritable } });
       }
       if (options.verifyFailure) return Response.json({ private: 'private-body' }, { status: 503 });
@@ -113,7 +122,7 @@ test('drive.file write consent works without scope expansion; supported folder c
     try {
       const result = await h.harness.behavior.callAgentTool('gdocs_create_document', input);
       if (options.scope) { assert.equal(parse(result).outcome, 'verified'); assert.equal(h.writes().length, 2); }
-      else { assert.equal(result.isError, true); assert.equal(h.writes().length, 0); assert.match(result.content[0].text, /owned, unshared/); }
+      else { assert.equal(result.isError, true); assert.equal(h.writes().length, 0); assert.match(result.content[0].text, /eligible writable My Drive/); }
       safeLogs(h);
     } finally { await h.close(); }
   }
@@ -277,4 +286,29 @@ test('abort and receipt persistence failures fail closed before mutation or popu
       assert.equal(h.writes().length, boundary === 'known-id' ? 1 : 0);
     } finally { await h.close(); }
   }
+});
+
+test('shared document uses the registered exact review and verifies with filing evidence', async () => {
+  const h = await setup({ sharedEvidence: true }); const input = { ...args(), folderId: 'folder-a' };
+  try {
+    const done = h.harness.behavior.callAgentTool('gdocs_create_document', input);
+    let form;
+    for (let i = 0; i < 200 && !form; i++) { form = h.harness.inspection.pendingInteractions[0]; if (!form) await new Promise(r => setTimeout(r, 1)); }
+    assert.ok(form, JSON.stringify(h.calls.map(c => c.url)));
+    assert.equal(form.rendererId, 'drive-creation-approval'); assert.equal(form.payload.content, input.text);
+    assert.match(form.payload.audience, /team@example.invalid/); assert.equal(h.writes().length, 0);
+    h.harness.behavior.submitInteraction(form.id, { approved: true });
+    assert.equal(parse(await done).outcome, 'verified'); assert.equal(h.writes().length, 2);
+    safeLogs(h);
+  } finally { await h.close(); }
+});
+
+test('shared incomplete evidence fails before review or write without leaking provider details', async () => {
+  const h = await setup({ sharedEvidence: true, pagedPermissions: true });
+  try {
+    const result = await h.harness.behavior.callAgentTool('gdocs_create_document', { ...args(), folderId: 'folder-a' });
+    assert.equal(result.isError, true); assert.equal(h.writes().length, 0);
+    assert.equal(h.harness.inspection.pendingInteractions.length, 0); safeLogs(h);
+    assert.doesNotMatch(JSON.stringify(result), /private-/);
+  } finally { await h.close(); }
 });

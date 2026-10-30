@@ -11,12 +11,10 @@ For general reading, follow every `gdocs_read` nextCursor with the same account 
 Use `gdocs_create_document({account, operationId, folderId, title, text})` for a
 user-requested new native Doc, not copying or repeated replacements. Generate a
 fresh lowercase UUID v4 once; retain it across interruptions. Choose `root`
-unless the user selected an owned unshared My Drive folder. Shared/unknown
-folders are rejected. `text` is literal plain text (up to 40,000 UTF-16 units),
+unless the user explicitly selected another supported My Drive folder. Shared destinations require complete access assessment and per-operation owner review; unknown authority and shared drives are rejected. `text` is literal plain text (up to 40,000 UTF-16 units),
 with LF paragraph breaks and blank answer spaces; no Markdown/HTML conversion.
 Creation requires an existing owner-authorized Drive write grant. It follows
-the copy tool's user-request authorization, not the Docs-edit approval
-setting. Do not change settings, request new credentials, share or invite.
+the user request and, for shared destinations, exact owner review of content and partial exposure; the Docs-edit approval setting is separate. Do not change settings, request new credentials, share or invite.
 
 Only `outcome: verified` confirms exact title/destination/body readback. Return
 the Docs link. After any partial, reserved or uncertain outcome, call

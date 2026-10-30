@@ -83,6 +83,34 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
     if (!filingId.safeParse(m.id).success || m.mimeType !== FOLDER) throw filingError('unsupported');
     return m.id;
   }
+  // A bounded fact projection for operations which independently decide
+  // whether this kind of destination is eligible for their write.
+  async function assessDestination(record, id) {
+    const rootId = await root(record);
+    const destination = await chain(record, id, rootId, true);
+    const item = destination[0];
+    if (item.metadata.mimeType !== FOLDER || item.metadata.capabilities?.canAddChildren !== true
+      || !item.permissions.some(p => p.type === 'user' && p.emailAddress === record.email.toLowerCase()
+        && ['owner', 'writer'].includes(p.role))) throw filingError('unsupported');
+    const audience = [...new Set(destination.flatMap(i => i.permissions
+      .filter(p => p.role !== 'owner' || p.emailAddress !== record.email.toLowerCase())
+      .map(p => `${principal(p)} — ${filingRoleLabel(p.role)}`)))];
+    if (audience.length > 40) throw filingError('unsupported');
+    const projection = { destinationId: item.metadata.id, contextIds: destination.map(i => i.metadata.id),
+      fingerprint: filingHash(destination), path: [...destination].reverse().map(i => i.metadata.name).join(' / '),
+      owners: [...destination].reverse().map(i => `${i.metadata.name} — owner: ${i.metadata.owners[0].emailAddress}`).join('\n'),
+      audience: audience.join('\n') || 'Only the owner appears in the inspected access lists.',
+      allowedAccess: [...item.permissions, { type: 'user', emailAddress: record.email, role: 'owner' }].map(p => [accessKey(p), rank[p.role]]) };
+    if (Buffer.byteLength(JSON.stringify(projection), 'utf8') > 48_000) throw filingError('unsupported');
+    return projection;
+  }
+  async function verifyCreated(record, id, destinationId, mimeType, allowedAccess) {
+    const rootId = await root(record);
+    const current = await chain(record, id, rootId);
+    const item = current[0];
+    return item.metadata.id === id && item.metadata.mimeType === mimeType && item.metadata.parents?.length === 1
+      && item.metadata.parents[0] === destinationId && item.permissions.every(p => allowedAccess.some(([key, maximum]) => key === accessKey(p) && rank[p.role] <= maximum));
+  }
   async function exactFolder(record, parentId, name) {
     const u = new URL(FILES);
     u.search = new URLSearchParams({ q: `trashed = false and mimeType = '${FOLDER}' and ${literal(parentId)} in parents and name = ${literal(name)}`,
@@ -185,7 +213,7 @@ export function createFilingAdapter({ verifiedAccess, fetchImpl = fetch }) {
       && filingHash(m.name) === op.titleHash && filingHash(destination) === op.destinationFingerprint && noUnexpectedAccess
       && (op.kind === 'folder' || op.directBefore.every(before => directNow.some(p => filingHash(p) === filingHash(before)))), visibleAccess };
   }
-  return { propose, prepare, verify,
+  return { propose, prepare, verify, assessDestination, verifyCreated,
     async findFolder(record, operationId) {
       const u = new URL(FILES);
       u.search = new URLSearchParams({ q: `trashed = false and mimeType = '${FOLDER}' and appProperties has { key='paFilingCreation' and value=${literal(operationId)} }`,

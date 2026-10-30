@@ -17,7 +17,7 @@ export function createFilingStore(db) {
         .run(op.operationId, op.subject, op.resource, op.state, JSON.stringify(op)).changes === 1;
     },
     async claim(op) {
-      return claimFilingAccess(db, op.contextIds, () =>
+      return claimFilingAccess(db, op, () =>
         db.prepare("UPDATE OR IGNORE drive_filing_operations SET state = 'reviewing' WHERE operation_id = ? AND subject = ? AND state = 'proposed'")
           .run(op.operationId, op.subject).changes === 1);
     },

@@ -25,7 +25,7 @@ upgrade grants; only the owner can authorize supported Settings reconnection.
 No OAuth scopes, approval settings or credentials are changed by creation.
 
 As with `gdrive_copy_file`, creation is authorized by the user's explicit
-request and existing Google write consent, not the replacement-only approval
+request and existing Google write consent. Shared destinations additionally require a per-operation owner review; this is separate from the replacement-only approval
 card/setting. The global **Require approval for Google Docs edits** setting
 continues to govern `gdocs_replace_text` only. Do not interpret a request to
 implement this capability, test it, or draft text as permission to create a real
@@ -36,10 +36,7 @@ document or contact respondents.
 - `folderId` is required. `root` selects the connected account's My Drive root;
   use it unless the user selected a folder. There is no implicit account or
   destination selection.
-- Other IDs must identify a writable My Drive folder that Google reports as
-  unshared, owned by this account, with a complete visible owner-only permission
-  listing. Shared drives and shared/unknown destinations are rejected, with no
-  override. This deliberately supports fewer destinations than copying.
+- Other IDs must identify an explicitly selected writable My Drive folder. The existing owner-only check remains for visibly unshared owned folders. Shared or non-owned parents require complete bounded ancestry and permission evidence, direct visible user owner/writer authority, and an exact owner review. Shared drives, unknown authority and incomplete evidence are rejected. This deliberately supports fewer destinations than copying.
 - There are no permissions mutations, sharing links, invitations or respondent
   notifications. Root is the privacy-preserving default choice, but Google or
   organization policies and later changes still control access. Provider-visible
@@ -116,3 +113,9 @@ Bounded diagnostics identify `reserve`, `create`, `populate`, `verify`,
 They contain fixed categories and validated HTTP statuses only, never title,
 text, account address, identifiers, credentials or provider response bodies.
 An uncertainty diagnostic cannot establish whether a document exists.
+
+## Shared destination review
+
+The card shows the account, destination path, owners, visible audience, title, file type and complete requested content. If the complete card exceeds its bound, creation is refused before any write. The owner must approve each shared creation. A blank file, partial content or full content may be visible to the destination audience and may remain after failure. Group membership and organization rules are not fully visible. Access and authority are rechecked before creation and population; other Google clients can race those checks. No staging, moves, permission changes or invitations occur.
+
+New shared-destination receipts record the acknowledgement of each submission. After a lost response, a matching observation does not establish acknowledgement: the operation remains unresolved and retains its local access claim. Status never replays a write. Local claims block sharing changes on inspected ancestors and the new file and moves of the exact new file; independent creations and filing can share ancestors. They cannot lock Google or other clients. Existing root and unshared-folder receipts retain their previous recovery semantics and are not claimed to have complete ancestry assessment.

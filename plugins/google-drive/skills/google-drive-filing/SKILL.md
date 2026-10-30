@@ -83,6 +83,9 @@ folder link and the SAME existing file's link (native Docs/Sheets/Slides or a ca
 not a complete content or visual-rendering certification. Another actor can
 race final inspection; no provider transaction/CAS guarantee or automatic
 rollback is offered.
+An unresolved shared Docs/Sheets creation can block filing its exact new file
+until its original receipt is reconciled. Independent filing can share a
+destination ancestor. Local claims do not exclude other Google clients.
 
 Keep each operationId. Repeated mutation calls return saved receipts without
 another write; a fresh key can duplicate work and must not bypass uncertainty.

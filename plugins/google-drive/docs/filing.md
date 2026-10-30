@@ -111,6 +111,10 @@ return historical receipts without another Google write. Exact folder requests
 and same-file moves are serialized within filing; external actors and other
 operations can still race the final live inspection. There is no provider-side
 transaction/CAS claim. No rollback or data cleanup hides partial results.
+Reviewed shared native Docs/Sheets creation coordinates locally with sharing
+changes to inspected ancestors and, once known, the new file. Filing conflicts
+only when it moves that exact new file; independent operations can share an
+ancestor. These claims cannot exclude changes from another Google client.
 
 After any ambiguous submission, retain the same key and inspect status. Folder
 recovery searches the private marker; an empty, paged, incomplete or ambiguous

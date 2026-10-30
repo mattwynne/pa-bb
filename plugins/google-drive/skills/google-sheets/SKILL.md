@@ -10,8 +10,7 @@ Do not create a smoke-test file in a real account without separate authorization
 
 Call `gsheets_create_spreadsheet({account, operationId, title, tabs, folderId?})`.
 Generate a fresh lowercase UUID v4 once, then retain it. `folderId` defaults to
-`root`; select another supported owned, unshared My Drive folder only when the
-user explicitly chose it. No sharing, notifications or existing-sheet editing.
+`root`; select another supported My Drive folder only when the user explicitly chose it. Shared destinations require exact owner review of content and partial exposure. No sharing, notifications or existing-sheet editing.
 
 `tabs` is an ordered array of `{title, rows}`. Each `rows` entry is an array of
 cells; the first row is the header. Cells accept literal strings, finite numbers,

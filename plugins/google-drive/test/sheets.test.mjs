@@ -36,11 +36,20 @@ async function setup(options = {}) {
       assert.match(u.searchParams.get('q'), /paSheetsCreation/);
       return Response.json({ files: created && !options.missing ? [{ id: 'sheet-a' }, ...(options.ambiguous ? [{ id: 'sheet-b' }] : [])] : [], ...(options.paged ? { nextPageToken: 'SENTINEL-page' } : {}) });
     }
-    if (u.pathname.endsWith('/permissions')) return Response.json({ permissions: [{ type: 'user', role: 'owner', emailAddress: account }], ...(options.permissionPaged ? { nextPageToken: 'SENTINEL-page' } : {}) });
+    if (u.pathname.endsWith('/permissions')) return Response.json({ permissions: options.sharedEvidence
+      ? [{ id: 'owner', type: 'user', role: 'owner', emailAddress: account }, { id: 'team', type: 'group', role: 'writer', emailAddress: 'team@example.invalid' }]
+      : [{ type: 'user', role: 'owner', emailAddress: account }], ...(options.permissionPaged ? { nextPageToken: 'SENTINEL-page' } : {}) });
     if (u.pathname.includes('/drive/v3/files/')) {
       const id = u.pathname.split('/').at(-1);
+      if (options.sharedEvidence && u.searchParams.get('supportsAllDrives') === 'false' && u.searchParams.get('fields').includes('inheritedPermissionsDisabled')) {
+        const resolved = id === 'root' ? 'root-a' : id;
+        return Response.json({ id: resolved, name: resolved === 'root-a' ? 'My Drive' : resolved === 'sheet-a' ? 'Synthetic workbook' : 'Team',
+          mimeType: resolved === 'sheet-a' ? 'application/vnd.google-apps.spreadsheet' : 'application/vnd.google-apps.folder',
+          parents: resolved === 'root-a' ? undefined : [resolved === 'sheet-a' ? 'folder-a' : 'root-a'], trashed: false,
+          owners: [{ me: true, emailAddress: account }], capabilities: { canAddChildren: true, canMoveItemWithinDrive: true } });
+      }
       if (id === 'sheet-a') return Response.json({ id, name: options.wrongTitle ? 'Changed' : 'Synthetic workbook', mimeType: 'application/vnd.google-apps.spreadsheet', trashed: false, parents: [options.wrongParent ? 'other' : request?.parents[0] || 'root-a'] });
-      if (u.searchParams.get('fields').includes('owners')) return Response.json({ id, shared: !!options.shared, driveId: options.sharedDrive ? 'drive-a' : undefined, owners: [{ me: !options.notOwned }] });
+      if (u.searchParams.get('fields').includes('owners')) return Response.json({ id, shared: !!(options.shared || options.sharedEvidence), driveId: options.sharedDrive ? 'drive-a' : undefined, owners: [{ me: !options.notOwned }] });
       return Response.json({ id: id === 'root' ? 'root-a' : id, trashed: false, mimeType: 'application/vnd.google-apps.folder', capabilities: { canAddChildren: !options.notWritable } });
     }
     if (u.pathname.endsWith(':batchUpdate')) {
@@ -290,4 +299,17 @@ test('durable reservation and known-ID persistence failures never issue unsafe w
       assert.equal(h.writes().length, ['known-id', 'after-create'].includes(boundary) ? 1 : 0);
     } finally { await h.close(); }
   }
+});
+
+test('shared spreadsheet uses registered exact review and filing evidence', async () => {
+  const h = await setup({ sharedEvidence: true }); const a = { ...input(), folderId: 'folder-a' };
+  try {
+    const done = h.harness.behavior.callAgentTool('gsheets_create_spreadsheet', a); let form;
+    for (let i = 0; i < 200 && !form; i++) { form = h.harness.inspection.pendingInteractions[0]; if (!form) await new Promise(r => setTimeout(r, 1)); }
+    assert.ok(form, JSON.stringify(h.harness.inspection.logEntries));
+    assert.equal(form.rendererId, 'drive-creation-approval'); assert.deepEqual(JSON.parse(form.payload.content), a.tabs);
+    assert.match(form.payload.audience, /team@example.invalid/); assert.equal(h.writes().length, 0);
+    h.harness.behavior.submitInteraction(form.id, { approved: true });
+    assert.equal(parse(await done).outcome, 'verified'); assert.equal(h.writes().length, 2);
+  } finally { await h.close(); }
 });

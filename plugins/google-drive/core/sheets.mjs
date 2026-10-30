@@ -54,13 +54,14 @@ export function populationRequests(tabs, blankSheetId) {
   requests.push({ deleteSheet: { sheetId: blankSheetId } });
   return requests;
 }
-export function createSheetsService({ store, drive, sheets, diagnose }) {
-  const creationService = createNativeCreationService({ store, drive, creation: sheets.creation, diagnose, spec: {
+export function createSheetsService({ store, drive, sheets, assessment, diagnose }) {
+  const creationService = createNativeCreationService({ store, drive, creation: sheets.creation, assessment, diagnose, spec: {
     kind: 'spreadsheet', idField: 'spreadsheetId', mimeType: SHEETS_MIME, stage: 'sheets_creation',
     statusTool: 'gsheets_creation_status', url: id => `https://docs.google.com/spreadsheets/d/${id}/edit`,
     verifiedGuidance: 'Title, destination, ordered tabs and all initial cell values/date/currency formats were read back exactly; first rows are frozen. Header styling and privacy are not independently certified. No sharing or invitations.',
     validate: args => { plan(args.tabs); },
     request: args => ['spreadsheet', args.folderId, args.title, args.tabs],
+    reviewContent: args => JSON.stringify(args.tabs, null, 2),
     expected(args) { const tabs = plan(args.tabs); return { contentHash: contentHash(tabs), shape: tabs.map(({ sheetId, rowCount, columnCount }) => ({ sheetId, rowCount, columnCount })) }; },
     async populate(writer, record, op, args, signal) {
       const blank = await sheets.metadata(record, op.spreadsheetId);

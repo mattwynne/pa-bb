@@ -24,9 +24,7 @@ replacement automatically. No credential should be supplied in chat.
 Creation requires a user request, like native Docs creation; it does not use or
 change the Docs-replacement-only approval switch. Sharing approval remains
 mandatory and separate. Root is the default. An explicitly selected alternative
-must pass the shared Docs destination checks: writable, owned, unshared My Drive
-folder with complete owner-only permissions. Shared drives/unverified folders
-are rejected. No sharing, invites, moves or deleting existing user files.
+must pass the Docs destination checks. Shared or non-owned My Drive parents require complete inspected authority and a per-operation owner review of the exact cells and partial-content exposure. Shared drives and unverified folders are rejected. No sharing, invites, moves or deleting existing user files.
 
 ## Tools
 
@@ -117,3 +115,5 @@ readback mismatch, scopes/identity, destination safeguards, concurrent keys,
 reload, cancellation/storage failures, unknown create/populate results and
 read-only recovery. Live writes require separate specific owner authorization;
 synthetic verification is not proof that a real Google write has succeeded.
+
+Shared creation uses the direct destination and the review, acknowledgement and recovery rules in [the creation guide](creation.md). A blank or partial workbook may be visible and remain after failure. A matching observation after a lost response does not acknowledge that write.

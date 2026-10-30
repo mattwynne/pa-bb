@@ -8,16 +8,39 @@ export function claimSharingAccess(db, fileId, claim) {
       json_each(op.receipt, '$.contextIds') AS context
       WHERE op.state IN ('reviewing','writing','uncertain') AND context.value = ?
       LIMIT 1`).get(fileId);
-    return !conflict && claim();
+    const creating = db.prepare(`SELECT 1 FROM docs_creations AS op, json_each(op.receipt, '$.contextIds') AS context
+      WHERE json_extract(op.receipt, '$.claimState') IN ('reviewing','writing','uncertain') AND context.value = ? LIMIT 1`).get(fileId);
+    return !conflict && !creating && claim();
   })();
 }
 
-export function claimFilingAccess(db, contextIds, claim) {
+export function claimFilingAccess(db, op, claim) {
   return db.transaction(() => {
     const conflict = db.prepare(`SELECT 1 FROM drive_sharing_operations
       WHERE state IN ('reviewing','writing','uncertain')
       AND file_id IN (SELECT value FROM json_each(?)) LIMIT 1`)
-      .get(JSON.stringify(contextIds));
-    return !conflict && claim();
+      .get(JSON.stringify(op.contextIds));
+    // A move mutates its file, not its ancestors. Folder creation has no
+    // existing file to mutate. Shared ancestry alone is read/read overlap.
+    const fileId = op.resource?.startsWith('file:') ? op.resource.slice(5) : null;
+    const creating = fileId && db.prepare(`SELECT 1 FROM docs_creations AS op
+      WHERE json_extract(op.receipt, '$.claimState') IN ('reviewing','writing','uncertain')
+      AND COALESCE(json_extract(op.receipt, '$.documentId'), json_extract(op.receipt, '$.spreadsheetId')) = ? LIMIT 1`).get(fileId);
+    return !conflict && !creating && claim();
+  })();
+}
+
+export function claimCreationAccess(db, op, claim) {
+  return db.transaction(() => {
+    const ids = JSON.stringify(op.contextIds);
+    const sharing = db.prepare(`SELECT 1 FROM drive_sharing_operations WHERE state IN ('reviewing','writing','uncertain')
+      AND file_id IN (SELECT value FROM json_each(?)) LIMIT 1`).get(ids);
+    const fileId = op.documentId || op.spreadsheetId;
+    const filing = fileId && db.prepare(`SELECT 1 FROM drive_filing_operations
+      WHERE state IN ('reviewing','writing','uncertain') AND resource = ? LIMIT 1`).get(`file:${fileId}`);
+    const creating = fileId && db.prepare(`SELECT 1 FROM docs_creations AS op
+      WHERE json_extract(op.receipt, '$.claimState') IN ('reviewing','writing','uncertain') AND op.operation_id <> ?
+      AND COALESCE(json_extract(op.receipt, '$.documentId'), json_extract(op.receipt, '$.spreadsheetId')) = ? LIMIT 1`).get(op.operationId, fileId);
+    return !sharing && !filing && !creating && claim();
   })();
 }

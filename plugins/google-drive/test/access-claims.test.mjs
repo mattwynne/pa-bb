@@ -62,3 +62,59 @@ test('simultaneous cross-workflow claims have exactly one winner in either order
     } finally { await h.close(); }
   }
 });
+
+test('shared creation ancestors are read-only overlap, but sharing them remains blocked after restart', async () => {
+  const h = await setup();
+  try {
+    const first = { operationId: randomUUID(), subject: 'synthetic', contextIds: ['destination', 'ancestor', 'new-file'], claimState: 'uncertain', documentId: 'new-file' };
+    assert.equal(await h.store.reserveSharedCreation(first), true);
+    const restarted = createBbStore(h.db, () => {});
+    const other = { ...first, operationId: randomUUID(), documentId: undefined, contextIds: ['other-destination', 'ancestor'], claimState: 'reviewing' };
+    assert.equal(await restarted.reserveSharedCreation(other), true);
+    const move = h.filing(); await restarted.filing.reserve(move);
+    assert.equal(await restarted.filing.claim(move), true);
+    const folder = { operationId: randomUUID(), subject: 'synthetic', resource: 'folder:synthetic:other:name', contextIds: ['other-destination', 'ancestor'], state: 'proposed' };
+    await restarted.filing.reserve(folder); assert.equal(await restarted.filing.claim(folder), true);
+    for (const id of ['ancestor', 'new-file']) {
+      const share = h.sharing(id); await restarted.reserveSharing(share);
+      assert.equal(await restarted.claimSharing(share.operationId, id), false);
+    }
+  } finally { await h.close(); }
+});
+
+test('returned file attach refuses a move claimed while the ID was unknown', async () => {
+  const h = await setup(); try {
+    const creation = { operationId: randomUUID(), subject: 'synthetic', contextIds: ['destination', 'ancestor'], claimState: 'reviewing' };
+    assert.equal(await h.store.reserveSharedCreation(creation), true);
+    const writing = { ...creation, claimState: 'writing' }; assert.equal(await h.store.startSharedCreation(writing), true);
+    const move = { ...h.filing(), resource: 'file:new-file', fileId: 'new-file', contextIds: ['new-file', 'ancestor'] };
+    await h.store.filing.reserve(move); assert.equal(await h.store.filing.claim(move), true);
+    assert.equal(await h.store.attachSharedCreation({ ...writing, documentId: 'new-file', contextIds: [...writing.contextIds, 'new-file'] }), false);
+  } finally { await h.close(); }
+});
+
+test('moving exactly the created file conflicts in both orderings across restart', async () => {
+  for (const creationFirst of [true, false]) {
+    const h = await setup();
+    try {
+      const creation = { operationId: randomUUID(), subject: 'synthetic', contextIds: ['destination', 'ancestor', 'new-file'], documentId: 'new-file', claimState: 'uncertain' };
+      const move = { ...h.filing(), resource: 'file:new-file', fileId: 'new-file', contextIds: ['new-file', 'other', 'ancestor'] };
+      await h.store.filing.reserve(move);
+      const create = () => h.store.reserveSharedCreation(creation), file = () => h.store.filing.claim(move);
+      assert.equal(await (creationFirst ? create() : file()), true);
+      const restarted = createBbStore(h.db, () => {});
+      assert.equal(await (creationFirst ? restarted.filing.claim(move) : restarted.reserveSharedCreation(creation)), false);
+    } finally { await h.close(); }
+  }
+});
+
+test('claiming the returned file ID refuses an already active local sharing review', async () => {
+  const h = await setup(); try {
+    const creation = { operationId: randomUUID(), subject: 'synthetic', contextIds: ['destination', 'ancestor'], claimState: 'reviewing' };
+    assert.equal(await h.store.reserveSharedCreation(creation), true);
+    const writing = { ...creation, claimState: 'writing' }; assert.equal(await h.store.startSharedCreation(writing), true);
+    const share = h.sharing('new-file'); await h.store.reserveSharing(share);
+    assert.equal(await h.store.claimSharing(share.operationId, share.fileId), true);
+    assert.equal(await h.store.attachSharedCreation({ ...writing, documentId: 'new-file', contextIds: [...writing.contextIds, 'new-file'] }), false);
+  } finally { await h.close(); }
+});

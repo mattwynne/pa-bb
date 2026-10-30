@@ -6,6 +6,7 @@ import { DocsFormatApproval } from './docs-format-approval.js';
 import { SharingApproval } from './sharing-approval.js';
 import { SheetsEditApproval } from './sheets-edit-approval.js';
 import { FilingApproval } from './filing-approval.js';
+import { CreationApproval } from './creation-approval.js';
 import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButton, ConnectionEmpty, ConnectionFooter, ConnectionGuide, ConnectionHeading, ConnectionSetup } from './connection-ui.js';
 import './connection-ui.css';
 import './app.css';
@@ -108,4 +109,5 @@ export default definePluginApp(app => {
   app.slots.pendingInteraction({ id: 'drive-sharing-approval', component: SharingApproval });
   app.slots.pendingInteraction({ id: 'sheets-edit-approval', component: SheetsEditApproval });
   app.slots.pendingInteraction({ id: 'drive-filing-approval', component: FilingApproval });
+  app.slots.pendingInteraction({ id: 'drive-creation-approval', component: CreationApproval });
 });

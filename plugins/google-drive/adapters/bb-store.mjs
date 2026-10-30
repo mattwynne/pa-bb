@@ -2,7 +2,7 @@
 // Only the backend opens it; neither tokens nor pending PKCE verifiers reach RPC/UI.
 import { createSheetsEditStore, SHEETS_EDIT_MIGRATION } from './sheets-edit-store.mjs';
 import { createFilingStore, FILING_MIGRATION } from './filing-store.mjs';
-import { claimSharingAccess } from './access-claims.mjs';
+import { claimSharingAccess, claimCreationAccess } from './access-claims.mjs';
 export function createBbStore(db, migrate) {
   migrate(db, [
     `CREATE TABLE IF NOT EXISTS drive_accounts (
@@ -93,6 +93,22 @@ export function createBbStore(db, migrate) {
     async reserveCreation(op) {
       return db.prepare('INSERT OR IGNORE INTO docs_creations (operation_id,subject,receipt) VALUES (?,?,?)')
         .run(op.operationId, op.subject, JSON.stringify(op)).changes === 1;
+    },
+    async reserveSharedCreation(op) {
+      return claimCreationAccess(db, op, () => db.prepare('INSERT OR IGNORE INTO docs_creations (operation_id,subject,receipt) VALUES (?,?,?)')
+        .run(op.operationId, op.subject, JSON.stringify(op)).changes === 1);
+    },
+    async startSharedCreation(op) {
+      return db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
+        AND json_extract(receipt, '$.claimState') = 'reviewing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1;
+    },
+    async attachSharedCreation(op) {
+      return claimCreationAccess(db, op, () => db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
+        AND json_extract(receipt, '$.claimState') = 'writing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1);
+    },
+    async cancelSharedCreationReview(op) {
+      return db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
+        AND json_extract(receipt, '$.claimState') = 'reviewing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1;
     },
     async updateCreation(op) {
       if (db.prepare('UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?')
