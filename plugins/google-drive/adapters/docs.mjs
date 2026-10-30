@@ -1,4 +1,5 @@
-import { docsError } from '../core/docs-edit.mjs';
+import { docsError, documentId } from '../core/docs-edit.mjs';
+import { formatRequests, formatSchema } from '../core/docs-format.mjs';
 import { createDocsTransport, DOCS_BASE, rejection } from './docs-transport.mjs';
 export const DOCS_WRITE_SCOPES = Object.freeze(['documents', 'drive.file', 'drive'].map(name => `https://www.googleapis.com/auth/${name}`));
 const writePolicy = {
@@ -19,6 +20,14 @@ export function createDocsAdapter({ verifiedAccess, fetchImpl = fetch }) {
     async prepareWrite(record) {
       const post = await transport.prepareWrite(record, writePolicy);
       return {
+        format(proposal, signal) {
+          const parsed = formatSchema.safeParse(proposal);
+          if (!parsed.success) throw Object.assign(docsError('invalid_input'), { docsWriteAttempted: false });
+          const args = parsed.data;
+          return post(`${DOCS_BASE}/${encodeURIComponent(documentId(args.document))}:batchUpdate`, {
+            writeControl: { requiredRevisionId: args.expectedRevisionId }, requests: formatRequests(args),
+          }, signal);
+        },
         replace(proposal, signal) {
           return post(`${DOCS_BASE}/${encodeURIComponent(proposal.documentId)}:batchUpdate`, {
             writeControl: { requiredRevisionId: proposal.expectedRevisionId }, requests: [{ replaceAllText: {

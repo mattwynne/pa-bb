@@ -1,5 +1,6 @@
 import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
+import { reviewFormatExample } from './docs-format-tools.js';
 import { docsApprovalDecision, docsApprovalReceipt, diagnoseDocsApproval } from './core/docs-approval.mjs';
 
 export const DOCS_REVIEW_TOOL = 'gdocs_review_edit_example';
@@ -41,6 +42,15 @@ export function registerDocsReview(bb: BbPluginApi, inspectAuthorization: (accou
       async run(input) {
         if (!input.options.account?.trim() || input.options.account.length > 320) throw new PluginCliError('Use one bounded connected account email.', { code: 'invalid_account' });
         return { exitCode: 0, stdout: JSON.stringify(await inspectAuthorization(input.options.account)) };
+      },
+    }),
+    'review-format-example': cliCommand({
+      summary: 'Open the synthetic formatting approval card; all choices are no-ops with no Google access.',
+      options: { thread: { type: 'string', description: 'Thread for the example; defaults to the invoking thread.' } },
+      async run(input, ctx) {
+        const threadId = input.options.thread || ctx.threadId;
+        if (!threadId) throw new PluginCliError('A thread is required for this review.', { code: 'thread_required', hint: 'Pass --thread with the thread ID where the example should appear.' });
+        return { exitCode: 0, stdout: JSON.stringify(await reviewFormatExample(bb, threadId, ctx.signal)) };
       },
     }),
     'review-edit-example': cliCommand({

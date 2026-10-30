@@ -27,6 +27,17 @@ test('synthetic review CLI exercises approval, rejection, cancellation and incom
       if (decision === false) assert.equal(receipt.reason, 'owner_declined');
       if (decision === 'cancel') assert.equal(receipt.reason, 'user');
     }
+    for (const choice of [true, false, 'cancel']) {
+      const done = harness.behavior.runCli(['review-format-example', '--thread', 'thread-example']);
+      await new Promise(resolve => setImmediate(resolve));
+      const form = harness.inspection.pendingInteractions[0];
+      assert.equal(form.rendererId, 'docs-format-approval'); assert.equal(form.payload.exampleOnly, true);
+      if (choice === 'cancel') harness.behavior.cancelInteraction(form.id);
+      else harness.behavior.submitInteraction(form.id, { approved: choice });
+      const receipt = JSON.parse((await done).stdout);
+      assert.equal(receipt.exampleOnly, true); assert.equal(receipt.writeAttempted, false);
+      assert.equal(receipt.outcome, choice === true ? 'approved' : choice === false ? 'declined' : 'cancelled');
+    }
     assert.equal(calls, 0);
   } finally { await harness.lifecycle.dispose(); globalThis.fetch = original; }
 });

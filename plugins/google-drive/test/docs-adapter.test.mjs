@@ -35,6 +35,16 @@ test('adapter builds only literal tab-scoped CAS request; no arbitrary proxy or 
   } }] });
   assert.equal(h.calls.filter(c => c.url.includes('/tokeninfo')).length, 2); // recheck after approval
 });
+test('formatting adapter has no raw request passthrough and builds only typed tab-scoped style fields', async () => {
+  const h = setup(), writer = await h.adapter.prepareWrite(record);
+  await assert.rejects(async () => writer.format({ documentId: 'doc-a', requests: [{ deleteContentRange: {} }] }), error => error.docsWriteAttempted === false);
+  assert.equal(h.calls.filter(c => c.url.endsWith(':batchUpdate')).length, 0);
+  await writer.format({ account: 'writer@example.test', document: 'doc-a', operationId: '11111111-1111-4111-8111-111111111111', expectedRevisionId: 'rev-a',
+    ranges: [{ tabId: 'tab-b', startIndex: 1, endIndex: 20, textStyle: { bold: false } }] });
+  const writes = h.calls.filter(c => c.url.endsWith(':batchUpdate'));
+  assert.equal(writes.length, 1);
+  assert.deepEqual(JSON.parse(writes[0].init.body), { writeControl: { requiredRevisionId: 'rev-a' }, requests: [{ updateTextStyle: { range: { tabId: 'tab-b', startIndex: 1, endIndex: 20 }, textStyle: { bold: false }, fields: 'bold' } }] });
+});
 test('read-only grants fail before any write, existing narrow grants work without new OAuth scopes', async () => {
   const h = setup({ scope: 'drive.readonly' });
   await assert.rejects(() => h.adapter.prepareWrite(record), error => error.docsCode === 'scope_required');

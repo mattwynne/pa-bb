@@ -1,6 +1,6 @@
 ---
 name: google-docs-editing
-description: Create a new Google Doc with initial text, recover an interrupted creation, or apply a revision-guarded replacement under the owner's per-edit approval setting.
+description: Create Google Docs, apply bounded revision-guarded text or formatting changes, and recover uncertain operations without replaying writes.
 ---
 
 Use only explicit user-requested document mutations and connected account emails.
@@ -15,7 +15,7 @@ unless the user selected an owned unshared My Drive folder. Shared/unknown
 folders are rejected. `text` is literal plain text (up to 40,000 UTF-16 units),
 with LF paragraph breaks and blank answer spaces; no Markdown/HTML conversion.
 Creation requires an existing owner-authorized Drive write grant. It follows
-the copy tool's user-request authorization, not the replacement-only approval
+the copy tool's user-request authorization, not the Docs-edit approval
 setting. Do not change settings, request new credentials, share or invite.
 
 Only `outcome: verified` confirms exact title/destination/body readback. Return
@@ -29,6 +29,44 @@ a second Doc merely to compensate. Reconcile with the user first.
 Read the [creation guide](../../docs/creation.md) for limits, destination policy,
 receipt semantics and recovery. Implementing/testing this capability does not
 authorize a live document or respondent contact.
+
+## Formatting existing documents without a browser
+
+Use `gdocs_inspect_formatting({account, document})`; require complete inspection
+and copy its exact whole-paragraph UTF-16 indices, tab IDs and revision.
+`gdocs_format_document({account, document, operationId, expectedRevisionId,
+ranges, page?, preview?})` previews by default. Generate one lowercase UUID and
+retain it. Set preview=false with otherwise identical arguments to request
+owner approval by default. Formatting follows the same global **Require approval
+for Google Docs edits** setting as replacements; the owner can turn it off in
+Google Drive Settings. Do not change that setting yourself or override policy
+in tool arguments. Only user-requested formatting is authorized.
+
+Ranges support textStyle fontFamily/sizePt/bold/foregroundColor and paragraphStyle
+spaceAbovePt/spaceBelowPt/lineSpacing/alignment. lineSpacing=120 means 1.2 lines.
+Optional page includes explicit tabId, size=LETTER and four margin*Pt values;
+61.2 pt is .85 inch. At most 16 nonoverlapping whole-paragraph ranges and 8000
+selected UTF-16 units. No raw API requests, partial runs, text insertions,
+semantic heading/named-style-definition updates, tables, lists, real headers or
+footers, page numbers or inline coloured-dot composition. Report unsupported
+layout features rather than claiming the brand design is fully applied.
+
+Only outcome=verified confirms exact expected API style/text readback at the
+successful response revision, **not** actual font rendering or menu availability.
+Do not silently substitute fonts. For uncertainty/interruption use
+`gdocs_formatting_status({account, operationId})` with the SAME key; never replay
+or generate a new key to bypass recovery. Lost-response matches may return
+observed_matching with an unresolved lock, not verified. Abandoned reviews and
+unknown writes remain blocked pending owner reconciliation; there is no force
+unlock. See the [formatting guide](../../docs/formatting.md) before use.
+
+`gdocs_review_format_example({})` opens a fixed synthetic no-op card without
+Google access. `bb google-drive review-format-example --thread THREAD_ID` opens
+the same card for manual review; keep the CLI connected until the choice. Its
+receipt is not proof of the native deferred-tool lifecycle. A waiting notice is not proof it rendered. End the originating
+turn if waiting and let the owner review in ordinary BB. Do not use a live Doc
+for engineering tests. This does not waive a no-browser instruction or establish
+desktop/narrow/keyboard review by itself.
 
 ## Existing document replacements
 

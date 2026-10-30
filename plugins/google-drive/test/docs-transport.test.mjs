@@ -140,6 +140,6 @@ test('core-facing adapters still expose only narrow document operations, not arb
     const h = setup(policy);
     assert.deepEqual(Object.keys(h.adapter).sort(), policy.name === 'replacement' ? ['inspect', 'prepareWrite'] : ['find', 'prepare']);
     const writer = await policy.prepare(h.adapter);
-    assert.deepEqual(Object.keys(writer).sort(), policy.name === 'replacement' ? ['replace'] : ['create', 'populate']);
+    assert.deepEqual(Object.keys(writer).sort(), policy.name === 'replacement' ? ['format', 'replace'] : ['create', 'populate']);
   }
 });

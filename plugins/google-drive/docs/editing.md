@@ -50,6 +50,10 @@ requests without another card, across **all documents and connected accounts**.
 This does not authorize unsolicited edits, add Google access, bypass scope/file
 permission checks, or change approval for copying or other plugins.
 
+The bounded [formatting tools](formatting.md) follow this same setting for
+user-requested appearance changes. Turning it off skips only the approval card;
+formatting retains its revision guard, durable operation key and exact readback.
+
 The plugin reads this setting for each write; changes need no reload or new
 agent session. Missing/invalid values require approval, and a failed settings
 read prevents the write. Disabling it does not auto-approve an already open

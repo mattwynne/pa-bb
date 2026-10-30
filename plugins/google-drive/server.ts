@@ -6,6 +6,7 @@ import { createGoogleAdapter } from './adapters/google.mjs';
 import { createDriveService } from './core/service.mjs';
 import { failureCategory } from './diagnostic.mjs';
 import { registerDocsTools, DOCS_TOOL_NAMES, docsAuthorizationInspector } from './docs-tools.js';
+import { registerDocsFormatTools, FORMAT_TOOLS } from './docs-format-tools.js';
 import { registerDocsReview, DOCS_REVIEW_TOOL } from './docs-review.js';
 import { registerDocsCreationTools, DOCS_CREATION_TOOLS } from './docs-create-tools.js';
 import { registerSharingTools, SHARING_TOOLS } from './sharing-tools.js';
@@ -72,7 +73,7 @@ export default async function plugin(bb: BbPluginApi) {
     clientId: { type: 'string', label: 'Web OAuth client ID', description: 'First time? Follow the setup guide below.', default: '' },
     clientSecret: { type: 'string', label: 'Client secret', secret: true },
     requireDocsApproval: { type: 'boolean', label: 'Require approval for Google Docs edits', default: true,
-      description: 'Applies to all documents and connected accounts. Turn off to let agents apply edits you request without a separate approval card. Revision checks and readback verification stay on. Does not change Google access or approval for other actions.' },
+      description: 'Applies to all documents and connected accounts. Turn off to let agents apply text replacements and formatting you request without a separate approval card. Revision checks and readback verification stay on. Does not change Google access or approval for other actions.' },
   });
   const store = createBbStore(bb.storage.database(), (db: Parameters<typeof bb.storage.migrate>[0], statements: Parameters<typeof bb.storage.migrate>[1]) => bb.storage.migrate(db, statements));
   const getClient = async () => settings.get();
@@ -150,7 +151,8 @@ export default async function plugin(bb: BbPluginApi) {
   registerDocsTools(bb, store, adapter, async () => (await settings.get()).requireDocsApproval !== false);
   registerDocsReview(bb, docsAuthorizationInspector(bb, store, adapter));
   registerDocsCreationTools(bb, store, adapter);
+  registerDocsFormatTools(bb, store, adapter, async () => (await settings.get()).requireDocsApproval !== false);
   registerSharingTools(bb, store, adapter);
   registerSheetsTools(bb, store, adapter);
-  bb.agents.configure(() => ({ tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES, DOCS_REVIEW_TOOL, ...DOCS_CREATION_TOOLS, ...SHARING_TOOLS, ...SHEETS_TOOLS], skills: ['google-docs-editing', 'google-drive-sharing', 'google-sheets'] }));
+  bb.agents.configure(() => ({ tools: [...Object.keys(schemas), ...DOCS_TOOL_NAMES, DOCS_REVIEW_TOOL, ...DOCS_CREATION_TOOLS, ...SHARING_TOOLS, ...SHEETS_TOOLS, ...FORMAT_TOOLS], skills: ['google-docs-editing', 'google-drive-sharing', 'google-sheets'] }));
 }
