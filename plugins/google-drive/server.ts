@@ -41,6 +41,7 @@ function safeError(error: unknown): string {
     'This file is not a Google Doc; reading other formats is not supported yet',
     'account is required', 'folderId is required', 'fileId is required', 'document is required',
   ];
+  if ((error as { code?: string })?.code === 'response_too_large') return 'Google response exceeds the supported size limit. For a Google Doc, download it as plain text to read it without formatting.';
   if ((error as { code?: string })?.code === 'copy_scope_required') return 'Copy requires write access. Reconnect the Drive account in BB settings and approve full Drive access; existing read-only grants cannot copy.';
   if (['Use explicit Drive file and folder IDs', 'Copy title is too long', 'Source is not a copyable file', 'Destination is not a writable folder', 'sourceId is required', 'title is required'].includes(message)) return message;
   if (localErrors.includes(message)) return message;

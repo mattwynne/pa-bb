@@ -8,6 +8,9 @@ const TOKEN = 'https://oauth2.googleapis.com/token';
 const USERINFO = 'https://openidconnect.googleapis.com/v1/userinfo';
 const DRIVE = 'https://www.googleapis.com/drive/v3';
 const DOCS = 'https://docs.googleapis.com/v1';
+// Read-only projection can tolerate larger structured/style payloads than the
+// exact editing inspector. Text output remains capped separately by the service.
+const MAX_DOC_READ_BYTES = 8 * 1_048_576;
 function failure(response, operation) {
   const error = new Error(`${operation} failed (${response.status})`);
   error.status = response.status;
@@ -67,7 +70,7 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
     if (info.email !== record.email) await store.updateEmail(record.subject, info.email);
     return accessToken;
   }
-  async function get(record, url) {
+  async function get(record, url, maxBytes) {
     let accessToken = await verifiedAccess(record);
     let response;
     try { response = await fetchImpl(url, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(30_000) }); }
@@ -77,7 +80,7 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
       response = await fetchImpl(url, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(30_000) });
     }
     if (!response.ok) throw failure(response, 'Google Drive request');
-    return boundedJson(response);
+    return boundedJson(response, maxBytes);
   }
   const adapter = {
     docs: createDocsAdapter({ verifiedAccess, fetchImpl }),
@@ -142,7 +145,7 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
         return { id };
       },
       readDoc(record, id) {
-        return get(record, params(new URL(`${DOCS}/documents/${encodeURIComponent(id)}`), { includeTabsContent: true }));
+        return get(record, params(new URL(`${DOCS}/documents/${encodeURIComponent(id)}`), { includeTabsContent: true }), MAX_DOC_READ_BYTES);
       },
     },
   };

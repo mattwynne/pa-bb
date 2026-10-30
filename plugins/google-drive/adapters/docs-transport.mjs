@@ -2,10 +2,17 @@
 // inspect/replace/create/populate/sharing ports, never this general request helper.
 import { docsError } from '../core/docs-edit.mjs';
 export const DOCS_BASE = 'https://docs.googleapis.com/v1/documents';
+// Editing, creation and sharing retain this conservative default. General
+// read-only Docs requests select their own bounded allowance explicitly.
 const MAX_BYTES = 1_048_576;
+const tooLarge = () => Object.assign(docsError('unsupported_document'), { code: 'response_too_large' });
 const requestSignal = signal => signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000);
-export async function boundedJson(response) {
-  if (Number(response.headers.get('content-length')) > MAX_BYTES || !response.body) throw docsError('unsupported_document');
+export async function boundedJson(response, maxBytes = MAX_BYTES) {
+  if (Number(response.headers.get('content-length')) > maxBytes) {
+    await response.body?.cancel().catch(() => {});
+    throw tooLarge();
+  }
+  if (!response.body) throw docsError('unsupported_document');
   const reader = response.body.getReader();
   const chunks = [];
   let size = 0;
@@ -14,7 +21,7 @@ export async function boundedJson(response) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_BYTES) throw docsError('unsupported_document');
+      if (size > maxBytes) throw tooLarge();
       chunks.push(Buffer.from(value));
     }
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
