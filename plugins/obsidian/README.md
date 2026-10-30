@@ -76,6 +76,53 @@ reads, saves, sync and vault choices remain intact. There is no fallback to the
 old terminal bounded scanner. Task listing and ambiguous-link discovery retain
 their existing separate bounds.
 
+## Complete reads and long notes
+
+A short whole-note read returns `complete: true` in one bounded response. Longer
+notes return ordered chunks and `nextCursor`. Call `obsidian_read_note` again with
+the **same vault, path and incoming selector (if any)** plus that cursor. Continue
+until `nextCursor: null`, including the **final empty acknowledgement** after the
+last content chunk. Do not edit after the last nonempty page: it is still incomplete.
+
+```json
+{"vaultId":"VAULT_ID","path":"Projects/Checklist.md"}
+{"vaultId":"VAULT_ID","path":"Projects/Checklist.md","cursor":"RETURNED_NEXT_CURSOR"}
+```
+
+`offset`, `nextOffset` and `totalChars` count UTF-16 code units. Concatenate `text`
+exactly, without separators: BOM, Unicode and original LF/CRLF endings are retained.
+Every page carries the same SHA-256 whole-note `hash` and `totalBytes`. The source
+is reread and its complete bytes/hash verified for each page and the final
+acknowledgement. Text is not cached as a second note store. The parser runs once
+per read sequence; continuation checks reuse its warnings only for the same hash.
+
+**Complete means all original text for one hash has been returned in order**,
+not that a section, search, semantic parse, cloud sync or device delivery is complete.
+Only `complete: true` **and** `editReady: true` issue an ordinary edit proof to the
+reading BB thread. The final empty response acknowledges the preceding content
+page; a cursor is a single-use continuation receipt, not an arbitrary offset.
+Missing, skipped, reused, wrong-thread, expired or failed continuations cannot
+finish a read. Restart a fresh whole-note read after any failure or lost response;
+never manufacture an offset/cursor or combine different read sequences. Bounded
+JSON serialization is checked before issuing a cursor or proof. This is a tool
+protocol guarantee, not proof that a provider retained all text in its context
+or that a human understood it.
+
+Heading/block reads remain bounded excerpts, with no continuation or ordinary edit
+proof. Incoming reads can continue, but **never** issue ordinary edit proof; their
+conflict token is revalidated each page. Incoming absence remains explicit and
+incomplete. Configuration changes, restart, local safety changes, note/hash changes
+and cancellation fail closed. Cloud progress alone does not revoke a read. Ordinary
+writes still reread the note and use iCloud's authoritative CAS; pending/uncertain
+mutation recovery is unchanged. Another thread reading the same note can replace
+the bounded in-memory proof, in which case reread in the editing thread.
+
+Raw notes remain limited to 1 MiB. Text above the independent 64 KiB semantic-parser
+bound can be read completely with `parser_limit`, but `editReady` remains false.
+Paging does **not** widen parser/write limits, authorize an unsupported edit, truncate
+a note or restructure its checklist. Malformed properties and other write checks
+remain enforced by the existing parser before saving.
+
 ## Source and save guarantees
 
 - iCloud owns Apple setup, mirror storage and native sync. Obsidian uses
@@ -97,8 +144,8 @@ their existing separate bounds.
   stops admission and waits before releasing ownership.
   This does not promise a vault-wide snapshot or an OS transaction against
   unrelated trusted writers with the same filesystem access.
-- An edit requires a prior complete whole-note read and its SHA-256 hash. Section,
-  metadata and truncated reads are insufficient. iCloud rechecks source admission,
+- An edit requires a prior complete whole-note read in the same BB thread and its
+  SHA-256 hash. Section, metadata and incomplete paged reads are insufficient. iCloud rechecks source admission,
   parent/file identity and expected bytes under its worker owner. A conflict writes
   nothing from the stale patch; reread and prepare a fresh change.
 - iCloud durably publishes an immutable per-note logical generation and receipt
@@ -157,14 +204,15 @@ property tags are named in the change result. This does not infer vault-wide typ
 | Semantic parser / writes | 64 KiB UTF-8, 20,000 nodes and depth 64 |
 | Task/link directory discovery | 10,000 entries or 2 seconds; nested/hidden folders included; incomplete results are explicit |
 | Task/link scan (not search) | 500 notes, 16 MiB plus at most the final 1 MiB note, or 3 seconds checked between file operations; at most 500 rows |
-| Output | 48,000-character read/page budget; final serialized tool result capped at 64,000 characters; metadata collections capped at 100 items |
+| Output | At most 48,000 UTF-16 units per read chunk, reduced to fit a 60,000-character serialized read envelope (including JSON escaping); final tool result capped at 64,000 characters; metadata collections capped at 100 items |
+| Whole-note read continuation | Four in-memory sequences including in-flight continuation reservations (all busy refuses new sequences), five-minute idle / thirty-minute absolute lifetime; single-use thread/target/selector-bound cursors, with final empty acknowledgement; no section pagination |
 | Search resources | Four sessions, two child/work reservations; up to 64 read-only note descriptors per batch, one directory stream per session, bounded discovery/dedup and subprocess buffers; no mmap or unbounded threads |
 | Search continuation | Five-minute idle / thirty-minute absolute lifetime; up to 32 batches or a two-second cooperative slice before yielding, never a terminal total-note cutoff; configuration/local safety changes and restart revoke cursors, ordinary cloud progress does not |
 | Search semantics | Properties inspect at most a 64 KiB header independently of the body; tags retain the 64 KiB semantic-parser bound and disclose omitted notes |
 | Search result pages | Default 20, maximum 50 rows; a complete traversal can still have buffered rows behind nextCursor |
 | Task/link pagination | Default 20, maximum 50 rows; ten in-memory cursors, expiring after 60 seconds or configuration/local safety changes, not cloud progress |
 | Save conflict-copy inspection | At most 10,000 siblings; larger/ambiguous sets refuse with uncertainty. This separate save-safety bound is not a search cutoff |
-| Complete-read proofs | 256 in-memory note versions; invalidated on the affected note save, configuration change and restart |
+| Complete-read proofs | 256 in-memory note versions, bound to the reading thread; issued only after bounded complete delivery without parser-limit warnings, invalidated on the affected note save, configuration change and restart |
 | Pending saves | 100 persisted unresolved operations |
 | Private iCloud note recovery | 64 MiB / 256 active paths globally (16 MiB / 128 paths per vault); separate bounded recovery and receipt quotas |
 | Receipts / previous versions | 30-day definite replay/previous-version window; 32,768 receipt rows / 64 MiB and separate 64 MiB recovery; uncertain entries stay protected |

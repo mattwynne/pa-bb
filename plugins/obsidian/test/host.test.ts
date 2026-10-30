@@ -65,6 +65,44 @@ test('unknown conflict and recovery errors cannot echo content/path to tools or 
     assert.doesNotMatch(JSON.stringify(error) + JSON.stringify(harness.inspection.logEntries), /sentinel|private-content|private\/path|secret/);
   } finally { await harness.lifecycle.dispose(); }
 });
+test('paged native tool reads stay bounded, bind proof to the reader and diagnose failed continuations without leaking content', async () => {
+  const { harness, files } = await setup();
+  try {
+    await harness.behavior.callRpc('connect', { vaultId: 'one' });
+    const target = { vaultId: 'one', path: 'Long.md' }; const text = '\\'.repeat(40000); files.notes.set('one/Long.md', text);
+    const call = async (input: unknown, threadId = 'reader-a') => {
+      const result = await harness.behavior.callAgentTool('obsidian_read_note', input, { threadId }); assert.ok(typeof result !== 'string');
+      const encoded = (result.content[0] as any).text; assert.ok(encoded.length <= 64000); return { result, page: JSON.parse(encoded) };
+    };
+    let { page } = await call(target); let delivered = '';
+    while (page.nextCursor) { assert.equal(page.complete, false); delivered += page.text; page = (await call({ ...target, cursor: page.nextCursor })).page; }
+    assert.equal(delivered, text); assert.equal(page.text, ''); assert.equal(page.editReady, true);
+    const wrong = await harness.behavior.callAgentTool('obsidian_edit_note', { ...target, expectedHash: page.hash, append: 'bad' }, { threadId: 'reader-b' });
+    assert.ok(typeof wrong !== 'string'); assert.equal(wrong.isError, true); assert.match((wrong.content[0] as any).text, /complete_read_required/);
+    // No existing proof on this new path. A lost/failed continuation cannot grant one.
+    const failed = { ...target, path: 'Failed.md' }; files.notes.set('one/Failed.md', text);
+    const first = (await call(failed)).page;
+    files.read = async () => { throw new Error('sentinel-private-body secret /private/path'); };
+    const failure = await call({ ...failed, cursor: first.nextCursor }); assert.equal(failure.result.isError, true); assert.equal(failure.page.category, 'unavailable');
+    const replay = await call({ ...failed, cursor: first.nextCursor }); assert.equal(replay.page.category, 'cursor_expired');
+    const logs = JSON.stringify(harness.inspection.logEntries); assert.match(logs, /Obsidian tool unavailable/); assert.match(logs, /Obsidian tool cursor_expired/);
+    assert.doesNotMatch(logs + JSON.stringify(failure) + JSON.stringify(replay), /sentinel|secret|private\/path|private-body/);
+  } finally { await harness.lifecycle.dispose(); }
+});
+test('an oversized read envelope cannot issue a proof before tool serialization fails', async () => {
+  const { harness, files, catalog } = await setup();
+  try {
+    await harness.behavior.callRpc('connect', { vaultId: 'one' });
+    const { hash } = await import('./fakes.ts'); const original = files.notes.get('one/Launch.md')!;
+    catalog.value.sources[0].name = 'sentinel-private'.repeat(6000);
+    const read = await harness.behavior.callAgentTool('obsidian_read_note', { vaultId: 'one', path: 'Launch.md' });
+    assert.ok(typeof read !== 'string'); assert.equal(read.isError, true); assert.match((read.content[0] as any).text, /output_limit/);
+    catalog.value.sources[0].name = 'Launch';
+    const edit = await harness.behavior.callAgentTool('obsidian_edit_note', { vaultId: 'one', path: 'Launch.md', expectedHash: hash(original), append: 'bad' });
+    assert.ok(typeof edit !== 'string'); assert.equal(edit.isError, true); assert.match((edit.content[0] as any).text, /complete_read_required/);
+    assert.equal(files.saved.length, 0); assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /sentinel-private/);
+  } finally { await harness.lifecycle.dispose(); }
+});
 test('obsidian_edit_note resolves a guarded conflict but rejects mixed ordinary-edit and resolution inputs', async () => {
   const { harness, files } = await setup();
   try {

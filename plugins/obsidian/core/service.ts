@@ -1,14 +1,20 @@
 import { posix } from 'node:path';
+import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
 import { VaultError } from './ports.ts';
 import { VaultSearch } from './search.ts';
 import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution } from './ports.ts';
 export const LIMITS = { output: 48000, scanNotes: 500, scanBytes: 16 * 1024 * 1024, scanMs: 3000, rows: 500, page: 50, cursors: 10, cursorMs: 60000, proofs: 256 } as const;
+export const READ_LIMITS = { sessions: 4, idleMs: 5 * 60000, lifetimeMs: 30 * 60000, bytes: 1024 * 1024, serialized: 60000 } as const;
+type ReadInput = { vaultId: string; path: string; heading?: string; blockId?: string; selector?: { version: 'incoming'; token: string }; cursor?: string };
+type ReadSession = { vaultId: string; path: string; selector?: ReadInput['selector']; reader: string; hash: string; revision: number; source: string; offset: number; warnings: string[]; started: number; touched: number };
 const validPath = (path: string) => { if (!path || !path.endsWith('.md') || path.length > 1024 || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new VaultError('invalid_path'); return path; };
 const lines = (text: string) => Math.max(1, text.replace(/\r?\n$/, '').split('\n').length);
 export class Obsidian {
   private state: Configuration = { revision: 0, vaultIds: [], pending: [] };
-  private proofs = new Map<string, { hash: string; revision: number }>();
+  private proofs = new Map<string, { hash: string; revision: number; reader: string }>();
+  private reads = new Map<string, ReadSession>();
+  private readReservations = 0;
   private cursors = new Map<string, { rows: any[]; offset: number; at: number; revision: number; source: string; incomplete: boolean; failures: any[]; warnings: string[] }>();
   private stopped = false;
   private readonly searcher: VaultSearch;
@@ -25,9 +31,9 @@ export class Obsidian {
     }, revision => this.checkRevision(revision));
   }
   async start() { this.state = await this.repository.load() ?? this.state; }
-  stop() { this.stopped = true; this.proofs.clear(); this.cursors.clear(); return this.searcher.stop(); }
+  stop() { this.stopped = true; this.proofs.clear(); this.reads.clear(); this.cursors.clear(); return this.searcher.stop(); }
   private key(vaultId: string, path: string) { return `${vaultId}/${path}`; }
-  private invalidate() { this.proofs.clear(); this.cursors.clear(); this.searcher.invalidate(); }
+  private invalidate() { this.proofs.clear(); this.reads.clear(); this.cursors.clear(); this.searcher.invalidate(); }
   // Only durable state transitions enter this queue. Never await a note RPC in it.
   private update<T>(action: () => Promise<T>): Promise<T> {
     const task = this.stateQueue.then(async () => { if (this.stopped) throw new VaultError('unavailable'); return action(); });
@@ -134,29 +140,90 @@ export class Obsidian {
     return { search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
   }
   private checkRevision(revision: number) { if (this.stopped || this.state.revision !== revision) throw new VaultError('not_connected'); }
-  async read(input: { vaultId: string; path: string; heading?: string; blockId?: string; selector?: { version: 'incoming'; token: string } }) {
-    if (input.selector && (input.heading || input.blockId)) throw new VaultError('invalid_query', 'Read the incoming version separately from a section.');
+  async read(input: ReadInput, signal?: AbortSignal, reader = '') {
+    if ((input.selector || input.cursor) && (input.heading || input.blockId)) throw new VaultError('invalid_query', 'Read a section separately from incoming versions or continuations.');
     if (input.heading && input.blockId) throw new VaultError('invalid_query', 'Choose a heading or a block, not both.');
-    const context = await this.source(input.vaultId); validPath(input.path);
+    validPath(input.path);
+    const now = this.clock();
+    for (const [cursor, session] of this.reads) if (now - session.touched > READ_LIMITS.idleMs || now - session.started > READ_LIMITS.lifetimeMs) this.reads.delete(cursor);
+    let session = input.cursor ? this.reads.get(input.cursor) : undefined;
+    if (input.cursor) {
+      if (!session || session.reader !== reader || session.vaultId !== input.vaultId || session.path !== input.path || session.selector?.token !== input.selector?.token || session.revision !== this.state.revision) throw new VaultError('cursor_expired', 'Start a fresh whole-note read; this continuation is unavailable or belongs to another read.');
+      // Claim before any await: overlapping/replayed calls cannot skip a page.
+      this.reads.delete(input.cursor);
+      this.readReservations++;
+    }
+    try {
+    const cancelled = () => { if (signal?.aborted) throw new VaultError('cancelled'); };
+    cancelled();
+    const context = await this.source(input.vaultId);
     const incoming = input.selector ? await this.files.readIncoming(input.vaultId, context.revision, input.path, input.selector.token) : null;
-    this.check(input.vaultId, context.revision);
-    if (incoming?.absent) return { ...this.provenance(context.source, new Date(this.clock()).toISOString()), path: input.path, selector: 'incoming', absent: true as const, complete: false as const, hash: null, text: undefined, warnings: [] as string[], evidenceOnly: true as const };
-    const { source, revision, note } = input.selector ? { ...context, note: incoming as import('./ports.ts').CompleteNote } : { ...context, note: await this.files.read(input.vaultId, context.revision, input.path) }; this.check(input.vaultId, revision); let start = 0; let end = note.text.length; let warnings: string[] = [];
+    this.check(input.vaultId, context.revision); cancelled();
+    if (incoming?.absent) {
+      if (session) throw new VaultError('conflict', 'The incoming version changed. Inspect the conflict again.');
+      return { ...this.provenance(context.source, new Date(this.clock()).toISOString()), path: input.path, selector: 'incoming', absent: true as const, complete: false as const, editReady: false, hash: null, text: undefined, nextCursor: null, warnings: [] as string[], evidenceOnly: true as const };
+    }
+    const note = input.selector ? incoming as import('./ports.ts').CompleteNote : await this.files.read(input.vaultId, context.revision, input.path);
+    const { source, revision } = context;
+    this.check(input.vaultId, revision); cancelled();
+    const totalBytes = Buffer.byteLength(note.text);
+    if (!note.complete || totalBytes > READ_LIMITS.bytes || createHash('sha256').update(note.text).digest('hex') !== note.hash) throw new VaultError('unsupported', 'The source did not return a bounded, complete, hash-verified note.');
+    // Recheck local safety after the async read; cloud progress alone is not a revocation.
+    const catalog = await this.catalog.snapshot(); this.check(input.vaultId, revision); cancelled();
+    const fingerprint = this.fingerprint(catalog);
+    if (fingerprint !== this.fingerprint(context.catalog) || (session && (session.hash !== note.hash || session.source !== fingerprint))) throw new VaultError('conflict', 'The note or local source changed. Start a fresh whole-note read.');
+    let start = session?.offset ?? 0, end = note.text.length;
+    let warnings = session ? [...session.warnings] : [];
     let metadata: Metadata | undefined;
-    try { metadata = this.parser.parse(note.text); warnings = metadata.warnings; }
-    catch (error) { if (input.heading || input.blockId || !(error instanceof VaultError && error.category === 'parser_limit')) throw error; warnings.push('parser_limit'); this.diagnose('parse', 'limit'); }
-    if (input.heading || input.blockId) {
+    if (!session) {
+      try { metadata = this.parser.parse(note.text); warnings = [...metadata.warnings]; }
+      catch (error) { if (input.heading || input.blockId || !(error instanceof VaultError && error.category === 'parser_limit')) throw error; warnings.push('parser_limit'); this.diagnose('parse', 'limit'); }
+    }
+    const section = !!(input.heading || input.blockId);
+    if (section) {
       const meta = metadata!;
       const candidates = input.blockId ? meta.blocks.filter(b => b.id === input.blockId) : meta.headings.filter(h => h.title.toLocaleLowerCase('und') === input.heading!.toLocaleLowerCase('und'));
       if (candidates.length !== 1) throw new VaultError(candidates.length ? 'ambiguous_link' : 'missing_link');
       start = candidates[0].start; end = candidates[0].end;
       if (input.heading) { const heading = candidates[0] as Metadata['headings'][0]; end = meta.headings.find(h => h.start > start && h.depth <= heading.depth)?.start ?? note.text.length; }
     }
-    const selected = note.text.slice(start, end); const text = selected.slice(0, LIMITS.output); const complete = !input.heading && !input.blockId && text.length === note.text.length;
-    if (text.length < selected.length) warnings.push('output_limit');
-    this.check(input.vaultId, revision);
-    if (complete && !input.selector) { if (this.proofs.size >= LIMITS.proofs) this.proofs.delete(this.proofs.keys().next().value!); this.proofs.set(this.key(input.vaultId, input.path), { hash: note.hash, revision }); }
-    return { ...this.provenance(source, note.readAt), path: input.path, ...(input.selector ? { selector: 'incoming', absent: false } : {}), lineStart: note.text.slice(0, start).split('\n').length, lineEnd: note.text.slice(0, start + text.length).replace(/\r?\n$/, '').split('\n').length, text, hash: note.hash, complete, warnings, evidenceOnly: true };
+    let stop = Math.min(end, start + LIMITS.output);
+    // Never split a surrogate pair. Exact original text/line endings are retained.
+    const boundary = (at: number) => at > start && /[\uD800-\uDBFF]/.test(note.text[at - 1]) && /[\uDC00-\uDFFF]/.test(note.text[at] ?? '') ? at - 1 : at;
+    stop = boundary(stop);
+    const resultAt = (at: number, nextCursor: string | null) => {
+      // Paged reads require one final empty acknowledgement after all content.
+      const complete = !section && (session ? start === note.text.length : at === note.text.length && nextCursor === null);
+      return { ...this.provenance(source, note.readAt), path: input.path, ...(input.selector ? { selector: 'incoming', absent: false } : {}), lineStart: note.text.slice(0, start).split('\n').length, lineEnd: Math.max(note.text.slice(0, start).split('\n').length, note.text.slice(0, at).replace(/\r?\n$/, '').split('\n').length), offset: start, nextOffset: at, totalChars: note.text.length, totalBytes, text: note.text.slice(start, at), hash: note.hash, complete, editReady: complete && !input.selector && !warnings.includes('parser_limit'), warnings: at < end ? [...warnings, 'output_limit'] : warnings, evidenceOnly: true, nextCursor };
+    };
+    // Budget the actual JSON escaping AND provenance before issuing a cursor/proof.
+    // Reserve cursor space even when a candidate might fit in a single response.
+    const token = this.id();
+    while (JSON.stringify(resultAt(stop, token)).length > READ_LIMITS.serialized && stop > start) stop = boundary(start + Math.floor((stop - start) / 2));
+    const continued = !section && (!!session ? start < end : stop < end);
+    const nextCursor = continued ? token : null;
+    const result = resultAt(stop, nextCursor);
+    if (JSON.stringify(result).length > READ_LIMITS.serialized || (stop === start && start < end)) throw new VaultError('output_limit', 'This read could not fit a bounded response. No edit proof was issued.');
+    this.check(input.vaultId, revision); cancelled();
+    if (session && (this.clock() - session.touched > READ_LIMITS.idleMs || this.clock() - session.started > READ_LIMITS.lifetimeMs)) throw new VaultError('cursor_expired', 'This read expired while checking the source. Start a fresh whole-note read.');
+    if (continued) {
+      if (!session) {
+        if (this.reads.size + this.readReservations >= READ_LIMITS.sessions) {
+          if (!this.reads.size) throw new VaultError('capacity', 'All whole-note read slots are in use. Finish an active read, then start again.');
+          this.reads.delete(this.reads.keys().next().value!);
+        }
+        session = { vaultId: input.vaultId, path: input.path, selector: input.selector, reader, hash: note.hash, revision, source: fingerprint, offset: 0, warnings, started: now, touched: now };
+      }
+      this.reads.set(token, { ...session, offset: stop, touched: this.clock() });
+    }
+    if (result.editReady) {
+      if (this.proofs.size >= LIMITS.proofs) this.proofs.delete(this.proofs.keys().next().value!);
+      this.proofs.set(this.key(input.vaultId, input.path), { hash: note.hash, revision, reader });
+    }
+    return result;
+    } finally {
+      if (input.cursor) this.readReservations--;
+    }
   }
   async metadata(input: { vaultId: string; path: string }) {
     const { source, revision, note } = await this.note(input.vaultId, input.path); const meta = this.parser.parse(note.text);
@@ -202,7 +269,7 @@ export class Obsidian {
       return this.parser.parse(text).tasks.filter(t => input.complete === undefined || input.complete === t.complete).map(t => ({ ...this.provenance(source, at), path, lineStart: t.line, lineEnd: t.endLine, text: t.text.slice(0, 240), marker: t.marker, complete: t.complete, hash }));
     }));
   }
-  async resolve(input: { vaultId: string; path: string; link: string }) {
+  async resolve(input: { vaultId: string; path: string; link: string }, signal?: AbortSignal, reader = '') {
     await this.note(input.vaultId, input.path); let reference = input.link.replace(/^!?\[\[/, '').replace(/\]\]$/, '').split('|')[0];
     try { reference = decodeURIComponent(reference); } catch { throw new VaultError('invalid_link'); }
     if (/^[A-Za-z][\w+.-]*:/.test(reference) || reference.startsWith('//') || reference.includes('\\') || reference.includes('\0')) throw new VaultError('external_link', 'External URLs and cross-vault references are not fetched.');
@@ -215,7 +282,7 @@ export class Obsidian {
     } else { const name = target.replace(/\.md$/, '').toLocaleLowerCase('und'); candidates = listed.paths.filter(path => posix.basename(path, '.md').toLocaleLowerCase('und') === name); }
     this.check(input.vaultId, revision);
     if (candidates.length !== 1) return { status: candidates.length ? 'ambiguous' : listed.incomplete ? 'incomplete' : 'missing', vaultId: input.vaultId, candidates: candidates.slice(0, 20), incomplete: listed.incomplete, evidenceOnly: true };
-    const resolved = await this.read({ vaultId: input.vaultId, path: candidates[0], ...(subpath.startsWith('^') ? { blockId: subpath.slice(1) } : subpath ? { heading: subpath } : {}) });
+    const resolved = await this.read({ vaultId: input.vaultId, path: candidates[0], ...(subpath.startsWith('^') ? { blockId: subpath.slice(1) } : subpath ? { heading: subpath } : {}) }, signal, reader);
     return { status: 'resolved', ...resolved };
   }
   private async pending(vaultId: string, path: string, operationId: string, revision: number, kind: 'save' | 'resolution') {
@@ -230,12 +297,12 @@ export class Obsidian {
     if (this.state.pending?.some(p => p.operationId === operationId)) await this.save({ ...this.state, pending: this.state.pending?.filter(p => p.operationId !== operationId) });
   }); }
   private operationId() { const time = Math.floor(this.clock()).toString(16).padStart(12, '0'); return `${time.slice(0, 8)}-${time.slice(8)}-7${this.id().slice(15)}`; }
-  private async write(vaultId: string, path: string, expectedHash: string | null, prepare: (text: string) => string, create = false, signal?: AbortSignal) {
+  private async write(vaultId: string, path: string, expectedHash: string | null, prepare: (text: string) => string, create = false, signal?: AbortSignal, reader = '') {
     if (signal?.aborted) throw new VaultError('cancelled');
     validPath(path); const { revision, source } = await this.source(vaultId);
     let text = '';
     if (!create) {
-      const proof = this.proofs.get(this.key(vaultId, path)); if (!proof || proof.hash !== expectedHash || proof.revision !== revision) throw new VaultError('complete_read_required', 'Read the complete note, then prepare a change against its whole-note hash.');
+      const proof = this.proofs.get(this.key(vaultId, path)); if (!proof || proof.hash !== expectedHash || proof.revision !== revision || proof.reader !== reader) throw new VaultError('complete_read_required', 'Read the complete note, then prepare a change against its whole-note hash.');
       const current = await this.files.read(vaultId, revision, path); this.check(vaultId, revision);
       if (current.hash !== expectedHash) { this.proofs.delete(this.key(vaultId, path)); throw new VaultError('conflict', 'The note changed. Reread it and prepare a fresh change.'); } text = current.text;
     }
@@ -279,16 +346,16 @@ export class Obsidian {
     }
   }
   create(input: { vaultId: string; path: string; text: string }, signal?: AbortSignal) { return this.write(input.vaultId, input.path, null, () => input.text, true, signal); }
-  edit(input: { vaultId: string; path: string; expectedHash?: string; resolution?: { token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: Resolution['choice']; text?: string }; append?: string; replacements?: Array<{ oldText: string; newText: string }>; task?: { line: number; marker: string } }, signal?: AbortSignal) {
+  edit(input: { vaultId: string; path: string; expectedHash?: string; resolution?: { token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: Resolution['choice']; text?: string }; append?: string; replacements?: Array<{ oldText: string; newText: string }>; task?: { line: number; marker: string } }, signal?: AbortSignal, reader = '') {
     if (input.resolution) { if (input.expectedHash !== undefined || input.append !== undefined || input.replacements !== undefined || input.task !== undefined) throw new VaultError('ambiguous_edit'); return this.recover({ vaultId: input.vaultId, path: input.path, ...input.resolution }, signal); }
     if (!input.expectedHash) throw new VaultError('complete_read_required');
     return this.write(input.vaultId, input.path, input.expectedHash, text => {
       if ([input.append !== undefined, !!input.replacements?.length, !!input.task].filter(Boolean).length !== 1) throw new VaultError('ambiguous_edit');
       if (input.task) { const task = this.parser.parse(text).tasks.filter(t => t.line === input.task!.line); if (task.length !== 1 || [...input.task.marker].length !== 1 || /[\]\r\n]/.test(input.task.marker)) throw new VaultError('ambiguous_edit'); return this.parser.edit(text, [{ oldText: text.slice(task[0].start, task[0].end), newText: text.slice(task[0].start, task[0].markerOffset) + input.task.marker + text.slice(task[0].markerOffset + task[0].marker.length, task[0].end) }]); }
       return input.append !== undefined ? this.parser.edit(text, []) + input.append : this.parser.edit(text, input.replacements!);
-    }, false, signal);
+    }, false, signal, reader);
   }
-  properties(input: { vaultId: string; path: string; expectedHash: string; set?: Record<string, unknown>; remove?: string[]; addAliases?: string[] }, signal?: AbortSignal) {
-    return this.write(input.vaultId, input.path, input.expectedHash, text => { const set = { ...input.set }; if (input.addAliases?.length) { if ('aliases' in set || input.remove?.includes('aliases')) throw new VaultError('ambiguous_edit'); set.aliases = [...new Set([...this.parser.parse(text).aliases, ...input.addAliases])]; } return this.parser.properties(text, { set, remove: input.remove ?? [] }); }, false, signal);
+  properties(input: { vaultId: string; path: string; expectedHash: string; set?: Record<string, unknown>; remove?: string[]; addAliases?: string[] }, signal?: AbortSignal, reader = '') {
+    return this.write(input.vaultId, input.path, input.expectedHash, text => { const set = { ...input.set }; if (input.addAliases?.length) { if ('aliases' in set || input.remove?.includes('aliases')) throw new VaultError('ambiguous_edit'); set.aliases = [...new Set([...this.parser.parse(text).aliases, ...input.addAliases])]; } return this.parser.properties(text, { set, remove: input.remove ?? [] }); }, false, signal, reader);
   }
 }
