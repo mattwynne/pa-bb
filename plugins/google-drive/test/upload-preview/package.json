@@ -1,0 +1,15 @@
+{
+  "name": "bb-plugin-drive-upload-review",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bb": {
+    "name": "Synthetic upload review — no Google access",
+    "description": "Inert native upload approval review with no account access or provider writes.",
+    "branding": { "icon": "FolderOpen" },
+    "server": "./test/upload-preview/server.ts",
+    "app": "./test/upload-preview/app.tsx"
+  },
+  "dependencies": { "zod": "4.6.5" },
+  "devDependencies": { "@get-bb/plugin-sdk": "0.6.80", "react": "19.2.0" }
+}

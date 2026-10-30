@@ -11,6 +11,10 @@ import { createServer } from 'node:net';
 import { once } from 'node:events';
 import assert from 'node:assert/strict';
 const source = resolve(fileURLToPath(new URL('../', import.meta.url)));
+const uploadReview = process.env.PA_DRIVE_UPLOAD_REVIEW === '1';
+const fixtureId = uploadReview ? 'drive-upload-review' : 'drive-creation-review';
+const states = uploadReview ? ['binary', 'conversion', 'invalid', 'error'] : ['document', 'spreadsheet', 'invalid', 'error'];
+const previewFolder = uploadReview ? 'upload-preview' : 'creation-preview';
 const bbRoot = process.env.BB_REVIEW_ROOT || join(source, 'node_modules/bb-app');
 let apps = join(bbRoot, 'apps'); try { await access(apps); } catch { apps = bbRoot; }
 const cli = join(apps, 'host-daemon/dist/bb');
@@ -18,10 +22,10 @@ const freePort = () => new Promise((resolve, reject) => { const s = createServer
 const port = await freePort(), daemonPort = await freePort();
 const root = await mkdtemp(join(tmpdir(), 'drive-creation-review-')), fixture = join(root, 'drive-creation-review');
 await mkdir(join(root, 'home'));
-for (const file of ['creation-approval.tsx', 'core/file-link.mjs', 'core/filing-presentation.mjs', 'app.css', 'connection-ui.tsx', 'connection-ui.css', 'test/creation-preview/app.tsx', 'test/creation-preview/server.ts']) {
+for (const file of [uploadReview ? 'upload-approval.tsx' : 'creation-approval.tsx', 'core/file-link.mjs', 'core/filing-presentation.mjs', 'app.css', 'connection-ui.tsx', 'connection-ui.css', `test/${previewFolder}/app.tsx`, `test/${previewFolder}/server.ts`]) {
   await mkdir(dirname(join(fixture, file)), { recursive: true }); await cp(join(source, file), join(fixture, file));
 }
-await cp(join(source, 'test/creation-preview/package.json'), join(fixture, 'package.json'));
+await cp(join(source, `test/${previewFolder}/package.json`), join(fixture, 'package.json'));
 await symlink(join(source, 'node_modules'), join(fixture, 'node_modules'), 'dir');
 const env = { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: join(root, 'home'), NODE_ENV: 'production', BB_DATA_DIR: join(root, 'data'), BB_SERVER_PORT: String(port), BB_SERVER_BIND_HOST: '127.0.0.1', BB_SERVER_URL: `http://127.0.0.1:${port}`, BB_CLI: cli, BB_MARKETPLACE_URL: `http://127.0.0.1:${port}/no-marketplace` };
 const fd = openSync(join(root, 'server.log'), 'a', 0o600);
@@ -47,10 +51,10 @@ try {
   assert.ok(connected, 'Disposable daemon must connect');
   const installed = JSON.parse(await command('plugin', 'install', fixture, '--yes', '--json')); assert.equal(installed.plugin.status, 'running');
   const threads = {};
-  for (const state of ['document', 'spreadsheet', 'invalid', 'error']) {
+  for (const state of states) {
     const result = await api('threads', { projectId: 'proj_personal', origin: 'sdk', providerId: 'codex', model: 'synthetic-inert-never-dispatch', title: `Synthetic filing review: ${state}`, input: [{ type: 'text', text: 'Inert native filing fixture; never dispatch.' }], environment: { type: 'host', hostId: enrollment.hostId, workspace: { type: 'personal' } }, sendAt: 4102444800000 });
     const t = result.thread ?? result; assert.equal(t.status, 'pending'); threads[state] = t.id;
-    await api('plugins/drive-creation-review/rpc/stage', { threadId: t.id, state });
+    await api(`plugins/${fixtureId}/rpc/stage`, { threadId: t.id, state });
   }
-  console.log(JSON.stringify({ root, url: `${env.BB_SERVER_URL}/threads/${threads.document}`, controllerPid: process.pid, threads, googleWrites: 0, providerTurns: 0 }));
+  console.log(JSON.stringify({ root, url: `${env.BB_SERVER_URL}/threads/${threads[states[0]]}`, controllerPid: process.pid, threads, googleWrites: 0, providerTurns: 0 }));
 } catch (error) { console.error('Isolated filing review setup failed; temporary data will be removed.'); console.error(error); stop(); process.exitCode = 1; }

@@ -25,7 +25,7 @@ export function claimFilingAccess(db, op, claim) {
     const fileId = op.resource?.startsWith('file:') ? op.resource.slice(5) : null;
     const creating = fileId && db.prepare(`SELECT 1 FROM docs_creations AS op
       WHERE json_extract(op.receipt, '$.claimState') IN ('reviewing','writing','uncertain')
-      AND COALESCE(json_extract(op.receipt, '$.documentId'), json_extract(op.receipt, '$.spreadsheetId')) = ? LIMIT 1`).get(fileId);
+      AND COALESCE(json_extract(op.receipt, '$.documentId'), json_extract(op.receipt, '$.spreadsheetId'), json_extract(op.receipt, '$.fileId')) = ? LIMIT 1`).get(fileId);
     return !conflict && !creating && claim();
   })();
 }
@@ -35,12 +35,16 @@ export function claimCreationAccess(db, op, claim) {
     const ids = JSON.stringify(op.contextIds);
     const sharing = db.prepare(`SELECT 1 FROM drive_sharing_operations WHERE state IN ('reviewing','writing','uncertain')
       AND file_id IN (SELECT value FROM json_each(?)) LIMIT 1`).get(ids);
-    const fileId = op.documentId || op.spreadsheetId;
+    const fileId = op.documentId || op.spreadsheetId || op.fileId;
     const filing = fileId && db.prepare(`SELECT 1 FROM drive_filing_operations
       WHERE state IN ('reviewing','writing','uncertain') AND resource = ? LIMIT 1`).get(`file:${fileId}`);
     const creating = fileId && db.prepare(`SELECT 1 FROM docs_creations AS op
       WHERE json_extract(op.receipt, '$.claimState') IN ('reviewing','writing','uncertain') AND op.operation_id <> ?
-      AND COALESCE(json_extract(op.receipt, '$.documentId'), json_extract(op.receipt, '$.spreadsheetId')) = ? LIMIT 1`).get(op.operationId, fileId);
-    return !sharing && !filing && !creating && claim();
+      AND COALESCE(json_extract(op.receipt, '$.documentId'), json_extract(op.receipt, '$.spreadsheetId'), json_extract(op.receipt, '$.fileId')) = ? LIMIT 1`).get(op.operationId, fileId);
+    const uploading = op.kind === 'upload' && db.prepare(`SELECT 1 FROM docs_creations AS current
+      WHERE current.operation_id <> ? AND json_extract(current.receipt, '$.kind') = 'upload'
+      AND json_extract(current.receipt, '$.claimState') IN ('reviewing','writing','uncertain')
+      AND json_extract(current.receipt, '$.resource') = ? LIMIT 1`).get(op.operationId, op.resource);
+    return !sharing && !filing && !creating && !uploading && claim();
   })();
 }

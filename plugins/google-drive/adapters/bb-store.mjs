@@ -98,6 +98,11 @@ export function createBbStore(db, migrate) {
       return claimCreationAccess(db, op, () => db.prepare('INSERT OR IGNORE INTO docs_creations (operation_id,subject,receipt) VALUES (?,?,?)')
         .run(op.operationId, op.subject, JSON.stringify(op)).changes === 1);
     },
+    async claimUploadReview(op) {
+      return claimCreationAccess(db, op, () => db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
+        AND json_extract(receipt, '$.kind') = 'upload' AND json_extract(receipt, '$.claimState') = 'proposed'`)
+        .run(JSON.stringify(op), op.operationId, op.subject).changes === 1);
+    },
     async startSharedCreation(op) {
       return db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
         AND json_extract(receipt, '$.claimState') = 'reviewing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1;
@@ -105,6 +110,11 @@ export function createBbStore(db, migrate) {
     async attachSharedCreation(op) {
       return claimCreationAccess(db, op, () => db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
         AND json_extract(receipt, '$.claimState') = 'writing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1);
+    },
+    async attachUploadObservation(op) {
+      return claimCreationAccess(db, op, () => db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
+        AND json_extract(receipt, '$.kind') = 'upload' AND json_extract(receipt, '$.claimState') IN ('writing','uncertain')`)
+        .run(JSON.stringify(op), op.operationId, op.subject).changes === 1);
     },
     async cancelSharedCreationReview(op) {
       return db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?

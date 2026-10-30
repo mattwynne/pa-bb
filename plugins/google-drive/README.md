@@ -15,6 +15,8 @@ An independent Google Drive and Docs plugin with explicitly consented full Drive
 | `gdrive_sharing_status` | Read-only permission recovery; never retries a write or invitation |
 | `gdrive_copy_file` | Single-use keyed copy into an explicit folder; requires write consent |
 | `gdrive_copy_status` | Read-only recovery of the same copy operation; never replays a write |
+| `gdrive_upload_file` | Preview/approve one selected local server file: exact-byte binary upload by default or explicit conservative XLSX-to-native-Sheets import |
+| `gdrive_upload_status` | Read-only upload/import recovery with the original key; lost-response matches are observations, not completion |
 | `gdrive_create_folder` | Preview/create one explicitly located My Drive folder; duplicate checks and durable recovery |
 | `gdrive_move_file` | Preview/move an existing owned native or uploaded file without copying or content changes; capability checks and inherited-access review |
 | `gdrive_filing_status` | Read-only folder/move recovery; never replays uncertain writes |
@@ -38,6 +40,8 @@ An independent Google Drive and Docs plugin with explicitly consented full Drive
 BB's `bb plugin logs google-drive` records bounded stage/status categories for failed identity checks, partial searches, and agent tool failures, without account addresses, OAuth secrets, query terms, or response bodies. A connected identity does not prove that a Drive read will succeed; verify with a harmless read. These diagnostics pass synthetic host tests. A controlled local refusal produces a bounded live log; provider-side failures still need live verification.
 
 [Native document creation](docs/creation.md) supports an explicit account, title, My Drive root or owned unshared folder, and up to 40,000 UTF-16 units of literal multi-paragraph text. It uses existing Drive write consent and the copy tool's user-request authorization, not the Docs-edit approval setting. Keep the single-use operation UUID: interrupted operations may leave a blank or populated Doc, and only read-only status reconciliation is safe. No sharing changes or invitations are made. Provider create/populate writes remain unverified live; delivery uses synthetic disposable fixtures and read-only live checks.
+
+[Local-file upload and XLSX import](docs/upload.md) supports 1 byte–4 MiB regular Linux BB-server thread-storage files only. Exact source/version and shared audience require mandatory owner review; no conversion is inferred. Binary verification uses provider checksums against captured bytes. Explicit XLSX import retains Google's supported formulas/tabs but only checks bounded native evidence, never full Excel fidelity or model correctness. Same-name files are not replaced, and uncertain submissions are never replayed.
 
 [Native Sheets](docs/sheets.md) supports bounded new workbooks with literal strings, numeric/boolean/blank cells, civil dates and CAD currency, frozen headers and wrapping. Default destination is root. Existing Drive write consent is reused (`drive` or `drive.file`); the owner must enable Google Sheets API in the existing Google Cloud project. No formula input, scope upgrade, sharing or notifications. Keep the operation UUID and use read-only status after uncertainty; a blank spreadsheet may remain. Only verified confirms title/destination/ordered tabs/cell readback. Real provider writes are not part of delivery testing.
 

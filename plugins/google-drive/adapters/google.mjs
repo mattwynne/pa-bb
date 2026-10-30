@@ -5,6 +5,7 @@ import { createSheetsAdapter } from './sheets.mjs';
 import { createSheetsEditAdapter } from './sheets-edit.mjs';
 import { createFilingAdapter } from './filing.mjs';
 import { boundedJson } from './docs-transport.mjs';
+import { createUploadAdapter } from './upload.mjs';
 
 const AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN = 'https://oauth2.googleapis.com/token';
@@ -159,5 +160,5 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
       },
     },
   };
-  return { ...adapter, sharing: createSharingAdapter({ drive: adapter.drive, verifiedAccess, fetchImpl }) };
+  return { ...adapter, upload: createUploadAdapter({ verifiedAccess, fetchImpl, sheets: adapter.sheets }), sharing: createSharingAdapter({ drive: adapter.drive, verifiedAccess, fetchImpl }) };
 }
