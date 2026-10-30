@@ -58,7 +58,10 @@ bold shaded header, one frozen row, wrapped top-aligned cells, 180px columns.
 Reading supports up to 1,000 cells, within the selected tab's allocated grid;
 responses share the existing 1 MiB bounded transport, and returned raw cell
 JSON is additionally capped at 100,000 UTF-16 units. Smaller valid ranges are
-the read-only workaround. No general existing-sheet editor is provided.
+the read-only workaround. For a separately requested existing-cell edit, follow
+the [bounded editing protocol](sheets-editing.md): inspection, exact preview,
+mandatory owner review and read-only recovery. It does not accept formulas,
+creation date/CAD objects or arbitrary batch requests.
 
 ## Durable creation and verification
 

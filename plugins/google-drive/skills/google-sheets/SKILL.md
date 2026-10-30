@@ -1,9 +1,9 @@
 ---
 name: google-sheets
-description: Create a populated native Google spreadsheet with bounded tabs and typed cells, read ranges, or recover an interrupted creation without replaying writes.
+description: Create native Google spreadsheets, read bounded ranges, route existing-cell edits through inspection and owner review, or recover an operation without replaying writes.
 ---
 
-Use only user-requested new spreadsheets and an explicit connected Drive account.
+Use an explicit connected Drive account and act only on user requests.
 Do not create a smoke-test file in a real account without separate authorization.
 
 ## Create
@@ -65,3 +65,14 @@ values when available. Empty cells are `{}`. Provider responses are bounded;
 use smaller ranges on size-limit errors. No writes.
 
 Full protocol and limits: [Sheets guide](../../docs/sheets.md).
+
+## Edit existing cells
+
+Use `gsheets_inspect_for_edit`, then preview and apply `gsheets_update_range`
+with the same operationId and exact arguments. Follow the separate
+[Sheets editing skill](../google-sheets-editing/SKILL.md) for bounds, mandatory
+owner review, preservation and read-only recovery with `gsheets_edit_status`.
+Editing accepts only literal string/number/boolean/null values, not the creation
+date/CAD objects. Existing number formats remain. Formula editing is unsupported.
+Google provides no revision/CAS write guard; a collaborator can still race after
+comparison. Never claim that matching lost-response values establish success.

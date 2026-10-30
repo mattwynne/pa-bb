@@ -1,0 +1,37 @@
+// Escaping/validation tests, not a substitute for rendered native BB review.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile, writeFile, unlink } from 'node:fs/promises';
+import ts from 'typescript';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+const componentFile = new URL('./sheets-edit-approval.generated.mjs', import.meta.url);
+const connectionFile = new URL('./sheets-edit-connection.generated.mjs', import.meta.url);
+const compile = source => ts.transpileModule(source, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext } }).outputText;
+// Literal imports remain inspectable by BB's public-SDK scanner. Exclusive
+// creation prevents concurrent test runs from overwriting each other's files.
+const created = [];
+let SheetsEditApproval;
+try {
+  await writeFile(connectionFile, compile(await readFile(new URL('../connection-ui.tsx', import.meta.url), 'utf8')), { flag: 'wx' });
+  created.push(connectionFile);
+  await writeFile(componentFile, compile((await readFile(new URL('../sheets-edit-approval.tsx', import.meta.url), 'utf8')).replace('./connection-ui.js', './sheets-edit-connection.generated.mjs').replace("import './sheets-edit-approval.css';", '')), { flag: 'wx' });
+  created.push(componentFile);
+  ({ SheetsEditApproval } = await import('./sheets-edit-approval.generated.mjs'));
+} finally {
+  await Promise.all(created.map(file => unlink(file)));
+}
+const p = { account: 'owner@example.test', spreadsheetId: 'sheet-a', operationId: '11111111-1111-4111-8111-111111111111', title: '<script>private</script>', tabTitle: 'Plan',
+  range: { sheetId: 7, startRow: 2, startColumn: 1, rowCount: 1, columnCount: 2 }, before: [[{ stringValue: '<script>old</script>' }, { boolValue: false }]], values: [['=SUM(A1)', null]], concurrency: 'No revision/CAS; concurrent overwrites are possible.' };
+const render = payload => renderToStaticMarkup(createElement(SheetsEditApproval, { interaction: { id: 'fixture', payload }, submit: async () => {}, cancel: async () => {} }));
+test('exact typed before/after, coordinates, clearing, warning and preservation with escaped strings', () => {
+  const html = render(p);
+  for (const text of ['owner@example.test','B3','C3','Literal string:','Boolean: false','Blank (clear)','=SUM(A1)','No revision/CAS','Cell formatting and notes stay','Approve values','Cancel review']) assert.ok(html.includes(text), text);
+  assert.doesNotMatch(html, /<script>/); assert.match(html, /&lt;script&gt;/); assert.match(html, /spreadsheets\/d\/sheet-a\/edit#gid=7/);
+});
+test('incomplete/malformed approvals fail closed and synthetic examples have no live Google link', () => {
+  for (const payload of [null, {}, { ...p, values: [[1]] }, { ...p, before: [[{}, null]] }, { ...p, values: [[{ formulaValue: '=1' }, null]] }, { ...p, spreadsheetId: 'javascript:bad' }]) {
+    const html = render(payload); assert.match(html, /details are incomplete/); assert.match(html, /disabled=""[^>]*>Approve values/); assert.doesNotMatch(html, /href=/);
+  }
+  const html = render({ ...p, exampleOnly: true }); assert.match(html, /Every choice is a no-op/); assert.doesNotMatch(html, /href=/);
+});

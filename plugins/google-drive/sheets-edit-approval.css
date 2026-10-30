@@ -1,0 +1,8 @@
+.pa-drive__sheets-review { min-width: 0; overflow-wrap: anywhere; }
+.pa-drive__sheets-review dl { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: 4px 12px; }
+.pa-drive__sheets-review dd { margin: 0; }
+.pa-drive__sheets-review table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: left; }
+.pa-drive__sheets-review th, .pa-drive__sheets-review td { padding: 6px; vertical-align: top; border-bottom: 1px solid var(--border); }
+.pa-drive__sheets-review th:first-child { width: 4em; }
+.pa-drive__sheets-review pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: inherit; }
+.pa-drive__sheets-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }

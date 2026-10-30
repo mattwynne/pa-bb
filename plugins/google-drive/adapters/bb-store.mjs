@@ -1,5 +1,6 @@
 // A plugin-owned SQLite store. BB owns its persistent data.db and backup lifecycle.
 // Only the backend opens it; neither tokens nor pending PKCE verifiers reach RPC/UI.
+import { createSheetsEditStore, SHEETS_EDIT_MIGRATION } from './sheets-edit-store.mjs';
 export function createBbStore(db, migrate) {
   migrate(db, [
     `CREATE TABLE IF NOT EXISTS drive_accounts (
@@ -26,9 +27,11 @@ export function createBbStore(db, migrate) {
     );
     CREATE UNIQUE INDEX drive_formatting_active_document ON drive_formatting_operations(document_id)
       WHERE state IN ('reviewing','writing','uncertain');`,
+    SHEETS_EDIT_MIGRATION,
   ]);
   const row = item => item && ({ subject: item.subject, email: item.email, refreshToken: item.refresh_token, accessToken: item.access_token, expiresAt: item.expires_at });
   return {
+    sheetsEdits: createSheetsEditStore(db),
     async getFormatting(operationId) {
       const r = db.prepare('SELECT state,receipt FROM drive_formatting_operations WHERE operation_id = ?').get(operationId);
       return r ? { ...JSON.parse(r.receipt), state: r.state } : null;
