@@ -3,6 +3,7 @@ import { dirname, join, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { rpcContract } from './contract.js';
+import { RCLONE_LOG_LIMITS } from './core/rclone-trace.ts';
 import { ICloudSync } from './core/service.ts';
 import { UpdatePause } from './core/update-pause.ts';
 import { CloudError, category, evidence } from './core/ports.ts';
@@ -21,12 +22,14 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
   let provider = dependencies?.provider;
   let notes = dependencies?.notes;
   let runtime: NoteRuntime | undefined;
+  let worker = dependencies?.worker;
+  let traceReadWarned = false;
   if (!provider) {
     // Derive persistent storage from the scoped host database, never home or plugin code.
     const database = bb.storage.database();
     if (!isAbsolute(database.name)) throw new CloudError('unavailable');
     const root = join(dirname(database.name), 'sync');
-    const process = dependencies?.worker ?? new RcloneProcess(root);
+    const process = worker = dependencies?.worker ?? new RcloneProcess(root, undefined, undefined, () => diagnose('rclone_log_write', 'unavailable'));
     if (process.root !== root) throw new CloudError('unavailable');
     notes = new NoteStore(join(root, 'note-operations'));
     // Runtime state is read only after sync.start; construction is side-effect free.
@@ -113,7 +116,12 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     },
     async disconnect(_input, context) { clientOnly(context); return action(() => updatePause.disconnect()); },
     inventory() { return inventory(); },
-    diagnostics(input) { return sync.diagnostics(input ?? {}); }
+    diagnostics(input) { return sync.diagnostics(input ?? {}); },
+    async rcloneLogs(input) {
+      const result = worker ? await worker.trace.snapshot(input?.limit ?? 100) : { available: false, failure: 'unavailable' as const, incomplete: true, droppedRecords: 0, queuedRecords: 0, entries: [], limits: RCLONE_LOG_LIMITS };
+      if (result.failure && !traceReadWarned) { traceReadWarned = true; diagnose('rclone_log_read', 'unavailable'); }
+      return result;
+    }
   });
   // Credentials use authenticated HTTP forms, not agent-callable or discoverable RPC.
   // Never throw schema/provider errors with form values back into BB's handler logger.

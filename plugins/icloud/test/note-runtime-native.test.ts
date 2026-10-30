@@ -16,7 +16,6 @@ import { ICloud as ObsidianICloud } from '../../obsidian/adapters/icloud.ts';
 import { Obsidian } from '../../obsidian/core/service.ts';
 import { MarkdownNotes } from '../../obsidian/adapters/markdown-notes.ts';
 import { MemoryState as ObsidianState } from '../../obsidian/test/fakes.ts';
-import type { BbPluginApi } from '@get-bb/plugin-sdk';
 const enabled = process.platform === 'linux' && !!process.env.RCLONE_TEST_BINARY && process.env.ICLOUD_RUNTIME_NATIVE === '1';
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const operationId = () => { const time = Date.now().toString(16).padStart(12, '0'); return `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`; };
@@ -86,7 +85,7 @@ test('wired BB v2 RPC remains local throughout a real >=40s owned native command
         const result = await host.harness.behavior.callRpc(request.method, request.input, request.method.startsWith('note') ? caller : undefined);
         return request.outputSchema.parse(result);
       },
-    } } as unknown as BbPluginApi['sdk'];
+    } } as unknown as ConstructorParameters<typeof ObsidianICloud>[0];
     const consumerAdapter = new ObsidianICloud(sdk, () => {});
     const consumerState = new ObsidianState(); consumerState.value = { revision: 1, vaultIds: ['one', 'two'], names: { one: 'Generated', two: 'Other' }, pending: [] };
     const consumer = new Obsidian(consumerAdapter, consumerAdapter, new MarkdownNotes(), consumerState, randomUUID, Date.now, () => {});

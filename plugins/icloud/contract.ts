@@ -1,6 +1,7 @@
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { diagnosticsSchema, historyQuerySchema } from './core/diagnostics.js';
+import { traceQuerySchema, traceSnapshotSchema } from './core/rclone-trace.ts';
 import { noteRpcContract, searchCapabilitySchema } from './core/note-contract.ts';
 const folder = z.object({ id: z.string(), name: z.string(), ancestors: z.array(z.string()) });
 const progress = z.object({ stage: z.enum(['checking', 'backing_up_cloud', 'backing_up_local', 'saving_recovery', 'transferring', 'verifying']), bytes: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), totalBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(), files: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), totalFiles: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(), reusedFiles: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional() }).strict();
@@ -13,6 +14,7 @@ export const rpcContract = defineRpcContract({
   ...noteRpcContract,
   status: { input: z.null(), output: statusSchema },
   diagnostics: { input: z.union([z.null(), historyQuerySchema]), output: diagnosticsSchema },
+  rcloneLogs: { input: z.union([z.null(), traceQuerySchema]), output: traceSnapshotSchema },
   browse: { input: z.object({ parent: z.string().max(4096).nullable() }).strict(), output: z.array(folder) },
   select: { input: z.object({ folderId: z.string().min(1).max(4096) }).strict(), output: statusSchema },
   enable: { input: pauseOrResume, output: statusSchema }, retry: { input: id, output: statusSchema }, rebuild: { input: id, output: statusSchema }, pause: { input: pauseOrResume, output: statusSchema },

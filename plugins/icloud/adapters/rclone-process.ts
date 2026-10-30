@@ -4,11 +4,12 @@ import { request } from 'node:http';
 import { constants } from 'node:fs';
 import { chmod, mkdir, open, readFile, lstat, writeFile, unlink } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { CloudError } from '../core/ports.ts';
 import type { TransferProgress } from '../core/ports.ts';
 import { RcloneStatsStream } from './rclone-stats.ts';
 import { RcloneBisyncObservation } from './rclone-bisync-observation.ts';
+import { RcloneTrace } from './rclone-trace.ts';
 
 export const COMMAND_TIMEOUTS = { listing: 5 * 60_000, transfer: 15 * 60_000, bisync: 20 * 60_000 } as const;
 export const FLOCK_BINARY = '/usr/bin/flock';
@@ -32,8 +33,10 @@ export class RcloneProcess {
   private config: string;
   private helper: string;
   private key: string;
+  readonly trace: RcloneTrace;
   // Constructor-only generated-fixture control. Never supplied by server/RPC/env.
-  constructor(readonly root: string, private explicitBinary?: string, private testBandwidth?: string) {
+  constructor(readonly root: string, private explicitBinary?: string, private testBandwidth?: string, traceWarning?: () => void) {
+    this.trace = new RcloneTrace(join(root, 'rclone-logs'), traceWarning);
     if (testBandwidth && !/^[1-9][0-9]{0,6}[kM]$/.test(testBandwidth)) throw new CloudError('configuration');
     this.socket = join(root, 'control.sock'); this.config = join(root, 'state', 'rclone.conf');
     this.helper = join(root, 'secrets', 'read-key.cjs'); this.key = join(root, 'secrets', 'config.key');
@@ -115,6 +118,9 @@ export class RcloneProcess {
       throw new CloudError('busy');
     }
     try {
+      // Start capture only after proving native ownership. Never trace account
+      // setup, control-socket bodies, credential helpers or generic commands.
+      await this.trace.start();
       let hasConfig = false;
       try { const data = await readFile(this.config, 'utf8'); hasConfig = true; if (!/^RCLONE_ENCRYPT_V0:$/m.test(data)) throw new CloudError('recovery_required'); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
@@ -188,27 +194,48 @@ export class RcloneProcess {
     await this.ensure();
     if (this.fileWork || this.stopping) throw new CloudError('busy');
     const command = args[0];
-    const stats = report ? ['--use-json-log', '--stats', '1s', '--stats-log-level', 'NOTICE', '--log-level', 'NOTICE'] : command === 'bisync' ? ['--use-json-log'] : [];
+    const stats = report ? ['--use-json-log', '--stats', '1s', '--stats-log-level', 'NOTICE', '--log-level', command === 'bisync' ? 'DEBUG' : 'NOTICE'] : command === 'bisync' ? ['--use-json-log', '--log-level', 'DEBUG'] : [];
     const timeout = command === 'bisync' ? COMMAND_TIMEOUTS.bisync : command === 'lsjson' ? COMMAND_TIMEOUTS.listing : COMMAND_TIMEOUTS.transfer;
     return this.execute(this.binary!, [...args, ...this.flags(), ...stats], capture, timeout, report, command === 'bisync' ? 'bisync' : 'generic');
   }
   private execute(binary: string, args: string[], capture: boolean, timeout: number, report?: (stats: TransferProgress) => void, context: 'bisync' | 'generic' = 'generic'): Promise<string> {
     return new Promise((resolve, reject) => {
       const observer = context === 'bisync' ? new RcloneBisyncObservation() : null;
+      const commandId = randomUUID(), started = performance.now();
+      const elapsed = () => Math.max(0, Math.round(performance.now() - started));
+      const trace = (entry: Parameters<RcloneTrace['append']>[0]) => { if (observer) this.trace.append(entry); };
+      trace({ at: new Date().toISOString(), commandId, elapsedMs: 0, event: 'command_start', timeoutMs: timeout });
       const stdio: any[] = ['ignore', capture ? 'pipe' : 'ignore', report || observer ? 'pipe' : 'ignore'];
       if (this.lock) stdio.push(this.lock.fd);
       const child = spawn(binary, args, { env: safeEnvironment(), stdio });
-      const stats = report || observer ? new RcloneStatsStream(report, record => observer?.observe(record)) : null;
+      const stats = report || observer ? new RcloneStatsStream(report, record => {
+        observer?.observe(record);
+        if (observer) this.trace.record(commandId, elapsed(), record);
+      }) : null;
       child.stderr?.on('data', chunk => stats?.write(chunk));
       this.children.add(child); let output = ''; let overflow = false; let timedOut = false;
       child.stdout?.on('data', chunk => { if (output.length + chunk.length > 4 * 1024 * 1024) { overflow = true; child.kill('SIGKILL'); } else output += chunk; });
-      const timer = setTimeout(() => { timedOut = true; child.kill('SIGINT'); }, timeout); timer.unref();
+      const timer = setTimeout(() => {
+        timedOut = true;
+        trace({ at: new Date().toISOString(), commandId, elapsedMs: elapsed(), event: 'command_timeout', timeoutMs: timeout });
+        child.kill('SIGINT');
+      }, timeout); timer.unref();
       const hard = setTimeout(() => child.kill('SIGKILL'), timeout + 95_000); hard.unref();
       const cleanup = () => { clearTimeout(timer); clearTimeout(hard); this.children.delete(child); };
-      child.on('error', () => { cleanup(); reject(new CloudError('unavailable', { kind: 'command_start' })); });
+      let settled = false;
+      child.on('error', () => {
+        settled = true; cleanup();
+        trace({ at: new Date().toISOString(), commandId, elapsedMs: elapsed(), event: 'command_end', outcome: 'failed', evidence: 'command_start' });
+        void this.trace.flush().then(() => reject(new CloudError('unavailable', { kind: 'command_start' })));
+      });
       child.on('close', (code, signal) => {
         stats?.end(); cleanup();
-        if (code === 0 && !overflow && !timedOut && !this.stopping) resolve(output);
+        if (settled) return;
+        settled = true;
+        if (code === 0 && !overflow && !timedOut && !this.stopping) {
+          trace({ at: new Date().toISOString(), commandId, elapsedMs: elapsed(), event: 'command_end', outcome: 'succeeded', exitCode: 0 });
+          void this.trace.flush().then(() => resolve(output));
+        }
         else {
           const native = context === 'bisync' && code === 7 && !this.stopping && !overflow && !timedOut && !signal ? observer?.decision() : undefined;
           const proof = this.stopping ? { kind: 'command_stopped' as const } : overflow ? { kind: 'command_output_limit' as const } : timedOut ? { kind: 'command_timeout' as const } : signal ? { kind: 'command_signal' as const } : { kind: 'command_exit' as const, exitCode: code, ...(native ? { native, ...(observer?.reason() ? { reason: observer.reason() } : {}) } : {}) };
@@ -220,7 +247,8 @@ export class RcloneProcess {
           else if (context === 'generic' && code === 8) failure = 'capacity';
           else if (context === 'generic' && code === 7) failure = 'recovery_required';
           else failure = 'sync_failed';
-          reject(new CloudError(failure, proof));
+          trace({ at: new Date().toISOString(), commandId, elapsedMs: elapsed(), event: 'command_end', outcome: 'failed', evidence: proof.kind, exitCode: code !== null && code >= 0 && code <= 10 ? code : null });
+          void this.trace.flush().then(() => reject(new CloudError(failure, proof)));
         }
       });
     });
@@ -235,6 +263,7 @@ export class RcloneProcess {
       child.once('close', () => { clearTimeout(timer); resolve(); });
       const timer = setTimeout(() => child.kill('SIGKILL'), 95_000); timer.unref(); child.kill('SIGINT');
     })));
+    await this.trace.stop();
     if (this.ownsLock) await unlink(this.socket).catch(() => {});
     await this.lock?.close().catch(() => {}); this.lock = null;
     this.ownsLock = false;

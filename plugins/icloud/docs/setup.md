@@ -62,6 +62,26 @@ After an abrupt native transfer termination, rclone may retain a non-empty bound
 
 ## Diagnostics
 
+### Rotating rclone activity logs
+
+Every future native bisync attempt requests rclone's JSON DEBUG activity and saves a **projected diagnostic trace**, not a raw log dump. Read the latest 100 records without starting, retrying or changing a sync:
+
+```sh
+bb plugin rpc call icloud rcloneLogs --json
+```
+
+The optional input accepts `{"limit":500}` (1–500), supplied with `--input-file`. Records have host UTC timestamps, a generated per-command ID, elapsed milliseconds, start/finish/timeout boundaries, native component/line, recognized listing/comparison/retry activity, validated HTTP status numbers and fixed error categories such as timeout, DNS, connection reset or rate limiting. Native statistics include checks, transfers, errors, current activity counts and retry/fatal-error flags. A category means recognized text was observed, not an independently established root cause or proof that a write was not applied. Unknown messages remain `unknown`; raw messages are deliberately not recoverable from this trace. Component/line metadata helps locate the emitting code in the pinned rclone version.
+
+Only bisync stderr is observed. The control daemon, account setup commands, control-socket requests/responses and password helper are **not captured**. No filenames, note bodies, account identifiers, URLs, headers, cookies, tokens or arbitrary provider text are copied into storage. HTTP body/header dumping is never enabled. This is more detailed than the failure-only BB log but is not a full provider audit trail.
+
+Storage is allocated under the plugin's persistent `sync/rclone-logs/` directory, separate from mirrors, baselines, credentials and run-history SQLite. `rclone.jsonl` is current; `.1`, `.2` and `.3` are older, newest first. There are **at most four files of 1 MiB each (4 MiB total)**, with automatic size-based rotation across reloads. The directory is private (0700), files are private (0600), and only the native worker's owner writes them. Rotation replaces the oldest trace, not mirror data or run history. No particular number of days is guaranteed; heavy DEBUG activity rotates faster.
+
+Each record is capped at 4 KiB and the asynchronous queue at 256 records (at most 1 MiB plus a 64 KiB write batch). A full queue drops trace records instead of blocking rclone. `droppedRecords` counts queue/schema drops in the current plugin generation, not all historical loss. `queuedRecords` reports pending writes; `incomplete` reports known omissions/corruption or pending capture. A bounded tail is not an atomic or exhaustive record of a run, and rotation/crashes can remove older evidence. Trace writes are best effort, not crash-durable. Read access never flushes, rotates, prunes or creates trace files.
+
+Storage failure disables capture for that worker generation and emits one bounded `iCloud rclone_log_write unavailable` warning. An unavailable read separately emits one bounded `iCloud rclone_log_read unavailable` warning per plugin generation. `available: false` / `failure: unavailable` must not be interpreted as an empty successful log. Sync results, retry decisions and note access are unchanged by capture failures. Existing failures before this change cannot be reconstructed. Capture begins only when the changed code is actually applied; a build or Git commit does not enable it on a running installation.
+
+### Failure summaries and retained run history
+
 BB logs failures, not routine success or every status poll. Lines identify an operation/stage and safe category, for example `iCloud connect authentication`, `iCloud sync/checking sync_failed run=12 evidence=command_exit exit=5` or `iCloud sync/transferring interrupted run=13 evidence=command_timeout`. The run number is generated inside the plugin, not an account or folder identifier. Command evidence distinguishes an exit, timeout, output limit, signal, startup failure or deliberate shutdown; unknown exit codes are reported as unknown. No raw stderr is retained or parsed for provider messages.
 
 Stock-rclone exit codes have bounded meanings: 2 is usage error, 3 directory missing, 4 file missing, 5 temporary error, 6 non-retry error, 7 fatal error, 8 transfer limit, 9 no transfer and 10 duration limit; 1 is otherwise uncategorized. Exit 7 alone cannot distinguish a resilient retryable abort from a resync-required lockout. On new bisync runs, a complete pinned v1.75.2 native JSON log record (including its rclone source metadata) supplies `native=retryable_abort` or `native=resync_required_abort`; missing, malformed, truncated, conflicting or oversized observations yield `native=unknown_fatal` and block retries. An exact native listing-failure marker can additionally supply `reason=listing_failure`. Example: `iCloud sync/checking sync_failed run=12 evidence=command_exit exit=7 native=retryable_abort reason=listing_failure`. These fixed terms also appear in bounded persisted run history. They distinguish rclone's decision, not a private file, Apple's underlying HTTP response, or whether a provider write was applied. Older failures cannot be reclassified from old history or listing files; their original underlying causes cannot be recovered retrospectively.

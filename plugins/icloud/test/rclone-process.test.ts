@@ -99,7 +99,7 @@ test('bisync and generic exit codes use their documented command contexts', asyn
 test('run without progress still requests native JSON for bisync, without stats or generic flag changes', async () => {
   const root = await mkdtemp('/tmp/icloud-run-json-'); const executable = root + '/fake-rclone.cjs';
   const retry = { time: '2026-01-01T00:00:00Z', level: 'error', msg: 'Bisync aborted. Error is retryable without --resync due to --resilient mode.', source: 'bisync/operations.go:201' };
-  const script = `#!/usr/bin/env node\nconst args=process.argv.slice(2); if (args[0]==='bisync') { if (!args.includes('--use-json-log') || args.includes('--stats') || args.includes('--stats-log-level')) process.exit(1); process.stderr.write(${JSON.stringify(JSON.stringify(retry) + '\n')}); process.exit(7); } if (args[0]==='lsjson') { if (args.includes('--use-json-log') || args.includes('--stats')) process.exit(1); process.stdout.write('[]'); process.exit(0); } process.exit(1);\n`;
+  const script = `#!/usr/bin/env node\nconst args=process.argv.slice(2); if (args[0]==='bisync') { if (!args.includes('--use-json-log') || args.includes('--stats') || args.includes('--stats-log-level') || !args.includes('DEBUG')) process.exit(1); process.stderr.write(${JSON.stringify(JSON.stringify(retry) + '\n')}); process.exit(7); } if (args[0]==='lsjson') { if (args.includes('--use-json-log') || args.includes('--stats')) process.exit(1); process.stdout.write('[]'); process.exit(0); } process.exit(1);\n`;
   try {
     await writeFile(executable, script, { mode: 0o700 }); await chmod(executable, 0o700);
     const runner = new RcloneProcess(root) as any; runner.ensure = async () => {}; runner.binary = executable;
@@ -122,7 +122,9 @@ test('only complete, native-sourced pinned bisync records permit ordinary exit-7
   for (const [records, expected, reason] of payloads) {
     const json = records.map(record => JSON.stringify(record) + '\n').join('');
     // Single-byte writes exercise chunk boundaries within the JSON envelope.
-    const script = `const s=${JSON.stringify(json)}; for (const c of s) process.stderr.write(c); process.exit(7)`;
+    // Drain the synthetic pipe: process.exit() can truncate otherwise valid
+    // records under load, which must (correctly) fail closed in production.
+    const script = `const s=${JSON.stringify(json)}; for (const c of s) process.stderr.write(c); process.stderr.end(() => { process.exitCode = 7; });`;
     const progress: TransferProgress[] = [];
     await assert.rejects(runner.execute(process.execPath, ['-e', script], false, 3000, stats => progress.push(stats), 'bisync'), error => {
       assert.ok(error instanceof CloudError); assert.equal(error.category, expected === 'retryable_abort' ? 'sync_failed' : 'recovery_required');
@@ -139,6 +141,56 @@ test('only complete, native-sourced pinned bisync records permit ordinary exit-7
   for (const exit of [1, 42]) await assert.rejects(runner.execute(process.execPath, ['-e', `process.stderr.write(${JSON.stringify(JSON.stringify(retry) + '\n')}); process.exit(${exit})`], false, 3000, undefined, 'bisync'), error => {
     assert.ok(error instanceof CloudError); assert.equal(error.category, 'sync_failed'); assert.deepEqual(error.evidence, { kind: 'command_exit', exitCode: exit === 1 ? 1 : null }); return true;
   });
+});
+test('bisync trace preserves sanitized native evidence and the exact timeout boundary', async () => {
+  const root = await mkdtemp('/tmp/icloud-trace-process-'); const runner = new RcloneProcess(root);
+  const records = [
+    { level: 'debug', source: 'bisync/listing.go:10', msg: 'Reading current listings PRIVATE_SENTINEL' },
+    { level: 'error', msg: 'PRIVATE_SENTINEL i/o timeout', object: 'PRIVATE_SENTINEL.md' },
+    { stats: { bytes: 0, transfers: 0, checks: 10, errors: 1, lastError: 'PRIVATE_SENTINEL', retryError: true } },
+  ].map(record => JSON.stringify(record) + '\n').join('');
+  try {
+    await runner.trace.start();
+    await assert.rejects((runner as any).execute(process.execPath, ['-e', `process.on('SIGINT',()=>process.exit(0)); process.stderr.write(${JSON.stringify(records)}); setInterval(()=>{}, 1000);`], false, 500, undefined, 'bisync'), (error: unknown) => error instanceof CloudError && error.evidence?.kind === 'command_timeout');
+    const result = await runner.trace.snapshot();
+    assert.equal(result.available, true);
+    assert.deepEqual(result.entries.map(e => e.event), ['command_start', 'listing', 'message', 'stats', 'command_timeout', 'command_end']);
+    assert.equal(result.entries.at(-1)?.outcome, 'failed'); assert.equal(result.entries.at(-1)?.evidence, 'command_timeout');
+    assert.equal(result.entries.find(e => e.category)?.category, 'timeout');
+    assert.equal(new Set(result.entries.map(e => e.commandId)).size, 1);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL/);
+    const before = result.entries.length;
+    await (runner as any).execute(process.execPath, ['-e', `process.stderr.write('PRIVATE_SENTINEL');`], false, 3000);
+    assert.equal((await runner.trace.snapshot()).entries.length, before, 'generic and account setup commands are not traced');
+  } finally { await runner.stop(); await rm(root, { recursive: true }); }
+});
+test('unavailable trace storage neither fails a successful command nor changes native retry classification', async () => {
+  const root = await mkdtemp('/tmp/icloud-trace-failure-'); let warnings = 0;
+  const runner = new RcloneProcess(root, undefined, undefined, () => warnings++);
+  const retry = { time: '2026-01-01T00:00:00Z', level: 'error', msg: 'Bisync aborted. Error is retryable without --resync due to --resilient mode.', source: 'bisync/operations.go:201' };
+  try {
+    await runner.trace.start(); await rm(root + '/rclone-logs', { recursive: true }); await writeFile(root + '/rclone-logs', 'PRIVATE_SENTINEL');
+    const execute = (code: number) => (runner as any).execute(process.execPath, ['-e', `process.stderr.write(${JSON.stringify(JSON.stringify(retry) + '\n')}); process.exit(${code});`], false, 5000, undefined, 'bisync');
+    assert.equal(await execute(0), '');
+    await assert.rejects(execute(7), (error: unknown) => error instanceof CloudError && error.category === 'sync_failed' && error.evidence?.kind === 'command_exit' && error.evidence.native === 'retryable_abort');
+    assert.equal(warnings, 1); assert.equal((await runner.trace.snapshot()).available, false);
+    assert.equal(await readFile(root + '/rclone-logs', 'utf8'), 'PRIVATE_SENTINEL');
+  } finally { await runner.stop(); await rm(root, { recursive: true }); }
+});
+test('real stock bisync emits bounded debug activity into the private rotating trace', { skip: !binary, timeout: 30000 }, async () => {
+  const root = await mkdtemp('/tmp/icloud-trace-native-'); const runner = new RcloneProcess(root + '/worker', binary);
+  try {
+    for (const name of ['cloud', 'local', 'baseline']) await mkdir(root + '/' + name);
+    await writeFile(root + '/cloud/PRIVATE_SENTINEL.md', 'PRIVATE_SENTINEL');
+    await runner.run(syncArguments(root + '/cloud', root + '/local', root + '/baseline', true), false, () => {});
+    const trace = await runner.trace.snapshot(500);
+    assert.equal(trace.available, true); assert.ok(trace.entries.length > 3);
+    assert.ok(trace.entries.some(e => e.level === 'debug'));
+    assert.ok(trace.entries.some(e => e.component === 'bisync'));
+    assert.equal(trace.entries.at(-1)?.outcome, 'succeeded');
+    assert.doesNotMatch(JSON.stringify(trace), /PRIVATE_SENTINEL|\/tmp\/|password|token|cookie/);
+    assert.equal(await readFile(root + '/local/PRIVATE_SENTINEL.md', 'utf8'), 'PRIVATE_SENTINEL');
+  } finally { await runner.stop(); await rm(root, { recursive: true }); }
 });
 test('real Linux run without progress classifies native retryable listing exit and ordinary retry', { skip: !binary || process.platform !== 'linux', timeout: 40_000 }, async () => {
   const root = await mkdtemp('/tmp/icloud-run-no-progress-'); const worker = new RcloneProcess(root + '/worker', binary);

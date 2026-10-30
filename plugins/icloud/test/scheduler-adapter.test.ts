@@ -14,6 +14,16 @@ import { diagnosticsSchema } from '../core/diagnostics.ts';
 const binary = process.env.RCLONE_TEST_BINARY;
 const mirror: Mirror = { id: 'mirror-1', folder: { id: Buffer.from('Test Vault').toString('base64url'), name: 'Test Vault', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null, blocker: null };
 
+// Startup deliberately restores the remote connection in the background. Wait
+// for that read-only boundary rather than race a consent action against it.
+async function loadAfterRestore(host: ReturnType<typeof createFakePluginHost>, provider: RcloneCloudProvider, repository: MemoryState) {
+  const verify = provider.verifyConnection.bind(provider); let completed!: () => void;
+  const restored = new Promise<void>(resolve => { completed = resolve; });
+  provider.verifyConnection = async () => { try { await verify(); } finally { completed(); } };
+  await plugin(host.bb, { provider, repository });
+  await restored; await new Promise<void>(resolve => setImmediate(resolve));
+}
+
 test('ordinary Retry uses only native bisync, preserves opaque legacy copies and never replaces an initialized mirror', { skip: !binary, timeout: 90_000 }, async () => {
   const root = await mkdtemp('/tmp/icloud-native-retry-'); const cloud = root + '/cloud/Test Vault'; const workerRoot = root + '/worker';
   await mkdir(cloud, { recursive: true }); await writeFile(cloud + '/note.md', 'kept cloud version');
@@ -28,7 +38,7 @@ test('ordinary Retry uses only native bisync, preserves opaque legacy copies and
     await process.call('config/create', { name: 'icloud', type: 'alias', parameters: { remote: root + '/cloud' }, opt: { nonInteractive: true } });
     await provider.prepareMirror(mirror);
     repository.value = { connected: true, challenge: null, mirrors: [{ ...mirror, initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-01-01T00:00:00.000Z' }] };
-    await plugin(host.bb, { provider, repository });
+    await loadAfterRestore(host, provider, repository);
     failNext = true; await host.harness.behavior.runSchedule('selected-folder-sync');
     await host.harness.behavior.callRpc('pause', { id: mirror.id });
     const stage = workerRoot + '/backups/staging-unknown'; await mkdir(stage, { recursive: true }); await writeFile(stage + '/unique.partial', 'old recovery evidence');
@@ -63,7 +73,7 @@ test('scheduler retries native interruption, respects Pause across reload, and p
     await put('original'); for (let i = 0; i < 4; i++) await writeFile(`${cloud}/stable-${i}.md`, `stable-${i}`);
     const first = provider(); await first.prepareMirror(mirror);
     repository.value = { connected: true, challenge: null, mirrors: [{ ...mirror, initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-01-01T00:00:00.000Z' }] };
-    await plugin(host.bb, { provider: first, repository }); commands.length = 0;
+    await loadAfterRestore(host, first, repository); commands.length = 0;
     await put('retry succeeds', 1); failure = new CloudError('interrupted', { kind: 'command_timeout' });
     await host.harness.behavior.runSchedule('selected-folder-sync');
     let state = statusSchema.parse(await host.harness.behavior.callRpc('status', null)); assert.equal(state.mirrors[0].retryPending, true);
@@ -73,19 +83,19 @@ test('scheduler retries native interruption, respects Pause across reload, and p
 
     failure = new CloudError('sync_failed', { kind: 'command_exit', exitCode: 5 }); await host.harness.behavior.runSchedule('selected-folder-sync');
     await host.harness.behavior.callRpc('pause', { id: mirror.id }); await host.harness.lifecycle.dispose();
-    process = new RcloneProcess(workerRoot, binary); host = createFakePluginHost({ pluginId: 'icloud' }); await plugin(host.bb, { provider: provider(), repository });
+    process = new RcloneProcess(workerRoot, binary); host = createFakePluginHost({ pluginId: 'icloud' }); await loadAfterRestore(host, provider(), repository);
     const stopped = commands.length; await host.harness.behavior.runSchedule('selected-folder-sync'); assert.equal(commands.length, stopped);
     state = statusSchema.parse(await host.harness.behavior.callRpc('status', null)); assert.equal(state.mirrors[0].enabled, false); assert.equal(state.mirrors[0].failure, 'sync_failed');
     await host.harness.behavior.callRpc('retry', { id: mirror.id });
 
     await host.harness.lifecycle.dispose(); repository.value.mirrors[0].phase = 'running'; repository.value.mirrors[0].enabled = true;
-    process = new RcloneProcess(workerRoot, binary); host = createFakePluginHost({ pluginId: 'icloud' }); await plugin(host.bb, { provider: provider(), repository });
+    process = new RcloneProcess(workerRoot, binary); host = createFakePluginHost({ pluginId: 'icloud' }); await loadAfterRestore(host, provider(), repository);
     state = statusSchema.parse(await host.harness.behavior.callRpc('status', null)); assert.equal(state.mirrors[0].retryPending, true); assert.equal(state.mirrors[0].failure, 'interrupted');
     await host.harness.behavior.runSchedule('selected-folder-sync');
     state = statusSchema.parse(await host.harness.behavior.callRpc('status', null)); assert.equal(state.mirrors[0].phase, 'ready'); assert.equal(state.mirrors[0].failure, null);
     failure = new CloudError('recovery_required', { kind: 'command_exit', exitCode: 7 }); await host.harness.behavior.runSchedule('selected-folder-sync');
     const blocked = commands.length; await host.harness.behavior.runSchedule('selected-folder-sync'); assert.equal(commands.length, blocked);
-    await host.harness.lifecycle.dispose(); process = new RcloneProcess(workerRoot, binary); host = createFakePluginHost({ pluginId: 'icloud' }); await plugin(host.bb, { provider: provider(), repository });
+    await host.harness.lifecycle.dispose(); process = new RcloneProcess(workerRoot, binary); host = createFakePluginHost({ pluginId: 'icloud' }); await loadAfterRestore(host, provider(), repository);
     await host.harness.behavior.runSchedule('selected-folder-sync'); assert.equal(commands.length, blocked);
     state = statusSchema.parse(await host.harness.behavior.callRpc('status', null)); assert.equal(state.mirrors[0].blocker, 'rebuild');
     assert.ok(commands.every(args => !args.includes('--resync'))); assert.ok(!(await readdir(workerRoot)).includes('backups'));

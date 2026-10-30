@@ -4,6 +4,9 @@ import { createFakePluginHost, makePluginAgentConfigurationContext } from '@get-
 import { plugin } from '../server.ts';
 import { FakeCloudProvider, MemoryState } from './fakes.ts';
 import { statusSchema } from '../contract.ts';
+import { traceSnapshotSchema } from '../core/rclone-trace.ts';
+import { RcloneProcess } from '../adapters/rclone-process.ts';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { diagnosticsSchema } from '../core/diagnostics.ts';
 import { CloudError, activity } from '../core/ports.ts';
 import type { CloudFolder } from '../core/ports.ts';
@@ -20,6 +23,34 @@ test('first run registers only an inventory tool and a durable one-minute schedu
     assert.equal(provider.prepared + provider.synced, 0);
     assert.equal(harness.inspection.registrations.schedules[0].name, 'selected-folder-sync');
     await harness.behavior.runSchedule('selected-folder-sync'); assert.equal(provider.synced, 0);
+  } finally { await harness.lifecycle.dispose(); }
+});
+test('rclone log RPC reads a bounded tail without starting or retrying sync', async () => {
+  const root = await mkdtemp('/tmp/icloud-trace-rpc-');
+  const host = createFakePluginHost({ pluginId: 'icloud' }); const provider = new FakeCloudProvider();
+  const worker = new RcloneProcess(root); await worker.trace.start();
+  worker.trace.append({ at: new Date().toISOString(), commandId: '11111111-1111-4111-8111-111111111111', elapsedMs: 0, event: 'command_start', timeoutMs: 1200000 });
+  worker.trace.record('11111111-1111-4111-8111-111111111111', 1, { level: 'error', msg: 'PRIVATE_SENTINEL HTTP error 503' });
+  await worker.trace.flush();
+  await plugin(host.bb, { provider, repository: new MemoryState(), worker });
+  try {
+    const result = traceSnapshotSchema.parse(await host.harness.behavior.callRpc('rcloneLogs', { limit: 1 }));
+    assert.equal(result.available, true); assert.equal(result.entries.length, 1); assert.equal(result.entries[0].httpStatus, 503);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_SENTINEL/);
+    assert.equal(provider.prepared + provider.synced, 0);
+    for (const limit of [0, 501, 'PRIVATE_SENTINEL']) await assert.rejects(host.harness.behavior.callRpc('rcloneLogs', { limit }));
+  } finally { await host.harness.lifecycle.dispose(); await worker.stop(); await rm(root, { recursive: true }); }
+});
+test('unavailable rclone capture reads warn once with a fixed boundary, not an empty successful log', async () => {
+  const { harness, provider } = await setup();
+  try {
+    for (let i = 0; i < 2; i++) {
+      const result = traceSnapshotSchema.parse(await harness.behavior.callRpc('rcloneLogs', null));
+      assert.equal(result.available, false); assert.equal(result.failure, 'unavailable');
+    }
+    const logs = harness.inspection.logEntries.filter(e => e.message.includes('rclone_log_read'));
+    assert.equal(logs.length, 1); assert.equal(logs[0].message, 'iCloud rclone_log_read unavailable');
+    assert.equal(provider.prepared + provider.synced, 0);
   } finally { await harness.lifecycle.dispose(); }
 });
 test('credentials and codes cross only protected HTTP forms, never inventory or logs', async () => {
