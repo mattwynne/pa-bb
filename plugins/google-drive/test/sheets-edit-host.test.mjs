@@ -21,6 +21,7 @@ async function setup(options = {}) {
   const calls = [], originalFetch = globalThis.fetch;
   const state = { scope: 'drive.file', identity: subject, writes: 0,
     cells: [{ userEnteredValue: { stringValue: 'Before' }, userEnteredFormat: { numberFormat: { type: 'TEXT' }, textFormat: { bold: true } }, note: 'Keep note' }, { userEnteredValue: { boolValue: false } }] };
+  if (options.formulas) { state.cells[0].userEnteredValue = {formulaValue: '=1/0'}; state.cells[0].effectiveValue = {errorValue: {type: 'DIVIDE_BY_ZERO', message: 'SENTINEL-provider-error'}}; }
   globalThis.fetch = async (url, init = {}) => {
     const u = new URL(url); calls.push({ path: u.pathname, init });
     if (u.pathname.endsWith('/userinfo')) return Response.json({ sub: state.identity, email: account, email_verified: true });
@@ -41,10 +42,12 @@ async function setup(options = {}) {
     if (u.pathname === '/v4/spreadsheets/sheet-a:batchUpdate') {
       state.writes++;
       const body = JSON.parse(init.body);
-      assert.deepEqual(body, { requests: [{ updateCells: { start: { sheetId, rowIndex: 2, columnIndex: 1 }, rows: [{ values: [{ userEnteredValue: { stringValue: '=literal' } }, {}] }], fields: 'userEnteredValue' } }] });
-      assert.doesNotMatch(JSON.stringify(body), /formulaValue|userEnteredFormat|delete|permission|notification/);
-      delete state.cells[1].userEnteredValue;
-      state.cells[0].userEnteredValue = { stringValue: '=literal' };
+      const values = options.formulas ? [{userEnteredValue: {formulaValue: '=SUM(A1:A2)'}}, {userEnteredValue: {stringValue: '=literal'}}] : [{userEnteredValue: {stringValue: '=literal'}}, {}];
+      assert.deepEqual(body, { requests: [{ updateCells: { start: { sheetId, rowIndex: 2, columnIndex: 1 }, rows: [{ values }], fields: 'userEnteredValue' } }] });
+      assert.doesNotMatch(JSON.stringify(body), /userEnteredFormat|delete|permission|notification/);
+      if (!options.formulas) assert.doesNotMatch(JSON.stringify(body), /formulaValue/);
+      values.forEach((value, i) => { delete state.cells[i].userEnteredValue; delete state.cells[i].effectiveValue; Object.assign(state.cells[i], value); });
+      if (options.formulas) state.cells[0].effectiveValue = {errorValue: {type: 'DIVIDE_BY_ZERO', message: 'SENTINEL-provider-error'}};
       if (options.lost) throw new Error('SENTINEL-private-provider-token');
       return Response.json({ spreadsheetId: 'sheet-a', replies: [{}] });
     }
@@ -79,8 +82,9 @@ async function setup(options = {}) {
   }
   return { state, calls, store, assertLegacy, get harness() { return current.harness; },
     async input() {
-      const inspected = parse(await current.harness.behavior.callAgentTool('gsheets_inspect_for_edit', target));
-      return { account, spreadsheetId: 'sheet-a', sheetId, startRow: 2, startColumn: 1, expectedFingerprint: inspected.fingerprint, operationId: randomUUID(), values: [['=literal', null]] };
+      const mode = options.formulas ? {mode: 'formulas'} : {};
+      const inspected = parse(await current.harness.behavior.callAgentTool('gsheets_inspect_for_edit', {...target, ...mode}));
+      return { account, spreadsheetId: 'sheet-a', sheetId, startRow: 2, startColumn: 1, expectedFingerprint: inspected.fingerprint, operationId: randomUUID(), ...mode, values: options.formulas ? [[{formula: '=SUM(A1:A2)'}, '=literal']] : [['=literal', null]] };
     },
     async reload() { current = await current.harness.lifecycle.reload(plugin); },
     async close() { globalThis.fetch = originalFetch; await current.harness.lifecycle.dispose(); },
@@ -144,6 +148,20 @@ test('actual transport lost response retains a durable lock and stays observatio
     const callsBefore = h.calls.length;
     assert.equal(parse(await h.harness.behavior.callAgentTool('gsheets_update_range', { ...a, preview: false })).receiptOnly, true); assert.equal(h.calls.length, callsBefore); assert.equal(h.state.writes, 1); safe(h, status);
   } finally { await h.close(); }
+});
+test('rebuilt full plugin wires formula mode/native review, exact transport and calculation errors across reload', async () => {
+  for (const lost of [false,true]) {
+    const h = await setup({formulas: true, lost}); try {
+      assert.equal((await h.harness.behavior.callAgentTool('gsheets_inspect_for_edit', target)).isError, true);
+      assert.equal((await h.harness.behavior.callRpc('sheetsFormulaCapabilities', null)).contract, 'sheets-financial-formulas-v1');
+      const a = await h.input(), b = h.harness.behavior; parse(await b.callAgentTool('gsheets_update_range', a));
+      const done = b.callAgentTool('gsheets_update_range', {...a,preview:false}), card = await pending(h.harness); assert.equal(card.payload.mode, 'formulas'); assert.equal(h.state.writes, 0);
+      b.submitInteraction(card.id,{approved:true}); const r = parse(await done); assert.equal(r.outcome, lost ? 'uncertain' : 'verified');
+      if (!lost) { assert.equal(r.formulaReadbackMatches,true); assert.equal(r.calculation[0].calculation.errorType,'DIVIDE_BY_ZERO'); }
+      assert.equal(h.state.writes,1); await h.reload(); await h.assertLegacy();
+      const s = parse(await h.harness.behavior.callAgentTool('gsheets_edit_status',{account,operationId:a.operationId})); assert.equal(s.outcome,lost?'observed_matching':'verified'); assert.equal(h.state.writes,1); safe(h,s);
+    } finally { await h.close(); }
+  }
 });
 test('full plugin failed reads have bounded Sheets attribution without provider/account content', async () => {
   const h = await setup({ failRead: true });

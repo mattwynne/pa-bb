@@ -3,13 +3,13 @@ const p = await browser.getPage('main'), u = new URL(p.url()), base = u.origin;
 if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw Error('Disposable loopback BB required');
 const width = Number(u.searchParams.get('reviewWidth') || 1280);
 if (![390,1280].includes(width)) throw Error('Unexpected width');
-await p.setViewport({ width, height: 1100 });
+await p.setViewport({ width, height: width === 390 ? 844 : 900 });
 const rpc = (method, input) => p.evaluate(async ({ method, input }) => {
   const r = await fetch(`/api/v1/plugins/sheets-edit-review/rpc/${method}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
   if (!r.ok) throw Error('Synthetic fixture RPC failed'); return (await r.json()).result;
 }, { method, input });
 const threads = await p.evaluate(async () => (await (await fetch('/api/v1/threads?projectId=proj_personal')).json()).map(t => ({ id: t.id, state: t.title.replace('Synthetic Sheets review: ', ''), status: t.status })));
-if (threads.length !== 6 || threads.some(t => t.status !== 'pending')) throw Error('Expected six inert fixture threads');
+if (threads.length !== 7 || threads.some(t => t.status !== 'pending')) throw Error('Expected seven inert fixture threads');
 let reviewed = 0;
 for (const { id: threadId, state } of threads) {
   if (!await p.evaluate(async id => (await (await fetch(`/api/v1/threads/${id}/interactions`)).json()).length, threadId)) await rpc('stage', { threadId, state });
@@ -24,6 +24,7 @@ for (const { id: threadId, state } of threads) {
   if (state === 'invalid') { if (!evidence.disabled || !evidence.text.includes('incomplete')) throw Error('Invalid card approvable'); }
   else {
     if (evidence.disabled || evidence.detailsOpen || !evidence.text.includes('owner@example.test') || !evidence.text.includes('cannot prevent') || !evidence.text.includes('Notes and other formatting stay')) throw Error(`Missing target/limits: ${state}`);
+    if (state === 'formulas' || state === 'error') for (const text of ['Formulas mode', 'Formula: =SUM(A1:A2)', 'Literal string: "=SUM(A1:A2)"', 'Formula: =1/0', 'separate from calculation success', 'neither triggers retry']) if (!evidence.text.includes(text)) throw Error(`Missing formula disclosure ${text}`);
     if (state === 'clear' && !evidence.text.includes('Blank (clear)')) throw Error('Clear not shown');
     if (state === 'values' && (!evidence.text.includes('Literal string: "=SUM(A1:A2)"') || !evidence.text.includes('Boolean: true') || !evidence.text.includes('DATE yyyy-mm-dd') || !evidence.text.includes('CURRENCY'))) throw Error('Typed values missing');
     if (state === 'long' && !evidence.text.includes('<script>synthetic & safe</script>')) throw Error('Escaped long value missing');
@@ -31,7 +32,7 @@ for (const { id: threadId, state } of threads) {
     if (!await p.evaluate(() => document.querySelector('.pa-drive__sheets-review details').open)) throw Error('Keyboard disclosure failed');
     await p.keyboard.press('Enter');
   }
-  if (state === 'values' || state === 'long') await p.shot({ type: 'jpeg', maxEdge: 1100, quality: 65 });
+  if (state === 'values' || state === 'formulas') await p.shot({ type: 'jpeg', maxEdge: 1100, quality: 65 });
   const cancel = state === 'clear', decline = state === 'invalid' || state === 'long';
   await p.focus(`${sel} button:nth-child(${cancel ? 3 : decline ? 2 : 1})`);
   const focus = await p.evaluate(() => ({ text: document.activeElement.textContent, outline: getComputedStyle(document.activeElement).outlineStyle }));

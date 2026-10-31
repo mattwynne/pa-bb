@@ -4,7 +4,8 @@ import './sheets-edit-approval.css';
 type Props = { interaction: { id: string; payload: unknown }; submit(value: { approved: boolean }): Promise<void>; cancel(): Promise<void> };
 const plain = (v: unknown) => v === null || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= 2000);
 const typed = (v: unknown): v is { date: string } | { cad: number } => !!v && typeof v === 'object' && (Object.keys(v).length === 1) && (('date' in v && typeof v.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.date)) || ('cad' in v && typeof v.cad === 'number' && Number.isFinite(v.cad)));
-const show = (v: unknown) => typed(v) ? ('date' in v ? `Civil date: ${v.date}` : `CAD amount: ${v.cad}`) : v === null || v === '' ? 'Blank (clear)' : typeof v === 'string' ? `Literal string: ${JSON.stringify(v)}` : `${typeof v === 'number' ? 'Number' : 'Boolean'}: ${String(v)}`;
+const formula = (v: unknown): v is { formula: string } => !!v && typeof v === 'object' && Object.keys(v).length === 1 && 'formula' in v && typeof v.formula === 'string' && v.formula.startsWith('=') && v.formula.length <= 2000;
+const show = (v: unknown) => formula(v) ? `Formula: ${v.formula}` : typed(v) ? ('date' in v ? `Civil date: ${v.date}` : `CAD amount: ${v.cad}`) : v === null || v === '' ? 'Blank (clear)' : typeof v === 'string' ? `Literal string: ${JSON.stringify(v)}` : `${typeof v === 'number' ? 'Number' : 'Boolean'}: ${String(v)}`;
 const column = (i: number) => { let s = ''; for (let n = i + 1; n; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s; };
 export function SheetsEditApproval(props: Props) { return <Review key={props.interaction.id} {...props} />; }
 function Review({ interaction, submit, cancel }: Props) {
@@ -13,13 +14,15 @@ function Review({ interaction, submit, cancel }: Props) {
   const text = (key: string) => typeof p[key] === 'string' ? p[key] as string : '';
   const r = (p.range && typeof p.range === 'object' ? p.range : {}) as Record<string, number>;
   const values = p.values as unknown[][], formats = p.beforeFormats as (Record<string, unknown> | null)[][], before = p.before as (Record<string, unknown> | null)[][];
+  const calculationFits = Array.isArray(p.calculation) && p.calculation.length <= 100 && JSON.stringify(p.calculation).length <= 15000;
   const validBefore = (v: unknown) => v === null || !!v && typeof v === 'object' && Object.keys(v).length === 1 && Object.entries(v).every(([k, val]) =>
-    k === 'stringValue' ? typeof val === 'string' && plain(val) : k === 'numberValue' ? typeof val === 'number' && plain(val) : k === 'boolValue' && typeof val === 'boolean');
+    k === 'formulaValue' ? p.mode === 'formulas' && formula({ formula: val }) : k === 'stringValue' ? typeof val === 'string' && plain(val) : k === 'numberValue' ? typeof val === 'number' && plain(val) : k === 'boolValue' && typeof val === 'boolean');
   const valid = ['account', 'spreadsheetId', 'operationId', 'concurrency'].every(k => text(k).length > 0) && /^[\w-]{1,256}$/.test(text('spreadsheetId'))
     && ['sheetId', 'startRow', 'startColumn', 'rowCount', 'columnCount'].every(k => Number.isSafeInteger(r[k]) && r[k] >= 0)
     && r.rowCount > 0 && r.columnCount > 0 && r.columnCount <= 20 && r.rowCount * r.columnCount <= 100
-    && Array.isArray(values) && values.length === r.rowCount && values.every(row => Array.isArray(row) && row.length === r.columnCount && row.every(v => plain(v) || typed(v)))
+    && Array.isArray(values) && values.length === r.rowCount && values.every(row => Array.isArray(row) && row.length === r.columnCount && row.every(v => plain(v) || typed(v) || (p.mode === 'formulas' && formula(v))))
     && Array.isArray(before) && before.length === r.rowCount && before.every(row => Array.isArray(row) && row.length === r.columnCount && row.every(validBefore))
+    && (p.mode === undefined || ['literal', 'formulas'].includes(String(p.mode)))
     && (p.formatTypedValues === undefined || typeof p.formatTypedValues === 'boolean')
     && ((formats === undefined && p.formatTypedValues !== true) || (Array.isArray(formats) && formats.length === r.rowCount && formats.every(row => Array.isArray(row) && row.length === r.columnCount && row.every(v => v === null || (!!v && typeof v === 'object' && !Array.isArray(v))))))
     && JSON.stringify([values, before, formats]).length <= 60000;
@@ -37,11 +40,12 @@ function Review({ interaction, submit, cancel }: Props) {
       {p.exampleOnly !== true && <a href={`https://docs.google.com/spreadsheets/d/${text('spreadsheetId')}/edit#gid=${r.sheetId}`} target="_blank" rel="noreferrer">Open spreadsheet ↗</a>}
       <p role="note">{text('concurrency')}</p>
       <p>Null or empty text clears a cell. Notes and other formatting stay as they are. {p.formatTypedValues === true ? "The date and CAD cells identified below also receive the indicated number formats." : "Existing number formats stay as they are, including for dates and CAD amounts."} No write has happened.</p>
-      <table><caption>Exact proposed values</caption><thead><tr><th>Cell</th><th>Before</th><th>After</th></tr></thead><tbody>
+      {p.mode === 'formulas' && <p><strong>Formulas mode.</strong> Only explicit Formula entries are formulas; ordinary strings, even starting with “=”, stay literal. Entered-formula readback is separate from calculation success. Results may be delayed or contain errors; neither triggers retry or rollback. New formulas are restricted to documented in-workbook references and built-ins. Existing dependencies elsewhere may recalculate.</p>}
+      <table><caption>{p.mode === 'formulas' ? 'Exact proposed values and formulas' : 'Exact proposed values'}</caption><thead><tr><th>Cell</th><th>Before</th><th>After</th></tr></thead><tbody>
         {values.flatMap((row, y) => row.map((value, x) => <tr key={`${y}:${x}`}><th scope="row">{column(r.startColumn + x)}{r.startRow + y + 1}</th>
-          <td><pre>{show(before[y][x] === null ? null : Object.values(before[y][x]!)[0])}{p.formatTypedValues === true && typed(value) ? `\nNumber format before: ${JSON.stringify(formats?.[y]?.[x] ?? null)}` : ""}</pre></td><td><pre>{show(value)}{p.formatTypedValues === true && typed(value) ? ("date" in value ? "\nNumber format: DATE yyyy-mm-dd" : "\nNumber format: CURRENCY \"CAD \"#,##0.00;[Red]-\"CAD \"#,##0.00") : ""}</pre></td></tr>))}
+          <td><pre>{show(before[y][x] === null ? null : 'formulaValue' in before[y][x]! ? { formula: before[y][x]!.formulaValue } : Object.values(before[y][x]!)[0])}{p.formatTypedValues === true && typed(value) ? `\nNumber format before: ${JSON.stringify(formats?.[y]?.[x] ?? null)}` : ""}</pre></td><td><pre>{show(value)}{p.formatTypedValues === true && typed(value) ? ("date" in value ? "\nNumber format: DATE yyyy-mm-dd" : "\nNumber format: CURRENCY \"CAD \"#,##0.00;[Red]-\"CAD \"#,##0.00") : ""}</pre></td></tr>))}
       </tbody></table>
-      <details><summary>Technical details</summary><dl><dt>Operation ID</dt><dd>{text('operationId')}</dd><dt>Spreadsheet ID</dt><dd>{text('spreadsheetId')}</dd><dt>Tab ID</dt><dd>{r.sheetId}</dd></dl></details>
+      <details><summary>Technical details</summary><dl><dt>Operation ID</dt><dd>{text('operationId')}</dd><dt>Spreadsheet ID</dt><dd>{text('spreadsheetId')}</dd><dt>Tab ID</dt><dd>{r.sheetId}</dd></dl>{p.mode === 'formulas' && p.calculation !== undefined && (calculationFits ? <><p>Current bounded calculation evidence (not formula-save verification):</p><pre>{JSON.stringify(p.calculation, null, 2)}</pre></> : <p>Optional calculation evidence omitted because it exceeded review limits. Exact before/after formulas above are unchanged.</p>)}</details>
     </>}
     {error && <ConnectionAlert>{error}</ConnectionAlert>}
     <div className="pa-drive__sheets-actions">

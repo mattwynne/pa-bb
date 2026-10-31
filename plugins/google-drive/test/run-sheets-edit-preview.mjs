@@ -19,7 +19,7 @@ const freePort = () => new Promise((resolve, reject) => { const s = createServer
 const port = await freePort(), daemonPort = await freePort();
 const root = await mkdtemp(join(tmpdir(), 'sheets-edit-review-')), fixture = join(root, 'sheets-edit-review');
 await mkdir(join(root, 'home'));
-for (const file of ['sheets-edit-approval.tsx', 'sheets-edit-approval.css', 'connection-ui.tsx', 'connection-ui.css', 'core/sheets-edit.mjs', 'core/sheets.mjs', 'core/sheets-cells.mjs', 'core/native-create.mjs', 'core/docs-edit.mjs', 'core/docs-approval.mjs', 'test/sheets-edit-preview/app.tsx', 'test/sheets-edit-preview/server.ts']) {
+for (const file of ['sheets-edit-approval.tsx', 'sheets-edit-approval.css', 'connection-ui.tsx', 'connection-ui.css', 'core/sheets-edit.mjs', 'core/sheets-formula.mjs', 'core/sheets.mjs', 'core/sheets-cells.mjs', 'core/native-create.mjs', 'core/docs-edit.mjs', 'core/docs-approval.mjs', 'test/sheets-edit-preview/app.tsx', 'test/sheets-edit-preview/server.ts']) {
   await mkdir(dirname(join(fixture, file)), { recursive: true }); await cp(join(source, file), join(fixture, file));
 }
 await cp(join(source, 'test/sheets-edit-preview/package.json'), join(fixture, 'package.json'));
@@ -49,7 +49,7 @@ try {
   assert.ok(connected, 'Disposable daemon must connect');
   const installed = JSON.parse(await command('plugin', 'install', fixture, '--yes', '--json')); assert.equal(installed.plugin.status, 'running');
   const threads = {};
-  for (const state of ['values', 'long', 'clear', 'invalid', 'error', 'busy']) {
+  for (const state of ['values', 'long', 'clear', 'invalid', 'error', 'busy', 'formulas']) {
     const result = await api('threads', { projectId: 'proj_personal', origin: 'sdk', providerId: 'codex', model: 'synthetic-inert-never-dispatch', title: `Synthetic Sheets review: ${state}`, input: [{ type: 'text', text: 'Inert native approval fixture; never dispatch.' }], environment: { type: 'host', hostId: enrollment.hostId, workspace: { type: 'personal' } }, sendAt: 4102444800000 });
     const t = result.thread ?? result; assert.equal(t.status, 'pending'); threads[state] = t.id;
     await api('plugins/sheets-edit-review/rpc/stage', { threadId: t.id, state });

@@ -1,25 +1,32 @@
-// One rectangle of literal values. Sheets has no revision/CAS write control.
+// One value rectangle: literal by default, explicit bounded formula opt-in.
+// Sheets has no revision/CAS write control.
 import { z } from 'zod';
 import { hash, fileId } from './native-create.mjs';
 import { SHEETS_MIME } from './sheets.mjs';
 import { cellData } from './sheets-cells.mjs';
 import { docsError } from './docs-edit.mjs';
 import { docsApprovalDecision } from './docs-approval.mjs';
+import { validateFormula, formulaCalculation } from './sheets-formula.mjs';
 export const EDIT_CELLS = 100;
 const index = z.number().int().min(0).max(10_000_000);
 const account = z.string().min(1).max(320);
 const sheetId = z.number().int().min(0).max(2_147_483_647);
 const target = { account, spreadsheetId: z.string().regex(/^[\w-]{1,256}$/), sheetId, startRow: index, startColumn: index };
 const literal = z.union([z.string().max(2000), z.number(), z.boolean(), z.null(), z.object({ date: z.string().length(10).regex(/^\d{4}-\d{2}-\d{2}$/) }).strict(), z.object({ cad: z.number() }).strict()]);
-export const editInspectSchema = z.object({ ...target, rowCount: z.number().int().min(1).max(100), columnCount: z.number().int().min(1).max(20) }).strict().refine(a => a.rowCount * a.columnCount <= EDIT_CELLS);
+const editMode = z.enum(['literal', 'formulas']).default('literal').describe('Default literal rejects formula cells/objects. Explicit formulas mode permits formula-aware inspection and {formula} entries under the in-workbook financial grammar. Strings remain literal.');
+const formulaCell = z.object({ formula: z.string().min(2).max(2000) }).strict();
+export const isFormulaCell = value => !!value && typeof value === 'object' && Object.keys(value).length === 1 && typeof value.formula === 'string';
+export const editInspectSchema = z.object({ ...target, mode: editMode, rowCount: z.number().int().min(1).max(100), columnCount: z.number().int().min(1).max(20) }).strict().refine(a => a.rowCount * a.columnCount <= EDIT_CELLS);
 export const editStatusSchema = z.object({ account, operationId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/) }).strict();
-export const editRangeSchema = z.object({ ...target, operationId: editStatusSchema.shape.operationId,
-  expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/), values: z.array(z.array(literal).min(1).max(20)).min(1).max(100), formatTypedValues: z.boolean().default(false), preview: z.boolean().default(true),
+export const editRangeSchema = z.object({ ...target, mode: editMode, operationId: editStatusSchema.shape.operationId,
+  expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/), values: z.array(z.array(z.union([literal, formulaCell])).min(1).max(20)).min(1).max(100), formatTypedValues: z.boolean().default(false), preview: z.boolean().default(true),
 }).strict().refine(a => a.values.every(r => r.length === a.values[0].length) && a.values.length * a.values[0].length <= EDIT_CELLS
-  && a.values.flat().reduce((n, c) => n + (typeof c === 'string' ? c.length : 0), 0) <= 20000);
+  && (a.mode === 'formulas' || !a.values.flat().some(isFormulaCell))
+  && a.values.flat().reduce((n, c) => n + (typeof c === 'string' ? c.length : isFormulaCell(c) ? c.formula.length : 0), 0) <= 20000);
 const messages = {
-  invalid: 'Use an explicit account, spreadsheet/tab IDs, zero-based range, inspected fingerprint and single-use lowercase UUID v4. Supply a rectangular matrix of at most 100 literal cells, 20 columns, 2000 UTF-16 units per cell and 20000 total. Use explicit {date} or {cad} objects; no formulas or arbitrary requests.',
-  unsupported: 'Editing supports ordinary literal cells only. Formula/calculated cells, rich text, chips, validation, pivot/data-source cells, merged/protected ranges and tables are rejected. Use a smaller ordinary range or edit in Google Sheets.',
+  invalid: 'Use an explicit account, spreadsheet/tab IDs, zero-based range, inspected fingerprint and single-use lowercase UUID v4. At most 100 cells/20 columns/2000 units per cell/20000 total. Strings stay literal. Explicit {formula} input requires mode formulas on inspection and edit; no arbitrary requests.',
+  formula_unsupported: 'Formula is outside the supported in-workbook financial grammar. Use explicit A1 references/ranges, arithmetic/comparisons and documented built-ins; no names, external/custom/script/import functions or unsupported constructs.',
+  unsupported: 'Default literal mode rejects formula cells; explicit formulas mode allows entered formulas only. Computed-only cells, rich text/chips/validation, pivot/data-source cells and merged/protected tabs/tables remain unsupported. Use an ordinary supported range or edit in Google Sheets.',
   stale: 'The inspected range or tab metadata changed. Nothing new was submitted. Inspect again and prepare a separately requested proposal.',
   conflict: 'This operationId belongs to another account or request. Recover the original operation; never replace the key to bypass uncertainty.',
   busy: 'Another Sheets edit is reviewing, writing or unresolved on this spreadsheet. Recover that operation using its original account before another edit.',
@@ -42,11 +49,21 @@ export function literalRows(values) {
     operationId: '00000000-0000-4000-8000-000000000000', expectedFingerprint: '0'.repeat(64), values });
   try { return values.map(row => row.map(value => { const { userEnteredValue } = cellData(value); return userEnteredValue ? { userEnteredValue } : {}; })); } catch { throw sheetsEditError('invalid'); }
 }
+export function editRows(values, context) {
+  if (context.mode !== 'formulas') return literalRows(values);
+  parse(editRangeSchema, { account: 'validation', spreadsheetId: 'validation', sheetId: context.sheetId, startRow: 0, startColumn: 0, mode: 'formulas',
+    operationId: '00000000-0000-4000-8000-000000000000', expectedFingerprint: '0'.repeat(64), values });
+  try { return values.map(row => row.map(value => {
+    if (isFormulaCell(value)) { validateFormula(value.formula, { tabs: context.tabs, sheetId: context.sheetId }); return { userEnteredValue: { formulaValue: value.formula } }; }
+    const { userEnteredValue } = cellData(value); return userEnteredValue ? { userEnteredValue } : {};
+  })); } catch (e) { if (e?.sheetsEditCode) throw e; throw sheetsEditError('invalid'); }
+}
 export function editRequest(input) {
-  if (!input || Object.keys(input).some(k => !['spreadsheetId', 'sheetId', 'startRow', 'startColumn', 'values'].includes(k)) || !fileId(input.spreadsheetId)
+  if (!input || Object.keys(input).some(k => !['spreadsheetId', 'sheetId', 'startRow', 'startColumn', 'values', 'mode', 'formulaTabs'].includes(k))
+    || (input.mode !== undefined && !['literal', 'formulas'].includes(input.mode)) || (input.formulaTabs !== undefined && input.mode !== 'formulas') || !fileId(input.spreadsheetId)
     || !sheetId.safeParse(input.sheetId).success || ![input.startRow, input.startColumn].every(v => index.safeParse(v).success)) throw sheetsEditError('invalid');
   return { updateCells: { start: { sheetId: input.sheetId, rowIndex: input.startRow, columnIndex: input.startColumn },
-    rows: literalRows(input.values).map(values => ({ values })), fields: 'userEnteredValue' } };
+    rows: editRows(input.values, { mode: input.mode, tabs: input.formulaTabs, sheetId: input.sheetId }).map(values => ({ values })), fields: 'userEnteredValue' } };
 }
 // One value rectangle plus tightly scoped number-format-only updates in one batch.
 export function editRequests(input) {
@@ -54,7 +71,7 @@ export function editRequests(input) {
   if (typeof formatTypedValues !== 'boolean') throw sheetsEditError('invalid');
   const requests = [editRequest(target)];
   if (formatTypedValues) input.values.forEach((row, y) => row.forEach((value, x) => {
-    const format = cellData(value).userEnteredFormat?.numberFormat;
+    const format = isFormulaCell(value) ? undefined : cellData(value).userEnteredFormat?.numberFormat;
     if (format) requests.push({ updateCells: { start: { sheetId: input.sheetId, rowIndex: input.startRow + y, columnIndex: input.startColumn + x },
       rows: [{ values: [{ userEnteredFormat: { numberFormat: format } }] }], fields: 'userEnteredFormat.numberFormat' } });
   }));
@@ -84,10 +101,10 @@ export function inspectEditableGrid(meta, data, args) {
     // them. Effective-only cells can be array/pivot output from outside range.
     if (Object.keys(cell).some(k => !['userEnteredValue', 'userEnteredFormat', 'effectiveValue', 'effectiveFormat', 'formattedValue', 'hyperlink', 'note'].includes(k))) fail();
     const value = cell.userEnteredValue || {}, keys = Object.keys(value);
-    if (keys.length > 1 || keys.some(k => !['stringValue', 'numberValue', 'boolValue'].includes(k))) fail();
+    if (keys.length > 1 || keys.some(k => !['stringValue', 'numberValue', 'boolValue', ...(args.mode === 'formulas' ? ['formulaValue'] : [])].includes(k))) fail();
     if (keys.length) {
       const v = value[keys[0]];
-      if ((keys[0] === 'stringValue' && typeof v !== 'string') || (keys[0] === 'numberValue' && (typeof v !== 'number' || !Number.isFinite(v))) || (keys[0] === 'boolValue' && typeof v !== 'boolean')) fail();
+      if ((keys[0] === 'formulaValue' && (typeof v !== 'string' || !v.startsWith('='))) || (keys[0] === 'stringValue' && typeof v !== 'string') || (keys[0] === 'numberValue' && (typeof v !== 'number' || !Number.isFinite(v))) || (keys[0] === 'boolValue' && typeof v !== 'boolean')) fail();
       try { cellData(v); } catch { fail(); }
     }
     if (!keys.length && Object.keys(cell.effectiveValue || {}).length) fail();
@@ -97,7 +114,7 @@ export function inspectEditableGrid(meta, data, args) {
     if (Object.keys(cell.userEnteredFormat || {}).length === 0) delete cell.userEnteredFormat;
     return cell;
   }));
-  const snapshot = { spreadsheetId: args.spreadsheetId, title: meta.properties?.title || '', tabs, range: {
+  const snapshot = { spreadsheetId: args.spreadsheetId, title: meta.properties?.title || '', tabs, ...(args.mode === 'formulas' ? { mode: 'formulas' } : {}), range: {
     sheetId: args.sheetId, startRow: args.startRow, startColumn: args.startColumn, rowCount: args.rowCount, columnCount: args.columnCount }, rows };
   if (JSON.stringify(snapshot).length > 60000) fail();
   return snapshot;
@@ -115,12 +132,12 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
     const tab = meta.sheets?.find(t => t.properties?.sheetId === args.sheetId)?.properties;
     if (!tab || typeof tab.title !== 'string') throw sheetsEditError('unsupported');
     const data = await sheets.grid(record, args.spreadsheetId, tab, args);
-    return inspectEditableGrid(meta, data, args);
+    return { snapshot: inspectEditableGrid(meta, data, args), ...(args.mode === 'formulas' ? { calculation: formulaCalculation(data, args) } : {}) };
   }
   async function inspect(input) {
     const args = parse(editInspectSchema, input), record = await accountRecord(args);
-    const snapshot = await load(args, record);
-    return { ...snapshot, account: record.email, complete: true, fingerprint: digest(snapshot), concurrency: SHEETS_RACE_WARNING };
+    const { snapshot, calculation } = await load(args, record);
+    return { ...snapshot, ...(calculation ? { calculation } : {}), account: record.email, complete: true, fingerprint: digest(snapshot), concurrency: SHEETS_RACE_WARNING };
   }
   function receipt(op, outcome = op.state, extra = {}) {
     return { operationId: op.operationId, spreadsheetId: op.spreadsheetId, range: op.range, outcome, receiptOnly: true,
@@ -129,37 +146,39 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
       guidance: op.failureReason === 'scope_required' ? messages.scope_required : 'Historical receipt only unless currentMatch is provided. Use gsheets_edit_status with the SAME account/key. Never replay or replace an uncertain operation. Readback cannot prove absence of concurrent edits or attribute matching values to this request.', ...extra };
   }
   async function update(input, signal) {
-    const args = parse(editRangeSchema, input), rows = literalRows(args.values), record = await accountRecord(args);
-    const range = { sheetId: args.sheetId, startRow: args.startRow, startColumn: args.startColumn, rowCount: rows.length, columnCount: rows[0].length };
+    const args = parse(editRangeSchema, input), record = await accountRecord(args);
+    const range = { sheetId: args.sheetId, startRow: args.startRow, startColumn: args.startColumn, rowCount: args.values.length, columnCount: args.values[0].length };
+    const hashRows = args.mode === 'formulas' ? args.values : literalRows(args.values);
     const hasTypedValues = args.values.flat().some(value => value && typeof value === 'object');
     const requestHash = digest({
-      subject: record.subject, spreadsheetId: args.spreadsheetId, range, expectedFingerprint: args.expectedFingerprint, rows,
+      subject: record.subject, spreadsheetId: args.spreadsheetId, range, expectedFingerprint: args.expectedFingerprint, rows: hashRows,
       ...(hasTypedValues ? { typedValues: args.values } : {}),
-      ...(args.formatTypedValues ? { formatTypedValues: true } : {}),
+      ...(args.formatTypedValues ? { formatTypedValues: true } : {}), ...(args.mode === 'formulas' ? { mode: 'formulas' } : {}),
     });
     let op = await operations.get(args.operationId);
     if (op && (op.subject !== record.subject || op.requestHash !== requestHash)) throw sheetsEditError('conflict');
     if (op && op.state !== 'proposed') return receipt(op);
     if (!op && !args.preview) throw sheetsEditError('preview_required');
-    const before = await load({ ...args, ...range }, record);
+    const loaded = await load({ ...args, ...range }, record), before = loaded.snapshot;
+    const rows = editRows(args.values, { mode: args.mode, tabs: before.tabs, sheetId: args.sheetId });
     if (digest(before) !== args.expectedFingerprint) throw sheetsEditError('stale');
     const after = clone(before);
     after.rows.forEach((row, r) => row.forEach((cell, c) => {
       delete cell.userEnteredValue; Object.assign(cell, rows[r][c]);
-      const format = args.formatTypedValues ? cellData(args.values[r][c]).userEnteredFormat?.numberFormat : undefined;
+      const format = args.formatTypedValues && !isFormulaCell(args.values[r][c]) ? cellData(args.values[r][c]).userEnteredFormat?.numberFormat : undefined;
       if (format) cell.userEnteredFormat = { ...cell.userEnteredFormat, numberFormat: format };
     }));
     if (digest(before) === digest(after)) throw sheetsEditError('invalid');
     if (!op) {
       op = { operationId: args.operationId, subject: record.subject, spreadsheetId: args.spreadsheetId, range, requestHash,
-        beforeHash: digest(before), afterHash: digest(after), state: 'proposed', writeAttempted: false, createdAt: clock() };
+        beforeHash: digest(before), afterHash: digest(after), ...(args.mode === 'formulas' ? { mode: 'formulas' } : {}), state: 'proposed', writeAttempted: false, createdAt: clock() };
       if (!await operations.reserve(op)) {
         const current = await operations.get(op.operationId);
         if (!current || current.subject !== record.subject || current.requestHash !== requestHash) throw sheetsEditError('conflict');
         return receipt(current);
       }
     }
-    const proposal = { account: record.email, spreadsheetId: args.spreadsheetId, title: before.title, tabTitle: before.tabs.find(t => t.sheetId === args.sheetId).title,
+    const proposal = { ...(args.mode === 'formulas' ? { mode: 'formulas', calculation: loaded.calculation } : {}), account: record.email, spreadsheetId: args.spreadsheetId, title: before.title, tabTitle: before.tabs.find(t => t.sheetId === args.sheetId).title,
       operationId: op.operationId, range, before: before.rows.map(row => row.map(c => c.userEnteredValue || null)), values: args.values, formatTypedValues: args.formatTypedValues, beforeFormats: before.rows.map(row => row.map(c => c.userEnteredFormat?.numberFormat || null)), concurrency: SHEETS_RACE_WARNING };
     if (args.preview) return { ...receipt(op, 'preview'), receiptOnly: false, proposal, writeAttempted: false };
     if (!await operations.claim(op.operationId, op.spreadsheetId)) {
@@ -193,10 +212,11 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
       const currentRecord = await accountRecord(args);
       if (currentRecord.subject !== record.subject) return await finish('conflict');
       const current = await load({ ...args, ...range }, currentRecord);
-      if (digest(current) !== op.beforeHash) return await finish('conflict');
+      if (digest(current.snapshot) !== op.beforeHash) return await finish('conflict');
       if (signal?.aborted) return await finish('cancelled');
       const writeInput = { spreadsheetId: args.spreadsheetId, sheetId: args.sheetId, startRow: args.startRow,
-        startColumn: args.startColumn, values: args.values, formatTypedValues: args.formatTypedValues };
+        startColumn: args.startColumn, values: args.values, formatTypedValues: args.formatTypedValues,
+        ...(args.mode === 'formulas' ? { mode: 'formulas', formulaTabs: before.tabs } : {}) };
       const expectedReplyCount = editRequests(writeInput).length;
       // Durable claim precedes the only possible mutation. No compare-and-swap
       // is available at Google: this final comparison cannot close the race.
@@ -217,9 +237,9 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
       if (!validResponse) { diagnose('sheets_edit_write_response', undefined); return await finish('uncertain'); }
       op.acknowledged = true;
       const observed = await load({ ...args, ...range }, record);
-      const matches = digest(observed) === op.afterHash;
+      const matches = digest(observed.snapshot) === op.afterHash;
       if (!matches) diagnose('sheets_edit_readback_mismatch', undefined);
-      return await finish(matches ? 'verified' : 'unverified', { receiptOnly: false, currentMatch: matches,
+      return await finish(matches ? 'verified' : 'unverified', { receiptOnly: false, currentMatch: matches, ...(observed.calculation ? { calculation: observed.calculation, formulaReadbackMatches: matches } : {}),
         verification: 'Only the bounded target values, cell formatting/notes and tab metadata were compared. Other cells/tabs are outside the write mask, not independently read back. Dependent formulas may recalculate. Concurrent overwrites cannot be excluded.' });
     } catch (error) {
       diagnose(writing ? 'sheets_edit_verification' : 'sheets_edit_preflight', error);
@@ -233,12 +253,12 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
     const args = parse(editStatusSchema, input), record = await accountRecord(args), op = await operations.get(args.operationId);
     if (!op || op.subject !== record.subject) throw sheetsEditError('unknown');
     try {
-      const observed = await load({ spreadsheetId: op.spreadsheetId, ...op.range }, record);
-      const matches = digest(observed) === op.afterHash;
+      const observed = await load({ spreadsheetId: op.spreadsheetId, ...op.range, ...(op.mode === 'formulas' ? { mode: 'formulas' } : {}) }, record);
+      const matches = digest(observed.snapshot) === op.afterHash;
       // Read only, including the durable receipt. Do not release an unresolved
       // lock based on equal values: a timed-out Google request may still apply.
       return receipt(op, op.acknowledged ? matches ? 'verified' : 'unverified' : matches ? 'observed_matching' : op.state,
-        { receiptOnly: false, currentMatch: matches, unresolvedLock: ['reviewing', 'writing', 'uncertain'].includes(op.state),
+        { receiptOnly: false, currentMatch: matches, ...(observed.calculation ? { calculation: observed.calculation, formulaReadbackMatches: matches } : {}), unresolvedLock: ['reviewing', 'writing', 'uncertain'].includes(op.state),
           operationState: op.state, guidance: op.acknowledged ? 'Fresh bounded readback. This does not certify later edits or absence of a concurrent overwrite.'
             : 'Matching values do not prove this operation applied or that an in-flight request has finished. Unresolved locks stay held. Do not replay, replace the key, or force-unlock; reconcile with the owner.' });
     } catch (error) { diagnose('sheets_edit_status', error); return receipt(op, 'verification_unavailable'); }

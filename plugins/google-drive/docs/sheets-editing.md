@@ -5,8 +5,9 @@ establish which plugin generation a BB installation is running. Applying an
 update is separate from permission to change a real spreadsheet.
 
 This surface changes entered values in one existing native Sheets rectangle.
-It has no formula input, imports, structural changes, arbitrary formatting commands,
-sharing, notifications or arbitrary Google batch requests. Strings beginning
+It has explicit opt-in [bounded formula input](sheets-formulas.md), but no imports,
+structural changes, arbitrary formatting commands, sharing, notifications or
+arbitrary Google batch requests. Strings beginning
 with `=`, `+`, `-` or `@` remain literal strings. Numbers and booleans stay typed;
 null and empty text clear values. Existing date/currency formats remain, so use
 the underlying numeric serial/amount only when the user intends that value.
@@ -25,15 +26,16 @@ Explicit `{date: "YYYY-MM-DD"}` civil dates (1900–2100) and `{cad: number}` ar
    mandatory and unaffected by the Docs replacement approval setting. An edit
    cannot apply without its saved preview. Proposals expire after ten minutes.
 4. Only `outcome: verified` means an acknowledged provider response followed by
-   exact bounded value, format and note readback. It does not certify the rest of the spreadsheet or
+   exact bounded entered-value/formula, format and note readback. Formula calculation success/errors are reported separately and never trigger automatic retry or rollback. It does not certify the rest of the spreadsheet or
    exclude a concurrent overwrite. Return the spreadsheet link.
 
 Limits: 100 cells, 20 columns, 100 rows, rectangular input, 2000 UTF-16 units per
 string and 20000 total input string units. Inspection and approval data are
 bounded to 60000 serialized characters, with the existing 1 MiB HTTP limit.
-Trailing blank cells/rows omitted by Google normalize to empty cells. Selected
-formulas/calculated output, rich text, chips, data validation and pivot/data
-source anchors are rejected. Merges, protected ranges and tables anywhere on the
+Trailing blank cells/rows omitted by Google normalize to empty cells. Default literal mode rejects selected entered formulas; explicit `mode:"formulas"`
+on inspection and update permits existing entered formulas and `{formula}`
+inputs under the bounded grammar. Effective-only computed output, rich text,
+chips, data validation and pivot/data source anchors remain rejected. Merges, protected ranges and tables anywhere on the
 selected tab are conservatively rejected. Other cells/tabs may contain formulas.
 Their dependent results can recalculate after a value change.
 

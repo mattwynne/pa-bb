@@ -36,6 +36,16 @@ test('incomplete/malformed approvals fail closed and synthetic examples have no 
   const html = render({ ...p, exampleOnly: true }); assert.match(html, /Every choice is a no-op/); assert.doesNotMatch(html, /href=/);
 });
 
+test('explicit formula review labels formulas versus literal strings and separates calculation evidence', () => {
+  const payload = { ...p, mode: 'formulas', before: [[{ formulaValue: '=1/0' }, { stringValue: '=literal' }]], values: [[{ formula: '=SUM(A1:A2)' }, '=SUM(A1:A2)']], calculation: [{ row: 2, column: 1, calculation: { errorType: 'DIVIDE_BY_ZERO' } }] };
+  const html = render(payload);
+  for (const text of ['Formulas mode', 'Formula: =1/0', 'Formula: =SUM(A1:A2)', 'Literal string:', 'separate from calculation success', 'neither triggers retry', 'DIVIDE_BY_ZERO']) assert.ok(html.includes(text), text);
+  assert.doesNotMatch(html, /disabled=""[^>]*>Approve edit/);
+  assert.match(render({ ...payload, mode: 'literal' }), /details are incomplete/);
+  const expanded = render({...payload, calculation: Array.from({length: 20}, () => ({calculation: {text: '\u0001'.repeat(200)}}))});
+  assert.match(expanded, /Optional calculation evidence omitted/); assert.doesNotMatch(expanded, /disabled=""[^>]*>Approve edit/);
+});
+
 test('typed date and CAD format changes are explicit in approval', () => {
   const html = render({ ...p, values: [[{date: '2024-02-29'}, {cad: 12.5}]], formatTypedValues: true, beforeFormats: [[{type:'TEXT'}, null]] });
   for (const text of ['Civil date: 2024-02-29', 'CAD amount: 12.5', 'Number format before:', 'DATE yyyy-mm-dd', 'CURRENCY']) assert.ok(html.includes(text), text);
