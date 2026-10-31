@@ -70,7 +70,11 @@ async function setup(options = {}) {
     sharing: { operationId: randomUUID(), subject, fileId: 'legacy-file', state: 'verified', requestHash: 'hash' },
     formatting: { operationId: randomUUID(), subject, documentId: 'legacy-format', state: 'verified', requestHash: 'hash' },
   };
-  await old.reserveCreation(legacy.docs); await old.reserveCreation(legacy.sheets); await old.reserveSharing(legacy.sharing); await old.reserveFormatting(legacy.formatting);
+  await old.reserveCreation(legacy.docs); await old.reserveCreation(legacy.sheets); await old.reserveSharing(legacy.sharing);
+  // Historical formatting insertion predates image cross-claims. Seed that
+  // exact old row shape, not today's method against the intentionally old schema.
+  host.bb.storage.database().prepare('INSERT INTO drive_formatting_operations(operation_id,subject,document_id,state,receipt) VALUES (?,?,?,?,?)')
+    .run(legacy.formatting.operationId, subject, legacy.formatting.documentId, legacy.formatting.state, JSON.stringify(legacy.formatting));
   assert.equal(host.bb.storage.database().prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='drive_sheets_edits'").get().n, 0);
   await plugin(host.bb);
   function store() { return createBbStore(current.bb.storage.database(), () => {}); }

@@ -14,7 +14,7 @@ const required = (value, label) => {
 function textFromElements(elements) {
   let result = '';
   for (const item of elements || []) {
-    if (item.paragraph) for (const part of item.paragraph.elements || []) result += part.textRun?.content || '';
+    if (item.paragraph) for (const part of item.paragraph.elements || []) result += part.textRun?.content || (part.inlineObjectElement ? '\uFFFC' : '');
     if (item.table) for (const row of item.table.tableRows || []) for (const cell of row.tableCells || []) result += textFromElements(cell.content) + '\t';
     if (item.tableOfContents) result += textFromElements(item.tableOfContents.content);
   }
@@ -92,7 +92,8 @@ export function createDocsReader({ account, getFile, readDocument, clock = () =>
     end = boundary(end);
     const result = at => ({ account: session.account, documentId: id, title: session.title, url: session.url,
       text: session.text.slice(start, at), truncated: at < session.text.length, offset: start, nextOffset: at,
-      totalChars: session.text.length, complete: at === session.text.length, nextCursor: at < session.text.length ? 'x'.repeat(43) : null });
+      totalChars: session.text.length, complete: at === session.text.length,
+      projection: 'Lossy body-text projection only; inline images are U+FFFC placeholders, other non-text structures may be omitted. Complete means projection pages drained, never edit proof or a full document/image rendering.', nextCursor: at < session.text.length ? 'x'.repeat(43) : null });
     while (JSON.stringify(result(end)).length > MAX_SERIALIZED && end > start) end = boundary(start + Math.floor((end - start) / 2));
     if (JSON.stringify(result(end)).length > MAX_SERIALIZED || (end === start && start < session.text.length))
       throw Object.assign(new Error('Docs read output exceeds the supported size.'), { code: 'docs_read_capacity' });

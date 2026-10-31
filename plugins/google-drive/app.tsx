@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { definePluginApp, useRpc } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './contract.js';
 import { DocsApproval } from './docs-approval.js';
+import { DocsImageApproval } from './docs-image-approval.js';
 import { DocsFormatApproval } from './docs-format-approval.js';
 import { SharingApproval } from './sharing-approval.js';
 import { SheetsEditApproval } from './sheets-edit-approval.js';
@@ -107,6 +108,7 @@ export default definePluginApp(app => {
   app.slots.settingsSection({ id: 'drive-accounts', component: DriveSettings });
   app.slots.pendingInteraction({ id: 'docs-edit-approval', component: DocsApproval });
   app.slots.pendingInteraction({ id: 'docs-format-approval', component: DocsFormatApproval });
+  app.slots.pendingInteraction({ id: 'docs-image-approval', component: DocsImageApproval });
   app.slots.pendingInteraction({ id: 'drive-sharing-approval', component: SharingApproval });
   app.slots.pendingInteraction({ id: 'sheets-edit-approval', component: SheetsEditApproval });
   app.slots.pendingInteraction({ id: 'drive-filing-approval', component: FilingApproval });

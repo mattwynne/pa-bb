@@ -12,9 +12,10 @@ import { once } from 'node:events';
 import assert from 'node:assert/strict';
 const source = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const uploadReview = process.env.PA_DRIVE_UPLOAD_REVIEW === '1';
-const fixtureId = uploadReview ? 'drive-upload-review' : 'drive-creation-review';
-const states = uploadReview ? ['binary', 'conversion', 'docx', 'pptx', 'invalid', 'error'] : ['document', 'spreadsheet', 'invalid', 'error'];
-const previewFolder = uploadReview ? 'upload-preview' : 'creation-preview';
+const imageReview = process.env.PA_DRIVE_IMAGE_REVIEW === '1';
+const fixtureId = imageReview ? 'drive-image-review' : uploadReview ? 'drive-upload-review' : 'drive-creation-review';
+const states = imageReview ? ['image', 'long', 'invalid', 'error', 'busy'] : uploadReview ? ['binary', 'conversion', 'docx', 'pptx', 'invalid', 'error'] : ['document', 'spreadsheet', 'invalid', 'error'];
+const previewFolder = imageReview ? 'image-preview' : uploadReview ? 'upload-preview' : 'creation-preview';
 const bbRoot = process.env.BB_REVIEW_ROOT || join(source, 'node_modules/bb-app');
 let apps = join(bbRoot, 'apps'); try { await access(apps); } catch { apps = bbRoot; }
 const cli = join(apps, 'host-daemon/dist/bb');
@@ -22,7 +23,7 @@ const freePort = () => new Promise((resolve, reject) => { const s = createServer
 const port = await freePort(), daemonPort = await freePort();
 const root = await mkdtemp(join(tmpdir(), 'drive-creation-review-')), fixture = join(root, 'drive-creation-review');
 await mkdir(join(root, 'home'));
-for (const file of [uploadReview ? 'upload-approval.tsx' : 'creation-approval.tsx', 'core/file-link.mjs', 'core/filing-presentation.mjs', 'app.css', 'connection-ui.tsx', 'connection-ui.css', `test/${previewFolder}/app.tsx`, `test/${previewFolder}/server.ts`]) {
+for (const file of [imageReview ? 'docs-image-approval.tsx' : uploadReview ? 'upload-approval.tsx' : 'creation-approval.tsx', 'core/file-link.mjs', 'core/filing-presentation.mjs', 'app.css', 'connection-ui.tsx', 'connection-ui.css', `test/${previewFolder}/app.tsx`, `test/${previewFolder}/server.ts`]) {
   await mkdir(dirname(join(fixture, file)), { recursive: true }); await cp(join(source, file), join(fixture, file));
 }
 await cp(join(source, `test/${previewFolder}/package.json`), join(fixture, 'package.json'));

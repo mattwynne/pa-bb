@@ -1,0 +1,15 @@
+{
+  "name": "bb-plugin-drive-image-review",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bb": {
+    "name": "Synthetic image review — no Google access",
+    "description": "Inert native image approval review without account or URL access.",
+    "branding": { "icon": "FolderOpen" },
+    "server": "./test/image-preview/server.ts",
+    "app": "./test/image-preview/app.tsx"
+  },
+  "dependencies": { "zod": "4.6.5" },
+  "devDependencies": { "@get-bb/plugin-sdk": "0.6.80", "react": "19.2.0" }
+}

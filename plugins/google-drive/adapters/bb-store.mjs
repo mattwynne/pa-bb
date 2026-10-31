@@ -1,5 +1,6 @@
 // A plugin-owned SQLite store. BB owns its persistent data.db and backup lifecycle.
 // Only the backend opens it; neither tokens nor pending PKCE verifiers reach RPC/UI.
+import { createDocsImageStore, DOCS_IMAGE_MIGRATION } from './docs-image-store.mjs';
 import { createSheetsEditStore, SHEETS_EDIT_MIGRATION } from './sheets-edit-store.mjs';
 import { createFilingStore, FILING_MIGRATION } from './filing-store.mjs';
 import { claimSharingAccess, claimCreationAccess } from './access-claims.mjs';
@@ -31,9 +32,11 @@ export function createBbStore(db, migrate) {
       WHERE state IN ('reviewing','writing','uncertain');`,
     SHEETS_EDIT_MIGRATION,
     FILING_MIGRATION,
+    DOCS_IMAGE_MIGRATION,
   ]);
   const row = item => item && ({ subject: item.subject, email: item.email, refreshToken: item.refresh_token, accessToken: item.access_token, expiresAt: item.expires_at });
   return {
+    images: createDocsImageStore(db),
     sheetsEdits: createSheetsEditStore(db),
     filing: createFilingStore(db),
     async getFormatting(operationId) {
@@ -41,15 +44,21 @@ export function createBbStore(db, migrate) {
       return r ? { ...JSON.parse(r.receipt), state: r.state } : null;
     },
     async reserveFormatting(op) {
-      return db.prepare('INSERT OR IGNORE INTO drive_formatting_operations (operation_id,subject,document_id,state,receipt) VALUES (?,?,?,?,?)')
-        .run(op.operationId, op.subject, op.documentId, op.state, JSON.stringify(op)).changes === 1;
+      return db.transaction(() => {
+        if (db.prepare('SELECT 1 FROM docs_image_operations WHERE operation_id = ?').get(op.operationId)) throw new Error('Docs operation key conflict');
+        return db.prepare('INSERT OR IGNORE INTO drive_formatting_operations (operation_id,subject,document_id,state,receipt) VALUES (?,?,?,?,?)')
+          .run(op.operationId, op.subject, op.documentId, op.state, JSON.stringify(op)).changes === 1;
+      })();
     },
     async activeFormatting(documentId) {
       return db.prepare("SELECT operation_id FROM drive_formatting_operations WHERE document_id = ? AND state IN ('reviewing','writing','uncertain')").get(documentId)?.operation_id || null;
     },
     async claimFormatting(operationId, documentId) {
-      return db.prepare("UPDATE OR IGNORE drive_formatting_operations SET state = 'reviewing' WHERE operation_id = ? AND document_id = ? AND state = 'proposed'")
-        .run(operationId, documentId).changes === 1;
+      return db.transaction(() => {
+        if (db.prepare("SELECT 1 FROM docs_image_operations WHERE document_id = ? AND state IN ('reviewing','writing','uncertain')").get(documentId)) return false;
+        return db.prepare("UPDATE OR IGNORE drive_formatting_operations SET state = 'reviewing' WHERE operation_id = ? AND document_id = ? AND state = 'proposed'")
+          .run(operationId, documentId).changes === 1;
+      })();
     },
     async startFormattingWrite(op) {
       return db.prepare("UPDATE drive_formatting_operations SET state = 'writing',receipt = ? WHERE operation_id = ? AND subject = ? AND state = 'reviewing'")

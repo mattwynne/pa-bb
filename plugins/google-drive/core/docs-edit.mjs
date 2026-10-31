@@ -14,6 +14,7 @@ const MESSAGES = Object.freeze({
   write_rejected: 'Google rejected the required revision or replacement. Inspect the document again; nothing was written.',
   authorization_failed: 'Google rejected access. Check the selected account, document edit permission and authorized scopes in Settings.',
   remote_unavailable: 'Google Docs inspection or authorization is unavailable. No write was attempted.',
+  image_operation_busy: 'An image operation is reviewing, writing or unresolved on this document. Recover it with gdocs_image_status and its original account/key before another edit.',
   approval_policy_unavailable: 'The Google Docs approval setting could not be checked. No write was attempted. Check plugin Settings and try again.',
 });
 export function docsError(code) { return Object.assign(new Error(MESSAGES[code] || MESSAGES.remote_unavailable), { docsCode: code }); }
@@ -123,6 +124,7 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
   }
   async function replace(args, signal) {
     const { record, snapshot } = await load(args);
+    if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
     const { tab, offset } = replacement(snapshot, args);
     const proposal = { account: record.email, documentId: snapshot.documentId, title: snapshot.title,
       tabId: tab.tabId, tabTitle: tab.title, expectedRevisionId: snapshot.revisionId, oldText: args.oldText, newText: args.newText };
@@ -148,6 +150,7 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     // owner submission. Re-inspect in both modes, then close the remaining race
     // with requiredRevisionId in the single atomic provider request.
     const current = await load(args);
+    if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
     if (current.record.subject !== record.subject) throw docsError('authorization_failed');
     replacement(current.snapshot, args);
     // Recheck policy after inspection, before entering provider submission.

@@ -1,4 +1,5 @@
 import { docsError, documentId } from '../core/docs-edit.mjs';
+import { imageRequest, imageSchema } from '../core/docs-image.mjs';
 import { formatRequests, formatSchema } from '../core/docs-format.mjs';
 import { createDocsTransport, DOCS_BASE, rejection } from './docs-transport.mjs';
 export const DOCS_WRITE_SCOPES = Object.freeze(['documents', 'drive.file', 'drive'].map(name => `https://www.googleapis.com/auth/${name}`));
@@ -20,6 +21,14 @@ export function createDocsAdapter({ verifiedAccess, fetchImpl = fetch }) {
     async prepareWrite(record) {
       const post = await transport.prepareWrite(record, writePolicy);
       return {
+        insertImage(proposal, signal, beforeSubmission) {
+          const parsed = imageSchema.safeParse(proposal);
+          if (!parsed.success) throw Object.assign(docsError('invalid_input'), { docsWriteAttempted: false });
+          const args = parsed.data;
+          return post(`${DOCS_BASE}/${encodeURIComponent(documentId(args.document))}:batchUpdate`, {
+            writeControl: { requiredRevisionId: args.expectedRevisionId }, requests: [imageRequest(args)],
+          }, signal, { beforeSubmission });
+        },
         format(proposal, signal) {
           const parsed = formatSchema.safeParse(proposal);
           if (!parsed.success) throw Object.assign(docsError('invalid_input'), { docsWriteAttempted: false });

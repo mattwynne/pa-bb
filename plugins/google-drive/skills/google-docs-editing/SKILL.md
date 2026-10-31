@@ -1,6 +1,6 @@
 ---
 name: google-docs-editing
-description: Create Google Docs, apply bounded revision-guarded text or formatting changes, and recover uncertain operations without replaying writes.
+description: Create Google Docs, insert public PNG logos or apply bounded revision-guarded text/formatting changes, and recover uncertain operations without replaying writes.
 ---
 
 Use only explicit user-requested document mutations and connected account emails.
@@ -27,6 +27,57 @@ a second Doc merely to compensate. Reconcile with the user first.
 Read the [creation guide](../../docs/creation.md) for limits, destination policy,
 receipt semantics and recovery. Implementing/testing this capability does not
 authorize a live document or respondent contact.
+
+## Insert an inline PNG/logo without a browser
+
+Only explicit user-requested insertions. Read the [image guide](../../docs/images.md)
+for asset/network bounds and honest verification limits. No SVG conversion or
+hosting: use an already-public faithful PNG from the asset owner; never recreate
+the artwork, change sharing or send private assets to a converter.
+
+1. `gdocs_inspect_images({account, document})`: require complete inspection; copy
+   revision, explicit tab ID and a listed paragraph-start UTF-16 `index`. It
+   supports bounded simple body paragraphs plus inline images in all child tabs,
+   not tables/lists/named ranges/headers/footers/suggestions/positioned objects.
+2. `gdocs_insert_image({account, document, operationId, expectedRevisionId, tabId,
+   index, uri, widthPt, preview:true})`: generate one lowercase UUID v4. Width
+   18–432 pt; aspect ratio is preserved, height must be 1–648 pt. Centimetres ×
+   72 / 2.54 gives points (6.1 cm ≈172.91 pt). Pick a width fitting the usable page.
+   One image is added before existing paragraph content: **no text is deleted**.
+   Use an existing empty paragraph for an image-only line; the tool cannot create
+   it. Removing/replacing a temporary text wordmark is a separate request, never
+   an implicit side effect.
+3. Apply identical arguments/key with `preview:false`. This follows the same
+   owner-controlled **Require approval for Google Docs edits** setting; default
+   exact-change owner review, no argument bypass. Do not change settings/grants.
+   Preview is not completion. The document/account/asset, expiry, durable claim
+   and policy are rechecked before one required-revision insertion POST.
+4. Only `outcome:verified` establishes acknowledged API object/location/source URI/
+   size readback and preserved original text/styles. It does **not** verify
+   embedded bytes, visual rendering, layout suitability or alt text. Google's
+   separate public-URL fetch can observe changed bytes. After uncertainty use
+   `gdocs_image_status({account, operationId})` with SAME account/key. Never replay,
+   replace keys, roll back or force-unlock. Lost-response matches retain claims
+   and remain observations, not completed writes.
+
+PNG only: already-public canonical HTTPS/443 URL≤2000 characters, no query,
+fragment/credentials, redirects, private/reserved IPs or IPv6-only hosts. PNG must
+be 8-bit RGB/RGBA, non-animated/non-interlaced, no compressed metadata, ≤2 MiB,
+4MP and 8192px per side. No JPEG/GIF, SVG, conversion, temporary hosting, private
+asset publication, replacement/removal, arbitrary index or alt-text writes.
+Google's current request API does not expose an embedded-object alt-text setter;
+do not claim it was applied. Ask for a supported export when validation rejects
+an asset; do not broaden permissions or invent an unsafe workaround.
+
+`gdocs_review_image_example({})` opens a fixed synthetic no-op approval: no account,
+Google or image URL is accessed. Every choice returns exampleOnly:true and
+writeAttempted:false. Engineering tests never authorize a live Doc mutation.
+
+General `gdocs_read` is lossy text with U+FFFC image placeholders, never edit proof.
+Image inspection is not replacement/paragraph-format proof; those strict tools
+continue rejecting image-containing documents. Page-only formatting still uses
+its separate structured-document inspector. No headers/footers or wordmark
+replacement is implied by inserting a body image.
 
 ## Formatting existing documents without a browser
 
