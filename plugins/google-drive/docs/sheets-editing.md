@@ -35,8 +35,14 @@ bounded to 60000 serialized characters, with the existing 1 MiB HTTP limit.
 Trailing blank cells/rows omitted by Google normalize to empty cells. Default literal mode rejects selected entered formulas; explicit `mode:"formulas"`
 on inspection and update permits existing entered formulas and `{formula}`
 inputs under the bounded grammar. Effective-only computed output, rich text,
-chips, data validation and pivot/data source anchors remain rejected. Merges, protected ranges and tables anywhere on the
-selected tab are conservatively rejected. Other cells/tabs may contain formulas.
+chips, data validation and pivot/data source anchors remain rejected. Validated
+merges elsewhere on the tab are allowed. [Merged-anchor text editing](sheets-merges.md)
+permits only one exact top-left plain-text/clear target in literal mode, inspecting
+the complete bounded merge (100 cells/20 columns). Covered/mixed targets, merged
+formulas/typed values/format changes and malformed/overlapping merge metadata
+are rejected. Protected ranges and tables anywhere on the selected tab remain
+conservatively rejected. Refusals distinguish these cases; do not infer a target
+is itself merged from a generic unsupported-structure error. Other cells/tabs may contain formulas.
 Their dependent results can recalculate after a value change.
 
 ## Concurrency and preservation
@@ -56,7 +62,8 @@ can supply Google request objects or field masks. [Google's cell contract](https
 says changing a value erases text/chip runs, so inspection rejects them. The
 request leaves notes, unrelated formatting, cells/tabs and metadata outside its
 write masks. Readback compares target entered values and retained cell
-formatting/notes plus tab metadata; it does not read every unrelated cell or
+formatting/notes plus tab metadata; merged text also compares its full bounded
+footprint and canonical merge geometry, without expanding the write. It does not read every unrelated cell or
 prove that Google/collaborators changed nothing elsewhere.
 
 ## Authorization, receipts and uncertainty

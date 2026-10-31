@@ -98,7 +98,7 @@ test('unsupported cell structures/formulas/computed output and tab structures re
     (_m,c) => c[0][0].userEnteredValue = { formulaValue: '=SUM(A1:A2)' }, (_m,c) => c[0][1].effectiveValue = { numberValue: 20 },
     ...['textFormatRuns', 'chipRuns', 'dataValidation', 'pivotTable', 'dataSourceTable', 'dataSourceFormula'].map(k => (_m,c) => c[0][0][k] = []),
     ...['merges','protectedRanges','tables'].map(k => (m,_c) => m.sheets[0][k] = [{}]),
-  ]) { const h = await setup({ mutate }); try { await assert.rejects(h.service.inspect(target), e => e.sheetsEditCode === 'unsupported'); assert.equal(h.writes, 0); } finally { await h.close(); } }
+  ]) { const h = await setup({ mutate }); try { await assert.rejects(h.service.inspect(target), e => ['unsupported', 'merged_structure', 'protected_tab', 'table_tab'].includes(e.sheetsEditCode)); assert.equal(h.writes, 0); } finally { await h.close(); } }
 });
 test('declined/cancelled/invalid reviews, stale preflight, read-only scopes, expiry and abort never write', async () => {
   for (const options of [

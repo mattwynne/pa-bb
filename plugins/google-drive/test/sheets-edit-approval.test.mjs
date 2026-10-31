@@ -46,6 +46,16 @@ test('explicit formula review labels formulas versus literal strings and separat
   assert.match(expanded, /Optional calculation evidence omitted/); assert.doesNotMatch(expanded, /disabled=""[^>]*>Approve edit/);
 });
 
+test('merged anchor review names complete extent, exact top-left write and retained layout', () => {
+  const payload = {...p, range: {...p.range,columnCount:1}, before: [[{stringValue:'Old text'}]], values: [['New text']], mergedRange: {sheetId:7,startRow:2,startColumn:1,rowCount:1,columnCount:3}};
+  const html = render(payload);
+  for (const text of ['Merged text: B3:D3', 'updating only B3', 'top-left cell', 'merge, cell notes and formatting stay intact', 'complete merged area', 'Exact merged-cell text change', 'Old text', 'New text']) assert.ok(html.includes(text),text);
+  assert.doesNotMatch(html, /disabled=""[^>]*>Approve edit/);
+  for (const patch of [{mergedRange:null}, {mergedRange:{...payload.mergedRange,startColumn:2}}, {mergedRange:{...payload.mergedRange,columnCount:21}}, {mergedRange:{...payload.mergedRange,rowCount:100}}, {mergedRange:{...payload.mergedRange,extra:true}}, {values:[[{cad:5}]]}, {before:[[{numberValue:1}]]}, {mode:'formulas'}, {formatTypedValues:true}]) {
+    const rejected = render({...payload,...patch}); assert.match(rejected,/details are incomplete/); assert.match(rejected,/disabled=""[^>]*>Approve edit/); assert.doesNotMatch(rejected,/href=/);
+  }
+});
+
 test('typed date and CAD format changes are explicit in approval', () => {
   const html = render({ ...p, values: [[{date: '2024-02-29'}, {cad: 12.5}]], formatTypedValues: true, beforeFormats: [[{type:'TEXT'}, null]] });
   for (const text of ['Civil date: 2024-02-29', 'CAD amount: 12.5', 'Number format before:', 'DATE yyyy-mm-dd', 'CURRENCY']) assert.ok(html.includes(text), text);

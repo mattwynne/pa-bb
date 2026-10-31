@@ -15,6 +15,15 @@ function Review({ interaction, submit, cancel }: Props) {
   const r = (p.range && typeof p.range === 'object' ? p.range : {}) as Record<string, number>;
   const values = p.values as unknown[][], formats = p.beforeFormats as (Record<string, unknown> | null)[][], before = p.before as (Record<string, unknown> | null)[][];
   const calculationFits = Array.isArray(p.calculation) && p.calculation.length <= 100 && JSON.stringify(p.calculation).length <= 15000;
+  const m = p.mergedRange as Record<string, number> | undefined;
+  const mergedValid = m === undefined || !!m && typeof m === 'object' && !Array.isArray(m)
+    && Object.keys(m).length === 5 && ['sheetId', 'startRow', 'startColumn', 'rowCount', 'columnCount'].every(k => Number.isSafeInteger(m[k]) && m[k] >= 0)
+    && m.sheetId <= 2147483647 && m.startRow <= 10000000 && m.startColumn <= 10000000
+    && m.sheetId === r.sheetId && m.startRow === r.startRow && m.startColumn === r.startColumn && r.rowCount === 1 && r.columnCount === 1
+    && m.rowCount > 0 && m.rowCount <= 100 && m.columnCount > 0 && m.columnCount <= 20 && m.rowCount * m.columnCount > 1 && m.rowCount * m.columnCount <= 100
+    && p.mode !== 'formulas' && p.formatTypedValues !== true
+    && (before?.[0]?.[0] === null || !!before?.[0]?.[0] && Object.keys(before[0][0]!).length === 1 && typeof before[0][0]!.stringValue === 'string')
+    && (values?.[0]?.[0] === null || typeof values?.[0]?.[0] === 'string');
   const validBefore = (v: unknown) => v === null || !!v && typeof v === 'object' && Object.keys(v).length === 1 && Object.entries(v).every(([k, val]) =>
     k === 'formulaValue' ? p.mode === 'formulas' && formula({ formula: val }) : k === 'stringValue' ? typeof val === 'string' && plain(val) : k === 'numberValue' ? typeof val === 'number' && plain(val) : k === 'boolValue' && typeof val === 'boolean');
   const valid = ['account', 'spreadsheetId', 'operationId', 'concurrency'].every(k => text(k).length > 0) && /^[\w-]{1,256}$/.test(text('spreadsheetId'))
@@ -25,7 +34,7 @@ function Review({ interaction, submit, cancel }: Props) {
     && (p.mode === undefined || ['literal', 'formulas'].includes(String(p.mode)))
     && (p.formatTypedValues === undefined || typeof p.formatTypedValues === 'boolean')
     && ((formats === undefined && p.formatTypedValues !== true) || (Array.isArray(formats) && formats.length === r.rowCount && formats.every(row => Array.isArray(row) && row.length === r.columnCount && row.every(v => v === null || (!!v && typeof v === 'object' && !Array.isArray(v))))))
-    && JSON.stringify([values, before, formats]).length <= 60000;
+    && mergedValid && JSON.stringify([values, before, formats]).length <= 60000;
   async function decide(approved?: boolean) {
     setBusy(true); setError('');
     try { if (approved === undefined) await cancel(); else await submit({ approved }); }
@@ -40,8 +49,9 @@ function Review({ interaction, submit, cancel }: Props) {
       {p.exampleOnly !== true && <a href={`https://docs.google.com/spreadsheets/d/${text('spreadsheetId')}/edit#gid=${r.sheetId}`} target="_blank" rel="noreferrer">Open spreadsheet ↗</a>}
       <p role="note">{text('concurrency')}</p>
       <p>Null or empty text clears a cell. Notes and other formatting stay as they are. {p.formatTypedValues === true ? "The date and CAD cells identified below also receive the indicated number formats." : "Existing number formats stay as they are, including for dates and CAD amounts."} No write has happened.</p>
+      {m && <p role="note"><strong>Merged text: {column(m.startColumn)}{m.startRow + 1}:{column(m.startColumn + m.columnCount - 1)}{m.startRow + m.rowCount}.</strong> This changes the displayed text by updating only {column(m.startColumn)}{m.startRow + 1}, the top-left cell. The merge, cell notes and formatting stay intact. The complete merged area is compared before and after; no other cell values are submitted.</p>}
       {p.mode === 'formulas' && <p><strong>Formulas mode.</strong> Only explicit Formula entries are formulas; ordinary strings, even starting with “=”, stay literal. Entered-formula readback is separate from calculation success. Results may be delayed or contain errors; neither triggers retry or rollback. New formulas are restricted to documented in-workbook references and built-ins. Existing dependencies elsewhere may recalculate.</p>}
-      <table><caption>{p.mode === 'formulas' ? 'Exact proposed values and formulas' : 'Exact proposed values'}</caption><thead><tr><th>Cell</th><th>Before</th><th>After</th></tr></thead><tbody>
+      <table><caption>{m ? 'Exact merged-cell text change' : p.mode === 'formulas' ? 'Exact proposed values and formulas' : 'Exact proposed values'}</caption><thead><tr><th>Cell</th><th>Before</th><th>After</th></tr></thead><tbody>
         {values.flatMap((row, y) => row.map((value, x) => <tr key={`${y}:${x}`}><th scope="row">{column(r.startColumn + x)}{r.startRow + y + 1}</th>
           <td><pre>{show(before[y][x] === null ? null : 'formulaValue' in before[y][x]! ? { formula: before[y][x]!.formulaValue } : Object.values(before[y][x]!)[0])}{p.formatTypedValues === true && typed(value) ? `\nNumber format before: ${JSON.stringify(formats?.[y]?.[x] ?? null)}` : ""}</pre></td><td><pre>{show(value)}{p.formatTypedValues === true && typed(value) ? ("date" in value ? "\nNumber format: DATE yyyy-mm-dd" : "\nNumber format: CURRENCY \"CAD \"#,##0.00;[Red]-\"CAD \"#,##0.00") : ""}</pre></td></tr>))}
       </tbody></table>

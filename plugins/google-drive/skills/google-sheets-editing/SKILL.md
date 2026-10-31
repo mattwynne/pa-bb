@@ -10,6 +10,16 @@ First discover whether `gsheets_inspect_for_edit`,
 files/builds do not establish live availability. Never substitute arbitrary API
 calls or broaden scopes when these tools are unavailable.
 
+For merged text, discover `sheetsMergeCapabilities`. Inspect exactly one top-left
+anchor in default literal mode; supported inspection reads its complete bounded
+merge (100 cells/20 columns) and returns mergedRange/mergedRows as comparison
+context, NOT an expanded write. Edit only a plain string or clear value with no
+format change. The review must name the displayed merged extent and one-cell
+anchor. Covered/mixed targets, merged formulas/typed values, protected/table tabs
+and invalid/oversized merge metadata remain unsupported. Merges elsewhere no
+longer block ordinary edits. Never unmerge/remerge or infer the actual failing
+structure from a generic refusal. Read [merged-text limits](../../docs/sheets-merges.md).
+
 Use only for explicit user-requested edits. Inspect the explicit account,
 spreadsheet ID, numeric tab ID and zero-based rectangle. At most 100 cells,
 20 columns, 100 rows. Keep the returned fingerprint. It is comparison evidence,

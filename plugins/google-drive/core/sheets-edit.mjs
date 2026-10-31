@@ -7,6 +7,7 @@ import { cellData } from './sheets-cells.mjs';
 import { docsError } from './docs-edit.mjs';
 import { docsApprovalDecision } from './docs-approval.mjs';
 import { validateFormula, formulaCalculation } from './sheets-formula.mjs';
+import { editableLayout } from './sheets-edit-layout.mjs';
 export const EDIT_CELLS = 100;
 const index = z.number().int().min(0).max(10_000_000);
 const account = z.string().min(1).max(320);
@@ -26,7 +27,13 @@ export const editRangeSchema = z.object({ ...target, mode: editMode, operationId
 const messages = {
   invalid: 'Use an explicit account, spreadsheet/tab IDs, zero-based range, inspected fingerprint and single-use lowercase UUID v4. At most 100 cells/20 columns/2000 units per cell/20000 total. Strings stay literal. Explicit {formula} input requires mode formulas on inspection and edit; no arbitrary requests.',
   formula_unsupported: 'Formula is outside the supported in-workbook financial grammar. Use explicit A1 references/ranges, arithmetic/comparisons and documented built-ins; no names, external/custom/script/import functions or unsupported constructs.',
-  unsupported: 'Default literal mode rejects formula cells; explicit formulas mode allows entered formulas only. Computed-only cells, rich text/chips/validation, pivot/data-source cells and merged/protected tabs/tables remain unsupported. Use an ordinary supported range or edit in Google Sheets.',
+  unsupported: 'The requested cells or grid data contain an unsupported structure. Default literal mode rejects formulas; explicit formulas mode allows entered formulas. Computed-only cells, rich text/chips/validation and pivot/data-source cells are not editable. Inspect a smaller supported range; do not infer which structure caused this refusal.',
+  protected_tab: 'The selected tab has protected-range metadata. This editing surface does not assess or bypass protection, even outside the target. Use Google Sheets or an unprotected supported tab.',
+  table_tab: 'The selected tab contains table metadata, which this editing surface cannot safely preserve. Use Google Sheets or a supported tab without tables.',
+  merged_structure: 'The selected tab has malformed, overlapping, unbounded or excessive merge metadata. No edit can be prepared safely; do not infer the target cell is itself merged.',
+  merged_anchor: 'The target intersects a merged range. Inspect exactly one cell at its top-left anchor for a plain-text edit; covered cells and mixed/multi-cell targets are unsupported. Do not unmerge or expand the write.',
+  merged_text: 'Merged-anchor editing supports plain text or clearing in literal mode only. Formulas, numeric/typed values and format changes are not supported in a merged target.',
+  merged_bounds: 'The complete merged range exceeds the inspection limit of 100 cells, 20 columns or 100 rows. No partial-footprint edit is supported; use Google Sheets.',
   stale: 'The inspected range or tab metadata changed. Nothing new was submitted. Inspect again and prepare a separately requested proposal.',
   conflict: 'This operationId belongs to another account or request. Recover the original operation; never replace the key to bypass uncertainty.',
   busy: 'Another Sheets edit is reviewing, writing or unresolved on this spreadsheet. Recover that operation using its original account before another edit.',
@@ -78,29 +85,26 @@ export function editRequests(input) {
   return requests;
 }
 export function inspectEditableGrid(meta, data, args) {
-  const fail = () => { throw sheetsEditError('unsupported'); };
-  if (meta?.spreadsheetId !== args.spreadsheetId || !Array.isArray(meta.sheets) || !meta.sheets.length || meta.sheets.length > 100) fail();
-  const tabs = meta.sheets.map(s => s.properties);
-  if (tabs.some(t => !Number.isSafeInteger(t?.sheetId) || typeof t?.title !== 'string') || new Set(tabs.map(t => t.sheetId)).size !== tabs.length) fail();
-  const s = meta.sheets.find(s => s.properties.sheetId === args.sheetId), tab = s?.properties;
-  if (!tab || (tab.sheetType && tab.sheetType !== 'GRID') || !Number.isSafeInteger(tab.gridProperties?.rowCount) || !Number.isSafeInteger(tab.gridProperties?.columnCount)
-    || args.startRow + args.rowCount > tab.gridProperties.rowCount || args.startColumn + args.columnCount > tab.gridProperties.columnCount) fail();
-  // Conservative first surface: reject these structures on the selected tab,
-  // including anchors outside the rectangle whose effects may extend into it.
-  if (['merges', 'protectedRanges', 'tables'].some(k => s[k]?.length)) fail();
-  if (data?.spreadsheetId !== args.spreadsheetId || data.sheets?.length !== 1 || data.sheets[0].properties?.sheetId !== tab.sheetId) fail();
-  const blocks = data.sheets[0].data || [];
+  const fail = (category = 'unsupported') => { throw sheetsEditError(category); };
+  const { tabs, tab, mergedRange, mergeLayout, readRange } = editableLayout(meta, args, fail);
+  if (data?.spreadsheetId !== args.spreadsheetId || !Array.isArray(data.sheets) || data.sheets.length !== 1 || data.sheets[0]?.properties?.sheetId !== tab.sheetId) fail();
+  const blocks = data.sheets[0].data === undefined ? [] : data.sheets[0].data;
   if (!Array.isArray(blocks) || blocks.length > 1) fail();
   const b = blocks[0];
-  if (b && ((b.startRow || 0) !== args.startRow || (b.startColumn || 0) !== args.startColumn)) fail();
-  const source = b?.rowData || [];
-  if (!Array.isArray(source) || source.length > args.rowCount || source.some(r => !r || (r.values && !Array.isArray(r.values)) || (r.values?.length || 0) > args.columnCount)) fail();
-  const rows = Array.from({ length: args.rowCount }, (_, r) => Array.from({ length: args.columnCount }, (_, c) => {
-    const cell = clone(source[r]?.values?.[c] || {});
+  if (b !== undefined && (!b || typeof b !== 'object' || Array.isArray(b))) fail();
+  if (b && ((b.startRow === undefined ? 0 : b.startRow) !== readRange.startRow || (b.startColumn === undefined ? 0 : b.startColumn) !== readRange.startColumn)) fail();
+  const source = b?.rowData === undefined ? [] : b.rowData;
+  if (!Array.isArray(source) || source.length > readRange.rowCount || source.some(r => !r || typeof r !== 'object' || Array.isArray(r) || (r.values !== undefined && !Array.isArray(r.values)) || (r.values?.length || 0) > readRange.columnCount)) fail();
+  const gridRows = Array.from({ length: readRange.rowCount }, (_, r) => Array.from({ length: readRange.columnCount }, (_, c) => {
+    const raw = source[r]?.values?.[c];
+    if (raw !== undefined && (!raw || typeof raw !== 'object' || Array.isArray(raw))) fail();
+    const cell = clone(raw || {});
     // A new userEnteredValue erases rich-text/chip runs. Reject rather than lose
     // them. Effective-only cells can be array/pivot output from outside range.
     if (Object.keys(cell).some(k => !['userEnteredValue', 'userEnteredFormat', 'effectiveValue', 'effectiveFormat', 'formattedValue', 'hyperlink', 'note'].includes(k))) fail();
+    if (cell.userEnteredValue !== undefined && (!cell.userEnteredValue || typeof cell.userEnteredValue !== 'object' || Array.isArray(cell.userEnteredValue))) fail();
     const value = cell.userEnteredValue || {}, keys = Object.keys(value);
+    if (mergedRange && (keys.some(k => k !== 'stringValue') || ((r !== 0 || c !== 0) && keys.length))) fail('merged_text');
     if (keys.length > 1 || keys.some(k => !['stringValue', 'numberValue', 'boolValue', ...(args.mode === 'formulas' ? ['formulaValue'] : [])].includes(k))) fail();
     if (keys.length) {
       const v = value[keys[0]];
@@ -114,8 +118,10 @@ export function inspectEditableGrid(meta, data, args) {
     if (Object.keys(cell.userEnteredFormat || {}).length === 0) delete cell.userEnteredFormat;
     return cell;
   }));
+  const rows = mergedRange ? [[gridRows[0][0]]] : gridRows;
   const snapshot = { spreadsheetId: args.spreadsheetId, title: meta.properties?.title || '', tabs, ...(args.mode === 'formulas' ? { mode: 'formulas' } : {}), range: {
-    sheetId: args.sheetId, startRow: args.startRow, startColumn: args.startColumn, rowCount: args.rowCount, columnCount: args.columnCount }, rows };
+    sheetId: args.sheetId, startRow: args.startRow, startColumn: args.startColumn, rowCount: args.rowCount, columnCount: args.columnCount }, rows,
+    ...(mergeLayout.length ? { mergeLayout } : {}), ...(mergedRange ? { mergedRange, mergedRows: gridRows } : {}) };
   if (JSON.stringify(snapshot).length > 60000) fail();
   return snapshot;
 }
@@ -129,9 +135,8 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
     const file = await drive.getFile(record, args.spreadsheetId);
     if (file.id !== args.spreadsheetId || file.trashed !== false || file.mimeType !== SHEETS_MIME) throw sheetsEditError('unsupported');
     const meta = await sheets.metadata(record, args.spreadsheetId);
-    const tab = meta.sheets?.find(t => t.properties?.sheetId === args.sheetId)?.properties;
-    if (!tab || typeof tab.title !== 'string') throw sheetsEditError('unsupported');
-    const data = await sheets.grid(record, args.spreadsheetId, tab, args);
+    const { tab, readRange } = editableLayout(meta, args, category => { throw sheetsEditError(category); });
+    const data = await sheets.grid(record, args.spreadsheetId, tab, { ...args, ...readRange });
     return { snapshot: inspectEditableGrid(meta, data, args), ...(args.mode === 'formulas' ? { calculation: formulaCalculation(data, args) } : {}) };
   }
   async function inspect(input) {
@@ -140,7 +145,7 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
     return { ...snapshot, ...(calculation ? { calculation } : {}), account: record.email, complete: true, fingerprint: digest(snapshot), concurrency: SHEETS_RACE_WARNING };
   }
   function receipt(op, outcome = op.state, extra = {}) {
-    return { operationId: op.operationId, spreadsheetId: op.spreadsheetId, range: op.range, outcome, receiptOnly: true,
+    return { operationId: op.operationId, spreadsheetId: op.spreadsheetId, range: op.range, ...(op.mergedRange ? { mergedRange: op.mergedRange } : {}), outcome, receiptOnly: true,
       writeAttempted: ['writing', 'uncertain'].includes(op.state) ? 'unknown' : op.writeAttempted, retrySafe: false,
       providerAcknowledged: op.acknowledged === true, ...(op.failureReason ? { failureReason: op.failureReason } : {}), url: `https://docs.google.com/spreadsheets/d/${op.spreadsheetId}/edit`,
       guidance: op.failureReason === 'scope_required' ? messages.scope_required : 'Historical receipt only unless currentMatch is provided. Use gsheets_edit_status with the SAME account/key. Never replay or replace an uncertain operation. Readback cannot prove absence of concurrent edits or attribute matching values to this request.', ...extra };
@@ -162,16 +167,18 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
     const loaded = await load({ ...args, ...range }, record), before = loaded.snapshot;
     const rows = editRows(args.values, { mode: args.mode, tabs: before.tabs, sheetId: args.sheetId });
     if (digest(before) !== args.expectedFingerprint) throw sheetsEditError('stale');
+    if (before.mergedRange && (args.formatTypedValues || args.values[0][0] !== null && typeof args.values[0][0] !== 'string')) throw sheetsEditError('merged_text');
     const after = clone(before);
     after.rows.forEach((row, r) => row.forEach((cell, c) => {
       delete cell.userEnteredValue; Object.assign(cell, rows[r][c]);
       const format = args.formatTypedValues && !isFormulaCell(args.values[r][c]) ? cellData(args.values[r][c]).userEnteredFormat?.numberFormat : undefined;
       if (format) cell.userEnteredFormat = { ...cell.userEnteredFormat, numberFormat: format };
     }));
+    if (after.mergedRows) after.mergedRows[0][0] = clone(after.rows[0][0]);
     if (digest(before) === digest(after)) throw sheetsEditError('invalid');
     if (!op) {
       op = { operationId: args.operationId, subject: record.subject, spreadsheetId: args.spreadsheetId, range, requestHash,
-        beforeHash: digest(before), afterHash: digest(after), ...(args.mode === 'formulas' ? { mode: 'formulas' } : {}), state: 'proposed', writeAttempted: false, createdAt: clock() };
+        beforeHash: digest(before), afterHash: digest(after), ...(before.mergedRange ? { mergedRange: before.mergedRange } : {}), ...(args.mode === 'formulas' ? { mode: 'formulas' } : {}), state: 'proposed', writeAttempted: false, createdAt: clock() };
       if (!await operations.reserve(op)) {
         const current = await operations.get(op.operationId);
         if (!current || current.subject !== record.subject || current.requestHash !== requestHash) throw sheetsEditError('conflict');
@@ -179,7 +186,7 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
       }
     }
     const proposal = { ...(args.mode === 'formulas' ? { mode: 'formulas', calculation: loaded.calculation } : {}), account: record.email, spreadsheetId: args.spreadsheetId, title: before.title, tabTitle: before.tabs.find(t => t.sheetId === args.sheetId).title,
-      operationId: op.operationId, range, before: before.rows.map(row => row.map(c => c.userEnteredValue || null)), values: args.values, formatTypedValues: args.formatTypedValues, beforeFormats: before.rows.map(row => row.map(c => c.userEnteredFormat?.numberFormat || null)), concurrency: SHEETS_RACE_WARNING };
+      operationId: op.operationId, range, ...(before.mergedRange ? { mergedRange: before.mergedRange } : {}), before: before.rows.map(row => row.map(c => c.userEnteredValue || null)), values: args.values, formatTypedValues: args.formatTypedValues, beforeFormats: before.rows.map(row => row.map(c => c.userEnteredFormat?.numberFormat || null)), concurrency: SHEETS_RACE_WARNING };
     if (args.preview) return { ...receipt(op, 'preview'), receiptOnly: false, proposal, writeAttempted: false };
     if (!await operations.claim(op.operationId, op.spreadsheetId)) {
       const current = await operations.get(op.operationId);
@@ -240,7 +247,7 @@ export function createSheetsEditService({ accounts, operations, drive, sheets, a
       const matches = digest(observed.snapshot) === op.afterHash;
       if (!matches) diagnose('sheets_edit_readback_mismatch', undefined);
       return await finish(matches ? 'verified' : 'unverified', { receiptOnly: false, currentMatch: matches, ...(observed.calculation ? { calculation: observed.calculation, formulaReadbackMatches: matches } : {}),
-        verification: 'Only the bounded target values, cell formatting/notes and tab metadata were compared. Other cells/tabs are outside the write mask, not independently read back. Dependent formulas may recalculate. Concurrent overwrites cannot be excluded.' });
+        verification: (before.mergedRange ? 'The anchor text, complete bounded merged footprint and merge geometry were compared; only the anchor value was submitted. ' : '') + 'Only the bounded target values, cell formatting/notes and tab metadata were compared. Other cells/tabs are outside the write mask, not independently read back. Dependent formulas may recalculate. Concurrent overwrites cannot be excluded.' });
     } catch (error) {
       diagnose(writing ? 'sheets_edit_verification' : 'sheets_edit_preflight', error);
       if (!writing) op.failureReason = sheetsEditCategory(error);

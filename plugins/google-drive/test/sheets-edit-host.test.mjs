@@ -21,6 +21,7 @@ async function setup(options = {}) {
   const calls = [], originalFetch = globalThis.fetch;
   const state = { scope: 'drive.file', identity: subject, writes: 0,
     cells: [{ userEnteredValue: { stringValue: 'Before' }, userEnteredFormat: { numberFormat: { type: 'TEXT' }, textFormat: { bold: true } }, note: 'Keep note' }, { userEnteredValue: { boolValue: false } }] };
+  if (options.merged) state.cells[1] = { note: 'Retained covered-cell note', userEnteredFormat: { textFormat: { italic: true } } };
   if (options.formulas) { state.cells[0].userEnteredValue = {formulaValue: '=1/0'}; state.cells[0].effectiveValue = {errorValue: {type: 'DIVIDE_BY_ZERO', message: 'SENTINEL-provider-error'}}; }
   globalThis.fetch = async (url, init = {}) => {
     const u = new URL(url); calls.push({ path: u.pathname, init });
@@ -35,14 +36,14 @@ async function setup(options = {}) {
         return Response.json({ spreadsheetId: 'sheet-a', sheets: [{ properties: { sheetId }, data: [{ startRow: 2, startColumn: 1, rowData: [{ values: state.cells }] }] }] });
       }
       return Response.json({ spreadsheetId: 'sheet-a', properties: { title: 'Private workbook' }, sheets: [
-        { properties: { sheetId, title: "Plan's A1", index: 0, sheetType: 'GRID', gridProperties: { rowCount: 100, columnCount: 26 } } },
+        { properties: { sheetId, title: "Plan's A1", index: 0, sheetType: 'GRID', gridProperties: { rowCount: 100, columnCount: 26 } }, ...(options.merged ? { merges: [{ sheetId, startRowIndex: 2, endRowIndex: 3, startColumnIndex: 1, endColumnIndex: 3 }] } : {}) },
         { properties: { sheetId: 3, title: 'Unrelated tab', index: 1, sheetType: 'GRID', gridProperties: { rowCount: 50, columnCount: 10 } } },
       ] });
     }
     if (u.pathname === '/v4/spreadsheets/sheet-a:batchUpdate') {
       state.writes++;
       const body = JSON.parse(init.body);
-      const values = options.formulas ? [{userEnteredValue: {formulaValue: '=SUM(A1:A2)'}}, {userEnteredValue: {stringValue: '=literal'}}] : [{userEnteredValue: {stringValue: '=literal'}}, {}];
+      const values = options.merged ? [{userEnteredValue: {stringValue: 'After merged text'}}] : options.formulas ? [{userEnteredValue: {formulaValue: '=SUM(A1:A2)'}}, {userEnteredValue: {stringValue: '=literal'}}] : [{userEnteredValue: {stringValue: '=literal'}}, {}];
       assert.deepEqual(body, { requests: [{ updateCells: { start: { sheetId, rowIndex: 2, columnIndex: 1 }, rows: [{ values }], fields: 'userEnteredValue' } }] });
       assert.doesNotMatch(JSON.stringify(body), /userEnteredFormat|delete|permission|notification/);
       if (!options.formulas) assert.doesNotMatch(JSON.stringify(body), /formulaValue/);
@@ -87,8 +88,8 @@ async function setup(options = {}) {
   return { state, calls, store, assertLegacy, get harness() { return current.harness; },
     async input() {
       const mode = options.formulas ? {mode: 'formulas'} : {};
-      const inspected = parse(await current.harness.behavior.callAgentTool('gsheets_inspect_for_edit', {...target, ...mode}));
-      return { account, spreadsheetId: 'sheet-a', sheetId, startRow: 2, startColumn: 1, expectedFingerprint: inspected.fingerprint, operationId: randomUUID(), ...mode, values: options.formulas ? [[{formula: '=SUM(A1:A2)'}, '=literal']] : [['=literal', null]] };
+      const inspected = parse(await current.harness.behavior.callAgentTool('gsheets_inspect_for_edit', {...target, ...(options.merged ? {columnCount: 1} : {}), ...mode}));
+      return { account, spreadsheetId: 'sheet-a', sheetId, startRow: 2, startColumn: 1, expectedFingerprint: inspected.fingerprint, operationId: randomUUID(), ...mode, values: options.merged ? [['After merged text']] : options.formulas ? [[{formula: '=SUM(A1:A2)'}, '=literal']] : [['=literal', null]] };
     },
     async reload() { current = await current.harness.lifecycle.reload(plugin); },
     async close() { globalThis.fetch = originalFetch; await current.harness.lifecycle.dispose(); },
@@ -166,6 +167,22 @@ test('rebuilt full plugin wires formula mode/native review, exact transport and 
       const s = parse(await h.harness.behavior.callAgentTool('gsheets_edit_status',{account,operationId:a.operationId})); assert.equal(s.outcome,lost?'observed_matching':'verified'); assert.equal(h.state.writes,1); safe(h,s);
     } finally { await h.close(); }
   }
+});
+test('full plugin merged text uses native approval and exact anchor-only transport across reload', async () => {
+  const h = await setup({merged: true});
+  try {
+    assert.equal((await h.harness.behavior.callRpc('sheetsMergeCapabilities', null)).contract, 'sheets-merged-anchor-text-v1');
+    const a = await h.input(), b = h.harness.behavior;
+    const preview = parse(await b.callAgentTool('gsheets_update_range', a));
+    assert.equal(preview.proposal.range.columnCount, 1); assert.equal(preview.proposal.mergedRange.columnCount, 2);
+    const before = structuredClone(h.state.cells), done = b.callAgentTool('gsheets_update_range', {...a,preview:false}), card = await pending(h.harness);
+    assert.deepEqual(card.payload.mergedRange, preview.proposal.mergedRange); assert.equal(h.state.writes, 0);
+    b.submitInteraction(card.id, {approved:true}); assert.equal(parse(await done).outcome, 'verified');
+    assert.deepEqual(h.state.cells[1], before[1]); assert.equal(h.state.cells[0].note, before[0].note);
+    await h.reload(); await h.assertLegacy();
+    assert.equal(parse(await h.harness.behavior.callAgentTool('gsheets_edit_status', {account,operationId:a.operationId})).outcome, 'verified');
+    await h.harness.behavior.callAgentTool('gsheets_update_range', {...a,preview:false}); assert.equal(h.state.writes, 1);
+  } finally { await h.close(); }
 });
 test('full plugin failed reads have bounded Sheets attribution without provider/account content', async () => {
   const h = await setup({ failRead: true });
