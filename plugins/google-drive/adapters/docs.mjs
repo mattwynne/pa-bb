@@ -29,21 +29,21 @@ export function createDocsAdapter({ verifiedAccess, fetchImpl = fetch }) {
             writeControl: { requiredRevisionId: args.expectedRevisionId }, requests: [imageRequest(args)],
           }, signal, { beforeSubmission });
         },
-        format(proposal, signal) {
+        format(proposal, signal, beforeSubmission) {
           const parsed = formatSchema.safeParse(proposal);
           if (!parsed.success) throw Object.assign(docsError('invalid_input'), { docsWriteAttempted: false });
           const args = parsed.data;
           return post(`${DOCS_BASE}/${encodeURIComponent(documentId(args.document))}:batchUpdate`, {
             writeControl: { requiredRevisionId: args.expectedRevisionId }, requests: formatRequests(args),
-          }, signal);
+          }, signal, { beforeSubmission });
         },
-        replace(proposal, signal) {
+        replace(proposal, signal, beforeSubmission) {
           return post(`${DOCS_BASE}/${encodeURIComponent(proposal.documentId)}:batchUpdate`, {
             writeControl: { requiredRevisionId: proposal.expectedRevisionId }, requests: [{ replaceAllText: {
               containsText: { text: proposal.oldText, matchCase: true, searchByRegex: false },
               replaceText: proposal.newText, tabsCriteria: { tabIds: [proposal.tabId] },
             } }],
-          }, signal);
+          }, signal, { beforeSubmission });
         },
       };
     },

@@ -25,6 +25,7 @@ const messages = {
   invalid: 'Use inspected whole-paragraph UTF-16 ranges, a current revision and a single-use lowercase UUID. At most 16 nonoverlapping ranges and 8000 selected UTF-16 units are supported. No arbitrary Google API requests.',
   unsupported: 'Formatting requires a complete supported inspection. Paragraph ranges require simple paginated body paragraphs; page-only changes require an inspectable paged tab and complete bounded document. Suggestions or unverifiable page styles are rejected.',
   stale: 'The revision or exact inspected document changed. Nothing new was submitted. Inspect again and prepare a separately requested proposal.',
+  approval_required: 'Docs approval was re-enabled before submission. No write was attempted. Prepare a fresh reviewed proposal.',
   conflict: 'This operationId belongs to another request/account. Recover the original operation; never replace a key to bypass uncertainty.',
   busy: 'Another formatting operation is reviewing, writing or unresolved on this document. Recover that operation before another proposal.',
   unknown_operation: 'No formatting receipt exists for this account/key. This is not proof that no external write occurred.',
@@ -316,6 +317,10 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
   const receipt = (op, extra = {}) => ({ operationId: op.operationId, documentId: op.documentId, outcome: op.state, retrySafe: false, approval: op.approval || 'not_checked',
     providerAcknowledged: typeof op.appliedRevision === 'string' && !!op.appliedRevision,
     appliedRevisionId: op.appliedRevision || null,
+    // Separate this call's zero-write status/replay response from execution
+    // evidence known to this result. After restart only persisted evidence is
+    // available. Null preserves legacy/unsaved intent ambiguity; never backfill it.
+    historicalWriteAttempted: typeof op.writeAttempted === 'boolean' ? op.writeAttempted : null,
     guidance: 'Only verified confirms exact API style/text readback, not font rendering. After uncertainty use gdocs_formatting_status with the SAME account/key; never replay, roll back or replace a key to bypass recovery.', ...extra });
   async function save(op, state) { op.state = state; await store.updateFormatting(op); }
   async function inspect(input) {
@@ -369,8 +374,20 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
       stage = 'reserve';
       if (!await store.startFormattingWrite(op)) throw formatError('stale');
       op.state = 'writing'; stage = 'write';
-      const result = await writer.format(args, signal);
+      const result = await writer.format(args, signal, async () => {
+        // Local observations AFTER final async provider auth, not an atomic epoch
+        // or remote grant lock. Account/claim may change during later awaits.
+        const currentAccount = await record(args.account);
+        if (currentAccount.subject !== op.subject) throw docsError('authorization_failed');
+        const claimed = await store.getFormatting(op.operationId);
+        if (claimed?.state !== 'writing' || claimed.subject !== op.subject || claimed.requestHash !== op.requestHash) throw formatError('stale');
+        if (!ownerApproved && await needsApproval()) throw formatError('approval_required');
+        // Check these after ALL callback awaits, including policy/claim reads.
+        signal?.throwIfAborted();
+        if (clock() - op.createdAt >= 600_000) throw formatError('stale');
+      });
       stage = 'verify';
+      op.writeAttempted = true;
       // Persist provider revision before readback. Lost/malformed responses remain
       // recoverable by exact comparison but never prove which actor wrote styles.
       const revision = result?.writeControl?.requiredRevisionId;
@@ -384,18 +401,23 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
       return receipt(op, { writeAttempted: true, revisionId: matches ? after.revisionId : null });
     } catch (error) {
       diagnose(`docs_format_${stage}`, error);
-      const attempted = ['write', 'verify'].includes(stage);
-      const rejected = error?.docsWriteAttempted === false || ['write_rejected', 'authorization_failed', 'scope_required', 'stale_revision'].includes(error?.docsCode);
+      const attempted = stage === 'verify' || (stage === 'write' && error?.docsWriteAttempted !== false);
+      // A GET/storage failure cannot reject the earlier POST or release its claim.
+      const rejected = stage === 'write' && attempted && ['write_rejected', 'authorization_failed', 'scope_required', 'stale_revision'].includes(error?.docsCode);
+      op.writeAttempted = attempted;
       try { await save(op, !attempted ? 'not_submitted' : rejected ? 'rejected' : 'uncertain'); }
       catch (storageError) { diagnose('docs_format_receipt', storageError); }
-      return receipt(op, { writeAttempted: attempted && !rejected, error: formatMessage(error) });
+      // Keep the legacy rejected-call convention, but expose the saved attempt
+      // separately. Never reuse a no-write inspection message after submission.
+      return receipt(op, { writeAttempted: attempted && !rejected, error: attempted && !rejected
+        ? 'Formatting was submitted but could not be verified. Recover using the SAME account and operationId; never replay or replace an uncertain write.' : formatMessage(error) });
     } finally { active.delete(op.operationId); }
   }
   async function status(input) {
     const parsed = formatStatusSchema.safeParse(input); if (!parsed.success) throw formatError('invalid');
     const args = parsed.data, r = await record(args.account), op = await store.getFormatting(args.operationId);
     if (!op || op.subject !== r.subject) throw formatError('unknown_operation');
-    if (active.has(op.operationId)) return receipt(op, { inProgress: true });
+    if (active.has(op.operationId)) return receipt(op, { inProgress: true, writeAttempted: false });
     // Never clear a reviewing lock on read: another process may still own it.
     if (!['writing', 'uncertain', 'verified'].includes(op.state)) return receipt(op, { historical: true, writeAttempted: false });
     try {

@@ -15,6 +15,7 @@ const MESSAGES = Object.freeze({
   authorization_failed: 'Google rejected access. Check the selected account, document edit permission and authorized scopes in Settings.',
   remote_unavailable: 'Google Docs inspection or authorization is unavailable. No write was attempted.',
   image_operation_busy: 'An image operation is reviewing, writing or unresolved on this document. Recover it with gdocs_image_status and its original account/key before another edit.',
+  approval_required: 'Per-edit approval was re-enabled before submission. No write was attempted. Request a fresh review.',
   approval_policy_unavailable: 'The Google Docs approval setting could not be checked. No write was attempted. Check plugin Settings and try again.',
 });
 export function docsError(code) { return Object.assign(new Error(MESSAGES[code] || MESSAGES.remote_unavailable), { docsCode: code }); }
@@ -160,7 +161,15 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     const approval = ownerApproved ? 'owner_approved' : 'disabled_in_settings';
     if (signal?.aborted) return stop({ outcome: 'cancelled', reason: 'caller_aborted' });
     let response;
-    try { response = await writer.replace(proposal, signal); }
+    try { response = await writer.replace(proposal, signal, async () => {
+      // Re-observe local authority after the adapter's final async auth. This is
+      // not an atomic account/policy epoch lock and acquires no durable claim.
+      const currentAccount = await store.byEmail(args.account);
+      if (currentAccount?.subject !== record.subject) throw docsError('authorization_failed');
+      if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
+      if (!ownerApproved && await needsApproval()) throw docsError('approval_required');
+      signal?.throwIfAborted();
+    }); }
     catch (error) {
       // Only the adapter can establish a definitive rejection before application.
       if (error?.docsWriteAttempted === false || ['authorization_failed', 'write_rejected', 'scope_required', 'stale_revision'].includes(error?.docsCode)) throw error;

@@ -37,6 +37,8 @@
   "scripts": {
     "build": "bb plugin build",
     "typecheck": "tsc --noEmit && bb plugin types --check",
-    "test": "node ../../scripts/sync-connection-ui.mjs --check && npm run build && npm --prefix ../google-calendar run build && cucumber-js features/oauth-client-reuse.feature --import features/step_definitions/oauth-client.steps.mjs --format progress && node --test test/*.test.mjs"
+    "test:docs": "cucumber-js --profile docs",
+    "test:acceptance": "cucumber-js --profile oauth && npm run test:docs",
+    "test": "node ../../scripts/sync-connection-ui.mjs --check && npm run build && npm --prefix ../google-calendar run build && npm run test:acceptance && node --test test/*.test.mjs"
   }
 }
