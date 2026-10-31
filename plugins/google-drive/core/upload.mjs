@@ -27,6 +27,7 @@ const messages = {
   busy: 'A related upload or access change is reviewing, writing or unresolved. Inspect its original receipt; do not create another key.',
   unknown: 'No upload receipt exists for this account/key. This does not prove no file exists. Do not blindly upload again.',
   scope: 'An existing owner-authorized Drive write grant is required. Only the owner can reconnect in Google Drive Settings; do not change scopes or credentials manually.',
+  preview_required: 'First preview this exact upload with the same operationId and preview=true. A fresh apply cannot reserve, request approval or submit without its saved preview.',
   review: 'Upload requires a fresh exact owner review. No settings optout applies. No upload was submitted.',
 };
 export const uploadError = code => Object.assign(new Error(messages[code] || 'Upload is unavailable; inspect the original operation.'), { uploadCode: code });
@@ -69,6 +70,7 @@ export function createUploadService({ store, source, upload, assessment, diagnos
     let op = await store.getCreation(args.operationId);
     if (op && (op.kind !== 'upload' || op.subject !== record.subject || op.requestHash !== requestHash)) throw uploadError('conflict');
     if (op && op.claimState !== 'proposed') return receipt(op, { receiptOnly: true });
+    if (!op && !args.preview) throw uploadError('preview_required');
     const captured = await source.capture(args.source, args.expectedSha256, args.mode);
     const evidence = await assessment.assessDestination(record, args.folderId);
     await upload.duplicates(record, evidence.destinationId, args.name);

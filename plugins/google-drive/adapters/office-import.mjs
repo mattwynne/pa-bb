@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { SaxesParser } from 'saxes';
 import { readOoxmlZip } from './xlsx-zip.mjs';
 import { uploadError } from '../core/upload.mjs';
+import { ooxmlMediaType, inspectOoxmlMedia } from './ooxml-media.mjs';
 const O = 'http://schemas.openxmlformats.org/';
 const R = `${O}officeDocument/2006/relationships`;
 const W = `${O}wordprocessingml/2006/main`, P = `${O}presentationml/2006/main`, A = `${O}drawingml/2006/main`;
@@ -50,7 +51,8 @@ function partType(path, kind) {
   if (path === 'docProps/core.xml') return 'application/vnd.openxmlformats-package.core-properties+xml';
   if (path === 'docProps/app.xml') return 'application/vnd.openxmlformats-officedocument.extended-properties+xml';
   const prefix = kind === 'docx_to_doc' ? 'word' : 'ppt';
-  if (new RegExp(`^${prefix}/media/[A-Za-z0-9_-]+\\.(?:png|jpe?g|gif)$`).test(path)) return /\.png$/.test(path) ? 'image/png' : /\.gif$/.test(path) ? 'image/gif' : 'image/jpeg';
+  const media = ooxmlMediaType(path, prefix);
+  if (media) return media;
   if (new RegExp(`^${prefix}/theme/theme[1-9][0-9]*\\.xml$`).test(path)) return 'application/vnd.openxmlformats-officedocument.theme+xml';
   if (prefix === 'word') {
     const name = /^word\/([A-Za-z]+)\.xml$/.exec(path)?.[1];
@@ -82,9 +84,7 @@ export function inspectOffice(bytes, name, mode) {
       if (type === 'manifest') continue;
       if ((overrides.get(path) || defaults.get(path.split('.').at(-1))) !== type) fail();
       if (type.startsWith('image/')) {
-        if (type === 'image/png' ? !content.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
-          : type === 'image/jpeg' ? !(content[0] === 255 && content[1] === 216 && content[2] === 255)
-            : !/^GIF8[79]a$/.test(content.subarray(0, 6).toString('ascii'))) fail();
+        inspectOoxmlMedia(content, type);
         continue;
       }
       if (path.endsWith('.rels')) {

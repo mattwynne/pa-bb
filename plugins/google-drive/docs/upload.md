@@ -26,6 +26,11 @@ example key or a replacement key to bypass uncertainty. Account (1–320), name
 (1–1024), explicit folder and source SHA-256 are required. Unknown fields fail.
 `mode` defaults to `binary`; `preview` defaults to `true`. Apply with identical
 arguments/key and `preview:false`, then approve the exact native owner card.
+A fresh-key apply without its saved preview is refused before source capture,
+provider preflight, receipt reservation or owner review. That refusal does not
+consume the key: preview the exact request with the same key first. Historical
+consumed-key calls remain receipt-only; this rule never permits replaying an
+uncertain operation.
 All modes require approval even for apparently private My Drive destinations.
 No approval setting opts out. Binary contents are **not rendered or fully
 reviewed** in the card. Explicit software-delivery permission is not permission
@@ -126,7 +131,13 @@ and functions outside a fixed ordinary network-free list are rejected. Defined
 print-area/title names are the only named-expression exception. The initial
 function list is in `adapters/xlsx-import.mjs` (ordinary arithmetic/financial,
 logical, text, lookup and date functions including SUM, IF, NPV, PMT, XIRR,
-INDEX/MATCH and VLOOKUP). Unknown/custom/future functions fail closed. The gate
+INDEX/MATCH and VLOOKUP). Unknown/custom/future functions fail closed. Embedded package/OLE relationships and object declarations are rejected regardless
+of target filename, including renamed or unreferenced embedded Office files.
+Non-XML payloads are restricted to declared PNG/JPEG/GIF under `xl/media/` with
+matching signatures and manifest types; opaque packages, printer-setting binaries,
+legacy vectors and other unsupported binary parts are refused, not skipped or
+recursively opened. Passive-media signature checks are shared with DOCX/PPTX and
+are not image-decoding or malware certification. The gate
 is not an Excel compatibility or malicious-file certification; it intentionally
 accepts less than Google's general importer. A rejected conversion can still be
 uploaded opaquely only as a separate, explicitly requested binary operation.

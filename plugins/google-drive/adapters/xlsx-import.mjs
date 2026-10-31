@@ -3,6 +3,7 @@
 import { readXlsxZip } from './xlsx-zip.mjs';
 import { SaxesParser } from 'saxes';
 import { uploadError } from '../core/upload.mjs';
+import { ooxmlMediaType, inspectOoxmlMedia } from './ooxml-media.mjs';
 const functions = new Set(('ABS ACOS AND ASIN ATAN AVERAGE AVERAGEIF AVERAGEIFS CEILING CHAR CHOOSE CLEAN CODE COLUMN COLUMNS CONCAT CONCATENATE COUNT COUNTA COUNTBLANK COUNTIF COUNTIFS DATE DATEDIF DATEVALUE DAY DAYS EDATE EOMONTH EXACT EXP FALSE FIND FLOOR FV HLOOKUP HOUR IF IFERROR IFNA IFS INDEX INT IPMT IRR ISBLANK ISERROR ISNA ISNUMBER ISTEXT LARGE LEFT LEN LN LOG LOG10 LOOKUP LOWER MATCH MAX MEDIAN MID MIN MINUTE MOD MONTH MROUND N NA NETWORKDAYS NOT NOW NPER NPV OR PI PMT POWER PPMT PRODUCT PROPER PV RATE REPLACE REPT RIGHT ROUND ROUNDDOWN ROUNDUP ROW ROWS SEARCH SECOND SIGN SMALL SQRT SUBSTITUTE SUBTOTAL SUM SUMIF SUMIFS SUMPRODUCT TEXT TIME TODAY TRIM TRUE TRUNC UPPER VALUE VLOOKUP WEEKDAY WEEKNUM WORKDAY XIRR XNPV YEAR YEARFRAC').split(' '));
 function xml(bytes, onOpen, onText = () => {}, onClose = () => {}) {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -18,18 +19,38 @@ export function inspectXlsx(bytes, name) {
     if (!/\.xlsx$/i.test(name)) throw uploadError('conversion');
     const files = readXlsxZip(bytes);
     if (!files['xl/workbook.xml'] || !files['[Content_Types].xml']) throw uploadError('conversion');
-    const tabs = []; let formulaCount = 0, cells = 0;
+    const tabs = [], media = new Map(), defaults = new Map(), overrides = new Map(); let formulaCount = 0, cells = 0;
+    // Never skip an opaque part just because its extension isn't XML. A package
+    // can live anywhere in the archive, not only under xl/embeddings/.
+    for (const [path, content] of Object.entries(files)) if (!/\.(?:xml|rels)$/i.test(path)) {
+      if (path.endsWith('/') && content.length === 0) continue;
+      const type = ooxmlMediaType(path, 'xl');
+      if (!type) throw uploadError('conversion');
+      inspectOoxmlMedia(content, type); media.set(path, type);
+    }
     for (const [path, content] of Object.entries(files)) {
       if (!/\.(?:xml|rels)$/i.test(path)) continue;
       let formula = null, formulaTag = null;
       xml(content, (tag, a) => {
+        if (/^(?:oleObjects?|embeddedObject|embeddedPackage|controls?)$/i.test(tag)) throw uploadError('conversion');
         if (tag === 'Relationship') {
           if (a.TargetMode?.toLowerCase() === 'external' || /^(?:[a-z]+:|\/\/)/i.test(a.Target || '')
-            || /vba|macro|externalLink|connection|oleObject|activeX|attachedTemplate|queryTable/i.test(a.Type || '')) throw uploadError('conversion');
+            || /vba|macro|externalLink|connection|oleObject|activeX|attachedTemplate|queryTable/i.test(a.Type || '')
+            || /\/package(?:[?#].*)?$/i.test((a.Type || '').trim())) throw uploadError('conversion');
           if (/\/officeDocument$/i.test(a.Type || '') && (path !== '_rels/.rels' || !/^\/?xl\/workbook\.xml$/.test(a.Target || ''))) throw uploadError('conversion');
           if (/\/worksheet$/i.test(a.Type || '') && (path !== 'xl/_rels/workbook.xml.rels' || !/^worksheets\/sheet[0-9]+\.xml$/.test(a.Target || ''))) throw uploadError('conversion');
         }
         if (['Override', 'Default'].includes(tag)) {
+          if (path === '[Content_Types].xml') {
+            const override = tag === 'Override', key = override ? a.PartName?.startsWith('/') && a.PartName.slice(1) : a.Extension;
+            const declarations = override ? overrides : defaults;
+            if (!key || declarations.has(key) || typeof a.ContentType !== 'string') throw uploadError('conversion');
+            declarations.set(key, a.ContentType);
+            if (!/(?:\+xml|\/xml)$/i.test(a.ContentType)) {
+              const expected = ooxmlMediaType(override ? key : `xl/media/declaration.${key}`, 'xl');
+              if (!expected || expected !== a.ContentType || (override && media.get(key) !== expected)) throw uploadError('conversion');
+            }
+          }
           if (/macroEnabled|vbaProject|externalLink|connection|oleObject|activeX/i.test(a.ContentType || '')) throw uploadError('conversion');
           if (/(?:\+xml|\/xml)$/i.test(a.ContentType || '') && (tag === 'Override' ? !/\.(?:xml|rels)$/i.test(a.PartName || '') : !/^(?:xml|rels)$/i.test(a.Extension || ''))) throw uploadError('conversion');
           if (/spreadsheetml\.(?:sheet|template)\.main\+xml$/i.test(a.ContentType || '') && (tag !== 'Override' || a.PartName !== '/xl/workbook.xml')) throw uploadError('conversion');
@@ -58,6 +79,7 @@ export function inspectXlsx(bytes, name) {
         formula = null; formulaTag = null;
       });
     }
+    for (const [path, type] of media) if ((overrides.get(path) || defaults.get(path.split('.').at(-1))) !== type) throw uploadError('conversion');
     if (!tabs.length) throw uploadError('conversion');
     return { tabs, sourceFormulaCount: formulaCount, sourceCellCount: cells,
       fidelity: 'Not guaranteed. Ordinary XLSX only; no macros, external relationships/connections, named expressions, shared/array formulas or functions outside the documented conservative list.' };
