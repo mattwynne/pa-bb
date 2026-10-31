@@ -1,0 +1,5 @@
+{
+  "description":"S01 test registry only. Future native semantic tools are not registered or exposed. Legacy baselines are audited separately.",
+  "operations": {},
+  "exposed": []
+}

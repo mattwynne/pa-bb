@@ -1,0 +1,299 @@
+{
+  "S00.format.docs403": {
+    "caseId": "S00.format.docs403",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.docs403.json",
+    "sha256": "e71464866de6a332b18f94d23001fed98862179bc2f9372d1b1de2ae7b175a3d",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.metadata403": {
+    "caseId": "S00.format.metadata403",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.metadata403.json",
+    "sha256": "81dc597941f9380d0736b3a9e699894c4c32b7378ef08de52f29a8a268e6e4f3",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.storage": {
+    "caseId": "S00.format.storage",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.storage.json",
+    "sha256": "79df9c733a9e54cc0a1ef09ae6af04de2ccaef48eb5a3626a44d479cf2e9afd3",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.reject403": {
+    "caseId": "S00.format.reject403",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.reject403.json",
+    "sha256": "dda934bd6e5a9d2a4ab4c6f945c44e2244bb2a2a5dc357edbdd4f5934f288460",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.reject400": {
+    "caseId": "S00.format.reject400",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.reject400.json",
+    "sha256": "ce826df64d21bb01253c02406ccb1ef7ef8d09ffcdbaa6adbee1a0b52889dd95",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.auth403": {
+    "caseId": "S00.format.auth403",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.auth403.json",
+    "sha256": "1708663a8884eafb9e0759cb2d237300dffbf11c3dce11ce8966364c80c81b2a",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.finalAuth403": {
+    "caseId": "S00.format.finalAuth403",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.finalAuth403.json",
+    "sha256": "0139b08dd32a16418463f51a742827a84870b45f871199aee893d451b3388c6a",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.lost": {
+    "caseId": "S00.format.lost",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.lost.json",
+    "sha256": "cdafe5ea3a03f12b37374b0cc880b846b53b79a382772e6e20f9fe970e0a8638",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.auth.policy": {
+    "caseId": "S00.format.auth.policy",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.auth.policy.json",
+    "sha256": "765196b648384658a0b45176d04350a09b5cb3ee848f8af431f594dfa35161ce",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.auth.account": {
+    "caseId": "S00.format.auth.account",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.auth.account.json",
+    "sha256": "1fa6aba131758dd91055141013f2a0e8d2afe574836509b871f65b13b0f160c0",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.auth.subject": {
+    "caseId": "S00.format.auth.subject",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.auth.subject.json",
+    "sha256": "b3b66ea9ca6458fe0b4367ab89b9bfda68f9510537bda5b7f8c72dfd032c96d2",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.auth.cancel": {
+    "caseId": "S00.format.auth.cancel",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.auth.cancel.json",
+    "sha256": "83fd0f0cadc612faded058dbf489eb0eb614baed98ea38d37431391c7ccb6a2d",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.auth.expiry": {
+    "caseId": "S00.format.auth.expiry",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.auth.expiry.json",
+    "sha256": "f32b10064540ba4aa7b29ca96f542fa72f823c30befdce0d57c83ae93be7964b",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.replace.auth.policy": {
+    "caseId": "S00.replace.auth.policy",
+    "path": "features/docs/coverage/fixtures/baseline/S00.replace.auth.policy.json",
+    "sha256": "fe63a7d8831d75091e692c3611f93b4f8c3bbc72406728b896868e58550c8f92",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.replace.auth.account": {
+    "caseId": "S00.replace.auth.account",
+    "path": "features/docs/coverage/fixtures/baseline/S00.replace.auth.account.json",
+    "sha256": "84c82c2374eff978f74e2dac4b2c757b921396cfd7180ccdf17aced72b38d3f1",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.replace.auth.subject": {
+    "caseId": "S00.replace.auth.subject",
+    "path": "features/docs/coverage/fixtures/baseline/S00.replace.auth.subject.json",
+    "sha256": "c9fb3ac728f0a33b35967cdbd567d5b9a259a838b0be1df6252b2522d49c5dcb",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.replace.auth.cancel": {
+    "caseId": "S00.replace.auth.cancel",
+    "path": "features/docs/coverage/fixtures/baseline/S00.replace.auth.cancel.json",
+    "sha256": "8c6c57899077e2a161603cf01940bf595700203ef9ded72a06a75f2674819018",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.claim.policy": {
+    "caseId": "S00.format.claim.policy",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.claim.policy.json",
+    "sha256": "0e2ca41333b757f441460f801859d3a3bbc2b43a37272833ac518b9d8c7b8688",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.claim.cancel": {
+    "caseId": "S00.format.claim.cancel",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.claim.cancel.json",
+    "sha256": "09c1ea5c9ac52a22bda6d1fc2ee006745967b5cd1da7752f3501af5886730fdc",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.claim.expiry": {
+    "caseId": "S00.format.claim.expiry",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.claim.expiry.json",
+    "sha256": "e7b62482ed95bacf5d95a4ef8a40f4c06b9d1db4f33d312e59f95add728deed9",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.policy.cancel": {
+    "caseId": "S00.format.policy.cancel",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.policy.cancel.json",
+    "sha256": "54f587b9cbb1116f5e62f03a16641a87e4cb5d02546fc651efcddf8679f8fc32",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.policy.expiry": {
+    "caseId": "S00.format.policy.expiry",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.policy.expiry.json",
+    "sha256": "8ac19b8e258ccca56db37d54c002764e95f4c357d9fedac9b7567bcbcac3ea10",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.intent.policy": {
+    "caseId": "S00.format.intent.policy",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.intent.policy.json",
+    "sha256": "f92c715c4f73cfc77f618bfbddbb52f09b1f390c765090756d3f2569229f8334",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.replace.claim.policy": {
+    "caseId": "S00.replace.claim.policy",
+    "path": "features/docs/coverage/fixtures/baseline/S00.replace.claim.policy.json",
+    "sha256": "96385992aeae4fef856ffe6157af9d36f65429c7b03dac8dfcac3aff52940739",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.replace.claim.cancel": {
+    "caseId": "S00.replace.claim.cancel",
+    "path": "features/docs/coverage/fixtures/baseline/S00.replace.claim.cancel.json",
+    "sha256": "7aaa46295e9774c91977e838574ccf0882c699a9dc995b45659daaf353d98542",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.replace.policy.cancel": {
+    "caseId": "S00.replace.policy.cancel",
+    "path": "features/docs/coverage/fixtures/baseline/S00.replace.policy.cancel.json",
+    "sha256": "49c4172142ac6790ecb03351550354445da001299a3ec30988f3abceaedd53e3",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.consent.off": {
+    "caseId": "S00.format.consent.off",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.consent.off.json",
+    "sha256": "e2150917cf1cb6af0338f22f699de9aedf0c4c8ec621690599efc7b0d1cee828",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.format.consent.on": {
+    "caseId": "S00.format.consent.on",
+    "path": "features/docs/coverage/fixtures/baseline/S00.format.consent.on.json",
+    "sha256": "df297606bc8e2ca30c3881d8d3689c8ae8c8dcc6f5d6cd7b73ec3ebefe53ce9d",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.replace.consent.off": {
+    "caseId": "S00.replace.consent.off",
+    "path": "features/docs/coverage/fixtures/baseline/S00.replace.consent.off.json",
+    "sha256": "4c7995cb23dbf7a7fb9b5af5f81843b2368562c26bd7c38f3ad6142eefd6df97",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S00.replace.consent.on": {
+    "caseId": "S00.replace.consent.on",
+    "path": "features/docs/coverage/fixtures/baseline/S00.replace.consent.on.json",
+    "sha256": "ca3b799f1dc4698315107d54fb1633d962ed1457e8f52bf9efd3b1e23665a0f5",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S01.format.appliedLost": {
+    "caseId": "S01.format.appliedLost",
+    "path": "features/docs/coverage/fixtures/baseline/S01.format.appliedLost.json",
+    "sha256": "b0497d2bbc1517dab10365747db0e747908be806ecb681e293c7c6481b2164ff",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S01.format.wirePreservation": {
+    "caseId": "S01.format.wirePreservation",
+    "path": "features/docs/coverage/fixtures/baseline/S01.format.wirePreservation.json",
+    "sha256": "c629b7b4f9284ef811c5f92615e88983faedadae493374ff18fd637ff6a7b403",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  },
+  "S01.replace.wirePreservation": {
+    "caseId": "S01.replace.wirePreservation",
+    "path": "features/docs/coverage/fixtures/baseline/S01.replace.wirePreservation.json",
+    "sha256": "4c01cb3ad860e8112d33c4dc4ff3f2319d7aa50e29231cb866534da9c1d7901c",
+    "provenance": {
+      "authorship": "original synthetic acceptance fixture; no reference-library code",
+      "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+    }
+  }
+}

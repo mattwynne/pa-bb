@@ -1,0 +1,12 @@
+{
+  "provenance":{"authorship":"original hand-authored synthetic S00/S01 vectors", "source":"https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request", "contract":"legacy explicit-tab bold and literal deletion; not semantic-engine completeness"},
+  "before":{"documentId":"doc-a","revisionId":"rev-a","suggestionsViewMode":"SUGGESTIONS_INLINE","title":"PRIVATE_TITLE","tabs":[{"tabProperties":{"tabId":"tab-a","title":"Main"},"documentTab":{"body":{"content":[{"endIndex":1,"sectionBreak":{}},{"startIndex":1,"endIndex":6,"paragraph":{"elements":[{"startIndex":1,"endIndex":6,"textRun":{"content":"Text\n"}}]}}]}}}]},
+  "format":{
+    "request":{"writeControl":{"requiredRevisionId":"rev-a"},"requests":[{"updateTextStyle":{"range":{"tabId":"tab-a","startIndex":1,"endIndex":6},"textStyle":{"bold":true},"fields":"bold"}}]},
+    "after":{"documentId":"doc-a","revisionId":"rev-b","suggestionsViewMode":"SUGGESTIONS_INLINE","title":"PRIVATE_TITLE","tabs":[{"tabProperties":{"tabId":"tab-a","title":"Main"},"documentTab":{"body":{"content":[{"endIndex":1,"sectionBreak":{}},{"startIndex":1,"endIndex":6,"paragraph":{"elements":[{"startIndex":1,"endIndex":6,"textRun":{"content":"Text\n","textStyle":{"bold":true}}}]}}]}}}]}
+  },
+  "replace":{
+    "request":{"writeControl":{"requiredRevisionId":"rev-a"},"requests":[{"replaceAllText":{"containsText":{"text":"Text","matchCase":true,"searchByRegex":false},"replaceText":"","tabsCriteria":{"tabIds":["tab-a"]}}}]},
+    "after":{"documentId":"doc-a","revisionId":"rev-b","suggestionsViewMode":"SUGGESTIONS_INLINE","title":"PRIVATE_TITLE","tabs":[{"tabProperties":{"tabId":"tab-a","title":"Main"},"documentTab":{"body":{"content":[{"endIndex":1,"sectionBreak":{}},{"startIndex":1,"endIndex":2,"paragraph":{"elements":[{"startIndex":1,"endIndex":2,"textRun":{"content":"\n"}}]}}]}}}]}
+  }
+}

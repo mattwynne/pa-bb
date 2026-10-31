@@ -37,7 +37,7 @@
   "scripts": {
     "build": "bb plugin build",
     "typecheck": "tsc --noEmit && bb plugin types --check",
-    "test:docs": "cucumber-js --profile docs",
+    "test:docs": "node features/docs/coverage/runner.mjs",
     "test:acceptance": "cucumber-js --profile oauth && npm run test:docs",
     "test": "node ../../scripts/sync-connection-ui.mjs --check && npm run build && npm --prefix ../google-calendar run build && npm run test:acceptance && node --test test/*.test.mjs"
   }

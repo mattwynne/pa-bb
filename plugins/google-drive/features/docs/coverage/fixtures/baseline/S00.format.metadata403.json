@@ -1,0 +1,17 @@
+{
+  "provenance": {
+    "authorship": "original synthetic acceptance fixture; no reference-library code",
+    "source": "https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"
+  },
+  "caseId": "S00.format.metadata403",
+  "driver": "createDocsFormatService.format",
+  "requestedMode": "direct",
+  "kind": "format",
+  "fault": "metadata403",
+  "vector": {
+    "path": "features/docs/coverage/fixtures/legacy-vectors.json",
+    "sha256": "943ebcb7be798d991e2b03c4ddd45cce0630f492feedede721ef5cb522f86ad6",
+    "selector": "format"
+  },
+  "scope": "legacy only; no S03 epoch/claim or semantic family closure"
+}

@@ -1,0 +1,320 @@
+{
+  "description": "Explicit delivered legacy regression cases, not future manifest completion. S00 30 cases retained; S01 additions separately named.",
+  "cases": [
+    {
+      "caseId": "S00.format.docs403",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "fault": "docs403",
+      "fixtureId": "S00.format.docs403",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.metadata403",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "fault": "metadata403",
+      "fixtureId": "S00.format.metadata403",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.storage",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "fault": "storage",
+      "fixtureId": "S00.format.storage",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.reject403",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "fault": "reject403",
+      "fixtureId": "S00.format.reject403",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.reject400",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "fault": "reject400",
+      "fixtureId": "S00.format.reject400",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.auth403",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "fault": "auth403",
+      "fixtureId": "S00.format.auth403",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.finalAuth403",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "fault": "finalAuth403",
+      "fixtureId": "S00.format.finalAuth403",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.lost",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "fault": "lost",
+      "fixtureId": "S00.format.lost",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.auth.policy",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "auth",
+      "change": "policy",
+      "fixtureId": "S00.format.auth.policy",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.auth.account",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "auth",
+      "change": "account",
+      "fixtureId": "S00.format.auth.account",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.auth.subject",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "auth",
+      "change": "subject",
+      "fixtureId": "S00.format.auth.subject",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.auth.cancel",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "auth",
+      "change": "cancel",
+      "fixtureId": "S00.format.auth.cancel",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.auth.expiry",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "auth",
+      "change": "expiry",
+      "fixtureId": "S00.format.auth.expiry",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.replace.auth.policy",
+      "driver": "createDocsEditService.replace",
+      "requestedMode": "direct",
+      "kind": "replace",
+      "boundary": "auth",
+      "change": "policy",
+      "fixtureId": "S00.replace.auth.policy",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.replace.auth.account",
+      "driver": "createDocsEditService.replace",
+      "requestedMode": "direct",
+      "kind": "replace",
+      "boundary": "auth",
+      "change": "account",
+      "fixtureId": "S00.replace.auth.account",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.replace.auth.subject",
+      "driver": "createDocsEditService.replace",
+      "requestedMode": "direct",
+      "kind": "replace",
+      "boundary": "auth",
+      "change": "subject",
+      "fixtureId": "S00.replace.auth.subject",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.replace.auth.cancel",
+      "driver": "createDocsEditService.replace",
+      "requestedMode": "direct",
+      "kind": "replace",
+      "boundary": "auth",
+      "change": "cancel",
+      "fixtureId": "S00.replace.auth.cancel",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.claim.policy",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "claim",
+      "change": "policy",
+      "fixtureId": "S00.format.claim.policy",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.claim.cancel",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "claim",
+      "change": "cancel",
+      "fixtureId": "S00.format.claim.cancel",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.claim.expiry",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "claim",
+      "change": "expiry",
+      "fixtureId": "S00.format.claim.expiry",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.policy.cancel",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "policy",
+      "change": "cancel",
+      "fixtureId": "S00.format.policy.cancel",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.policy.expiry",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "policy",
+      "change": "expiry",
+      "fixtureId": "S00.format.policy.expiry",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.intent.policy",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "boundary": "intent",
+      "change": "policy",
+      "fixtureId": "S00.format.intent.policy",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.replace.claim.policy",
+      "driver": "createDocsEditService.replace",
+      "requestedMode": "direct",
+      "kind": "replace",
+      "boundary": "claim",
+      "change": "policy",
+      "fixtureId": "S00.replace.claim.policy",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.replace.claim.cancel",
+      "driver": "createDocsEditService.replace",
+      "requestedMode": "direct",
+      "kind": "replace",
+      "boundary": "claim",
+      "change": "cancel",
+      "fixtureId": "S00.replace.claim.cancel",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.replace.policy.cancel",
+      "driver": "createDocsEditService.replace",
+      "requestedMode": "direct",
+      "kind": "replace",
+      "boundary": "policy",
+      "change": "cancel",
+      "fixtureId": "S00.replace.policy.cancel",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.consent.off",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "policy": "off",
+      "fixtureId": "S00.format.consent.off",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.format.consent.on",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "policy": "on",
+      "fixtureId": "S00.format.consent.on",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.replace.consent.off",
+      "driver": "createDocsEditService.replace",
+      "requestedMode": "direct",
+      "kind": "replace",
+      "policy": "off",
+      "fixtureId": "S00.replace.consent.off",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S00.replace.consent.on",
+      "driver": "createDocsEditService.replace",
+      "requestedMode": "direct",
+      "kind": "replace",
+      "policy": "on",
+      "fixtureId": "S00.replace.consent.on",
+      "feature": "features/docs/formatting.feature"
+    },
+    {
+      "caseId": "S01.format.appliedLost",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "fault": "appliedLost",
+      "fixtureId": "S01.format.appliedLost",
+      "feature": "features/docs/contracts/boundaries.feature"
+    },
+    {
+      "caseId": "S01.format.wirePreservation",
+      "driver": "createDocsFormatService.format",
+      "requestedMode": "direct",
+      "kind": "format",
+      "fault": "none",
+      "fixtureId": "S01.format.wirePreservation",
+      "feature": "features/docs/contracts/boundaries.feature"
+    },
+    {
+      "caseId": "S01.replace.wirePreservation",
+      "driver": "createDocsEditService.replace",
+      "requestedMode": "direct",
+      "kind": "replace",
+      "fault": "none",
+      "fixtureId": "S01.replace.wirePreservation",
+      "feature": "features/docs/contracts/boundaries.feature"
+    }
+  ]
+}

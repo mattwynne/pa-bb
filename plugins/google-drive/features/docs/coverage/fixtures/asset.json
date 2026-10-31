@@ -1,0 +1,14 @@
+{
+  "provenance": {
+    "authorship": "original synthetic 1x1 RGB red PNG; independent zlib/CRC construction",
+    "source": "https://www.w3.org/TR/png/"
+  },
+  "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+  "expected": {
+    "mimeType": "image/png",
+    "width": 1,
+    "height": 1,
+    "bytes": 69,
+    "sha256": "b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640"
+  }
+}

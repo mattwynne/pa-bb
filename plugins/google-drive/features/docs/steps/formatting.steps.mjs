@@ -1,10 +1,30 @@
 import assert from 'node:assert/strict';
+import { readFileSync, existsSync } from 'node:fs';
+import { digest } from '../coverage/audit.mjs';
 import { Given, When, Then, After, setWorldConstructor } from '@cucumber/cucumber';
 import { DocsWorld, key, barrier } from '../support/world.mjs';
 import { createDocsFormatService } from '../../../core/docs-format.mjs';
 import { createDocsEditService } from '../../../core/docs-edit.mjs';
 setWorldConstructor(DocsWorld);
-After(async function () { await this.close(); });
+After(async function ({ pickle }) {
+  try {
+  const caseId = pickle.name.match(/\[(S0[01]\.[^\]]+)\]$/)?.[1];
+  if (caseId && process.env.DOCS_ACCEPTANCE_RUN_ID) {
+    const fixtureBytes = readFileSync(new URL(`../coverage/fixtures/baseline/${caseId}.json`, import.meta.url));
+    const fixture = JSON.parse(fixtureBytes);
+    if (fixture.fault) assert.equal(this.fault, fixture.fault, 'fixture fault binding');
+    if (fixture.boundary) assert.equal(this.testBoundary, fixture.boundary, 'fixture boundary binding');
+    if (fixture.change) assert.equal(this.testChange, fixture.change, 'fixture change binding');
+    if (fixture.policy) assert.equal(this.policy, fixture.policy === 'on', 'fixture policy binding');
+    const vectorBytes = readFileSync(new URL('../coverage/fixtures/legacy-vectors.json', import.meta.url));
+    await this.attach(JSON.stringify({ caseId, fixtureId: caseId, fixtureDigest: digest(fixtureBytes), vectorDigest: digest(vectorBytes),
+      driver: this.driver, requestedMode: 'direct', runId: process.env.DOCS_ACCEPTANCE_RUN_ID,
+      sourceDigest: process.env.DOCS_ACCEPTANCE_SOURCE_DIGEST, realSqlite: existsSync(this.databasePath),
+      closedHttp: this.unexpected.length === 0, applicationInvoked: !!this.driver,
+      posts: this.mutations.length, expectedKind: fixture.kind }), 'application/vnd.pa.docs-evidence+json');
+  }
+  } finally { await this.close(); }
+});
 Given('the Docs boundary will fail at {string}', async function (fault) { await this.init(fault); });
 When('formatting is applied once', async function () { await this.apply(); });
 Then('the formatting outcome is {string} with {int} mutation', function (outcome, count) {
@@ -45,11 +65,13 @@ Then('no private fault detail escaped', function () {
   if (this.result.outcome === 'uncertain') assert.doesNotMatch(this.result.error || '', /No write was attempted|nothing was written/i);
 });
 When('{string} pauses in final authorization and {string} changes', async function (kind, change) {
+  this.testBoundary = 'auth'; this.testChange = change;
   const gate = barrier(); this.finalAuth = gate.wait;
   const pending = this.apply(kind).catch(error => { this.failure = error; });
   await gate.reached; await this.change(change); gate.release(); await pending;
 });
 When('{string} pauses at {string} and {string} changes', async function (kind, boundary, change) {
+  this.testBoundary = boundary; this.testChange = change;
   const gate = barrier();
   if (boundary === 'policy') {
     const ports = { ...this.ports, approvalRequired: async () => { if (this.authCount === 2) await gate.wait(); return this.policy; } };

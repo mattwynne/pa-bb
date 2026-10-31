@@ -1,0 +1,34 @@
+{
+  "provenance": "Original independent input vectors: bounded weighted fonts and intentionally single-request HTTP fixture contracts, not product execution evidence.",
+  "fonts": {
+    "text": {"request":{"updateTextStyle":{"range":{"tabId":"tab-a","startIndex":1,"endIndex":6},"textStyle":{"weightedFontFamily":{"fontFamily":"Arial"}},"fields":"weightedFontFamily"}},"effects":{"set":["weightedFontFamily"]}},
+    "named": {"request":{"updateNamedStyle":{"tabId":"tab-a","namedStyle":{"namedStyleType":"HEADING_1","textStyle":{"weightedFontFamily":{"fontFamily":"Arial"}}},"fields":"named_style_type,text_style,text_style.weightedFontFamily"}},"effects":{"set":["namedStyleType","textStyle","textStyle.weightedFontFamily"]}}
+  },
+  "weights": {
+    "default": {},
+    "100": {"value":100}, "200": {"value":200}, "300": {"value":300},
+    "400": {"value":400}, "500": {"value":500}, "600": {"value":600},
+    "700": {"value":700}, "800": {"value":800}, "900": {"value":900},
+    "zero": {"value":0}, "offStep": {"value":105}, "tooHigh": {"value":1000},
+    "fraction": {"value":100.5}, "string": {"value":"400"}, "null": {"value":null}, "boolean": {"value":true}
+  },
+  "batches": {
+    "null": null,
+    "emptyObject": {},
+    "array": [],
+    "stringRoot": "text",
+    "nullRequests": {"requests":null},
+    "objectRequests": {"requests":{}},
+    "stringRequests": {"requests":"text"},
+    "booleanRequests": {"requests":true},
+    "emptyRequests": {"requests":[]},
+    "nullEntry": {"requests":[null]},
+    "arrayEntry": {"requests":[[]]},
+    "booleanEntry": {"requests":[false]},
+    "stringEntry": {"requests":["text"]},
+    "emptyEntry": {"requests":[{}]},
+    "unknownRequest": {"requests":[{"unknown":{}}]},
+    "nullPayload": {"requests":[{"updateTextStyle":null}]},
+    "multipleRequests": {"requests":[{"updateTextStyle":{"range":{"tabId":"tab-a","startIndex":1,"endIndex":6},"textStyle":{"bold":true},"fields":"bold"}},{"updateTextStyle":{"range":{"tabId":"tab-a","startIndex":1,"endIndex":6},"textStyle":{"bold":true},"fields":"bold"}}]}
+  }
+}

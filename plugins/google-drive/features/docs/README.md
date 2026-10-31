@@ -1,4 +1,4 @@
-# S00 legacy Docs boundary contracts
+# Docs acceptance foundation (S00/S01)
 
 Run `npm run test:docs` for the source-level Cucumber profile. `npm test` builds
 Drive and the sibling Calendar plugin, runs both OAuth and Docs profiles, and
@@ -11,8 +11,10 @@ HTTP is a closed allowlist with independently authored request/response vectors;
 unexpected calls and malformed mutation bodies fail teardown even if the service
 catches their exceptions. SQLite restart closes/reopens the same database and
 recreates the services. Clock changes and promise barriers replace timing sleeps.
-No connected provider, real document, settings, plugin installation or asset
-network is used. This is not a general Google emulator or semantic-engine World.
+No connected provider, real document, settings or plugin installation is used.
+Asset scenarios inject separate DNS/HTTPS transports into the real URL/SSRF/PNG
+validator; assets never use a global fetch stub. This is not a general Google
+emulator or semantic-engine World.
 
 ## Submission facts (formatting)
 

@@ -1,0 +1,11 @@
+{
+  "provenance":{"authorship":"original hand-authored independent R3 wire contracts", "source":"https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request"},
+  "namedBorderComplete":{"request":{"updateNamedStyle":{"tabId":"tab-a","namedStyle":{"namedStyleType":"HEADING_1","paragraphStyle":{"borderBottom":{"color":{"color":{"rgbColor":{"red":0,"green":0,"blue":0}}},"width":{"magnitude":1,"unit":"PT"},"padding":{"magnitude":2,"unit":"PT"},"dashStyle":"SOLID"}}},"fields":"named_style_type,paragraph_style,paragraph_style.borderBottom"}}},
+  "namedBorderIncomplete":{"request":{"updateNamedStyle":{"tabId":"tab-a","namedStyle":{"namedStyleType":"HEADING_1","paragraphStyle":{"borderBottom":{"width":{"magnitude":1,"unit":"PT"}}}},"fields":"named_style_type,paragraph_style,paragraph_style.borderBottom.width.magnitude,paragraph_style.borderBottom.width.unit"}}},
+  "weightedFontValid":{"request":{"updateTextStyle":{"range":{"tabId":"tab-a","startIndex":1,"endIndex":6},"textStyle":{"weightedFontFamily":{"fontFamily":"Arial"}},"fields":"weightedFontFamily"}},"effects":{"set":["weightedFontFamily"]}},
+  "weightedFontEmpty":{"request":{"updateTextStyle":{"range":{"tabId":"tab-a","startIndex":1,"endIndex":6},"textStyle":{"weightedFontFamily":{}},"fields":"weightedFontFamily"}}},
+  "dateEmptyLocation":{"request":{"insertDate":{"location":{},"dateElementProperties":{"timestamp":"2026-11-02T08:00:00Z","timeZoneId":"America/Vancouver","locale":"en-CA","dateFormat":"DATE_FORMAT_ISO8601","timeFormat":"TIME_FORMAT_DISABLED"}}}},
+  "unknownClearAll":{"request":{"updateNamedStyle":{"tabId":"tab-a","namedStyle":{"namedStyleType":"HEADING_1","textStyle":{"bold":true}},"fields":"named_style_type,text_style,text_style.bold"}},"effects":{"clearAll":["BOGUS"]}},
+  "clearAllNonempty":{"request":{"updateNamedStyle":{"tabId":"tab-a","namedStyle":{"namedStyleType":"HEADING_1","textStyle":{"bold":true}},"fields":"named_style_type,text_style,text_style.bold"}},"effects":{"clearAll":["textStyle"]}},
+  "setMaskMismatch":{"request":{"updateTextStyle":{"range":{"tabId":"tab-a","startIndex":1,"endIndex":6},"textStyle":{"bold":true},"fields":"bold"}},"effects":{"set":["italic"]}}
+}
