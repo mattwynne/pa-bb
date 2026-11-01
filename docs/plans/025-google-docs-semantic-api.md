@@ -2,11 +2,12 @@
 
 ## Status and scope
 
-Revision 3 **passed independent design review**. The full combined rich-library scope remains 211 ledger IDs, implemented sequentially through S00–S16. This is a BB-native API, not MCP. Design approval does not establish implementation, provider rollout or deployment.
+The design follows [ADR 0003: ports and adapters](../adrs/0003-layered-hexagonal-testing.md): all domain models and business logic in the core, thin adapters, fast core and stubbed-I/O adapter tests, and focused real integration tests. The full scope remains 211 ledger IDs across S00–S16. This is a BB-native API, not MCP. Revision 3 passed independent design review; later refinements and implementation require their own review. Design approval does not establish provider rollout or deployment.
 
 - **S00 delivered**, baseline `57130c85762511bed4c2a47571a41ac31f7ca698`: narrow formatting acknowledgement/recovery correction and bounded post-auth checks, with 30 Docs acceptance cases and 12 existing OAuth cases. The [baseline harness](../../plugins/google-drive/features/docs/README.md) documents remaining async-policy races and replacement's lack of a durable claim.
 - **S01 acceptance foundation — implemented and independently reviewed**: repository publication, executable coverage audit, independent wire contracts and closed-network harness. Verification passed 172 Docs scenarios, 12 OAuth scenarios and 771 Node tests, plus type/shared checks. No runtime code changed; no semantic product is enabled.
-- **S02–S16 planned**: no future semantic operation is publicly enabled by this publication. S03's atomic epoch/intent/dispatch protocol is not delivered by S00.
+- **S02 partially implemented and independently reviewed**: 238 of 367 required outcomes accepted, 129 remaining; four supplemental candidates are separate from accepted outcomes. No new semantic tool is publicly exposed or deployed. Architectural/test refactoring preserves these historical facts; it does not count as new capability acceptance.
+- **S03–S16 planned**: S03's atomic epoch/intent/dispatch protocol is not delivered by S00. Future features remain in scope.
 
 ## Normative documents
 
@@ -19,7 +20,9 @@ The manifest is the sole machine source of truth: 1,190 base variants, 1,579 res
 
 ## Evidence boundaries
 
-Tests run real application services, the Google HTTP adapter and disposable SQLite, with synthetic provider/asset transports. Independent hand-authored request/readback fixtures and a deliberately small wire simulator supplement acceptance; unsupported simulator requests fail closed. Pinned [official discovery fixture and attribution](../../plugins/google-drive/features/docs/coverage/fixtures/README.md) establish schema evidence, not account availability.
+Fast tests run real domain models and application services with substitutes only at external ports. Adapter tests execute real adapters with stubbed HTTP/CLI calls. Separate integration tests establish real SQLite, process and BB guarantees; SDK-host tests retain real storage. Independent expectations, shared port contracts and required companion proofs link these results without pretending that every semantic case invoked the whole stack. A small wire simulator fails closed on unsupported requests. Pinned [official discovery fixture and attribution](../../plugins/google-drive/features/docs/coverage/fixtures/README.md) establish schema evidence, not account availability.
+
+Develop and verify in a separate worktree, not the live plugin checkout. No test build implicitly installs or activates the rewrite. Preserve old evidence and unique regression assertions; independently review replacements before retiring expensive paths.
 
 Revision-3 independent review resolved complete exposure closure, total mode-aware expansion, positive duplicate-name contracts and writable wire paths. S01 rejects missing named-style parent/type masks and string-valued booleans, alongside malformed dependency selectors, counterfeit execution claims and swallowed transport faults. The research checker was not a production validator. K10 uses the corrected phrase “declared global profile-specific exclusions.”
 
