@@ -15,7 +15,6 @@
 ## Repository workflow
 
 - Use one implementation thread at a time; do not fan work out to parallel implementation agents. Sequential subagents are approved for the source-mode controls; read-only research/review may run independently.
-- Work directly on `main` for planning, documentation, and implementation. Do not create worktrees for this repository for now; this project explicitly overrides the default worktree rule in `~/AGENTS.md`.
 - For any plugin UI planning, implementation, or review, load the project-local `bb-plugin-ux` skill at `.agents/skills/bb-plugin-ux/SKILL.md`. Its rendered-BB review is a delivery gate, not a passing-build substitute.
 - Public documentation must describe portable requirements, not Matt's private deployment. Keep hostnames, private addresses, machine IDs, usernames, home paths, and personal provisioning details out of briefs, ADRs, and public references. Keep deployment notes in private infrastructure documentation.
 - For plugin backend changes and reviews, follow `docs/o11y-standards.md`; test failure diagnostics without exposing account content or credentials.
