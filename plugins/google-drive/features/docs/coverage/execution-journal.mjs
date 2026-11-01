@@ -7,6 +7,10 @@ export function childTimeout(env=process.env) {
   assert.match(raw,/^[1-9]\d*$/,'positive child timeout required');
   const ms=Number(raw);assert.ok(Number.isSafeInteger(ms)&&ms<=600000,'child timeout exceeds 600000 ms');return ms;
 }
+export function assertCompletedChild(result) {
+  assert.notEqual(result.error?.code,'ETIMEDOUT','Cucumber timed out; no coverage credit');
+  assert.equal(result.status,0,'Cucumber failed; no coverage credit');
+}
 export function publicationGuard(limits=JOURNAL_LIMITS) {
   let bytes=0,count=0;
   return receipt=>{

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as coverage from '../core/docs-semantic/coverage.mjs';
-import { SemanticWorld, semanticAccount, semanticScope } from '../features/docs/support/semantic-world.mjs';
+import { ApplicationWorld as SemanticWorld, semanticAccount, semanticScope } from '../features/docs/support/application-world.mjs';
 
 import { documentVector, node, styleRequest, literalRequest, broadRequest } from '../features/docs/support/witness-c-vectors.mjs';
 import { createReadEvidenceService } from '../core/docs-semantic/read-evidence-service.mjs';

@@ -12,7 +12,7 @@ When('the offline native residual regression {string} runs',async function(kind)
   if(kind==='completeEnvelope')await paginationResidual();else await extentResidual(kind);
   this.foundationCompleted=true;
 });
-When('the offline native foundation regression {string} runs',async function(kind){await checkFoundation(kind);this.foundationCompleted=true;});
+When('the actual application foundation regression {string} runs',async function(kind){await checkFoundation(kind);this.foundationCompleted=true;});
 Then('the foundation regression completed without live access',function(){assert.equal(this.foundationCompleted,true);});
 Given('the offline semantic native host and independent rich document',async function(){this.semantic=new SemanticWorld();await this.semantic.init();});
 After(async function(){await this.semantic?.close();});

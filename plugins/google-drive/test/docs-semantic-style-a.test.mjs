@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { businessDocument } from '../features/docs/support/scope-a-checks.mjs';
 import { materialize } from '../core/docs-semantic/model.mjs';
 import { project, resolveReadSelection } from '../core/docs-semantic/reader.mjs';
-import { semanticScope as scope } from '../features/docs/support/semantic-world.mjs';
+import { semanticScope as scope } from '../features/docs/support/semantic-fixtures.mjs';
 const binding={snapshotId:'style-snapshot',subject:'subject-a',account:'writer@example.test',threadId:'thread-a',documentId:'doc-a',view:'inline',retrievedAt:0};
 const model=document=>materialize({document,metadata:{id:'doc-a'},binding,reviewIncluded:true});
 test('style provenance follows named then NORMAL_TEXT, explicit false wins, links never inherit',()=>{

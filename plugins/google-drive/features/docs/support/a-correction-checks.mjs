@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { SemanticWorld,semanticAccount as account,semanticScope as scope } from './semantic-world.mjs';
+import { ApplicationWorld as SemanticWorld,semanticAccount as account,semanticScope as scope } from './application-world.mjs';
 export const correctionOwner={subject:'subject-a',account,threadId:'thread-a'};
 // Independently authored inert coordinates and definitions, not projection output.
 export function correctionDocument(){
@@ -32,7 +32,7 @@ export async function correctionExample(kind){
     if(kind==='wrongPropertyEnum')tab.body.content[1].paragraph.elements[0].textRun.textStyle={bold:'ALIGNMENT_UNSPECIFIED'};
     if(kind==='unknownDimension')tab.documentStyle={marginTop:{magnitude:72,unit:'FUTURE_UNIT'}};
     const original=structuredClone(w.document),snapshotId=(await w.inspect()).snapshotId;
-    assert.ok(snapshotId);w.assertInitialWire();
+    assert.ok(snapshotId);w.assertInitialPorts();
     const snapshot=w.store.semanticSnapshots.get(snapshotId,correctionOwner,0);
     assert.deepEqual(snapshot.evidence,original);
     let extra;
@@ -44,7 +44,7 @@ export async function correctionExample(kind){
     const result=await w.call('docs_read',correctionRead(snapshotId,extra));
     if(kind==='terminalUnknown'){
       assert.equal(result.selection.status,'unresolved');assert.equal(result.complete,false);
-      assert.equal(w.host.bb.storage.database().prepare('SELECT count(*) AS n FROM docs_semantic_delivery').get().n,0);
+      assert.equal(w.observe().deliveries,0);
     }else{
       assert.equal(result.complete,true);assert.equal(result.coverage.editReady,false);
       const [receipt]=w.store.semanticSnapshots.deliveries(snapshotId,correctionOwner,0,[result.coverage.deliveryToken]);

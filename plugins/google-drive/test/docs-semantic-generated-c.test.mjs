@@ -60,7 +60,7 @@ test('C exact returned heading ID binding needs no redundant agent delivery but 
       preservation:[[1,1,'segment',null,null],[2,2,'paragraph',{start:1,end:3},{start:1,end:3}],[3,3,'text',{start:1,end:3},{start:1,end:3}],
         [4,6,'paragraph',{start:3,end:5},{start:7,end:9}],[5,7,'text',{start:3,end:5},{start:7,end:9}]].map(([a,b,kind,from,to])=>({source:node(before,a),target:node(after,b),kind,tabId:'tab-a',segment:{kind:'body'},before:from,after:to}))};
     assert.equal(compareGeneratedEvidence(before,after,request).witnessSatisfied,true);
-    assert.equal(world.host.bb.storage.database().prepare('SELECT count(*) AS n FROM docs_semantic_delivery').get().n,0);
+    assert.equal(world.observe().deliveries,0);
     assert.throws(()=>compareGeneratedEvidence(before,after,{...request,binding:{...request.binding,returnedId:'missing'}}),/scope/);
     world.document=structuredClone(docs.after);world.document.tabs[0].documentTab.body.content[2].paragraph.paragraphStyle={namedStyleType:'HEADING_1',headingId:'returned-heading'};
     const duplicate=await world.inspect(),observed=world.store.semanticSnapshots.get(duplicate.snapshotId,owner,1);

@@ -2,7 +2,7 @@
 // The shared instruction iterator describes calls, never expected provider output.
 // The parent derives instructions from the immutable fixture, NOT trace labels.
 import assert from 'node:assert/strict';
-import {productionHost,schemaShape} from '../support/production-host.mjs';
+// Native setup is loaded only by the genuine integration executor.
 import {digest} from './audit.mjs';
 const owner={subject:'subject-d',account:'reader@example.test',threadId:'thread-d'},id='snap-d';
 const bytes=x=>Buffer.byteLength(JSON.stringify(x)),uuid=/^[a-f0-9-]{36}$/;
@@ -12,7 +12,7 @@ const viewModes=Object.freeze({inline:'SUGGESTIONS_INLINE',acceptedPreview:'PREV
 function viewContract(record,f,view){assert.ok(Object.hasOwn(viewModes,view));if(record.operation==='docs_read.view'){assert.equal(record.ledgerId,'C010');assert.equal(f.view,view);assert.equal(f.inspect.view,view);assert.equal(f.commentsDenied,false);}else assert.equal(view,'inline','existing read wrappers remain inline-only');}
 function urls(f,view='inline'){const base=`https://docs.googleapis.com/v1/documents/${f.provider.document.documentId}?includeTabsContent=true&suggestionsViewMode=${viewModes[view]}`;return {identity:identityURL,metadata:`https://www.googleapis.com/drive/v3/files/${f.provider.document.documentId}?fields=id%2Cname%2CmimeType%2CmodifiedTime%2Cversion%2Ctrashed%2Ccapabilities%28canEdit%29&supportsAllDrives=true`,document:base+(view==='inline'?'&commentsViewMode=COMMENTS_VIEW_MODE_INCLUDED':''),fallback:base};}
 function invalid(f,args){if(f.variant==='continuation')return {...args,format:'structured'};const key={text:'format',structured:'format',styleAnnotations:'styles',reviewAnnotations:'review',omitImages:'omitImages'}[f.variant];return {...args,[key]:key==='format'?'future-format':'true'};}
-function* projectionProgram(f){
+export function* projectionProgram(f){
  const state=()=>({op:'state'}),call=(args,expect='page',role='primary')=>({op:'native',name:'docs_read',args,expect,role});
  yield state();yield {op:'native',name:'docs_inspect',args:f.inspect,expect:'inspect'};yield state();yield {op:'get'};
  function* read(args,expect='page',role='primary'){const r=yield call(args,expect,role);yield state();return r;}
@@ -39,6 +39,7 @@ function* projectionProgram(f){
 // The fixed native transport/capture is shared with structural diagnostics.
 // A sequence describes actual calls only; it cannot supply captured results.
 export async function executeC005(record,f,inventory,program=projectionProgram,view='inline'){
+ const {productionHost,schemaShape}=await import('../support/production-host.mjs');
  viewContract(record,f,view);const views=record.operation==='docs_read.view';
  const http=[],faults=[],u=urls(f,view),original=structuredClone(f.provider);
  const fetchImpl=async(url,init={})=>{try{

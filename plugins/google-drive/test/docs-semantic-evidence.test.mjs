@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { expand,allClosures } from '../features/docs/coverage/expand.mjs';
+import { assertProductIntake } from '../features/docs/coverage/product-intake.mjs';
+import { createMemorySnapshots } from '../features/docs/support/memory-snapshots.mjs';
+import { captureSnapshotContract,snapshotContractCases } from '../features/docs/support/snapshot-contract.mjs';
+import { productionInventory } from '../features/docs/coverage/execution-adapters.mjs';
+import { executeCompanions,compareCompanions } from '../features/docs/coverage/companions.mjs';
+const root=fileURLToPath(new URL('..',import.meta.url)),json=p=>JSON.parse(readFileSync(new URL('../'+p,import.meta.url))),manifest=json('features/docs/coverage/obligations.json');
+test('all 367 S02 declarations without current execution are rejected, not promoted',()=>{const records=expand(manifest).filter(r=>r.earliestSlice==='S02');assert.equal(records.length,367);for(const r of records){const m={...manifest,expansion:{...manifest.expansion,deliveryOverrides:{[r.key]:{status:'delivered'}}}};assert.throws(()=>assertProductIntake({manifest:m,registry:{operations:{},exposed:[]},results:[],fixtures:{},root}),/semantic delivery lacks implemented invocation\/readback adapter/,r.key);}});
+test('held accounting preserves exact accepted keys, closures, future modes and zero exposure',()=>{
+  const records=expand(manifest),accepted=records.filter(r=>manifest.expansion.deliveryOverrides[r.key]?.status==='delivered'),s02=records.filter(r=>r.earliestSlice==='S02'),keys=new Set(accepted.map(r=>r.key)),closures=allClosures(manifest,records);
+  const families=new Set(['C003','C005','C006','C007','C008','C009','C010','C011','C012','C013','C015']),expected=records.filter(r=>r.earliestSlice==='S02'&&families.has(r.ledgerId));assert.equal(expected.length,238);assert.deepEqual(accepted.map(r=>r.key).sort(),expected.map(r=>r.key).sort(),'independently selected accepted keys');
+  assert.equal(Object.keys(manifest.rows).length,211);assert.equal(records.length,11197);assert.equal(accepted.length,238);assert.equal(s02.length,367);assert.equal(s02.filter(r=>!keys.has(r.key)).length,129);assert.deepEqual(manifest.expansion.variantExposure,{});
+  const variants=[...new Set(s02.filter(r=>r.profile==='read').map(r=>`${r.operation}/${r.semanticVariant}`))];assert.equal(variants.length,59);assert.equal(variants.filter(v=>closures.get(v).every(r=>keys.has(r.key))).length,42);assert.equal(new Set(variants.flatMap(v=>closures.get(v).map(r=>r.key))).size,311);assert.equal(new Set(variants.flatMap(v=>closures.get(v).filter(r=>!keys.has(r.key)).map(r=>r.key))).size,85);for(const v of variants)assert.equal(closures.get(v).filter(r=>!keys.has(r.key)).length,/^(docs_read\.(projection|structure|richCell|opaque|segment|view|reviewView)|docs_find\.(literal|normalization))\//.test(v)?0:5);
+});
+test('fixed actual native/HTTP/SQLite companions reject missing, stale, wrong-route, counterfeit evidence',async()=>{
+  const inventory=await productionInventory(),proofs=await executeCompanions(root,inventory,'current-source','current-run');assert.ok(compareCompanions(root,proofs,'current-source','current-run'));
+  assert.throws(()=>compareCompanions(root,null,'current-source','current-run'),/missing required/);
+  assert.throws(()=>compareCompanions(root,{...proofs,sourceDigest:'old'},'current-source','current-run'),/stale companion source/);
+  assert.throws(()=>compareCompanions(root,{...proofs,runId:'old'},'current-source','current-run'),/stale companion run/);
+  assert.throws(()=>compareCompanions(root,{...proofs,ids:proofs.ids.slice(1)},'current-source','current-run'),/missing required companion binding/);
+  assert.throws(()=>compareCompanions(root,{...proofs,native:proofs.native.slice(1)},'current-source','current-run'),/missing\/wrong-route native companion/);
+  const cases=[...proofs.native];cases[0]={...cases[0],fixtureDigest:'old'};assert.throws(()=>compareCompanions(root,{...proofs,native:cases},'current-source','current-run'),/stale companion fixture/);
+  cases[0]={...proofs.native[0],trace:{boundary:{layer:'native'},events:[],store:'fake'}};assert.throws(()=>compareCompanions(root,{...proofs,native:cases},'current-source','current-run'),/application\/fake-store evidence cannot prove/);
+  cases[0]={...proofs.native[0],trace:{...proofs.native[0].trace,nativeCalls:[]}};assert.throws(()=>compareCompanions(root,{...proofs,native:cases},'current-source','current-run'),/missing actual native call/);
+  const persistence=[...proofs.persistence];persistence[0]={...persistence[0],events:[]};assert.throws(()=>compareCompanions(root,{...proofs,persistence},'current-source','current-run'),/missing actual snapshot contract invocation/);
+  const memoryEvidence=Object.entries(snapshotContractCases()).map(([name,run])=>({name,events:captureSnapshotContract(createMemorySnapshots().port,run)}));assert.throws(()=>compareCompanions(root,{...proofs,persistence:memoryEvidence},'current-source','current-run'),/missing actual SQLite contract observation/);
+  persistence[0]={...proofs.persistence[0],events:proofs.persistence[0].events.map(e=>e.method==='get'&&e.result?{...e,resultFrozen:false}:e)};assert.throws(()=>compareCompanions(root,{...proofs,persistence},'current-source','current-run'),/original port result is immutable/);
+});

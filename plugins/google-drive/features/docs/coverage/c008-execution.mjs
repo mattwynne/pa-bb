@@ -2,7 +2,7 @@
 // Readable opaque API evidence is not rendered/calculated or authoring evidence.
 import assert from 'node:assert/strict';import {executeReadProgram,compareReadProgram} from './c005-execution.mjs';
 function bind(model,paths){const handle=path=>{const n=Object.values(model.nodes).filter(n=>JSON.stringify(n.evidence.path)===JSON.stringify(path));assert.equal(n.length,1,'C008 exact observed snapshot path');return n[0].id;};return paths.node?{node:handle(paths.node)}:{span:{from:handle(paths.span.from),to:handle(paths.span.to)}};}
-function* opaqueProgram(f){
+export function* opaqueProgram(f){
  const state=()=>({op:'state'}),account='reader@example.test',snapshotId='snap-d';
  function* read(args,expect='page',role='primary'){const r=yield {op:'native',name:'docs_read',args,expect,role};yield state();return r;}
  function* finish(r,role){let pages=0;while(!r.complete){assert.ok(++pages<30,'C008 bounded actual continuation');r=yield* read({account,snapshotId,cursor:r.nextCursor},'page',role);}return r;}

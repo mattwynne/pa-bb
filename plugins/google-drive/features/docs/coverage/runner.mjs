@@ -11,7 +11,10 @@ import { digest, cucumberResults, fixtureFile, auditEvidence } from './audit.mjs
 import { allClosures, expand } from './expand.mjs';
 import { assertProductIntake } from './product-intake.mjs';
 import { productionInventory } from './execution-adapters.mjs';
-import { readJournal, MESSAGE_LIMITS, childTimeout } from './execution-journal.mjs';
+import { assertIntakeFaultControls } from './intake-controls.mjs';
+import { executeCompanions } from './companions.mjs';
+import { applicationFamily } from './application-execution.mjs';
+import { readJournal, MESSAGE_LIMITS, childTimeout, assertCompletedChild } from './execution-journal.mjs';
 export const packageRoot = fileURLToPath(new URL('../../..', import.meta.url));
 export function sourceDigest(root = packageRoot) {
   const files = [];
@@ -64,14 +67,16 @@ export async function run() {
   console.log(`Docs current-run evidence: ${dir}`);
   const timeout=childTimeout();
   writeFileSync(join(dir,'run.json'),JSON.stringify({runId,sourceDigest:fingerprint,timeout})+'\n');
-  const inventory = await productionInventory(), journal = join(dir,'executions.ndjson'), fd = openSync(journal,'wx');
+  const inventory = await productionInventory();
+  const companions=await executeCompanions(packageRoot,inventory,fingerprint,runId);
+  writeFileSync(join(dir,'companions.json'),JSON.stringify(companions)+'\n');
+  const journal = join(dir,'executions.ndjson'), fd = openSync(journal,'wx');
   let result;
   try { result = spawnSync(process.execPath, ['node_modules/@cucumber/cucumber/bin/cucumber.js','--profile','docs','--format',`message:${output}`], {
     cwd: packageRoot, timeout, killSignal:'SIGKILL', stdio: ['inherit','inherit','inherit',fd], env: { ...process.env, DOCS_ACCEPTANCE_RUN_ID: runId, DOCS_ACCEPTANCE_SOURCE_DIGEST: fingerprint, DOCS_EXECUTION_FD:'3' }
   }); } finally { closeSync(fd); }
   writeFileSync(join(dir,'child.json'),JSON.stringify({status:result.status,signal:result.signal,error:result.error?.code??null})+'\n');
-  assert.notEqual(result.error?.code,'ETIMEDOUT','Cucumber timed out; no coverage credit');
-  assert.equal(result.status, 0, 'Cucumber failed; no coverage credit');
+  assertCompletedChild(result);
   assert.equal(sourceDigest(), fingerprint, 'source changed during run');
   const messages = readJournal(output,MESSAGE_LIMITS);
   const baseline = auditBaseline(messages, runId, fingerprint);
@@ -84,7 +89,9 @@ export async function run() {
   assert.deepEqual(semanticResults.filter(isCandidate).map(r=>r.caseId).sort(),Object.keys(candidates).sort(),'bridge fixture discovery/reverse orphan');
   for(const id of Object.keys(candidates))assert.ok(!fixtures[id],'candidate fixture cannot shadow delivered fixture');
   const receipts=readJournal(journal);
-  const bridge=assertProductIntake({ manifest, registry, results: semanticResults, fixtures:{...fixtures,...candidates}, root: packageRoot,receipts,inventory,runId,fingerprint });
+  const intake={manifest,registry,results:semanticResults,fixtures:{...fixtures,...candidates},root:packageRoot,receipts,inventory,runId,fingerprint,companions};
+  const bridge=assertProductIntake(intake);
+  const intakeCounterexamples=assertIntakeFaultControls(intake);
   assert.deepEqual(Object.keys(fixtures).filter(id=>id.startsWith('C')).sort(),semanticResults.filter(r=>!isCandidate(r)).map(r=>r.fixtureId).sort(),'normal semantic fixture discovery/reverse orphan');
   const records = new Map(expand(manifest).map(r => [r.caseId,r]));
   const cases = semanticResults.map(result => {
@@ -116,6 +123,8 @@ export async function run() {
     remainingPlannedKeys:records.size-completedKeys.size,
     s02:{required:s02Records.length,executed:s02Records.length-remaining.length,remaining:remaining.length,
       readVariants:readVariants.length,completeReadClosures:Object.values(readClosures).filter(c=>c.missing.length===0).length},
+    intakeCounterexamples,
+    testBoundaries:{applicationOutcomes:semanticResults.filter(r=>applicationFamily(records.get(r.caseId))&&!isCandidate(r)).length,nativeCompanionCases:companions.native.length,persistenceContractCases:companions.persistence.length,liveProvider:false},
     cucumberScenarios: messages.filter(m => m.testCaseFinished).length, externalEvidence: 'separate; no rendered/applied-code credit' };
   writeFileSync(join(dir,'summary.json'), JSON.stringify(summary,null,2)+'\n'); console.log(JSON.stringify(summary));
 }

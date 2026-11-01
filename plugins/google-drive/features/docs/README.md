@@ -1,8 +1,14 @@
-# Docs acceptance foundation (S00/S01)
+# Docs acceptance foundation and semantic test boundaries
 
 Run `npm run test:docs` for the source-level Cucumber profile. `npm test` builds
 Drive and the sibling Calendar plugin, runs both OAuth and Docs profiles, and
 then the Node suites. No future/pending scenarios are counted as implemented.
+
+For S02, [testing.md](testing.md) defines enforced fast core/application tests,
+stubbed-I/O adapter contracts and focused real integration companions. Normal
+acceptance runs once; family tests do not recursively invoke the full suite or
+copy the package per semantic example. The S00/S01 guarantees below retain their
+real adapters and databases.
 
 `support/world.mjs` has no import-time test registration or host/network setup.
 Each scenario explicitly creates real formatting/replacement services, the real

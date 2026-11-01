@@ -19,8 +19,13 @@ pass.
 - `reader.mjs`: structured node records or text, annotation/omission losses and
   bounded continuation. Structured children are handles, not text placeholders.
   An indivisible record beyond the output budget is refused, not truncated.
-- `application.mjs`: inspect/read/find use cases and exact page delivery tokens.
-  Non-native kind detection is metadata only, not a file codec. No write probe.
+- `application.mjs`: inspect/read/find use cases, explicit review-denial fallback
+  policy and exact page delivery tokens. Non-native kind detection is metadata
+  only, not a file codec. No write probe.
+- `snapshot-policy.mjs`, `failures.mjs`, [ports.md](ports.md): core-owned lifecycle,
+  model/delivery/cursor/work/pin validation, safe failure meaning and narrow
+  external contracts. SQLite retains atomicity/compression/accounting; the HTTP
+  adapter performs one requested bounded observation.
 - `coverage.mjs`: scope/aspect footprints, exact preimages, original-content
   preview comparison and delivered-node evidence. Read evidence is **not**
   authoring authority. Narrow induced-effect/cardinality proof is explicitly
@@ -105,9 +110,11 @@ uncertain mutation evidence is stored or garbage-collected by this module.
 
 ## Remaining S02 gates
 
-All **367 S02 outcome keys / 95 variants** in the unchanged manifest remain
-planned. Focused source/host cases are supplemental evidence, not delivered
-ledger joins. Required work includes:
+Of **367 S02 outcome keys / 95 variants**, 238 have historical independent
+acceptance and 129 remain; four supplemental candidates are separate. Read
+closures are 42/59; serving exposure remains zero. The [test path](../../features/docs/testing.md)
+records actual core/application, adapter and mandatory native/SQLite companion
+execution without promoting counts merely because setup changes. Required work includes:
 
 1. Complete the rich/opaque/style/registry projections and loss evidence across
    every assigned variant, including exhaustive section/span and normalization
@@ -115,9 +122,11 @@ ledger joins. Required work includes:
 2. Complete the K3 read-witness interfaces and independent tests without inventing
    downstream planner/executor/approval success. Generated-stage protocols remain
    S03 work; their needed pure evidence interfaces are not complete here.
-3. Implement real product-intake adapters, production schema/variant inventory
-   joins in both directions, independent outcome fixtures and concrete ledger
-   Examples. Keep counterfeit absent-driver tests and all S01 protections.
+3. Extend existing fixed product-intake executors, schema/variant inventory joins,
+   independent outcome fixtures and concrete ledger Examples to the remaining
+   keys. Keep counterfeit absent-driver/missing-companion tests and all S01
+   protections; application evidence never stands in for native invocation,
+   durable storage or a live provider result.
 4. Close every exposed variant's sibling and dependency outcomes, including
    C009, before wiring the read registration into the server factory.
 5. Independent review, supported activation under a fresh writer quiet window,

@@ -4,10 +4,10 @@ import { materialize } from '../core/docs-semantic/model.mjs';
 import { footprint,evaluateWitness,previewWitness } from '../core/docs-semantic/coverage.mjs';
 import { evidenceAt,jsonBytes,boundedTree } from '../core/docs-semantic/common.mjs';
 import { checkFoundation,gridDocument } from '../features/docs/support/foundation-checks.mjs';
-import { semanticVector } from '../features/docs/support/semantic-world.mjs';
+import { semanticVector } from '../features/docs/support/semantic-fixtures.mjs';
 const binding={snapshotId:'foundation',subject:'subject',account:'writer@example.test',threadId:'thread',documentId:'doc-a',view:'inline',retrievedAt:0};
 const make=(document=semanticVector.document,budgets={})=>materialize({document,metadata:{},binding,reviewIncluded:true,budgets});
-for(const name of ['aggregateGrid','ordinalRoundTrip','scopedReview','unknownReview','unknownContent','outsideParent'])test(`native/SQLite foundation: ${name}`,()=>checkFoundation(name));
+for(const name of ['aggregateGrid','ordinalRoundTrip','scopedReview','unknownReview','unknownContent','outsideParent'])test(`application/memory foundation: ${name}`,()=>checkFoundation(name));
 test('JSON byte measurement and pending traversal bound allocations before serialization',()=>{
   for(const value of [{x:'é😀\n\u0000"\\',skip:undefined},[null,undefined,true,1e-8],Array(3),{nested:{a:[1,2,3]}}]){
     const expected=Buffer.byteLength(JSON.stringify(value));

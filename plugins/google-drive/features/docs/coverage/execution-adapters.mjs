@@ -2,6 +2,7 @@
 // routes, not capabilities inferred from labels or the obligation manifest.
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
+import { applicationFamily,executeApplication,compareApplication } from './application-execution.mjs';
 import { productionHost, schemaShape } from '../support/production-host.mjs';
 import { footprint } from '../../../core/docs-semantic/coverage.mjs';
 import { modelBinding } from '../support/local-invocations.mjs';
@@ -34,7 +35,7 @@ const routes=Object.freeze({
   ...Object.fromEntries(['exact','typographic','nfc','caseFold','inverseMap','emoji','combining','rtl'].map(v=>[`docs_find.normalization/${v}__read`,{driver:'docs_find',schema:'find.matcher',mode:'read',native:'docs_find',action:'c013',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
   ...Object.fromEntries(['crossRun','paragraphBoundary','chipBoundary','boundedContext'].map(v=>[`docs_find.literal/${v}__read`,{driver:'docs_find',schema:'find.matcher',mode:'read',native:'docs_find',action:'c012',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
   'snapshot.coverage/wrongThread__local':{driver:'snapshot-store',schema:'snapshot.contract',mode:'local',native:'docs_inspect',action:'snapshot',outcomes:['success','counterexample']},
-  ...Object.fromEntries(['exactlyOne','explicitOccurrenceZero','allExpectedCount','ambiguous','missing'].map(v=>[`selector.cardinality/${v}__local`,{driver:'selector-resolver',schema:'selector.closed-union',mode:'local',native:'docs_find',action:'c015',outcomes:['success','counterexample']}])), 
+  ...Object.fromEntries(['exactlyOne','explicitOccurrenceZero','allExpectedCount','ambiguous','missing'].map(v=>[`selector.cardinality/${v}__local`,{driver:'selector-resolver',schema:'selector.closed-union',mode:'local',native:'docs_find',action:'c015',outcomes:['success','counterexample']}])),
   'coverage.witness/broadDelivered__local':{driver:'coverage-auditor',schema:'coverage.manifest-and-witness',mode:'local',native:'docs_read',action:'witness',outcomes:['success','counterexample']},
   'gdrive_get_file.metadata/fileMetadata__read':{driver:'gdrive_get_file',schema:'drive-file.metadata',mode:'read',native:'gdrive_get_file',action:'metadata',outcomes:['success']},
 });
@@ -125,6 +126,10 @@ function nodeFacts(snapshot) {
 }
 function substitute(args) {return JSON.parse(JSON.stringify(args).replaceAll('"$snapshot"','"snap-d"'));}
 export async function executeAdapter(record,fixture,inventory) {
+  if(applicationFamily(record)){implementedRoute(record);return executeApplication(record,fixture);}
+  return executeNativeAdapter(record,fixture,inventory);
+}
+export async function executeNativeAdapter(record,fixture,inventory) {
   const route=implementedRoute(record),http=[],authentication=[],faults=[];
   if(route.action==='c015'){
     const trace=await executeC015(record,fixture,inventory);
@@ -341,6 +346,10 @@ function compareLocalInvocation(record,t) {
 // Re-run by the parent on the captured observations, independently of any
 // Cucumber attachment flags. Every expectation below originates in inert data.
 export function compareExecution(record,f,t) {
+  if(applicationFamily(record)){implementedRoute(record);return compareApplication(record,f,t);}
+  return compareNativeExecution(record,f,t);
+}
+export function compareNativeExecution(record,f,t) {
   const route=implementedRoute(record);
   if(route.action==='c015'){compareC015(record,f,t);return;}
   if(route.action==='c013'){compareC013(record,f,t);return;}

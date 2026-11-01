@@ -1,7 +1,7 @@
 // Explicit native segment reads through the reviewed fixed capture/read pipeline.
 import assert from 'node:assert/strict';import {executeReadProgram,compareReadProgram} from './c005-execution.mjs';
 function nodeAt(model,path){const found=Object.values(model.nodes).filter(n=>JSON.stringify(n.evidence.path)===JSON.stringify(path));assert.equal(found.length,1,'C003 exact actual source path');return found[0];}
-function* segmentProgram(f){
+export function* segmentProgram(f){
  const state=()=>({op:'state'}),account='reader@example.test',snapshotId='snap-d';
  function* read(args,expect='page',role='primary'){const r=yield {op:'native',name:'docs_read',args,expect,role};yield state();return r;}
  function* finish(r,role){let count=0;while(!r.complete){assert.ok(++count<30);r=yield* read({account,snapshotId,cursor:r.nextCursor},'page',role);}return r;}

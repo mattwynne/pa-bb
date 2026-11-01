@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { withWitnessWorld,readTokens } from '../features/docs/support/witness-c-checks.mjs';
+import { withWitnessIntegrationWorld as withWitnessWorld,readTokens } from '../features/docs/support/witness-c-checks.mjs';
 import { styleRequest,broadRequest,node } from '../features/docs/support/witness-c-vectors.mjs';
 import { createReadEvidenceService } from '../core/docs-semantic/read-evidence-service.mjs';
 import { createBbStore } from '../adapters/bb-store.mjs';

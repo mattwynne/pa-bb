@@ -23,7 +23,7 @@ test('C inspected paragraph insertion compares newline, inherited identity and e
     ]}};
     const result=compareReadEvidence(s,request);assert.equal(result.witnessSatisfied,true,JSON.stringify(result.missingAspects));
     assert.equal(result.delivered,'effectPreview');assert.equal(result.editReady,false);
-    assert.equal(world.host.bb.storage.database().prepare('SELECT count(*) AS n FROM docs_semantic_delivery').get().n,0);
+    assert.equal(world.observe().deliveries,0);
     request.presentation.changes.pop();assert.ok(compareReadEvidence(s,request).missingAspects.includes('effectPresentation'));
   },{document});
 });

@@ -4,12 +4,12 @@ import { readFileSync } from 'node:fs';
 import { materialize } from '../core/docs-semantic/model.mjs';
 import { resolveSelector } from '../core/docs-semantic/selectors.mjs';
 import { projectRegistries,resolveReadSelection } from '../core/docs-semantic/reader.mjs';
-import { semanticScope as scope,semanticAccount as account } from '../features/docs/support/semantic-world.mjs';
+import { semanticScope as scope,semanticAccount as account } from '../features/docs/support/semantic-fixtures.mjs';
 import { correctionDocument,correctionOwner,correctionRead,correctionWorld,correctionExample } from '../features/docs/support/a-correction-checks.mjs';
 const build=document=>materialize({document,metadata:{id:'doc-a'},binding:{snapshotId:'snap-correction',subject:'subject-a',account,threadId:'thread-a',documentId:'doc-a',view:'inline'},reviewIncluded:true});
 const body=d=>d.tabs[0].documentTab.body.content;
 const heading={section:{headingId:'final',includeHeading:false}};
-for(const example of ['terminalUnknown','absentInlineStyle','descendantStyles','wrongPropertyEnum','unknownDimension'])test(`A corrections native/SQLite ${example}`,()=>correctionExample(example));
+for(const example of ['terminalUnknown','absentInlineStyle','descendantStyles','wrongPropertyEnum','unknownDimension'])test(`A corrections application/memory ${example}`,()=>correctionExample(example));
 
 for(const mode of ['exactEnd','pastObservedEnd','noStart','emptyTerminal','unknownLastChild','mappedTail','emptyKnown']){
   function arrange(d){
@@ -26,12 +26,12 @@ for(const mode of ['exactEnd','pastObservedEnd','noStart','emptyTerminal','unkno
     if(mode==='emptyKnown')assert.deepEqual(r.nodes,[]);
     if(mode!=='noStart')assert.equal(resolveSelector(s,scope,{section:{headingId:'start',includeHeading:false}}).status,'resolved');
   });
-  test(`A1 native terminal ${mode}`,()=>correctionWorld(async w=>{
+  test(`A1 application terminal ${mode}`,()=>correctionWorld(async w=>{
     arrange(w.document);const original=structuredClone(w.document),i=await w.inspect();assert.ok(i.snapshotId);
     const p=await w.call('docs_read',correctionRead(i.snapshotId,{selector:heading}));
     assert.equal(p.complete,resolved);
     if(!resolved)assert.equal(p.selection.status,'unresolved');
-    assert.equal(w.host.bb.storage.database().prepare('SELECT count(*) AS n FROM docs_semantic_delivery').get().n,resolved?1:0);
+    assert.equal(w.observe().deliveries,resolved?1:0);
     assert.deepEqual(w.store.semanticSnapshots.get(i.snapshotId,correctionOwner,0).evidence,original);
     if(mode==='mappedTail')assert.ok(p.records.some(r=>r.kind==='opaque'&&r.providerEvidence.futureBlock.label==='must retain'));
     if(mode==='emptyKnown')assert.deepEqual(p.records,[]);
@@ -71,7 +71,7 @@ for(const kind of styleKinds)for(const direct of [false,true])for(const context 
     const d=correctionDocument();setInline(d,kind,direct,context);const s=build(d);
     const node=Object.values(s.nodes).find(n=>n.kind===(kind==='textRun'?'text':kind));checkInline(node,direct,context);
   });
-  test(`A2 native ${kind} direct=${direct} ${context}`,()=>correctionWorld(async w=>{
+  test(`A2 application ${kind} direct=${direct} ${context}`,()=>correctionWorld(async w=>{
     setInline(w.document,kind,direct,context);const i=await w.inspect();assert.ok(i.snapshotId);
     const result=await w.call('docs_read',correctionRead(i.snapshotId,{selector:{heading:{headingId:'start'}}}));
     assert.equal(result.complete,true);assert.equal(result.coverage.editReady,false);
@@ -112,7 +112,7 @@ test('A3 pure descendant dependencies exclude parent objects, lists and sibling 
   const selected=resolveReadSelection(s,scope,{node});
   const p=projectRegistries(s,selected,['styles','lists','objects','review']);checkDependencies(s,{...p,delivered:{nodes:Object.keys(p.nodeAspects)}},node);
 });
-test('A3 native descendant diagnostic receipt cannot deliver parent or text',()=>correctionWorld(async w=>{
+test('A3 application descendant diagnostic receipt cannot deliver parent or text',()=>correctionWorld(async w=>{
   dependencyFixture(w.document);const i=await w.inspect(),s=w.store.semanticSnapshots.get(i.snapshotId,correctionOwner,0),node=Object.values(s.nodes).find(n=>n.text==='Start\n').id;
   const p=await w.call('docs_read',correctionRead(i.snapshotId,{selector:{node},registries:['styles','lists','objects','review']}));
   checkDependencies(s,{...p,delivered:p.coverage.delivered},node);
@@ -137,10 +137,10 @@ for(const [key,value,known] of typedCases){
   test(`A4 pure typed ${key} ${JSON.stringify(value)}`,()=>{
     const d=correctionDocument();arrange(d);const s=build(d),node=Object.values(s.nodes).find(n=>paragraph?n.kind==='paragraph':n.text==='Start\n');check(node);
   });
-  test(`A4 native typed ${key} ${JSON.stringify(value)}`,()=>correctionWorld(async w=>{
+  test(`A4 application typed ${key} ${JSON.stringify(value)}`,()=>correctionWorld(async w=>{
     arrange(w.document);const i=await w.inspect(),p=await w.call('docs_read',correctionRead(i.snapshotId,{selector:{heading:{headingId:'start'}}}));
     assert.equal(p.complete,true);check(p.records.find(n=>paragraph?n.kind==='paragraph':n.text==='Start\n'));
-    assert.equal(w.host.bb.storage.database().prepare('SELECT count(*) AS n FROM docs_semantic_delivery').get().n,1);
+    assert.equal(w.observe().deliveries,1);
   }));
 }
 test('A4 valid owning sentinels preserve named inheritance',()=>correctionWorld(async w=>{

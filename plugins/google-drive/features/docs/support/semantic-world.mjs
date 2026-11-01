@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
-import { readFileSync,existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { semanticVector,semanticAccount,semanticScope } from './semantic-fixtures.mjs';
+export { semanticVector,semanticAccount,semanticScope } from './semantic-fixtures.mjs';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { createBbStore } from '../../../adapters/bb-store.mjs';
 import { createSemanticSnapshotStore } from '../../../adapters/docs-semantic-store.mjs';
 import { createGoogleAdapter } from '../../../adapters/google.mjs';
 import { registerSemanticReadTools } from '../../../docs-semantic-registration.mjs';
-export const semanticVector=JSON.parse(readFileSync(new URL('../coverage/fixtures/snapshot-vector.json',import.meta.url)));
-export const semanticAccount='writer@example.test';
-export const semanticScope={tabs:{ids:['tab-a']},segments:[{kind:'body'}]};
 const metadataUrl='https://www.googleapis.com/drive/v3/files/doc-a?fields=id%2Cname%2CmimeType%2CmodifiedTime%2Cversion%2Ctrashed%2Ccapabilities%28canEdit%29&supportsAllDrives=true';
 const documentUrl='https://docs.googleapis.com/v1/documents/doc-a?includeTabsContent=true&suggestionsViewMode=';
 export class SemanticWorld {

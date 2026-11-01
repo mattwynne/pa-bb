@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { SemanticWorld, semanticAccount } from './semantic-world.mjs';
+import { ApplicationWorld as SemanticWorld, semanticAccount } from './application-world.mjs';
 import { evaluateLogicalIdentity } from '../../../core/docs-semantic/selectors.mjs';
 import { digest } from '../../../core/docs-semantic/common.mjs';
 
@@ -30,7 +30,7 @@ export async function checkIdentityCorrectionB(name) {
   const after=document(duplicate?[paragraph(1),paragraph(9)]:[paragraph(9,unknown?200:undefined)]);
   const w=new SemanticWorld();await w.init();
   try {
-    w.document=before;const first=await w.inspect();assert.ok(first.snapshotId);w.assertInitialWire();
+    w.document=before;const first=await w.inspect();assert.ok(first.snapshotId);w.assertInitialPorts();
     w.document=after;const second=await w.inspect();assert.ok(second.snapshotId);
     const savedFrom=w.store.semanticSnapshots.get(first.snapshotId,owner,0),savedTo=w.store.semanticSnapshots.get(second.snapshotId,owner,0);
     assert.deepEqual(savedFrom.evidence,before);assert.deepEqual(savedTo.evidence,after);

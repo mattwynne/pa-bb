@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { expand } from '../features/docs/coverage/expand.mjs';
+import { applicationFamily,executeApplication,compareApplication } from '../features/docs/coverage/application-execution.mjs';
+import { createMemorySnapshots } from '../features/docs/support/memory-snapshots.mjs';
+import { snapshotContractCases } from '../features/docs/support/snapshot-contract.mjs';
+const json=p=>JSON.parse(readFileSync(new URL(p,import.meta.url))),manifest=json('../features/docs/coverage/obligations.json'),fixtures=json('../features/docs/coverage/fixtures/index.json');
+const records=expand(manifest).filter(r=>applicationFamily(r)&&fixtures[r.caseId]);
+test('implemented application inventory is exact; no new capability acceptance',()=>{assert.equal(records.length,220);assert.equal(expand(manifest).length,11197);assert.equal(Object.keys(manifest.rows).length,211);assert.deepEqual(manifest.expansion.variantExposure,{});});
+for(const [name,run]of Object.entries(snapshotContractCases()))test(`fast snapshot substitute contract: ${name}`,()=>run(createMemorySnapshots().port));
+for(const record of records)test(`actual application + independent oracle ${record.caseId}`,async()=>{
+  const fixture=json('../'+fixtures[record.caseId].path),trace=await executeApplication(record,fixture);
+  assert.ok(compareApplication(record,fixture,trace));
+  // Direct counterfeit/omission controls replace per-rule package copies. The
+  // positive above executes actual core answers, never a canned semantic result.
+  assert.throws(()=>compareApplication(record,fixture,{...trace,boundary:{...trace.boundary,layer:'native'}}),/fixed application boundary/);
+  assert.throws(()=>compareApplication(record,fixture,{...trace,events:trace.events.slice(1)}),/exact application instruction/);
+  const i=trace.events.findIndex(e=>e.instruction.expect==='inspect'),event=trace.events[i],events=[...trace.events];events[i]={...event,result:{...event.result,coverage:{...event.result.coverage,readProof:true}}};
+  assert.throws(()=>compareApplication(record,fixture,{...trace,events}),/independent complete inspection envelope/);
+  function corrupt(index,change,reason){const events=[...trace.events],result=structuredClone(events[index].result);change(result);events[index]={...events[index],result};assert.throws(()=>compareApplication(record,fixture,{...trace,events}),reason);}
+  if(record.outcomeVariant==='success'){
+    for(const key of ['materialized','delivered','missingReviewCoverage'])corrupt(i,r=>{r.coverage[key]='counterfeit';},/independent complete inspection envelope/);
+    const get=trace.events.findIndex(e=>e.instruction.op==='get'&&e.result);
+    corrupt(get,r=>{r.revision.id='counterfeit';},/independent exact original revision/);
+    if(fixture.expected.tabs)corrupt(get,r=>{r.tabs[0].title='counterfeit';},/independent authored tab inventory/);
+    if(['C003','C008','C010','C011','C012','C013','C015'].includes(record.ledgerId))corrupt(get,r=>{r.unresolvedExtents=!r.unresolvedExtents;},/independent .*extent fact/);
+    const last=trace.events.findLastIndex(e=>e.instruction.op==='state');corrupt(last,r=>{r.work.push({snapshot:'snap-d',id:'unexpected',bytes:1});},/exact logical publication\/cursor\/pin\/work transition/);
+    const cursor=trace.events.findIndex(e=>e.instruction.op==='state'&&e.result.cursors.length);if(cursor>=0)corrupt(cursor,r=>{r.cursors[0].state.request.format='counterfeit';},/exact logical publication/);
+  }
+  if(record.outcomeVariant==='bounds'){
+    const charged=trace.events.findIndex(e=>e.instruction.op==='state'&&e.result.work.length);if(charged>=0)corrupt(charged,r=>{r.work=[];r.deliveries.push({id:'fabricated',snapshot:'snap-d',data:{}});},/exact logical publication/);
+  }
+});

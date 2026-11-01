@@ -1,7 +1,7 @@
 // Independent synthetic regression facts. No production projection supplies an
 // expected value. These supplemental cases are not ledger/product-intake joins.
 import assert from 'node:assert/strict';
-import { SemanticWorld, semanticAccount, semanticScope, semanticVector } from './semantic-world.mjs';
+import { ApplicationWorld as SemanticWorld, semanticAccount, semanticScope, semanticVector } from './application-world.mjs';
 import { footprint, evaluateWitness, previewWitness } from '../../../core/docs-semantic/coverage.mjs';
 import { evidenceAt } from '../../../core/docs-semantic/common.mjs';
 export function gridDocument(widths) {
@@ -43,7 +43,7 @@ export async function checkFoundation(kind) {
     const inspected=await w.inspect({scope:kind==='ordinalRoundTrip'?{tabs:{all:true},segments:[{kind:'body'}]}:semanticScope});
     if(['aggregateGrid','outsideParent'].includes(kind)){
       assert.equal(w.last.result.isError,true);assert.equal(inspected.outcome,'unavailable');
-      assert.equal(w.store.semanticSnapshots.stats().snapshots,0);return;
+      assert.equal(w.observe().snapshots,0);return;
     }
     if(kind==='ordinalRoundTrip'){
       const expected={'tab-a':semanticVector.expected.bodyText,'tab-child':'Child\n','tab-b':'Sibling\n'};

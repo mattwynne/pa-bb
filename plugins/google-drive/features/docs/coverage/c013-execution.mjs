@@ -2,7 +2,7 @@
 // native/GET instruction executor is shared; C012 comparison remains untouched.
 import assert from'node:assert/strict';import{executeReadProgram}from'./c005-execution.mjs';import{digest}from'./audit.mjs';
 const owner={subject:'subject-d',account:'reader@example.test',threadId:'thread-d'},id='snap-d',bytes=x=>Buffer.byteLength(JSON.stringify(x)),hash=x=>digest(JSON.stringify(x)),uuid=/^[a-f0-9-]{36}$/;
-function* findProgram(f){const state=()=>({op:'state'});function* find(q,args=q.args,expect=q.expect){const value=yield{op:'native',name:'docs_find',args,expect,query:q};yield state();return value;}
+export function* findProgram(f){const state=()=>({op:'state'});function* find(q,args=q.args,expect=q.expect){const value=yield{op:'native',name:'docs_find',args,expect,query:q};yield state();return value;}
  yield state();yield{op:'native',name:'docs_inspect',args:f.inspect,expect:'inspect'};yield state();yield{op:'get'};
  if(f.outcome==='invalid')yield*find(f.invalid);if(f.outcome==='wrongSubject')yield*find(f.queries[0],{...f.queries[0].args,account:'other@example.test'},'snapshot');for(const q of f.queries)yield*find(q);
  if(f.outcome==='bounds'){assert.equal(f.bounds.length,2);yield*find(f.bounds[0]);yield*find(f.bounds[1]);yield*find(f.bounds[1]);yield*find(f.bounds[0]);}

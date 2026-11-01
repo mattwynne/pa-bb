@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {executeReadProgram,compareReadProgram} from './c005-execution.mjs';
 const account='reader@example.test',snapshotId='snap-d';
 const categories={styles:['styles','lists'],objects:['objects','diagnostics'],ranges:['ranges'],suggestions:['review']};
-function* structureProgram(f){
+export function* structureProgram(f){
  const state=()=>({op:'state'});
  function* read(args,expect='page',role='primary'){const result=yield {op:'native',name:'docs_read',args,expect,role};yield state();return result;}
  function* finish(result,role='primary'){let count=0;while(!result.complete){assert.ok(++count<20,'bounded C006 continuation');result=yield* read({account,snapshotId,cursor:result.nextCursor},'page',role);}return result;}

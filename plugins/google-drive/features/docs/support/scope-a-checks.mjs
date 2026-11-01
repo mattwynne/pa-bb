@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { SemanticWorld, semanticAccount as account, semanticScope as scope } from './semantic-world.mjs';
+import { ApplicationWorld as SemanticWorld, semanticAccount as account, semanticScope as scope } from './application-world.mjs';
 
 // Original inert business-shaped evidence. Offsets and expected content are
 // authored here, not obtained from a production parser/projection.
@@ -52,10 +52,10 @@ export async function scopeAExample(example) {
     const before=structuredClone(w.document);
     const inspected=await w.inspect({...view?{view:example}:{},...example==='pagedInspect'?{include:['ranges']}: {}});
     assert.ok(inspected.snapshotId,JSON.stringify(inspected));
-    if(!view)w.assertInitialWire();
+    if(!view)w.assertInitialPorts();
     else {
-      assert.equal(w.calls.length,5);
-      assert.deepEqual(w.calls.at(-1),{url:`https://docs.googleapis.com/v1/documents/doc-a?includeTabsContent=true&suggestionsViewMode=${view}`,method:'GET'});
+      assert.equal(w.calls.length,3);
+      assert.deepEqual(w.calls.at(-1),{operation:'read',id:'doc-a',view:example,includeReview:false});
     }
     const snapshotId=inspected.snapshotId;
     const saved=w.store.semanticSnapshots.get(snapshotId,{subject:'subject-a',account,threadId:'thread-a'},0);
@@ -91,7 +91,7 @@ export async function scopeAExample(example) {
       const page=await w.call('docs_read',{account,snapshotId,scope,selector,format:'structured',styles:true,review:true});
       if(['ambiguousHeading','missingEnd'].includes(example)) {
         assert.equal(page.selection.status,example==='ambiguousHeading'?'ambiguous':'missing');assert.equal(page.complete,false);
-        assert.equal(w.host.bb.storage.database().prepare('SELECT count(*) AS n FROM docs_semantic_delivery').get().n,0);
+        assert.equal(w.observe().deliveries,0);
       } else {
         assert.equal(page.complete,true,JSON.stringify(page));assert.equal(page.coverage.editReady,false);
         const expected=example==='includeHeading'?'Market\nOur plan\n':example==='siblingSpan'?'Market\n':example==='richIntersection'||example==='emptySection'?'':example==='acceptedPreview'?'New plan\n':example==='rejectedPreview'?'Old plan\n':'Our plan\n';

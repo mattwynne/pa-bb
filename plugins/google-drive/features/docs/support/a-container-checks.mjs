@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { materialize } from '../../../core/docs-semantic/model.mjs';
-import { SemanticWorld,semanticAccount as account,semanticScope as scope } from './semantic-world.mjs';
+import { ApplicationWorld as SemanticWorld,semanticAccount as account,semanticScope as scope } from './application-world.mjs';
 const owner={subject:'subject-a',account,threadId:'thread-a'};
 // Original inert data and independently specified schema shapes; no projector is
 // used to construct expected classifications, values, paths or inheritance.
@@ -90,11 +90,11 @@ export function checkContainerPure(c){
   const document=arrange(c),snapshot=materialize({document,metadata:{id:'doc-a'},binding:{...owner,snapshotId:'pure-container',documentId:'doc-a',view:'inline'},reviewIncluded:true});
   assert.deepEqual(snapshot.evidence,document);checkStyle(styleFrom(snapshot,c),c);
 }
-export async function checkContainerNative(c){
+export async function checkContainerApplication(c){
   const w=new SemanticWorld();
   try{
     await w.init();w.document=arrange(c);const original=structuredClone(w.document),inspection=await w.inspect();
-    assert.ok(inspection.snapshotId);w.assertInitialWire();
+    assert.ok(inspection.snapshotId);w.assertInitialPorts();
     const snapshot=w.store.semanticSnapshots.get(inspection.snapshotId,owner,0);assert.deepEqual(snapshot.evidence,original);
     const node=c.ownerKind==='documentStyle'?null:Object.values(snapshot.nodes).find(n=>n.kind===c.ownerKind);
     const args={account,snapshotId:inspection.snapshotId,scope,format:'structured',styles:true,review:true,...node?{selector:{node:node.id}}:{registries:['styles']}};
@@ -102,7 +102,7 @@ export async function checkContainerNative(c){
     const record=result.records.find(r=>node?r.id===node.id:r.kind==='documentStyle');assert.ok(record);checkStyle(record.style,c);
     const [receipt]=w.store.semanticSnapshots.deliveries(inspection.snapshotId,owner,0,[result.coverage.deliveryToken]);
     assert.deepEqual(receipt.nodes,result.coverage.delivered.nodes);assert.ok(receipt.nodeAspects[record.id].includes('styles'));
-    assert.equal(w.host.bb.storage.database().prepare('SELECT count(*) AS n FROM docs_semantic_delivery').get().n,1);
+    assert.equal(w.observe().deliveries,1);
     assert.deepEqual(w.store.semanticSnapshots.get(inspection.snapshotId,owner,0).evidence,original);
   }finally{await w.close();}
 }

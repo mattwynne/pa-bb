@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
-import { SemanticWorld, semanticAccount } from './semantic-world.mjs';
+import { ApplicationWorld, semanticAccount } from './application-world.mjs';
 import { documentVector, node, binding, paragraph, scope, styleRequest, literalRequest, broadRequest } from './witness-c-vectors.mjs';
 import { compareReadEvidence, inspectNamedStyleEvidence, compareNamedStyleEvidence, compareGeneratedEvidence } from '../../../core/docs-semantic/coverage.mjs';
 import { createReadEvidenceService } from '../../../core/docs-semantic/read-evidence-service.mjs';
 export const witnessCases=['narrowLiteral','styleFromMetadata','broadDelivered','completePreview','generatedNode','namedStyleIndirect','historyNotCurrent','siblingNotCovered'];
-export async function withWitnessWorld(run,{document=documentVector(),pageBytes}={}) {
-  const world=new SemanticWorld();world.document=document;await world.init(pageBytes?{pageBytes}:{});
+export async function withWitnessIntegrationWorld(run,options={}) {
+  const { SemanticWorld }=await import('./semantic-world.mjs');
+  return withWitnessWorld(run,{...options,World:SemanticWorld});
+}
+export async function withWitnessWorld(run,{document=documentVector(),pageBytes,World=ApplicationWorld}={}) {
+  const world=new World();world.document=document;await world.init(pageBytes?{pageBytes}:{});
   try {
     const owner={subject:'subject-a',account:semanticAccount,threadId:'thread-a'};
     const observed=await world.inspect();assert.ok(observed.snapshotId,JSON.stringify(observed));

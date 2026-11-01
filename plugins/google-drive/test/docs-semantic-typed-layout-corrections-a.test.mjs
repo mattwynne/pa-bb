@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { materialize } from '../core/docs-semantic/model.mjs';
-import { semanticAccount as account } from '../features/docs/support/semantic-world.mjs';
+import { semanticAccount as account } from '../features/docs/support/semantic-fixtures.mjs';
 import { correctionOwner,correctionRead,correctionWorld } from '../features/docs/support/a-correction-checks.mjs';
 // Concrete enum neighbors are schema facts, not derived from production helpers.
 for(const [key,value,known] of [

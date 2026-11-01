@@ -8,7 +8,7 @@ function bind(model,paths){
  const handle=path=>{const found=Object.values(model.nodes).filter(n=>JSON.stringify(n.evidence.path)===JSON.stringify(path));assert.equal(found.length,1,'C007 exact observed snapshot path');return found[0].id;};
  return paths.node?{node:handle(paths.node)}:{span:{from:handle(paths.span.from),to:handle(paths.span.to)}};
 }
-function* richProgram(f){
+export function* richProgram(f){
  const state=()=>({op:'state'});
  function* read(args,expect='page',role='primary'){const result=yield {op:'native',name:'docs_read',args,expect,role};yield state();return result;}
  function* finish(result,role='primary'){let count=0;while(!result.complete){assert.ok(++count<30,'C007 bounded actual continuation');result=yield* read({account,snapshotId,cursor:result.nextCursor},'page',role);}return result;}

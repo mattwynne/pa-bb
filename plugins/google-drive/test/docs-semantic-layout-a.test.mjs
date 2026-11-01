@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { materialize } from '../core/docs-semantic/model.mjs';
-import { SemanticWorld,semanticAccount as account,semanticScope as scope } from '../features/docs/support/semantic-world.mjs';
+import { ApplicationWorld as SemanticWorld,semanticAccount as account,semanticScope as scope } from '../features/docs/support/application-world.mjs';
 const binding={snapshotId:'layout-snapshot',subject:'subject-a',account:'writer@example.test',threadId:'thread-a',documentId:'doc-a',view:'inline',retrievedAt:0};
 function document(mode='PAGES') {
   return {documentId:'doc-a',suggestionsViewMode:'SUGGESTIONS_INLINE',commentsViewMode:'COMMENTS_VIEW_MODE_INCLUDED',tabs:[{tabProperties:{tabId:'tab-a',title:'Layout'},documentTab:{
@@ -39,10 +39,10 @@ test('partial section values never borrow nested members, and unknown stored pro
   assert.equal(section.style.properties.marginTop.effective.status,'partialOrUnknown');
   assert.equal(section.style.properties.futureLayout.provenance,'unknown');
 });
-test('native structured read delivers actual section provenance through the adapter and SQLite',async()=>{
+test('application structured read delivers actual section provenance with substituted storage',async()=>{
   const w=new SemanticWorld();
   try{
-    await w.init();w.document=document();const snapshotId=(await w.inspect()).snapshotId;w.assertInitialWire();
+    await w.init();w.document=document();const snapshotId=(await w.inspect()).snapshotId;w.assertInitialPorts();
     const result=await w.call('docs_read',{account,snapshotId,scope,format:'structured',styles:true});
     const sections=result.records.filter(r=>r.kind==='sectionBreak');
     assert.deepEqual(sections.map(s=>s.style.properties.marginTop.value),[{magnitude:24,unit:'PT'},{magnitude:72,unit:'PT'}]);

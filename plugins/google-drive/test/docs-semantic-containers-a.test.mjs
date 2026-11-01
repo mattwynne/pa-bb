@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { containerCases,checkContainerPure,checkContainerNative } from '../features/docs/support/a-container-checks.mjs';
+import { containerCases,checkContainerPure,checkContainerApplication } from '../features/docs/support/a-container-checks.mjs';
 test('A4 container expectations match pinned property types',()=>{
   const {schemas}=JSON.parse(readFileSync(new URL('../features/docs/coverage/fixtures/docs-discovery.json',import.meta.url)));
   assert.equal(schemas.ParagraphStyle.properties.tabStops.type,'array');
@@ -15,5 +15,5 @@ test('A4 container expectations match pinned property types',()=>{
 });
 for(const c of containerCases){
   test(`A4 typed container pure ${c.id}`,()=>checkContainerPure(c));
-  test(`A4 typed container native SQLite ${c.id}`,()=>checkContainerNative(c));
+  test(`A4 typed container application memory ${c.id}`,()=>checkContainerApplication(c));
 }
