@@ -1,0 +1,67 @@
+{
+  "provenance": "Hand-authored bounded read contract. Not generated from Zod, actual registration, or production inventory. Semantic objects reject unknown fields; existing metadata accepts and strips them. Descriptions and JSON Schema dialect markers are non-capability annotations.",
+  "definitions": {
+    "id": {"type":"string","minLength":1,"maxLength":256},
+    "account": {"type":"string","minLength":1,"maxLength":320},
+    "text": {"type":"string","minLength":1,"maxLength":2000},
+    "boolean": {"type":"boolean"},
+    "normalization": {"type":"string","enum":["exact","typographic","nfc"]},
+    "casePolicy": {"type":"string","enum":["exact","simpleCaseFold"]},
+    "scope": {"type":"object","properties":{
+      "tabs":{"anyOf":[
+        {"type":"object","properties":{"all":{"type":"boolean","const":true}},"required":["all"],"additionalProperties":false},
+        {"type":"object","properties":{"ids":{"type":"array","minItems":1,"maxItems":100,"items":{"$ref":"id"}}},"required":["ids"],"additionalProperties":false},
+        {"type":"object","properties":{"path":{"type":"array","minItems":1,"maxItems":32,"items":{"$ref":"id"}}},"required":["path"],"additionalProperties":false},
+        {"type":"object","properties":{"ordinal":{"type":"integer","minimum":0,"maximum":99999},"snapshotId":{"$ref":"id"}},"required":["ordinal","snapshotId"],"additionalProperties":false}
+      ]},
+      "segments":{"type":"array","minItems":1,"maxItems":100,"items":{"anyOf":[
+        {"type":"object","properties":{"kind":{"type":"string","const":"body"}},"required":["kind"],"additionalProperties":false},
+        {"type":"object","properties":{"kind":{"type":"string","enum":["header","footer","footnote"]},"id":{"$ref":"id"}},"required":["kind"],"additionalProperties":false}
+      ]}}
+    },"required":["tabs","segments"],"additionalProperties":false},
+    "heading": {"type":"object","properties":{
+      "headingId":{"$ref":"id"},"text":{"$ref":"text"},"path":{"type":"array","minItems":1,"maxItems":32,"items":{"$ref":"text"}},
+      "level":{"type":"integer","minimum":1,"maximum":6},"depth":{"type":"integer","minimum":0,"maximum":32}
+    },"additionalProperties":false},
+    "section": {"type":"object","properties":{
+      "headingId":{"$ref":"id"},"text":{"$ref":"text"},"path":{"type":"array","minItems":1,"maxItems":32,"items":{"$ref":"text"}},
+      "level":{"type":"integer","minimum":1,"maximum":6},"depth":{"type":"integer","minimum":0,"maximum":32},
+      "includeHeading":{"$ref":"boolean"},"before":{"$ref":"heading"}
+    },"required":["includeHeading"],"additionalProperties":false},
+    "nodeSelector":{"type":"object","properties":{"node":{"$ref":"id"}},"required":["node"],"additionalProperties":false},
+    "spanSelector":{"type":"object","properties":{"span":{"type":"object","properties":{"from":{"$ref":"id"},"to":{"$ref":"id"}},"required":["from","to"],"additionalProperties":false}},"required":["span"],"additionalProperties":false},
+    "headingSelector":{"type":"object","properties":{"heading":{"$ref":"heading"}},"required":["heading"],"additionalProperties":false},
+    "sectionSelector":{"type":"object","properties":{"section":{"$ref":"section"}},"required":["section"],"additionalProperties":false},
+    "cardinality":{"anyOf":[
+      {"type":"object","properties":{"exactly":{"type":"integer","minimum":1,"maximum":500}},"required":["exactly"],"additionalProperties":false},
+      {"type":"object","properties":{"occurrence":{"type":"integer","minimum":0,"maximum":499}},"required":["occurrence"],"additionalProperties":false},
+      {"type":"object","properties":{"all":{"type":"integer","minimum":1,"maximum":500}},"required":["all"],"additionalProperties":false}
+    ]},
+    "textSelector":{"type":"object","properties":{"text":{"type":"object","properties":{"literal":{"$ref":"text"},"normalization":{"$ref":"normalization"},"casePolicy":{"$ref":"casePolicy"},"cardinality":{"$ref":"cardinality"}},"required":["literal"],"additionalProperties":false}},"required":["text"],"additionalProperties":false},
+    "readSelector":{"anyOf":[{"$ref":"nodeSelector"},{"$ref":"spanSelector"},{"$ref":"headingSelector"},{"$ref":"sectionSelector"}]},
+    "findSelector":{"anyOf":[{"$ref":"nodeSelector"},{"$ref":"spanSelector"},{"$ref":"headingSelector"},{"$ref":"sectionSelector"},{"$ref":"textSelector"}]},
+    "continuation":{"type":"object","properties":{"account":{"$ref":"account"},"snapshotId":{"$ref":"id"},"cursor":{"type":"string","minLength":1,"maxLength":128}},"required":["account","snapshotId","cursor"],"additionalProperties":false},
+    "inspect":{"anyOf":[{"type":"object","properties":{
+      "account":{"$ref":"account"},"document":{"type":"string","minLength":1,"maxLength":1024},"scope":{"$ref":"scope"},
+      "view":{"type":"string","enum":["inline","acceptedPreview","rejectedPreview"]},"outlineDepth":{"type":"integer","minimum":0,"maximum":32},
+      "include":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","enum":["tabs","outline","styles","lists","objects","ranges","review","diagnostics"]}}
+    },"required":["account","document","scope"],"additionalProperties":false},{"$ref":"continuation"}]},
+    "read":{"anyOf":[{"type":"object","properties":{
+      "account":{"$ref":"account"},"snapshotId":{"$ref":"id"},"scope":{"$ref":"scope"},"selector":{"$ref":"readSelector"},"format":{"type":"string","enum":["text","structured"]},
+      "styles":{"$ref":"boolean"},"review":{"$ref":"boolean"},"omitImages":{"$ref":"boolean"},
+      "registries":{"type":"array","minItems":1,"maxItems":6,"items":{"type":"string","enum":["styles","lists","objects","ranges","review","diagnostics"]}}
+    },"required":["account","snapshotId","scope","format"],"additionalProperties":false},{"$ref":"continuation"}]},
+    "find":{"anyOf":[
+      {"type":"object","properties":{"account":{"$ref":"account"},"snapshotId":{"$ref":"id"},"scope":{"$ref":"scope"},"query":{"type":"object","properties":{"literal":{"$ref":"text"},"normalization":{"$ref":"normalization"},"casePolicy":{"$ref":"casePolicy"},"limit":{"type":"integer","minimum":1,"maximum":500}},"required":["literal"],"additionalProperties":false}},"required":["account","snapshotId","scope","query"],"additionalProperties":false},
+      {"type":"object","properties":{"account":{"$ref":"account"},"snapshotId":{"$ref":"id"},"scope":{"$ref":"scope"},"selector":{"$ref":"findSelector"}},"required":["account","snapshotId","scope","selector"],"additionalProperties":false}
+    ]},
+    "metadataInput":{"type":"object","properties":{"account":{"type":"string","minLength":1},"fileId":{"type":"string","minLength":1}},"required":["account","fileId"]},
+    "metadataOutput":{"type":"object","properties":{"account":{"type":"string","minLength":1},"fileId":{"type":"string","minLength":1}},"required":["account","fileId"],"additionalProperties":false}
+  },
+  "tools": {
+    "docs_inspect":{"input":{"$ref":"inspect"},"output":{"$ref":"inspect"}},
+    "docs_read":{"input":{"$ref":"read"},"output":{"$ref":"read"}},
+    "docs_find":{"input":{"$ref":"find"},"output":{"$ref":"find"}},
+    "gdrive_get_file":{"input":{"$ref":"metadataInput"},"output":{"$ref":"metadataOutput"}}
+  }
+}

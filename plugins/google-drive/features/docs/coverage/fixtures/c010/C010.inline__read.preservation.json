@@ -1,0 +1,1756 @@
+{
+  "provenance": {
+    "source": "c010/generate.mjs: independently authored provider view vectors",
+    "authorship": "Distinct inline/accepted/rejected text, suggestion/style facts, coordinates and typed projections; no production oracle"
+  },
+  "caseId": "C010.inline__read.preservation",
+  "variant": "inline",
+  "outcome": "preservation",
+  "view": "inline",
+  "pageBytes": 6000,
+  "commentsDenied": false,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent suggestion views",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "10",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent suggestion views",
+      "revisionId": "rev-c010",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Stored view",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 18,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 18,
+                        "textRun": {
+                          "content": "Control stable😀\n",
+                          "textStyle": {
+                            "italic": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 18,
+                  "endIndex": 1745,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 18,
+                        "endIndex": 26,
+                        "textRun": {
+                          "content": "Start😀 ",
+                          "textStyle": {
+                            "italic": false
+                          }
+                        }
+                      },
+                      {
+                        "startIndex": 26,
+                        "endIndex": 33,
+                        "textRun": {
+                          "content": "NEW é ",
+                          "textStyle": {
+                            "bold": false
+                          },
+                          "suggestedInsertionIds": [
+                            "insert-one"
+                          ]
+                        }
+                      },
+                      {
+                        "startIndex": 33,
+                        "endIndex": 39,
+                        "textRun": {
+                          "content": "OLD Ω ",
+                          "textStyle": {
+                            "bold": false
+                          },
+                          "suggestedDeletionIds": [
+                            "delete-one"
+                          ]
+                        }
+                      },
+                      {
+                        "startIndex": 39,
+                        "endIndex": 1745,
+                        "textRun": {
+                          "content": "Tail xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+                          "textStyle": {
+                            "bold": false
+                          },
+                          "suggestedTextStyleChanges": {
+                            "style-one": {
+                              "textStyle": {
+                                "bold": true
+                              },
+                              "textStyleSuggestionState": {
+                                "boldSuggested": true
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 1745,
+                  "endIndex": 3465,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1745,
+                        "endIndex": 3465,
+                        "textRun": {
+                          "content": "Second original é yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n",
+                          "textStyle": {
+                            "fontSize": {
+                              "magnitude": 11,
+                              "unit": "PT"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 3465,
+                  "endIndex": 3485,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 3465,
+                        "endIndex": 3485,
+                        "textRun": {
+                          "content": "UNSELECTED original\n",
+                          "textStyle": {
+                            "underline": false
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "responses": {
+      "inline": {
+        "documentId": "doc-d",
+        "title": "Independent suggestion views",
+        "revisionId": "rev-c010",
+        "suggestionsViewMode": "SUGGESTIONS_INLINE",
+        "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+        "tabs": [
+          {
+            "tabProperties": {
+              "tabId": "tab-d",
+              "title": "Stored view",
+              "index": 0
+            },
+            "documentTab": {
+              "body": {
+                "content": [
+                  {
+                    "startIndex": 1,
+                    "endIndex": 18,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 1,
+                          "endIndex": 18,
+                          "textRun": {
+                            "content": "Control stable😀\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 18,
+                    "endIndex": 1745,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 18,
+                          "endIndex": 26,
+                          "textRun": {
+                            "content": "Start😀 ",
+                            "textStyle": {
+                              "italic": false
+                            }
+                          }
+                        },
+                        {
+                          "startIndex": 26,
+                          "endIndex": 33,
+                          "textRun": {
+                            "content": "NEW é ",
+                            "textStyle": {
+                              "bold": false
+                            },
+                            "suggestedInsertionIds": [
+                              "insert-one"
+                            ]
+                          }
+                        },
+                        {
+                          "startIndex": 33,
+                          "endIndex": 39,
+                          "textRun": {
+                            "content": "OLD Ω ",
+                            "textStyle": {
+                              "bold": false
+                            },
+                            "suggestedDeletionIds": [
+                              "delete-one"
+                            ]
+                          }
+                        },
+                        {
+                          "startIndex": 39,
+                          "endIndex": 1745,
+                          "textRun": {
+                            "content": "Tail xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+                            "textStyle": {
+                              "bold": false
+                            },
+                            "suggestedTextStyleChanges": {
+                              "style-one": {
+                                "textStyle": {
+                                  "bold": true
+                                },
+                                "textStyleSuggestionState": {
+                                  "boldSuggested": true
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 1745,
+                    "endIndex": 3465,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 1745,
+                          "endIndex": 3465,
+                          "textRun": {
+                            "content": "Second original é yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n",
+                            "textStyle": {
+                              "fontSize": {
+                                "magnitude": 11,
+                                "unit": "PT"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 3465,
+                    "endIndex": 3485,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 3465,
+                          "endIndex": 3485,
+                          "textRun": {
+                            "content": "UNSELECTED original\n",
+                            "textStyle": {
+                              "underline": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "acceptedPreview": {
+        "documentId": "doc-d",
+        "title": "Independent suggestion views",
+        "revisionId": "rev-c010",
+        "suggestionsViewMode": "PREVIEW_SUGGESTIONS_ACCEPTED",
+        "tabs": [
+          {
+            "tabProperties": {
+              "tabId": "tab-d",
+              "title": "Stored view",
+              "index": 0
+            },
+            "documentTab": {
+              "body": {
+                "content": [
+                  {
+                    "startIndex": 1,
+                    "endIndex": 18,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 1,
+                          "endIndex": 18,
+                          "textRun": {
+                            "content": "Control stable😀\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 18,
+                    "endIndex": 1739,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 18,
+                          "endIndex": 26,
+                          "textRun": {
+                            "content": "Start😀 ",
+                            "textStyle": {
+                              "italic": false
+                            }
+                          }
+                        },
+                        {
+                          "startIndex": 26,
+                          "endIndex": 33,
+                          "textRun": {
+                            "content": "NEW é ",
+                            "textStyle": {
+                              "bold": false
+                            }
+                          }
+                        },
+                        {
+                          "startIndex": 33,
+                          "endIndex": 1739,
+                          "textRun": {
+                            "content": "Tail xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+                            "textStyle": {
+                              "bold": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 1739,
+                    "endIndex": 3459,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 1739,
+                          "endIndex": 3459,
+                          "textRun": {
+                            "content": "Second original é yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n",
+                            "textStyle": {
+                              "fontSize": {
+                                "magnitude": 11,
+                                "unit": "PT"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 3459,
+                    "endIndex": 3479,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 3459,
+                          "endIndex": 3479,
+                          "textRun": {
+                            "content": "UNSELECTED original\n",
+                            "textStyle": {
+                              "underline": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "rejectedPreview": {
+        "documentId": "doc-d",
+        "title": "Independent suggestion views",
+        "revisionId": "rev-c010",
+        "suggestionsViewMode": "PREVIEW_WITHOUT_SUGGESTIONS",
+        "tabs": [
+          {
+            "tabProperties": {
+              "tabId": "tab-d",
+              "title": "Stored view",
+              "index": 0
+            },
+            "documentTab": {
+              "body": {
+                "content": [
+                  {
+                    "startIndex": 1,
+                    "endIndex": 18,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 1,
+                          "endIndex": 18,
+                          "textRun": {
+                            "content": "Control stable😀\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 18,
+                    "endIndex": 1738,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 18,
+                          "endIndex": 26,
+                          "textRun": {
+                            "content": "Start😀 ",
+                            "textStyle": {
+                              "italic": false
+                            }
+                          }
+                        },
+                        {
+                          "startIndex": 26,
+                          "endIndex": 32,
+                          "textRun": {
+                            "content": "OLD Ω ",
+                            "textStyle": {
+                              "bold": false
+                            }
+                          }
+                        },
+                        {
+                          "startIndex": 32,
+                          "endIndex": 1738,
+                          "textRun": {
+                            "content": "Tail xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+                            "textStyle": {
+                              "bold": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 1738,
+                    "endIndex": 3458,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 1738,
+                          "endIndex": 3458,
+                          "textRun": {
+                            "content": "Second original é yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n",
+                            "textStyle": {
+                              "fontSize": {
+                                "magnitude": 11,
+                                "unit": "PT"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 3458,
+                    "endIndex": 3478,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 3458,
+                          "endIndex": 3478,
+                          "textRun": {
+                            "content": "UNSELECTED original\n",
+                            "textStyle": {
+                              "underline": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "view": "inline"
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "span": {
+        "from": "snap-d:4",
+        "to": "snap-d:9"
+      }
+    },
+    "format": "structured",
+    "styles": true,
+    "review": true
+  },
+  "controlRead": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:3"
+    },
+    "format": "structured",
+    "styles": true,
+    "review": true
+  },
+  "mainPaths": {
+    "span": {
+      "from": [
+        "tabs",
+        0,
+        "documentTab",
+        "body",
+        "content",
+        1
+      ],
+      "to": [
+        "tabs",
+        0,
+        "documentTab",
+        "body",
+        "content",
+        2
+      ]
+    }
+  },
+  "controlPath": [
+    "tabs",
+    0,
+    "documentTab",
+    "body",
+    "content",
+    0,
+    "paragraph",
+    "elements",
+    0
+  ],
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "5bf309046d5f63c0aea66a23fd65bd12dcf60328f209c851ea7c2c6c8da50809"
+        },
+        "children": [
+          "snap-d:2",
+          "snap-d:4",
+          "snap-d:9",
+          "snap-d:11"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 18
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "1d05375491632ebb7d8b2ad1305cec5710a9f8dcd9e03649e96c9535342ece87"
+        },
+        "children": [
+          "snap-d:3"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 18
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "7154bd7a4b28c08470122009acb9c74cd3f1ebd795bc7d2d87d8bd1c6a82372e"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Control stable😀\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 18,
+          "end": 1745
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "d13036d1c37dae1fd4f1306ec944f2171aef9cf984e8094e822614d810546fcb"
+        },
+        "children": [
+          "snap-d:5",
+          "snap-d:6",
+          "snap-d:7",
+          "snap-d:8"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "text",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 18,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "51ba4fc224d87b9b62405f26a0886ccfae8bb23bfaa8f83f187c72d40e213624"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Start😀 ",
+        "style": {
+          "explicit": {
+            "italic": false
+          },
+          "properties": {
+            "italic": {
+              "value": false,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": false,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:6",
+        "kind": "text",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 26,
+          "end": 33
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            1
+          ],
+          "digest": "3553ada17a2c2a972bd801ddbc57af83fbb3f94fddf9b1654603d9a2f7c0c4d1"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "insert-one"
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "NEW é ",
+        "style": {
+          "explicit": {
+            "bold": false
+          },
+          "properties": {
+            "bold": {
+              "value": false,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": false,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:7",
+        "kind": "text",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 33,
+          "end": 39
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            2
+          ],
+          "digest": "84d76400ca0f484ca0e501a2d56f5ce3c76107f9b1d7af742dcadcf98598cd80"
+        },
+        "children": [],
+        "review": {
+          "suggestedDeletionIds": [
+            "delete-one"
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "OLD Ω ",
+        "style": {
+          "explicit": {
+            "bold": false
+          },
+          "properties": {
+            "bold": {
+              "value": false,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": false,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:8",
+        "kind": "text",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 39,
+          "end": 1745
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            3
+          ],
+          "digest": "7af6dcfc513f0a7df9cb81efc6b0944f6b616a16677bc73b1d5ae307097e9dec"
+        },
+        "children": [],
+        "review": {
+          "suggestedTextStyleChanges": {
+            "style-one": {
+              "textStyle": {
+                "bold": true
+              },
+              "textStyleSuggestionState": {
+                "boldSuggested": true
+              }
+            }
+          }
+        },
+        "extentStatus": "mapped",
+        "text": "Tail xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+        "style": {
+          "explicit": {
+            "bold": false
+          },
+          "properties": {
+            "bold": {
+              "value": false,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": false,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:9",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1745,
+          "end": 3465
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            2
+          ],
+          "digest": "949926a063be6f5c1aa9e2474061901dd49eb45f3b1c8aeddb4a378a17c5043f"
+        },
+        "children": [
+          "snap-d:10"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:10",
+        "kind": "text",
+        "parent": "snap-d:9",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1745,
+          "end": 3465
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            2,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "fb2f425a6bbb8063428fac8b43d743162660812e92a42e8ecf29177fcab24a23"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Second original é yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n",
+        "style": {
+          "explicit": {
+            "fontSize": {
+              "magnitude": 11,
+              "unit": "PT"
+            }
+          },
+          "properties": {
+            "fontSize": {
+              "value": {
+                "magnitude": 11,
+                "unit": "PT"
+              },
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "fontSize": {
+              "atomic": true,
+              "leaves": {
+                "fontSize.magnitude": {
+                  "stored": 11,
+                  "status": "observed"
+                },
+                "fontSize.unit": {
+                  "stored": "PT",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:11",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 3465,
+          "end": 3485
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3
+          ],
+          "digest": "6416ef5d926a14017c31290cc3cadf5e5a1315071da90c5860699d49a05b59fd"
+        },
+        "children": [
+          "snap-d:12"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:12",
+        "kind": "text",
+        "parent": "snap-d:11",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 3465,
+          "end": 3485
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "8dd21a56a6c4199e13aae6fd4c78d464d4e8f3da9fa3ab77b1b2ac02cb5f2cf1"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "UNSELECTED original\n",
+        "style": {
+          "explicit": {
+            "underline": false
+          },
+          "properties": {
+            "underline": {
+              "value": false,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "underline": {
+              "atomic": true,
+              "leaves": {
+                "underline": {
+                  "stored": false,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      }
+    ],
+    "registryEntries": [],
+    "registryReferences": [
+      {
+        "id": "snap-d:reference:1",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:6",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "insert-one",
+        "definitionKind": "suggestionThread",
+        "targets": [],
+        "status": "unresolved",
+        "field": "suggestedInsertionIds",
+        "evidenceDigest": "3553ada17a2c2a972bd801ddbc57af83fbb3f94fddf9b1654603d9a2f7c0c4d1"
+      },
+      {
+        "id": "snap-d:reference:2",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:7",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "delete-one",
+        "definitionKind": "suggestionThread",
+        "targets": [],
+        "status": "unresolved",
+        "field": "suggestedDeletionIds",
+        "evidenceDigest": "84d76400ca0f484ca0e501a2d56f5ce3c76107f9b1d7af742dcadcf98598cd80"
+      },
+      {
+        "id": "snap-d:reference:3",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:8",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "style-one",
+        "definitionKind": "suggestionThread",
+        "targets": [],
+        "status": "unresolved",
+        "field": "suggestedTextStyleChanges",
+        "evidenceDigest": "7af6dcfc513f0a7df9cb81efc6b0944f6b616a16677bc73b1d5ae307097e9dec"
+      }
+    ],
+    "selectedIds": [
+      "snap-d:4",
+      "snap-d:5",
+      "snap-d:6",
+      "snap-d:7",
+      "snap-d:8",
+      "snap-d:9",
+      "snap-d:10"
+    ],
+    "controlIds": [
+      "snap-d:3"
+    ],
+    "unselectedIds": [
+      "snap-d:1",
+      "snap-d:2",
+      "snap-d:11",
+      "snap-d:12"
+    ],
+    "projection": {
+      "records": [
+        {
+          "id": "snap-d:4",
+          "kind": "paragraph",
+          "parent": "snap-d:1",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 18,
+            "end": 1745
+          },
+          "children": [
+            "snap-d:5",
+            "snap-d:6",
+            "snap-d:7",
+            "snap-d:8"
+          ],
+          "review": {},
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "d13036d1c37dae1fd4f1306ec944f2171aef9cf984e8094e822614d810546fcb"
+        },
+        {
+          "id": "snap-d:5",
+          "kind": "text",
+          "parent": "snap-d:4",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 18,
+            "end": 26
+          },
+          "children": [],
+          "review": {},
+          "extentStatus": "mapped",
+          "text": "Start😀 ",
+          "style": {
+            "explicit": {
+              "italic": false
+            },
+            "properties": {
+              "italic": {
+                "value": false,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": false,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "51ba4fc224d87b9b62405f26a0886ccfae8bb23bfaa8f83f187c72d40e213624"
+        },
+        {
+          "id": "snap-d:6",
+          "kind": "text",
+          "parent": "snap-d:4",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 26,
+            "end": 33
+          },
+          "children": [],
+          "review": {
+            "suggestedInsertionIds": [
+              "insert-one"
+            ]
+          },
+          "extentStatus": "mapped",
+          "text": "NEW é ",
+          "style": {
+            "explicit": {
+              "bold": false
+            },
+            "properties": {
+              "bold": {
+                "value": false,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": false,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "3553ada17a2c2a972bd801ddbc57af83fbb3f94fddf9b1654603d9a2f7c0c4d1"
+        },
+        {
+          "id": "snap-d:7",
+          "kind": "text",
+          "parent": "snap-d:4",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 33,
+            "end": 39
+          },
+          "children": [],
+          "review": {
+            "suggestedDeletionIds": [
+              "delete-one"
+            ]
+          },
+          "extentStatus": "mapped",
+          "text": "OLD Ω ",
+          "style": {
+            "explicit": {
+              "bold": false
+            },
+            "properties": {
+              "bold": {
+                "value": false,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": false,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "84d76400ca0f484ca0e501a2d56f5ce3c76107f9b1d7af742dcadcf98598cd80"
+        },
+        {
+          "id": "snap-d:8",
+          "kind": "text",
+          "parent": "snap-d:4",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 39,
+            "end": 1745
+          },
+          "children": [],
+          "review": {
+            "suggestedTextStyleChanges": {
+              "style-one": {
+                "textStyle": {
+                  "bold": true
+                },
+                "textStyleSuggestionState": {
+                  "boldSuggested": true
+                }
+              }
+            }
+          },
+          "extentStatus": "mapped",
+          "text": "Tail xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+          "style": {
+            "explicit": {
+              "bold": false
+            },
+            "properties": {
+              "bold": {
+                "value": false,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": false,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "7af6dcfc513f0a7df9cb81efc6b0944f6b616a16677bc73b1d5ae307097e9dec"
+        },
+        {
+          "id": "snap-d:9",
+          "kind": "paragraph",
+          "parent": "snap-d:1",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 1745,
+            "end": 3465
+          },
+          "children": [
+            "snap-d:10"
+          ],
+          "review": {},
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "949926a063be6f5c1aa9e2474061901dd49eb45f3b1c8aeddb4a378a17c5043f"
+        },
+        {
+          "id": "snap-d:10",
+          "kind": "text",
+          "parent": "snap-d:9",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 1745,
+            "end": 3465
+          },
+          "children": [],
+          "review": {},
+          "extentStatus": "mapped",
+          "text": "Second original é yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n",
+          "style": {
+            "explicit": {
+              "fontSize": {
+                "magnitude": 11,
+                "unit": "PT"
+              }
+            },
+            "properties": {
+              "fontSize": {
+                "value": {
+                  "magnitude": 11,
+                  "unit": "PT"
+                },
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "fontSize": {
+                "atomic": true,
+                "leaves": {
+                  "fontSize.magnitude": {
+                    "stored": 11,
+                    "status": "observed"
+                  },
+                  "fontSize.unit": {
+                    "stored": "PT",
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "fb2f425a6bbb8063428fac8b43d743162660812e92a42e8ecf29177fcab24a23"
+        }
+      ],
+      "losses": [],
+      "nodeAspects": {
+        "snap-d:4": [
+          "content",
+          "styles",
+          "review"
+        ],
+        "snap-d:5": [
+          "content",
+          "styles",
+          "review"
+        ],
+        "snap-d:6": [
+          "content",
+          "styles",
+          "review"
+        ],
+        "snap-d:7": [
+          "content",
+          "styles",
+          "review"
+        ],
+        "snap-d:8": [
+          "content",
+          "styles",
+          "review"
+        ],
+        "snap-d:9": [
+          "content",
+          "styles",
+          "review"
+        ],
+        "snap-d:10": [
+          "content",
+          "styles",
+          "review"
+        ]
+      },
+      "aspects": [
+        "content",
+        "styles",
+        "review"
+      ],
+      "missingAspects": [],
+      "projection": "structured"
+    },
+    "controlProjection": {
+      "records": [
+        {
+          "id": "snap-d:3",
+          "kind": "text",
+          "parent": "snap-d:2",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 1,
+            "end": 18
+          },
+          "children": [],
+          "review": {},
+          "extentStatus": "mapped",
+          "text": "Control stable😀\n",
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "7154bd7a4b28c08470122009acb9c74cd3f1ebd795bc7d2d87d8bd1c6a82372e"
+        }
+      ],
+      "losses": [],
+      "nodeAspects": {
+        "snap-d:3": [
+          "content",
+          "styles",
+          "review"
+        ]
+      },
+      "aspects": [
+        "content",
+        "styles",
+        "review"
+      ],
+      "missingAspects": [],
+      "projection": "structured"
+    },
+    "currentEditEvidence": true,
+    "missingReviewCoverage": false,
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}

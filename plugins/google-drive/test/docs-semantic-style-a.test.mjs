@@ -1,0 +1,62 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { businessDocument } from '../features/docs/support/scope-a-checks.mjs';
+import { materialize } from '../core/docs-semantic/model.mjs';
+import { project, resolveReadSelection } from '../core/docs-semantic/reader.mjs';
+import { semanticScope as scope } from '../features/docs/support/semantic-world.mjs';
+const binding={snapshotId:'style-snapshot',subject:'subject-a',account:'writer@example.test',threadId:'thread-a',documentId:'doc-a',view:'inline',retrievedAt:0};
+const model=document=>materialize({document,metadata:{id:'doc-a'},binding,reviewIncluded:true});
+test('style provenance follows named then NORMAL_TEXT, explicit false wins, links never inherit',()=>{
+  const d=businessDocument(),tab=d.tabs[0].documentTab;
+  tab.namedStyles.styles[0].textStyle.link={url:'https://example.test/not-inherited'};
+  tab.body.content[1].paragraph.elements[0].textRun.textStyle={bold:false};
+  const m=model(d),heading=Object.values(m.nodes).find(n=>n.text==='Market\n');
+  assert.deepEqual(heading.style.properties.bold,{value:false,provenance:'direct'});
+  assert.deepEqual(heading.style.propertyEvidence.bold.inherited,{value:true,provenance:'named',source:'HEADING_1'});
+  assert.deepEqual(heading.style.properties.fontSize,{value:{magnitude:11,unit:'PT'},provenance:'named',source:'NORMAL_TEXT'});
+  assert.equal(heading.style.properties.link,undefined);
+  const linked=Object.values(m.nodes).find(n=>n.text==='plan\n');
+  assert.deepEqual(linked.style.properties.link,{value:{url:'https://example.test/plan'},provenance:'direct'});
+});
+test('partial font, dimension and border properties never recursively borrow members',()=>{
+  const d=businessDocument(),tab=d.tabs[0].documentTab;
+  tab.namedStyles.styles[0].paragraphStyle.borderBottom={color:{},width:{magnitude:1,unit:'PT'},padding:{magnitude:2,unit:'PT'},dashStyle:'SOLID'};
+  tab.body.content[2].paragraph.paragraphStyle.borderBottom={width:{magnitude:3}};
+  tab.body.content[2].paragraph.elements[0].textRun.textStyle.fontSize={magnitude:12};
+  const m=model(d),run=Object.values(m.nodes).find(n=>n.text==='Our '),paragraph=m.nodes[run.parent];
+  assert.deepEqual(run.style.properties.weightedFontFamily.value,{fontFamily:'Lato'});
+  assert.deepEqual(run.style.propertyEvidence.weightedFontFamily.missing,['weightedFontFamily.weight']);
+  assert.deepEqual(run.style.properties.fontSize.value,{magnitude:12});
+  assert.equal(run.style.propertyEvidence.fontSize.effectiveStatus,'partialOrUnknown');
+  assert.deepEqual(paragraph.style.properties.borderBottom.value,{width:{magnitude:3}});
+  assert.equal(paragraph.style.propertyEvidence.borderBottom.effectiveStatus,'partialOrUnknown');
+});
+test('missing named definitions and unrecognized style fields stay explicit unknown evidence',()=>{
+  const d=businessDocument(),tab=d.tabs[0].documentTab;
+  tab.body.content[2].paragraph.paragraphStyle.namedStyleType='HEADING_6';
+  tab.body.content[2].paragraph.elements[0].textRun.textStyle={futureFont:{axis:7},fontSize:{magnitude:12,unit:'PT',futureUnit:true}};
+  const m=model(d),run=Object.values(m.nodes).find(n=>n.text==='Our ');
+  assert.equal(run.style.missingNamedStyle,'HEADING_6');assert.equal(run.style.properties.bold,undefined);
+  assert.equal(run.style.properties.futureFont.provenance,'unknown');
+  assert.deepEqual(run.style.propertyEvidence.fontSize.unknown,['fontSize.futureUnit']);
+  const p=project(m,resolveReadSelection(m,scope,{node:run.id}),{format:'structured',styles:false});
+  assert.ok(p.losses.some(l=>l.kind==='styleAnnotationOmitted'));assert.ok(!p.nodeAspects[run.id].includes('styles'));
+  const diagnostics=project(m,resolveReadSelection(m,scope),{format:'structured',registries:['styles']});
+  assert.ok(diagnostics.records.some(r=>r.kind==='registryReference'&&r.providerId==='HEADING_6'&&r.status==='unresolved'));
+});
+test('pageless stored page values stay present without effective rendering claims',()=>{
+  const m=model(businessDocument());
+  const p=project(m,resolveReadSelection(m,scope),{format:'structured',registries:['styles']});
+  const style=p.records.find(r=>r.kind==='documentStyle').style;
+  assert.deepEqual(style.properties.marginTop.stored,{magnitude:72,unit:'PT'});
+  assert.deepEqual(style.properties.marginTop.effective,{status:'notApplicableInPageless'});
+  assert.equal(style.rendering,'notVerified');assert.equal(style.absent,'unknown');
+});
+test('non-inherited paragraph direction/heading IDs and unspecified inheritance enums do not merge',()=>{
+  const d=businessDocument(),tab=d.tabs[0].documentTab;
+  tab.namedStyles.styles[0].paragraphStyle={direction:'RIGHT_TO_LEFT',headingId:'not-a-heading',tabStops:[{offset:{magnitude:12,unit:'PT'}}],alignment:'END'};
+  tab.body.content[2].paragraph.paragraphStyle.alignment='ALIGNMENT_UNSPECIFIED';
+  const m=model(d),run=Object.values(m.nodes).find(n=>n.text==='Our '),p=m.nodes[run.parent];
+  assert.equal(p.style.properties.direction,undefined);assert.equal(p.style.properties.headingId,undefined);assert.equal(p.style.properties.tabStops,undefined);
+  assert.deepEqual(p.style.properties.alignment,{value:'END',provenance:'named',source:'NORMAL_TEXT'});
+});

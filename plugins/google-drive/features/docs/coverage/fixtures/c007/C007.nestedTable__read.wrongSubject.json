@@ -1,0 +1,2748 @@
+{
+  "provenance": {
+    "source": "c007/generate.mjs: authored physical rich-cell vectors",
+    "authorship": "Independent literal topology, scalar/run/style and projection facts; no production oracle"
+  },
+  "caseId": "C007.nestedTable__read.wrongSubject",
+  "variant": "nestedTable",
+  "outcome": "wrongSubject",
+  "pageBytes": 6000,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent C007 rich cells",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "7",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent C007 rich cells",
+      "revisionId": "rev-c007",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Cells",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 498,
+                  "table": {
+                    "rows": 1,
+                    "columns": 2,
+                    "tableRows": [
+                      {
+                        "startIndex": 2,
+                        "endIndex": 497,
+                        "tableCells": [
+                          {
+                            "startIndex": 3,
+                            "endIndex": 483,
+                            "tableCellStyle": {
+                              "rowSpan": 1,
+                              "columnSpan": 1
+                            },
+                            "content": [
+                              {
+                                "startIndex": 4,
+                                "endIndex": 18,
+                                "paragraph": {
+                                  "elements": [
+                                    {
+                                      "startIndex": 4,
+                                      "endIndex": 18,
+                                      "textRun": {
+                                        "content": "Before nested\n",
+                                        "textStyle": {
+                                          "bold": true
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "startIndex": 18,
+                                "endIndex": 469,
+                                "table": {
+                                  "rows": 2,
+                                  "columns": 2,
+                                  "tableRows": [
+                                    {
+                                      "startIndex": 19,
+                                      "endIndex": 443,
+                                      "tableCells": [
+                                        {
+                                          "startIndex": 20,
+                                          "endIndex": 432,
+                                          "tableCellStyle": {
+                                            "rowSpan": 1,
+                                            "columnSpan": 1
+                                          },
+                                          "content": [
+                                            {
+                                              "startIndex": 21,
+                                              "endIndex": 432,
+                                              "paragraph": {
+                                                "elements": [
+                                                  {
+                                                    "startIndex": 21,
+                                                    "endIndex": 432,
+                                                    "textRun": {
+                                                      "content": "Inner A😀 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+                                                      "textStyle": {
+                                                        "bold": true
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "startIndex": 433,
+                                          "endIndex": 442,
+                                          "tableCellStyle": {
+                                            "rowSpan": 1,
+                                            "columnSpan": 1
+                                          },
+                                          "content": [
+                                            {
+                                              "startIndex": 434,
+                                              "endIndex": 442,
+                                              "paragraph": {
+                                                "elements": [
+                                                  {
+                                                    "startIndex": 434,
+                                                    "endIndex": 442,
+                                                    "textRun": {
+                                                      "content": "Inner B\n",
+                                                      "textStyle": {
+                                                        "italic": true
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "startIndex": 444,
+                                      "endIndex": 468,
+                                      "tableCells": [
+                                        {
+                                          "startIndex": 445,
+                                          "endIndex": 457,
+                                          "tableCellStyle": {
+                                            "rowSpan": 1,
+                                            "columnSpan": 1
+                                          },
+                                          "content": [
+                                            {
+                                              "startIndex": 446,
+                                              "endIndex": 457,
+                                              "paragraph": {
+                                                "elements": [
+                                                  {
+                                                    "startIndex": 446,
+                                                    "endIndex": 457,
+                                                    "textRun": {
+                                                      "content": "Inner C é\n",
+                                                      "textStyle": {
+                                                        "bold": false
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "startIndex": 458,
+                                          "endIndex": 467,
+                                          "tableCellStyle": {
+                                            "rowSpan": 1,
+                                            "columnSpan": 1
+                                          },
+                                          "content": [
+                                            {
+                                              "startIndex": 459,
+                                              "endIndex": 467,
+                                              "paragraph": {
+                                                "elements": [
+                                                  {
+                                                    "startIndex": 459,
+                                                    "endIndex": 467,
+                                                    "textRun": {
+                                                      "content": "Inner D\n",
+                                                      "textStyle": {
+                                                        "fontSize": {
+                                                          "magnitude": 11,
+                                                          "unit": "PT"
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "startIndex": 470,
+                                "endIndex": 483,
+                                "paragraph": {
+                                  "elements": [
+                                    {
+                                      "startIndex": 470,
+                                      "endIndex": 483,
+                                      "textRun": {
+                                        "content": "After nested\n",
+                                        "textStyle": {
+                                          "italic": true
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "startIndex": 484,
+                            "endIndex": 496,
+                            "tableCellStyle": {
+                              "rowSpan": 1,
+                              "columnSpan": 1
+                            },
+                            "content": [
+                              {
+                                "startIndex": 485,
+                                "endIndex": 496,
+                                "paragraph": {
+                                  "elements": [
+                                    {
+                                      "startIndex": 485,
+                                      "endIndex": 496,
+                                      "textRun": {
+                                        "content": "NEIGHBOR Ω\n",
+                                        "textStyle": {
+                                          "bold": false
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 499,
+                  "endIndex": 507,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 499,
+                        "endIndex": 507,
+                        "textRun": {
+                          "content": "OUTSIDE\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "commentsDenied": false,
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    }
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:4"
+    },
+    "format": "structured",
+    "styles": true
+  },
+  "cellPath": [
+    "tabs",
+    0,
+    "documentTab",
+    "body",
+    "content",
+    0,
+    "table",
+    "tableRows",
+    0,
+    "tableCells",
+    0
+  ],
+  "mainPaths": {
+    "node": [
+      "tabs",
+      0,
+      "documentTab",
+      "body",
+      "content",
+      0,
+      "table",
+      "tableRows",
+      0,
+      "tableCells",
+      0
+    ]
+  },
+  "invalidPaths": {
+    "span": {
+      "from": [
+        "tabs",
+        0,
+        "documentTab",
+        "body",
+        "content",
+        0,
+        "table",
+        "tableRows",
+        0,
+        "tableCells",
+        0,
+        "content",
+        2
+      ],
+      "to": [
+        "tabs",
+        0,
+        "documentTab",
+        "body",
+        "content",
+        0,
+        "table",
+        "tableRows",
+        0,
+        "tableCells",
+        0,
+        "content",
+        0
+      ]
+    }
+  },
+  "controlPaths": {
+    "node": [
+      "tabs",
+      0,
+      "documentTab",
+      "body",
+      "content",
+      0,
+      "table",
+      "tableRows",
+      0,
+      "tableCells",
+      0,
+      "content",
+      1,
+      "table",
+      "tableRows",
+      0,
+      "tableCells",
+      0
+    ]
+  },
+  "controlRead": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:9"
+    },
+    "format": "structured",
+    "styles": true
+  },
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "fc5b39ea2adc0cc0eb0b54a9e50b7b4ccd45b753723981ac371c31435d2fd2f3"
+        },
+        "children": [
+          "snap-d:2",
+          "snap-d:27"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "table",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 498
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "09472eaeb58a5155540b4c17eca46d918f673b31f8fc970419f9b02364bd17a0"
+        },
+        "children": [
+          "snap-d:3"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "grid": [
+          [
+            "snap-d:4",
+            "snap-d:24"
+          ]
+        ],
+        "style": {}
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "tableRow",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 2,
+          "end": 497
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0
+          ],
+          "digest": "440e850fa9e0a529293ebbd9e394369991d5d87bc5053c4d4ca74e6fdd3f245e"
+        },
+        "children": [
+          "snap-d:4",
+          "snap-d:24"
+        ],
+        "style": {},
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "tableCell",
+        "parent": "snap-d:3",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 3,
+          "end": 483
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0
+          ],
+          "digest": "38c56cefc3edfec923fa107febfee8b7ecddefd540db1be1a00478c8a9330b2d"
+        },
+        "children": [
+          "snap-d:5",
+          "snap-d:7",
+          "snap-d:22"
+        ],
+        "origin": {
+          "row": 0,
+          "column": 0
+        },
+        "rowSpan": 1,
+        "columnSpan": 1,
+        "style": {
+          "rowSpan": 1,
+          "columnSpan": 1
+        },
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "paragraph",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 4,
+          "end": 18
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            0
+          ],
+          "digest": "c5da51bf2857a85cc337f1c944737645eea68be850f98e7bd7f7c78aea362738"
+        },
+        "children": [
+          "snap-d:6"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:6",
+        "kind": "text",
+        "parent": "snap-d:5",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 4,
+          "end": 18
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "c2a719783a4b50586b231761ff5a706011643b2ca0bc4829d03eb055da12fac7"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Before nested\n",
+        "style": {
+          "explicit": {
+            "bold": true
+          },
+          "properties": {
+            "bold": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:7",
+        "kind": "table",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 18,
+          "end": 469
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1
+          ],
+          "digest": "ee28c7d927c5ed4790cf7aadad996f4b740be436ae29b494a25d99f469da9577"
+        },
+        "children": [
+          "snap-d:8",
+          "snap-d:15"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "grid": [
+          [
+            "snap-d:9",
+            "snap-d:12"
+          ],
+          [
+            "snap-d:16",
+            "snap-d:19"
+          ]
+        ],
+        "style": {}
+      },
+      {
+        "id": "snap-d:8",
+        "kind": "tableRow",
+        "parent": "snap-d:7",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 19,
+          "end": 443
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            0
+          ],
+          "digest": "8ffab5c6b490550b13a6d1aba0f340386f97b35b7c8fa2f3132c1a7d24d76bba"
+        },
+        "children": [
+          "snap-d:9",
+          "snap-d:12"
+        ],
+        "style": {},
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:9",
+        "kind": "tableCell",
+        "parent": "snap-d:8",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 20,
+          "end": 432
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0
+          ],
+          "digest": "b18a2a06c6ed573f67060cab99e7b9858f095abcc570f3a28138b96bc437d04d"
+        },
+        "children": [
+          "snap-d:10"
+        ],
+        "origin": {
+          "row": 0,
+          "column": 0
+        },
+        "rowSpan": 1,
+        "columnSpan": 1,
+        "style": {
+          "rowSpan": 1,
+          "columnSpan": 1
+        },
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:10",
+        "kind": "paragraph",
+        "parent": "snap-d:9",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 21,
+          "end": 432
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            0
+          ],
+          "digest": "f08a366f8f18f7566074ca60eee9efac0a4eb1a6f592a3acb17f597388d86848"
+        },
+        "children": [
+          "snap-d:11"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:11",
+        "kind": "text",
+        "parent": "snap-d:10",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 21,
+          "end": 432
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "6380f8b87fd9aa21a7e4a88c8e9a8ace28fa50e46ce381cb67ffbcecdd14d3f4"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Inner A😀 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "style": {
+          "explicit": {
+            "bold": true
+          },
+          "properties": {
+            "bold": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:12",
+        "kind": "tableCell",
+        "parent": "snap-d:8",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 433,
+          "end": 442
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            1
+          ],
+          "digest": "e611b823f48654c9e0bf9484aaefcdf2e846f9bca5ff487a42aa4c81ea76c2c3"
+        },
+        "children": [
+          "snap-d:13"
+        ],
+        "origin": {
+          "row": 0,
+          "column": 1
+        },
+        "rowSpan": 1,
+        "columnSpan": 1,
+        "style": {
+          "rowSpan": 1,
+          "columnSpan": 1
+        },
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:13",
+        "kind": "paragraph",
+        "parent": "snap-d:12",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 434,
+          "end": 442
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            1,
+            "content",
+            0
+          ],
+          "digest": "38a8657624c9305f5eaae6fa56d7366af15f138db32fef0554d1373d20c11c4f"
+        },
+        "children": [
+          "snap-d:14"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:14",
+        "kind": "text",
+        "parent": "snap-d:13",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 434,
+          "end": 442
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            1,
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "524263da9d96ca8fadac374978e693adc9d7442118aab14711d8008dd8f60f07"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Inner B\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:15",
+        "kind": "tableRow",
+        "parent": "snap-d:7",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 444,
+          "end": 468
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            1
+          ],
+          "digest": "77ffa1e5cd6bd2e6c328f0a9bf607593d9bccb823b14c55705a5827a1b6ac304"
+        },
+        "children": [
+          "snap-d:16",
+          "snap-d:19"
+        ],
+        "style": {},
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:16",
+        "kind": "tableCell",
+        "parent": "snap-d:15",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 445,
+          "end": 457
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            1,
+            "tableCells",
+            0
+          ],
+          "digest": "97ad4f1b70b46f2448b35c2aa32920d78c9c31c78a24db428c1ffbf351525147"
+        },
+        "children": [
+          "snap-d:17"
+        ],
+        "origin": {
+          "row": 1,
+          "column": 0
+        },
+        "rowSpan": 1,
+        "columnSpan": 1,
+        "style": {
+          "rowSpan": 1,
+          "columnSpan": 1
+        },
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:17",
+        "kind": "paragraph",
+        "parent": "snap-d:16",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 446,
+          "end": 457
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            1,
+            "tableCells",
+            0,
+            "content",
+            0
+          ],
+          "digest": "1a22f4b7631e20759fc6a629813641e6bf0efd2635fb5058998fe0b738124f81"
+        },
+        "children": [
+          "snap-d:18"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:18",
+        "kind": "text",
+        "parent": "snap-d:17",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 446,
+          "end": 457
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            1,
+            "tableCells",
+            0,
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "4770936e17484befd79af612cc10dfdcb2be8b8f0faf5d68c918ac6cfeab2124"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Inner C é\n",
+        "style": {
+          "explicit": {
+            "bold": false
+          },
+          "properties": {
+            "bold": {
+              "value": false,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": false,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:19",
+        "kind": "tableCell",
+        "parent": "snap-d:15",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 458,
+          "end": 467
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            1,
+            "tableCells",
+            1
+          ],
+          "digest": "c899fc56ee9e3233c842d8dfb7fb1bd12a3035f8b5906f936073028a9f37638a"
+        },
+        "children": [
+          "snap-d:20"
+        ],
+        "origin": {
+          "row": 1,
+          "column": 1
+        },
+        "rowSpan": 1,
+        "columnSpan": 1,
+        "style": {
+          "rowSpan": 1,
+          "columnSpan": 1
+        },
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:20",
+        "kind": "paragraph",
+        "parent": "snap-d:19",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 459,
+          "end": 467
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            1,
+            "tableCells",
+            1,
+            "content",
+            0
+          ],
+          "digest": "ce057bb6fa0805c3f8a0e06304577a32836fd87fc0776f5b5aa399aa38d9fdc5"
+        },
+        "children": [
+          "snap-d:21"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:21",
+        "kind": "text",
+        "parent": "snap-d:20",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 459,
+          "end": 467
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "table",
+            "tableRows",
+            1,
+            "tableCells",
+            1,
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "3b4dd747bfa45517c36d8eb07e667a25f6e2aa675d6d80bf96bc96d2956dc5da"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Inner D\n",
+        "style": {
+          "explicit": {
+            "fontSize": {
+              "magnitude": 11,
+              "unit": "PT"
+            }
+          },
+          "properties": {
+            "fontSize": {
+              "value": {
+                "magnitude": 11,
+                "unit": "PT"
+              },
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "fontSize": {
+              "atomic": true,
+              "leaves": {
+                "fontSize.magnitude": {
+                  "stored": 11,
+                  "status": "observed"
+                },
+                "fontSize.unit": {
+                  "stored": "PT",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:22",
+        "kind": "paragraph",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 470,
+          "end": 483
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            2
+          ],
+          "digest": "7c0f6d4731173e6dc5a05cb7ff6f3bdd3783722b4e17f91f50edbdf5c18a5d37"
+        },
+        "children": [
+          "snap-d:23"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:23",
+        "kind": "text",
+        "parent": "snap-d:22",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 470,
+          "end": 483
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            2,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "86a54ef72e00364d29ddd719dd6704dda013fa3b07b6aa77bd8342a9da779bcc"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "After nested\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:24",
+        "kind": "tableCell",
+        "parent": "snap-d:3",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 484,
+          "end": 496
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            1
+          ],
+          "digest": "37a3acea62a981e3b17ec982b1e5b4f4e9eda04225bb2ddc704aca3224951658"
+        },
+        "children": [
+          "snap-d:25"
+        ],
+        "origin": {
+          "row": 0,
+          "column": 1
+        },
+        "rowSpan": 1,
+        "columnSpan": 1,
+        "style": {
+          "rowSpan": 1,
+          "columnSpan": 1
+        },
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:25",
+        "kind": "paragraph",
+        "parent": "snap-d:24",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 485,
+          "end": 496
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            1,
+            "content",
+            0
+          ],
+          "digest": "46d164a700ad65ed329d0363c99cb86d07cda06bdcd2e72232ce8b20f80cff69"
+        },
+        "children": [
+          "snap-d:26"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:26",
+        "kind": "text",
+        "parent": "snap-d:25",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 485,
+          "end": 496
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            1,
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "7468576b636c491e23a17f53daa0caa5ff69cc88a81686b0a65c4668ebe28a8a"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "NEIGHBOR Ω\n",
+        "style": {
+          "explicit": {
+            "bold": false
+          },
+          "properties": {
+            "bold": {
+              "value": false,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": false,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:27",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 499,
+          "end": 507
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "1a38dd73dd4bb8b959840cd395b9ee7277d540e342f34a99cb87f81f173c2b3f"
+        },
+        "children": [
+          "snap-d:28"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:28",
+        "kind": "text",
+        "parent": "snap-d:27",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 499,
+          "end": 507
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "b16a3c109e67772ae0345ccac8d3501a528616ca0bd11d64a5cc9b6fd97b7eba"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "OUTSIDE\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      }
+    ],
+    "registryEntries": [],
+    "registryReferences": [],
+    "selectedIds": [
+      "snap-d:4",
+      "snap-d:5",
+      "snap-d:6",
+      "snap-d:7",
+      "snap-d:8",
+      "snap-d:9",
+      "snap-d:10",
+      "snap-d:11",
+      "snap-d:12",
+      "snap-d:13",
+      "snap-d:14",
+      "snap-d:15",
+      "snap-d:16",
+      "snap-d:17",
+      "snap-d:18",
+      "snap-d:19",
+      "snap-d:20",
+      "snap-d:21",
+      "snap-d:22",
+      "snap-d:23"
+    ],
+    "unselectedIds": [
+      "snap-d:24",
+      "snap-d:25",
+      "snap-d:26",
+      "snap-d:27",
+      "snap-d:28"
+    ],
+    "projection": {
+      "records": [
+        {
+          "id": "snap-d:4",
+          "kind": "tableCell",
+          "parent": "snap-d:3",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 3,
+            "end": 483
+          },
+          "children": [
+            "snap-d:5",
+            "snap-d:7",
+            "snap-d:22"
+          ],
+          "origin": {
+            "row": 0,
+            "column": 0
+          },
+          "rowSpan": 1,
+          "columnSpan": 1,
+          "style": {
+            "rowSpan": 1,
+            "columnSpan": 1
+          },
+          "extentStatus": "mapped",
+          "evidenceDigest": "38c56cefc3edfec923fa107febfee8b7ecddefd540db1be1a00478c8a9330b2d"
+        },
+        {
+          "id": "snap-d:5",
+          "kind": "paragraph",
+          "parent": "snap-d:4",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 4,
+            "end": 18
+          },
+          "children": [
+            "snap-d:6"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "c5da51bf2857a85cc337f1c944737645eea68be850f98e7bd7f7c78aea362738"
+        },
+        {
+          "id": "snap-d:6",
+          "kind": "text",
+          "parent": "snap-d:5",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 4,
+            "end": 18
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Before nested\n",
+          "style": {
+            "explicit": {
+              "bold": true
+            },
+            "properties": {
+              "bold": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "c2a719783a4b50586b231761ff5a706011643b2ca0bc4829d03eb055da12fac7"
+        },
+        {
+          "id": "snap-d:7",
+          "kind": "table",
+          "parent": "snap-d:4",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 18,
+            "end": 469
+          },
+          "children": [
+            "snap-d:8",
+            "snap-d:15"
+          ],
+          "extentStatus": "mapped",
+          "grid": [
+            [
+              "snap-d:9",
+              "snap-d:12"
+            ],
+            [
+              "snap-d:16",
+              "snap-d:19"
+            ]
+          ],
+          "style": {},
+          "evidenceDigest": "ee28c7d927c5ed4790cf7aadad996f4b740be436ae29b494a25d99f469da9577"
+        },
+        {
+          "id": "snap-d:8",
+          "kind": "tableRow",
+          "parent": "snap-d:7",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 19,
+            "end": 443
+          },
+          "children": [
+            "snap-d:9",
+            "snap-d:12"
+          ],
+          "style": {},
+          "extentStatus": "mapped",
+          "evidenceDigest": "8ffab5c6b490550b13a6d1aba0f340386f97b35b7c8fa2f3132c1a7d24d76bba"
+        },
+        {
+          "id": "snap-d:9",
+          "kind": "tableCell",
+          "parent": "snap-d:8",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 20,
+            "end": 432
+          },
+          "children": [
+            "snap-d:10"
+          ],
+          "origin": {
+            "row": 0,
+            "column": 0
+          },
+          "rowSpan": 1,
+          "columnSpan": 1,
+          "style": {
+            "rowSpan": 1,
+            "columnSpan": 1
+          },
+          "extentStatus": "mapped",
+          "evidenceDigest": "b18a2a06c6ed573f67060cab99e7b9858f095abcc570f3a28138b96bc437d04d"
+        },
+        {
+          "id": "snap-d:10",
+          "kind": "paragraph",
+          "parent": "snap-d:9",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 21,
+            "end": 432
+          },
+          "children": [
+            "snap-d:11"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "f08a366f8f18f7566074ca60eee9efac0a4eb1a6f592a3acb17f597388d86848"
+        },
+        {
+          "id": "snap-d:11",
+          "kind": "text",
+          "parent": "snap-d:10",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 21,
+            "end": 432
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Inner A😀 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+          "style": {
+            "explicit": {
+              "bold": true
+            },
+            "properties": {
+              "bold": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "6380f8b87fd9aa21a7e4a88c8e9a8ace28fa50e46ce381cb67ffbcecdd14d3f4"
+        },
+        {
+          "id": "snap-d:12",
+          "kind": "tableCell",
+          "parent": "snap-d:8",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 433,
+            "end": 442
+          },
+          "children": [
+            "snap-d:13"
+          ],
+          "origin": {
+            "row": 0,
+            "column": 1
+          },
+          "rowSpan": 1,
+          "columnSpan": 1,
+          "style": {
+            "rowSpan": 1,
+            "columnSpan": 1
+          },
+          "extentStatus": "mapped",
+          "evidenceDigest": "e611b823f48654c9e0bf9484aaefcdf2e846f9bca5ff487a42aa4c81ea76c2c3"
+        },
+        {
+          "id": "snap-d:13",
+          "kind": "paragraph",
+          "parent": "snap-d:12",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 434,
+            "end": 442
+          },
+          "children": [
+            "snap-d:14"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "38a8657624c9305f5eaae6fa56d7366af15f138db32fef0554d1373d20c11c4f"
+        },
+        {
+          "id": "snap-d:14",
+          "kind": "text",
+          "parent": "snap-d:13",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 434,
+            "end": 442
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Inner B\n",
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "524263da9d96ca8fadac374978e693adc9d7442118aab14711d8008dd8f60f07"
+        },
+        {
+          "id": "snap-d:15",
+          "kind": "tableRow",
+          "parent": "snap-d:7",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 444,
+            "end": 468
+          },
+          "children": [
+            "snap-d:16",
+            "snap-d:19"
+          ],
+          "style": {},
+          "extentStatus": "mapped",
+          "evidenceDigest": "77ffa1e5cd6bd2e6c328f0a9bf607593d9bccb823b14c55705a5827a1b6ac304"
+        },
+        {
+          "id": "snap-d:16",
+          "kind": "tableCell",
+          "parent": "snap-d:15",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 445,
+            "end": 457
+          },
+          "children": [
+            "snap-d:17"
+          ],
+          "origin": {
+            "row": 1,
+            "column": 0
+          },
+          "rowSpan": 1,
+          "columnSpan": 1,
+          "style": {
+            "rowSpan": 1,
+            "columnSpan": 1
+          },
+          "extentStatus": "mapped",
+          "evidenceDigest": "97ad4f1b70b46f2448b35c2aa32920d78c9c31c78a24db428c1ffbf351525147"
+        },
+        {
+          "id": "snap-d:17",
+          "kind": "paragraph",
+          "parent": "snap-d:16",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 446,
+            "end": 457
+          },
+          "children": [
+            "snap-d:18"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "1a22f4b7631e20759fc6a629813641e6bf0efd2635fb5058998fe0b738124f81"
+        },
+        {
+          "id": "snap-d:18",
+          "kind": "text",
+          "parent": "snap-d:17",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 446,
+            "end": 457
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Inner C é\n",
+          "style": {
+            "explicit": {
+              "bold": false
+            },
+            "properties": {
+              "bold": {
+                "value": false,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": false,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "4770936e17484befd79af612cc10dfdcb2be8b8f0faf5d68c918ac6cfeab2124"
+        },
+        {
+          "id": "snap-d:19",
+          "kind": "tableCell",
+          "parent": "snap-d:15",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 458,
+            "end": 467
+          },
+          "children": [
+            "snap-d:20"
+          ],
+          "origin": {
+            "row": 1,
+            "column": 1
+          },
+          "rowSpan": 1,
+          "columnSpan": 1,
+          "style": {
+            "rowSpan": 1,
+            "columnSpan": 1
+          },
+          "extentStatus": "mapped",
+          "evidenceDigest": "c899fc56ee9e3233c842d8dfb7fb1bd12a3035f8b5906f936073028a9f37638a"
+        },
+        {
+          "id": "snap-d:20",
+          "kind": "paragraph",
+          "parent": "snap-d:19",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 459,
+            "end": 467
+          },
+          "children": [
+            "snap-d:21"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "ce057bb6fa0805c3f8a0e06304577a32836fd87fc0776f5b5aa399aa38d9fdc5"
+        },
+        {
+          "id": "snap-d:21",
+          "kind": "text",
+          "parent": "snap-d:20",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 459,
+            "end": 467
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Inner D\n",
+          "style": {
+            "explicit": {
+              "fontSize": {
+                "magnitude": 11,
+                "unit": "PT"
+              }
+            },
+            "properties": {
+              "fontSize": {
+                "value": {
+                  "magnitude": 11,
+                  "unit": "PT"
+                },
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "fontSize": {
+                "atomic": true,
+                "leaves": {
+                  "fontSize.magnitude": {
+                    "stored": 11,
+                    "status": "observed"
+                  },
+                  "fontSize.unit": {
+                    "stored": "PT",
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "3b4dd747bfa45517c36d8eb07e667a25f6e2aa675d6d80bf96bc96d2956dc5da"
+        },
+        {
+          "id": "snap-d:22",
+          "kind": "paragraph",
+          "parent": "snap-d:4",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 470,
+            "end": 483
+          },
+          "children": [
+            "snap-d:23"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "7c0f6d4731173e6dc5a05cb7ff6f3bdd3783722b4e17f91f50edbdf5c18a5d37"
+        },
+        {
+          "id": "snap-d:23",
+          "kind": "text",
+          "parent": "snap-d:22",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 470,
+            "end": 483
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "After nested\n",
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "86a54ef72e00364d29ddd719dd6704dda013fa3b07b6aa77bd8342a9da779bcc"
+        }
+      ],
+      "losses": [],
+      "nodeAspects": {
+        "snap-d:4": [
+          "content",
+          "styles"
+        ],
+        "snap-d:5": [
+          "content",
+          "styles"
+        ],
+        "snap-d:6": [
+          "content",
+          "styles"
+        ],
+        "snap-d:7": [
+          "content",
+          "styles"
+        ],
+        "snap-d:8": [
+          "content",
+          "styles"
+        ],
+        "snap-d:9": [
+          "content",
+          "styles"
+        ],
+        "snap-d:10": [
+          "content",
+          "styles"
+        ],
+        "snap-d:11": [
+          "content",
+          "styles"
+        ],
+        "snap-d:12": [
+          "content",
+          "styles"
+        ],
+        "snap-d:13": [
+          "content",
+          "styles"
+        ],
+        "snap-d:14": [
+          "content",
+          "styles"
+        ],
+        "snap-d:15": [
+          "content",
+          "styles"
+        ],
+        "snap-d:16": [
+          "content",
+          "styles"
+        ],
+        "snap-d:17": [
+          "content",
+          "styles"
+        ],
+        "snap-d:18": [
+          "content",
+          "styles"
+        ],
+        "snap-d:19": [
+          "content",
+          "styles"
+        ],
+        "snap-d:20": [
+          "content",
+          "styles"
+        ],
+        "snap-d:21": [
+          "content",
+          "styles"
+        ],
+        "snap-d:22": [
+          "content",
+          "styles"
+        ],
+        "snap-d:23": [
+          "content",
+          "styles"
+        ]
+      },
+      "aspects": [
+        "content",
+        "styles"
+      ],
+      "missingAspects": [
+        "review"
+      ],
+      "projection": "structured"
+    },
+    "controlIds": [
+      "snap-d:9",
+      "snap-d:10",
+      "snap-d:11"
+    ],
+    "controlProjection": {
+      "records": [
+        {
+          "id": "snap-d:9",
+          "kind": "tableCell",
+          "parent": "snap-d:8",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 20,
+            "end": 432
+          },
+          "children": [
+            "snap-d:10"
+          ],
+          "origin": {
+            "row": 0,
+            "column": 0
+          },
+          "rowSpan": 1,
+          "columnSpan": 1,
+          "style": {
+            "rowSpan": 1,
+            "columnSpan": 1
+          },
+          "extentStatus": "mapped",
+          "evidenceDigest": "b18a2a06c6ed573f67060cab99e7b9858f095abcc570f3a28138b96bc437d04d"
+        },
+        {
+          "id": "snap-d:10",
+          "kind": "paragraph",
+          "parent": "snap-d:9",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 21,
+            "end": 432
+          },
+          "children": [
+            "snap-d:11"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "f08a366f8f18f7566074ca60eee9efac0a4eb1a6f592a3acb17f597388d86848"
+        },
+        {
+          "id": "snap-d:11",
+          "kind": "text",
+          "parent": "snap-d:10",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 21,
+            "end": 432
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Inner A😀 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+          "style": {
+            "explicit": {
+              "bold": true
+            },
+            "properties": {
+              "bold": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "6380f8b87fd9aa21a7e4a88c8e9a8ace28fa50e46ce381cb67ffbcecdd14d3f4"
+        }
+      ],
+      "losses": [],
+      "nodeAspects": {
+        "snap-d:9": [
+          "content",
+          "styles"
+        ],
+        "snap-d:10": [
+          "content",
+          "styles"
+        ],
+        "snap-d:11": [
+          "content",
+          "styles"
+        ]
+      },
+      "aspects": [
+        "content",
+        "styles"
+      ],
+      "missingAspects": [
+        "review"
+      ],
+      "projection": "structured"
+    },
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}

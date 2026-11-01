@@ -1,0 +1,1314 @@
+{
+  "provenance": {
+    "source": "c007/generate.mjs: authored physical rich-cell vectors",
+    "authorship": "Independent literal topology, scalar/run/style and projection facts; no production oracle"
+  },
+  "caseId": "C007.paragraphNewlines__read.wrongSubject",
+  "variant": "paragraphNewlines",
+  "outcome": "wrongSubject",
+  "pageBytes": 6000,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent C007 rich cells",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "7",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent C007 rich cells",
+      "revisionId": "rev-c007",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Cells",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 4220,
+                  "table": {
+                    "rows": 1,
+                    "columns": 2,
+                    "tableRows": [
+                      {
+                        "startIndex": 2,
+                        "endIndex": 4219,
+                        "tableCells": [
+                          {
+                            "startIndex": 3,
+                            "endIndex": 4205,
+                            "tableCellStyle": {
+                              "rowSpan": 1,
+                              "columnSpan": 1
+                            },
+                            "content": [
+                              {
+                                "startIndex": 4,
+                                "endIndex": 2804,
+                                "paragraph": {
+                                  "paragraphStyle": {
+                                    "alignment": "START"
+                                  },
+                                  "elements": [
+                                    {
+                                      "startIndex": 4,
+                                      "endIndex": 1404,
+                                      "textRun": {
+                                        "content": "First😀fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                                        "textStyle": {
+                                          "bold": true
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "startIndex": 1404,
+                                      "endIndex": 2804,
+                                      "textRun": {
+                                        "content": " linegggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg\n",
+                                        "textStyle": {
+                                          "italic": true
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "startIndex": 2804,
+                                "endIndex": 2805,
+                                "paragraph": {
+                                  "elements": [
+                                    {
+                                      "startIndex": 2804,
+                                      "endIndex": 2805,
+                                      "textRun": {
+                                        "content": "\n",
+                                        "textStyle": {
+                                          "bold": false
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "startIndex": 2805,
+                                "endIndex": 4205,
+                                "paragraph": {
+                                  "paragraphStyle": {
+                                    "alignment": "END"
+                                  },
+                                  "elements": [
+                                    {
+                                      "startIndex": 2805,
+                                      "endIndex": 4205,
+                                      "textRun": {
+                                        "content": "Last é hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh\n",
+                                        "textStyle": {
+                                          "fontSize": {
+                                            "magnitude": 10,
+                                            "unit": "PT"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "startIndex": 4206,
+                            "endIndex": 4218,
+                            "tableCellStyle": {
+                              "rowSpan": 1,
+                              "columnSpan": 1
+                            },
+                            "content": [
+                              {
+                                "startIndex": 4207,
+                                "endIndex": 4218,
+                                "paragraph": {
+                                  "elements": [
+                                    {
+                                      "startIndex": 4207,
+                                      "endIndex": 4218,
+                                      "textRun": {
+                                        "content": "NEIGHBOR Ω\n",
+                                        "textStyle": {
+                                          "bold": false
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 4221,
+                  "endIndex": 4229,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 4221,
+                        "endIndex": 4229,
+                        "textRun": {
+                          "content": "OUTSIDE\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "commentsDenied": false,
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    }
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:4"
+    },
+    "format": "text",
+    "styles": true
+  },
+  "cellPath": [
+    "tabs",
+    0,
+    "documentTab",
+    "body",
+    "content",
+    0,
+    "table",
+    "tableRows",
+    0,
+    "tableCells",
+    0
+  ],
+  "mainPaths": {
+    "node": [
+      "tabs",
+      0,
+      "documentTab",
+      "body",
+      "content",
+      0,
+      "table",
+      "tableRows",
+      0,
+      "tableCells",
+      0
+    ]
+  },
+  "invalidPaths": {
+    "span": {
+      "from": [
+        "tabs",
+        0,
+        "documentTab",
+        "body",
+        "content",
+        0,
+        "table",
+        "tableRows",
+        0,
+        "tableCells",
+        0,
+        "content",
+        2
+      ],
+      "to": [
+        "tabs",
+        0,
+        "documentTab",
+        "body",
+        "content",
+        0,
+        "table",
+        "tableRows",
+        0,
+        "tableCells",
+        0,
+        "content",
+        0
+      ]
+    }
+  },
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "6cc883c0b2b4d05c10a6df785b6b02002e1bc5cd2a5d7d3dc21ce68529144b0c"
+        },
+        "children": [
+          "snap-d:2",
+          "snap-d:15"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "table",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 4220
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "3b73d7cd82687efb621da98d7781f1c28166b05c9abfa7ca6db07a69d1e777d3"
+        },
+        "children": [
+          "snap-d:3"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "grid": [
+          [
+            "snap-d:4",
+            "snap-d:12"
+          ]
+        ],
+        "style": {}
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "tableRow",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 2,
+          "end": 4219
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0
+          ],
+          "digest": "c94946f73b41e9513dad7cea1e58b7b5ab70666571862fd2f7a8ca2d38a236d0"
+        },
+        "children": [
+          "snap-d:4",
+          "snap-d:12"
+        ],
+        "style": {},
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "tableCell",
+        "parent": "snap-d:3",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 3,
+          "end": 4205
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0
+          ],
+          "digest": "a33a5afe8419277d6d5cd8da32f9be73d16bf1eb12a961f6fdf48d921c6ef853"
+        },
+        "children": [
+          "snap-d:5",
+          "snap-d:8",
+          "snap-d:10"
+        ],
+        "origin": {
+          "row": 0,
+          "column": 0
+        },
+        "rowSpan": 1,
+        "columnSpan": 1,
+        "style": {
+          "rowSpan": 1,
+          "columnSpan": 1
+        },
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "paragraph",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 4,
+          "end": 2804
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            0
+          ],
+          "digest": "9e15a3717b1c3ad4f1ee180bfdffa5a68b8a79001e376bafd3c0da6536c7bfe1"
+        },
+        "children": [
+          "snap-d:6",
+          "snap-d:7"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {
+            "alignment": "START"
+          },
+          "properties": {
+            "alignment": {
+              "value": "START",
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "alignment": {
+              "atomic": true,
+              "leaves": {
+                "alignment": {
+                  "stored": "START",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:6",
+        "kind": "text",
+        "parent": "snap-d:5",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 4,
+          "end": 1404
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "104aea66833f68c2a6ec7f655890a7195265259211801946b8277a6e5016506d"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "First😀fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "style": {
+          "explicit": {
+            "bold": true
+          },
+          "properties": {
+            "bold": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:7",
+        "kind": "text",
+        "parent": "snap-d:5",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1404,
+          "end": 2804
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            1
+          ],
+          "digest": "5c9f2396572a534d7865cdeb8a503b7fb0c99b587fd0f3181fbb280e9a0116a1"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": " linegggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:8",
+        "kind": "paragraph",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 2804,
+          "end": 2805
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1
+          ],
+          "digest": "d9571fb1c3a05e60a717898c3f868138ae51e7343696d688d179b2748a31cc35"
+        },
+        "children": [
+          "snap-d:9"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:9",
+        "kind": "text",
+        "parent": "snap-d:8",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 2804,
+          "end": 2805
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "e5048b40766d6182a70de2b11d2fae79629c60ff9c2979f81be829b40ceecaef"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "\n",
+        "style": {
+          "explicit": {
+            "bold": false
+          },
+          "properties": {
+            "bold": {
+              "value": false,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": false,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:10",
+        "kind": "paragraph",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 2805,
+          "end": 4205
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            2
+          ],
+          "digest": "024234f36eb9663d4642389759f19e9e221d837c84ad005da5cd6fdbddeddca8"
+        },
+        "children": [
+          "snap-d:11"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {
+            "alignment": "END"
+          },
+          "properties": {
+            "alignment": {
+              "value": "END",
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "alignment": {
+              "atomic": true,
+              "leaves": {
+                "alignment": {
+                  "stored": "END",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:11",
+        "kind": "text",
+        "parent": "snap-d:10",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 2805,
+          "end": 4205
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            0,
+            "content",
+            2,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "304496cb341098a744522e073537856ad6aec0f73349fe944da8cfeca544330b"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Last é hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh\n",
+        "style": {
+          "explicit": {
+            "fontSize": {
+              "magnitude": 10,
+              "unit": "PT"
+            }
+          },
+          "properties": {
+            "fontSize": {
+              "value": {
+                "magnitude": 10,
+                "unit": "PT"
+              },
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "fontSize": {
+              "atomic": true,
+              "leaves": {
+                "fontSize.magnitude": {
+                  "stored": 10,
+                  "status": "observed"
+                },
+                "fontSize.unit": {
+                  "stored": "PT",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:12",
+        "kind": "tableCell",
+        "parent": "snap-d:3",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 4206,
+          "end": 4218
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            1
+          ],
+          "digest": "f25f5ae8190ae711bc716c217f0e5f6004a575ab081cdd015743ccf924ecc370"
+        },
+        "children": [
+          "snap-d:13"
+        ],
+        "origin": {
+          "row": 0,
+          "column": 1
+        },
+        "rowSpan": 1,
+        "columnSpan": 1,
+        "style": {
+          "rowSpan": 1,
+          "columnSpan": 1
+        },
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:13",
+        "kind": "paragraph",
+        "parent": "snap-d:12",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 4207,
+          "end": 4218
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            1,
+            "content",
+            0
+          ],
+          "digest": "ae074450f77d179b48925960b21e3253e943f339b3f7fc9487b208c8f6fc4d5f"
+        },
+        "children": [
+          "snap-d:14"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:14",
+        "kind": "text",
+        "parent": "snap-d:13",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 4207,
+          "end": 4218
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "table",
+            "tableRows",
+            0,
+            "tableCells",
+            1,
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "270505615fd37d26b92436bdc31fae19e6a24596798018b1a9b6a9befc6843f2"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "NEIGHBOR Ω\n",
+        "style": {
+          "explicit": {
+            "bold": false
+          },
+          "properties": {
+            "bold": {
+              "value": false,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": false,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:15",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 4221,
+          "end": 4229
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "203be254bf15d0f05411e1955822a070a4e257ad45e9f1b60b1246a7144b9a6a"
+        },
+        "children": [
+          "snap-d:16"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:16",
+        "kind": "text",
+        "parent": "snap-d:15",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 4221,
+          "end": 4229
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "7cd1d8ac3481a904a3c9614f48204053925e79ac0ff34e250882553fea7b83a8"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "OUTSIDE\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      }
+    ],
+    "registryEntries": [],
+    "registryReferences": [],
+    "selectedIds": [
+      "snap-d:4",
+      "snap-d:5",
+      "snap-d:6",
+      "snap-d:7",
+      "snap-d:8",
+      "snap-d:9",
+      "snap-d:10",
+      "snap-d:11"
+    ],
+    "unselectedIds": [
+      "snap-d:12",
+      "snap-d:13",
+      "snap-d:14",
+      "snap-d:15",
+      "snap-d:16"
+    ],
+    "projection": {
+      "records": [
+        {
+          "kind": "text",
+          "node": "snap-d:6",
+          "text": "First😀fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "extent": {
+            "start": 4,
+            "end": 1404
+          },
+          "style": {
+            "explicit": {
+              "bold": true
+            },
+            "properties": {
+              "bold": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          }
+        },
+        {
+          "kind": "text",
+          "node": "snap-d:7",
+          "text": " linegggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg\n",
+          "extent": {
+            "start": 1404,
+            "end": 2804
+          },
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          }
+        },
+        {
+          "kind": "text",
+          "node": "snap-d:9",
+          "text": "\n",
+          "extent": {
+            "start": 2804,
+            "end": 2805
+          },
+          "style": {
+            "explicit": {
+              "bold": false
+            },
+            "properties": {
+              "bold": {
+                "value": false,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": false,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          }
+        },
+        {
+          "kind": "text",
+          "node": "snap-d:11",
+          "text": "Last é hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh\n",
+          "extent": {
+            "start": 2805,
+            "end": 4205
+          },
+          "style": {
+            "explicit": {
+              "fontSize": {
+                "magnitude": 10,
+                "unit": "PT"
+              }
+            },
+            "properties": {
+              "fontSize": {
+                "value": {
+                  "magnitude": 10,
+                  "unit": "PT"
+                },
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "fontSize": {
+                "atomic": true,
+                "leaves": {
+                  "fontSize.magnitude": {
+                    "stored": 10,
+                    "status": "observed"
+                  },
+                  "fontSize.unit": {
+                    "stored": "PT",
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          }
+        }
+      ],
+      "losses": [],
+      "nodeAspects": {
+        "snap-d:6": [
+          "content",
+          "styles"
+        ],
+        "snap-d:7": [
+          "content",
+          "styles"
+        ],
+        "snap-d:9": [
+          "content",
+          "styles"
+        ],
+        "snap-d:11": [
+          "content",
+          "styles"
+        ]
+      },
+      "aspects": [
+        "content",
+        "styles"
+      ],
+      "missingAspects": [
+        "review"
+      ],
+      "projection": "text"
+    },
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}

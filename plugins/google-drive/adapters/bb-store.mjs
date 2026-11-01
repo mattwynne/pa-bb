@@ -1,5 +1,6 @@
 // A plugin-owned SQLite store. BB owns its persistent data.db and backup lifecycle.
 // Only the backend opens it; neither tokens nor pending PKCE verifiers reach RPC/UI.
+import { createSemanticSnapshotStore, SEMANTIC_SNAPSHOT_MIGRATION, SEMANTIC_BOOKKEEPING_MIGRATION } from './docs-semantic-store.mjs';
 import { createDocsImageStore, DOCS_IMAGE_MIGRATION } from './docs-image-store.mjs';
 import { createSheetsEditStore, SHEETS_EDIT_MIGRATION } from './sheets-edit-store.mjs';
 import { createFilingStore, FILING_MIGRATION } from './filing-store.mjs';
@@ -33,9 +34,12 @@ export function createBbStore(db, migrate) {
     SHEETS_EDIT_MIGRATION,
     FILING_MIGRATION,
     DOCS_IMAGE_MIGRATION,
+    SEMANTIC_SNAPSHOT_MIGRATION,
+    SEMANTIC_BOOKKEEPING_MIGRATION,
   ]);
   const row = item => item && ({ subject: item.subject, email: item.email, refreshToken: item.refresh_token, accessToken: item.access_token, expiresAt: item.expires_at });
   return {
+    semanticSnapshots: createSemanticSnapshotStore(db),
     images: createDocsImageStore(db),
     sheetsEdits: createSheetsEditStore(db),
     filing: createFilingStore(db),

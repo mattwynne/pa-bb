@@ -1,0 +1,206 @@
+{
+  "provenance": {
+    "source": "Original hand-authored native GET and expected semantic facts; no external implementation",
+    "authorship": "D independent inert fixture"
+  },
+  "caseId": "C009.wrongThread__local.counterexample",
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Bridge fixture",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "7",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Bridge fixture",
+      "revisionId": "rev-d",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Main",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 8,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 3,
+                        "textRun": {
+                          "content": "Br"
+                        }
+                      },
+                      {
+                        "startIndex": 3,
+                        "endIndex": 8,
+                        "textRun": {
+                          "content": "idge\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    }
+  },
+  "http": [
+    {
+      "method": "GET",
+      "url": "https://openidconnect.googleapis.com/v1/userinfo",
+      "response": "identity"
+    },
+    {
+      "method": "GET",
+      "url": "https://openidconnect.googleapis.com/v1/userinfo",
+      "response": "identity"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.googleapis.com/drive/v3/files/doc-d?fields=id%2Cname%2CmimeType%2CmodifiedTime%2Cversion%2Ctrashed%2Ccapabilities%28canEdit%29&supportsAllDrives=true",
+      "response": "metadata"
+    },
+    {
+      "method": "GET",
+      "url": "https://openidconnect.googleapis.com/v1/userinfo",
+      "response": "identity"
+    },
+    {
+      "method": "GET",
+      "url": "https://docs.googleapis.com/v1/documents/doc-d?includeTabsContent=true&suggestionsViewMode=SUGGESTIONS_INLINE&commentsViewMode=COMMENTS_VIEW_MODE_INCLUDED",
+      "response": "document"
+    }
+  ],
+  "calls": [
+    {
+      "name": "docs_inspect",
+      "args": {
+        "account": "reader@example.test",
+        "document": "doc-d",
+        "scope": {
+          "tabs": {
+            "ids": [
+              "tab-d"
+            ]
+          },
+          "segments": [
+            {
+              "kind": "body"
+            }
+          ]
+        }
+      },
+      "threadId": "thread-d"
+    }
+  ],
+  "expected": {
+    "binding": {
+      "snapshotId": "snap-d",
+      "subject": "subject-d",
+      "account": "reader@example.test",
+      "threadId": "thread-d",
+      "documentId": "doc-d",
+      "view": "inline",
+      "retrievedAt": 0
+    },
+    "revision": {
+      "kind": "docs",
+      "id": "rev-d",
+      "subject": "subject-d"
+    },
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 8
+        }
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 3
+        },
+        "text": "Br"
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 3,
+          "end": 8
+        },
+        "text": "idge\n"
+      }
+    ],
+    "output": {
+      "category": "snapshot"
+    }
+  }
+}

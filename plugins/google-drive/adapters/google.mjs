@@ -1,4 +1,5 @@
 import { createDocsAdapter } from './docs.mjs';
+import { createSemanticDocsAdapter } from './docs-semantic.mjs';
 import { createDocsCreationAdapter } from './docs-create.mjs';
 import { createSharingAdapter } from './sharing.mjs';
 import { createSheetsAdapter } from './sheets.mjs';
@@ -88,6 +89,7 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
   }
   const adapter = {
     docs: createDocsAdapter({ verifiedAccess, fetchImpl }),
+    semanticDocs: createSemanticDocsAdapter({ verifiedAccess, fetchImpl }),
     creation: createDocsCreationAdapter({ verifiedAccess, fetchImpl }),
     sheets: createSheetsAdapter({ verifiedAccess, fetchImpl }),
     sheetsEdit: createSheetsEditAdapter({ verifiedAccess, fetchImpl }),

@@ -3,8 +3,18 @@
 The [approved roadmap](../../../../../docs/plans/025-google-docs-semantic-api.md)
 and contracts describe the full product. `obligations.json` is its **only**
 machine manifest: 211 IDs, 1,190 base variants, 1,579 resolved variant/mode
-combinations and 11,197 planned outcome keys. None is a passing test or enabled
-semantic product. `registry.json` deliberately exposes nothing new.
+combinations and 11,197 required outcome keys. The bounded E continuation joins
+two C006 raw-mask exclusions, sixteen C009 invariants, thirty C005 projection
+outcomes, twenty C006 structural outcomes, twenty C007 rich-cell outcomes and
+twenty-five C008 opaque outcomes, twenty C003 segment outcomes, twenty C010 view
+outcomes, fifteen C011 review-view outcomes, twenty C012 literal-search outcomes
+and forty C013 normalization outcomes, plus ten C015 local cardinality invariants;
+10,959 keys remain unclosed. Exactly two D cardinality candidates join the earlier
+migrations without duplication; four supplemental candidates remain. The current
+run mechanically closes 238/367 S02 keys and the unchanged 42/59 read closures.
+C015 still requires independent review; accepted accounting remains 228/367. These
+are source execution results, not enabled semantic products. `registry.json`
+deliberately exposes nothing new.
 
 ## Execution and identities
 
@@ -30,18 +40,23 @@ fixture pins those vector bytes. It invokes real formatting/replacement services
 Google HTTP adapters and file-backed SQLite. It never returns fake semantic
 success. Existing S00 race limitations remain in the [harness README](../README.md).
 
-**Product intake currently has zero implemented semantic adapters and accepts no
-semantic delivery or registration claims.** `product-intake.mjs` is a closed
-code boundary, not a configurable whitelist of labels. A passing Cucumber case,
+**Product intake has a bounded offline S02 D/E execution bridge; exposure remains
+zero.** See [the bridge contract](BRIDGE.md) for executable routes, supplemental
+candidates, independent assertions and the trusted-harness threat model. The
+current run's `summary.json` and `s02-accounting.json` are authoritative for
+executed keys, remaining obligations and mechanical closures. `product-intake.mjs` is a closed code
+boundary, not a configurable whitelist of labels. A passing Cucumber case,
 correct AST ID, fresh attachment, true booleans or matching digest cannot provide
 semantic execution credit. Synthetic `auditControlOnly` fixtures are explicitly
-refused on this path. Both registry-only and result-only claims fail closed.
+refused on this path. Registry-only and result-only claims without an actual
+matching execution record fail closed. Candidate evidence is reported separately
+and never promotes a planned key.
 
-Future slices must implement a real adapter tied to production registration and
-schema, capture its actual application/provider invocation, and compare independent
-before/request/readback/effects. Only then can planned concrete case IDs,
-Examples, modes and fixture contracts become product evidence. No future
-engine or fake successful adapter is supplied by S01. Declared delivery
+The bridge captures current-source native registrations/schemas and actual
+application/provider/internal invocations, then compares inert independent read
+fixtures. Reads use GET observations, not invented mutation readback. Remaining
+variants need their own executable discrimination and independent assertions in
+E; sharing a tool name does not confer support. Declared delivery
 requires current execution even without exposure. Exposure additionally requires
 all sibling outcomes and explicit same-mode guard/failure/no-op, family, shared
 and lifecycle-control dependencies. Direct and suggest never cover each other.
@@ -120,5 +135,9 @@ Rendered BB, applied-code observation, review and delivery evidence stay in
 `externalGates`; Cucumber/unit success is rejected as a substitute. Shape checks
 for attributed external references are not certification of their truth. No
 UI was changed by S01 and no live provider/deployment evidence is claimed.
-Full future closure remains an S16 gate; this foundation intentionally reports
-zero executed semantic obligations rather than promoting partial legacy evidence.
+Full future closure remains an S16 gate. The runner reports normal executions
+separately from supplemental candidates. Its current-run `s02-accounting.json`
+records all 367 required keys, the exact remaining keys and all 59 read closures.
+`plannedKeys` retains its historical meaning of total manifest inventory, not
+remaining work; `remainingPlannedKeys` reports that separately. A partial E pass
+does not imply whole-S02 completion or authorize serving wiring.

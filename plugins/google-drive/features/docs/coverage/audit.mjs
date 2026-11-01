@@ -141,7 +141,7 @@ export function cucumberResults(messages, runId) {
     const evidence = attachments.get(finished.testCaseStartedId);
     if (identity) {
       assert.ok(evidence, 'missing baseline evidence'); assert.equal(evidence.runId, runId, 'stale result'); assert.equal(evidence.caseId, identity, 'runner identity mismatch');
-      results.push({ ...evidence, status, pickle, testCaseId: tc.id });
+      results.push({ ...evidence, status, pickle, testCaseId: tc.id, testCaseStartedId: start.id });
     }
   }
   assert.equal(executed.size, pickles.size, 'discovered scenarios missing current results');

@@ -1,0 +1,25 @@
+{
+  "provenance": "Original foundation/A plugin-owned SQL; immutable history for offline migration compatibility. No provider content.",
+  "statementHashes": [
+    "25b3087f2f420b3dbf1e2dbda20f2dc689d722aa18e6ba57fa418d0b7561cb10",
+    "3210de809fd90fa0f6a5c1215f5d20a8ef94485f10e25fd2d0b10249425bc2bf",
+    "376a11389d3afeab5a99edb753dad9c6adc3d7041433816ed6d01cc155ad9dbb",
+    "27c6af7c192407e869ef96e792c1f11998deae679b3173ed8736b3d562d52cdf",
+    "31d4b3e2908f7c95db04481b446611826ea409eef5a08db3bf726347a93c1d6c",
+    "bb997d7290da7e083322774389714995aa2b29aa280645a14a9c4cb951616470",
+    "997c01a192772890782d4a39a21a193eaffa076ad97cb3ca6424b973db1f518c",
+    "da357528ac12a59ea7c2f55635cdb906fadefc6484ea302f68f5a2ca9b30e0e4",
+    "a921e525a7b37207c9df3f431f4f542fff9a3e7c9b2af2f70d595f7007e1d0d5"
+  ],
+  "statements": [
+    "CREATE TABLE IF NOT EXISTS drive_accounts (\n      subject TEXT PRIMARY KEY, email TEXT NOT NULL COLLATE NOCASE UNIQUE,\n      refresh_token TEXT NOT NULL, access_token TEXT, expires_at INTEGER\n    );\n    CREATE TABLE IF NOT EXISTS drive_pending (\n      state_hash TEXT PRIMARY KEY, verifier TEXT NOT NULL, redirect_uri TEXT NOT NULL,\n      client_id TEXT NOT NULL, expires_at INTEGER NOT NULL\n    );",
+    "ALTER TABLE drive_pending ADD COLUMN reconnect TEXT;",
+    "CREATE TABLE IF NOT EXISTS docs_creations (\n      operation_id TEXT PRIMARY KEY, subject TEXT NOT NULL, receipt TEXT NOT NULL\n    );",
+    "CREATE TABLE drive_sharing_operations (\n      operation_id TEXT PRIMARY KEY, subject TEXT NOT NULL, file_id TEXT NOT NULL,\n      state TEXT NOT NULL, receipt TEXT NOT NULL\n    );\n    CREATE UNIQUE INDEX drive_sharing_active_file ON drive_sharing_operations(file_id)\n      WHERE state IN ('reviewing','writing','uncertain');",
+    "CREATE TABLE drive_formatting_operations (\n      operation_id TEXT PRIMARY KEY, subject TEXT NOT NULL, document_id TEXT NOT NULL,\n      state TEXT NOT NULL, receipt TEXT NOT NULL\n    );\n    CREATE UNIQUE INDEX drive_formatting_active_document ON drive_formatting_operations(document_id)\n      WHERE state IN ('reviewing','writing','uncertain');",
+    "CREATE TABLE drive_sheets_edits (\n  operation_id TEXT PRIMARY KEY, subject TEXT NOT NULL, spreadsheet_id TEXT NOT NULL,\n  state TEXT NOT NULL, receipt TEXT NOT NULL\n);\nCREATE UNIQUE INDEX drive_sheets_edit_active ON drive_sheets_edits(spreadsheet_id)\n  WHERE state IN ('reviewing','writing','uncertain');",
+    "CREATE TABLE drive_filing_operations (\n  operation_id TEXT PRIMARY KEY, subject TEXT NOT NULL, resource TEXT NOT NULL,\n  state TEXT NOT NULL, receipt TEXT NOT NULL\n);\nCREATE UNIQUE INDEX drive_filing_active_resource ON drive_filing_operations(resource)\n  WHERE state IN ('reviewing','writing','uncertain');",
+    "CREATE TABLE docs_image_operations (\n  operation_id TEXT PRIMARY KEY, subject TEXT NOT NULL, document_id TEXT NOT NULL,\n  state TEXT NOT NULL, receipt TEXT NOT NULL\n);\nCREATE UNIQUE INDEX docs_image_active_document ON docs_image_operations(document_id)\n  WHERE state IN ('reviewing','writing','uncertain');",
+    "\nCREATE TABLE docs_semantic_evidence (digest TEXT PRIMARY KEY, bytes INTEGER NOT NULL, data BLOB NOT NULL);\nCREATE TABLE docs_semantic_snapshots (id TEXT PRIMARY KEY, subject TEXT NOT NULL, account TEXT NOT NULL, thread TEXT NOT NULL,\n  created INTEGER NOT NULL, expires INTEGER NOT NULL, evidence_digest TEXT NOT NULL, bytes INTEGER NOT NULL, data BLOB NOT NULL, model_digest TEXT NOT NULL);\nCREATE TABLE docs_semantic_cursors (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL, expires INTEGER NOT NULL, state TEXT NOT NULL);\nCREATE TABLE docs_semantic_pins (snapshot TEXT NOT NULL, owner TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(snapshot,owner));\nCREATE TABLE docs_semantic_delivery (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL, data TEXT NOT NULL);\nCREATE INDEX docs_semantic_owner ON docs_semantic_snapshots(subject,thread);\n"
+  ]
+}

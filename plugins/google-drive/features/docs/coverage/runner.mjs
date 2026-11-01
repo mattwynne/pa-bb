@@ -1,7 +1,7 @@
 // Runs Cucumber, then audits this invocation's actual message stream. Outputs to
 // a fresh temporary directory only; never reads saved results as current passes.
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, mkdtempSync, writeFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, mkdtempSync, writeFileSync, statSync, openSync, closeSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { digest, cucumberResults, fixtureFile, auditEvidence } from './audit.mjs';
 import { allClosures, expand } from './expand.mjs';
 import { assertProductIntake } from './product-intake.mjs';
+import { productionInventory } from './execution-adapters.mjs';
+import { readJournal, MESSAGE_LIMITS, childTimeout } from './execution-journal.mjs';
 export const packageRoot = fileURLToPath(new URL('../../..', import.meta.url));
 export function sourceDigest(root = packageRoot) {
   const files = [];
@@ -57,24 +59,36 @@ export function auditBaseline(messages, runId, fingerprint, root = packageRoot) 
   }
   return { baseline: results.filter(r => r.caseId.startsWith('S00')).length, s01ApplicationCases: results.filter(r => r.caseId.startsWith('S01')).length };
 }
-export function run() {
+export async function run() {
   const dir = mkdtempSync(join(tmpdir(), 'pa-docs-acceptance-')), runId = randomUUID(), fingerprint = sourceDigest(), output = join(dir, 'messages.ndjson');
-  const result = spawnSync(process.execPath, ['node_modules/@cucumber/cucumber/bin/cucumber.js','--profile','docs','--format',`message:${output}`], {
-    cwd: packageRoot, stdio: 'inherit', env: { ...process.env, DOCS_ACCEPTANCE_RUN_ID: runId, DOCS_ACCEPTANCE_SOURCE_DIGEST: fingerprint }
-  });
   console.log(`Docs current-run evidence: ${dir}`);
+  const timeout=childTimeout();
+  writeFileSync(join(dir,'run.json'),JSON.stringify({runId,sourceDigest:fingerprint,timeout})+'\n');
+  const inventory = await productionInventory(), journal = join(dir,'executions.ndjson'), fd = openSync(journal,'wx');
+  let result;
+  try { result = spawnSync(process.execPath, ['node_modules/@cucumber/cucumber/bin/cucumber.js','--profile','docs','--format',`message:${output}`], {
+    cwd: packageRoot, timeout, killSignal:'SIGKILL', stdio: ['inherit','inherit','inherit',fd], env: { ...process.env, DOCS_ACCEPTANCE_RUN_ID: runId, DOCS_ACCEPTANCE_SOURCE_DIGEST: fingerprint, DOCS_EXECUTION_FD:'3' }
+  }); } finally { closeSync(fd); }
+  writeFileSync(join(dir,'child.json'),JSON.stringify({status:result.status,signal:result.signal,error:result.error?.code??null})+'\n');
+  assert.notEqual(result.error?.code,'ETIMEDOUT','Cucumber timed out; no coverage credit');
   assert.equal(result.status, 0, 'Cucumber failed; no coverage credit');
   assert.equal(sourceDigest(), fingerprint, 'source changed during run');
-  const messages = readFileSync(output,'utf8').trim().split('\n').map(JSON.parse);
+  const messages = readJournal(output,MESSAGE_LIMITS);
   const baseline = auditBaseline(messages, runId, fingerprint);
   const manifest = JSON.parse(readFileSync(join(packageRoot,'features/docs/coverage/obligations.json')));
   const registry = JSON.parse(readFileSync(join(packageRoot,'features/docs/coverage/registry.json')));
   const semanticResults = cucumberResults(messages, runId).filter(r => r.caseId.startsWith('C'));
   const fixtures = JSON.parse(readFileSync(join(packageRoot,'features/docs/coverage/fixtures/index.json')));
-  assertProductIntake({ manifest, registry, results: semanticResults, fixtures, root: packageRoot });
-  const inventory = new Map(expand(manifest).map(r => [r.caseId,r]));
+  const candidates = JSON.parse(readFileSync(join(packageRoot,'features/docs/coverage/bridge-cases.json')));
+  const isCandidate = r => r.pickle.tags.some(t=>t.name==='@bridgeCandidate');
+  assert.deepEqual(semanticResults.filter(isCandidate).map(r=>r.caseId).sort(),Object.keys(candidates).sort(),'bridge fixture discovery/reverse orphan');
+  for(const id of Object.keys(candidates))assert.ok(!fixtures[id],'candidate fixture cannot shadow delivered fixture');
+  const receipts=readJournal(journal);
+  const bridge=assertProductIntake({ manifest, registry, results: semanticResults, fixtures:{...fixtures,...candidates}, root: packageRoot,receipts,inventory,runId,fingerprint });
+  assert.deepEqual(Object.keys(fixtures).filter(id=>id.startsWith('C')).sort(),semanticResults.filter(r=>!isCandidate(r)).map(r=>r.fixtureId).sort(),'normal semantic fixture discovery/reverse orphan');
+  const records = new Map(expand(manifest).map(r => [r.caseId,r]));
   const cases = semanticResults.map(result => {
-    const expected = inventory.get(result.caseId); assert.ok(expected, 'phantom scenario');
+    const expected = records.get(result.caseId); assert.ok(expected, 'phantom scenario');
     assert.equal(result.key, expected.key, 'actual obligation binding');
     assert.equal(result.sourceDigest, fingerprint, 'stale semantic source');
     const tags = result.pickle.tags.map(t => t.name);
@@ -89,9 +103,20 @@ export function run() {
     }
     return { ...result, featureId: expected.featureId, scenarioId: expected.scenarioId, exampleId: result.caseId };
   });
-  const coverage = auditEvidence({ manifest, registry, cases, results: semanticResults, fixtures, root: packageRoot, runId });
-  const summary = { runId, sourceDigest: fingerprint, ...baseline, ...coverage, exposureBundles: allClosures(manifest, expand(manifest)).size,
+  const coverage = auditEvidence({ manifest, registry, cases:cases.filter(c=>!isCandidate(c)), results: semanticResults.filter(r=>!isCandidate(r)), fixtures, root: packageRoot, runId });
+  const closures=allClosures(manifest,[...records.values()]);
+  const completedKeys=new Set(cases.filter(c=>!isCandidate(c)).map(c=>c.key));
+  const s02Records=[...records.values()].filter(r=>r.earliestSlice==='S02');
+  const remaining=s02Records.filter(r=>!completedKeys.has(r.key));
+  const readVariants=[...new Set(s02Records.filter(r=>r.profile==='read').map(r=>`${r.operation}/${r.semanticVariant}`))];
+  const readClosures=Object.fromEntries(readVariants.map(key=>[key,{required:closures.get(key).map(r=>r.key),missing:closures.get(key).filter(r=>!completedKeys.has(r.key)).map(r=>r.key)}]));
+  writeFileSync(join(dir,'s02-accounting.json'),JSON.stringify({runId,sourceDigest:fingerprint,
+    requiredKeys:s02Records.map(r=>r.key),executedKeys:s02Records.filter(r=>completedKeys.has(r.key)).map(r=>r.key),remainingKeys:remaining.map(r=>r.key),readClosures},null,2)+'\n');
+  const summary = { runId, sourceDigest: fingerprint, ...baseline, ...coverage, ...bridge, exposureBundles: closures.size,
+    remainingPlannedKeys:records.size-completedKeys.size,
+    s02:{required:s02Records.length,executed:s02Records.length-remaining.length,remaining:remaining.length,
+      readVariants:readVariants.length,completeReadClosures:Object.values(readClosures).filter(c=>c.missing.length===0).length},
     cucumberScenarios: messages.filter(m => m.testCaseFinished).length, externalEvidence: 'separate; no rendered/applied-code credit' };
   writeFileSync(join(dir,'summary.json'), JSON.stringify(summary,null,2)+'\n'); console.log(JSON.stringify(summary));
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) run();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await run();

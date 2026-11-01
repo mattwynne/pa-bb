@@ -1,5 +1,94 @@
 {
-  "description":"S01 test registry only. Future native semantic tools are not registered or exposed. Legacy baselines are audited separately.",
-  "operations": {},
+  "description":"Offline implemented execution bindings, not serving exposure. Legacy baselines and D supplemental candidates are audited separately.",
+  "operations": {
+    "selector.cardinality":{"variants":{
+      "exactlyOne__local":{"driver":"selector-resolver","schema":"selector.closed-union","requestedMode":"local","capability":"local.semantic-selection","requests":[]},
+      "explicitOccurrenceZero__local":{"driver":"selector-resolver","schema":"selector.closed-union","requestedMode":"local","capability":"local.semantic-selection","requests":[]},
+      "allExpectedCount__local":{"driver":"selector-resolver","schema":"selector.closed-union","requestedMode":"local","capability":"local.semantic-selection","requests":[]},
+      "ambiguous__local":{"driver":"selector-resolver","schema":"selector.closed-union","requestedMode":"local","capability":"local.semantic-selection","requests":[]},
+      "missing__local":{"driver":"selector-resolver","schema":"selector.closed-union","requestedMode":"local","capability":"local.semantic-selection","requests":[]}
+    }},
+    "docs_find.normalization":{"variants":{
+      "exact__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]},
+      "typographic__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]},
+      "nfc__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]},
+      "caseFold__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]},
+      "inverseMap__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]},
+      "emoji__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]},
+      "combining__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]},
+      "rtl__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]}
+    }},
+    "docs_find.literal":{"variants":{
+      "crossRun__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]},
+      "paragraphBoundary__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]},
+      "chipBoundary__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]},
+      "boundedContext__read":{"driver":"docs_find","schema":"find.matcher","requestedMode":"read","capability":"native.docs_find.query","requests":[]}
+    }},
+    "docs_read.reviewView": {"variants": {
+      "deniedComments__read":{"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "missingReviewCoverage__read":{"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "tabsAndInline__read":{"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]}
+    }},
+    "docs_read.view": {"variants": {
+      "inline__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "acceptedPreview__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "rejectedPreview__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "projectionNotEditProof__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]}
+    }},
+    "docs_read.segment": {"variants": {
+      "body__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "header__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "footer__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "footnote__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]}
+    }},
+    "docs_read.opaque": {"variants": {
+      "autoText__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "drawing__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "equation__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "toc__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "unknown__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]}
+    }},
+    "docs_read.richCell": {"variants": {
+      "adjacentRuns__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "inlineObject__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "nestedTable__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "paragraphNewlines__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]}
+    }},
+    "docs_read.structure": {"variants": {
+      "styles__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "objects__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "ranges__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "suggestions__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]}
+    }},
+    "docs_read.projection": {"variants": {
+      "text__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "structured__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "styleAnnotations__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "reviewAnnotations__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "omitImages__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]},
+      "continuation__read": {"driver":"docs_read","schema":"read.scope-format-view","requestedMode":"read","capability":"read.snapshot-projection","requests":["documents.get"]}
+    }},
+    "snapshot.coverage": {"variants": {
+      "cursorExpiry__local": {"driver":"snapshot-store","schema":"snapshot.contract","requestedMode":"local","capability":"local.snapshot-coverage","requests":[]},
+      "cursorReplay__local": {"driver":"snapshot-store","schema":"snapshot.contract","requestedMode":"local","capability":"local.snapshot-coverage","requests":[]},
+      "draftPinnedEvidence__local": {"driver":"snapshot-store","schema":"snapshot.contract","requestedMode":"local","capability":"local.snapshot-coverage","requests":[]},
+      "empty__local": {"driver":"snapshot-store","schema":"snapshot.contract","requestedMode":"local","capability":"local.snapshot-coverage","requests":[]},
+      "overrun__local": {"driver":"snapshot-store","schema":"snapshot.contract","requestedMode":"local","capability":"local.snapshot-coverage","requests":[]},
+      "partial__local": {"driver":"snapshot-store","schema":"snapshot.contract","requestedMode":"local","capability":"local.snapshot-coverage","requests":[]},
+      "snapshotExpiry__local": {"driver":"snapshot-store","schema":"snapshot.contract","requestedMode":"local","capability":"local.snapshot-coverage","requests":[]},
+      "wrongThread__local": {"driver":"snapshot-store","schema":"snapshot.contract","requestedMode":"local","capability":"local.snapshot-coverage","requests":[]}
+    }},
+    "policy.publicRawMask": {
+      "variants": {
+        "refuseRawMask__capability": {
+          "driver": "schema-policy-refusal",
+          "schema": "explicit-excluded-operation",
+          "requestedMode": "capability",
+          "capability": "local.no-bypass",
+          "requests": []
+        }
+      }
+    }
+  },
   "exposed": []
 }

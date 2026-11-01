@@ -1,0 +1,575 @@
+{
+  "provenance": {
+    "source": "c005/generate.mjs: original explicit provider/semantic vectors",
+    "authorship": "Independent inert C005 expectations; no production oracle"
+  },
+  "caseId": "C005.styleAnnotations__read.success",
+  "variant": "styleAnnotations",
+  "outcome": "success",
+  "pageBytes": 65536,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent C005",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "7",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent C005",
+      "revisionId": "rev-c005",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Main",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 10,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 10,
+                        "textRun": {
+                          "content": "Styled😀\n",
+                          "textStyle": {
+                            "bold": true,
+                            "weightedFontFamily": {
+                              "fontFamily": "Fiction"
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "paragraphStyle": {
+                      "namedStyleType": "NORMAL_TEXT"
+                    }
+                  }
+                },
+                {
+                  "startIndex": 10,
+                  "endIndex": 15,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 10,
+                        "endIndex": 15,
+                        "textRun": {
+                          "content": "KEEP\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "namedStyles": {
+              "styles": [
+                {
+                  "namedStyleType": "NORMAL_TEXT",
+                  "textStyle": {
+                    "bold": false,
+                    "fontSize": {
+                      "magnitude": 11,
+                      "unit": "PT"
+                    },
+                    "futureTone": "retained"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "commentsDenied": false,
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    }
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:2"
+    },
+    "format": "text",
+    "styles": true
+  },
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "6e21d39038e8fde47615345c39614217ef4bcccbecb768ba3027f615721c64b7"
+        },
+        "children": [
+          "snap-d:2",
+          "snap-d:4"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 10
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "e9919988021258a49240ec1daa6f4da9569c5cf8e9a6952d6746476a9313fc05"
+        },
+        "children": [
+          "snap-d:3"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {
+            "namedStyleType": "NORMAL_TEXT"
+          },
+          "properties": {
+            "namedStyleType": {
+              "value": "NORMAL_TEXT",
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "namedStyleType": {
+              "atomic": true,
+              "leaves": {
+                "namedStyleType": {
+                  "stored": "NORMAL_TEXT",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 10
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "d4c1d006370aabb8876c51b78a3b25044c75fd535d4a02a1b566fec24c31757b"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Styled😀\n",
+        "style": {
+          "explicit": {
+            "bold": true,
+            "weightedFontFamily": {
+              "fontFamily": "Fiction"
+            }
+          },
+          "properties": {
+            "bold": {
+              "value": true,
+              "provenance": "direct"
+            },
+            "fontSize": {
+              "value": {
+                "magnitude": 11,
+                "unit": "PT"
+              },
+              "provenance": "named",
+              "source": "NORMAL_TEXT"
+            },
+            "weightedFontFamily": {
+              "value": {
+                "fontFamily": "Fiction"
+              },
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": {
+                "value": false,
+                "provenance": "named",
+                "source": "NORMAL_TEXT"
+              }
+            },
+            "fontSize": {
+              "atomic": true,
+              "leaves": {
+                "fontSize.magnitude": {
+                  "stored": 11,
+                  "status": "observed"
+                },
+                "fontSize.unit": {
+                  "stored": "PT",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": {
+                "value": {
+                  "magnitude": 11,
+                  "unit": "PT"
+                },
+                "provenance": "named",
+                "source": "NORMAL_TEXT"
+              }
+            },
+            "weightedFontFamily": {
+              "atomic": true,
+              "leaves": {
+                "weightedFontFamily.fontFamily": {
+                  "stored": "Fiction",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [
+                "weightedFontFamily.weight"
+              ],
+              "effectiveStatus": "partialOrUnknown",
+              "inherited": null
+            }
+          },
+          "unknownParentProperties": [
+            {
+              "source": "NORMAL_TEXT",
+              "field": "futureTone",
+              "digest": "ca67bd59cc4116ac80db5f64cbf4747f26ba929c85e8cc689a6123368d08719b"
+            }
+          ]
+        }
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 10,
+          "end": 15
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "8b39f606f8e0bdee96fdde556fe0882dd8b2e6a6a02afeb944a262cdce41755f"
+        },
+        "children": [
+          "snap-d:5"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "text",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 10,
+          "end": 15
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "7010d2e3fcd8ee9beef32dff4bcaa34ef58d6c320f93624440f9b6e87310cbbb"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "KEEP\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      }
+    ],
+    "selectedIds": [
+      "snap-d:2",
+      "snap-d:3"
+    ],
+    "unselectedIds": [
+      "snap-d:4",
+      "snap-d:5"
+    ],
+    "projection": {
+      "records": [
+        {
+          "kind": "text",
+          "node": "snap-d:3",
+          "text": "Styled😀\n",
+          "extent": {
+            "start": 1,
+            "end": 10
+          },
+          "style": {
+            "explicit": {
+              "bold": true,
+              "weightedFontFamily": {
+                "fontFamily": "Fiction"
+              }
+            },
+            "properties": {
+              "bold": {
+                "value": true,
+                "provenance": "direct"
+              },
+              "fontSize": {
+                "value": {
+                  "magnitude": 11,
+                  "unit": "PT"
+                },
+                "provenance": "named",
+                "source": "NORMAL_TEXT"
+              },
+              "weightedFontFamily": {
+                "value": {
+                  "fontFamily": "Fiction"
+                },
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": {
+                  "value": false,
+                  "provenance": "named",
+                  "source": "NORMAL_TEXT"
+                }
+              },
+              "fontSize": {
+                "atomic": true,
+                "leaves": {
+                  "fontSize.magnitude": {
+                    "stored": 11,
+                    "status": "observed"
+                  },
+                  "fontSize.unit": {
+                    "stored": "PT",
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": {
+                  "value": {
+                    "magnitude": 11,
+                    "unit": "PT"
+                  },
+                  "provenance": "named",
+                  "source": "NORMAL_TEXT"
+                }
+              },
+              "weightedFontFamily": {
+                "atomic": true,
+                "leaves": {
+                  "weightedFontFamily.fontFamily": {
+                    "stored": "Fiction",
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [
+                  "weightedFontFamily.weight"
+                ],
+                "effectiveStatus": "partialOrUnknown",
+                "inherited": null
+              }
+            },
+            "unknownParentProperties": [
+              {
+                "source": "NORMAL_TEXT",
+                "field": "futureTone",
+                "digest": "ca67bd59cc4116ac80db5f64cbf4747f26ba929c85e8cc689a6123368d08719b"
+              }
+            ]
+          }
+        }
+      ],
+      "losses": [
+        {
+          "node": "snap-d:3",
+          "kind": "unresolvedStyleInheritance",
+          "missingAspects": [
+            "styles"
+          ],
+          "unknownProperties": [
+            {
+              "source": "NORMAL_TEXT",
+              "field": "futureTone",
+              "digest": "ca67bd59cc4116ac80db5f64cbf4747f26ba929c85e8cc689a6123368d08719b"
+            }
+          ]
+        }
+      ],
+      "nodeAspects": {
+        "snap-d:3": [
+          "content"
+        ]
+      },
+      "aspects": [
+        "content"
+      ],
+      "missingAspects": [
+        "styles",
+        "review"
+      ],
+      "projection": "text"
+    },
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}

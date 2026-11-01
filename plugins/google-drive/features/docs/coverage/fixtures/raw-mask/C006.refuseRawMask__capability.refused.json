@@ -1,0 +1,207 @@
+{
+  "provenance": {
+    "source": "Approved C006/K10 exclusion; original explicit native input/control matrix in generate.mjs",
+    "authorship": "E independent synthetic fixture; no provider, parser or reference-code oracle"
+  },
+  "caseId": "C006.refuseRawMask__capability.refused",
+  "provider": {},
+  "http": [],
+  "calls": [
+    {
+      "name": "docs_inspect",
+      "args": {
+        "account": "reader@example.test",
+        "document": "doc-e",
+        "scope": {
+          "tabs": {
+            "ids": [
+              "tab-e"
+            ]
+          },
+          "segments": [
+            {
+              "kind": "body"
+            }
+          ]
+        },
+        "fields": "*"
+      },
+      "threadId": "thread-d"
+    },
+    {
+      "name": "docs_read",
+      "args": {
+        "account": "reader@example.test",
+        "snapshotId": "snap-e",
+        "scope": {
+          "tabs": {
+            "ids": [
+              "tab-e"
+            ]
+          },
+          "segments": [
+            {
+              "kind": "body"
+            }
+          ]
+        },
+        "format": "structured",
+        "fields": "tabs.documentTab.body.content"
+      },
+      "threadId": "thread-d"
+    },
+    {
+      "name": "docs_find",
+      "args": {
+        "account": "reader@example.test",
+        "snapshotId": "snap-e",
+        "scope": {
+          "tabs": {
+            "ids": [
+              "tab-e"
+            ]
+          },
+          "segments": [
+            {
+              "kind": "body"
+            }
+          ]
+        },
+        "query": {
+          "literal": "Needle"
+        },
+        "fields": "revisionId"
+      },
+      "threadId": "thread-d"
+    },
+    {
+      "name": "docs_find",
+      "args": {
+        "account": "reader@example.test",
+        "snapshotId": "snap-e",
+        "scope": {
+          "tabs": {
+            "ids": [
+              "tab-e"
+            ]
+          },
+          "segments": [
+            {
+              "kind": "body"
+            }
+          ]
+        },
+        "selector": {
+          "node": "snap-e:2"
+        },
+        "fields": "body.content"
+      },
+      "threadId": "thread-d"
+    },
+    {
+      "name": "docs_inspect",
+      "args": {
+        "account": "reader@example.test",
+        "snapshotId": "snap-e",
+        "cursor": "cursor-e",
+        "fields": "tabs(*)"
+      },
+      "threadId": "thread-d"
+    },
+    {
+      "name": "docs_read",
+      "args": {
+        "account": "reader@example.test",
+        "snapshotId": "snap-e",
+        "cursor": "cursor-e",
+        "fields": "body.content"
+      },
+      "threadId": "thread-d"
+    }
+  ],
+  "expected": {
+    "controls": [
+      {
+        "account": "reader@example.test",
+        "document": "doc-e",
+        "scope": {
+          "tabs": {
+            "ids": [
+              "tab-e"
+            ]
+          },
+          "segments": [
+            {
+              "kind": "body"
+            }
+          ]
+        }
+      },
+      {
+        "account": "reader@example.test",
+        "snapshotId": "snap-e",
+        "scope": {
+          "tabs": {
+            "ids": [
+              "tab-e"
+            ]
+          },
+          "segments": [
+            {
+              "kind": "body"
+            }
+          ]
+        },
+        "format": "structured"
+      },
+      {
+        "account": "reader@example.test",
+        "snapshotId": "snap-e",
+        "scope": {
+          "tabs": {
+            "ids": [
+              "tab-e"
+            ]
+          },
+          "segments": [
+            {
+              "kind": "body"
+            }
+          ]
+        },
+        "query": {
+          "literal": "Needle"
+        }
+      },
+      {
+        "account": "reader@example.test",
+        "snapshotId": "snap-e",
+        "scope": {
+          "tabs": {
+            "ids": [
+              "tab-e"
+            ]
+          },
+          "segments": [
+            {
+              "kind": "body"
+            }
+          ]
+        },
+        "selector": {
+          "node": "snap-e:2"
+        }
+      },
+      {
+        "account": "reader@example.test",
+        "snapshotId": "snap-e",
+        "cursor": "cursor-e"
+      },
+      {
+        "account": "reader@example.test",
+        "snapshotId": "snap-e",
+        "cursor": "cursor-e"
+      }
+    ]
+  }
+}

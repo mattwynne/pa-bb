@@ -1,0 +1,1442 @@
+{
+  "provenance": {
+    "source": "c008/generate.mjs: independent authored opaque vectors",
+    "authorship": "Literal provider/typed tree, raw paths/digests, loss and aspect facts; no production oracle"
+  },
+  "caseId": "C008.toc__read.preservation",
+  "variant": "toc",
+  "outcome": "preservation",
+  "pageBytes": 6000,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent C008 opaque evidence",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "8",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent C008 opaque evidence",
+      "revisionId": "rev-c008",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Opaque API evidence",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 16,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 16,
+                        "textRun": {
+                          "content": "CONTROL before\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 16,
+                  "endIndex": 67,
+                  "tableOfContents": {
+                    "content": [
+                      {
+                        "startIndex": 17,
+                        "endIndex": 42,
+                        "paragraph": {
+                          "elements": [
+                            {
+                              "startIndex": 17,
+                              "endIndex": 42,
+                              "textRun": {
+                                "content": "Stored control entry one\n",
+                                "textStyle": {
+                                  "italic": true
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "startIndex": 42,
+                        "endIndex": 67,
+                        "paragraph": {
+                          "elements": [
+                            {
+                              "startIndex": 42,
+                              "endIndex": 67,
+                              "textRun": {
+                                "content": "Stored control entry two\n",
+                                "textStyle": {
+                                  "italic": true
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 68,
+                  "endIndex": 82,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 68,
+                        "endIndex": 82,
+                        "textRun": {
+                          "content": "CONTROL after\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 82,
+                  "endIndex": 3686,
+                  "tableOfContents": {
+                    "content": [
+                      {
+                        "startIndex": 83,
+                        "endIndex": 1885,
+                        "paragraph": {
+                          "elements": [
+                            {
+                              "startIndex": 83,
+                              "endIndex": 1885,
+                              "textRun": {
+                                "content": "Stored entry one😀 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\n",
+                                "textStyle": {
+                                  "italic": true
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "startIndex": 1885,
+                        "endIndex": 3686,
+                        "paragraph": {
+                          "elements": [
+                            {
+                              "startIndex": 1885,
+                              "endIndex": 3686,
+                              "textRun": {
+                                "content": "Stored entry two é uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu\n",
+                                "textStyle": {
+                                  "italic": true
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 3687,
+                  "endIndex": 3707,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 3687,
+                        "endIndex": 3707,
+                        "textRun": {
+                          "content": "UNSELECTED original\n",
+                          "textStyle": {
+                            "bold": false
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 3707,
+                  "futureOutside": {
+                    "payload": "unselected unknown with no supplied end"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "commentsDenied": false,
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    }
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:11"
+    },
+    "format": "structured",
+    "styles": true
+  },
+  "controlRead": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "span": {
+        "from": "snap-d:2",
+        "to": "snap-d:9"
+      }
+    },
+    "format": "text",
+    "styles": true
+  },
+  "mainPaths": {
+    "node": [
+      "tabs",
+      0,
+      "documentTab",
+      "body",
+      "content",
+      3
+    ]
+  },
+  "controlPaths": {
+    "span": {
+      "from": [
+        "tabs",
+        0,
+        "documentTab",
+        "body",
+        "content",
+        0
+      ],
+      "to": [
+        "tabs",
+        0,
+        "documentTab",
+        "body",
+        "content",
+        2
+      ]
+    }
+  },
+  "invalidPaths": {
+    "span": {
+      "from": [
+        "tabs",
+        0,
+        "documentTab",
+        "body",
+        "content",
+        2
+      ],
+      "to": [
+        "tabs",
+        0,
+        "documentTab",
+        "body",
+        "content",
+        0
+      ]
+    }
+  },
+  "featurePath": [
+    "tabs",
+    0,
+    "documentTab",
+    "body",
+    "content",
+    3
+  ],
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "0db71da8ed39dce29ebec3c065d02bd1099e958fec8f695a1e5689a495eeaac8"
+        },
+        "children": [
+          "snap-d:2",
+          "snap-d:4",
+          "snap-d:9",
+          "snap-d:11",
+          "snap-d:16",
+          "snap-d:18"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 16
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "4dbefda4b15b3024a9d4510275befcafbeda39d715c95ed1c0fbf58b76d1080c"
+        },
+        "children": [
+          "snap-d:3"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 16
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "938aac6d85800f63df947626d1a1708a2962acb2614b67742b14ef16bdc535a9"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "CONTROL before\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "toc",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 16,
+          "end": 67
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "257594993787ab3a429da7713cda83e226b7ab71552cfcf13b4c76980d019897"
+        },
+        "children": [
+          "snap-d:5",
+          "snap-d:7"
+        ],
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "paragraph",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 17,
+          "end": 42
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "tableOfContents",
+            "content",
+            0
+          ],
+          "digest": "01e22ce24e7ff15ceb8b78fe25012f186c16602a1e4ac252686c390e96129720"
+        },
+        "children": [
+          "snap-d:6"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:6",
+        "kind": "text",
+        "parent": "snap-d:5",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 17,
+          "end": 42
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "tableOfContents",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "be59b1359451922be1b144c7ff1422677a420d79fe56a81b38513432ab2692ff"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Stored control entry one\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:7",
+        "kind": "paragraph",
+        "parent": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 42,
+          "end": 67
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "tableOfContents",
+            "content",
+            1
+          ],
+          "digest": "b1d4f2e0550283c3129a4a12f8b6f1748cccd7ce5cf35618e7702cac06d1ec90"
+        },
+        "children": [
+          "snap-d:8"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:8",
+        "kind": "text",
+        "parent": "snap-d:7",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 42,
+          "end": 67
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "tableOfContents",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "e4d6d1899c476752669e0dd337bf943c0dad2f6bb95459d66e77b87c428452f0"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Stored control entry two\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:9",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 68,
+          "end": 82
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            2
+          ],
+          "digest": "f6f1a2875789475ea3a5f3ef7aa0799ebf7259f8c5447789b2fddce9861f0e30"
+        },
+        "children": [
+          "snap-d:10"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:10",
+        "kind": "text",
+        "parent": "snap-d:9",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 68,
+          "end": 82
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            2,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "96817dbe25b1c42ea66e941fb1784d43ae93dbf50c36675cb109f4be63fc6cd2"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "CONTROL after\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      },
+      {
+        "id": "snap-d:11",
+        "kind": "toc",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 82,
+          "end": 3686
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3
+          ],
+          "digest": "fe742a5af10d7f253eda78dba8f68c7344cd465f76d8667776729c5256d9ad88"
+        },
+        "children": [
+          "snap-d:12",
+          "snap-d:14"
+        ],
+        "review": {},
+        "extentStatus": "mapped"
+      },
+      {
+        "id": "snap-d:12",
+        "kind": "paragraph",
+        "parent": "snap-d:11",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 83,
+          "end": 1885
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3,
+            "tableOfContents",
+            "content",
+            0
+          ],
+          "digest": "ae3936839f2d554bab3658803462116ac5528300baa7060f4edda94bd4008b76"
+        },
+        "children": [
+          "snap-d:13"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:13",
+        "kind": "text",
+        "parent": "snap-d:12",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 83,
+          "end": 1885
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3,
+            "tableOfContents",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "cf3c90a319b97a3fce6947b5419dc42b6c3a9b5a81e5570fe6d34c37160f2476"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Stored entry one😀 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:14",
+        "kind": "paragraph",
+        "parent": "snap-d:11",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1885,
+          "end": 3686
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3,
+            "tableOfContents",
+            "content",
+            1
+          ],
+          "digest": "5a77ecc9a4f8d3a07c5aae335f6be10a3d886f35efcf903a6c53c8d82df56a15"
+        },
+        "children": [
+          "snap-d:15"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:15",
+        "kind": "text",
+        "parent": "snap-d:14",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1885,
+          "end": 3686
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3,
+            "tableOfContents",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "fda61cf1bab22137774bf7b9f238d8b83d90ec4e791e812696664f1da6e15ff3"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Stored entry two é uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:16",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 3687,
+          "end": 3707
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            4
+          ],
+          "digest": "b0ed48ad5ea5f4d52d0846cc5578746000d49606642630bce0fb6db7c8817e5f"
+        },
+        "children": [
+          "snap-d:17"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:17",
+        "kind": "text",
+        "parent": "snap-d:16",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 3687,
+          "end": 3707
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            4,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "827c756cd9378873b2e932b97f605b5a2d210d48621d6db4b2fefb1dad49f34e"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "UNSELECTED original\n",
+        "style": {
+          "explicit": {
+            "bold": false
+          },
+          "properties": {
+            "bold": {
+              "value": false,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": false,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:18",
+        "kind": "opaque",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            5
+          ],
+          "digest": "9751d4d0f6156469e811adb933ed1734cfe78b2f631cf6acbe5a89b7f76ee21a"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "unresolved",
+        "opaqueType": "futureOutside"
+      }
+    ],
+    "registryEntries": [],
+    "registryReferences": [],
+    "unknownFields": [
+      {
+        "path": [
+          "tabs",
+          0,
+          "documentTab",
+          "body",
+          "content",
+          5
+        ],
+        "field": "futureOutside",
+        "digest": "65607bae9a3ed5994fcff774e13dcfbc65dd6b10e328b5e46d608993324549d5"
+      }
+    ],
+    "unresolvedExtents": true,
+    "selectedIds": [
+      "snap-d:11",
+      "snap-d:12",
+      "snap-d:13",
+      "snap-d:14",
+      "snap-d:15"
+    ],
+    "controlIds": [
+      "snap-d:2",
+      "snap-d:3",
+      "snap-d:4",
+      "snap-d:5",
+      "snap-d:6",
+      "snap-d:7",
+      "snap-d:8",
+      "snap-d:9",
+      "snap-d:10"
+    ],
+    "unselectedIds": [
+      "snap-d:16",
+      "snap-d:17",
+      "snap-d:18"
+    ],
+    "projection": {
+      "records": [
+        {
+          "id": "snap-d:11",
+          "kind": "toc",
+          "parent": "snap-d:1",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 82,
+            "end": 3686
+          },
+          "children": [
+            "snap-d:12",
+            "snap-d:14"
+          ],
+          "extentStatus": "mapped",
+          "evidenceDigest": "fe742a5af10d7f253eda78dba8f68c7344cd465f76d8667776729c5256d9ad88"
+        },
+        {
+          "id": "snap-d:12",
+          "kind": "paragraph",
+          "parent": "snap-d:11",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 83,
+            "end": 1885
+          },
+          "children": [
+            "snap-d:13"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "ae3936839f2d554bab3658803462116ac5528300baa7060f4edda94bd4008b76"
+        },
+        {
+          "id": "snap-d:13",
+          "kind": "text",
+          "parent": "snap-d:12",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 83,
+            "end": 1885
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Stored entry one😀 tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\n",
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "cf3c90a319b97a3fce6947b5419dc42b6c3a9b5a81e5570fe6d34c37160f2476"
+        },
+        {
+          "id": "snap-d:14",
+          "kind": "paragraph",
+          "parent": "snap-d:11",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 1885,
+            "end": 3686
+          },
+          "children": [
+            "snap-d:15"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "5a77ecc9a4f8d3a07c5aae335f6be10a3d886f35efcf903a6c53c8d82df56a15"
+        },
+        {
+          "id": "snap-d:15",
+          "kind": "text",
+          "parent": "snap-d:14",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 1885,
+            "end": 3686
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Stored entry two é uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu\n",
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "fda61cf1bab22137774bf7b9f238d8b83d90ec4e791e812696664f1da6e15ff3"
+        }
+      ],
+      "losses": [],
+      "nodeAspects": {
+        "snap-d:11": [
+          "content",
+          "styles"
+        ],
+        "snap-d:12": [
+          "content",
+          "styles"
+        ],
+        "snap-d:13": [
+          "content",
+          "styles"
+        ],
+        "snap-d:14": [
+          "content",
+          "styles"
+        ],
+        "snap-d:15": [
+          "content",
+          "styles"
+        ]
+      },
+      "aspects": [
+        "content",
+        "styles"
+      ],
+      "missingAspects": [
+        "review"
+      ],
+      "projection": "structured"
+    },
+    "controlProjection": {
+      "records": [
+        {
+          "kind": "text",
+          "node": "snap-d:3",
+          "text": "CONTROL before\n",
+          "extent": {
+            "start": 1,
+            "end": 16
+          },
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          }
+        },
+        {
+          "kind": "text",
+          "node": "snap-d:6",
+          "text": "Stored control entry one\n",
+          "extent": {
+            "start": 17,
+            "end": 42
+          },
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          }
+        },
+        {
+          "kind": "text",
+          "node": "snap-d:8",
+          "text": "Stored control entry two\n",
+          "extent": {
+            "start": 42,
+            "end": 67
+          },
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          }
+        },
+        {
+          "kind": "text",
+          "node": "snap-d:10",
+          "text": "CONTROL after\n",
+          "extent": {
+            "start": 68,
+            "end": 82
+          },
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          }
+        }
+      ],
+      "losses": [
+        {
+          "node": "snap-d:4",
+          "kind": "nonText",
+          "sourceKind": "toc"
+        }
+      ],
+      "nodeAspects": {
+        "snap-d:3": [
+          "content",
+          "styles"
+        ],
+        "snap-d:6": [
+          "content",
+          "styles"
+        ],
+        "snap-d:8": [
+          "content",
+          "styles"
+        ],
+        "snap-d:10": [
+          "content",
+          "styles"
+        ]
+      },
+      "aspects": [
+        "content",
+        "styles"
+      ],
+      "missingAspects": [
+        "review"
+      ],
+      "projection": "text"
+    },
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}

@@ -1,0 +1,465 @@
+{
+  "provenance": {
+    "source": "c005/generate.mjs: original explicit provider/semantic vectors",
+    "authorship": "Independent inert C005 expectations; no production oracle"
+  },
+  "caseId": "C005.omitImages__read.invalid",
+  "variant": "omitImages",
+  "outcome": "invalid",
+  "pageBytes": 65536,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent C005",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "7",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent C005",
+      "revisionId": "rev-c005",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Main",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 14,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 9,
+                        "textRun": {
+                          "content": "Visible\n"
+                        }
+                      },
+                      {
+                        "startIndex": 9,
+                        "endIndex": 10,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 10,
+                        "endIndex": 14,
+                        "textRun": {
+                          "content": "End\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 14,
+                  "endIndex": 19,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 14,
+                        "endIndex": 19,
+                        "textRun": {
+                          "content": "KEEP\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "inlineObjects": {
+              "img": {
+                "inlineObjectProperties": {
+                  "embeddedObject": {
+                    "imageProperties": {
+                      "contentUri": "https://assets.invalid/never-fetch.png"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "commentsDenied": false,
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    }
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:2"
+    },
+    "format": "text",
+    "omitImages": true
+  },
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "a46cc44027b86d94240a2f827510fc85ebd91712599497ad25684ab6f3df4fac"
+        },
+        "children": [
+          "snap-d:2",
+          "snap-d:6"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 14
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "eaff7bc9bd430942225baafc90a35ebf1daa51d803512f0ffc2b78e5beac624a"
+        },
+        "children": [
+          "snap-d:3",
+          "snap-d:4",
+          "snap-d:5"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 9
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "3b6b3054949c63fd8acf96e86d7ac90d0863de4a3dfe26ae8a43747994730643"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Visible\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 9,
+          "end": 10
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            1
+          ],
+          "digest": "f3b5af9481d90a951ae94af1d9bebffcf69224b584914075a9b2334b0e0c7cb8"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 10,
+          "end": 14
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            2
+          ],
+          "digest": "b4d455b589261fa86b25e3c525eb55422bfff6a7aaf1b70c2ada5b548186e94f"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "End\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      },
+      {
+        "id": "snap-d:6",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 14,
+          "end": 19
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "28dde46b6bfa13a2e466506150191d0a88a31c88b7269c977659e16866d1e8fa"
+        },
+        "children": [
+          "snap-d:7"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:7",
+        "kind": "text",
+        "parent": "snap-d:6",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 14,
+          "end": 19
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "8ce161307853c10c5ae8b90660a7f43be61bce624d5721cc66a9bc8e7e217797"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "KEEP\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      }
+    ],
+    "selectedIds": [
+      "snap-d:2",
+      "snap-d:3",
+      "snap-d:4",
+      "snap-d:5"
+    ],
+    "unselectedIds": [
+      "snap-d:6",
+      "snap-d:7"
+    ],
+    "projection": {
+      "records": [
+        {
+          "kind": "text",
+          "node": "snap-d:3",
+          "text": "Visible\n",
+          "extent": {
+            "start": 1,
+            "end": 9
+          }
+        },
+        {
+          "kind": "text",
+          "node": "snap-d:5",
+          "text": "End\n",
+          "extent": {
+            "start": 10,
+            "end": 14
+          }
+        }
+      ],
+      "losses": [
+        {
+          "node": "snap-d:2",
+          "kind": "styleAnnotationOmitted"
+        },
+        {
+          "node": "snap-d:3",
+          "kind": "styleAnnotationOmitted"
+        },
+        {
+          "node": "snap-d:4",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:5",
+          "kind": "styleAnnotationOmitted"
+        }
+      ],
+      "nodeAspects": {
+        "snap-d:3": [
+          "content"
+        ],
+        "snap-d:5": [
+          "content"
+        ]
+      },
+      "aspects": [
+        "content"
+      ],
+      "missingAspects": [
+        "styles",
+        "review"
+      ],
+      "projection": "text"
+    },
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}

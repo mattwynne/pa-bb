@@ -1,0 +1,4708 @@
+{
+  "provenance": {
+    "source": "c005/generate.mjs: original explicit provider/semantic vectors",
+    "authorship": "Independent inert C005 expectations; no production oracle"
+  },
+  "caseId": "C005.omitImages__read.bounds",
+  "variant": "omitImages",
+  "outcome": "bounds",
+  "pageBytes": 3000,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent C005",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "7",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent C005",
+      "revisionId": "rev-c005",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Main",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 93,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 9,
+                        "textRun": {
+                          "content": "Visible\n"
+                        }
+                      },
+                      {
+                        "startIndex": 9,
+                        "endIndex": 10,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 10,
+                        "endIndex": 11,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 11,
+                        "endIndex": 12,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 12,
+                        "endIndex": 13,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 13,
+                        "endIndex": 14,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 14,
+                        "endIndex": 15,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 15,
+                        "endIndex": 16,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 16,
+                        "endIndex": 17,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 17,
+                        "endIndex": 18,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 18,
+                        "endIndex": 19,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 19,
+                        "endIndex": 20,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 20,
+                        "endIndex": 21,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 21,
+                        "endIndex": 22,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 22,
+                        "endIndex": 23,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 23,
+                        "endIndex": 24,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 24,
+                        "endIndex": 25,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 25,
+                        "endIndex": 26,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 26,
+                        "endIndex": 27,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 27,
+                        "endIndex": 28,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 28,
+                        "endIndex": 29,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 29,
+                        "endIndex": 30,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 30,
+                        "endIndex": 31,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 31,
+                        "endIndex": 32,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 32,
+                        "endIndex": 33,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 33,
+                        "endIndex": 34,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 34,
+                        "endIndex": 35,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 35,
+                        "endIndex": 36,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 36,
+                        "endIndex": 37,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 37,
+                        "endIndex": 38,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 38,
+                        "endIndex": 39,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 39,
+                        "endIndex": 40,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 40,
+                        "endIndex": 41,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 41,
+                        "endIndex": 42,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 42,
+                        "endIndex": 43,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 43,
+                        "endIndex": 44,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 44,
+                        "endIndex": 45,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 45,
+                        "endIndex": 46,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 46,
+                        "endIndex": 47,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 47,
+                        "endIndex": 48,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 48,
+                        "endIndex": 49,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 49,
+                        "endIndex": 50,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 50,
+                        "endIndex": 51,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 51,
+                        "endIndex": 52,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 52,
+                        "endIndex": 53,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 53,
+                        "endIndex": 54,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 54,
+                        "endIndex": 55,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 55,
+                        "endIndex": 56,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 56,
+                        "endIndex": 57,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 57,
+                        "endIndex": 58,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 58,
+                        "endIndex": 59,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 59,
+                        "endIndex": 60,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 60,
+                        "endIndex": 61,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 61,
+                        "endIndex": 62,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 62,
+                        "endIndex": 63,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 63,
+                        "endIndex": 64,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 64,
+                        "endIndex": 65,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 65,
+                        "endIndex": 66,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 66,
+                        "endIndex": 67,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 67,
+                        "endIndex": 68,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 68,
+                        "endIndex": 69,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 69,
+                        "endIndex": 70,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 70,
+                        "endIndex": 71,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 71,
+                        "endIndex": 72,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 72,
+                        "endIndex": 73,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 73,
+                        "endIndex": 74,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 74,
+                        "endIndex": 75,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 75,
+                        "endIndex": 76,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 76,
+                        "endIndex": 77,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 77,
+                        "endIndex": 78,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 78,
+                        "endIndex": 79,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 79,
+                        "endIndex": 80,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 80,
+                        "endIndex": 81,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 81,
+                        "endIndex": 82,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 82,
+                        "endIndex": 83,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 83,
+                        "endIndex": 84,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 84,
+                        "endIndex": 85,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 85,
+                        "endIndex": 86,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 86,
+                        "endIndex": 87,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 87,
+                        "endIndex": 88,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 88,
+                        "endIndex": 89,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "img"
+                        }
+                      },
+                      {
+                        "startIndex": 89,
+                        "endIndex": 93,
+                        "textRun": {
+                          "content": "End\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 93,
+                  "endIndex": 98,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 93,
+                        "endIndex": 98,
+                        "textRun": {
+                          "content": "KEEP\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "inlineObjects": {
+              "img": {
+                "inlineObjectProperties": {
+                  "embeddedObject": {
+                    "imageProperties": {
+                      "contentUri": "https://assets.invalid/never-fetch.png"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "commentsDenied": false,
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    }
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:2"
+    },
+    "format": "text",
+    "omitImages": true
+  },
+  "controlRead": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:3"
+    },
+    "format": "text",
+    "omitImages": true
+  },
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "d1fdd45e652c79af1e908c09ef500a0e7af8552d9e2e16a2d46a17d2ba1ec2ae"
+        },
+        "children": [
+          "snap-d:2",
+          "snap-d:85"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 93
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "fcca8ecaf9e6fcef195568d5abfba0e823b9db9a4180ff0d305d78f27893144d"
+        },
+        "children": [
+          "snap-d:3",
+          "snap-d:4",
+          "snap-d:5",
+          "snap-d:6",
+          "snap-d:7",
+          "snap-d:8",
+          "snap-d:9",
+          "snap-d:10",
+          "snap-d:11",
+          "snap-d:12",
+          "snap-d:13",
+          "snap-d:14",
+          "snap-d:15",
+          "snap-d:16",
+          "snap-d:17",
+          "snap-d:18",
+          "snap-d:19",
+          "snap-d:20",
+          "snap-d:21",
+          "snap-d:22",
+          "snap-d:23",
+          "snap-d:24",
+          "snap-d:25",
+          "snap-d:26",
+          "snap-d:27",
+          "snap-d:28",
+          "snap-d:29",
+          "snap-d:30",
+          "snap-d:31",
+          "snap-d:32",
+          "snap-d:33",
+          "snap-d:34",
+          "snap-d:35",
+          "snap-d:36",
+          "snap-d:37",
+          "snap-d:38",
+          "snap-d:39",
+          "snap-d:40",
+          "snap-d:41",
+          "snap-d:42",
+          "snap-d:43",
+          "snap-d:44",
+          "snap-d:45",
+          "snap-d:46",
+          "snap-d:47",
+          "snap-d:48",
+          "snap-d:49",
+          "snap-d:50",
+          "snap-d:51",
+          "snap-d:52",
+          "snap-d:53",
+          "snap-d:54",
+          "snap-d:55",
+          "snap-d:56",
+          "snap-d:57",
+          "snap-d:58",
+          "snap-d:59",
+          "snap-d:60",
+          "snap-d:61",
+          "snap-d:62",
+          "snap-d:63",
+          "snap-d:64",
+          "snap-d:65",
+          "snap-d:66",
+          "snap-d:67",
+          "snap-d:68",
+          "snap-d:69",
+          "snap-d:70",
+          "snap-d:71",
+          "snap-d:72",
+          "snap-d:73",
+          "snap-d:74",
+          "snap-d:75",
+          "snap-d:76",
+          "snap-d:77",
+          "snap-d:78",
+          "snap-d:79",
+          "snap-d:80",
+          "snap-d:81",
+          "snap-d:82",
+          "snap-d:83",
+          "snap-d:84"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 9
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "3b6b3054949c63fd8acf96e86d7ac90d0863de4a3dfe26ae8a43747994730643"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Visible\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 9,
+          "end": 10
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            1
+          ],
+          "digest": "f3b5af9481d90a951ae94af1d9bebffcf69224b584914075a9b2334b0e0c7cb8"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 10,
+          "end": 11
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            2
+          ],
+          "digest": "30752652745721809c6d51117770d4515e99733a03ab978b2b42182d990c03b9"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:6",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 11,
+          "end": 12
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            3
+          ],
+          "digest": "0de2b1972759ef74ce0c60133e2861c0dcd0359a7a146cffb5a09accfe10b2ea"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:7",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 12,
+          "end": 13
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            4
+          ],
+          "digest": "c8c2ef2dcd90dd90629e1f4a792cac24ca42535aac01e60cda8b20efc3887774"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:8",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 13,
+          "end": 14
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            5
+          ],
+          "digest": "77a12b5f5774cac4ebf6417156d53d81ca33ca88c9026768ef777f859babfab2"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:9",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 14,
+          "end": 15
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            6
+          ],
+          "digest": "f8c7aa2dc7ad3a153f65d1f5df6e675c3909389bb43075434fe1c227fc5c3539"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:10",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 15,
+          "end": 16
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            7
+          ],
+          "digest": "20be475f04cd1aad2e7f69fc84e99126a80991965a8a72e9cdd16b9723d58446"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:11",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 16,
+          "end": 17
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            8
+          ],
+          "digest": "c4c99b6361323d91f065fa23928669f6a613274cb018d10ecc74fd5182813ac3"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:12",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 17,
+          "end": 18
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            9
+          ],
+          "digest": "81e499158a91fad43e6c05e3105c12597940e8f86be37bac70edf9f772493dd4"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:13",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 18,
+          "end": 19
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            10
+          ],
+          "digest": "012b0aefad8763a96c4b9458328047dca6c93d007a723eab5310dded7abf5722"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:14",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 19,
+          "end": 20
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            11
+          ],
+          "digest": "2cfd9ed1d87eefcc9a058ded82e0168055dcce69632626f2db4906935bb329d1"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:15",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 20,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            12
+          ],
+          "digest": "be2e506f1f279edbafcb2922fab281eee2ecac0244ee608d3c8acb8443b12d2d"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:16",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 21,
+          "end": 22
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            13
+          ],
+          "digest": "01758fbe797177767d31c3268500dba7a48bbc344fb2308909dcbffe1fefbe14"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:17",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 22,
+          "end": 23
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            14
+          ],
+          "digest": "f2dbfa5c91ea4f8f42b66bd68ef50d09a9725b2f63506a0f0a7b914336f2f96b"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:18",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 23,
+          "end": 24
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            15
+          ],
+          "digest": "4671e67704550aba952872dd57f00a20a748b95eec2940137df1a7601a416b8a"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:19",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 24,
+          "end": 25
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            16
+          ],
+          "digest": "3e3f2c0945d407cd1ca15b694d498b7fd930d4e0b203141aad7b2176be730455"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:20",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 25,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            17
+          ],
+          "digest": "8ad64642078a0d3453f656f014f7f7e3f118cc0700e84ddd241c66babcf77bff"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:21",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 26,
+          "end": 27
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            18
+          ],
+          "digest": "a7e67adbd8582ae6045deb9cbf1b47c5d73c59e212c4c2db9a86e705e7eed206"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:22",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 27,
+          "end": 28
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            19
+          ],
+          "digest": "263b47ac9e53304e66f9fd77ecf65e47d976e527fcc1087303c62171dc9f2e81"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:23",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 28,
+          "end": 29
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            20
+          ],
+          "digest": "a7dbb27d351df69b5014df88d783b40e209b6fdfb04a199d6f048d7423c7f140"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:24",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 29,
+          "end": 30
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            21
+          ],
+          "digest": "9d4f56582203478056f74622a937401daea2fddf4eaa3eba97c5b907bacd8018"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:25",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 30,
+          "end": 31
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            22
+          ],
+          "digest": "6952854631305b7d22be746b84ac1fb1ebccda978a4247615c1590e3fe35866d"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:26",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 31,
+          "end": 32
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            23
+          ],
+          "digest": "148357ef16d7bff330c52e647a299ba6a18d4754730e90c572c67ef14f6f7f97"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:27",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 32,
+          "end": 33
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            24
+          ],
+          "digest": "e9ac924147c8302ecd1cb58348e4c1ab56c7bea00765820588c0577ae29c76dc"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:28",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 33,
+          "end": 34
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            25
+          ],
+          "digest": "9fbb1f1504be2a24f9f810d3fe7cb6baa8b867257b60e8bd4c8d5181654b76c9"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:29",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 34,
+          "end": 35
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            26
+          ],
+          "digest": "4493d88a5861b6ccc58e93effe2bdaae179c3301fb521215ad4e6cb8112c92c4"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:30",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 35,
+          "end": 36
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            27
+          ],
+          "digest": "c4a125a6f451eedacabb90bf30035698c24c425982bbecdf6eaf2b9c1a169749"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:31",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 36,
+          "end": 37
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            28
+          ],
+          "digest": "e3b925ab0276a882cdddc019e2500aefcb755d750d4cb5ec18f8a6563e3331b3"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:32",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 37,
+          "end": 38
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            29
+          ],
+          "digest": "e1998d437a0f59e69ccb41f0e490f843953a87eb14a05a4df8ec55116d6b237f"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:33",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 38,
+          "end": 39
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            30
+          ],
+          "digest": "fa6d389d407a58e8fab374e873e7957a7c337ea8c34104a0b9e953dd2313e950"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:34",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 39,
+          "end": 40
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            31
+          ],
+          "digest": "a147431a8a95f5ddf2ef6219cc8a06a22894e0f5cba66dcab63e4b0477ff4195"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:35",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 40,
+          "end": 41
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            32
+          ],
+          "digest": "90c00efd03f9be4bdbee5d94b0163178912fb679f532ae6c2e2a6ed4a4f873a9"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:36",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 41,
+          "end": 42
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            33
+          ],
+          "digest": "29b837a149f8ace8a1ac23ec86c232b9828bc0d73268f42ff0484c6886822820"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:37",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 42,
+          "end": 43
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            34
+          ],
+          "digest": "bddfb50174aeab08840ebd65cbbf7e9d03ca4e1f024af184627d40b7957dbe70"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:38",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 43,
+          "end": 44
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            35
+          ],
+          "digest": "98bf4d22b5b31f4f2488676b0686a7561794eb28d4f94e73136ae3315d71fca5"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:39",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 44,
+          "end": 45
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            36
+          ],
+          "digest": "60a37334c348b36cd3110d53dd2a89093567cfe32356b2ee409c6d990fda6e00"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:40",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 45,
+          "end": 46
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            37
+          ],
+          "digest": "3aae9b2fa4df193011a8837988c24252ddcb36e357ca26287889cec7103d24b7"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:41",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 46,
+          "end": 47
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            38
+          ],
+          "digest": "fbecee0e2d235cecb74d66e59ff7c88a9a95b97434a7b1963ccf12069805e0f7"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:42",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 47,
+          "end": 48
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            39
+          ],
+          "digest": "a0603a28c12e2fede91783783169928573527ac3c0e50bcdfe826b5cafb08f4d"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:43",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 48,
+          "end": 49
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            40
+          ],
+          "digest": "4d23a988d2b348d0aef0043ed1622bcc0b5c8fce15edd7afba798a476251d54e"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:44",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 49,
+          "end": 50
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            41
+          ],
+          "digest": "574083191908b09decb8c8e98698901b50bd00c3b35bd15bff8fd82afe4d6c3c"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:45",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 50,
+          "end": 51
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            42
+          ],
+          "digest": "964e908a1304c7173a770fa40c4e7e8da85cdc89b878d02172ae5381b59900fc"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:46",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 51,
+          "end": 52
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            43
+          ],
+          "digest": "1a166ccf5286f27c2e7d94fcbcb4dec33c323b91d80b6989201625457260ee76"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:47",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 52,
+          "end": 53
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            44
+          ],
+          "digest": "2c549e743c2b27f4b7812ee278d62863fe478b91ef239e026a1e3b1d2983422e"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:48",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 53,
+          "end": 54
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            45
+          ],
+          "digest": "a0aff778a2a67f2dedc85b678dae7ce63f09c2c771987024620360a324b8ea2c"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:49",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 54,
+          "end": 55
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            46
+          ],
+          "digest": "23f123d77f49e69e414242d0b7ce257fc54b6f811ffb4f2e040d719abfa6b748"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:50",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 55,
+          "end": 56
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            47
+          ],
+          "digest": "6c49ec5f822832b6d52ccaafd15bacd835391fa6ab70acb53ba6ca702a18c627"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:51",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 56,
+          "end": 57
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            48
+          ],
+          "digest": "15bba5a9d1d8f7c3de52535d0e804ab0448c1ae16594ee2305bf8712b9785bde"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:52",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 57,
+          "end": 58
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            49
+          ],
+          "digest": "ff69eb4342fcd767bde45ab06441a2e9eb42d2177d389c37f935ff6f763f713c"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:53",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 58,
+          "end": 59
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            50
+          ],
+          "digest": "e49f803f8fee3f14b91d9761ba71728af45dabb71109a8e6716b241f296ae3c3"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:54",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 59,
+          "end": 60
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            51
+          ],
+          "digest": "e92e6c072da2a1f8e3f8ae76c5a67e7ed490f1194d200074c691c1ea54db5c6c"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:55",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 60,
+          "end": 61
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            52
+          ],
+          "digest": "883ad0905870c2b3f74557ac6c6a303855af70d13e9df5bcbc011293798c7d84"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:56",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 61,
+          "end": 62
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            53
+          ],
+          "digest": "a0e06c6fd04deff834b0b30da891a2327fc9a8eda0a04f7c4e454a0f3a1f07d2"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:57",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 62,
+          "end": 63
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            54
+          ],
+          "digest": "c6543d90bf906fe0ed4255f1685ca130629cf3b3ae245acbfa79e068da61fc4f"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:58",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 63,
+          "end": 64
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            55
+          ],
+          "digest": "a2a94fe2a5ce1a0671dc40cc3d578d0520a4c408c5fa873be5a205f738b33896"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:59",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 64,
+          "end": 65
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            56
+          ],
+          "digest": "569f2df873207e4a95e69d75e8e30b63b950fcc4a219bf0cff304836eb3a30bb"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:60",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 65,
+          "end": 66
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            57
+          ],
+          "digest": "0ec2a24e1291ea8e3422054d31b443bf1edea491c1587b392d1e113c247c1a85"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:61",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 66,
+          "end": 67
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            58
+          ],
+          "digest": "4ac9d53488430e4fd32bec15264e0282b4b7bd1bd8f3ad6a342138011166324c"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:62",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 67,
+          "end": 68
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            59
+          ],
+          "digest": "7b31b0c6cc08146bcc85aead4e5b9dd13dbc1f92b97ff1668272dee029741ece"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:63",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 68,
+          "end": 69
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            60
+          ],
+          "digest": "557553b2d8f304d53990067910d53f3dee512539082291b70f775828203c9ce5"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:64",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 69,
+          "end": 70
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            61
+          ],
+          "digest": "e4f12d4d59269d49191c240c052bdf54d4ac20e9a8a711a765403f0d73ac0ad6"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:65",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 70,
+          "end": 71
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            62
+          ],
+          "digest": "03925ca75113c58fd4cd82d5ad338d284ba88b80b7caab9d33095653d1251d60"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:66",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 71,
+          "end": 72
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            63
+          ],
+          "digest": "140908cbfdbd879071e9b122b04ecd2b08235bbdb7362f28caa916959c55ca0f"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:67",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 72,
+          "end": 73
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            64
+          ],
+          "digest": "bf48ff868069866fcf7a137dea534663b1bd16be8deeb3254b5e0d2aab4abf5a"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:68",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 73,
+          "end": 74
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            65
+          ],
+          "digest": "69ebe8c4ea9c0b43cab8f1293b298f6d534c7fb5ad66a8bea0fbcc7108f3b842"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:69",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 74,
+          "end": 75
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            66
+          ],
+          "digest": "c43993e66e7f0b3c16141b143ee153312bc7d2c739ab65e16fa4029bac57547d"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:70",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 75,
+          "end": 76
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            67
+          ],
+          "digest": "e01c437dd61149886943c76545c843ff8dbaecef805238ed781cabefb02d590c"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:71",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 76,
+          "end": 77
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            68
+          ],
+          "digest": "9ff6151a61470c85561e036552eb48a171b43e0d71d2e36c46fcdf46a46fdb1d"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:72",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 77,
+          "end": 78
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            69
+          ],
+          "digest": "e6a11ee84453a29fe4a89331da97cb6f2b38088c3c20e85d4a25399948448674"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:73",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 78,
+          "end": 79
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            70
+          ],
+          "digest": "e8ffa60ceb793ea1a538d1b7bc0b0f3218ab75d9a5ae810b3c3b432437a690db"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:74",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 79,
+          "end": 80
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            71
+          ],
+          "digest": "84612070802f3103346178637000789d6804b7f2d8795694aa1a5f3dd3a54921"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:75",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 80,
+          "end": 81
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            72
+          ],
+          "digest": "4649336a8f96fa60570631a2532b509aada506efbb155bedab347a206152b720"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:76",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 81,
+          "end": 82
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            73
+          ],
+          "digest": "4532e6317328e47f6e001f336fe5527fb221748d717a403c1e4d39f8e072dab2"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:77",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 82,
+          "end": 83
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            74
+          ],
+          "digest": "158b6de342b2c6c2c4626d71fc5eded197c10bc83c6ad093ba0324df6160bbea"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:78",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 83,
+          "end": 84
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            75
+          ],
+          "digest": "a9b6da7ff073bde393ca99ab367cc3c69589bf3c4b78ac044d5c68145ebd2687"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:79",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 84,
+          "end": 85
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            76
+          ],
+          "digest": "fa8362028a92753a19178cb4667c758d915ee02bb6f7eca960cd77f6940d870e"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:80",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 85,
+          "end": 86
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            77
+          ],
+          "digest": "b548cf016cba0a0f742ec8fff5ef64e1dc3aaff2034e96d7c15c88a26ecdb945"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:81",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 86,
+          "end": 87
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            78
+          ],
+          "digest": "1464c596f7bb5c578a3356f066fd6c28bc9c1c68b481b9bdcc7cf29ec6f9c8fd"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:82",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 87,
+          "end": 88
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            79
+          ],
+          "digest": "790f2a5a0d982a75765f460af1b5dd9c7f039fa3f5ea8542061ac10c14338cf0"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:83",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 88,
+          "end": 89
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            80
+          ],
+          "digest": "2bb4303e8b498e1cd3b3ee7ff7a64289ace675555473b028162fe241f63c1f33"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "img"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:84",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 89,
+          "end": 93
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            81
+          ],
+          "digest": "df08d52876292bd3b8a3db5444e8a5cdf85b09090061d61e8b36482b1f7ba1b0"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "End\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      },
+      {
+        "id": "snap-d:85",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 93,
+          "end": 98
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "9a80e7b8639dc1391aa5ce5dc271023676ae450d2147eb8252d22f13de345835"
+        },
+        "children": [
+          "snap-d:86"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:86",
+        "kind": "text",
+        "parent": "snap-d:85",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 93,
+          "end": 98
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "e068b68a158a76453c0f24287187664f540491bedf6e4625d281fe46be653be0"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "KEEP\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      }
+    ],
+    "selectedIds": [
+      "snap-d:2",
+      "snap-d:3",
+      "snap-d:4",
+      "snap-d:5",
+      "snap-d:6",
+      "snap-d:7",
+      "snap-d:8",
+      "snap-d:9",
+      "snap-d:10",
+      "snap-d:11",
+      "snap-d:12",
+      "snap-d:13",
+      "snap-d:14",
+      "snap-d:15",
+      "snap-d:16",
+      "snap-d:17",
+      "snap-d:18",
+      "snap-d:19",
+      "snap-d:20",
+      "snap-d:21",
+      "snap-d:22",
+      "snap-d:23",
+      "snap-d:24",
+      "snap-d:25",
+      "snap-d:26",
+      "snap-d:27",
+      "snap-d:28",
+      "snap-d:29",
+      "snap-d:30",
+      "snap-d:31",
+      "snap-d:32",
+      "snap-d:33",
+      "snap-d:34",
+      "snap-d:35",
+      "snap-d:36",
+      "snap-d:37",
+      "snap-d:38",
+      "snap-d:39",
+      "snap-d:40",
+      "snap-d:41",
+      "snap-d:42",
+      "snap-d:43",
+      "snap-d:44",
+      "snap-d:45",
+      "snap-d:46",
+      "snap-d:47",
+      "snap-d:48",
+      "snap-d:49",
+      "snap-d:50",
+      "snap-d:51",
+      "snap-d:52",
+      "snap-d:53",
+      "snap-d:54",
+      "snap-d:55",
+      "snap-d:56",
+      "snap-d:57",
+      "snap-d:58",
+      "snap-d:59",
+      "snap-d:60",
+      "snap-d:61",
+      "snap-d:62",
+      "snap-d:63",
+      "snap-d:64",
+      "snap-d:65",
+      "snap-d:66",
+      "snap-d:67",
+      "snap-d:68",
+      "snap-d:69",
+      "snap-d:70",
+      "snap-d:71",
+      "snap-d:72",
+      "snap-d:73",
+      "snap-d:74",
+      "snap-d:75",
+      "snap-d:76",
+      "snap-d:77",
+      "snap-d:78",
+      "snap-d:79",
+      "snap-d:80",
+      "snap-d:81",
+      "snap-d:82",
+      "snap-d:83",
+      "snap-d:84"
+    ],
+    "unselectedIds": [
+      "snap-d:85",
+      "snap-d:86"
+    ],
+    "projection": {
+      "records": [
+        {
+          "kind": "text",
+          "node": "snap-d:3",
+          "text": "Visible\n",
+          "extent": {
+            "start": 1,
+            "end": 9
+          }
+        },
+        {
+          "kind": "text",
+          "node": "snap-d:84",
+          "text": "End\n",
+          "extent": {
+            "start": 89,
+            "end": 93
+          }
+        }
+      ],
+      "losses": [
+        {
+          "node": "snap-d:2",
+          "kind": "styleAnnotationOmitted"
+        },
+        {
+          "node": "snap-d:3",
+          "kind": "styleAnnotationOmitted"
+        },
+        {
+          "node": "snap-d:4",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:5",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:6",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:7",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:8",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:9",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:10",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:11",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:12",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:13",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:14",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:15",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:16",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:17",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:18",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:19",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:20",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:21",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:22",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:23",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:24",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:25",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:26",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:27",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:28",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:29",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:30",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:31",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:32",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:33",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:34",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:35",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:36",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:37",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:38",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:39",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:40",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:41",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:42",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:43",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:44",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:45",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:46",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:47",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:48",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:49",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:50",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:51",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:52",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:53",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:54",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:55",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:56",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:57",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:58",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:59",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:60",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:61",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:62",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:63",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:64",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:65",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:66",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:67",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:68",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:69",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:70",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:71",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:72",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:73",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:74",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:75",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:76",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:77",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:78",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:79",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:80",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:81",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:82",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:83",
+          "kind": "omittedImage"
+        },
+        {
+          "node": "snap-d:84",
+          "kind": "styleAnnotationOmitted"
+        }
+      ],
+      "nodeAspects": {
+        "snap-d:3": [
+          "content"
+        ],
+        "snap-d:84": [
+          "content"
+        ]
+      },
+      "aspects": [
+        "content"
+      ],
+      "missingAspects": [
+        "styles",
+        "review"
+      ],
+      "projection": "text"
+    },
+    "controlIds": [
+      "snap-d:3"
+    ],
+    "controlProjection": {
+      "records": [
+        {
+          "kind": "text",
+          "node": "snap-d:3",
+          "text": "Visible\n",
+          "extent": {
+            "start": 1,
+            "end": 9
+          }
+        }
+      ],
+      "losses": [
+        {
+          "node": "snap-d:3",
+          "kind": "styleAnnotationOmitted"
+        }
+      ],
+      "nodeAspects": {
+        "snap-d:3": [
+          "content"
+        ]
+      },
+      "aspects": [
+        "content"
+      ],
+      "missingAspects": [
+        "styles",
+        "review"
+      ],
+      "projection": "text"
+    },
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, openSync, closeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -15,6 +15,9 @@ test('total deterministic expansion retains all rows, modes and sibling outcomes
   assert.equal(new Set(r.map(x => `${x.ledgerId}/${x.operation}/${x.base}`)).size,1190);
   assert.equal(new Set(r.map(x => `${x.ledgerId}/${x.operation}/${x.semanticVariant}`)).size,1579);
   assert.equal(allClosures(m,r).size,1036); assert.deepEqual(r,expand(m));
+  // This S01 control is the all-planned inventory, not a claim that later
+  // normal executions may be omitted from the current product manifest.
+  m.expansion.deliveryOverrides={};
   const result = auditEvidence({manifest:m, registry:{operations:{},exposed:[]},cases:[],results:[],fixtures:{},root:packageRoot,runId:'no-execution'});
   assert.deepEqual(result,{plannedKeys:11197,executedObligations:0,enabledVariants:0});
   assert.ok(r.every(x => x.status === 'planned'));
@@ -59,7 +62,9 @@ test('actual Cucumber messages: nonce, Examples rows, source/fixture identities 
   const dir=mkdtempSync(join(tmpdir(),'docs-runner-contract-')),runId='runner-contract-'+Date.now(), fingerprint=sourceDigest();
   try {
     const output=join(dir,'messages.ndjson');
-    const p=spawnSync(process.execPath,['node_modules/@cucumber/cucumber/bin/cucumber.js','--profile','docs','--format',`message:${output}`],{cwd:packageRoot,encoding:'utf8',env:{...process.env,DOCS_ACCEPTANCE_RUN_ID:runId,DOCS_ACCEPTANCE_SOURCE_DIGEST:fingerprint}});
+    const fd=openSync(join(dir,'executions.ndjson'),'wx');let p;
+    try { p=spawnSync(process.execPath,['node_modules/@cucumber/cucumber/bin/cucumber.js','--profile','docs','--format',`message:${output}`],{cwd:packageRoot,encoding:'utf8',stdio:['pipe','pipe','pipe',fd],env:{...process.env,DOCS_ACCEPTANCE_RUN_ID:runId,DOCS_ACCEPTANCE_SOURCE_DIGEST:fingerprint,DOCS_EXECUTION_FD:'3'}}); }
+    finally {closeSync(fd);}
     assert.equal(p.status,0,p.stdout+p.stderr);
     const messages=readFileSync(output,'utf8').trim().split('\n').map(JSON.parse);
     assert.deepEqual(auditBaseline(messages,runId,fingerprint),{baseline:30,s01ApplicationCases:3});

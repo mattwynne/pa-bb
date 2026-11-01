@@ -1,0 +1,123 @@
+{
+  "provenance": {
+    "source": "Original hand-authored native GET and expected semantic facts; no external implementation",
+    "authorship": "D independent inert fixture"
+  },
+  "caseId": "C165.fileMetadata__read.success",
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Bridge fixture",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "7",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Bridge fixture",
+      "revisionId": "rev-d",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Main",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 8,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 3,
+                        "textRun": {
+                          "content": "Br"
+                        }
+                      },
+                      {
+                        "startIndex": 3,
+                        "endIndex": 8,
+                        "textRun": {
+                          "content": "idge\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    }
+  },
+  "http": [
+    {
+      "method": "GET",
+      "url": "https://openidconnect.googleapis.com/v1/userinfo",
+      "response": "identity"
+    },
+    {
+      "method": "GET",
+      "url": "https://www.googleapis.com/drive/v3/files/doc-d?fields=id%2Cname%2CmimeType%2Cdescription%2CmodifiedTime%2Cparents%2CwebViewLink%2Ctrashed%2CdriveId%2CappProperties%2Ccapabilities%28canCopy%2CcanAddChildren%29&supportsAllDrives=true",
+      "response": "metadata"
+    }
+  ],
+  "calls": [
+    {
+      "name": "gdrive_get_file",
+      "args": {
+        "account": "reader@example.test",
+        "fileId": "doc-d"
+      },
+      "threadId": "thread-d"
+    }
+  ],
+  "expected": {
+    "output": {
+      "account": "reader@example.test",
+      "file": {
+        "id": "doc-d",
+        "name": "Bridge fixture",
+        "mimeType": "application/vnd.google-apps.document",
+        "modifiedTime": "2026-01-01T00:00:00Z",
+        "url": "https://docs.google.com/document/d/doc-d/edit"
+      }
+    }
+  },
+  "args": {
+    "account": "reader@example.test",
+    "fileId": "doc-d"
+  }
+}

@@ -1,0 +1,3048 @@
+{
+  "provenance": {
+    "source": "c003/generate.mjs: independent literal segment fixtures",
+    "authorship": "Provider trees, typed scopes, relationships, raw identity and projections authored without production parsing/selection/projection"
+  },
+  "caseId": "C003.header__read.preservation",
+  "variant": "header",
+  "outcome": "preservation",
+  "pageBytes": 6000,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent segment evidence",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "9",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent segment evidence",
+      "revisionId": "rev-c003",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-a",
+            "title": "Other tab first",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 21,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 14,
+                        "textRun": {
+                          "content": "Same body 😀 ",
+                          "textStyle": {
+                            "bold": true
+                          }
+                        }
+                      },
+                      {
+                        "startIndex": 14,
+                        "endIndex": 15,
+                        "footnoteReference": {
+                          "footnoteId": "note-a",
+                          "textStyle": {
+                            "baselineOffset": "SUPERSCRIPT"
+                          }
+                        }
+                      },
+                      {
+                        "startIndex": 15,
+                        "endIndex": 21,
+                        "textRun": {
+                          "content": " é a\n",
+                          "textStyle": {
+                            "italic": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "headers": {
+              "header-a": {
+                "headerId": "header-a",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 26,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 26,
+                          "textRun": {
+                            "content": "Same header/header-a/a é\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "header-a-alternate": {
+                "headerId": "header-a-alternate",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 36,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 36,
+                          "textRun": {
+                            "content": "Same header/header-a-alternate/a é\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "footers": {
+              "footer-a": {
+                "footerId": "footer-a",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 26,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 26,
+                          "textRun": {
+                            "content": "Same footer/footer-a/a é\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "footer-a-alternate": {
+                "footerId": "footer-a-alternate",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 36,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 36,
+                          "textRun": {
+                            "content": "Same footer/footer-a-alternate/a é\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "footnotes": {
+              "note-a": {
+                "footnoteId": "note-a",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 26,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 26,
+                          "textRun": {
+                            "content": "Same footnote/note-a/a é\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Chosen segments",
+            "index": 1
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 21,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 14,
+                        "textRun": {
+                          "content": "Same body 😀 ",
+                          "textStyle": {
+                            "bold": true
+                          }
+                        }
+                      },
+                      {
+                        "startIndex": 14,
+                        "endIndex": 15,
+                        "footnoteReference": {
+                          "footnoteId": "note-d",
+                          "textStyle": {
+                            "baselineOffset": "SUPERSCRIPT"
+                          }
+                        }
+                      },
+                      {
+                        "startIndex": 15,
+                        "endIndex": 21,
+                        "textRun": {
+                          "content": " é d\n",
+                          "textStyle": {
+                            "italic": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "headers": {
+              "header-d": {
+                "headerId": "header-d",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 26,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 26,
+                          "textRun": {
+                            "content": "Same header/header-d/d é\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 26,
+                    "endIndex": 1957,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 26,
+                          "endIndex": 1957,
+                          "textRun": {
+                            "content": "Selected header/header-d/d 😀 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+                            "textStyle": {
+                              "bold": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 1957,
+                    "endIndex": 3884,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 1957,
+                          "endIndex": 3884,
+                          "textRun": {
+                            "content": "Last header/header-d/d é yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n",
+                            "textStyle": {
+                              "fontSize": {
+                                "magnitude": 11,
+                                "unit": "PT"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "header-d-alternate": {
+                "headerId": "header-d-alternate",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 36,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 36,
+                          "textRun": {
+                            "content": "Same header/header-d-alternate/d é\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "footers": {
+              "footer-d": {
+                "footerId": "footer-d",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 26,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 26,
+                          "textRun": {
+                            "content": "Same footer/footer-d/d é\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              "footer-d-alternate": {
+                "footerId": "footer-d-alternate",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 36,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 36,
+                          "textRun": {
+                            "content": "Same footer/footer-d-alternate/d é\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "footnotes": {
+              "note-d": {
+                "footnoteId": "note-d",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 26,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 26,
+                          "textRun": {
+                            "content": "Same footnote/note-d/d é\n",
+                            "textStyle": {
+                              "italic": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "commentsDenied": false,
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "header",
+          "id": "header-d"
+        }
+      ]
+    }
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "header",
+          "id": "header-d"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:26"
+    },
+    "format": "structured",
+    "styles": true
+  },
+  "controlRead": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "header",
+          "id": "header-d"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:27"
+    },
+    "format": "text",
+    "styles": true
+  },
+  "invalidRead": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "header",
+          "id": "footer-d"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:26"
+    },
+    "format": "structured",
+    "styles": true
+  },
+  "mainPath": [
+    "tabs",
+    1,
+    "documentTab",
+    "headers",
+    "header-d"
+  ],
+  "controlPath": [
+    "tabs",
+    1,
+    "documentTab",
+    "headers",
+    "header-d",
+    "content",
+    0
+  ],
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "d69f778ff061620a7ae52b3a29ee46812663f657fda9798bfc4a876331b6da60"
+        },
+        "children": [
+          "snap-d:2"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "74b1851de71b02f8a2a1eb6c44bd9586793c0cec8b777cf260abe8a40ca5072c"
+        },
+        "children": [
+          "snap-d:3",
+          "snap-d:4",
+          "snap-d:5"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 14
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "94f455765824438d6a39c708f8d4823079c64450798c6c3b92d1d6003d0120d4"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same body 😀 ",
+        "style": {
+          "explicit": {
+            "bold": true
+          },
+          "properties": {
+            "bold": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "footnoteReference",
+        "parent": "snap-d:2",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 14,
+          "end": 15
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            1
+          ],
+          "digest": "b05c9a1ed3282b84375e3d982bd78b61187dc2adc6fee94260a4bd8f4d27818d"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "footnoteId": "note-a"
+        },
+        "opaqueType": "footnoteReference",
+        "style": {
+          "explicit": {
+            "baselineOffset": "SUPERSCRIPT"
+          },
+          "properties": {
+            "baselineOffset": {
+              "value": "SUPERSCRIPT",
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "baselineOffset": {
+              "atomic": true,
+              "leaves": {
+                "baselineOffset": {
+                  "stored": "SUPERSCRIPT",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 15,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            2
+          ],
+          "digest": "065df04b71751b0c9af1b0f8170802a17c8f3cec143cc6b575809380ac1e00bb"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": " é a\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:6",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-a"
+          ],
+          "digest": "bfc45676de3848ba6e6629d126c0ae02ba7c358714721526000d02879864cfd7"
+        },
+        "children": [
+          "snap-d:7"
+        ]
+      },
+      {
+        "id": "snap-d:7",
+        "kind": "paragraph",
+        "parent": "snap-d:6",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-a",
+            "content",
+            0
+          ],
+          "digest": "217e142a9d7b8a55688aa28ae901a5f60d515bf5b457a22b27a371f08fbfdebe"
+        },
+        "children": [
+          "snap-d:8"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:8",
+        "kind": "text",
+        "parent": "snap-d:7",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-a",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "7783b29286e614f76468593e60ae3b6ce81c6643665f5be03c708077eea00731"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same header/header-a/a é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:9",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a-alternate"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-a-alternate"
+          ],
+          "digest": "9c4e3b7acbc23c39742592d22135c383a7f6ee1b1bf90de825d650fb60ce1e3d"
+        },
+        "children": [
+          "snap-d:10"
+        ]
+      },
+      {
+        "id": "snap-d:10",
+        "kind": "paragraph",
+        "parent": "snap-d:9",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a-alternate"
+        },
+        "extent": {
+          "start": 0,
+          "end": 36
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-a-alternate",
+            "content",
+            0
+          ],
+          "digest": "3a409dc1d88ea3a14af7802e8a748686b05f4339c03dbfc688219ed40bbeb830"
+        },
+        "children": [
+          "snap-d:11"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:11",
+        "kind": "text",
+        "parent": "snap-d:10",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a-alternate"
+        },
+        "extent": {
+          "start": 0,
+          "end": 36
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-a-alternate",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "f7381653659447725874e59eb01f50b736b284619e6e2d7290d24dfc8dc8f561"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same header/header-a-alternate/a é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:12",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-a"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "footers",
+            "footer-a"
+          ],
+          "digest": "a1fcb30b86bba7c49975d5f0a97b1048937896b399d5cdd874b57b721c6b3b09"
+        },
+        "children": [
+          "snap-d:13"
+        ]
+      },
+      {
+        "id": "snap-d:13",
+        "kind": "paragraph",
+        "parent": "snap-d:12",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-a"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "footers",
+            "footer-a",
+            "content",
+            0
+          ],
+          "digest": "b22f860b1a7de008a5ba2780fd587a7a8ebf1c2614183c59f81f4745b1581dba"
+        },
+        "children": [
+          "snap-d:14"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:14",
+        "kind": "text",
+        "parent": "snap-d:13",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-a"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "footers",
+            "footer-a",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "2cc563773ab9d3d1a087d490ded1066f48779f5469dcf58afe7139bdad0314d4"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same footer/footer-a/a é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:15",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-a-alternate"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "footers",
+            "footer-a-alternate"
+          ],
+          "digest": "5c71fa4110bcf5a64e6f996554254d4bd4baf99a11c2a98dc9a8cd3d298c820b"
+        },
+        "children": [
+          "snap-d:16"
+        ]
+      },
+      {
+        "id": "snap-d:16",
+        "kind": "paragraph",
+        "parent": "snap-d:15",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-a-alternate"
+        },
+        "extent": {
+          "start": 0,
+          "end": 36
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "footers",
+            "footer-a-alternate",
+            "content",
+            0
+          ],
+          "digest": "c8186ac744dbfefb154a00e60b73f6a60c9a666af13a0baed17ad1869786f6da"
+        },
+        "children": [
+          "snap-d:17"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:17",
+        "kind": "text",
+        "parent": "snap-d:16",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-a-alternate"
+        },
+        "extent": {
+          "start": 0,
+          "end": 36
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "footers",
+            "footer-a-alternate",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "93e6a59592a2518ca79bfae1d9cd74de6555054bf37b696d3c32ccda32b08042"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same footer/footer-a-alternate/a é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:18",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footnote",
+          "id": "note-a"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "footnotes",
+            "note-a"
+          ],
+          "digest": "e53ee4b18807b3e190e71134bdafd83ff630c98ddcc5efe563508867bb83daf1"
+        },
+        "children": [
+          "snap-d:19"
+        ]
+      },
+      {
+        "id": "snap-d:19",
+        "kind": "paragraph",
+        "parent": "snap-d:18",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footnote",
+          "id": "note-a"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "footnotes",
+            "note-a",
+            "content",
+            0
+          ],
+          "digest": "f9b959964f6ca6cb028c5c226f2d26b847e96bacaee65bec8325043c81389a25"
+        },
+        "children": [
+          "snap-d:20"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:20",
+        "kind": "text",
+        "parent": "snap-d:19",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footnote",
+          "id": "note-a"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "footnotes",
+            "note-a",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "b3a0ca33ca59b3a9006d351afd93b79dfe3fb75be54fd5ae06ce2a5dffb3a486"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same footnote/note-a/a é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:21",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body"
+          ],
+          "digest": "a807522011d3b2c627d3efcb48509867c3f9eb477679adcd4e1744ff80c995e9"
+        },
+        "children": [
+          "snap-d:22"
+        ]
+      },
+      {
+        "id": "snap-d:22",
+        "kind": "paragraph",
+        "parent": "snap-d:21",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "7eddf3ab9105cae321b0d807c1325c00e560bdd0036389cc0ab77e49b4ce9d7b"
+        },
+        "children": [
+          "snap-d:23",
+          "snap-d:24",
+          "snap-d:25"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:23",
+        "kind": "text",
+        "parent": "snap-d:22",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 14
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "94f455765824438d6a39c708f8d4823079c64450798c6c3b92d1d6003d0120d4"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same body 😀 ",
+        "style": {
+          "explicit": {
+            "bold": true
+          },
+          "properties": {
+            "bold": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:24",
+        "kind": "footnoteReference",
+        "parent": "snap-d:22",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 14,
+          "end": 15
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            1
+          ],
+          "digest": "c38ae83232aded1a92373d8732ac7f9928c23447e8937e5e99c474c8c9c69449"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "footnoteId": "note-d"
+        },
+        "opaqueType": "footnoteReference",
+        "style": {
+          "explicit": {
+            "baselineOffset": "SUPERSCRIPT"
+          },
+          "properties": {
+            "baselineOffset": {
+              "value": "SUPERSCRIPT",
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "baselineOffset": {
+              "atomic": true,
+              "leaves": {
+                "baselineOffset": {
+                  "stored": "SUPERSCRIPT",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:25",
+        "kind": "text",
+        "parent": "snap-d:22",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 15,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            2
+          ],
+          "digest": "bdc571de6be803cd0757c8b2c57d1b9335fb8c84daad23c03baea70ebf52e0b8"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": " é d\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:26",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-d"
+          ],
+          "digest": "4ce282449281e71f979f6a0a3f06b7f58fe7ea1ae3b6cda0d67636558895ab10"
+        },
+        "children": [
+          "snap-d:27",
+          "snap-d:29",
+          "snap-d:31"
+        ]
+      },
+      {
+        "id": "snap-d:27",
+        "kind": "paragraph",
+        "parent": "snap-d:26",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-d",
+            "content",
+            0
+          ],
+          "digest": "1916376ff78cad9e49b9875c8a78a99dc31e3e09a6cc5b3fb43290ff6afe0eda"
+        },
+        "children": [
+          "snap-d:28"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:28",
+        "kind": "text",
+        "parent": "snap-d:27",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-d",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "36ee58f2acfba8f0d68aabff4f75a32f69f5a230904f8fa7821abd3039d5d432"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same header/header-d/d é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:29",
+        "kind": "paragraph",
+        "parent": "snap-d:26",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "extent": {
+          "start": 26,
+          "end": 1957
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-d",
+            "content",
+            1
+          ],
+          "digest": "8ee1ca8a5453b95510249bab5c2ce885467b09171ca5f6f77a4ed87a72244bdb"
+        },
+        "children": [
+          "snap-d:30"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:30",
+        "kind": "text",
+        "parent": "snap-d:29",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "extent": {
+          "start": 26,
+          "end": 1957
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-d",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "48aa967e275e8ea450dd944ef6668047f7b734ab7adeb7d1cce4606b0ccd092d"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Selected header/header-d/d 😀 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+        "style": {
+          "explicit": {
+            "bold": true
+          },
+          "properties": {
+            "bold": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "bold": {
+              "atomic": true,
+              "leaves": {
+                "bold": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:31",
+        "kind": "paragraph",
+        "parent": "snap-d:26",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "extent": {
+          "start": 1957,
+          "end": 3884
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-d",
+            "content",
+            2
+          ],
+          "digest": "de90379171244dbb0bd0849e3af00f3512f74ab894f793e1254dabca7262c5cf"
+        },
+        "children": [
+          "snap-d:32"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:32",
+        "kind": "text",
+        "parent": "snap-d:31",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "extent": {
+          "start": 1957,
+          "end": 3884
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-d",
+            "content",
+            2,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "560e4bea5660b28b4aca34de599cf922360d3cd58dd8d675ff8159e6d881ccde"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Last header/header-d/d é yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n",
+        "style": {
+          "explicit": {
+            "fontSize": {
+              "magnitude": 11,
+              "unit": "PT"
+            }
+          },
+          "properties": {
+            "fontSize": {
+              "value": {
+                "magnitude": 11,
+                "unit": "PT"
+              },
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "fontSize": {
+              "atomic": true,
+              "leaves": {
+                "fontSize.magnitude": {
+                  "stored": 11,
+                  "status": "observed"
+                },
+                "fontSize.unit": {
+                  "stored": "PT",
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:33",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d-alternate"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-d-alternate"
+          ],
+          "digest": "44bdf39e9dc97fee5f7c9682a1098c2a815de26179c09791a61bef471c8e3a76"
+        },
+        "children": [
+          "snap-d:34"
+        ]
+      },
+      {
+        "id": "snap-d:34",
+        "kind": "paragraph",
+        "parent": "snap-d:33",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d-alternate"
+        },
+        "extent": {
+          "start": 0,
+          "end": 36
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-d-alternate",
+            "content",
+            0
+          ],
+          "digest": "df9306ff199080c21f715de8f7a24af8b84b0aa50226d7c9494b314da34a98ea"
+        },
+        "children": [
+          "snap-d:35"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:35",
+        "kind": "text",
+        "parent": "snap-d:34",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d-alternate"
+        },
+        "extent": {
+          "start": 0,
+          "end": 36
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-d-alternate",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "5d00a3c94c930199b281f141a733776d330ce395d8bce9530e671ba9c2ae71a0"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same header/header-d-alternate/d é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:36",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-d"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "footers",
+            "footer-d"
+          ],
+          "digest": "1d713fdf7de7aad089b163bbdd0857cc54e89b2d5c75b33cd78e1d332de384e8"
+        },
+        "children": [
+          "snap-d:37"
+        ]
+      },
+      {
+        "id": "snap-d:37",
+        "kind": "paragraph",
+        "parent": "snap-d:36",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-d"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "footers",
+            "footer-d",
+            "content",
+            0
+          ],
+          "digest": "b1562a8a1521d572ea288a4be46a505dc3f2d83001dbf08f89b95608822b5c28"
+        },
+        "children": [
+          "snap-d:38"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:38",
+        "kind": "text",
+        "parent": "snap-d:37",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-d"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "footers",
+            "footer-d",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "e8e440dbf6d5f58ff37332e79612d2c2ccc811be7e6cc905d749085f2efc5354"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same footer/footer-d/d é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:39",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-d-alternate"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "footers",
+            "footer-d-alternate"
+          ],
+          "digest": "3e092b001fed2fc6e349acc98bb20ef0d2d1e64a3953a24c22121bcc6812d032"
+        },
+        "children": [
+          "snap-d:40"
+        ]
+      },
+      {
+        "id": "snap-d:40",
+        "kind": "paragraph",
+        "parent": "snap-d:39",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-d-alternate"
+        },
+        "extent": {
+          "start": 0,
+          "end": 36
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "footers",
+            "footer-d-alternate",
+            "content",
+            0
+          ],
+          "digest": "ef2f4520d759bc811c33af7c8e26e8965708e7e438a867d4188f1676441cbd86"
+        },
+        "children": [
+          "snap-d:41"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:41",
+        "kind": "text",
+        "parent": "snap-d:40",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-d-alternate"
+        },
+        "extent": {
+          "start": 0,
+          "end": 36
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "footers",
+            "footer-d-alternate",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "a7d26e9a764a58649018266d3d5ffdbbc5535869c230dfdba0bba08f50460400"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same footer/footer-d-alternate/d é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:42",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footnote",
+          "id": "note-d"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "footnotes",
+            "note-d"
+          ],
+          "digest": "b080f96eaf79412c70ea60a7ad4d0f10a22c6fb3ebd07a997314a602897cf53e"
+        },
+        "children": [
+          "snap-d:43"
+        ]
+      },
+      {
+        "id": "snap-d:43",
+        "kind": "paragraph",
+        "parent": "snap-d:42",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footnote",
+          "id": "note-d"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "footnotes",
+            "note-d",
+            "content",
+            0
+          ],
+          "digest": "efe51d22eb62d596dd7a1a7054c2d1812ff272ea1ed1330608e1fa28484e69a3"
+        },
+        "children": [
+          "snap-d:44"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:44",
+        "kind": "text",
+        "parent": "snap-d:43",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footnote",
+          "id": "note-d"
+        },
+        "extent": {
+          "start": 0,
+          "end": 26
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "footnotes",
+            "note-d",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "d68e0e9101f0fcecce9cce222604e0cbb6862e16a423c1c806ee8999ec344deb"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Same footnote/note-d/d é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      }
+    ],
+    "tabs": [
+      {
+        "providerId": "tab-a",
+        "title": "Other tab first",
+        "parent": null,
+        "ordinal": 0,
+        "segments": [
+          "snap-d:1",
+          "snap-d:6",
+          "snap-d:9",
+          "snap-d:12",
+          "snap-d:15",
+          "snap-d:18"
+        ]
+      },
+      {
+        "providerId": "tab-d",
+        "title": "Chosen segments",
+        "parent": null,
+        "ordinal": 1,
+        "segments": [
+          "snap-d:21",
+          "snap-d:26",
+          "snap-d:33",
+          "snap-d:36",
+          "snap-d:39",
+          "snap-d:42"
+        ]
+      }
+    ],
+    "segments": [
+      {
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "root": "snap-d:1",
+        "path": [
+          "tabs",
+          0,
+          "documentTab",
+          "body"
+        ]
+      },
+      {
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a"
+        },
+        "root": "snap-d:6",
+        "path": [
+          "tabs",
+          0,
+          "documentTab",
+          "headers",
+          "header-a"
+        ]
+      },
+      {
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a-alternate"
+        },
+        "root": "snap-d:9",
+        "path": [
+          "tabs",
+          0,
+          "documentTab",
+          "headers",
+          "header-a-alternate"
+        ]
+      },
+      {
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-a"
+        },
+        "root": "snap-d:12",
+        "path": [
+          "tabs",
+          0,
+          "documentTab",
+          "footers",
+          "footer-a"
+        ]
+      },
+      {
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-a-alternate"
+        },
+        "root": "snap-d:15",
+        "path": [
+          "tabs",
+          0,
+          "documentTab",
+          "footers",
+          "footer-a-alternate"
+        ]
+      },
+      {
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "footnote",
+          "id": "note-a"
+        },
+        "root": "snap-d:18",
+        "path": [
+          "tabs",
+          0,
+          "documentTab",
+          "footnotes",
+          "note-a"
+        ]
+      },
+      {
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "root": "snap-d:21",
+        "path": [
+          "tabs",
+          1,
+          "documentTab",
+          "body"
+        ]
+      },
+      {
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "root": "snap-d:26",
+        "path": [
+          "tabs",
+          1,
+          "documentTab",
+          "headers",
+          "header-d"
+        ]
+      },
+      {
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d-alternate"
+        },
+        "root": "snap-d:33",
+        "path": [
+          "tabs",
+          1,
+          "documentTab",
+          "headers",
+          "header-d-alternate"
+        ]
+      },
+      {
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-d"
+        },
+        "root": "snap-d:36",
+        "path": [
+          "tabs",
+          1,
+          "documentTab",
+          "footers",
+          "footer-d"
+        ]
+      },
+      {
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footer",
+          "id": "footer-d-alternate"
+        },
+        "root": "snap-d:39",
+        "path": [
+          "tabs",
+          1,
+          "documentTab",
+          "footers",
+          "footer-d-alternate"
+        ]
+      },
+      {
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "footnote",
+          "id": "note-d"
+        },
+        "root": "snap-d:42",
+        "path": [
+          "tabs",
+          1,
+          "documentTab",
+          "footnotes",
+          "note-d"
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "tabId": "tab-a",
+        "reference": "snap-d:4",
+        "footnoteId": "note-a",
+        "contentRoot": "snap-d:18"
+      },
+      {
+        "tabId": "tab-d",
+        "reference": "snap-d:24",
+        "footnoteId": "note-d",
+        "contentRoot": "snap-d:42"
+      }
+    ],
+    "foreignBodyId": "snap-d:1",
+    "registryEntries": [],
+    "registryReferences": [],
+    "selectedIds": [
+      "snap-d:26",
+      "snap-d:27",
+      "snap-d:28",
+      "snap-d:29",
+      "snap-d:30",
+      "snap-d:31",
+      "snap-d:32"
+    ],
+    "controlIds": [
+      "snap-d:27",
+      "snap-d:28"
+    ],
+    "unselectedIds": [
+      "snap-d:1",
+      "snap-d:2",
+      "snap-d:3",
+      "snap-d:4",
+      "snap-d:5",
+      "snap-d:6",
+      "snap-d:7",
+      "snap-d:8",
+      "snap-d:9",
+      "snap-d:10",
+      "snap-d:11",
+      "snap-d:12",
+      "snap-d:13",
+      "snap-d:14",
+      "snap-d:15",
+      "snap-d:16",
+      "snap-d:17",
+      "snap-d:18",
+      "snap-d:19",
+      "snap-d:20",
+      "snap-d:21",
+      "snap-d:22",
+      "snap-d:23",
+      "snap-d:24",
+      "snap-d:25",
+      "snap-d:33",
+      "snap-d:34",
+      "snap-d:35",
+      "snap-d:36",
+      "snap-d:37",
+      "snap-d:38",
+      "snap-d:39",
+      "snap-d:40",
+      "snap-d:41",
+      "snap-d:42",
+      "snap-d:43",
+      "snap-d:44"
+    ],
+    "projection": {
+      "records": [
+        {
+          "id": "snap-d:26",
+          "kind": "segment",
+          "parent": null,
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "header",
+            "id": "header-d"
+          },
+          "extent": null,
+          "children": [
+            "snap-d:27",
+            "snap-d:29",
+            "snap-d:31"
+          ],
+          "evidenceDigest": "4ce282449281e71f979f6a0a3f06b7f58fe7ea1ae3b6cda0d67636558895ab10"
+        },
+        {
+          "id": "snap-d:27",
+          "kind": "paragraph",
+          "parent": "snap-d:26",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "header",
+            "id": "header-d"
+          },
+          "extent": {
+            "start": 0,
+            "end": 26
+          },
+          "children": [
+            "snap-d:28"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "1916376ff78cad9e49b9875c8a78a99dc31e3e09a6cc5b3fb43290ff6afe0eda"
+        },
+        {
+          "id": "snap-d:28",
+          "kind": "text",
+          "parent": "snap-d:27",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "header",
+            "id": "header-d"
+          },
+          "extent": {
+            "start": 0,
+            "end": 26
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Same header/header-d/d é\n",
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "36ee58f2acfba8f0d68aabff4f75a32f69f5a230904f8fa7821abd3039d5d432"
+        },
+        {
+          "id": "snap-d:29",
+          "kind": "paragraph",
+          "parent": "snap-d:26",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "header",
+            "id": "header-d"
+          },
+          "extent": {
+            "start": 26,
+            "end": 1957
+          },
+          "children": [
+            "snap-d:30"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "8ee1ca8a5453b95510249bab5c2ce885467b09171ca5f6f77a4ed87a72244bdb"
+        },
+        {
+          "id": "snap-d:30",
+          "kind": "text",
+          "parent": "snap-d:29",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "header",
+            "id": "header-d"
+          },
+          "extent": {
+            "start": 26,
+            "end": 1957
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Selected header/header-d/d 😀 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+          "style": {
+            "explicit": {
+              "bold": true
+            },
+            "properties": {
+              "bold": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "bold": {
+                "atomic": true,
+                "leaves": {
+                  "bold": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "48aa967e275e8ea450dd944ef6668047f7b734ab7adeb7d1cce4606b0ccd092d"
+        },
+        {
+          "id": "snap-d:31",
+          "kind": "paragraph",
+          "parent": "snap-d:26",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "header",
+            "id": "header-d"
+          },
+          "extent": {
+            "start": 1957,
+            "end": 3884
+          },
+          "children": [
+            "snap-d:32"
+          ],
+          "extentStatus": "mapped",
+          "style": {
+            "explicit": {},
+            "properties": {},
+            "absent": "unknown"
+          },
+          "list": null,
+          "positionedObjectIds": [],
+          "evidenceDigest": "de90379171244dbb0bd0849e3af00f3512f74ab894f793e1254dabca7262c5cf"
+        },
+        {
+          "id": "snap-d:32",
+          "kind": "text",
+          "parent": "snap-d:31",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "header",
+            "id": "header-d"
+          },
+          "extent": {
+            "start": 1957,
+            "end": 3884
+          },
+          "children": [],
+          "extentStatus": "mapped",
+          "text": "Last header/header-d/d é yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n",
+          "style": {
+            "explicit": {
+              "fontSize": {
+                "magnitude": 11,
+                "unit": "PT"
+              }
+            },
+            "properties": {
+              "fontSize": {
+                "value": {
+                  "magnitude": 11,
+                  "unit": "PT"
+                },
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "fontSize": {
+                "atomic": true,
+                "leaves": {
+                  "fontSize.magnitude": {
+                    "stored": 11,
+                    "status": "observed"
+                  },
+                  "fontSize.unit": {
+                    "stored": "PT",
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "560e4bea5660b28b4aca34de599cf922360d3cd58dd8d675ff8159e6d881ccde"
+        }
+      ],
+      "losses": [],
+      "nodeAspects": {
+        "snap-d:26": [
+          "content",
+          "styles"
+        ],
+        "snap-d:27": [
+          "content",
+          "styles"
+        ],
+        "snap-d:28": [
+          "content",
+          "styles"
+        ],
+        "snap-d:29": [
+          "content",
+          "styles"
+        ],
+        "snap-d:30": [
+          "content",
+          "styles"
+        ],
+        "snap-d:31": [
+          "content",
+          "styles"
+        ],
+        "snap-d:32": [
+          "content",
+          "styles"
+        ]
+      },
+      "aspects": [
+        "content",
+        "styles"
+      ],
+      "missingAspects": [
+        "review"
+      ],
+      "projection": "structured"
+    },
+    "controlProjection": {
+      "records": [
+        {
+          "kind": "text",
+          "node": "snap-d:28",
+          "text": "Same header/header-d/d é\n",
+          "extent": {
+            "start": 0,
+            "end": 26
+          },
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          }
+        }
+      ],
+      "losses": [],
+      "nodeAspects": {
+        "snap-d:28": [
+          "content",
+          "styles"
+        ]
+      },
+      "aspects": [
+        "content",
+        "styles"
+      ],
+      "missingAspects": [
+        "review"
+      ],
+      "projection": "text"
+    },
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}

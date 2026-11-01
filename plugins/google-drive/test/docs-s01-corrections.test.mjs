@@ -43,6 +43,10 @@ test('R1 real runner rejects counterfeit delivery from JSON, including all true 
 });
 test('R1 product registry and delivered overrides require code-owned implemented adapters in both directions',()=>{
   const m=readManifest(),input={manifest:m,registry:{operations:{},exposed:[]},results:[],fixtures:{},root:packageRoot};
+  // Current E declarations cannot pass without their real execution. The
+  // original S01 empty-inventory control then runs without inherited delivery.
+  assert.throws(()=>assertProductIntake(input),/lacks implemented invocation/);
+  m.expansion.deliveryOverrides={};
   assert.doesNotThrow(()=>assertProductIntake(input));
   assert.throws(()=>assertProductIntake({...input,registry:{operations:{phantom:{variants:{}}},exposed:[]}}),/no implemented semantic driver/);
   m.expansion.deliveryOverrides.phantom={status:'delivered'};assert.throws(()=>assertProductIntake(input),/lacks implemented/);

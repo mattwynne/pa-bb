@@ -1,0 +1,1057 @@
+{
+  "provenance": {
+    "source": "c006/generate.mjs: authored structural definitions/relationships",
+    "authorship": "Independent inert expectations; no production oracle"
+  },
+  "caseId": "C006.objects__read.preservation",
+  "variant": "objects",
+  "outcome": "preservation",
+  "pageBytes": 6000,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent C006",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "7",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent C006",
+      "revisionId": "rev-c006",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Main",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 11,
+                  "paragraph": {
+                    "positionedObjectIds": [
+                      "floating",
+                      "missing-positioned"
+                    ],
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 8,
+                        "textRun": {
+                          "content": "A😀 é\n"
+                        }
+                      },
+                      {
+                        "startIndex": 8,
+                        "endIndex": 9,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "main"
+                        }
+                      },
+                      {
+                        "startIndex": 9,
+                        "endIndex": 10,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "missing-inline"
+                        }
+                      },
+                      {
+                        "startIndex": 10,
+                        "endIndex": 11,
+                        "futureWidget": {
+                          "label": "Uninterpreted",
+                          "payload": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 11,
+                  "endIndex": 20,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 11,
+                        "endIndex": 19,
+                        "textRun": {
+                          "content": "CONTROL\n"
+                        }
+                      },
+                      {
+                        "startIndex": 19,
+                        "endIndex": 20,
+                        "inlineObjectElement": {
+                          "inlineObjectId": "control"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 20,
+                  "endIndex": 25,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 20,
+                        "endIndex": 25,
+                        "textRun": {
+                          "content": "KEEP\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "inlineObjects": {
+              "main": {
+                "inlineObjectProperties": {
+                  "embeddedObject": {
+                    "title": "Visible definition oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",
+                    "imageProperties": {
+                      "contentUri": "https://assets.invalid/never-fetch.png"
+                    },
+                    "futureObjectMetadata": {
+                      "opaque": true
+                    }
+                  }
+                }
+              },
+              "control": {
+                "inlineObjectProperties": {
+                  "embeddedObject": {
+                    "title": "Control",
+                    "imageProperties": {
+                      "contentUri": "https://assets.invalid/never-fetch.png"
+                    },
+                    "futureObjectMetadata": {
+                      "opaque": true
+                    }
+                  }
+                }
+              },
+              "unused": {
+                "inlineObjectProperties": {
+                  "embeddedObject": {
+                    "title": "Unselected definition",
+                    "imageProperties": {
+                      "contentUri": "https://assets.invalid/never-fetch.png"
+                    },
+                    "futureObjectMetadata": {
+                      "opaque": true
+                    }
+                  }
+                }
+              }
+            },
+            "positionedObjects": {
+              "floating": {
+                "positionedObjectProperties": {
+                  "embeddedObject": {
+                    "title": "Retained positioned object",
+                    "futureDrawing": {
+                      "opaque": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "commentsDenied": false,
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    }
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:2"
+    },
+    "format": "structured",
+    "registries": [
+      "objects",
+      "diagnostics"
+    ]
+  },
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "4ed4c6e0c9062398e70289d6287cb67addf248fddf286981dae0143856c77d0a"
+        },
+        "children": [
+          "snap-d:2",
+          "snap-d:7",
+          "snap-d:10"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 11
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "5a958a906d1d889142a4fff86203f52da6eff1ffab6c5693ee1f6e2b6f259b96"
+        },
+        "children": [
+          "snap-d:3",
+          "snap-d:4",
+          "snap-d:5",
+          "snap-d:6"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": [
+          "floating",
+          "missing-positioned"
+        ]
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 8
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "049af62e4e4ece3b89e9d64ba5dcd2a4419190c9101acb6b27af3639ed6afced"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "A😀 é\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 8,
+          "end": 9
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            1
+          ],
+          "digest": "32dfc0dd8c0ba114af998fdbec793e71e409b3a22313a6116a94abeb474949a0"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "main"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 9,
+          "end": 10
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            2
+          ],
+          "digest": "94d509e87cefacde58033a500fae01dd3398c86183116252ee0359d060dd9dac"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "missing-inline"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "unknown"
+      },
+      {
+        "id": "snap-d:6",
+        "kind": "opaqueInline",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 10,
+          "end": 11
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            3
+          ],
+          "digest": "d0a5575ecdcd64bafecc0e038ffa62f33a62212c406790a4af0874a83b46ad36"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": null,
+        "opaqueType": "futureWidget"
+      },
+      {
+        "id": "snap-d:7",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 11,
+          "end": 20
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "167b9edefe374976d1175a10e0458d402e562347c376ce3f97c456bf35551305"
+        },
+        "children": [
+          "snap-d:8",
+          "snap-d:9"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:8",
+        "kind": "text",
+        "parent": "snap-d:7",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 11,
+          "end": 19
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "3f5d345d475c2a3fe01e25b82db93d0a192388b010ffa844f9854e686187bb9f"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "CONTROL\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      },
+      {
+        "id": "snap-d:9",
+        "kind": "inlineObjectElement",
+        "parent": "snap-d:7",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 19,
+          "end": 20
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            1
+          ],
+          "digest": "dc28146ab3fd421d84f1859ddb0dc05a341af3ecdd8f6a2c0297d482b7d5aadb"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "properties": {
+          "inlineObjectId": "control"
+        },
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "opaqueType": "inlineObjectElement",
+        "objectKind": "image"
+      },
+      {
+        "id": "snap-d:10",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 20,
+          "end": 25
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            2
+          ],
+          "digest": "4450f3ff9edf1c349fff563fd2abbba46776cde91b02128e1479b425cde85247"
+        },
+        "children": [
+          "snap-d:11"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:11",
+        "kind": "text",
+        "parent": "snap-d:10",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 20,
+          "end": 25
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            2,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "90b0f0843c0e787f8881420595b362788e19fa782f12536ab71a1506346a7718"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "KEEP\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      }
+    ],
+    "registryEntries": [
+      {
+        "id": "snap-d:registry:1",
+        "kind": "inlineObjectDefinition",
+        "category": "objects",
+        "tabId": "tab-d",
+        "providerId": "main",
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "inlineObjects",
+            "main"
+          ],
+          "digest": "de2d9767cd56b2aec1af18e277f348e966beaf42d081e7000aefbf8613da04ae"
+        },
+        "value": {
+          "inlineObjectProperties": {
+            "embeddedObject": {
+              "title": "Visible definition oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",
+              "imageProperties": {
+                "contentUri": "https://assets.invalid/never-fetch.png"
+              },
+              "futureObjectMetadata": {
+                "opaque": true
+              }
+            }
+          }
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:2",
+        "kind": "inlineObjectDefinition",
+        "category": "objects",
+        "tabId": "tab-d",
+        "providerId": "control",
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "inlineObjects",
+            "control"
+          ],
+          "digest": "7cb7a372e59b72026e4a316f74fdac4092a0b0973c9d2f03bd432f575186999d"
+        },
+        "value": {
+          "inlineObjectProperties": {
+            "embeddedObject": {
+              "title": "Control",
+              "imageProperties": {
+                "contentUri": "https://assets.invalid/never-fetch.png"
+              },
+              "futureObjectMetadata": {
+                "opaque": true
+              }
+            }
+          }
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:3",
+        "kind": "inlineObjectDefinition",
+        "category": "objects",
+        "tabId": "tab-d",
+        "providerId": "unused",
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "inlineObjects",
+            "unused"
+          ],
+          "digest": "566044fe43c13294577b18daa7d0bdffd24e00b5a9719db0daa971523820e8f7"
+        },
+        "value": {
+          "inlineObjectProperties": {
+            "embeddedObject": {
+              "title": "Unselected definition",
+              "imageProperties": {
+                "contentUri": "https://assets.invalid/never-fetch.png"
+              },
+              "futureObjectMetadata": {
+                "opaque": true
+              }
+            }
+          }
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:4",
+        "kind": "positionedObjectDefinition",
+        "category": "objects",
+        "tabId": "tab-d",
+        "providerId": "floating",
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "positionedObjects",
+            "floating"
+          ],
+          "digest": "7401abdada8ef830d4daa9936d860e4a0d4345bd42f5ce6574e97e68d75cc4c0"
+        },
+        "value": {
+          "positionedObjectProperties": {
+            "embeddedObject": {
+              "title": "Retained positioned object",
+              "futureDrawing": {
+                "opaque": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+              }
+            }
+          }
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      }
+    ],
+    "registryReferences": [
+      {
+        "id": "snap-d:reference:1",
+        "kind": "registryReference",
+        "category": "objects",
+        "ownerNode": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "floating",
+        "definitionKind": "positionedObjectDefinition",
+        "targets": [
+          "snap-d:registry:4"
+        ],
+        "status": "resolved",
+        "field": "positionedObjectIds",
+        "evidenceDigest": "5a958a906d1d889142a4fff86203f52da6eff1ffab6c5693ee1f6e2b6f259b96"
+      },
+      {
+        "id": "snap-d:reference:2",
+        "kind": "registryReference",
+        "category": "objects",
+        "ownerNode": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "missing-positioned",
+        "definitionKind": "positionedObjectDefinition",
+        "targets": [],
+        "status": "unresolved",
+        "field": "positionedObjectIds",
+        "evidenceDigest": "5a958a906d1d889142a4fff86203f52da6eff1ffab6c5693ee1f6e2b6f259b96"
+      },
+      {
+        "id": "snap-d:reference:3",
+        "kind": "registryReference",
+        "category": "objects",
+        "ownerNode": "snap-d:4",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "main",
+        "definitionKind": "inlineObjectDefinition",
+        "targets": [
+          "snap-d:registry:1"
+        ],
+        "status": "resolved",
+        "field": "inlineObjectId",
+        "evidenceDigest": "32dfc0dd8c0ba114af998fdbec793e71e409b3a22313a6116a94abeb474949a0"
+      },
+      {
+        "id": "snap-d:reference:4",
+        "kind": "registryReference",
+        "category": "objects",
+        "ownerNode": "snap-d:5",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "missing-inline",
+        "definitionKind": "inlineObjectDefinition",
+        "targets": [],
+        "status": "unresolved",
+        "field": "inlineObjectId",
+        "evidenceDigest": "94d509e87cefacde58033a500fae01dd3398c86183116252ee0359d060dd9dac"
+      },
+      {
+        "id": "snap-d:reference:5",
+        "kind": "registryReference",
+        "category": "objects",
+        "ownerNode": "snap-d:9",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "control",
+        "definitionKind": "inlineObjectDefinition",
+        "targets": [
+          "snap-d:registry:2"
+        ],
+        "status": "resolved",
+        "field": "inlineObjectId",
+        "evidenceDigest": "dc28146ab3fd421d84f1859ddb0dc05a341af3ecdd8f6a2c0297d482b7d5aadb"
+      }
+    ],
+    "selectedIds": [
+      "snap-d:2",
+      "snap-d:3",
+      "snap-d:4",
+      "snap-d:5",
+      "snap-d:6"
+    ],
+    "unselectedIds": [
+      "snap-d:10",
+      "snap-d:11"
+    ],
+    "projection": {
+      "records": [
+        {
+          "id": "snap-d:registry:1",
+          "kind": "inlineObjectDefinition",
+          "category": "objects",
+          "tabId": "tab-d",
+          "providerId": "main",
+          "evidence": {
+            "path": [
+              "tabs",
+              0,
+              "documentTab",
+              "inlineObjects",
+              "main"
+            ],
+            "digest": "de2d9767cd56b2aec1af18e277f348e966beaf42d081e7000aefbf8613da04ae"
+          },
+          "value": {
+            "inlineObjectProperties": {
+              "embeddedObject": {
+                "title": "Visible definition oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",
+                "imageProperties": {
+                  "contentUri": "https://assets.invalid/never-fetch.png"
+                },
+                "futureObjectMetadata": {
+                  "opaque": true
+                }
+              }
+            }
+          },
+          "diagnosticOnly": true,
+          "definitionStatus": "observed",
+          "scopeRelation": "referenced",
+          "registryAspect": "registry",
+          "provenance": {
+            "snapshotId": "snap-d",
+            "view": "inline"
+          }
+        },
+        {
+          "id": "snap-d:registry:4",
+          "kind": "positionedObjectDefinition",
+          "category": "objects",
+          "tabId": "tab-d",
+          "providerId": "floating",
+          "evidence": {
+            "path": [
+              "tabs",
+              0,
+              "documentTab",
+              "positionedObjects",
+              "floating"
+            ],
+            "digest": "7401abdada8ef830d4daa9936d860e4a0d4345bd42f5ce6574e97e68d75cc4c0"
+          },
+          "value": {
+            "positionedObjectProperties": {
+              "embeddedObject": {
+                "title": "Retained positioned object",
+                "futureDrawing": {
+                  "opaque": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                }
+              }
+            }
+          },
+          "diagnosticOnly": true,
+          "definitionStatus": "observed",
+          "scopeRelation": "referenced",
+          "registryAspect": "registry",
+          "provenance": {
+            "snapshotId": "snap-d",
+            "view": "inline"
+          }
+        },
+        {
+          "id": "snap-d:reference:1",
+          "kind": "registryReference",
+          "category": "objects",
+          "ownerNode": "snap-d:2",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "providerId": "floating",
+          "definitionKind": "positionedObjectDefinition",
+          "targets": [
+            "snap-d:registry:4"
+          ],
+          "status": "resolved",
+          "field": "positionedObjectIds",
+          "evidenceDigest": "5a958a906d1d889142a4fff86203f52da6eff1ffab6c5693ee1f6e2b6f259b96"
+        },
+        {
+          "id": "snap-d:reference:2",
+          "kind": "registryReference",
+          "category": "objects",
+          "ownerNode": "snap-d:2",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "providerId": "missing-positioned",
+          "definitionKind": "positionedObjectDefinition",
+          "targets": [],
+          "status": "unresolved",
+          "field": "positionedObjectIds",
+          "evidenceDigest": "5a958a906d1d889142a4fff86203f52da6eff1ffab6c5693ee1f6e2b6f259b96"
+        },
+        {
+          "id": "snap-d:reference:3",
+          "kind": "registryReference",
+          "category": "objects",
+          "ownerNode": "snap-d:4",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "providerId": "main",
+          "definitionKind": "inlineObjectDefinition",
+          "targets": [
+            "snap-d:registry:1"
+          ],
+          "status": "resolved",
+          "field": "inlineObjectId",
+          "evidenceDigest": "32dfc0dd8c0ba114af998fdbec793e71e409b3a22313a6116a94abeb474949a0"
+        },
+        {
+          "id": "snap-d:reference:4",
+          "kind": "registryReference",
+          "category": "objects",
+          "ownerNode": "snap-d:5",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "providerId": "missing-inline",
+          "definitionKind": "inlineObjectDefinition",
+          "targets": [],
+          "status": "unresolved",
+          "field": "inlineObjectId",
+          "evidenceDigest": "94d509e87cefacde58033a500fae01dd3398c86183116252ee0359d060dd9dac"
+        },
+        {
+          "id": "snap-d:unknown:0",
+          "kind": "unknownField",
+          "tabId": "tab-d",
+          "field": "futureWidget",
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            3
+          ],
+          "digest": "fb791a5ff9868efe27fa6671eb7d18d6d6ec384d58be3f9c9f4487e66c035cd8",
+          "value": {
+            "label": "Uninterpreted",
+            "payload": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "diagnosticOnly": true,
+          "scopeRelation": "owner"
+        }
+      ],
+      "losses": [
+        {
+          "node": "snap-d:reference:2",
+          "kind": "unresolvedReference",
+          "providerId": "missing-positioned",
+          "definitionKind": "positionedObjectDefinition"
+        },
+        {
+          "node": "snap-d:reference:4",
+          "kind": "unresolvedReference",
+          "providerId": "missing-inline",
+          "definitionKind": "inlineObjectDefinition"
+        }
+      ],
+      "nodeAspects": {
+        "snap-d:registry:1": [],
+        "snap-d:registry:4": [],
+        "snap-d:reference:1": [],
+        "snap-d:reference:2": [],
+        "snap-d:reference:3": [],
+        "snap-d:reference:4": [],
+        "snap-d:unknown:0": []
+      },
+      "aspects": [],
+      "missingAspects": [
+        "content",
+        "styles",
+        "review"
+      ],
+      "projection": "diagnostic"
+    },
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}

@@ -1,0 +1,4137 @@
+{
+  "provenance": {
+    "source": "c011/generate.mjs: finite independently authored review data",
+    "authorship": "No production oracle; explicit provider, tab, annotation, anchor, reference, loss and coverage expectations"
+  },
+  "caseId": "C011.tabsAndInline__read.success",
+  "variant": "tabsAndInline",
+  "outcome": "success",
+  "pageBytes": 6000,
+  "commentsDenied": false,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent review coverage",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "11",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent review coverage",
+      "revisionId": "rev-c011",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "comments": [
+        {
+          "commentId": "comment-a-body",
+          "anchorId": "anchor-a-body",
+          "content": "Observed a/body discussion"
+        },
+        {
+          "commentId": "comment-a-header",
+          "anchorId": "anchor-a-header",
+          "content": "Observed a/header discussion"
+        },
+        {
+          "commentId": "comment-b-body",
+          "anchorId": "anchor-b-body",
+          "content": "Observed b/body discussion"
+        },
+        {
+          "commentId": "comment-b-header",
+          "anchorId": "anchor-b-header",
+          "content": "Observed b/header discussion"
+        },
+        {
+          "commentId": "comment-d-body",
+          "anchorId": "anchor-d-body",
+          "content": "Observed d/body discussion"
+        },
+        {
+          "commentId": "comment-d-header",
+          "anchorId": "anchor-d-header",
+          "content": "Observed d/header discussion"
+        }
+      ],
+      "suggestions": [
+        {
+          "suggestionId": "s-prefix-a",
+          "kind": "prefix",
+          "description": "a/prefix ssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-main-a",
+          "kind": "main",
+          "description": "a/main ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-delete-a",
+          "kind": "delete",
+          "description": "a/delete ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-style-a",
+          "kind": "style",
+          "description": "a/style ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-header-a",
+          "kind": "header",
+          "description": "a/header ssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-prefix-b",
+          "kind": "prefix",
+          "description": "b/prefix ssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-main-b",
+          "kind": "main",
+          "description": "b/main ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-delete-b",
+          "kind": "delete",
+          "description": "b/delete ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-style-b",
+          "kind": "style",
+          "description": "b/style ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-header-b",
+          "kind": "header",
+          "description": "b/header ssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-prefix-d",
+          "kind": "prefix",
+          "description": "d/prefix ssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-main-d",
+          "kind": "main",
+          "description": "d/main ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-delete-d",
+          "kind": "delete",
+          "description": "d/delete ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-style-d",
+          "kind": "style",
+          "description": "d/style ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        {
+          "suggestionId": "s-header-d",
+          "kind": "header",
+          "description": "d/header ssssssssssssssssssssssssssssssssssssssss"
+        }
+      ],
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-a",
+            "title": "Review a",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 21,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 21,
+                        "textRun": {
+                          "content": "Useful control😀 é\n",
+                          "textStyle": {
+                            "italic": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 21,
+                  "endIndex": 37,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 21,
+                        "endIndex": 37,
+                        "textRun": {
+                          "content": "Prefix original\n",
+                          "textStyle": {
+                            "italic": true
+                          },
+                          "suggestedInsertionIds": [
+                            "s-prefix-a"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 37,
+                  "endIndex": 55,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 37,
+                        "endIndex": 55,
+                        "textRun": {
+                          "content": "Similar😀 é body\n",
+                          "textStyle": {
+                            "italic": true
+                          },
+                          "suggestedInsertionIds": [
+                            "s-main-a"
+                          ],
+                          "suggestedDeletionIds": [
+                            "s-delete-a"
+                          ],
+                          "suggestedTextStyleChanges": {
+                            "s-style-a": {
+                              "textStyle": {
+                                "italic": false
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 55,
+                  "endIndex": 79,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 55,
+                        "endIndex": 79,
+                        "textRun": {
+                          "content": "UNSELECTED similar😀 é\n",
+                          "textStyle": {
+                            "italic": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "headers": {
+              "header-a": {
+                "headerId": "header-a",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 20,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 20,
+                          "textRun": {
+                            "content": "Similar😀 é HEADER\n",
+                            "textStyle": {
+                              "italic": true
+                            },
+                            "suggestedInsertionIds": [
+                              "s-header-a"
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "commentAnchors": {
+              "anchor-a-body": {
+                "anchorId": "anchor-a-body",
+                "ranges": [
+                  {
+                    "tabId": "tab-a",
+                    "startIndex": 37,
+                    "endIndex": 41
+                  }
+                ]
+              },
+              "anchor-a-header": {
+                "anchorId": "anchor-a-header",
+                "ranges": [
+                  {
+                    "tabId": "tab-a",
+                    "segmentId": "header-a",
+                    "startIndex": 0,
+                    "endIndex": 4
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "tabProperties": {
+            "tabId": "tab-b",
+            "title": "Review b",
+            "index": 1
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 21,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 21,
+                        "textRun": {
+                          "content": "Useful control😀 é\n",
+                          "textStyle": {
+                            "italic": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 21,
+                  "endIndex": 37,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 21,
+                        "endIndex": 37,
+                        "textRun": {
+                          "content": "Prefix original\n",
+                          "textStyle": {
+                            "italic": true
+                          },
+                          "suggestedInsertionIds": [
+                            "s-prefix-b"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 37,
+                  "endIndex": 55,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 37,
+                        "endIndex": 55,
+                        "textRun": {
+                          "content": "Similar😀 é body\n",
+                          "textStyle": {
+                            "italic": true
+                          },
+                          "suggestedInsertionIds": [
+                            "s-main-b"
+                          ],
+                          "suggestedDeletionIds": [
+                            "s-delete-b"
+                          ],
+                          "suggestedTextStyleChanges": {
+                            "s-style-b": {
+                              "textStyle": {
+                                "italic": false
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 55,
+                  "endIndex": 79,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 55,
+                        "endIndex": 79,
+                        "textRun": {
+                          "content": "UNSELECTED similar😀 é\n",
+                          "textStyle": {
+                            "italic": true
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "headers": {
+              "header-b": {
+                "headerId": "header-b",
+                "content": [
+                  {
+                    "startIndex": 0,
+                    "endIndex": 20,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 0,
+                          "endIndex": 20,
+                          "textRun": {
+                            "content": "Similar😀 é HEADER\n",
+                            "textStyle": {
+                              "italic": true
+                            },
+                            "suggestedInsertionIds": [
+                              "s-header-b"
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "commentAnchors": {
+              "anchor-b-body": {
+                "anchorId": "anchor-b-body",
+                "ranges": [
+                  {
+                    "tabId": "tab-b",
+                    "startIndex": 37,
+                    "endIndex": 41
+                  }
+                ]
+              },
+              "anchor-b-header": {
+                "anchorId": "anchor-b-header",
+                "ranges": [
+                  {
+                    "tabId": "tab-b",
+                    "segmentId": "header-b",
+                    "startIndex": 0,
+                    "endIndex": 4
+                  }
+                ]
+              }
+            }
+          },
+          "childTabs": [
+            {
+              "tabProperties": {
+                "tabId": "tab-d",
+                "title": "Review d",
+                "index": 0,
+                "parentTabId": "tab-b",
+                "nestingLevel": 1
+              },
+              "documentTab": {
+                "body": {
+                  "content": [
+                    {
+                      "startIndex": 1,
+                      "endIndex": 21,
+                      "paragraph": {
+                        "elements": [
+                          {
+                            "startIndex": 1,
+                            "endIndex": 21,
+                            "textRun": {
+                              "content": "Useful control😀 é\n",
+                              "textStyle": {
+                                "italic": true
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "startIndex": 21,
+                      "endIndex": 37,
+                      "paragraph": {
+                        "elements": [
+                          {
+                            "startIndex": 21,
+                            "endIndex": 37,
+                            "textRun": {
+                              "content": "Prefix original\n",
+                              "textStyle": {
+                                "italic": true
+                              },
+                              "suggestedInsertionIds": [
+                                "s-prefix-d"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "startIndex": 37,
+                      "endIndex": 55,
+                      "paragraph": {
+                        "elements": [
+                          {
+                            "startIndex": 37,
+                            "endIndex": 55,
+                            "textRun": {
+                              "content": "Similar😀 é body\n",
+                              "textStyle": {
+                                "italic": true
+                              },
+                              "suggestedInsertionIds": [
+                                "s-main-d"
+                              ],
+                              "suggestedDeletionIds": [
+                                "s-delete-d"
+                              ],
+                              "suggestedTextStyleChanges": {
+                                "s-style-d": {
+                                  "textStyle": {
+                                    "italic": false
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "startIndex": 55,
+                      "endIndex": 79,
+                      "paragraph": {
+                        "elements": [
+                          {
+                            "startIndex": 55,
+                            "endIndex": 79,
+                            "textRun": {
+                              "content": "UNSELECTED similar😀 é\n",
+                              "textStyle": {
+                                "italic": true
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "headers": {
+                  "header-d": {
+                    "headerId": "header-d",
+                    "content": [
+                      {
+                        "startIndex": 0,
+                        "endIndex": 20,
+                        "paragraph": {
+                          "elements": [
+                            {
+                              "startIndex": 0,
+                              "endIndex": 20,
+                              "textRun": {
+                                "content": "Similar😀 é HEADER\n",
+                                "textStyle": {
+                                  "italic": true
+                                },
+                                "suggestedInsertionIds": [
+                                  "s-header-d"
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                "commentAnchors": {
+                  "anchor-d-body": {
+                    "anchorId": "anchor-d-body",
+                    "ranges": [
+                      {
+                        "tabId": "tab-d",
+                        "startIndex": 37,
+                        "endIndex": 41
+                      }
+                    ]
+                  },
+                  "anchor-d-header": {
+                    "anchorId": "anchor-d-header",
+                    "ranges": [
+                      {
+                        "tabId": "tab-d",
+                        "segmentId": "header-d",
+                        "startIndex": 0,
+                        "endIndex": 4
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "view": "inline"
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "span": {
+        "from": "snap-d:28",
+        "to": "snap-d:30"
+      }
+    },
+    "format": "structured",
+    "registries": [
+      "review"
+    ]
+  },
+  "controlRead": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:31"
+    },
+    "format": "structured",
+    "styles": true,
+    "review": true
+  },
+  "mainPaths": {
+    "from": [
+      "tabs",
+      1,
+      "childTabs",
+      0,
+      "documentTab",
+      "body",
+      "content",
+      1
+    ],
+    "to": [
+      "tabs",
+      1,
+      "childTabs",
+      0,
+      "documentTab",
+      "body",
+      "content",
+      2
+    ]
+  },
+  "controlPath": [
+    "tabs",
+    1,
+    "childTabs",
+    0,
+    "documentTab",
+    "body",
+    "content",
+    2,
+    "paragraph",
+    "elements",
+    0
+  ],
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "18e7b6116c23a1207c0545cac5c1846c327028ff099195c3b621acc886c04aaf"
+        },
+        "children": [
+          "snap-d:2",
+          "snap-d:4",
+          "snap-d:6",
+          "snap-d:8"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "09a82ac98fe80bbbd6e6996163e9e4bc57b6b99f672ef9bea4232fef2fbcdde5"
+        },
+        "children": [
+          "snap-d:3"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "7b852ca5fb00bf7654fe5314a869df51e0727d5f1a49ffc68f89d0c2d05ce0c2"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Useful control😀 é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 21,
+          "end": 37
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "85ebdfe13ed339fea429e3c5c372de62cc3dbb8ee5fe7aae6f6e66da4436cef4"
+        },
+        "children": [
+          "snap-d:5"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "text",
+        "parent": "snap-d:4",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 21,
+          "end": 37
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "2b9d8fc1dbf1870c8f56123a069051a425e466fda2a179643a0a66e590dc20dd"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "s-prefix-a"
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "Prefix original\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:6",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 37,
+          "end": 55
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            2
+          ],
+          "digest": "d4de1c02bac7d8ac73b8d26efe6d2d8af17adf63e9289f196c295078e3bbeaf6"
+        },
+        "children": [
+          "snap-d:7"
+        ],
+        "review": {
+          "comments": [
+            {
+              "commentId": "comment-a-body",
+              "anchorId": "anchor-a-body",
+              "content": "Observed a/body discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:7",
+        "kind": "text",
+        "parent": "snap-d:6",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 37,
+          "end": 55
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            2,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "e045dab00b1f82b280d31b3c2fb460e19f4a31360179b7b29a8591359f0d2327"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "s-main-a"
+          ],
+          "suggestedDeletionIds": [
+            "s-delete-a"
+          ],
+          "suggestedTextStyleChanges": {
+            "s-style-a": {
+              "textStyle": {
+                "italic": false
+              }
+            }
+          },
+          "comments": [
+            {
+              "commentId": "comment-a-body",
+              "anchorId": "anchor-a-body",
+              "content": "Observed a/body discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "Similar😀 é body\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:8",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 55,
+          "end": 79
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3
+          ],
+          "digest": "93d56a3edeeeb58fcf97a1bb25d1311ebd2c95c5dae088b556b4e368bce33582"
+        },
+        "children": [
+          "snap-d:9"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:9",
+        "kind": "text",
+        "parent": "snap-d:8",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 55,
+          "end": 79
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "56f95289ff7b58676a0bd75fb928b479f75089d40ebd05dfa7eaa44cb8365d2f"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "UNSELECTED similar😀 é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:10",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-a"
+          ],
+          "digest": "929d0aeae85d95edb4ebcd4a21c28fea908cfc621e2a0572d255b40038d94a33"
+        },
+        "children": [
+          "snap-d:11"
+        ]
+      },
+      {
+        "id": "snap-d:11",
+        "kind": "paragraph",
+        "parent": "snap-d:10",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a"
+        },
+        "extent": {
+          "start": 0,
+          "end": 20
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-a",
+            "content",
+            0
+          ],
+          "digest": "5b7f600a5af59c8d7e1064a4e11be5293eee7ef7b3e0c52de3f8df5c9f20d3c4"
+        },
+        "children": [
+          "snap-d:12"
+        ],
+        "review": {
+          "comments": [
+            {
+              "commentId": "comment-a-header",
+              "anchorId": "anchor-a-header",
+              "content": "Observed a/header discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:12",
+        "kind": "text",
+        "parent": "snap-d:11",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a"
+        },
+        "extent": {
+          "start": 0,
+          "end": 20
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-a",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "0fba7c4d8fdaf492f6fa493100585d0a2fd5fb8b253b4d34333f2866df8a6000"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "s-header-a"
+          ],
+          "comments": [
+            {
+              "commentId": "comment-a-header",
+              "anchorId": "anchor-a-header",
+              "content": "Observed a/header discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "Similar😀 é HEADER\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:13",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body"
+          ],
+          "digest": "be42553cd39a376db95e35a2f613ad84ab592661633ea77026a8a0cd246d14f1"
+        },
+        "children": [
+          "snap-d:14",
+          "snap-d:16",
+          "snap-d:18",
+          "snap-d:20"
+        ]
+      },
+      {
+        "id": "snap-d:14",
+        "kind": "paragraph",
+        "parent": "snap-d:13",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "09a82ac98fe80bbbd6e6996163e9e4bc57b6b99f672ef9bea4232fef2fbcdde5"
+        },
+        "children": [
+          "snap-d:15"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:15",
+        "kind": "text",
+        "parent": "snap-d:14",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "7b852ca5fb00bf7654fe5314a869df51e0727d5f1a49ffc68f89d0c2d05ce0c2"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Useful control😀 é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:16",
+        "kind": "paragraph",
+        "parent": "snap-d:13",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 21,
+          "end": 37
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "3bbe265d34222b30b44e9034ea390d0bc766902bff75d7b57143a486090bdf07"
+        },
+        "children": [
+          "snap-d:17"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:17",
+        "kind": "text",
+        "parent": "snap-d:16",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 21,
+          "end": 37
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "6c6e258c58ff59f8a43145ace99a6a4c8d33bb1411fba0eae2d5ce92b3fd31f4"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "s-prefix-b"
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "Prefix original\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:18",
+        "kind": "paragraph",
+        "parent": "snap-d:13",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 37,
+          "end": 55
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            2
+          ],
+          "digest": "c123f637a8746cb05d551fd88f7f019f5808d09bd1be262688dd23a3ba739ba2"
+        },
+        "children": [
+          "snap-d:19"
+        ],
+        "review": {
+          "comments": [
+            {
+              "commentId": "comment-b-body",
+              "anchorId": "anchor-b-body",
+              "content": "Observed b/body discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:19",
+        "kind": "text",
+        "parent": "snap-d:18",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 37,
+          "end": 55
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            2,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "4274b0308414e837ae87083a2aaa2fe2b4b6e9610a9c262b8fec01d35446fe63"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "s-main-b"
+          ],
+          "suggestedDeletionIds": [
+            "s-delete-b"
+          ],
+          "suggestedTextStyleChanges": {
+            "s-style-b": {
+              "textStyle": {
+                "italic": false
+              }
+            }
+          },
+          "comments": [
+            {
+              "commentId": "comment-b-body",
+              "anchorId": "anchor-b-body",
+              "content": "Observed b/body discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "Similar😀 é body\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:20",
+        "kind": "paragraph",
+        "parent": "snap-d:13",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 55,
+          "end": 79
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            3
+          ],
+          "digest": "93d56a3edeeeb58fcf97a1bb25d1311ebd2c95c5dae088b556b4e368bce33582"
+        },
+        "children": [
+          "snap-d:21"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:21",
+        "kind": "text",
+        "parent": "snap-d:20",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 55,
+          "end": 79
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "body",
+            "content",
+            3,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "56f95289ff7b58676a0bd75fb928b479f75089d40ebd05dfa7eaa44cb8365d2f"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "UNSELECTED similar😀 é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:22",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "header",
+          "id": "header-b"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-b"
+          ],
+          "digest": "4fa249c0c97526b77daed582b2be694daf06f43b6808816c425163ca36096d87"
+        },
+        "children": [
+          "snap-d:23"
+        ]
+      },
+      {
+        "id": "snap-d:23",
+        "kind": "paragraph",
+        "parent": "snap-d:22",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "header",
+          "id": "header-b"
+        },
+        "extent": {
+          "start": 0,
+          "end": 20
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-b",
+            "content",
+            0
+          ],
+          "digest": "6a1da9241a8db6759abcb8aff6bcab9fd1d940389dd89b355c786089824f7f6e"
+        },
+        "children": [
+          "snap-d:24"
+        ],
+        "review": {
+          "comments": [
+            {
+              "commentId": "comment-b-header",
+              "anchorId": "anchor-b-header",
+              "content": "Observed b/header discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:24",
+        "kind": "text",
+        "parent": "snap-d:23",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "header",
+          "id": "header-b"
+        },
+        "extent": {
+          "start": 0,
+          "end": 20
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "headers",
+            "header-b",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "1735d1dfda5efe5ae3f19c489fedab3853a5854ee50a81e2a3c80ae2bf0bbac3"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "s-header-b"
+          ],
+          "comments": [
+            {
+              "commentId": "comment-b-header",
+              "anchorId": "anchor-b-header",
+              "content": "Observed b/header discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "Similar😀 é HEADER\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:25",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "7c568263824f8b921d0a0e0161722011337ab81a029a1ac8baab0fcd4b8d2da1"
+        },
+        "children": [
+          "snap-d:26",
+          "snap-d:28",
+          "snap-d:30",
+          "snap-d:32"
+        ]
+      },
+      {
+        "id": "snap-d:26",
+        "kind": "paragraph",
+        "parent": "snap-d:25",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "09a82ac98fe80bbbd6e6996163e9e4bc57b6b99f672ef9bea4232fef2fbcdde5"
+        },
+        "children": [
+          "snap-d:27"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:27",
+        "kind": "text",
+        "parent": "snap-d:26",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 21
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "7b852ca5fb00bf7654fe5314a869df51e0727d5f1a49ffc68f89d0c2d05ce0c2"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "Useful control😀 é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:28",
+        "kind": "paragraph",
+        "parent": "snap-d:25",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 21,
+          "end": 37
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "deaecda53c3582b963104fc5bcba2a9fe500c6a98b69ea3675587f71b65455a9"
+        },
+        "children": [
+          "snap-d:29"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:29",
+        "kind": "text",
+        "parent": "snap-d:28",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 21,
+          "end": 37
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "6468d208911548986b9aceb6bffa1f45abc0f34d94f080dd08ca1c62c1fe3591"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "s-prefix-d"
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "Prefix original\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:30",
+        "kind": "paragraph",
+        "parent": "snap-d:25",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 37,
+          "end": 55
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            2
+          ],
+          "digest": "9f7285fd912023b3f015411b14f653b7b79ba30acc3071ab8b126684911d916f"
+        },
+        "children": [
+          "snap-d:31"
+        ],
+        "review": {
+          "comments": [
+            {
+              "commentId": "comment-d-body",
+              "anchorId": "anchor-d-body",
+              "content": "Observed d/body discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:31",
+        "kind": "text",
+        "parent": "snap-d:30",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 37,
+          "end": 55
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            2,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "b697accf5ba586e2ddf5d2ffd0bd47a3e9949d5f8312a94497adb116bbc88a40"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "s-main-d"
+          ],
+          "suggestedDeletionIds": [
+            "s-delete-d"
+          ],
+          "suggestedTextStyleChanges": {
+            "s-style-d": {
+              "textStyle": {
+                "italic": false
+              }
+            }
+          },
+          "comments": [
+            {
+              "commentId": "comment-d-body",
+              "anchorId": "anchor-d-body",
+              "content": "Observed d/body discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "Similar😀 é body\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:32",
+        "kind": "paragraph",
+        "parent": "snap-d:25",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 55,
+          "end": 79
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3
+          ],
+          "digest": "93d56a3edeeeb58fcf97a1bb25d1311ebd2c95c5dae088b556b4e368bce33582"
+        },
+        "children": [
+          "snap-d:33"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:33",
+        "kind": "text",
+        "parent": "snap-d:32",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 55,
+          "end": 79
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            3,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "56f95289ff7b58676a0bd75fb928b479f75089d40ebd05dfa7eaa44cb8365d2f"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "UNSELECTED similar😀 é\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      },
+      {
+        "id": "snap-d:34",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-d"
+          ],
+          "digest": "c1ebd4ed12643f203aa240762c9357fd52cc08454b449606a8a26e2682d29b23"
+        },
+        "children": [
+          "snap-d:35"
+        ]
+      },
+      {
+        "id": "snap-d:35",
+        "kind": "paragraph",
+        "parent": "snap-d:34",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "extent": {
+          "start": 0,
+          "end": 20
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-d",
+            "content",
+            0
+          ],
+          "digest": "54ad5f38a11fec73a9078cc158c1e6f5476325ba961c138a41abbb1edd72940c"
+        },
+        "children": [
+          "snap-d:36"
+        ],
+        "review": {
+          "comments": [
+            {
+              "commentId": "comment-d-header",
+              "anchorId": "anchor-d-header",
+              "content": "Observed d/header discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:36",
+        "kind": "text",
+        "parent": "snap-d:35",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "extent": {
+          "start": 0,
+          "end": 20
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "headers",
+            "header-d",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "b7758d63b0ae1f1a5caa856ef36b978f84a8acf0fad7155a88ec9a097918d785"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "s-header-d"
+          ],
+          "comments": [
+            {
+              "commentId": "comment-d-header",
+              "anchorId": "anchor-d-header",
+              "content": "Observed d/header discussion"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "Similar😀 é HEADER\n",
+        "style": {
+          "explicit": {
+            "italic": true
+          },
+          "properties": {
+            "italic": {
+              "value": true,
+              "provenance": "direct"
+            }
+          },
+          "absent": "unknown",
+          "propertyEvidence": {
+            "italic": {
+              "atomic": true,
+              "leaves": {
+                "italic": {
+                  "stored": true,
+                  "status": "observed"
+                }
+              },
+              "unknown": [],
+              "missing": [],
+              "effectiveStatus": "observed",
+              "inherited": null
+            }
+          }
+        }
+      }
+    ],
+    "tabs": [
+      {
+        "providerId": "tab-a",
+        "title": "Review a",
+        "parent": null,
+        "ordinal": 0,
+        "siblingIndex": 0,
+        "depth": 0,
+        "properties": {
+          "tabId": "tab-a",
+          "title": "Review a",
+          "index": 0
+        },
+        "segments": [
+          "snap-d:1",
+          "snap-d:10"
+        ],
+        "evidencePath": [
+          "tabs",
+          0,
+          "documentTab"
+        ]
+      },
+      {
+        "providerId": "tab-b",
+        "title": "Review b",
+        "parent": null,
+        "ordinal": 1,
+        "siblingIndex": 1,
+        "depth": 0,
+        "properties": {
+          "tabId": "tab-b",
+          "title": "Review b",
+          "index": 1
+        },
+        "segments": [
+          "snap-d:13",
+          "snap-d:22"
+        ],
+        "evidencePath": [
+          "tabs",
+          1,
+          "documentTab"
+        ]
+      },
+      {
+        "providerId": "tab-d",
+        "title": "Review d",
+        "parent": "tab-b",
+        "ordinal": 2,
+        "siblingIndex": 0,
+        "depth": 1,
+        "properties": {
+          "tabId": "tab-d",
+          "title": "Review d",
+          "index": 0,
+          "parentTabId": "tab-b",
+          "nestingLevel": 1
+        },
+        "segments": [
+          "snap-d:25",
+          "snap-d:34"
+        ],
+        "evidencePath": [
+          "tabs",
+          1,
+          "childTabs",
+          0,
+          "documentTab"
+        ]
+      }
+    ],
+    "registryEntries": [
+      {
+        "id": "snap-d:registry:1",
+        "kind": "commentAnchor",
+        "category": "review",
+        "tabId": "tab-a",
+        "providerId": "anchor-a-body",
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "commentAnchors",
+            "anchor-a-body"
+          ],
+          "digest": "86417925ddac9566e32b940e7700c827e937fce2469f40190adff7a08203501b"
+        },
+        "value": {
+          "anchorId": "anchor-a-body",
+          "ranges": [
+            {
+              "tabId": "tab-a",
+              "startIndex": 37,
+              "endIndex": 41
+            }
+          ]
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:2",
+        "kind": "commentAnchor",
+        "category": "review",
+        "tabId": "tab-a",
+        "providerId": "anchor-a-header",
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "commentAnchors",
+            "anchor-a-header"
+          ],
+          "digest": "6e36336c5e8943c39ac19cb085a68c0c7a791a49f6796f0c20f4ed74df62fae9"
+        },
+        "value": {
+          "anchorId": "anchor-a-header",
+          "ranges": [
+            {
+              "tabId": "tab-a",
+              "segmentId": "header-a",
+              "startIndex": 0,
+              "endIndex": 4
+            }
+          ]
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:3",
+        "kind": "commentAnchor",
+        "category": "review",
+        "tabId": "tab-b",
+        "providerId": "anchor-b-body",
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "commentAnchors",
+            "anchor-b-body"
+          ],
+          "digest": "0098d894c6177aebae8ad74e977af2695c44939ec650d094ab0a350ffe672ed6"
+        },
+        "value": {
+          "anchorId": "anchor-b-body",
+          "ranges": [
+            {
+              "tabId": "tab-b",
+              "startIndex": 37,
+              "endIndex": 41
+            }
+          ]
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:4",
+        "kind": "commentAnchor",
+        "category": "review",
+        "tabId": "tab-b",
+        "providerId": "anchor-b-header",
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "documentTab",
+            "commentAnchors",
+            "anchor-b-header"
+          ],
+          "digest": "c556208ac684d6af67d5d8281063979c087dec057793a6ceb4eb5566a2132f9d"
+        },
+        "value": {
+          "anchorId": "anchor-b-header",
+          "ranges": [
+            {
+              "tabId": "tab-b",
+              "segmentId": "header-b",
+              "startIndex": 0,
+              "endIndex": 4
+            }
+          ]
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:5",
+        "kind": "commentAnchor",
+        "category": "review",
+        "tabId": "tab-d",
+        "providerId": "anchor-d-body",
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "commentAnchors",
+            "anchor-d-body"
+          ],
+          "digest": "89c3fcdbb0c66a15379c9960c127fd410fd58d80a90cbcef6138136075659d78"
+        },
+        "value": {
+          "anchorId": "anchor-d-body",
+          "ranges": [
+            {
+              "tabId": "tab-d",
+              "startIndex": 37,
+              "endIndex": 41
+            }
+          ]
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:6",
+        "kind": "commentAnchor",
+        "category": "review",
+        "tabId": "tab-d",
+        "providerId": "anchor-d-header",
+        "evidence": {
+          "path": [
+            "tabs",
+            1,
+            "childTabs",
+            0,
+            "documentTab",
+            "commentAnchors",
+            "anchor-d-header"
+          ],
+          "digest": "742aaf6a1f48d6f7f72e27bd96e1c96ffe3b158ead649a48a9c0db26d6e0cf75"
+        },
+        "value": {
+          "anchorId": "anchor-d-header",
+          "ranges": [
+            {
+              "tabId": "tab-d",
+              "segmentId": "header-d",
+              "startIndex": 0,
+              "endIndex": 4
+            }
+          ]
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:7",
+        "kind": "commentThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "comment-a-body",
+        "evidence": {
+          "path": [
+            "comments",
+            0
+          ],
+          "digest": "67f8c8c664ee0f76aeecbae557d2888b1fe4beee0db9cee83d8245941fc97e32"
+        },
+        "value": {
+          "commentId": "comment-a-body",
+          "anchorId": "anchor-a-body",
+          "content": "Observed a/body discussion"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:8",
+        "kind": "commentThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "comment-a-header",
+        "evidence": {
+          "path": [
+            "comments",
+            1
+          ],
+          "digest": "2c6db4b852560f7cdac80c3d8626f86cee799bfd377c758aa53622fb3bb8ffe7"
+        },
+        "value": {
+          "commentId": "comment-a-header",
+          "anchorId": "anchor-a-header",
+          "content": "Observed a/header discussion"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:9",
+        "kind": "commentThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "comment-b-body",
+        "evidence": {
+          "path": [
+            "comments",
+            2
+          ],
+          "digest": "6a632dca1c5d1441f04d3470d876cf0d3b9e52277f6874fc1138a5557b65f831"
+        },
+        "value": {
+          "commentId": "comment-b-body",
+          "anchorId": "anchor-b-body",
+          "content": "Observed b/body discussion"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:10",
+        "kind": "commentThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "comment-b-header",
+        "evidence": {
+          "path": [
+            "comments",
+            3
+          ],
+          "digest": "a4ed61f16ae5e3a5d6d2bd61dfbadc7de46831f9f45a7448a5c4808875a3ed18"
+        },
+        "value": {
+          "commentId": "comment-b-header",
+          "anchorId": "anchor-b-header",
+          "content": "Observed b/header discussion"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:11",
+        "kind": "commentThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "comment-d-body",
+        "evidence": {
+          "path": [
+            "comments",
+            4
+          ],
+          "digest": "e13e454321768f24677a0b90d085281820ff6bdf43b3581793e9a47b43f57181"
+        },
+        "value": {
+          "commentId": "comment-d-body",
+          "anchorId": "anchor-d-body",
+          "content": "Observed d/body discussion"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:12",
+        "kind": "commentThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "comment-d-header",
+        "evidence": {
+          "path": [
+            "comments",
+            5
+          ],
+          "digest": "b65fec821eff57c9ccb0485634f74ef52435b92d6f963b262d09b554a834c47d"
+        },
+        "value": {
+          "commentId": "comment-d-header",
+          "anchorId": "anchor-d-header",
+          "content": "Observed d/header discussion"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:13",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-prefix-a",
+        "evidence": {
+          "path": [
+            "suggestions",
+            0
+          ],
+          "digest": "ab8e7fbf673bd9260b2bd6002338f8364c1de55091f1632323f679326d6fbe5b"
+        },
+        "value": {
+          "suggestionId": "s-prefix-a",
+          "kind": "prefix",
+          "description": "a/prefix ssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:14",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-main-a",
+        "evidence": {
+          "path": [
+            "suggestions",
+            1
+          ],
+          "digest": "dd07755609fe01f8f01f2de112afc1108e295fe3b12772970b045cfa5404f53f"
+        },
+        "value": {
+          "suggestionId": "s-main-a",
+          "kind": "main",
+          "description": "a/main ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:15",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-delete-a",
+        "evidence": {
+          "path": [
+            "suggestions",
+            2
+          ],
+          "digest": "d5721cf4dadc3c905b2daed2283bfd835483d726033675875518837ff4cce416"
+        },
+        "value": {
+          "suggestionId": "s-delete-a",
+          "kind": "delete",
+          "description": "a/delete ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:16",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-style-a",
+        "evidence": {
+          "path": [
+            "suggestions",
+            3
+          ],
+          "digest": "1fef216d56ff608317dfd75e88e018b6f08bad38ed07c408788a9d14f1158939"
+        },
+        "value": {
+          "suggestionId": "s-style-a",
+          "kind": "style",
+          "description": "a/style ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:17",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-header-a",
+        "evidence": {
+          "path": [
+            "suggestions",
+            4
+          ],
+          "digest": "f26e592602f1fb5337bcb1d63217a8867a4df5922cfdd8c0aa61b23955022511"
+        },
+        "value": {
+          "suggestionId": "s-header-a",
+          "kind": "header",
+          "description": "a/header ssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:18",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-prefix-b",
+        "evidence": {
+          "path": [
+            "suggestions",
+            5
+          ],
+          "digest": "dfd05086ae6b15a677bf23966a1a5c9496f22fe4c964f8efa4fd9dd4b8bf24b0"
+        },
+        "value": {
+          "suggestionId": "s-prefix-b",
+          "kind": "prefix",
+          "description": "b/prefix ssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:19",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-main-b",
+        "evidence": {
+          "path": [
+            "suggestions",
+            6
+          ],
+          "digest": "c8ba2f5e6e1fa37e149ed98348a6cb489dffb4a12dd3b2af5b30e86c8cf443ab"
+        },
+        "value": {
+          "suggestionId": "s-main-b",
+          "kind": "main",
+          "description": "b/main ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:20",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-delete-b",
+        "evidence": {
+          "path": [
+            "suggestions",
+            7
+          ],
+          "digest": "ed41fe9884c42c11430d19c5a6ab526515abdfa3feb019cb0f1f36b3101df625"
+        },
+        "value": {
+          "suggestionId": "s-delete-b",
+          "kind": "delete",
+          "description": "b/delete ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:21",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-style-b",
+        "evidence": {
+          "path": [
+            "suggestions",
+            8
+          ],
+          "digest": "51a5c212c4314212f3884a9c88ec343fd490aa4524fcb9227dbfca7476c4dac4"
+        },
+        "value": {
+          "suggestionId": "s-style-b",
+          "kind": "style",
+          "description": "b/style ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:22",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-header-b",
+        "evidence": {
+          "path": [
+            "suggestions",
+            9
+          ],
+          "digest": "976baa01107277511c4d418c8c48b36bf7a605454fcec0daba92c1bb142f6d56"
+        },
+        "value": {
+          "suggestionId": "s-header-b",
+          "kind": "header",
+          "description": "b/header ssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:23",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-prefix-d",
+        "evidence": {
+          "path": [
+            "suggestions",
+            10
+          ],
+          "digest": "c3bbed63eafb7bafbc0b73df9366e5654563341b487f7ad0a929244f8063890a"
+        },
+        "value": {
+          "suggestionId": "s-prefix-d",
+          "kind": "prefix",
+          "description": "d/prefix ssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:24",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-main-d",
+        "evidence": {
+          "path": [
+            "suggestions",
+            11
+          ],
+          "digest": "21ca2d80f702604fc947582a4218b4b7cee7740b0aa9c9cb9bb18284e3fac8ef"
+        },
+        "value": {
+          "suggestionId": "s-main-d",
+          "kind": "main",
+          "description": "d/main ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:25",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-delete-d",
+        "evidence": {
+          "path": [
+            "suggestions",
+            12
+          ],
+          "digest": "9bc51ade72d4613027f473e2ac4672a45db96d00aaba4b947a281b8a5a57137b"
+        },
+        "value": {
+          "suggestionId": "s-delete-d",
+          "kind": "delete",
+          "description": "d/delete ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:26",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-style-d",
+        "evidence": {
+          "path": [
+            "suggestions",
+            13
+          ],
+          "digest": "a639c58513b865182768f32f777d969f06f59351706688d3d51c639793db1ea5"
+        },
+        "value": {
+          "suggestionId": "s-style-d",
+          "kind": "style",
+          "description": "d/style ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      },
+      {
+        "id": "snap-d:registry:27",
+        "kind": "suggestionThread",
+        "category": "review",
+        "tabId": null,
+        "providerId": "s-header-d",
+        "evidence": {
+          "path": [
+            "suggestions",
+            14
+          ],
+          "digest": "0d26add6ed9708422bbc1824852ae8b93d8184a2a546f1a5f0efe3a42bab5817"
+        },
+        "value": {
+          "suggestionId": "s-header-d",
+          "kind": "header",
+          "description": "d/header ssssssssssssssssssssssssssssssssssssssss"
+        },
+        "diagnosticOnly": true,
+        "definitionStatus": "observed"
+      }
+    ],
+    "registryReferences": [
+      {
+        "id": "snap-d:reference:1",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:5",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-prefix-a",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:13"
+        ],
+        "status": "resolved",
+        "field": "suggestedInsertionIds",
+        "evidenceDigest": "2b9d8fc1dbf1870c8f56123a069051a425e466fda2a179643a0a66e590dc20dd"
+      },
+      {
+        "id": "snap-d:reference:2",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:6",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "comment-a-body",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:7"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "d4de1c02bac7d8ac73b8d26efe6d2d8af17adf63e9289f196c295078e3bbeaf6"
+      },
+      {
+        "id": "snap-d:reference:3",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:7",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-main-a",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:14"
+        ],
+        "status": "resolved",
+        "field": "suggestedInsertionIds",
+        "evidenceDigest": "e045dab00b1f82b280d31b3c2fb460e19f4a31360179b7b29a8591359f0d2327"
+      },
+      {
+        "id": "snap-d:reference:4",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:7",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-delete-a",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:15"
+        ],
+        "status": "resolved",
+        "field": "suggestedDeletionIds",
+        "evidenceDigest": "e045dab00b1f82b280d31b3c2fb460e19f4a31360179b7b29a8591359f0d2327"
+      },
+      {
+        "id": "snap-d:reference:5",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:7",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-style-a",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:16"
+        ],
+        "status": "resolved",
+        "field": "suggestedTextStyleChanges",
+        "evidenceDigest": "e045dab00b1f82b280d31b3c2fb460e19f4a31360179b7b29a8591359f0d2327"
+      },
+      {
+        "id": "snap-d:reference:6",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:7",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "comment-a-body",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:7"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "e045dab00b1f82b280d31b3c2fb460e19f4a31360179b7b29a8591359f0d2327"
+      },
+      {
+        "id": "snap-d:reference:7",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:11",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a"
+        },
+        "providerId": "comment-a-header",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:8"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "5b7f600a5af59c8d7e1064a4e11be5293eee7ef7b3e0c52de3f8df5c9f20d3c4"
+      },
+      {
+        "id": "snap-d:reference:8",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:12",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a"
+        },
+        "providerId": "s-header-a",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:17"
+        ],
+        "status": "resolved",
+        "field": "suggestedInsertionIds",
+        "evidenceDigest": "0fba7c4d8fdaf492f6fa493100585d0a2fd5fb8b253b4d34333f2866df8a6000"
+      },
+      {
+        "id": "snap-d:reference:9",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:12",
+        "tabId": "tab-a",
+        "segment": {
+          "kind": "header",
+          "id": "header-a"
+        },
+        "providerId": "comment-a-header",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:8"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "0fba7c4d8fdaf492f6fa493100585d0a2fd5fb8b253b4d34333f2866df8a6000"
+      },
+      {
+        "id": "snap-d:reference:10",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:17",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-prefix-b",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:18"
+        ],
+        "status": "resolved",
+        "field": "suggestedInsertionIds",
+        "evidenceDigest": "6c6e258c58ff59f8a43145ace99a6a4c8d33bb1411fba0eae2d5ce92b3fd31f4"
+      },
+      {
+        "id": "snap-d:reference:11",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:18",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "comment-b-body",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:9"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "c123f637a8746cb05d551fd88f7f019f5808d09bd1be262688dd23a3ba739ba2"
+      },
+      {
+        "id": "snap-d:reference:12",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:19",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-main-b",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:19"
+        ],
+        "status": "resolved",
+        "field": "suggestedInsertionIds",
+        "evidenceDigest": "4274b0308414e837ae87083a2aaa2fe2b4b6e9610a9c262b8fec01d35446fe63"
+      },
+      {
+        "id": "snap-d:reference:13",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:19",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-delete-b",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:20"
+        ],
+        "status": "resolved",
+        "field": "suggestedDeletionIds",
+        "evidenceDigest": "4274b0308414e837ae87083a2aaa2fe2b4b6e9610a9c262b8fec01d35446fe63"
+      },
+      {
+        "id": "snap-d:reference:14",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:19",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-style-b",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:21"
+        ],
+        "status": "resolved",
+        "field": "suggestedTextStyleChanges",
+        "evidenceDigest": "4274b0308414e837ae87083a2aaa2fe2b4b6e9610a9c262b8fec01d35446fe63"
+      },
+      {
+        "id": "snap-d:reference:15",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:19",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "comment-b-body",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:9"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "4274b0308414e837ae87083a2aaa2fe2b4b6e9610a9c262b8fec01d35446fe63"
+      },
+      {
+        "id": "snap-d:reference:16",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:23",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "header",
+          "id": "header-b"
+        },
+        "providerId": "comment-b-header",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:10"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "6a1da9241a8db6759abcb8aff6bcab9fd1d940389dd89b355c786089824f7f6e"
+      },
+      {
+        "id": "snap-d:reference:17",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:24",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "header",
+          "id": "header-b"
+        },
+        "providerId": "s-header-b",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:22"
+        ],
+        "status": "resolved",
+        "field": "suggestedInsertionIds",
+        "evidenceDigest": "1735d1dfda5efe5ae3f19c489fedab3853a5854ee50a81e2a3c80ae2bf0bbac3"
+      },
+      {
+        "id": "snap-d:reference:18",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:24",
+        "tabId": "tab-b",
+        "segment": {
+          "kind": "header",
+          "id": "header-b"
+        },
+        "providerId": "comment-b-header",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:10"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "1735d1dfda5efe5ae3f19c489fedab3853a5854ee50a81e2a3c80ae2bf0bbac3"
+      },
+      {
+        "id": "snap-d:reference:19",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:29",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-prefix-d",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:23"
+        ],
+        "status": "resolved",
+        "field": "suggestedInsertionIds",
+        "evidenceDigest": "6468d208911548986b9aceb6bffa1f45abc0f34d94f080dd08ca1c62c1fe3591"
+      },
+      {
+        "id": "snap-d:reference:20",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:30",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "comment-d-body",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:11"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "9f7285fd912023b3f015411b14f653b7b79ba30acc3071ab8b126684911d916f"
+      },
+      {
+        "id": "snap-d:reference:21",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:31",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-main-d",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:24"
+        ],
+        "status": "resolved",
+        "field": "suggestedInsertionIds",
+        "evidenceDigest": "b697accf5ba586e2ddf5d2ffd0bd47a3e9949d5f8312a94497adb116bbc88a40"
+      },
+      {
+        "id": "snap-d:reference:22",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:31",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-delete-d",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:25"
+        ],
+        "status": "resolved",
+        "field": "suggestedDeletionIds",
+        "evidenceDigest": "b697accf5ba586e2ddf5d2ffd0bd47a3e9949d5f8312a94497adb116bbc88a40"
+      },
+      {
+        "id": "snap-d:reference:23",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:31",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "s-style-d",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:26"
+        ],
+        "status": "resolved",
+        "field": "suggestedTextStyleChanges",
+        "evidenceDigest": "b697accf5ba586e2ddf5d2ffd0bd47a3e9949d5f8312a94497adb116bbc88a40"
+      },
+      {
+        "id": "snap-d:reference:24",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:31",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "providerId": "comment-d-body",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:11"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "b697accf5ba586e2ddf5d2ffd0bd47a3e9949d5f8312a94497adb116bbc88a40"
+      },
+      {
+        "id": "snap-d:reference:25",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:35",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "providerId": "comment-d-header",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:12"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "54ad5f38a11fec73a9078cc158c1e6f5476325ba961c138a41abbb1edd72940c"
+      },
+      {
+        "id": "snap-d:reference:26",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:36",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "providerId": "s-header-d",
+        "definitionKind": "suggestionThread",
+        "targets": [
+          "snap-d:registry:27"
+        ],
+        "status": "resolved",
+        "field": "suggestedInsertionIds",
+        "evidenceDigest": "b7758d63b0ae1f1a5caa856ef36b978f84a8acf0fad7155a88ec9a097918d785"
+      },
+      {
+        "id": "snap-d:reference:27",
+        "kind": "registryReference",
+        "category": "review",
+        "ownerNode": "snap-d:36",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "header",
+          "id": "header-d"
+        },
+        "providerId": "comment-d-header",
+        "definitionKind": "commentThread",
+        "targets": [
+          "snap-d:registry:12"
+        ],
+        "status": "resolved",
+        "field": "comments",
+        "evidenceDigest": "b7758d63b0ae1f1a5caa856ef36b978f84a8acf0fad7155a88ec9a097918d785"
+      }
+    ],
+    "selectedIds": [
+      "snap-d:28",
+      "snap-d:29",
+      "snap-d:30",
+      "snap-d:31"
+    ],
+    "controlIds": [
+      "snap-d:31"
+    ],
+    "unselectedIds": [
+      "snap-d:1",
+      "snap-d:2",
+      "snap-d:3",
+      "snap-d:4",
+      "snap-d:5",
+      "snap-d:6",
+      "snap-d:7",
+      "snap-d:8",
+      "snap-d:9",
+      "snap-d:10",
+      "snap-d:11",
+      "snap-d:12",
+      "snap-d:13",
+      "snap-d:14",
+      "snap-d:15",
+      "snap-d:16",
+      "snap-d:17",
+      "snap-d:18",
+      "snap-d:19",
+      "snap-d:20",
+      "snap-d:21",
+      "snap-d:22",
+      "snap-d:23",
+      "snap-d:24",
+      "snap-d:25",
+      "snap-d:26",
+      "snap-d:27",
+      "snap-d:32",
+      "snap-d:33",
+      "snap-d:34",
+      "snap-d:35",
+      "snap-d:36"
+    ],
+    "projection": {
+      "records": [
+        {
+          "id": "snap-d:registry:5",
+          "kind": "commentAnchor",
+          "category": "review",
+          "tabId": "tab-d",
+          "providerId": "anchor-d-body",
+          "evidence": {
+            "path": [
+              "tabs",
+              1,
+              "childTabs",
+              0,
+              "documentTab",
+              "commentAnchors",
+              "anchor-d-body"
+            ],
+            "digest": "89c3fcdbb0c66a15379c9960c127fd410fd58d80a90cbcef6138136075659d78"
+          },
+          "value": {
+            "anchorId": "anchor-d-body",
+            "ranges": [
+              {
+                "tabId": "tab-d",
+                "startIndex": 37,
+                "endIndex": 41
+              }
+            ]
+          },
+          "diagnosticOnly": true,
+          "definitionStatus": "observed",
+          "scopeRelation": "intersects",
+          "registryAspect": "review",
+          "provenance": {
+            "snapshotId": "snap-d",
+            "view": "inline"
+          }
+        },
+        {
+          "id": "snap-d:registry:11",
+          "kind": "commentThread",
+          "category": "review",
+          "tabId": null,
+          "providerId": "comment-d-body",
+          "evidence": {
+            "path": [
+              "comments",
+              4
+            ],
+            "digest": "e13e454321768f24677a0b90d085281820ff6bdf43b3581793e9a47b43f57181"
+          },
+          "value": {
+            "commentId": "comment-d-body",
+            "anchorId": "anchor-d-body",
+            "content": "Observed d/body discussion"
+          },
+          "diagnosticOnly": true,
+          "definitionStatus": "observed",
+          "scopeRelation": "intersects",
+          "registryAspect": "review",
+          "provenance": {
+            "snapshotId": "snap-d",
+            "view": "inline"
+          }
+        },
+        {
+          "id": "snap-d:registry:23",
+          "kind": "suggestionThread",
+          "category": "review",
+          "tabId": null,
+          "providerId": "s-prefix-d",
+          "evidence": {
+            "path": [
+              "suggestions",
+              10
+            ],
+            "digest": "c3bbed63eafb7bafbc0b73df9366e5654563341b487f7ad0a929244f8063890a"
+          },
+          "value": {
+            "suggestionId": "s-prefix-d",
+            "kind": "prefix",
+            "description": "d/prefix ssssssssssssssssssss"
+          },
+          "diagnosticOnly": true,
+          "definitionStatus": "observed",
+          "scopeRelation": "referenced",
+          "registryAspect": "review",
+          "provenance": {
+            "snapshotId": "snap-d",
+            "view": "inline"
+          }
+        },
+        {
+          "id": "snap-d:registry:24",
+          "kind": "suggestionThread",
+          "category": "review",
+          "tabId": null,
+          "providerId": "s-main-d",
+          "evidence": {
+            "path": [
+              "suggestions",
+              11
+            ],
+            "digest": "21ca2d80f702604fc947582a4218b4b7cee7740b0aa9c9cb9bb18284e3fac8ef"
+          },
+          "value": {
+            "suggestionId": "s-main-d",
+            "kind": "main",
+            "description": "d/main ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+          },
+          "diagnosticOnly": true,
+          "definitionStatus": "observed",
+          "scopeRelation": "referenced",
+          "registryAspect": "review",
+          "provenance": {
+            "snapshotId": "snap-d",
+            "view": "inline"
+          }
+        },
+        {
+          "id": "snap-d:registry:25",
+          "kind": "suggestionThread",
+          "category": "review",
+          "tabId": null,
+          "providerId": "s-delete-d",
+          "evidence": {
+            "path": [
+              "suggestions",
+              12
+            ],
+            "digest": "9bc51ade72d4613027f473e2ac4672a45db96d00aaba4b947a281b8a5a57137b"
+          },
+          "value": {
+            "suggestionId": "s-delete-d",
+            "kind": "delete",
+            "description": "d/delete ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+          },
+          "diagnosticOnly": true,
+          "definitionStatus": "observed",
+          "scopeRelation": "referenced",
+          "registryAspect": "review",
+          "provenance": {
+            "snapshotId": "snap-d",
+            "view": "inline"
+          }
+        },
+        {
+          "id": "snap-d:registry:26",
+          "kind": "suggestionThread",
+          "category": "review",
+          "tabId": null,
+          "providerId": "s-style-d",
+          "evidence": {
+            "path": [
+              "suggestions",
+              13
+            ],
+            "digest": "a639c58513b865182768f32f777d969f06f59351706688d3d51c639793db1ea5"
+          },
+          "value": {
+            "suggestionId": "s-style-d",
+            "kind": "style",
+            "description": "d/style ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+          },
+          "diagnosticOnly": true,
+          "definitionStatus": "observed",
+          "scopeRelation": "referenced",
+          "registryAspect": "review",
+          "provenance": {
+            "snapshotId": "snap-d",
+            "view": "inline"
+          }
+        },
+        {
+          "id": "snap-d:reference:19",
+          "kind": "registryReference",
+          "category": "review",
+          "ownerNode": "snap-d:29",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "providerId": "s-prefix-d",
+          "definitionKind": "suggestionThread",
+          "targets": [
+            "snap-d:registry:23"
+          ],
+          "status": "resolved",
+          "field": "suggestedInsertionIds",
+          "evidenceDigest": "6468d208911548986b9aceb6bffa1f45abc0f34d94f080dd08ca1c62c1fe3591"
+        },
+        {
+          "id": "snap-d:reference:20",
+          "kind": "registryReference",
+          "category": "review",
+          "ownerNode": "snap-d:30",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "providerId": "comment-d-body",
+          "definitionKind": "commentThread",
+          "targets": [
+            "snap-d:registry:11"
+          ],
+          "status": "resolved",
+          "field": "comments",
+          "evidenceDigest": "9f7285fd912023b3f015411b14f653b7b79ba30acc3071ab8b126684911d916f"
+        },
+        {
+          "id": "snap-d:reference:21",
+          "kind": "registryReference",
+          "category": "review",
+          "ownerNode": "snap-d:31",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "providerId": "s-main-d",
+          "definitionKind": "suggestionThread",
+          "targets": [
+            "snap-d:registry:24"
+          ],
+          "status": "resolved",
+          "field": "suggestedInsertionIds",
+          "evidenceDigest": "b697accf5ba586e2ddf5d2ffd0bd47a3e9949d5f8312a94497adb116bbc88a40"
+        },
+        {
+          "id": "snap-d:reference:22",
+          "kind": "registryReference",
+          "category": "review",
+          "ownerNode": "snap-d:31",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "providerId": "s-delete-d",
+          "definitionKind": "suggestionThread",
+          "targets": [
+            "snap-d:registry:25"
+          ],
+          "status": "resolved",
+          "field": "suggestedDeletionIds",
+          "evidenceDigest": "b697accf5ba586e2ddf5d2ffd0bd47a3e9949d5f8312a94497adb116bbc88a40"
+        },
+        {
+          "id": "snap-d:reference:23",
+          "kind": "registryReference",
+          "category": "review",
+          "ownerNode": "snap-d:31",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "providerId": "s-style-d",
+          "definitionKind": "suggestionThread",
+          "targets": [
+            "snap-d:registry:26"
+          ],
+          "status": "resolved",
+          "field": "suggestedTextStyleChanges",
+          "evidenceDigest": "b697accf5ba586e2ddf5d2ffd0bd47a3e9949d5f8312a94497adb116bbc88a40"
+        },
+        {
+          "id": "snap-d:reference:24",
+          "kind": "registryReference",
+          "category": "review",
+          "ownerNode": "snap-d:31",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "providerId": "comment-d-body",
+          "definitionKind": "commentThread",
+          "targets": [
+            "snap-d:registry:11"
+          ],
+          "status": "resolved",
+          "field": "comments",
+          "evidenceDigest": "b697accf5ba586e2ddf5d2ffd0bd47a3e9949d5f8312a94497adb116bbc88a40"
+        }
+      ],
+      "losses": [],
+      "nodeAspects": {
+        "snap-d:registry:5": [
+          "review"
+        ],
+        "snap-d:registry:11": [
+          "review"
+        ],
+        "snap-d:registry:23": [
+          "review"
+        ],
+        "snap-d:registry:24": [
+          "review"
+        ],
+        "snap-d:registry:25": [
+          "review"
+        ],
+        "snap-d:registry:26": [
+          "review"
+        ],
+        "snap-d:reference:19": [
+          "review"
+        ],
+        "snap-d:reference:20": [
+          "review"
+        ],
+        "snap-d:reference:21": [
+          "review"
+        ],
+        "snap-d:reference:22": [
+          "review"
+        ],
+        "snap-d:reference:23": [
+          "review"
+        ],
+        "snap-d:reference:24": [
+          "review"
+        ]
+      },
+      "aspects": [],
+      "missingAspects": [
+        "content",
+        "styles",
+        "review"
+      ],
+      "projection": "diagnostic"
+    },
+    "controlProjection": {
+      "records": [
+        {
+          "id": "snap-d:31",
+          "kind": "text",
+          "parent": "snap-d:30",
+          "tabId": "tab-d",
+          "segment": {
+            "kind": "body"
+          },
+          "extent": {
+            "start": 37,
+            "end": 55
+          },
+          "children": [],
+          "review": {
+            "suggestedInsertionIds": [
+              "s-main-d"
+            ],
+            "suggestedDeletionIds": [
+              "s-delete-d"
+            ],
+            "suggestedTextStyleChanges": {
+              "s-style-d": {
+                "textStyle": {
+                  "italic": false
+                }
+              }
+            },
+            "comments": [
+              {
+                "commentId": "comment-d-body",
+                "anchorId": "anchor-d-body",
+                "content": "Observed d/body discussion"
+              }
+            ]
+          },
+          "extentStatus": "mapped",
+          "text": "Similar😀 é body\n",
+          "style": {
+            "explicit": {
+              "italic": true
+            },
+            "properties": {
+              "italic": {
+                "value": true,
+                "provenance": "direct"
+              }
+            },
+            "absent": "unknown",
+            "propertyEvidence": {
+              "italic": {
+                "atomic": true,
+                "leaves": {
+                  "italic": {
+                    "stored": true,
+                    "status": "observed"
+                  }
+                },
+                "unknown": [],
+                "missing": [],
+                "effectiveStatus": "observed",
+                "inherited": null
+              }
+            }
+          },
+          "evidenceDigest": "b697accf5ba586e2ddf5d2ffd0bd47a3e9949d5f8312a94497adb116bbc88a40"
+        }
+      ],
+      "losses": [],
+      "nodeAspects": {
+        "snap-d:31": [
+          "content",
+          "styles",
+          "review"
+        ]
+      },
+      "aspects": [
+        "content",
+        "styles",
+        "review"
+      ],
+      "missingAspects": [],
+      "projection": "structured"
+    },
+    "missingReviewCoverage": false,
+    "authoritySpec": {
+      "nodes": [
+        "snap-d:31"
+      ],
+      "aspects": [
+        "review"
+      ]
+    },
+    "authorityResult": {
+      "materialized": "complete",
+      "delivered": "content",
+      "witnessSatisfied": true,
+      "missingAspects": [],
+      "missingNodes": [],
+      "unresolvedNodes": [],
+      "editReady": false,
+      "authoringAuthority": "notEstablished"
+    },
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}

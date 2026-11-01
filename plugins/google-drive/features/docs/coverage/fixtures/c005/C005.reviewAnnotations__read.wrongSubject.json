@@ -1,0 +1,478 @@
+{
+  "provenance": {
+    "source": "c005/generate.mjs: original explicit provider/semantic vectors",
+    "authorship": "Independent inert C005 expectations; no production oracle"
+  },
+  "caseId": "C005.reviewAnnotations__read.wrongSubject",
+  "variant": "reviewAnnotations",
+  "outcome": "wrongSubject",
+  "pageBytes": 65536,
+  "provider": {
+    "identity": {
+      "sub": "subject-d",
+      "email": "reader@example.test",
+      "email_verified": true
+    },
+    "otherIdentity": {
+      "sub": "subject-other",
+      "email": "other@example.test",
+      "email_verified": true
+    },
+    "metadata": {
+      "id": "doc-d",
+      "name": "Independent C005",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "7",
+      "modifiedTime": "2026-01-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-d",
+      "title": "Independent C005",
+      "revisionId": "rev-c005",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-d",
+            "title": "Main",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 8,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 4,
+                        "textRun": {
+                          "content": "A😀",
+                          "suggestedInsertionIds": [
+                            "s-insert"
+                          ]
+                        }
+                      },
+                      {
+                        "startIndex": 4,
+                        "endIndex": 8,
+                        "textRun": {
+                          "content": " é\n",
+                          "suggestedDeletionIds": [
+                            "s-delete"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 8,
+                  "endIndex": 13,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 8,
+                        "endIndex": 13,
+                        "textRun": {
+                          "content": "KEEP\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "commentAnchors": {
+              "anchor": {
+                "anchorId": "anchor",
+                "ranges": [
+                  {
+                    "tabId": "tab-d",
+                    "startIndex": 1,
+                    "endIndex": 4
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "suggestions": [
+        {
+          "suggestionId": "s-insert",
+          "description": "Insertion evidence"
+        },
+        {
+          "suggestionId": "s-delete",
+          "description": "Deletion evidence"
+        }
+      ],
+      "comments": [
+        {
+          "commentId": "c-one",
+          "anchorId": "anchor",
+          "content": "Inspect these scalars"
+        }
+      ]
+    }
+  },
+  "commentsDenied": false,
+  "inspect": {
+    "account": "reader@example.test",
+    "document": "doc-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    }
+  },
+  "read": {
+    "account": "reader@example.test",
+    "snapshotId": "snap-d",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "node": "snap-d:2"
+    },
+    "format": "text",
+    "review": true
+  },
+  "expected": {
+    "nodes": [
+      {
+        "id": "snap-d:1",
+        "kind": "segment",
+        "parent": null,
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": null,
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body"
+          ],
+          "digest": "8adb84002b9ae682829995ec2b10acabcfe190b4113ed9798da552bc667fb313"
+        },
+        "children": [
+          "snap-d:2",
+          "snap-d:5"
+        ]
+      },
+      {
+        "id": "snap-d:2",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 8
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0
+          ],
+          "digest": "4b93e52913fa453fde12e2e9e290df21a9675f7ca5a866da54f720cbaf869226"
+        },
+        "children": [
+          "snap-d:3",
+          "snap-d:4"
+        ],
+        "review": {
+          "comments": [
+            {
+              "commentId": "c-one",
+              "anchorId": "anchor",
+              "content": "Inspect these scalars"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:3",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 1,
+          "end": 4
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "132f588bcf4afee4ce3bf890a727836076baa31a2389a1ea1e8b2240fa0ec7ed"
+        },
+        "children": [],
+        "review": {
+          "suggestedInsertionIds": [
+            "s-insert"
+          ],
+          "comments": [
+            {
+              "commentId": "c-one",
+              "anchorId": "anchor",
+              "content": "Inspect these scalars"
+            }
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": "A😀",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      },
+      {
+        "id": "snap-d:4",
+        "kind": "text",
+        "parent": "snap-d:2",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 4,
+          "end": 8
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            0,
+            "paragraph",
+            "elements",
+            1
+          ],
+          "digest": "01c7f2150a0a926d0f0586d4269d089e2b3eafb49cbb5f4e9840a582741fcb16"
+        },
+        "children": [],
+        "review": {
+          "suggestedDeletionIds": [
+            "s-delete"
+          ]
+        },
+        "extentStatus": "mapped",
+        "text": " é\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      },
+      {
+        "id": "snap-d:5",
+        "kind": "paragraph",
+        "parent": "snap-d:1",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 8,
+          "end": 13
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1
+          ],
+          "digest": "a8777aa40baf15a3355da844fe65471fc11a241bbd18aaa0cde8dbbe279a7852"
+        },
+        "children": [
+          "snap-d:6"
+        ],
+        "review": {},
+        "extentStatus": "mapped",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        },
+        "list": null,
+        "positionedObjectIds": []
+      },
+      {
+        "id": "snap-d:6",
+        "kind": "text",
+        "parent": "snap-d:5",
+        "tabId": "tab-d",
+        "segment": {
+          "kind": "body"
+        },
+        "extent": {
+          "start": 8,
+          "end": 13
+        },
+        "evidence": {
+          "path": [
+            "tabs",
+            0,
+            "documentTab",
+            "body",
+            "content",
+            1,
+            "paragraph",
+            "elements",
+            0
+          ],
+          "digest": "d5ccd0efff83bdc18d2b53087bf8020c95a5dd97ff5d269fe21ddc7f590464e5"
+        },
+        "children": [],
+        "review": {},
+        "extentStatus": "mapped",
+        "text": "KEEP\n",
+        "style": {
+          "explicit": {},
+          "properties": {},
+          "absent": "unknown"
+        }
+      }
+    ],
+    "selectedIds": [
+      "snap-d:2",
+      "snap-d:3",
+      "snap-d:4"
+    ],
+    "unselectedIds": [
+      "snap-d:5",
+      "snap-d:6"
+    ],
+    "projection": {
+      "records": [
+        {
+          "kind": "text",
+          "node": "snap-d:3",
+          "text": "A😀",
+          "extent": {
+            "start": 1,
+            "end": 4
+          },
+          "review": {
+            "suggestedInsertionIds": [
+              "s-insert"
+            ],
+            "comments": [
+              {
+                "commentId": "c-one",
+                "anchorId": "anchor",
+                "content": "Inspect these scalars"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "text",
+          "node": "snap-d:4",
+          "text": " é\n",
+          "extent": {
+            "start": 4,
+            "end": 8
+          },
+          "review": {
+            "suggestedDeletionIds": [
+              "s-delete"
+            ]
+          }
+        }
+      ],
+      "losses": [
+        {
+          "node": "snap-d:2",
+          "kind": "styleAnnotationOmitted"
+        },
+        {
+          "node": "snap-d:3",
+          "kind": "styleAnnotationOmitted"
+        },
+        {
+          "node": "snap-d:4",
+          "kind": "styleAnnotationOmitted"
+        }
+      ],
+      "nodeAspects": {
+        "snap-d:3": [
+          "content",
+          "review"
+        ],
+        "snap-d:4": [
+          "content",
+          "review"
+        ]
+      },
+      "aspects": [
+        "content",
+        "review"
+      ],
+      "missingAspects": [
+        "styles"
+      ],
+      "projection": "text"
+    },
+    "snapshotExpires": 600000,
+    "cursorExpires": 300000
+  }
+}
