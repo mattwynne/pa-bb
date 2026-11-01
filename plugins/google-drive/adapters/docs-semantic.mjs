@@ -25,18 +25,12 @@ export function createSemanticDocsAdapter({verifiedAccess,fetchImpl=fetch}) {
       url.searchParams.set('fields','id,name,mimeType,modifiedTime,version,trashed,capabilities(canEdit)');url.searchParams.set('supportsAllDrives','true');
       return (await get(record,url,signal,65536)).document;
     },
-    async read(record,id,view,signal){requireValue(Object.hasOwn(views,view));
+    async read(record,id,view,signal,{includeReview=view==='inline'}={}){requireValue(Object.hasOwn(views,view));
       const url=new URL(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(id)}`);
       url.searchParams.set('includeTabsContent','true');url.searchParams.set('suggestionsViewMode',views[view]);
-      if(view==='inline')url.searchParams.set('commentsViewMode','COMMENTS_VIEW_MODE_INCLUDED');
-      try{return {...await get(record,url,signal,LIMITS.providerBytes),reviewIncluded:view==='inline',commentsDenied:false};}
-      catch(error){
-        if(view!=='inline'||error?.status!==403)throw error;
-        // A failed comments-aware GET is not usable evidence. Make a distinct
-        // full content-only read; never relabel the failed request as complete.
-        url.searchParams.delete('commentsViewMode');
-        return {...await get(record,url,signal,LIMITS.providerBytes),reviewIncluded:false,commentsDenied:true};
-      }
+      if(includeReview&&view==='inline')url.searchParams.set('commentsViewMode','COMMENTS_VIEW_MODE_INCLUDED');
+      // One exact requested observation. Fallback/coverage policy is application-owned.
+      return {...await get(record,url,signal,LIMITS.providerBytes),reviewIncluded:includeReview&&view==='inline'};
     },
   };
 }

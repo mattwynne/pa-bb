@@ -2,6 +2,7 @@
 // boundary, never by a native argument. This service makes no provider calls.
 // Only stored tokens can supply delivery; a presentation is compared as data.
 import { randomUUID } from 'node:crypto';
+import { semanticFailureCategory } from './failures.mjs';
 import { requireValue, digest, freeze, semanticError } from './common.mjs';
 import { validatedReadModel, resolveScope } from './selectors.mjs';
 import { thawReadSelection, project } from './reader.mjs';
@@ -47,7 +48,7 @@ function coherentDeliveries(snapshot,records) {
 export function createReadEvidenceService({snapshots,clock=Date.now,ids=randomUUID,diagnose=()=>{}}) {
   function boundary(operation,run) {
     try{return run();}catch(error){
-      const category=['invalid','budget','scalar','extent','scope','snapshot','conflict','unavailable','denied','corrupt','unsupported'].includes(error?.semanticCode)?error.semanticCode:'unavailable';
+      const category=semanticFailureCategory(error,{cancellation:false});
       diagnose(operation,semanticError(category));throw semanticError(category);
     }
   }

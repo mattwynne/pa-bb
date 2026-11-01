@@ -2,7 +2,8 @@
 import { randomUUID } from 'node:crypto';
 import { deflateSync, inflateSync } from 'node:zlib';
 import { LIMITS, digest, freeze, requireValue, semanticError, jsonBytes, boundedTree } from '../core/docs-semantic/common.mjs';
-import { validateStructuralFacts } from '../core/docs-semantic/model.mjs';
+import { checkSnapshotOwner as checkOwner, checkSnapshotTime as time, checkSnapshotLive, validateStoredModel, validateCursorState, validateDelivery, checkSnapshotAdmission, nextReadWork, checkPin, checkNewWitness, checkRetainedWitness } from '../core/docs-semantic/snapshot-policy.mjs';
+export { READ_WORK_BYTES } from '../core/docs-semantic/snapshot-policy.mjs';
 export const SEMANTIC_SNAPSHOT_MIGRATION = `
 CREATE TABLE docs_semantic_evidence (digest TEXT PRIMARY KEY, bytes INTEGER NOT NULL, data BLOB NOT NULL);
 CREATE TABLE docs_semantic_snapshots (id TEXT PRIMARY KEY, subject TEXT NOT NULL, account TEXT NOT NULL, thread TEXT NOT NULL,
@@ -24,14 +25,9 @@ const size=value=>Buffer.byteLength(value);
 // Includes conservative row/index overhead as well as logical AND compressed
 // bytes. This is a bounded live-data reservation, not SQLite file-size reporting.
 export const STORE_ROW_BYTES=256;
-export const READ_WORK_BYTES=256*1048576;
 export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}) {
   const getRow=id=>db.prepare(`SELECT id,subject,account,thread,created,expires,evidence_digest,bytes,model_digest,
     length(data) AS compressed_bytes FROM docs_semantic_snapshots WHERE id=?`).get(id);
-  function checkOwner(row,owner) {
-    requireValue(row&&row.subject===owner.subject&&row.account===owner.account&&row.thread===owner.threadId,'snapshot');
-  }
-  function time(now){requireValue(Number.isSafeInteger(now)&&now>=0,'invalid');}
   function rowBinding(row) {
     return {id:row.id,subject:row.subject,account:row.account,thread:row.thread,created:row.created,expires:row.expires,
       evidence_digest:row.evidence_digest,bytes:row.bytes,model_digest:row.model_digest};
@@ -50,26 +46,7 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
     requireValue(row.snapshot===snapshot&&row.digest===digest({kind,id,snapshot,value}),'corrupt');
   }
   function integrityBytes(kind,id,snapshot) {return STORE_ROW_BYTES+2*size(kind+id+snapshot)+64;}
-  function validateModel(result,row) {
-    const b=result.binding;
-    requireValue(result.version===1&&result.evidenceDigest===row.evidence_digest&&b?.snapshotId===row.id&&b.subject===row.subject&&b.account===row.account&&b.threadId===row.thread,'corrupt');
-    requireValue(Number.isSafeInteger(b.retrievedAt)&&b.retrievedAt<=row.created&&row.created<row.expires&&row.expires===b.retrievedAt+limits.snapshotMs,'corrupt');
-    requireValue(result.evidence.documentId===b.documentId&&result.metadata.id===b.documentId,'corrupt');
-    const views={inline:'SUGGESTIONS_INLINE',acceptedPreview:'PREVIEW_SUGGESTIONS_ACCEPTED',rejectedPreview:'PREVIEW_WITHOUT_SUGGESTIONS'};
-    requireValue(Object.hasOwn(views,b.view)&&result.evidence.suggestionsViewMode===views[b.view],'corrupt');
-    requireValue(result.nodes&&Array.isArray(result.tabs)&&Array.isArray(result.outline),'corrupt');
-    const nodes=Object.values(result.nodes);requireValue(nodes.length<=limits.nodes,'corrupt');
-    const reached=new Set();
-    for(const n of nodes){
-      requireValue(typeof n.id==='string'&&result.nodes[n.id]===n&&n.id.startsWith(`${b.snapshotId}:`)&&Array.isArray(n.children)&&Array.isArray(n.evidence?.path),'corrupt');
-      for(const child of n.children){
-        requireValue(!reached.has(child)&&result.nodes[child]?.parent===n.id,'corrupt');reached.add(child);
-      }
-      if(n.parent===null)requireValue(n.kind==='segment','corrupt');
-    }
-    for(const n of nodes)requireValue(n.parent===null||reached.has(n.id),'corrupt');
-    validateStructuralFacts(result);
-  }
+  const validateModel=(result,row)=>validateStoredModel(result,row,limits);
   function decode(row) {
     try {
       verify('snapshot',row.id,row.id,rowBinding(row));
@@ -132,15 +109,11 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
   const pageTokens=()=>checkPageTokens({deliveryToken:ids(),nextCursor:ids()});
   function live(id,owner,now) {
     time(now);const row=getRow(id);checkOwner(row,owner);
-    verify('snapshot',row.id,row.id,rowBinding(row));requireValue(now<row.expires,'snapshot');return row;
+    verify('snapshot',row.id,row.id,rowBinding(row));checkSnapshotLive(row,now);return row;
   }
   function cursorData(row,state) {
-    jsonBytes(state,limits.pageBytes);
-    const snapshot=decode(row);
-    requireValue(state.view===snapshot.binding.view&&state.documentId===snapshot.binding.documentId,'conflict');
-    if(state.offset!==undefined)requireValue(Number.isSafeInteger(state.offset)&&state.offset>=0,'invalid');
-    if(state.lossOffset!==undefined)requireValue(Number.isSafeInteger(state.lossOffset)&&state.lossOffset>=0,'invalid');
-    return JSON.stringify(state);
+    // Decode/integrity is technical; continuation meaning is core policy.
+    jsonBytes(state,limits.pageBytes);return validateCursorState(decode(row),state,limits);
   }
   function cursorBytes(id,snapshot,state) {return STORE_ROW_BYTES+2*size(id)+size(snapshot)+size(state)+integrityBytes('cursor',id,snapshot);}
   function saveCursor(id,row,state,now) {
@@ -149,18 +122,7 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
     seal('cursor',id,row.id,{binding:rowBinding(row),expires,state});
   }
   function deliveryData(row,delivery) {
-    jsonBytes(delivery,limits.pageBytes);const snapshot=decode(row);
-    requireValue(delivery.snapshotId===row.id&&delivery.evidenceDigest===row.evidence_digest&&delivery.view===snapshot.binding.view,'conflict');
-    requireValue(Array.isArray(delivery.nodes)&&new Set(delivery.nodes).size===delivery.nodes.length,'invalid');
-    const known=new Set([...Object.keys(snapshot.nodes),...(snapshot.registryEntries??[]).map(n=>n.id),...(snapshot.registryReferences??[]).map(n=>n.id)]);
-    // Diagnostic summary/unknown handles have their own namespace and cannot
-    // gain content/style/review authority merely by sharing a snapshot prefix.
-    for(const id of delivery.nodes){
-      const aspects=delivery.nodeAspects?.[id];requireValue(Array.isArray(aspects),'invalid');
-      requireValue(known.has(id)||typeof id==='string'&&id.startsWith(`${row.id}:`)&&aspects.length===0,'conflict');
-      requireValue(aspects.every(a=>['content','styles','review'].includes(a)),'invalid');
-    }
-    return JSON.stringify(delivery);
+    jsonBytes(delivery,limits.pageBytes);return validateDelivery(decode(row),delivery,limits);
   }
   function deliveryBytes(id,snapshot,data){return STORE_ROW_BYTES+2*size(id)+size(snapshot)+size(data)+integrityBytes('delivery',id,snapshot);}
   function saveDelivery(id,row,data) {
@@ -210,9 +172,8 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
       boundedTree(snapshot,{...limits,providerBytes:limits.poolBytes,nodes:1000000,depth:96});
       sweep(now);requireValue(!getRow(snapshot.binding.snapshotId),'conflict');
       const b=snapshot.binding;
-      for(const key of ['snapshotId','subject','account','threadId','documentId'])requireValue(typeof b[key]==='string'&&b[key].length>0&&b[key].length<=320,'invalid');
-      requireValue(Number.isSafeInteger(b.retrievedAt)&&b.retrievedAt<=now&&now<b.retrievedAt+limits.snapshotMs,'snapshot');
-      requireValue(db.prepare('SELECT count(*) AS n FROM docs_semantic_snapshots WHERE subject=? AND thread=?').get(b.subject,b.threadId).n<limits.activePerOwner,'budget');
+      checkSnapshotAdmission(b,now,0,limits); // Validate before binding untrusted values to SQL.
+      checkSnapshotAdmission(b,now,db.prepare('SELECT count(*) AS n FROM docs_semantic_snapshots WHERE subject=? AND thread=?').get(b.subject,b.threadId).n,limits);
       const {evidence,...rest}=snapshot;
       jsonBytes(evidence,limits.providerBytes);jsonBytes(rest,limits.poolBytes);
       const raw=JSON.stringify(evidence),data=JSON.stringify(rest),hash=digest(raw);
@@ -258,10 +219,10 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
       return storedDeliveries(live(id,owner,now),tokens);
     },
     chargeReadWork(id,owner,readId,bytes,now){return db.transaction(()=>{
-      live(id,owner,now);token(readId);requireValue(Number.isSafeInteger(bytes)&&bytes>=0&&bytes<=limits.modelBytes,'budget');
+      live(id,owner,now);token(readId);nextReadWork(0,bytes,limits);
       const old=db.prepare('SELECT bytes FROM docs_semantic_read_work WHERE snapshot=? AND id=?').get(id,readId);
       if(old)verify('work',readId,id,{bytes:old.bytes});
-      const total=(old?.bytes??0)+bytes;requireValue(total<=READ_WORK_BYTES,'budget');
+      const total=nextReadWork(old?.bytes??0,bytes,limits);
       if(!old)capacity(STORE_ROW_BYTES+2*size(id+readId)+integrityBytes('work',readId,id));
       db.prepare('INSERT INTO docs_semantic_read_work VALUES (?,?,?) ON CONFLICT(snapshot,id) DO UPDATE SET bytes=excluded.bytes').run(id,readId,total);
       if(old)db.prepare("DELETE FROM docs_semantic_integrity WHERE kind='work' AND id=? AND snapshot=?").run(readId,id);
@@ -269,11 +230,10 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
     })();},
     pin(id,owner,pinOwner,now,expires){return db.transaction(()=>{
       const row=live(id,owner,now);token(pinOwner);
-      requireValue(Number.isSafeInteger(expires)&&expires>now&&expires<=now+limits.pinMs,'budget');
+      checkPin(now,expires,undefined,0,limits);
       const previous=db.prepare('SELECT expires FROM docs_semantic_pins WHERE snapshot=? AND owner=?').get(id,pinOwner);
       if(previous)verify('pin',pinOwner,id,{binding:rowBinding(row),expires:previous.expires});
-      requireValue(!previous||previous.expires===expires,'conflict');
-      requireValue(previous||db.prepare('SELECT count(*) AS n FROM docs_semantic_pins WHERE snapshot=?').get(id).n<32,'budget');
+      checkPin(now,expires,previous?.expires,db.prepare('SELECT count(*) AS n FROM docs_semantic_pins WHERE snapshot=?').get(id).n,limits);
       if(!previous){
         capacity(STORE_ROW_BYTES+2*size(id+pinOwner)+integrityBytes('pin',pinOwner,id));
         db.prepare('INSERT INTO docs_semantic_pins VALUES (?,?,?)').run(id,pinOwner,expires);
@@ -289,8 +249,7 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
     // existing immutable delivery records and B pins in one SQLite transaction;
     // migrations 0..9 and unsupported unsealed history remain untouched.
     retainWitness(id,owner,pinOwner,record,now,expires){return db.transaction(()=>{
-      requireValue(record?.format==='retainedWitness'&&record.nodes?.length===0,'invalid');
-      requireValue(!db.prepare('SELECT 1 FROM docs_semantic_pins WHERE snapshot=? AND owner=?').get(id,pinOwner),'conflict');
+      checkNewWitness(record,db.prepare('SELECT 1 FROM docs_semantic_pins WHERE snapshot=? AND owner=?').get(id,pinOwner));
       api.pin(id,owner,pinOwner,now,expires);
       const deliveryToken=api.deliver(id,owner,record,now);
       return {pinId:pinOwner,expires,deliveryToken};
@@ -299,7 +258,7 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
       const snapshot=api.readPinned(id,owner,pinOwner,now),row=getRow(id);
       const pin=db.prepare('SELECT expires FROM docs_semantic_pins WHERE snapshot=? AND owner=?').get(id,pinOwner);
       const [record]=storedDeliveries(row,[deliveryToken]);
-      requireValue(record.format==='retainedWitness'&&record.retention?.pinId===pinOwner&&record.retention?.expires===pin.expires,'conflict');
+      checkRetainedWitness(record,pinOwner,pin.expires);
       storedDeliveries(row,record.references?.deliveryTokens??[]);
       return {snapshot,record,pinId:pinOwner,expires:pin.expires};
     },

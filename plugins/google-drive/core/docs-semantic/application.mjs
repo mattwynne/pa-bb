@@ -24,8 +24,16 @@ export function createSemanticReadService({store,docs,clock=Date.now,ids=randomU
       const result={kind,metadata,capabilities,snapshotId:null,content:'codecNotImplemented',coverage:{materialized:'none',delivered:'metadata',readProof:false},thisCall:{providerMutationCount:0}};
       jsonBytes(result,pageBytes);return result;
     }
-    const view=args.view??'inline',read=await docs.read(identity.record,documentId,view,signal);
-    if(read.commentsDenied)diagnose('docs_inspect_review',semanticError('denied'));
+    const view=args.view??'inline';let read;
+    try{read=await docs.read(identity.record,documentId,view,signal,{includeReview:view==='inline'});}
+    catch(error){
+      if(view!=='inline'||error?.status!==403)throw error;
+      // A denied review-inclusive observation cannot establish coverage. Request
+      // separate complete content evidence; do not retry other errors or infer
+      // that the denial was specifically caused by comments permission.
+      read=await docs.read(identity.record,documentId,view,signal,{includeReview:false});
+      diagnose('docs_inspect_review',semanticError('denied'));
+    }
     const snapshot=materialize({document:read.document,metadata,binding:{snapshotId:ids(),subject:identity.subject,account:identity.account,threadId,documentId,view,retrievedAt:clock(),responseDigest:read.responseDigest,responseBytes:read.responseBytes},reviewIncluded:read.reviewIncluded});
     const selected=resolveScope(snapshot,args.scope,urlTab);
     if(selected.status!=='resolved')return {kind,selection:selected,snapshotId:null,thisCall:{providerMutationCount:0}};
