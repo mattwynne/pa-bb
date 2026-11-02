@@ -17,9 +17,13 @@ const oldTables=['docs_semantic_evidence','docs_semantic_snapshots','docs_semant
 const rows=db=>Object.fromEntries(oldTables.map(table=>[table,db.prepare(`SELECT * FROM ${table}`).all()]));
 function currentStore(host,db) {
   return createBbStore(db,(database,statements)=>{
-    assert.equal(statements.length,10,'one new bookkeeping migration appended at index 9');
+    assert.equal(statements.length,11,'bookkeeping index 9 retained; no-write draft journal appended at index 10');
     assert.deepEqual(statements.slice(0,9),history.statements,'recorded statements stay byte-identical');
     assert.deepEqual(statements.slice(0,9).map(sha),history.statementHashes);
+    // Independent fixed hashes: never regenerate the original nine-entry fixture
+    // or interpolate an applied migration from a future namespace registry.
+    assert.equal(sha(statements[9]),'be412ffa3ac317343d0e95f92e923046ea1c99b54e1a5473dd31af39404a62c3');
+    assert.equal(sha(statements[10]),'cd09eb0652b45d5a825331263f13b47ad13566bb95adac0789e2e17f363819cf');
     host.bb.storage.migrate(database,statements);
   });
 }

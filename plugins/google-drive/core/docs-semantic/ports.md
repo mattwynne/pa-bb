@@ -1,5 +1,8 @@
 # Semantic read ports (S02)
 
+The separate [no-write draft contract](drafts.md) describes the unregistered
+internal S03 engineering tranche; it does not change these read contracts.
+
 The application owns these synchronous/asynchronous contracts. Existing object
 shapes remain injection seams; no BB, HTTP or database type crosses inward.
 Credentials in account records are opaque provider handles, never model fields.
