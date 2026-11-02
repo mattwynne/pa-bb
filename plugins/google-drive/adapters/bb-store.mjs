@@ -115,9 +115,14 @@ export function createBbStore(db, migrate) {
       return item ? JSON.parse(item.receipt) : null;
     },
     async reserveCreation(op) {
-      if (op.kind==='copy' && !writers.compatible('docs_creations',op,'copy')) return false;
-      return db.prepare('INSERT OR IGNORE INTO docs_creations (operation_id,subject,receipt) VALUES (?,?,?)')
+      const insert=()=>db.prepare('INSERT OR IGNORE INTO docs_creations (operation_id,subject,receipt) VALUES (?,?,?)')
         .run(op.operationId, op.subject, JSON.stringify(op)).changes === 1;
+      if(op.kind==='copy'){
+        const refused=new Error('Copy reservation not acquired');
+        try{return db.transaction(()=>{if(!writers.compatible('docs_creations',op,'copy')||!insert())throw refused;return true;})();}
+        catch(error){if(error===refused)return false;throw error;}
+      }
+      return insert();
     },
     async reserveSharedCreation(op) {
       return writers.acquire('docs_creations',op,'nativeCreate',()=>claimCreationAccess(db, op, () => db.prepare('INSERT OR IGNORE INTO docs_creations (operation_id,subject,receipt) VALUES (?,?,?)')

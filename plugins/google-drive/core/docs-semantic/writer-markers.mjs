@@ -1,6 +1,7 @@
 // Fixed producer-marker interpretation. Observation is never ACK, authority or
 // full ancestry/origin closure. Unmarked files keep only their legacy contract.
 import {boundedTree,LIMITS} from './common.mjs';
+import {readCopySourceBinding} from '../copy-source-binding.mjs';
 import {writerCheck,writerDigest,WRITER_LIMITS,validateWriter} from './writer-coordination.mjs';
 const DOC='application/vnd.google-apps.document',SHEET='application/vnd.google-apps.spreadsheet',FOLDER='application/vnd.google-apps.folder';
 const definitions=Object.freeze({paDocsCreation:['docs_creations','document','documentId',DOC],paSheetsCreation:['docs_creations','spreadsheet','spreadsheetId',SHEET],paCopyCreation:['docs_creations','copy','fileId',null],paLocalUpload:['docs_creations','upload','fileId',null],paFilingCreation:['drive_filing_operations','folder','fileId',FOLDER]});
@@ -27,6 +28,7 @@ export function classifyWriterMarker(metadata,snapshot){
  let p;try{p=JSON.parse(row.receipt);}catch{writerCheck(false,'marker');}
  writerCheck(object(p)&&p.subject===row.subject&&p.operationId===marker.key&&hash(p.requestHash),'marker');
  for(const k of ['version','schemaVersion'])if(Object.hasOwn(p,k))writerCheck(p[k]===1,'marker');
+ if(Object.hasOwn(p,'copyBindingVersion')||Object.hasOwn(p,'copySource'))readCopySourceBinding(p);
  const kind=p.kind??(row.namespace==='docs_creations'?'document':null);writerCheck(kind===marker.kind,'marker');
  writerCheck(id(p.destinationId),'marker');
  if(['document','spreadsheet','copy','folder'].includes(kind))writerCheck(hash(p.titleHash),'marker');
@@ -37,7 +39,7 @@ export function classifyWriterMarker(metadata,snapshot){
  if(Object.hasOwn(p,'sharedVersion'))writerCheck(p.sharedVersion===1&&['document','spreadsheet'].includes(kind),'marker');
  const expectedMime=marker.mimeType??(kind==='copy'?p.mimeType:p.resultMime);writerCheck(expectedMime===metadata.mimeType,'marker');
  if(kind==='upload'){const results={xlsx_to_sheet:SHEET,docx_to_doc:DOC,pptx_to_slides:'application/vnd.google-apps.presentation'};writerCheck(p.mode==='binary'?typeof p.resultMime==='string'&&!p.resultMime.startsWith('application/vnd.google-apps.')&&/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(p.resultMime):Object.hasOwn(results,p.mode)&&p.resultMime===results[p.mode],'marker');}
- if(kind==='copy')writerCheck(![FOLDER,'application/vnd.google-apps.shortcut'].includes(p.mimeType),'marker');
+ if(kind==='copy'){readCopySourceBinding(p);writerCheck(![FOLDER,'application/vnd.google-apps.shortcut'].includes(p.mimeType),'marker');}
  for(const k of ['documentId','spreadsheetId','fileId'])if(Object.hasOwn(p,k))writerCheck(k===marker.idField&&id(p[k]),'marker');
  const known=p[marker.idField];writerCheck(known===undefined||known===metadata.id,'marker');
  let state=p.outcome;

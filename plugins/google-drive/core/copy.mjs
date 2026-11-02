@@ -1,4 +1,5 @@
 import { creationKey, fileId, hash } from './native-create.mjs';
+import { inspectedCopySource,readCopySourceBinding } from './copy-source-binding.mjs';
 
 const FOLDER = 'application/vnd.google-apps.folder';
 const SHORTCUT = 'application/vnd.google-apps.shortcut';
@@ -36,6 +37,7 @@ export function createCopyService({ store, drive, fileInfo, diagnose = () => {} 
     const existing = await store.getCreation(args.operationId);
     if (existing) {
       if (existing.kind !== 'copy' || existing.subject !== record.subject || existing.requestHash !== requestHash) throw fail('conflict');
+      readCopySourceBinding(existing);
       return receipt(existing, { account: record.email, receiptOnly: true });
     }
     const source = await drive.getFile(record, args.sourceId);
@@ -46,8 +48,10 @@ export function createCopyService({ store, drive, fileInfo, diagnose = () => {} 
     if (!validText(resolvedTitle)) throw fail('source');
     const writer = await drive.prepareCopy(record);
     const op = { operationId: args.operationId, kind: 'copy', subject: record.subject, requestHash,
+      copyBindingVersion:1,sourceId:source.id,copySource:inspectedCopySource(source,args.sourceId,title===undefined),
       destinationId: destination.id, driveId: fileId(destination.driveId) ? destination.driveId : null,
       titleHash: hash(resolvedTitle), mimeType: source.mimeType, outcome: 'reserved', writeAttempted: false, acknowledged: false };
+    readCopySourceBinding(op);
     if (!await store.reserveCreation(op)) {
       const current = await store.getCreation(op.operationId);
       if (!current || current.kind !== 'copy' || current.subject !== record.subject || current.requestHash !== requestHash) throw fail('conflict');
@@ -58,7 +62,7 @@ export function createCopyService({ store, drive, fileInfo, diagnose = () => {} 
       // A crash after this durable transition is always treated as uncertain.
       op.outcome = 'uncertain'; op.writeAttempted = true;
       await store.updateCreation(op);
-      const result = await writer(args.sourceId, destination.id, resolvedTitle, op.operationId);
+      const result = await writer(op.sourceId, op.destinationId, resolvedTitle, op.operationId);
       if (result.failure === 'transport') diagnose('copy_submission_transport', null);
       else if (result.failure === 'invalid_response') diagnose('copy_submission_invalid_response', null);
       else if (result.failure === 'oversized') diagnose('copy_submission_oversized', { code: 'response_too_large' });
@@ -84,6 +88,7 @@ export function createCopyService({ store, drive, fileInfo, diagnose = () => {} 
     const record = await account(args);
     const op = await store.getCreation(args.operationId);
     if (!op || op.kind !== 'copy' || op.subject !== record.subject) throw fail('unknown');
+    readCopySourceBinding(op);
     if (active.has(op.operationId)) return receipt(op, { account: record.email, inProgress: true });
     if (op.outcome === 'not_created') return receipt(op, { account: record.email, receiptOnly: true });
     try {

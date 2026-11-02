@@ -1,6 +1,7 @@
 // Purpose-specific local coordination, not a dispatcher or remote lock. Legacy
 // evidence remains versioned: only explicit newly observed events add facts.
 import {boundedTree,LIMITS,freeze,digest} from './common.mjs';
+import {readCopySourceBinding} from '../copy-source-binding.mjs';
 const immutable=value=>freeze(structuredClone(value));
 const ordered=value=>Array.isArray(value)?value.map(ordered):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,ordered(value[k])])):value;
 export const WRITER_LIMITS=Object.freeze({version:1,owners:1024,totalBytes:8*1024*1024,recordBytes:65536,eventBytes:4096,eventsPerOwner:16,resourcesPerOwner:32,reservedBytes:262144,legacyRows:1024,legacyBytes:4*1024*1024});
@@ -13,7 +14,7 @@ const token=v=>typeof v==='string'&&v.length>0&&v.length<=256&&/^[\w-]+$/.test(v
 const key=v=>typeof v==='string'&&v.length>0&&v.length<=128;
 const stableIds=(op)=>{const ids=op.contextIds??[];writerCheck(Array.isArray(ids)&&ids.length<=WRITER_LIMITS.resourcesPerOwner&&ids.every(token));return ids;};
 export function writerResources(kind,op){
- writerCheck(op&&typeof op==='object');
+ writerCheck(op&&typeof op==='object');if(kind==='copy'||Object.hasOwn(op,'copyBindingVersion')||Object.hasOwn(op,'copySource'))readCopySourceBinding(op);
  // The task parent is only an orchestration marker; each real child claims its own inspected resources.
  if(kind==='filing'&&op.kind==='task'){writerCheck(op.resource===`task:${op.operationId}`);return immutable([]);}
  // Historical identity-only copy tombstones cannot dispatch and declare no resource rights.
@@ -106,10 +107,11 @@ export function writerAdmission(usage,delta,count=0){writerCheck(usage.owners+co
 export function legacyWriterResources(row){
  let p;try{writerCheck(typeof row.receipt==='string'&&Buffer.byteLength(row.receipt)<=WRITER_LIMITS.legacyBytes,'unsupported');p=JSON.parse(row.receipt);}catch{throw writerError('unsupported');}
  writerCheck(p&&typeof p==='object'&&!Array.isArray(p)&&(!Object.hasOwn(p,'subject')||p.subject===row.subject)&&(!Object.hasOwn(p,'operationId')||p.operationId===row.key),'unsupported');
+ if(Object.hasOwn(p,'copyBindingVersion')||Object.hasOwn(p,'copySource'))readCopySourceBinding(p);
  if(Object.hasOwn(p,'version'))writerCheck(p.version===1,'unsupported');if(Object.hasOwn(p,'sharedVersion'))writerCheck(p.sharedVersion===1,'unsupported');
  const active=['reviewing','writing','uncertain','unverified'];
  if(row.namespace==='docs_creations'){
-  const kind=p.kind??'document';writerCheck(['document','spreadsheet','copy','upload'].includes(kind),'unsupported');
+  const kind=p.kind??'document';writerCheck(['document','spreadsheet','copy','upload'].includes(kind),'unsupported');if(kind==='copy')readCopySourceBinding(p);
   const id=p.documentId??p.spreadsheetId??p.fileId,held=active.includes(p.claimState)||['reserved','created','incomplete','verification_unavailable','uncertain'].includes(p.outcome)||p.claimState==='not_submitted'&&id&&p.outcome==='incomplete';
   writerCheck(p.outcome===undefined?['proposed','reviewing','writing','uncertain','verified','not_submitted','declined','cancelled'].includes(p.claimState):['reserved','created','incomplete','verification_unavailable','uncertain','verified','not_created','proposed','reviewing','writing','not_submitted','declined','cancelled','expired','mismatch'].includes(p.outcome),'unsupported');
   if(!held)return [];
