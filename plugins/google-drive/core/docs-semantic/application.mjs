@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { inspectionCapabilities,inspectionProvenance } from './inspection-facts.mjs';
 import { LIMITS, requireValue, semanticError, jsonBytes } from './common.mjs';
 import { materialize } from './model.mjs';
 import { parseDocument, resolveScope, resolveSelector, findLiteral } from './selectors.mjs';
@@ -18,8 +19,7 @@ export function createSemanticReadService({store,docs,clock=Date.now,ids=randomU
     const identity=await owner(args.account,threadId,signal),{documentId,urlTab}=parseDocument(args.document);
     const metadata=await docs.metadata(identity.record,documentId,signal);requireValue(metadata.id===documentId&&!metadata.trashed,'conflict');
     const kind=Object.hasOwn(mimeKinds,metadata.mimeType)?mimeKinds[metadata.mimeType]:'other';
-    const capabilities={read:{schema:'supported',account:'observed'},nativeSuggestions:{schema:'supported',account:'unverified'},
-      authoring:{product:'not_exposed',account:'unverified'},documentPermission:metadata.capabilities?.canEdit===true?'editorObserved':metadata.capabilities?.canEdit===false?'notEditorObserved':'unverified'};
+    const capabilities=inspectionCapabilities(metadata);
     if(kind!=='nativeDoc'){
       const result={kind,metadata,capabilities,snapshotId:null,content:'codecNotImplemented',coverage:{materialized:'none',delivered:'metadata',readProof:false},thisCall:{providerMutationCount:0}};
       jsonBytes(result,pageBytes);return result;
@@ -45,7 +45,7 @@ export function createSemanticReadService({store,docs,clock=Date.now,ids=randomU
       registries:tabs.map(t=>({tabId:t.providerId,counts:Object.fromEntries(Object.entries(t.registries).map(([key,value])=>[key,
         key==='namedStyles'?value?.styles?.length??0:key==='namedRanges'?Object.values(value??{}).reduce((sum,group)=>sum+group.namedRanges.length,0):value?Object.keys(value).length:0])),readProof:false})),
       diagnosticRead:{include:['tabs','outline','styles','lists','objects','ranges','review','diagnostics'],paged:true},
-      provenance:{provider:'googleDocs',retrievedAt:snapshot.binding.retrievedAt,responseDigest:read.responseDigest,source:'current',effectiveDefaults:'unknownWhenAbsent'},
+      provenance:inspectionProvenance(snapshot.binding),
       coverage:{materialized:'complete',delivered:'summary',readProof:false,missingReviewCoverage:snapshot.missingReviewCoverage},thisCall:{providerMutationCount:0}};
     // Preserve the small summary interface, but every growing list also has a
     // paged route. Overflow selects that route; never truncate a summary while
@@ -115,10 +115,10 @@ export function createSemanticReadService({store,docs,clock=Date.now,ids=randomU
       const {records,losses,nodes,nodeAspects,aspects,complete,nextOffset,nextLossOffset}=page;
       const delivery={snapshotId:snapshot.binding.snapshotId,evidenceDigest:snapshot.evidenceDigest,view:snapshot.binding.view,readId:state.readId,
         scope:state.request.scope,format:'diagnostic',offset:state.offset,lossOffset:state.lossOffset,nodes,nodeAspects,aspects,complete,losses};
-      const result={kind:'nativeDoc',snapshotId:snapshot.binding.snapshotId,view:snapshot.binding.view,revision:snapshot.revision,
+      const result={kind:'nativeDoc',snapshotId:snapshot.binding.snapshotId,view:snapshot.binding.view,revision:snapshot.revision,capabilities:inspectionCapabilities(snapshot.metadata),
         records,losses,complete,nextCursor:complete?null:tokens.nextCursor,
         coverage:{materialized:'complete',delivered:{nodes,aspects,nodeAspects},readProof:false,editReady:false,missingReviewCoverage:snapshot.missingReviewCoverage,deliveryToken:tokens.deliveryToken},
-        provenance:{provider:'googleDocs',source:'current',retrievedAt:snapshot.binding.retrievedAt,responseDigest:snapshot.binding.responseDigest},
+        provenance:inspectionProvenance(snapshot.binding),
         thisCall:{providerMutationCount:0}};
       return {result,delivery,nextState:complete?null:{...state,offset:nextOffset,lossOffset:nextLossOffset}};
     });

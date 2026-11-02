@@ -258,16 +258,17 @@ export function resolveSelector(snapshot,scope,selector) {
     const target=candidates[0];
     if(selector.heading)nodes=[target.node];
     else {
-      requireValue(target.extent,'extent');
-      let end=target.extent.end;
+      const headingExtent=snapshot.nodes[target.node].extent;
+      if(!headingExtent||!target.extent&&!h.before)return {status:'unresolved',reason:'sectionExtents',nodes:[],candidates:[{node:target.node}]};
+      let end=target.extent?.end;
       if(h.before){
         const boundary=resolveSelector(snapshot,scope,{heading:h.before});
         if(boundary.status!=='resolved')return {...boundary,boundary:'explicitEnd'};
         const node=snapshot.nodes[boundary.nodes[0]];
-        requireValue(node.extent&&node.tabId===target.tabId&&segmentKey(node.segment)===segmentKey(target.segment)&&node.extent.start>target.extent.start,'scope');
+        requireValue(node.extent&&node.tabId===target.tabId&&segmentKey(node.segment)===segmentKey(target.segment)&&node.extent.start>headingExtent.start,'scope');
         end=node.extent.start;
       }
-      const start=h.includeHeading?target.extent.start:snapshot.nodes[target.node].extent.end;
+      const start=h.includeHeading?headingExtent.start:headingExtent.end;
       // A next heading is an exclusive boundary. A terminal observed maximum
       // is not an end: an unmapped tail at or beyond it may still belong here.
       const terminal=!h.before&&target.sectionEnd?.kind!=='nextHeading';

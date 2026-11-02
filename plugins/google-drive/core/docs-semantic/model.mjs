@@ -319,6 +319,7 @@ export function materialize({document,metadata,binding,reviewIncluded,budgets={}
         });
         track(value,[...p,'paragraph'],['elements','paragraphStyle','bullet','positionedObjectIds','suggestedParagraphStyleChanges','suggestedBulletChanges','suggestedPositionedObjectIds']);
         if(ps.headingId&&/^HEADING_[1-6]$/.test(namedType??'')){
+          requireValue(typeof ps.headingId==='string'&&ps.headingId.length<=256,'invalid');
           reserve(1024+4*(size(binding.documentId)+size(tab.providerId)+size(ps.headingId)));
           outline.push({providerId:ps.headingId,node:n.id,tabId:tab.providerId,segment,level:Number(namedType.at(-1)),
             title:n.children.map(id=>nodes[id].text??'').join('').replace(/\n$/,''),extent:n.extent,
@@ -417,8 +418,12 @@ export function materialize({document,metadata,binding,reviewIncluded,budgets={}
     for(let i=hs.length-1;i>=0;i--){const h=hs[i];while(peers.length&&peers.at(-1).level>h.level)peers.pop();
       const next=peers.at(-1),segment=segments.get(k),last=nodes[segment.children.at(-1)];
       const segmentEnd=segment.extent?.end??last?.extent?.end;
-      h.sectionEnd=next?.extent?{kind:'nextHeading',node:next.node}:segmentEnd!==undefined?{kind:'segmentBoundary',node:segment.extent?segment.id:last.id}:{kind:'observedMaximum'};
-      h.extent=h.extent?{start:h.extent.start,end:next?.extent?.start??segmentEnd??ends.get(k)??0}:null;peers.push(h);}
+      const peerExtent=next?nodes[next.node].extent:null;
+      h.sectionEnd=next?peerExtent?{kind:'nextHeading',node:next.node}:{kind:'unresolvedHeading',node:next.node}:segmentEnd!==undefined?{kind:'segmentBoundary',node:segment.extent?segment.id:last.id}:{kind:'observedMaximum'};
+      // Peer paragraph bounds are immutable, unlike its derived section extent.
+      // A present unknown peer and an observed maximum are not exact ends.
+      const end=next?peerExtent?.start:segmentEnd;
+      h.extent=h.extent&&end!==undefined?{start:h.extent.start,end}:null;peers.push(h);}
   }
   const registries={comments:evidence.comments??null,suggestions:evidence.suggestions??null,documentStyle:evidence.documentStyle??null,suggestedNamedStylesChanges:evidence.suggestedNamedStylesChanges??null};
   requireValue(registries.comments===null||Array.isArray(registries.comments),'invalid');

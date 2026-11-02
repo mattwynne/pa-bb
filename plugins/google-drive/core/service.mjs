@@ -116,7 +116,9 @@ export function createDriveService({ store, oauth, drive, diagnose = /** @type {
   }
   async function getFile(args) {
     const record = await account(args.account);
-    return { account: record.email, file: fileInfo(await drive.getFile(record, required(args.fileId, 'fileId'))) };
+    const id=required(args.fileId,'fileId'),file=await drive.getFile(record,id);
+    if(!file||typeof file.id!=='string'||file.id!==id)throw new Error('Google Drive metadata identity does not match the requested file.');
+    return { account: record.email, file: fileInfo(file) };
   }
   async function inspectSharing(args) {
     const record = await account(args.account);
