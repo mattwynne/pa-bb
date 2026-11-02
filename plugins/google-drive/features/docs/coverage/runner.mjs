@@ -15,6 +15,7 @@ import { assertIntakeFaultControls } from './intake-controls.mjs';
 import { executeCompanions } from './companions.mjs';
 import { isApplicationOutcome } from './execution-adapters.mjs';
 import { readJournal, MESSAGE_LIMITS, childTimeout, assertCompletedChild } from './execution-journal.mjs';
+import { decodeCurrentJournal } from './inventory-envelope.mjs';
 export const packageRoot = fileURLToPath(new URL('../../..', import.meta.url));
 export function sourceDigest(root = packageRoot) {
   const files = [];
@@ -75,7 +76,7 @@ export async function run() {
   try { result = spawnSync(process.execPath, ['node_modules/@cucumber/cucumber/bin/cucumber.js','--profile','docs','--format',`message:${output}`], {
     cwd: packageRoot, timeout, killSignal:'SIGKILL', stdio: ['inherit','inherit','inherit',fd], env: { ...process.env, DOCS_ACCEPTANCE_RUN_ID: runId, DOCS_ACCEPTANCE_SOURCE_DIGEST: fingerprint, DOCS_EXECUTION_FD:'3' }
   }); } finally { closeSync(fd); }
-  writeFileSync(join(dir,'child.json'),JSON.stringify({status:result.status,signal:result.signal,error:result.error?.code??null})+'\n');
+  writeFileSync(join(dir,'child.json'),JSON.stringify({pid:result.pid,status:result.status,signal:result.signal,error:result.error?.code??null})+'\n');
   assertCompletedChild(result);
   assert.equal(sourceDigest(), fingerprint, 'source changed during run');
   const messages = readJournal(output,MESSAGE_LIMITS);
@@ -88,7 +89,9 @@ export async function run() {
   const isCandidate = r => r.pickle.tags.some(t=>t.name==='@bridgeCandidate');
   assert.deepEqual(semanticResults.filter(isCandidate).map(r=>r.caseId).sort(),Object.keys(candidates).sort(),'bridge fixture discovery/reverse orphan');
   for(const id of Object.keys(candidates))assert.ok(!fixtures[id],'candidate fixture cannot shadow delivered fixture');
-  const receipts=readJournal(journal);
+  const envelope=decodeCurrentJournal(readJournal(journal),{inventory,runId,sourceDigest:fingerprint,childPid:result.pid});
+  assert.equal(statSync(journal).size,envelope.physicalBytes,'execution journal encoded byte accounting');
+  const receipts=envelope.receipts;
   const intake={manifest,registry,results:semanticResults,fixtures:{...fixtures,...candidates},root:packageRoot,receipts,inventory,runId,fingerprint,companions};
   const bridge=assertProductIntake(intake);
   const intakeCounterexamples=assertIntakeFaultControls(intake);
@@ -124,6 +127,7 @@ export async function run() {
     s02:{required:s02Records.length,executed:s02Records.length-remaining.length,remaining:remaining.length,
       readVariants:readVariants.length,completeReadClosures:Object.values(readClosures).filter(c=>c.missing.length===0).length},
     intakeCounterexamples,
+    executionJournal:{physicalRecords:envelope.physicalRecords,semanticReceipts:receipts.length,physicalBytes:envelope.physicalBytes,maxLogicalReceiptBytes:envelope.maxLogicalReceiptBytes,logicalReceiptBytes:envelope.logicalReceiptBytes,sharedInventories:1,childPid:result.pid},
     testBoundaries:{coreOrApplicationOutcomes:semanticResults.filter(r=>isApplicationOutcome(records.get(r.caseId))&&!isCandidate(r)).length,nativeCompanionCases:companions.native.length+companions.discovery.length+companions.metadata.length+companions.selection.length+1,persistenceContractCases:companions.persistence.length,liveProvider:false},
     cucumberScenarios: messages.filter(m => m.testCaseFinished).length, externalEvidence: 'separate; no rendered/applied-code credit' };
   writeFileSync(join(dir,'summary.json'), JSON.stringify(summary,null,2)+'\n'); console.log(JSON.stringify(summary));

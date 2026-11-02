@@ -9,9 +9,10 @@ import { fixtureFile, digest } from './audit.mjs';
 import { expand } from './expand.mjs';
 import { executeAdapter, productionInventory } from './execution-adapters.mjs';
 import { publicationGuard } from './execution-journal.mjs';
+import { createInventoryContext,referenceReceipt } from './inventory-envelope.mjs';
 const checkPublication=publicationGuard();
 const completed=new Set();
-let inventory;
+let inventory,context;
 export async function executeBridgeCase(root,pickle,testCaseStartedId,caseId) {
   assert.equal(pickle.name.match(/\[(C\d{3}\.[^\]]+)\]$/)?.[1],caseId,'execution case identity');
   assert.ok(!completed.has(caseId),'execution replay');completed.add(caseId);
@@ -25,14 +26,16 @@ export async function executeBridgeCase(root,pickle,testCaseStartedId,caseId) {
   const runId=process.env.DOCS_ACCEPTANCE_RUN_ID,sourceDigest=process.env.DOCS_ACCEPTANCE_SOURCE_DIGEST;
   assert.ok(runId&&sourceDigest&&process.env.DOCS_EXECUTION_FD==='3','runner-owned execution channel required');
   inventory??=await productionInventory();
+  if(!context){context=createInventoryContext({inventory,runId,sourceDigest});checkPublication(context);writeSync(3,JSON.stringify(context)+'\n');}
   const trace=await executeAdapter({...record,bridgeCandidate:candidate},fixture,inventory);
   // Publish only after independent comparison AND actual transport/SQLite
   // teardown. Interrupted execution has no completed record and earns nothing.
   const ref=randomUUID(),receipt={ref,runId,sourceDigest,caseId,key:record.key,driver:record.driver,schema:record.schema,requestedMode:record.requestedMode,
     observedOutcome:record.outcomeVariant,fixtureId:caseId,fixtureDigest:entry.sha256,fixtureProvenance:entry.provenance,
     pickleId:pickle.id,astNodeIds:pickle.astNodeIds,uri:pickle.uri,testCaseStartedId,inventory,trace};
-  checkPublication(receipt);
-  writeSync(3,JSON.stringify(receipt)+'\n');
+  const reference=referenceReceipt(receipt,context);
+  checkPublication(reference);
+  writeSync(3,JSON.stringify(reference)+'\n');
   return {ref,runId,sourceDigest,caseId,key:record.key,driver:record.driver,schema:record.schema,requestedMode:record.requestedMode,
     kind:record.kind,observedOutcome:record.outcomeVariant,fixtureId:caseId,fixtureDigest:entry.sha256,executionDigest:digest(JSON.stringify(trace))};
 }
