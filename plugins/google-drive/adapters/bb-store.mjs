@@ -1,5 +1,6 @@
 // A plugin-owned SQLite store. BB owns its persistent data.db and backup lifecycle.
 // Only the backend opens it; neither tokens nor pending PKCE verifiers reach RPC/UI.
+import {createSealStore,SEMANTIC_SEAL_MIGRATION} from './docs-seal-store.mjs';
 import { createWriterStore, WRITER_COORDINATION_MIGRATION } from './writer-coordination-store.mjs';
 import { writerDigest, writerCheck } from '../core/docs-semantic/writer-coordination.mjs';
 import { createDraftJournal, SEMANTIC_DRAFT_MIGRATION } from './docs-draft-store.mjs';
@@ -41,13 +42,18 @@ export function createBbStore(db, migrate) {
     SEMANTIC_BOOKKEEPING_MIGRATION,
     SEMANTIC_DRAFT_MIGRATION,
     WRITER_COORDINATION_MIGRATION,
+    SEMANTIC_SEAL_MIGRATION,
   ]);
   const row = item => item && ({ subject: item.subject, email: item.email, refreshToken: item.refresh_token, accessToken: item.access_token, expiresAt: item.expires_at });
   const semanticSnapshots = createSemanticSnapshotStore(db), writers = createWriterStore(db);
+  let semanticDrafts;
+  const semanticExecutions=createSealStore(db,{snapshots:semanticSnapshots,writers,draft:()=>semanticDrafts});
+  semanticDrafts=createDraftJournal(db,{snapshots:semanticSnapshots,execution:semanticExecutions});
   return {
     writers,
     semanticSnapshots,
-    semanticDrafts: createDraftJournal(db, { snapshots: semanticSnapshots }),
+    semanticDrafts,
+    semanticExecutions,
     images: createDocsImageStore(db, writers),
     sheetsEdits: createSheetsEditStore(db, writers),
     filing: createFilingStore(db),

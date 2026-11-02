@@ -2,6 +2,8 @@
 import { randomUUID } from 'node:crypto';
 import { deflateSync, inflateSync } from 'node:zlib';
 import { LIMITS, digest, freeze, requireValue, semanticError, jsonBytes, boundedTree } from '../core/docs-semantic/common.mjs';
+import {SEAL_LIMITS,executionReference,checkExecutionReference,sealOwner,validateSeal} from '../core/docs-semantic/seal-policy.mjs';
+import {draftHash} from '../core/docs-semantic/draft-policy.mjs';
 import { checkSnapshotOwner as checkOwner, checkSnapshotTime as time, checkSnapshotLive, validateStoredModel, validateCursorState, validateDelivery, checkSnapshotAdmission, nextReadWork, checkPin, checkNewWitness, checkRetainedWitness } from '../core/docs-semantic/snapshot-policy.mjs';
 export { READ_WORK_BYTES } from '../core/docs-semantic/snapshot-policy.mjs';
 export const SEMANTIC_SNAPSHOT_MIGRATION = `
@@ -66,7 +68,13 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
       validateModel(result,row);return freeze(result);
     } catch {throw semanticError('corrupt');}
   }
+  const executionRefsPresent=()=>{
+    const present=Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='docs_semantic_execution_refs'").get());
+    if(!present&&db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='docs_semantic_execution'").get())requireValue(!db.prepare('SELECT 1 FROM docs_semantic_execution LIMIT 1').get(),'corrupt');
+    return present;
+  };
   function stats() {
+    if(executionRefsPresent())requireValue(!db.prepare('SELECT 1 FROM docs_semantic_execution_refs WHERE reserved_bytes!=? LIMIT 1').get(SEAL_LIMITS.futureCredit),'corrupt');
     const queries=[
       `SELECT coalesce(sum(bytes+length(data)+2*length(digest)+${STORE_ROW_BYTES}),0) AS n FROM docs_semantic_evidence`,
       `SELECT coalesce(sum(bytes+length(data)+length(CAST(id||subject||account||thread||evidence_digest||model_digest||id||subject||thread AS BLOB))+${STORE_ROW_BYTES}),0) AS n FROM docs_semantic_snapshots`,
@@ -76,12 +84,20 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
       `SELECT coalesce(sum(length(CAST(kind||id||snapshot||kind||id||snapshot||digest AS BLOB))+${STORE_ROW_BYTES}),0) AS n FROM docs_semantic_integrity`,
       `SELECT coalesce(sum(2*length(CAST(snapshot||id AS BLOB))+${STORE_ROW_BYTES}),0) AS n FROM docs_semantic_read_work`
     ];
+    if(executionRefsPresent())queries.push(`SELECT coalesce(sum(reserved_bytes+length(CAST(receipt||digest||operation_id||snapshot||subject AS BLOB))+${STORE_ROW_BYTES}),0) n FROM docs_semantic_execution_refs`);
     return {snapshots:db.prepare('SELECT count(*) AS n FROM docs_semantic_snapshots').get().n,bytes:queries.reduce((sum,sql)=>sum+db.prepare(sql).get().n,0)};
   }
   function capacity(extra){requireValue(Number.isSafeInteger(extra)&&extra>=0&&stats().bytes+extra<=limits.poolBytes,'budget');}
   function sweep(now) {
     time(now);
     db.transaction(()=>{
+      if(executionRefsPresent()){
+        let count=0;
+        for(const saved of db.prepare('SELECT CASE WHEN length(CAST(header AS BLOB))<=65536 THEN header ELSE NULL END header,digest,CASE WHEN length(CAST(record AS BLOB))<=4096 THEN record ELSE NULL END record,record_digest FROM docs_semantic_execution LIMIT 1025').iterate()){
+          requireValue(++count<=1024,'budget');
+          try{const seal={header:JSON.parse(saved.header),record:JSON.parse(saved.record)};validateSeal(seal);requireValue(draftHash(seal.header)===saved.digest&&draftHash(seal.record)===saved.record_digest,'corrupt');}catch{throw semanticError('corrupt');}
+        }
+      }
       // Unsealed A rows are retained verbatim, including expired pins/cursors.
       // Only known B bookkeeping participates in automatic read-data cleanup.
       db.prepare(`DELETE FROM docs_semantic_cursors WHERE expires<=? AND EXISTS
@@ -90,6 +106,8 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
         (SELECT 1 FROM docs_semantic_integrity i WHERE i.kind='pin' AND i.id=docs_semantic_pins.owner AND i.snapshot=docs_semantic_pins.snapshot)`).run(now);
       const removed=db.prepare(`DELETE FROM docs_semantic_snapshots WHERE expires<=?
         AND id NOT IN (SELECT snapshot FROM docs_semantic_pins)
+        ${executionRefsPresent()?`AND id NOT IN (SELECT snapshot FROM docs_semantic_execution_refs)
+        AND NOT EXISTS(SELECT 1 FROM docs_semantic_execution e WHERE NOT json_valid(e.header) OR CASE WHEN json_valid(e.header) THEN json_type(e.header,'$.before.snapshotId') IS NOT 'text' OR json_extract(e.header,'$.before.snapshotId')=docs_semantic_snapshots.id ELSE 1 END)`:''}
         AND EXISTS (SELECT 1 FROM docs_semantic_integrity i WHERE i.kind='snapshot' AND i.id=docs_semantic_snapshots.id AND i.snapshot=docs_semantic_snapshots.id)
         RETURNING evidence_digest`).all(now);
       for(const [table,kind,key] of [['docs_semantic_cursors','cursor','id'],['docs_semantic_delivery','delivery','id'],['docs_semantic_pins','pin','owner'],['docs_semantic_read_work','work','id']])
@@ -167,6 +185,32 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
   })();}
   const api = {
     stats,sweep,pageTokens,
+    checkExecutionAdmission(header,snapshot){
+      requireValue(executionRefsPresent(),'unsupported');
+      const row=getRow(header.before.snapshotId);requireValue(row,'snapshot');
+      checkOwner(row,{subject:header.subject,account:header.account,threadId:header.threadId});
+      const ref=executionReference(header,rowBinding(row));
+      checkExecutionReference(ref,header,snapshot,rowBinding(row));
+      requireValue(Buffer.byteLength(JSON.stringify(ref))<=65536,'budget');
+      capacity(header.futureCredit+Buffer.byteLength(JSON.stringify(ref))+Buffer.byteLength(header.operationId+row.id+header.subject)+64+STORE_ROW_BYTES);
+      return ref;
+    },
+    retainExecution(header,snapshot){
+      const ref=api.checkExecutionAdmission(header,snapshot);
+      db.prepare('INSERT INTO docs_semantic_execution_refs VALUES (?,?,?,?,?,?)').run(header.operationId,header.before.snapshotId,header.subject,JSON.stringify(ref),draftHash(ref),header.futureCredit);
+    },
+    readExecutionEvidence(header,owner){
+      sealOwner(header,owner);requireValue(executionRefsPresent(),'unsupported');
+      const saved=db.prepare('SELECT snapshot,subject,CASE WHEN length(CAST(receipt AS BLOB))<=65536 THEN receipt ELSE NULL END receipt,digest,reserved_bytes FROM docs_semantic_execution_refs WHERE operation_id=?').get(header.operationId);
+      requireValue(saved&&saved.snapshot===header.before.snapshotId&&saved.subject===header.subject&&saved.reserved_bytes===header.futureCredit,'corrupt');
+      let ref;try{ref=JSON.parse(saved.receipt);}catch{throw semanticError('corrupt');}
+      requireValue(draftHash(ref)===saved.digest,'corrupt');
+      const row=getRow(saved.snapshot);checkOwner(row,{subject:header.subject,account:header.account,threadId:header.threadId});
+      requireValue(row.bytes<=header.before.modelBytes&&row.evidence_digest===header.before.evidenceDigest&&draftHash(ref.rowBinding)===draftHash(rowBinding(row)),'corrupt');
+      const evidence=db.prepare('SELECT bytes FROM docs_semantic_evidence WHERE digest=?').get(row.evidence_digest);
+      requireValue(evidence?.bytes===header.before.rawBytes&&row.bytes+evidence.bytes<=header.before.modelBytes,'corrupt');
+      const snapshot=decode(row);checkExecutionReference(ref,header,snapshot,rowBinding(row));return snapshot;
+    },
     put(snapshot,now) {return db.transaction(()=>{
       time(now);
       boundedTree(snapshot,{...limits,providerBytes:limits.poolBytes,nodes:1000000,depth:96});

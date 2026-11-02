@@ -25,7 +25,7 @@ CREATE TRIGGER semantic_draft_revision_no_delete BEFORE DELETE ON docs_semantic_
 CREATE TRIGGER semantic_draft_no_delete BEFORE DELETE ON docs_semantic_drafts
  BEGIN SELECT RAISE(ABORT,'Retained semantic draft key'); END;
 `;
-export function createDraftJournal(db,{snapshots,limits=DRAFT_LIMITS}){
+export function createDraftJournal(db,{snapshots,limits=DRAFT_LIMITS,execution}){
  checkLimits(limits);
  const usage=()=>({records:db.prepare('SELECT count(*) AS n FROM docs_semantic_drafts').get().n,bytes:db.prepare('SELECT coalesce(sum(length(cast(receipt AS BLOB))),0) AS n FROM docs_semantic_drafts').get().n+db.prepare('SELECT coalesce(sum(length(cast(plan AS BLOB))),0) AS n FROM docs_semantic_draft_revisions').get().n});
  function decode(row){
@@ -33,7 +33,8 @@ export function createDraftJournal(db,{snapshots,limits=DRAFT_LIMITS}){
   let record;try{record=JSON.parse(row.receipt);}catch{demand(false,'corrupt');}
   validateRecord(record,limits);demand(draftHash(record)===row.digest&&record.operationId===row.operation_id&&record.subject===row.subject&&record.threadId===row.thread&&record.requestId===row.request_id,'corrupt');
   let plan=null;if(record.headHash){const rev=db.prepare('SELECT CASE WHEN length(cast(plan AS BLOB))<=? THEN plan ELSE NULL END AS plan FROM docs_semantic_draft_revisions WHERE operation_id=? AND hash=?').get(limits.planBytes,record.operationId,record.headHash);demand(rev&&typeof rev.plan==='string','corrupt');try{plan=JSON.parse(rev.plan);}catch{demand(false,'corrupt');}}
-  return immutable(validateSaved({record,plan},limits));
+  const saved=validateSaved({record,plan},limits),seal=execution?.byId({subject:record.subject},record.operationId);
+  return immutable({...saved,...(seal?{execution:seal}:{})});
  }
  // Cap values in SQL before crossing the boundary, including corrupt rows.
  const columns=`operation_id,subject,thread,request_id,digest,CASE WHEN length(cast(receipt AS BLOB))<=${limits.recordBytes} THEN receipt ELSE NULL END AS receipt`;
@@ -43,9 +44,10 @@ export function createDraftJournal(db,{snapshots,limits=DRAFT_LIMITS}){
   validateRecord(next,limits);admit(usage(),bytes(next)-bytes(previous)+extraBytes,0,limits);
   demand(db.prepare('UPDATE docs_semantic_drafts SET receipt=?,digest=? WHERE operation_id=? AND digest=?').run(JSON.stringify(next),draftHash(next),next.operationId,draftHash(previous)).changes===1,'head');
  }
+ const authorized=(saved,owner)=>{if(saved?.execution)demand(saved.execution.header.account===owner.account,'owner');return saved;};
  const api={
-  byRequest(owner,requestId){return decode(db.prepare(`SELECT ${columns} FROM docs_semantic_drafts WHERE subject=? AND thread=? AND request_id=?`).get(owner.subject,owner.threadId,requestId));},
-  byId(owner,id){const row=db.prepare(`SELECT ${columns} FROM docs_semantic_drafts WHERE operation_id=? AND subject=?`).get(id,owner.subject);return decode(row);},
+  byRequest(owner,requestId){return authorized(decode(db.prepare(`SELECT ${columns} FROM docs_semantic_drafts WHERE subject=? AND thread=? AND request_id=?`).get(owner.subject,owner.threadId,requestId)),owner);},
+  byId(owner,id){const row=db.prepare(`SELECT ${columns} FROM docs_semantic_drafts WHERE operation_id=? AND subject=?`).get(id,owner.subject);return authorized(decode(row),owner);},
   reserve(candidate){return db.transaction(()=>{
    validateReservation(candidate,limits);const row=db.prepare(`SELECT ${columns} FROM docs_semantic_drafts WHERE subject=? AND thread=? AND request_id=?`).get(candidate.subject,candidate.threadId,candidate.requestId);
    if(row){const saved=decode(row);sameRequest(saved.record,candidate);return {created:false,saved};}
@@ -61,12 +63,12 @@ export function createDraftJournal(db,{snapshots,limits=DRAFT_LIMITS}){
    save(record,next,bytes(plan));db.prepare('INSERT INTO docs_semantic_draft_revisions VALUES (?,?,?)').run(id,next.headHash,JSON.stringify(plan));return immutable({record:next,plan});
   })();},
   reject(id,owner,category){return db.transaction(()=>{const {record}=owned(id,owner),next=rejectedRecord(record,owner,category,limits);save(record,next);return immutable({record:next,plan:null});})();},
-  cancel(id,owner,expected,now){return db.transaction(()=>{const {record,plan}=owned(id,owner),next=cancelRecord(record,owner,expected,now,limits);if(next!==record)save(record,next);return immutable({record:next,plan});})();},
+  cancel(id,owner,expected,now){return db.transaction(()=>{const saved=owned(id,owner);demand(!saved.execution,'sealed');const {record,plan}=saved,next=cancelRecord(record,owner,expected,now,limits);if(next!==record)save(record,next);return immutable({record:next,plan});})();},
   catalog(owner,{operationId,namespace}){
    // Filter by SQL subject BEFORE touching private receipt JSON. A corrupt
    // other-subject record can block collision admission but is never disclosed.
    const rows=[];
-   if(!namespace||namespace==='semantic'){const row=db.prepare(`SELECT ${columns} FROM docs_semantic_drafts WHERE operation_id=? AND subject=?`).get(operationId,owner.subject);if(row){let saved;try{saved=decode(row);}catch{ /* safe unsupported catalog entry */ }rows.push({namespace:'semantic',operationId,subject:row.subject,state:null,receipt:saved?row.receipt:'!corrupt',plan:saved?.plan??null});}}
+   if(!namespace||namespace==='semantic'){const row=db.prepare(`SELECT ${columns} FROM docs_semantic_drafts WHERE operation_id=? AND subject=?`).get(operationId,owner.subject);if(row){let saved;try{saved=decode(row);}catch{ /* safe unsupported catalog entry */ }if(saved?.execution)demand(saved.execution.header.account===owner.account,'owner');rows.push({namespace:'semantic',operationId,subject:row.subject,state:null,receipt:saved?row.receipt:'!corrupt',plan:saved?.plan??null,...(saved?.execution?{execution:saved.execution}:!saved&&execution?.present(owner,operationId)?{executionUnsupported:true}:{})});}}
    for(const table of LEGACY_KEY_TABLES){if(namespace&&namespace!==table)continue;const state=table==='docs_creations'?'NULL':'state';const resource=table==='docs_creations'?'NULL':table==='drive_sheets_edits'?'spreadsheet_id':['drive_formatting_operations','docs_image_operations'].includes(table)?'document_id':table==='drive_sharing_operations'?'file_id':'resource';const row=db.prepare(`SELECT subject,${state} AS state,${resource} AS resource,CASE WHEN length(cast(receipt AS BLOB))<=? THEN receipt ELSE NULL END AS receipt FROM ${table} WHERE operation_id=? AND subject=?`).get(limits.catalogBytes,operationId,owner.subject);if(row)rows.push({namespace:table,operationId,subject:row.subject,state:row.state??null,receipt:row.receipt,...(row.resource===null?{}:{resource:row.resource})});}
    return rows;
   },

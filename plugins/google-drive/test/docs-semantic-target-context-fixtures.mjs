@@ -26,7 +26,7 @@ export async function contextWorld(){
   assert.ok(!options.method||options.method==='GET');
   w.calls.push({url:u.href,id,fields:u.searchParams.get('fields')});
   await w.hook(id,u);
-  if(u.hostname==='docs.googleapis.com')return Response.json(validDraftDocument());
+  if(u.hostname==='docs.googleapis.com')return Response.json(w.readDocument??validDraftDocument());
   const value=w.files[id];if(value instanceof Response)return value;
   if(!value)return new Response('PRIVATE_PROVIDER_ERROR',{status:404});
   return Response.json(value);

@@ -74,4 +74,13 @@ non-owned document can have supported ancestry and unresolved origin. Marker
 observations never append facts/ACKs/grants. The result is ephemeral: not a lease,
 not atomic with Google, not current Docs revision evidence, not valid after return
 and not retained execution evidence. No draft/pin/delivery/legacy/coordination row
-is modified, and no claim, seal, approval or mutation route exists here.
+is modified, and no claim, seal, approval or mutation route exists in this
+observation application.
+
+The separate private [seal kernel](seals.md) consumes that real context internally,
+performs a fresh complete initial-revision comparison, and uses one synchronous
+`semanticExecutions.seal` operation to re-read the current head/account/full model
+and raw local facts before atomic header/claims/retention publication. Its narrow
+execution-owned evidence read does not renew the ordinary snapshot/pin contracts.
+Status and conclusive not-sent cancellation are local-only; transport dispatch,
+consent decisions and semantic write tools remain absent.

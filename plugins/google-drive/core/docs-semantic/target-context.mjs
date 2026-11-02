@@ -10,7 +10,7 @@ const id=value=>typeof value==='string'&&/^[\w-]{1,256}$/.test(value)&&value!=='
 const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
 export function checkContextDraft(saved,owner,input,now){
  ownerCheck(owner);strict(input,['operationId','planHash']);timeCheck(now);
- contextCheck(saved,'unknown');validateSaved(saved);
+ contextCheck(saved,'unknown');validateSaved(saved);contextCheck(!saved.execution,'state');
  const {record:r,plan}=saved;
  contextCheck(r.subject===owner.subject&&r.account===owner.account&&r.threadId===owner.threadId,'owner');
  contextCheck(r.operationId===input.operationId&&r.headHash===input.planHash,'head');

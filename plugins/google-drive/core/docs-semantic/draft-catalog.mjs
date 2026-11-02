@@ -1,5 +1,6 @@
 // Metadata-only legacy namespace interpretation. Recognition is NOT provider
 // verification, acknowledgement, execution authority or permission to unlock.
+import {validateSeal} from './seal-policy.mjs';
 import {DRAFT_LIMITS,demand,strict,keyValid,validateSaved} from './draft-policy.mjs';
 export const LEGACY_KEY_TABLES=Object.freeze(['docs_creations','drive_sharing_operations','drive_formatting_operations','drive_sheets_edits','drive_filing_operations','docs_image_operations']);
 export const CATALOG_NAMESPACES=Object.freeze(['semantic',...LEGACY_KEY_TABLES]);
@@ -59,13 +60,13 @@ function legacyMetadata(row,p){
 export function catalogCandidates(rows,subject,limits=DRAFT_LIMITS){
  demand(Array.isArray(rows)&&rows.length<=CATALOG_NAMESPACES.length,'corrupt');const seen=new Set();
  return rows.map(row=>{
-  strict(row,['namespace','operationId','subject','state','receipt'],['resource','plan']);demand(row.subject===subject&&CATALOG_NAMESPACES.includes(row.namespace)&&historicalKeyValid(row.operationId)&&!seen.has(row.namespace),'corrupt');seen.add(row.namespace);
+  strict(row,['namespace','operationId','subject','state','receipt'],['resource','plan','execution','executionUnsupported']);demand(row.subject===subject&&CATALOG_NAMESPACES.includes(row.namespace)&&historicalKeyValid(row.operationId)&&!seen.has(row.namespace),'corrupt');seen.add(row.namespace);
   let p,metadata;
   try{demand(typeof row.receipt==='string'&&Buffer.byteLength(row.receipt)<=limits.catalogBytes,'budget');p=JSON.parse(row.receipt);
-   if(row.namespace==='semantic'){validateSaved({record:p,plan:row.plan??null},limits);if(p.operationId===row.operationId&&p.subject===subject)metadata={kind:'semantic',state:p.state};}
+   if(row.namespace==='semantic'){validateSaved({record:p,plan:row.plan??null},limits);if(p.operationId===row.operationId&&p.subject===subject)metadata={kind:'semantic',state:p.state};if(row.execution){validateSeal(row.execution);demand(row.execution.header.operationId===p.operationId&&row.execution.header.headHash===p.headHash,'corrupt');metadata={kind:'semantic',state:row.execution.record.status,execution:'sealedNoDispatcher',claim:row.execution.record.claim};}}
    else metadata=legacyMetadata(row,p);
   }catch{ /* malformed/oversized is unsupported, never repaired */ }
-  return {receiptKind:metadata?.kind??row.namespace,recoveryHandle:catalogHandle(row.namespace,row.operationId),createdAt:metadata&&Number.isSafeInteger(p.createdAt)&&p.createdAt>=0?p.createdAt:null,status:metadata?.state??'unsupported',supported:Boolean(metadata),historicalEvidenceVersion:row.namespace==='semantic'?'semantic-draft-v1':'legacy',providerVerification:'notRun'};
+  return {receiptKind:metadata?.kind??row.namespace,recoveryHandle:catalogHandle(row.namespace,row.operationId),createdAt:metadata&&Number.isSafeInteger(p.createdAt)&&p.createdAt>=0?p.createdAt:null,status:metadata?.state??'unsupported',supported:Boolean(metadata),historicalEvidenceVersion:row.namespace==='semantic'?(row.execution||row.executionUnsupported?'semantic-seal-v1':'semantic-draft-v1'):'legacy',providerVerification:'notRun',...(metadata?.execution?{execution:metadata.execution,claim:metadata.claim}:row.executionUnsupported?{execution:'retainedSealUnsupported',claim:'retainedUnknown'}:{})};
  });
 }
-export function catalogResult(candidates){return {status:candidates.length>1?'ambiguous':candidates.length===0?'unknown':candidates[0].supported?'candidate':'unsupported',candidates,thisCall:{providerMutationCount:0},execution:'notImplemented',retrySafe:false};}
+export function catalogResult(candidates){return {status:candidates.length>1?'ambiguous':candidates.length===0?'unknown':candidates[0].supported?'candidate':'unsupported',candidates,thisCall:{providerMutationCount:0},execution:candidates.some(c=>c.execution==='retainedSealUnsupported')?'retainedSealUnsupported':candidates.some(c=>c.execution==='sealedNoDispatcher')?'sealedNoDispatcher':'notImplemented',retrySafe:false};}

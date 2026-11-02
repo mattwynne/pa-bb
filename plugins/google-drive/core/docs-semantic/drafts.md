@@ -1,7 +1,9 @@
 # Internal no-write draft vertical (unscored S03 engineering)
 
 `createDraftService` is **not registered** in BB. No new tool, approval UI,
-provider call, execution claim, executor or legacy verifier is provided. No
+provider call, execution claim, executor or legacy verifier is provided by ordinary
+planning. The separate private [seal kernel](seals.md) now establishes real local
+claims and retained full evidence, but still cannot submit any edit. No
 manifest delivery/exposure status changes. The complete 268-key S03 gate remains
 open; these tests are not outcome acceptance or native invocation evidence.
 
@@ -88,8 +90,9 @@ exposed to the core. The actual SQLite adapter implements:
   reservation remains discoverable. Repeated plan/status never resumes it or
   issues a replacement key.
 - `cancel(id,owner,hash,now)`: origin-thread exact-head cancellation; idempotent,
-  retains revision and key. It cannot release a submitted operation because no
-  execution/seal path exists in this tranche.
+  retains revision and key. A linked seal refuses ordinary draft cancellation;
+  only the seal kernel's exact known-no-effect private cancellation can release
+  its own conclusively not-sent claim. Unknown/partial work cannot be released.
 - `catalog(owner,{operationId,namespace?})`: bounded same-subject technical rows.
   Core produces namespace-bound handles and metadata-only ambiguity/unsupported
   results, without invoking any provider or legacy verifier. Wrong subject is
@@ -107,7 +110,9 @@ capability/budget versions, and evidence pins through that deadline. Cursor or
 ordinary snapshot expiry does not erase a saved plan. Starting a new plan still
 requires a live S02 snapshot. After deadline status is an observation (`expired`)
 without cleanup, renewal, continuation or new authority. There is no extension,
-combine, approval, sealing or execution API yet.
+combine, approval-decision or dispatch API. Sealing is a separate private path,
+not a new planning authority: linked status/duplicate/catalog views expose the
+same single semantic operation as sealed/cancelled with its real claim state.
 
 ## Admission / persistence boundary
 

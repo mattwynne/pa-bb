@@ -1,15 +1,18 @@
 // Unregistered production use cases. owner comes from a verified account/thread
-// boundary (as in S02), not from a tool argument. No transport/approval/claims.
+// boundary (as in S02), not from a tool argument. Planning owns no claims;
+// linked seals project their actual state, without transport or consent decisions.
+import {sealResult} from './seal-policy.mjs';
 import {randomUUID} from 'node:crypto';
 import {planParagraphBold} from './planner/paragraph-bold.mjs';
 import {compileParagraphBold} from './compiler/paragraph-bold.mjs';
-import {DRAFT_LIMITS,demand,strict,ownerCheck,inputCheck,reservation,draftHash,draftResult,planningCategory,draftError,keyValid} from './draft-policy.mjs';
+import {DRAFT_LIMITS,demand,strict,ownerCheck,inputCheck,reservation,draftHash,draftResult as unsealedResult,planningCategory,draftError,keyValid} from './draft-policy.mjs';
 import {catalogCandidates,catalogResult,parseCatalogHandle,historicalKeyValid} from './draft-catalog.mjs';
 export function createDraftService({snapshots,journal,clock=Date.now,ids=randomUUID,diagnose=()=>{},limits=DRAFT_LIMITS}){
  // Diagnostics are an external port: a failed logger must never replace the
  // original safe failure or interrupt persistence of a no-write receipt.
+ function draftResult(saved,now){return saved.execution?sealResult(saved.execution):unsealedResult(saved,now);}
  function report(stage,category){try{diagnose(stage,category);}catch{ /* keep original bounded outcome */ }}
- function boundary(stage,run){try{return run();}catch(error){const code=error?.draftCode??error?.semanticCode;const category=['invalid','owner','unknown','head','request_conflict','key_conflict','capacity','budget','corrupt','unsupported','snapshot','witness','storage'].includes(code)?code:'storage';report(stage,category);throw draftError(category);}}
+ function boundary(stage,run){try{return run();}catch(error){const code=error?.draftCode??error?.semanticCode;const category=['invalid','owner','unknown','head','sealed','request_conflict','key_conflict','capacity','budget','corrupt','unsupported','snapshot','witness','storage'].includes(code)?code:'storage';report(stage,category);throw draftError(category);}}
  function plan(owner,input){return boundary('draft_plan',()=>{
   ownerCheck(owner);inputCheck(input);const now=clock();
   // A duplicate recovers even after source/draft expiry, never replans/rekeys.
