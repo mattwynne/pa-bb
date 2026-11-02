@@ -25,6 +25,13 @@ export function createSemanticDocsAdapter({verifiedAccess,fetchImpl=fetch}) {
       url.searchParams.set('fields','id,name,mimeType,modifiedTime,version,trashed,capabilities(canEdit)');url.searchParams.set('supportsAllDrives','true');
       return (await get(record,url,signal,65536)).document;
     },
+    // Separate observation-only port: do not alter S02 metadata projections or hashes.
+    async contextMetadata(record,id,signal){
+      const url=new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}`);
+      url.searchParams.set('fields','id,mimeType,trashed,parents,driveId,appProperties');
+      url.searchParams.set('supportsAllDrives','true');
+      return get(record,url,signal,65536);
+    },
     async read(record,id,view,signal,{includeReview=view==='inline'}={}){requireValue(Object.hasOwn(views,view));
       const url=new URL(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(id)}`);
       url.searchParams.set('includeTabsContent','true');url.searchParams.set('suggestionsViewMode',views[view]);

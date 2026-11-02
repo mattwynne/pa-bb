@@ -1,5 +1,6 @@
 // First internal production planner: one existing whole body paragraph, bold only.
 // Evidence is resolved from the S02 model, never supplied as a resolved plan.
+import {logicalPlanBinding} from '../logical-plan.mjs';
 import {validatedReadModel} from '../selectors.mjs';
 import {inspectEffectEvidence,compareReadEvidence} from '../read-effects.mjs';
 import {DRAFT_LIMITS,checkLimits,timeCheck,demand,strict,draftHash,immutable,boundedPlan} from '../draft-policy.mjs';
@@ -20,7 +21,7 @@ export function planParagraphBold(input,command,{createdAt=input.binding.retriev
  const witness=compareReadEvidence(snapshot,{...request,presentation});demand(witness.witnessSatisfied,'witness');
  const value={version:1,kind:'paragraphBold',mode:'direct',capabilityVersion:'paragraph-bold/1',
   lifecycle:{createdAt,expiresAt:createdAt+limits.draftMs,budgets:{version:limits.version,planBytes:limits.planBytes,recordBytes:limits.recordBytes}},
-  binding:{...snapshot.binding,revision:snapshot.revision,evidenceDigest:snapshot.evidenceDigest},
+  binding:logicalPlanBinding(snapshot),
   command:structuredClone(command),
   sourceEvidence:{node:p.id,path:[...p.evidence.path],digest:p.evidence.digest,paragraph:structuredClone(p.evidence.path.reduce((v,k)=>v[k],snapshot.evidence))},
   target:{node:p.id,path:p.evidence.path,range:{tabId:p.tabId,startIndex:p.extent.start,endIndex:p.extent.end},text:children.map(n=>n.text).join('')},

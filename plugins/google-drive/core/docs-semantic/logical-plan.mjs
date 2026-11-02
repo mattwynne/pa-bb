@@ -15,6 +15,11 @@ const id=v=>typeof v==='string'&&v.length>0&&v.length<=320;
 const integer=v=>Number.isSafeInteger(v)&&v>=0;
 const empty=v=>Array.isArray(v)&&v.length===0;
 const equal=(a,b)=>check(sameLogical(a,b));
+// Transport response accounting belongs to the retained snapshot, not draft intent.
+export function logicalPlanBinding(snapshot){
+ const b=snapshot.binding;
+ return Object.fromEntries([...['subject','account','threadId','snapshotId','documentId','view','retrievedAt'].map(k=>[k,b[k]]),...Object.hasOwn(b,'source')?[['source',b.source]]:[],['revision',snapshot.revision],['evidenceDigest',snapshot.evidenceDigest]]);
+}
 export const BOLD_VERIFICATION_LIMIT='Exact observed run topology; no rendering or submission attribution';
 export function assertLogicalPlan(p,{record,snapshot}={}){
  try{boundedTree(p,{...LIMITS,providerBytes:65536,nodes:20000,depth:64});}catch{check(false);}
@@ -93,7 +98,7 @@ export function assertLogicalPlan(p,{record,snapshot}={}){
  }
  if(snapshot){
   const s=validatedReadModel(snapshot),n=s.nodes[c.node];check(n?.kind==='paragraph'&&n.segment.kind==='body'&&s.nodes[n.parent]?.kind==='segment');
-  equal(b,{...s.binding,revision:s.revision,evidenceDigest:s.evidenceDigest});
+  equal(b,logicalPlanBinding(s));
   equal(p.sourceEvidence,{node:n.id,path:n.evidence.path,digest:n.evidence.digest,paragraph:n.evidence.path.reduce((v,k)=>v[k],s.evidence)});
   equal(t,{node:n.id,path:n.evidence.path,range:{tabId:n.tabId,startIndex:n.extent?.start,endIndex:n.extent?.end},text:n.children.map(x=>s.nodes[x].text??'').join('')});
   const request={scope:{tabs:{ids:[n.tabId]},segments:[{kind:'body'}]},selector:{node:c.node},effect:{kind:'style',family:'text',set:{bold:c.bold}}};

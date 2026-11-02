@@ -16,7 +16,12 @@ export function compareParagraphBold({plan,before,after}){
  assertLogicalPlan(plan);
  const snapshot=validatedReadModel(before),command=plan.command,p=snapshot.nodes[command.node];
  demand(p?.kind==='paragraph'&&p.segment.kind==='body'&&snapshot.nodes[p.parent]?.kind==='segment','corrupt');
- same(plan.binding,{...snapshot.binding,revision:snapshot.revision,evidenceDigest:snapshot.evidenceDigest});
+ // Independently project observed identity, not the planner's binding helper.
+ // HTTP response accounting remains on the actual before model; it is not intent.
+ const b=snapshot.binding;
+ const observedBinding={subject:b.subject,account:b.account,threadId:b.threadId,snapshotId:b.snapshotId,documentId:b.documentId,view:b.view,retrievedAt:b.retrievedAt,
+  ...(Object.hasOwn(b,'source')?{source:b.source}:{}),revision:snapshot.revision,evidenceDigest:snapshot.evidenceDigest};
+ same(plan.binding,observedBinding);
  const runs=p.children.map(id=>snapshot.nodes[id]);demand(runs.length>0&&runs.every(n=>n.kind==='text'&&n.extent),'corrupt');
  // These source paths/ranges are selected ONLY by command.node in the actual
  // before graph, never by plan.target or plan.effect.

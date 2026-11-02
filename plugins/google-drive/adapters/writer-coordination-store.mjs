@@ -87,7 +87,28 @@ export function createWriterStore(db){
   }
   return immutable({rows,owner:load('docs_creations',key)});
  }
- const api={get,resources,
+ // Purpose-specific raw read cut. No admission decision, semantic actor or write.
+ function readTargetContextFacts(input){return db.transaction(()=>{
+  writerCheck(input&&Object.keys(input).length===2&&Array.isArray(input.resourceIds)&&Array.isArray(input.markerKeys),'invalid');
+  const {resourceIds,markerKeys}=input;
+  writerCheck(resourceIds.length>0&&resourceIds.length<=WRITER_LIMITS.resourcesPerOwner&&new Set(resourceIds).size===resourceIds.length&&resourceIds.every(id=>typeof id==='string'&&/^[\w-]{1,256}$/.test(id)),'capacity');
+  writerCheck(markerKeys.length<=WRITER_LIMITS.resourcesPerOwner&&new Set(markerKeys).size===markerKeys.length&&markerKeys.every(id=>typeof id==='string'&&/^[\w-]{1,128}$/.test(id)),'capacity');
+  audit();
+  const wanted=new Set(resourceIds),owners=[],legacy=[];let capturedBytes=0;
+  const charge=value=>{capturedBytes+=length(value);writerCheck(capturedBytes<=8*1024*1024,'capacity');};
+  for(const identity of db.prepare('SELECT namespace,operation_id FROM docs_writer_owners ORDER BY namespace,operation_id').iterate()){
+   const {namespace,operation_id:id}=identity,r=load(namespace,id);
+   if(!r.grants.some(g=>wanted.has(g.id))&&!(r.disposition==='held'&&[r.createdId,...r.observedIds].some(value=>wanted.has(value))))continue;
+   const row=db.prepare('SELECT subject,initial_record,record,digest FROM docs_writer_owners WHERE namespace=? AND operation_id=?').get(namespace,id);
+   const events=db.prepare('SELECT sequence,event FROM docs_writer_events WHERE namespace=? AND operation_id=? ORDER BY sequence').all(namespace,id);
+   const facts={namespace,key:id,...row,events,resources:projection(namespace,id)};charge(facts);owners.push(facts);
+  }
+  eachLegacy(resourceIds.map(id=>({id,role:'accessStable'})),row=>{charge(row);legacy.push(row);});
+  const markers=markerKeys.map(key=>{const entry={key,...markerSnapshot(key)};charge(entry);return entry;});
+  const body={version:1,resourceIds:[...resourceIds],owners,legacy,markers};
+  return immutable({...body,capturedBytes,digest:writerDigest(body)});
+ })();}
+ const api={get,resources,readTargetContextFacts,
   markerCandidates(key){return db.transaction(()=>markerSnapshot(key))();},
   observeNativeMarker(input){return db.transaction(()=>{
    writerCheck(input&&Object.keys(input).length===5&&['observerSubject','metadata','expectedLegacyDigest','expectedOwnerDigest','expectedMetadataDigest'].every(k=>Object.hasOwn(input,k)),'marker');

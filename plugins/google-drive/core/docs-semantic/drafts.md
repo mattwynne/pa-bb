@@ -5,6 +5,25 @@ provider call, execution claim, executor or legacy verifier is provided. No
 manifest delivery/exposure status changes. The complete 268-key S03 gate remains
 open; these tests are not outcome acceptance or native invocation evidence.
 
+## Target-context observation
+
+The private `bold-target-context.mjs` application now consumes the actual saved
+`paragraphBold/1` draft, its exact live draft pin and original full model. It
+observes provider ancestry and raw local coordination facts without changing any
+local row or granting execution authority. Ordinary snapshot expiry does not
+invalidate a still-live exact draft pin. No new pin/retention authority is added.
+See [ports.md](ports.md) for budgets and explicit unresolved origin/shared-boundary
+and execution prerequisites. A complete ancestry observation is not a seal.
+
+Real S02 snapshot bindings also contain transport response digest/byte accounting.
+`logicalPlanBinding` explicitly projects semantic identity/revision/evidence into
+the closed logical plan, leaving that transport accounting on the retained model.
+Previously supported binding/hash shapes remain unchanged; actual inspect-origin
+models now reach the same planner instead of failing on extra binding fields.
+The independent paragraph-bold verifier separately projects observed semantic
+identity from the actual before model (not via the planner helper), retaining its
+independent command/target/source/dependency and unrelated-content checks.
+
 ## Production semantics
 
 The caller supplies a verified `{subject,account,threadId}` through an internal
