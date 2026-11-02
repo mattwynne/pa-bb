@@ -1,5 +1,6 @@
 // A plugin-owned SQLite store. BB owns its persistent data.db and backup lifecycle.
 // Only the backend opens it; neither tokens nor pending PKCE verifiers reach RPC/UI.
+import {SEMANTIC_STAGE_MIGRATION} from './docs-stage-schema.mjs';
 import {createSealStore,SEMANTIC_SEAL_MIGRATION} from './docs-seal-store.mjs';
 import { createWriterStore, WRITER_COORDINATION_MIGRATION } from './writer-coordination-store.mjs';
 import { writerDigest, writerCheck } from '../core/docs-semantic/writer-coordination.mjs';
@@ -43,7 +44,10 @@ export function createBbStore(db, migrate) {
     SEMANTIC_DRAFT_MIGRATION,
     WRITER_COORDINATION_MIGRATION,
     SEMANTIC_SEAL_MIGRATION,
+    SEMANTIC_STAGE_MIGRATION,
   ]);
+  const accountObservers=new Set();
+  const accountMutation=(kind,subject)=>{for(const observe of accountObservers)observe({kind,subject});};
   const row = item => item && ({ subject: item.subject, email: item.email, refreshToken: item.refresh_token, accessToken: item.access_token, expiresAt: item.expires_at });
   const semanticSnapshots = createSemanticSnapshotStore(db), writers = createWriterStore(db);
   let semanticDrafts;
@@ -51,6 +55,7 @@ export function createBbStore(db, migrate) {
   semanticDrafts=createDraftJournal(db,{snapshots:semanticSnapshots,execution:semanticExecutions});
   return {
     writers,
+    observeAccountMutations(listener){accountObservers.add(listener);return ()=>accountObservers.delete(listener);},
     semanticSnapshots,
     semanticDrafts,
     semanticExecutions,
@@ -186,15 +191,17 @@ export function createBbStore(db, migrate) {
     async bySubject(subject) { return row(db.prepare('SELECT * FROM drive_accounts WHERE subject = ?').get(subject)); },
     async addAccount(record) {
       if (db.prepare('SELECT 1 FROM drive_accounts WHERE subject = ? OR email = ? COLLATE NOCASE').get(record.subject, record.email)) throw new Error('Google account is already connected');
+      accountMutation('add',record.subject);
       db.prepare('INSERT INTO drive_accounts (subject,email,refresh_token,access_token,expires_at) VALUES (?,?,?,?,?)').run(record.subject, record.email, record.refreshToken, record.accessToken, record.expiresAt || null);
     },
     async replaceAccount(record, previousRefreshToken) {
+      accountMutation('replace',record.subject);
       return db.prepare(`UPDATE drive_accounts SET email = ?, refresh_token = ?, access_token = ?, expires_at = ?
         WHERE subject = ? AND refresh_token = ?`).run(record.email, record.refreshToken, record.accessToken,
           record.expiresAt || null, record.subject, previousRefreshToken).changes > 0;
     },
-    async removeAccount(subject) { return db.prepare('DELETE FROM drive_accounts WHERE subject = ?').run(subject).changes > 0; },
-    async updateEmail(subject, email) { return db.prepare('UPDATE drive_accounts SET email = ? WHERE subject = ?').run(email, subject).changes > 0; },
+    async removeAccount(subject) { accountMutation('remove',subject);return db.prepare('DELETE FROM drive_accounts WHERE subject = ?').run(subject).changes > 0; },
+    async updateEmail(subject, email) { accountMutation('email',subject);return db.prepare('UPDATE drive_accounts SET email = ? WHERE subject = ?').run(email, subject).changes > 0; },
     async mergeToken(subject, oldRefreshToken, update) {
       return db.prepare(`UPDATE drive_accounts SET access_token = ?, expires_at = ?, refresh_token = COALESCE(?, refresh_token)
         WHERE subject = ? AND refresh_token = ?`).run(update.accessToken, update.expiresAt || null, update.refreshToken || null, subject, oldRefreshToken).changes > 0;

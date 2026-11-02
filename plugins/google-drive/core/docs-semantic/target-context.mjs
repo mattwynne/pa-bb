@@ -44,7 +44,7 @@ export function contextObservation(raw,requested,{folder=false,driveId=null}={})
 }
 export function markerKeysFor(observations){return [...new Set(observations.map(o=>targetMarker(o.metadata)?.key).filter(Boolean))].sort();}
 function decode(value){try{return JSON.parse(value);}catch{throw contextError('corrupt');}}
-export function interpretLocalContext(raw,rights,observations){
+export function interpretLocalContext(raw,rights,observations,ownedExecution=null){
  contextCheck(raw?.version===1&&Array.isArray(raw.owners)&&Array.isArray(raw.legacy)&&Array.isArray(raw.markers),'corrupt');
  const {capturedBytes,digest,...body}=raw;
  contextCheck(digest===writerDigest(body)&&Number.isSafeInteger(capturedBytes)&&capturedBytes>=0&&capturedBytes<=CONTEXT_LIMITS.localBytes,'corrupt');
@@ -67,7 +67,9 @@ export function interpretLocalContext(raw,rights,observations){
   let replay=initial;
   row.events.forEach((e,index)=>{contextCheck(e.sequence===index+1&&Buffer.byteLength(e.event)<=WRITER_LIMITS.eventBytes,'corrupt');replay=nextWriterFact(replay,decode(e.event));});
   contextCheck(writerDigest(record)===row.digest&&writerDigest(replay)===row.digest,'corrupt');assertWriterGrants(record.grants,row.resources);
-  consider(row.namespace,row.key,row.subject,row.resources,'physicalRights');
+  const owned=ownedExecution&&row.namespace==='semantic'&&row.key===ownedExecution.operationId;
+  if(owned)contextCheck(row.subject===ownedExecution.subject&&record.semanticHeaderDigest===ownedExecution.headerDigest,'corrupt');
+  else consider(row.namespace,row.key,row.subject,row.resources,'physicalRights');
   if(record.disposition==='held')for(const known of [...new Set([record.createdId,...record.observedIds].filter(Boolean))]){
    consider(row.namespace,row.key,row.subject,[{id:known,role:'contentWrite'},{id:known,role:'accessStable'}],'heldKnownId');
   }

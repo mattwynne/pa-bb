@@ -35,7 +35,7 @@ for(const fault of ['rightRemoved','rightExtra','rightKind','header','ref','refM
   if(fault==='rightExtra')w.db.prepare('INSERT INTO docs_writer_resources VALUES (?,?,?,?,?)').run('semantic',w.input.operationId,'extra','accessStable','grant');
   if(fault==='rightKind')w.db.exec("UPDATE docs_writer_resources SET grant_kind='pending'");
   if(fault==='header'){w.db.exec('DROP TRIGGER semantic_execution_identity_no_update');w.db.exec("UPDATE docs_semantic_execution SET digest='changed'");}
-  if(fault==='ref'){w.db.exec('DROP TRIGGER semantic_execution_ref_no_update');w.db.exec("UPDATE docs_semantic_execution_refs SET digest='changed'");}
+  if(fault==='ref'){w.db.exec('DROP TRIGGER semantic_execution_ref_identity_no_update');w.db.exec("UPDATE docs_semantic_execution_refs SET digest='changed'");}
   if(fault==='refMissing'){w.db.exec('DROP TRIGGER semantic_execution_ref_no_delete; DELETE FROM docs_semantic_execution_refs');}
   if(fault==='model')w.db.exec("UPDATE docs_semantic_snapshots SET model_digest='changed'");
   const before=tableBytes(w.db);assert.throws(()=>w.seals.cancelNotSent(owner,w.input));assert.throws(()=>w.seals.status(owner,w.input));assert.deepEqual(tableBytes(w.db),before);assert.ok(w.db.prepare('SELECT count(*) n FROM docs_writer_resources').get().n>0);

@@ -1,3 +1,4 @@
+import {createSemanticBatchAdapter} from './docs-semantic-batch.mjs';
 import { createDocsAdapter } from './docs.mjs';
 import { createSemanticDocsAdapter } from './docs-semantic.mjs';
 import { createDocsCreationAdapter } from './docs-create.mjs';
@@ -49,30 +50,30 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
     if (!info.sub || info.email_verified !== true || !info.email) throw new Error('Google account identity is unverified');
     return info;
   }
-  async function access(record, force = false) {
-    const current = await store.bySubject(record.subject);
+  async function access(record, force = false, guard=()=>{}) {
+    guard();const current = await store.bySubject(record.subject);guard();
     if (!current) throw Object.assign(new Error('Google account was removed'), { code: 'reauthentication_required' });
     if (!force && current.accessToken && current.expiresAt > clock() + 60_000) return current.accessToken;
-    const { clientId, clientSecret } = await getClient();
+    const { clientId, clientSecret } = await getClient();guard();
     if (!clientId || !clientSecret) throw new Error('Configure the Google Web OAuth client first');
-    const next = await token({ grant_type: 'refresh_token', refresh_token: current.refreshToken, client_id: clientId, client_secret: clientSecret });
+    const next = await token({ grant_type: 'refresh_token', refresh_token: current.refreshToken, client_id: clientId, client_secret: clientSecret });guard();
     if (!next.access_token) throw new Error('Google returned no access token');
     const saved = await store.mergeToken(current.subject, current.refreshToken, { accessToken: next.access_token,
-      expiresAt: clock() + (Number(next.expires_in) || 3600) * 1000, refreshToken: next.refresh_token });
+      expiresAt: clock() + (Number(next.expires_in) || 3600) * 1000, refreshToken: next.refresh_token });guard();
     if (!saved) throw Object.assign(new Error('Google account changed during refresh'), { code: 'reauthentication_required' });
     return next.access_token;
   }
-  async function verifiedAccess(record, force = false) {
-    let accessToken = await access(record, force);
+  async function verifiedAccess(record, force = false, guard=()=>{}) {
+    guard();let accessToken = await access(record, force,guard);guard();
     let info;
-    try { info = await userInfo(accessToken); }
+    try { info = await userInfo(accessToken);guard(); }
     catch (error) {
       if (force || error.status !== 401) throw error;
-      accessToken = await access(record, true);
-      info = await userInfo(accessToken);
+      accessToken = await access(record, true,guard);guard();
+      info = await userInfo(accessToken);guard();
     }
     if (info.sub !== record.subject) throw Object.assign(new Error('Google account identity changed'), { code: 'reauthentication_required' });
-    if (info.email !== record.email) await store.updateEmail(record.subject, info.email);
+    if (info.email !== record.email) await store.updateEmail(record.subject, info.email);guard();
     return accessToken;
   }
   async function get(record, url, maxBytes) {
@@ -89,7 +90,8 @@ export function createGoogleAdapter({ store, getClient, fetchImpl = fetch, clock
   }
   const adapter = {
     docs: createDocsAdapter({ verifiedAccess, fetchImpl }),
-    semanticDocs: createSemanticDocsAdapter({ verifiedAccess, fetchImpl }),
+    semanticDocs: createSemanticDocsAdapter({ verifiedAccess,verifiedExecutionAccess:(record,guard)=>verifiedAccess(record,false,guard),fetchImpl }),
+    semanticBatch:createSemanticBatchAdapter({verifiedAccess:(record,guard)=>verifiedAccess(record,false,guard),fetchImpl}),
     creation: createDocsCreationAdapter({ verifiedAccess, fetchImpl }),
     sheets: createSheetsAdapter({ verifiedAccess, fetchImpl }),
     sheetsEdit: createSheetsEditAdapter({ verifiedAccess, fetchImpl }),

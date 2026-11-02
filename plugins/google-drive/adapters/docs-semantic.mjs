@@ -13,24 +13,33 @@ export async function readSemanticJson(response,maxBytes=LIMITS.providerBytes) {
     return {document,responseDigest:createHash('sha256').update(bytes).digest('hex'),responseBytes:size};
   }finally{await reader.cancel().catch(()=>{});reader.releaseLock();}
 }
-export function createSemanticDocsAdapter({verifiedAccess,fetchImpl=fetch}) {
+export function createSemanticDocsAdapter({verifiedAccess,verifiedExecutionAccess=(record,_guard)=>verifiedAccess(record),fetchImpl=fetch}) {
   async function get(record,url,signal,maxBytes) {
     const token=await verifiedAccess(record);signal?.throwIfAborted();
     const response=await fetchImpl(url,{headers:{authorization:`Bearer ${token}`},signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});
     return readSemanticJson(response,maxBytes);
   }
   return {
-    async authority(record){await verifiedAccess(record);return {subject:record.subject};},
+    async authority(record,guard=()=>{}){guard();await verifiedExecutionAccess(record,guard);guard();return {subject:record.subject};},
     async metadata(record,id,signal){const url=new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}`);
       url.searchParams.set('fields','id,name,mimeType,modifiedTime,version,trashed,capabilities(canEdit)');url.searchParams.set('supportsAllDrives','true');
       return (await get(record,url,signal,65536)).document;
     },
     // Separate observation-only port: do not alter S02 metadata projections or hashes.
-    async contextMetadata(record,id,signal){
+    async readExecution(record,id,signal,guard=()=>{}){
+      const url=new URL(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(id)}`);
+      url.searchParams.set('includeTabsContent','true');url.searchParams.set('suggestionsViewMode','SUGGESTIONS_INLINE');url.searchParams.set('commentsViewMode','COMMENTS_VIEW_MODE_INCLUDED');
+      guard();const token=await verifiedExecutionAccess(record,guard);guard();signal?.throwIfAborted();
+      const response=await fetchImpl(url,{headers:{authorization:`Bearer ${token}`},signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});guard();
+      const raw=await readSemanticJson(response,1048576);guard();return {...raw,subject:record.subject,reviewIncluded:true};
+    },
+    async contextMetadata(record,id,signal,guard=()=>{}){
       const url=new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}`);
       url.searchParams.set('fields','id,mimeType,trashed,parents,driveId,appProperties');
       url.searchParams.set('supportsAllDrives','true');
-      return get(record,url,signal,65536);
+      guard();const token=await verifiedExecutionAccess(record,guard);guard();signal?.throwIfAborted();
+      const response=await fetchImpl(url,{headers:{authorization:`Bearer ${token}`},signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});guard();
+      const raw=await readSemanticJson(response,65536);guard();return raw;
     },
     async read(record,id,view,signal,{includeReview=view==='inline'}={}){requireValue(Object.hasOwn(views,view));
       const url=new URL(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(id)}`);

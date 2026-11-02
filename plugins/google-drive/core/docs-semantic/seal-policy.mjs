@@ -1,4 +1,5 @@
 // First bold seal only: no dispatch, consent decision, ACK or verification.
+import {validateRuntimeRecord,runtimeWriterMatches,runtimeResult,nextExecutionFact} from './execution-policy.mjs';
 import {bytes,draftHash,immutable,strict,demand,hashValid,keyValid,ownerCheck,timeCheck,validateSaved,requireDraftEvidence} from './draft-policy.mjs';
 import {checkContextDraft,checkInitialEvidence,contextObservation,contextRights,interpretLocalContext} from './target-context.mjs';
 import {legacyWriterResources,writerDigest,assertWriterGrants} from './writer-coordination.mjs';
@@ -77,6 +78,7 @@ export function validateSealHeader(h){
 }
 export function validateSeal(saved){
  const {header:h,record:r}=saved;validateSealHeader(h);
+ if(r.version===2){validateRuntimeRecord(h,r);return saved;}
  strict(r,['version','operationId','headHash','headerDigest','status','claim','approvalIntent','stage']);
  demand(r.version===1&&r.operationId===h.operationId&&r.headHash===h.headHash&&r.headerDigest===draftHash(h),'corrupt');
  demand(['sealed','cancelled'].includes(r.status)&&r.claim===(r.status==='sealed'?'held':'released')&&r.approvalIntent==='pending','corrupt');
@@ -97,7 +99,7 @@ export function semanticClaimOperation(header,op,resources){
 export function checkSealCoordinator(saved,writer){
  validateSeal(saved);const {header:h,record:r}=saved;
  demand(writer&&writer.namespace==='semantic'&&writer.operationId===h.operationId&&writer.subject===h.subject&&writer.semanticHeaderDigest===draftHash(h)&&writer.disposition===(r.claim==='held'?'held':'released'),'corrupt');
- demand(writer.submission==='not_sent'&&writer.phase===(r.claim==='held'?'claimed':'not_sent'),'corrupt');
+ if(r.version===2)runtimeWriterMatches(h,r,writer);else demand(writer.submission==='not_sent'&&writer.phase===(r.claim==='held'?'claimed':'not_sent'),'corrupt');
  assertWriterGrants(r.claim==='held'?h.resources.map(g=>({...g,grantKind:'grant'})):[],writer.grants);
 }
 export function checkSealAccount(saved,owner,account){
@@ -107,14 +109,15 @@ export function cancelNotSent(saved,owner,writer){
  validateSeal(saved);sealOwner(saved.header,owner,{origin:true});checkSealCoordinator(saved,writer);
  demand(writer.intentStage===null&&writer.acknowledgement===null&&writer.createdId===null&&writer.observedIds.length===0,'conflict');
  demand(saved.record.stage.submission==='not_sent'&&!saved.record.stage.intentPersisted&&saved.record.stage.verification==='not_run','conflict');
- return immutable({...saved,record:{...saved.record,status:'cancelled',claim:'released'}});
+ return immutable({...saved,record:saved.record.version===2?nextExecutionFact(saved.header,saved.record,{kind:'notSent',reason:'cancelled'}):{...saved.record,status:'cancelled',claim:'released'}});
 }
 export function preparedSemanticCancellation(saved,owner,writer){
  validateSeal(saved);sealOwner(saved.header,owner,{origin:true});
- demand(saved.record.status==='cancelled'&&saved.record.claim==='released'&&writer.phase==='claimed'&&writer.submission==='not_sent'&&writer.intentStage===null&&writer.acknowledgement===null&&writer.createdId===null&&writer.observedIds.length===0,'conflict');
+ demand((saved.record.version===2?saved.record.status==='not_submitted'&&!saved.record.stage.intentPersisted:saved.record.status==='cancelled')&&saved.record.claim==='released'&&writer.phase==='claimed'&&writer.submission==='not_sent'&&writer.intentStage===null&&writer.acknowledgement===null&&writer.createdId===null&&writer.observedIds.length===0,'conflict');
 }
 export function sealResult(saved){
  validateSeal(saved);const {header:h,record:r}=saved;
+ if(r.version===2)return runtimeResult(saved);
  return immutable({operationId:h.operationId,draftId:h.operationId,draftHash:h.headHash,state:r.status,submission:r.stage.submission,claim:r.claim,stage:r.stage,approval:'intent_pending',approvalIntent:r.approvalIntent,execution:'sealedNoDispatcher',origin:'unresolved',beforeEvidence:{snapshotId:h.before.snapshotId,modelDigest:h.before.modelDigest,evidenceDigest:h.before.evidenceDigest,retained:true},thisCall:{providerMutationCount:0},retrySafe:false});
 }
 export function executionReference(header,rowBinding){

@@ -1,6 +1,7 @@
 // Synchronous technical transactions only. Core defines roles, legacy evidence
 // interpretation and transition/release policy. No provider I/O or async closure.
 import {WRITER_LIMITS,writerCheck,writerError,writerOwner,validateWriter,nextWriterFact,writerResources,resourcesConflict,legacyWriterResources,ownerRef,writerDigest,writerAdmission,attachmentReason,extendWriterGrants,assertWriterGrants} from '../core/docs-semantic/writer-coordination.mjs';
+import {replayExecutionFacts,authorizeSemanticWriterEvent} from '../core/docs-semantic/execution-policy.mjs';
 import {validateSeal,SEAL_LIMITS,executionReference,preparedSemanticCancellation,semanticClaimOperation} from '../core/docs-semantic/seal-policy.mjs';
 import {freeze} from '../core/docs-semantic/common.mjs';
 import {targetMarker,classifyWriterMarker,nativeMarkerFact} from '../core/docs-semantic/writer-markers.mjs';
@@ -25,7 +26,7 @@ CREATE TRIGGER replacement_key_guard_draft BEFORE INSERT ON docs_semantic_drafts
 `;
 const length=x=>Buffer.byteLength(JSON.stringify(x));
 export function createWriterStore(db){
- const semanticBytes=(ns,id)=>ns==='semantic'?db.prepare('SELECT length(CAST(header AS BLOB))+length(CAST(record AS BLOB))+512 n FROM docs_semantic_execution WHERE operation_id=?').get(id)?.n??0:0;
+ const semanticBytes=(ns,id)=>ns==='semantic'?(db.prepare('SELECT length(CAST(header AS BLOB))+length(CAST(record AS BLOB))+512 n FROM docs_semantic_execution WHERE operation_id=?').get(id)?.n??0)+(db.prepare("SELECT 1 FROM sqlite_master WHERE name='docs_semantic_stage_events'").get()?db.prepare('SELECT coalesce(sum(length(CAST(event AS BLOB))+128),0) n FROM docs_semantic_stage_events WHERE operation_id=?').get(id).n:0):0;
  const ownerBytes=(ns,id)=>semanticBytes(ns,id)+(db.prepare('SELECT length(cast(initial_record AS BLOB))+length(cast(record AS BLOB))+(SELECT coalesce(sum(length(cast(event AS BLOB))),0) FROM docs_writer_events WHERE namespace=? AND operation_id=?)+(SELECT count(*)*512 FROM docs_writer_resources WHERE namespace=? AND operation_id=?) n FROM docs_writer_owners WHERE namespace=? AND operation_id=?').get(ns,id,ns,id,ns,id)?.n??0);
  const usage=()=>{let bytes=0,owners=0;for(const r of db.prepare('SELECT namespace,operation_id,reserved_bytes FROM docs_writer_owners').iterate()){owners++;bytes+=Math.max(r.reserved_bytes,ownerBytes(r.namespace,r.operation_id));}return {owners,bytes};};
  const withinCredit=(ns,id,delta)=>{const row=db.prepare('SELECT reserved_bytes FROM docs_writer_owners WHERE namespace=? AND operation_id=?').get(ns,id);writerCheck(row&&ownerBytes(ns,id)+delta<=row.reserved_bytes,'capacity');};
@@ -33,11 +34,14 @@ export function createWriterStore(db){
  if(namespace==='semantic'){
   const h=db.prepare('SELECT subject,head_hash,CASE WHEN length(CAST(header AS BLOB))<=? THEN header ELSE NULL END header,digest,CASE WHEN length(CAST(record AS BLOB))<=? THEN record ELSE NULL END record,record_digest FROM docs_semantic_execution WHERE operation_id=?').get(SEAL_LIMITS.headerBytes,SEAL_LIMITS.recordBytes,id);writerCheck(h,'corrupt');
   let seal;try{seal={header:JSON.parse(h.header),record:JSON.parse(h.record)};}catch{throw writerError('corrupt');}validateSeal(seal);
+  if(seal.record.version===2){const events=db.prepare('SELECT sequence,CASE WHEN length(CAST(event AS BLOB))<=4096 THEN event ELSE NULL END event,digest FROM docs_semantic_stage_events WHERE operation_id=? ORDER BY sequence LIMIT 17').all(id);writerCheck(writerDigest(replayExecutionFacts(seal.header,events))===h.record_digest,'corrupt');}
   assertWriterGrants(seal.header.resources.map(g=>({...g,grantKind:'grant'})),initial.grants);
   assertWriterGrants(r.disposition==='held'?seal.header.resources.map(g=>({...g,grantKind:'grant'})):[],r.grants);
   writerCheck(initial.semanticHeaderDigest===h.digest,'corrupt');
   writerCheck(seal.header.operationId===id&&seal.header.subject===r.subject&&h.subject===r.subject&&seal.header.headHash===h.head_hash&&writerDigest(seal.header)===h.digest&&writerDigest(seal.record)===h.record_digest&&r.semanticHeaderDigest===h.digest,'corrupt');
-  const evidence=db.prepare('SELECT CASE WHEN length(CAST(receipt AS BLOB))<=65536 THEN receipt ELSE NULL END receipt,digest FROM docs_semantic_execution_refs WHERE operation_id=? AND snapshot=? AND subject=? AND reserved_bytes=?').get(id,seal.header.before.snapshotId,r.subject,seal.header.futureCredit);writerCheck(evidence,'corrupt');
+  const evidence=db.prepare('SELECT CASE WHEN length(CAST(receipt AS BLOB))<=65536 THEN receipt ELSE NULL END receipt,digest FROM docs_semantic_execution_refs WHERE operation_id=? AND snapshot=? AND subject=?').get(id,seal.header.before.snapshotId,r.subject);writerCheck(evidence,'corrupt');
+  const credit=db.prepare('SELECT reserved_bytes n FROM docs_semantic_execution_refs WHERE operation_id=?').get(id).n;
+  const used=db.prepare("SELECT 1 FROM sqlite_master WHERE name='docs_semantic_stage_evidence'").get()?db.prepare('SELECT coalesce(sum(2*bytes+512),0) n FROM docs_semantic_stage_evidence WHERE operation_id=?').get(id).n:0;writerCheck(credit>=0&&credit+used===seal.header.futureCredit,'corrupt');
   let ref;try{ref=JSON.parse(evidence.receipt);}catch{throw writerError('corrupt');}
   writerCheck(writerDigest(ref)===evidence.digest&&writerDigest(ref)===writerDigest(executionReference(seal.header,ref.rowBinding)),'corrupt');
  }
@@ -146,6 +150,7 @@ export function createWriterStore(db){
   })();},
   acquire,
   compatible(namespace,op,kind){return db.transaction(()=>allowed(namespace,op.operationId,writerResources(kind,op)))();},
+  semanticStageFact(id,owner,fact){return db.transaction(()=>{const row=db.prepare('SELECT record FROM docs_semantic_execution WHERE operation_id=?').get(id);writerCheck(row,'unknown');authorizeSemanticWriterEvent(JSON.parse(row.record),owner,fact);return event('semantic',id,fact);})();},
   cancelSemantic(id,owner,headerDigest){return db.transaction(()=>{const r=get('semantic',id);writerCheck(r,'unknown');const row=db.prepare('SELECT header,record FROM docs_semantic_execution WHERE operation_id=?').get(id);preparedSemanticCancellation({header:JSON.parse(row.header),record:JSON.parse(row.record)},owner,r);writerCheck(r?.subject===owner.subject&&r.semanticHeaderDigest===headerDigest&&r.phase==='claimed'&&r.submission==='not_sent'&&r.intentStage===null,'owner');return event('semantic',id,{kind:'knownNotSent'});})();},
   start(namespace,op,stage,commit=()=>true){writerCheck(namespace!=='semantic','unsupported');return db.transaction(()=>{const r=get(namespace,op.operationId);writerCheck(r?.subject===op.subject&&r.disposition==='held','owner');const requested=projection(namespace,op.operationId).map(({id,role})=>({id,role}));if(!allowed(namespace,op.operationId,requested)||!commit())return false;event(namespace,op.operationId,{kind:'intent',stage});return true;})();},
   fact(namespace,id,e){writerCheck(namespace!=='semantic'&&!['grants','markerObservedId'].includes(e?.kind),'unsupported');return db.transaction(()=>event(namespace,id,e))();},

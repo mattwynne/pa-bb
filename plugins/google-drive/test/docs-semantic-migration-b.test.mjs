@@ -17,7 +17,7 @@ const oldTables=['docs_semantic_evidence','docs_semantic_snapshots','docs_semant
 const rows=db=>Object.fromEntries(oldTables.map(table=>[table,db.prepare(`SELECT * FROM ${table}`).all()]));
 function currentStore(host,db) {
   return createBbStore(db,(database,statements)=>{
-    assert.equal(statements.length,13,'all existing prefixes retained; semantic seal appended at index 12');
+    assert.equal(statements.length,14,'all frozen prefixes retained; native execution stage appended at index 13');
     assert.deepEqual(statements.slice(0,9),history.statements,'recorded statements stay byte-identical');
     assert.deepEqual(statements.slice(0,9).map(sha),history.statementHashes);
     // Independent fixed hashes: never regenerate the original nine-entry fixture
@@ -26,6 +26,7 @@ function currentStore(host,db) {
     assert.equal(sha(statements[10]),'cd09eb0652b45d5a825331263f13b47ad13566bb95adac0789e2e17f363819cf');
     assert.equal(sha(statements[11]),'7130876d34f251b24e1ab2b14b8148845fcfe2828b6a12f57980f023b5bd76e3');
     assert.equal(sha(statements[12]),'9003efaab0e214aadcfe8f4f0dc31cb074d12d6156d29b2070ea315608c4554a');
+    assert.equal(sha(statements[13]),'e2bf4ee94bcf3e00d80aba87bcd768ceb07b376497beb7739393b76f42e0fed6');
     host.bb.storage.migrate(database,statements);
   });
 }

@@ -58,7 +58,7 @@ test('private known-not-sent cancellation releases only exact semantic rights; h
  }finally{await w.close();}
 });
 test('two real connections observe one same-head seal; seal/cancel/head races have one winner',async()=>{
- const w=await world();let other;try{other=new (w.db.constructor)(w.db.name);const second=createBbStore(other,(_db,migrations)=>{assert.equal(migrations.length,13);});await w.seal();assert.equal(second.semanticExecutions.byId(owner,w.input.operationId).record.status,'sealed');assert.throws(()=>second.semanticDrafts.cancel(w.input.operationId,owner,w.input.planHash,w.now),/sealed/);assert.throws(()=>other.prepare('UPDATE docs_semantic_drafts SET digest=? WHERE operation_id=?').run('changed',w.input.operationId),/Sealed/);assert.equal(w.db.prepare('SELECT count(*) n FROM docs_semantic_execution').get().n,1);
+ const w=await world();let other;try{other=new (w.db.constructor)(w.db.name);const second=createBbStore(other,(_db,migrations)=>{assert.equal(migrations.length,14);});await w.seal();assert.equal(second.semanticExecutions.byId(owner,w.input.operationId).record.status,'sealed');assert.throws(()=>second.semanticDrafts.cancel(w.input.operationId,owner,w.input.planHash,w.now),/sealed/);assert.throws(()=>other.prepare('UPDATE docs_semantic_drafts SET digest=? WHERE operation_id=?').run('changed',w.input.operationId),/Sealed/);assert.equal(w.db.prepare('SELECT count(*) n FROM docs_semantic_execution').get().n,1);
  }finally{other?.close();await w.close();}
 });
 test('two connections race DIFFERENT real draft heads for one actual provider resource; exactly one seal/rights/ref winner',async()=>{

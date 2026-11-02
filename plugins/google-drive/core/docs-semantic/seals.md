@@ -3,7 +3,9 @@
 `createBoldSealService({store,docs,clock,diagnose})` exposes private `sealBold`,
 read-only `status` and `cancelNotSent`, all keyed by the SAME already reserved
 `{operationId,planHash}`. No new tool, approval decision, transport POST, dispatcher
-or exposure/delivery credit is provided.
+or exposure/delivery credit is provided by this seal-only API. The separate
+unregistered [first native execution candidate](executions.md) uses fresh atomic
+`sealForApply` ownership; it never resumes a seal-only record.
 
 ## Production path and ordinary-existing-Doc policy
 
@@ -41,7 +43,7 @@ facts fail closed. Historical completion retains only its original legacy scope.
 
 Real old claim/start/returned-ID gates consult the semantic coordinator through
 the existing reciprocal resource policy. Late native Docs IDs save ACK before
-failed attachment and stop population. A future intent protocol MUST re-capture
+failed attachment and stop population. The separate native intent protocol re-captures
 late known-ID/result/marker obligations; a seal alone never permits submission.
 
 ## Retained full evidence and finite accounting
@@ -85,8 +87,8 @@ immutable key/head/evidence and atomically releases only its own grants. Unknown
 partial or corrupt evidence never becomes a release. Generic writer start/fact
 and legacy completion APIs cannot advance or release the semantic owner.
 
-Native consent, K5's prepared once-only immediate fetch/epoch veto, durable intent,
-ACK-before-GET/save states, own-ACK-revision independent full verification,
-process-death and no-replay proofs remain mandatory before any actual edit.
-Rendered/runtime/provider/activation evidence is unverified. Composition, codecs
-and larger quotas are not part of this unit.
+The separate native candidate implements consent, K5's prepared once-only fetch,
+durable intent/ACK-before-GET, own-ACK-revision verification and closed process-death
+proofs; see [its boundaries](executions.md). That does not enable this seal-only API
+to dispatch or establish rendered/runtime/provider/activation acceptance. No
+larger quota or implicit migration/backfill is introduced.

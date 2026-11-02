@@ -29,6 +29,11 @@ test('E1-E8 durable fresh argument, lineage, closed-plan, verifier and SQL count
  for(const table of ['docs_semantic_draft_revisions','docs_semantic_pins'])rejects(sql,f,actual,t=>{const row=structuredClone(t.storage.after[table][0]);if(table==='docs_semantic_pins')row.owner='orphan';else row.operation_id='orphan';t.storage.after[table].push(row);},true);
  const selected=[sql],load=e=>fixtureFile(root,e),proof={sourceDigest:'regression-source',runId:'regression-run',producerPid:process.pid,cases:await executeDraftCompanions(selected,fixtures,load)};proof.cases[0].trace.storage.after.docs_semantic_draft_revisions.push(structuredClone(proof.cases[0].trace.storage.after.docs_semantic_draft_revisions[0]));assert.throws(()=>compareDraftCompanions(proof,selected,fixtures,load,'regression-source','regression-run'));
 });
+test('UNSEALED actual SQL evidence explicitly rejects either native stage table, not an unknown schema',async()=>{
+ const record=records.find(r=>r.caseId==='C191.draftNoClaim__local.success'),f=fixtureFile(root,fixtures[record.caseId]),trace=await executeDraftSqlite(record,f);assert.ok(compareDraftSqlite(record,f,trace));
+ for(const table of ['docs_semantic_stage_events','docs_semantic_stage_evidence']){assert.deepEqual(trace.storage.before[table],[]);assert.deepEqual(trace.storage.after[table],[]);const fake=structuredClone(trace);fake.storage.after[table].push(table==='docs_semantic_stage_events'?{operation_id:draftKeyForStage(),sequence:1,event:'{}',digest:'0'.repeat(64)}:{operation_id:draftKeyForStage(),kind:'reply',bytes:2,data:{codec:'sqlite-blob-hex/1',bytes:2,hex:'7b7d'},digest:'0'.repeat(64)});assert.throws(()=>compareDraftSqlite(record,f,fake),/UNSEALED draft controls never persist/);}
+ function draftKeyForStage(){return trace.storage.after.docs_semantic_drafts[0].operation_id;}
+});
 test('E9-E10 fixed-program chronology and distinct SQL observations reject replay',async()=>{
  const app=records.find(r=>r.caseId==='C027.sameRequestRecovery__local.success'),af=fixtureFile(root,fixtures[app.caseId]),trace=await executeDraftApplication(app,af);assert.ok(compareDraftExecution(app,af,trace));
  const swapped=structuredClone(trace),first=swapped.events[0],second=swapped.events[1],a=first.completedSequence,b=second.completedSequence-a,map=n=>n<=a?n+b:n<=a+b?n-a:n;

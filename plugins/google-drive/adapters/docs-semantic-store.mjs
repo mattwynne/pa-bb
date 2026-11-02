@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { deflateSync, inflateSync } from 'node:zlib';
 import { LIMITS, digest, freeze, requireValue, semanticError, jsonBytes, boundedTree } from '../core/docs-semantic/common.mjs';
 import {SEAL_LIMITS,executionReference,checkExecutionReference,sealOwner,validateSeal} from '../core/docs-semantic/seal-policy.mjs';
+import {STAGE_LIMITS} from '../core/docs-semantic/execution-policy.mjs';
 import {draftHash} from '../core/docs-semantic/draft-policy.mjs';
 import { checkSnapshotOwner as checkOwner, checkSnapshotTime as time, checkSnapshotLive, validateStoredModel, validateCursorState, validateDelivery, checkSnapshotAdmission, nextReadWork, checkPin, checkNewWitness, checkRetainedWitness } from '../core/docs-semantic/snapshot-policy.mjs';
 export { READ_WORK_BYTES } from '../core/docs-semantic/snapshot-policy.mjs';
@@ -73,8 +74,11 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
     if(!present&&db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='docs_semantic_execution'").get())requireValue(!db.prepare('SELECT 1 FROM docs_semantic_execution LIMIT 1').get(),'corrupt');
     return present;
   };
+  const stageEvidencePresent=()=>Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='docs_semantic_stage_evidence'").get());
+  function executionCharge(id){return stageEvidencePresent()?db.prepare('SELECT coalesce(sum(2*bytes+512),0) n FROM docs_semantic_stage_evidence WHERE operation_id=?').get(id).n:0;}
   function stats() {
-    if(executionRefsPresent())requireValue(!db.prepare('SELECT 1 FROM docs_semantic_execution_refs WHERE reserved_bytes!=? LIMIT 1').get(SEAL_LIMITS.futureCredit),'corrupt');
+    if(executionRefsPresent())for(const r of db.prepare('SELECT operation_id,reserved_bytes FROM docs_semantic_execution_refs').iterate())requireValue(r.reserved_bytes>=0&&r.reserved_bytes+executionCharge(r.operation_id)===SEAL_LIMITS.futureCredit,'corrupt');
+    if(stageEvidencePresent())requireValue(!db.prepare("SELECT 1 FROM docs_semantic_stage_evidence e LEFT JOIN docs_semantic_execution_refs r ON r.operation_id=e.operation_id WHERE r.operation_id IS NULL OR e.kind NOT IN ('reply','after') OR e.bytes<1 OR e.bytes>CASE WHEN e.kind='reply' THEN 16640 ELSE 1048576 END OR length(e.data)!=e.bytes LIMIT 1").get(),'corrupt');
     const queries=[
       `SELECT coalesce(sum(bytes+length(data)+2*length(digest)+${STORE_ROW_BYTES}),0) AS n FROM docs_semantic_evidence`,
       `SELECT coalesce(sum(bytes+length(data)+length(CAST(id||subject||account||thread||evidence_digest||model_digest||id||subject||thread AS BLOB))+${STORE_ROW_BYTES}),0) AS n FROM docs_semantic_snapshots`,
@@ -85,6 +89,7 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
       `SELECT coalesce(sum(2*length(CAST(snapshot||id AS BLOB))+${STORE_ROW_BYTES}),0) AS n FROM docs_semantic_read_work`
     ];
     if(executionRefsPresent())queries.push(`SELECT coalesce(sum(reserved_bytes+length(CAST(receipt||digest||operation_id||snapshot||subject AS BLOB))+${STORE_ROW_BYTES}),0) n FROM docs_semantic_execution_refs`);
+    if(stageEvidencePresent())queries.push('SELECT coalesce(sum(2*bytes+512),0) n FROM docs_semantic_stage_evidence');
     return {snapshots:db.prepare('SELECT count(*) AS n FROM docs_semantic_snapshots').get().n,bytes:queries.reduce((sum,sql)=>sum+db.prepare(sql).get().n,0)};
   }
   function capacity(extra){requireValue(Number.isSafeInteger(extra)&&extra>=0&&stats().bytes+extra<=limits.poolBytes,'budget');}
@@ -185,6 +190,22 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
   })();}
   const api = {
     stats,sweep,pageTokens,
+    retainStageEvidence(header,kind,value){
+      requireValue(stageEvidencePresent()&&['reply','after'].includes(kind),'unsupported');
+      const data=JSON.stringify(value),n=Buffer.byteLength(data),max=kind==='reply'?STAGE_LIMITS.replyBytes+256:STAGE_LIMITS.afterBytes;
+      requireValue(n>0&&n<=max,'budget');stats();
+      const ref=db.prepare('SELECT reserved_bytes FROM docs_semantic_execution_refs WHERE operation_id=?').get(header.operationId),charge=2*n+512;
+      requireValue(ref&&ref.reserved_bytes>=charge,'budget');
+      db.prepare('INSERT INTO docs_semantic_stage_evidence VALUES (?,?,?,?,?)').run(header.operationId,kind,n,Buffer.from(data),draftHash(value));
+      requireValue(db.prepare('UPDATE docs_semantic_execution_refs SET reserved_bytes=? WHERE operation_id=? AND reserved_bytes=?').run(ref.reserved_bytes-charge,header.operationId,ref.reserved_bytes).changes===1,'conflict');
+      return {digest:draftHash(value),bytes:n};
+    },
+    readStageEvidence(header,kind){
+      if(!stageEvidencePresent())return null;
+      const max=kind==='reply'?STAGE_LIMITS.replyBytes+256:STAGE_LIMITS.afterBytes;
+      const row=db.prepare('SELECT bytes,CASE WHEN bytes<=? AND length(data)=bytes THEN data ELSE NULL END data,digest FROM docs_semantic_stage_evidence WHERE operation_id=? AND kind=?').get(max,header.operationId,kind);
+      if(!row)return null;requireValue(row.data&&row.bytes>0&&row.bytes<=max,'corrupt');let value;try{value=JSON.parse(row.data.toString());}catch{throw semanticError('corrupt');}requireValue(draftHash(value)===row.digest,'corrupt');return freeze(value);
+    },
     checkExecutionAdmission(header,snapshot){
       requireValue(executionRefsPresent(),'unsupported');
       const row=getRow(header.before.snapshotId);requireValue(row,'snapshot');
@@ -202,7 +223,7 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
     readExecutionEvidence(header,owner){
       sealOwner(header,owner);requireValue(executionRefsPresent(),'unsupported');
       const saved=db.prepare('SELECT snapshot,subject,CASE WHEN length(CAST(receipt AS BLOB))<=65536 THEN receipt ELSE NULL END receipt,digest,reserved_bytes FROM docs_semantic_execution_refs WHERE operation_id=?').get(header.operationId);
-      requireValue(saved&&saved.snapshot===header.before.snapshotId&&saved.subject===header.subject&&saved.reserved_bytes===header.futureCredit,'corrupt');
+      requireValue(saved&&saved.snapshot===header.before.snapshotId&&saved.subject===header.subject&&saved.reserved_bytes>=0&&saved.reserved_bytes+executionCharge(header.operationId)===header.futureCredit,'corrupt');
       let ref;try{ref=JSON.parse(saved.receipt);}catch{throw semanticError('corrupt');}
       requireValue(draftHash(ref)===saved.digest,'corrupt');
       const row=getRow(saved.snapshot);checkOwner(row,{subject:header.subject,account:header.account,threadId:header.threadId});

@@ -1,6 +1,7 @@
 // Private saved-draft observation application. No registration, seal or mutation.
 import {checkContextDraft,checkInitialEvidence,contextCheck,contextError,CONTEXT_LIMITS,contextObservation,contextRights,markerKeysFor,interpretLocalContext,contextResult} from './target-context.mjs';
-import {bytes,hashValid,keyValid,ownerCheck} from './draft-policy.mjs';
+import {sealOwner,checkSealLineage} from './seal-policy.mjs';
+import {bytes,hashValid,keyValid,ownerCheck,draftHash,immutable} from './draft-policy.mjs';
 const categories=new Set(['invalid','unknown','owner','head','state','expired','unsupported','snapshot','corrupt','budget','capacity','metadata','parents','cycle','unavailable','denied','cancelled']);
 function category(error){
  if(error?.name==='AbortError')return 'cancelled';
@@ -9,16 +10,21 @@ function category(error){
  const value=error?.contextCode??error?.draftCode??error?.semanticCode??error?.writerCode;
  return categories.has(value)?value:'unavailable';
 }
-export function createBoldTargetContextService({store,docs,journal=store.semanticDrafts,snapshots=store.semanticSnapshots,clock=Date.now,diagnose=()=>{}}){
- async function inspectBoldTargetContext(owner,input,signal){
+export function createBoldTargetContextService({store,docs,journal=store.semanticDrafts,snapshots=store.semanticSnapshots,clock=Date.now,diagnose=()=>{},guard=()=>{}}){
+ async function inspectContext(owner,input,signal,executionMode=false){
   let stage='draft';
   try{
    ownerCheck(owner);
    contextCheck(keyValid(input?.operationId)&&hashValid(input?.planHash),'invalid');
-   const saved=()=>{signal?.throwIfAborted();return checkContextDraft(journal.byId(owner,input.operationId),owner,input,clock());};
+   const saved=()=>{
+    guard();signal?.throwIfAborted();const draft=journal.byId(owner,input.operationId);
+    if(!executionMode)return checkContextDraft(draft,owner,input,clock());
+    const execution=store.semanticExecutions.byId(owner,input.operationId);contextCheck(execution&&execution.header.headHash===input.planHash,'head');sealOwner(execution.header,owner,{origin:true});contextCheck(clock()<execution.header.deadline&&execution.record.claim==='held','expired');checkSealLineage(execution,draft,store.semanticExecutions.evidence(owner,input));return draft;
+   };
+   const source=initial=>executionMode?store.semanticExecutions.evidence(owner,input):snapshots.readPinned(initial.record.snapshotId,owner,input.operationId,clock());
    const initial=saved(),account=initial.record.account;
    // This is the full pinned initial model, not merely the paragraph in the plan.
-   checkInitialEvidence(initial,snapshots.readPinned(initial.record.snapshotId,owner,input.operationId,clock()));
+   checkInitialEvidence(initial,source(initial));
    saved();
    async function currentAccount(){
     saved();const record=await store.byEmail(account);saved();
@@ -27,7 +33,7 @@ export function createBoldTargetContextService({store,docs,journal=store.semanti
    }
    stage='authority';
    let record=await currentAccount();saved();
-   const authority=await docs.authority(record);saved();
+   const authority=await docs.authority(record,guard);saved();
    contextCheck(authority?.subject===initial.record.subject,'owner');
    record=await currentAccount();saved();
    let calls=0,totalBytes=0;
@@ -35,7 +41,7 @@ export function createBoldTargetContextService({store,docs,journal=store.semanti
     saved();record=await currentAccount();saved();
     contextCheck(calls<CONTEXT_LIMITS.calls&&totalBytes+CONTEXT_LIMITS.responseBytes<=CONTEXT_LIMITS.aggregateBytes,'budget');
     stage='metadata';calls++;
-    const raw=await docs.contextMetadata(record,id,signal);saved();
+    const raw=await docs.contextMetadata(record,id,signal,guard);saved();
     record=await currentAccount();saved();
     contextCheck(Number.isSafeInteger(raw?.responseBytes)&&raw.responseBytes>0&&raw.responseBytes<=CONTEXT_LIMITS.responseBytes,'budget');
     totalBytes+=raw.responseBytes;contextCheck(totalBytes<=CONTEXT_LIMITS.aggregateBytes,'budget');return raw;
@@ -78,18 +84,20 @@ export function createBoldTargetContextService({store,docs,journal=store.semanti
    }
    stage='localCapture';
    record=await currentAccount();saved();
-   checkInitialEvidence(initial,snapshots.readPinned(initial.record.snapshotId,owner,input.operationId,clock()));
+   checkInitialEvidence(initial,source(initial));
    const resourceIds=[...new Set(rights.map(r=>r.id))].sort(),markerKeys=markerKeysFor(observations);
    // One synchronous raw SQLite cut AFTER all provider/account awaits.
    const raw=store.writers.readTargetContextFacts({resourceIds,markerKeys}),capturedAt=clock();saved();
    record=await currentAccount();saved();
-   checkInitialEvidence(initial,snapshots.readPinned(initial.record.snapshotId,owner,input.operationId,clock()));
-   const local=interpretLocalContext(raw,rights,observations);saved();
-   return contextResult(initial,ancestry,observations,rights,local,capturedAt);
+   checkInitialEvidence(initial,source(initial));
+   const execution=executionMode?store.semanticExecutions.byId(owner,input.operationId):null;
+   const local=interpretLocalContext(raw,rights,observations,execution?{operationId:execution.header.operationId,subject:execution.header.subject,headerDigest:draftHash(execution.header)}:null);saved();
+   const result=contextResult(initial,ancestry,observations,rights,local,capturedAt);
+   return executionMode?immutable({...result,initialEvidence:'validatedExecutionEvidence',claim:'held',seal:'present',execution:'execution-context-observation'}):result;
   }catch(error){
    const code=category(error);try{diagnose(stage,code);}catch{/* diagnostics cannot replace the safe failure */}
    throw contextError(code);
   }
  }
- return Object.freeze({inspectBoldTargetContext});
+ return Object.freeze({inspectBoldTargetContext:(owner,input,signal)=>inspectContext(owner,input,signal),inspectExecutionTargetContext:(owner,input,signal)=>inspectContext(owner,input,signal,true)});
 }
