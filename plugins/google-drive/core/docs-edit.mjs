@@ -2,6 +2,7 @@
 // No arbitrary request objects or index-based editing escape this boundary.
 import { randomUUID } from 'node:crypto';
 import { writerDigest } from './docs-semantic/writer-coordination.mjs';
+import { targetMarker,classifyWriterMarker } from './docs-semantic/writer-markers.mjs';
 import { docsApprovalDecision, docsApprovalReceipt, diagnoseDocsApproval } from './docs-approval.mjs';
 export const DOC_LIMIT = 50_000; // UTF-16 code units across every tab
 export const EDIT_LIMIT = 2_000;
@@ -114,26 +115,36 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     try { return (await approvalRequired()) !== false; }
     catch { throw docsError('approval_policy_unavailable'); }
   }
+  async function fileMetadata(record,id){const metadata=await drive.getFile(record,id);if(metadata.id!==id||metadata.trashed!==false||metadata.mimeType!=='application/vnd.google-apps.document')throw docsError('wrong_type');return metadata;}
+  async function markerInterlock(record,metadata,persist){
+    try{
+      const marker=targetMarker(metadata);if(!marker)return;
+      if(!store.writers?.markerCandidates)throw docsError('document_operation_busy');
+      const snapshot=await store.writers.markerCandidates(marker.key),decision=classifyWriterMarker(metadata,snapshot);
+      if(decision.kind==='historicalMarker')return;
+      if(persist&&decision.kind==='nativeObservation')await store.writers.observeNativeMarker({observerSubject:record.subject,metadata,expectedLegacyDigest:decision.legacyDigest,expectedOwnerDigest:decision.ownerDigest,expectedMetadataDigest:decision.metadataDigest});
+    }catch(error){const category=['marker','marker_missing','marker_ambiguous','marker_budget','conflict','owner','capacity','corrupt'].includes(error?.writerCode)?error.writerCode:'storage_unavailable';try{diagnose(`docs_replacement_marker_${category}`,docsError('document_operation_busy'));}catch{}}
+    throw docsError('document_operation_busy');
+  }
   async function load(args) {
     if (!nonempty(args.account, 320)) throw docsError('invalid_input');
     const record = await store.byEmail(args.account);
     if (!record) throw docsError('unknown_account');
     const id = documentId(args.document);
-    const metadata = await drive.getFile(record, id);
-    if (metadata.id !== id || metadata.trashed !== false || metadata.mimeType !== 'application/vnd.google-apps.document') throw docsError('wrong_type');
-    return { record, snapshot: inspectDocument(await docs.inspect(record, id), id) };
+    const metadata = await fileMetadata(record,id);
+    return { record, metadata, snapshot: inspectDocument(await docs.inspect(record, id), id) };
   }
   async function inspect(args) {
     const { record, snapshot } = await load(args);
     return { account: record.email, ...snapshot, complete: true, tabs: snapshot.tabs.map(({ runs, ...tab }) => tab) };
   }
   async function replace(args, signal) {
-    const { record, snapshot } = await load(args);
+    const { record, snapshot, metadata } = await load(args);
     if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
     const { tab, offset } = replacement(snapshot, args);
     const proposal = { account: record.email, documentId: snapshot.documentId, title: snapshot.title,
       tabId: tab.tabId, tabTitle: tab.title, expectedRevisionId: snapshot.revisionId, oldText: args.oldText, newText: args.newText };
-    if (args.preview !== false) return { outcome: 'preview', writeAttempted: false, writeAuthorization: 'not_checked', proposal };
+    if (args.preview !== false) {await markerInterlock(record,metadata,false);return { outcome: 'preview', writeAttempted: false, writeAuthorization: 'not_checked', proposal };}
     // Obtain a same-account, scope-checked writer BEFORE requesting consent.
     // No tokens or arbitrary request proxy leave the adapter.
     const writer = await docs.prepareWrite(record);
@@ -154,6 +165,7 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     // No-card writes use explicit standing consent in Settings, not a forged
     // owner submission. Re-inspect in both modes, then close the remaining race
     // with requiredRevisionId in the single atomic provider request.
+    await markerInterlock(record,await fileMetadata(record,snapshot.documentId),true);
     const coordination=store.writers,executionKey=coordination?randomUUID():null;
     const evidence={version:1,documentId:snapshot.documentId,tabId:tab.tabId,expectedRevisionId:snapshot.revisionId,
       expectedTabs:snapshot.tabs.map(t=>({tabId:t.tabId,textHash:writerDigest(t.tabId===tab.tabId?tab.text.slice(0,offset)+args.newText+tab.text.slice(offset+args.oldText.length):t.text)})),verification:'legacy-all-tab-body-text-only'};
@@ -161,6 +173,7 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     let invoked=false;
     try {
     const current = await load(args);
+    await markerInterlock(current.record,current.metadata,true);
     if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
     if (current.record.subject !== record.subject) throw docsError('authorization_failed');
     replacement(current.snapshot, args);
@@ -177,6 +190,7 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
       // Re-observe local authority after the adapter's final async auth. This is
       // not an atomic account/policy epoch lock. The durable coordination owner
       // was acquired earlier; this legacy asynchronous callback is still NOT K5.
+      await markerInterlock(record,await fileMetadata(record,snapshot.documentId),true);
       const currentAccount = await store.byEmail(args.account);
       if (currentAccount?.subject !== record.subject) throw docsError('authorization_failed');
       if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');

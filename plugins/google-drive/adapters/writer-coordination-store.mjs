@@ -2,6 +2,7 @@
 // interpretation and transition/release policy. No provider I/O or async closure.
 import {WRITER_LIMITS,writerCheck,writerError,writerOwner,validateWriter,nextWriterFact,writerResources,resourcesConflict,legacyWriterResources,ownerRef,writerDigest,writerAdmission,attachmentReason,extendWriterGrants,assertWriterGrants} from '../core/docs-semantic/writer-coordination.mjs';
 import {freeze} from '../core/docs-semantic/common.mjs';
+import {targetMarker,classifyWriterMarker,nativeMarkerFact} from '../core/docs-semantic/writer-markers.mjs';
 const immutable=value=>freeze(structuredClone(value));
 const migrationV1Tables=Object.freeze(['docs_creations','drive_sharing_operations','drive_formatting_operations','drive_sheets_edits','drive_filing_operations','docs_image_operations']);
 // New catalog participants require an appended migration, never changed v1 SQL.
@@ -76,13 +77,31 @@ export function createWriterStore(db){
    if(!commit())return false;db.prepare('INSERT INTO docs_writer_owners VALUES (?,?,?,?,?,?,?)').run(namespace,op.operationId,op.subject,JSON.stringify(r),JSON.stringify(r),writerDigest(r),WRITER_LIMITS.reservedBytes);insertGrants(namespace,op.operationId,r.grants);audit();
   }else{if(!commit())return false;grant(namespace,op.operationId,requested);}return true;
  })();}
+ function markerSnapshot(key){
+  ownerRef('docs_creations',key);audit();const rows=[];
+  for(const namespace of ['docs_creations','drive_filing_operations']){
+   const row=db.prepare(`SELECT operation_id AS key,subject,${namespace==='docs_creations'?'NULL':'state'} AS state,${namespace==='docs_creations'?'NULL':'resource'} AS resource,CASE WHEN length(cast(receipt AS BLOB))<=? THEN receipt ELSE NULL END AS receipt FROM ${namespace} WHERE operation_id=?`).get(WRITER_LIMITS.recordBytes,key);
+   if(row)rows.push({namespace,...row});
+  }
+  return immutable({rows,owner:load('docs_creations',key)});
+ }
  const api={get,resources,
+  markerCandidates(key){return db.transaction(()=>markerSnapshot(key))();},
+  observeNativeMarker(input){return db.transaction(()=>{
+   writerCheck(input&&Object.keys(input).length===5&&['observerSubject','metadata','expectedLegacyDigest','expectedOwnerDigest','expectedMetadataDigest'].every(k=>Object.hasOwn(input,k)),'marker');
+   const marker=targetMarker(input.metadata);writerCheck(marker?.marker==='paDocsCreation','marker');const snapshot=markerSnapshot(marker.key),decision=classifyWriterMarker(input.metadata,snapshot);
+   writerCheck(decision.kind==='nativeObservation'&&decision.legacyDigest===input.expectedLegacyDigest&&decision.ownerDigest===input.expectedOwnerDigest&&decision.metadataDigest===input.expectedMetadataDigest,'conflict');
+   writerCheck(typeof input.observerSubject==='string'&&db.prepare('SELECT subject FROM drive_accounts WHERE subject=?').get(input.observerSubject)?.subject===input.observerSubject,'owner');
+   if(snapshot.owner.observedIds.includes(input.metadata.id))return immutable({kind:'alreadyObserved'});
+   writerCheck(snapshot.owner.sequence<WRITER_LIMITS.eventsPerOwner,'capacity');
+   event('docs_creations',marker.key,nativeMarkerFact(snapshot.owner,input.observerSubject,input.metadata,decision));return immutable({kind:'observedPendingId'});
+  })();},
   acquire,
   compatible(namespace,op,kind){return db.transaction(()=>allowed(namespace,op.operationId,writerResources(kind,op)))();},
   start(namespace,op,stage,commit=()=>true){return db.transaction(()=>{const r=get(namespace,op.operationId);writerCheck(r?.subject===op.subject&&r.disposition==='held','owner');const requested=projection(namespace,op.operationId).map(({id,role})=>({id,role}));if(!allowed(namespace,op.operationId,requested)||!commit())return false;event(namespace,op.operationId,{kind:'intent',stage});return true;})();},
-  fact(namespace,id,e){writerCheck(e?.kind!=='grants','unsupported');return db.transaction(()=>event(namespace,id,e))();},
-  finishLegacy(namespace,op,e){return db.transaction(()=>{const r=get(namespace,op.operationId);if(!r)return null;writerCheck(r.subject===op.subject,'owner');if(r.disposition==='released')return r;if(e)return event(namespace,op.operationId,e);if(r.submission==='not_sent'&&['expired','cancelled','declined','approval_unavailable','approval_required','not_submitted','rejected'].includes(op.state??op.claimState??op.outcome))return event(namespace,op.operationId,{kind:'knownNotSent'});return r;})();},
-  returned(namespace,op,kind,fact,commit){return db.transaction(()=>{const r=get(namespace,op.operationId),id=op.documentId??op.spreadsheetId??op.fileId;writerCheck(r?.subject===op.subject&&r.operationKind===(op.kind??'document'),'owner');writerCheck((fact.documentId??fact.id)===id,'corrupt');writerCheck(commit()!==false,'storage');event(namespace,op.operationId,fact);
+  fact(namespace,id,e){writerCheck(!['grants','markerObservedId'].includes(e?.kind),'unsupported');return db.transaction(()=>event(namespace,id,e))();},
+  finishLegacy(namespace,op,e){return db.transaction(()=>{const r=get(namespace,op.operationId);if(!r)return null;writerCheck(r.subject===op.subject,'owner');if(r.disposition==='released')return r;if(e){writerCheck(!['grants','markerObservedId'].includes(e.kind),'unsupported');return event(namespace,op.operationId,e);}if(r.submission==='not_sent'&&['expired','cancelled','declined','approval_unavailable','approval_required','not_submitted','rejected'].includes(op.state??op.claimState??op.outcome))return event(namespace,op.operationId,{kind:'knownNotSent'});return r;})();},
+  returned(namespace,op,kind,fact,commit){return db.transaction(()=>{writerCheck(['ack','observedId'].includes(fact?.kind),'unsupported');const r=get(namespace,op.operationId),id=op.documentId??op.spreadsheetId??op.fileId;writerCheck(r?.subject===op.subject&&r.operationKind===(op.kind??'document'),'owner');writerCheck((fact.documentId??fact.id)===id,'corrupt');writerCheck(commit()!==false,'storage');event(namespace,op.operationId,fact);
    let attached=false,reason='resource_conflict';try{attached=db.transaction(()=>{const requested=writerResources(kind,op);if(!allowed(namespace,op.operationId,requested))return false;grant(namespace,op.operationId,requested);return true;})();}catch(error){attached=false;reason=attachmentReason(error);}
    if(!attached){event(namespace,op.operationId,{kind:'attachmentBlocked',id,reason});return false;}return true;
   })();},

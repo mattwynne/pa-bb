@@ -106,6 +106,32 @@ refusal and a failed nested attachment transaction. If response fact storage
 itself fails, prior durable unknown/held remains; no population follows. Pending
 known-ID facts continue to block admission even without a resource-row grant.
 
+## Narrow replacement marker interlock (not full resource closure)
+
+Replacement now retains the already-requested raw Drive metadata. Preview only
+reads/classifies. Apply checks recognized birth markers before its claim and in
+its actual post-auth callback. A fixed core policy binds the five original marker
+names to exact legacy namespace/kind/ID and versioned lifecycle evidence; bounded
+local reads are cross-subject for exclusion, not recovery disclosure. Missing,
+contradictory, ambiguous or unsupported evidence refuses the requested file.
+Historical exact-ID completion keeps its own legacy scope even after a legitimate
+rename/move; a held modern sidecar overrides weaker legacy verification.
+
+Only an existing held unknown native Docs creator can acquire a monotonic
+`markerObservedId` fact here. Its original loaded subject, legacy/current owner
+and metadata digests are checked in one synchronous transaction; the observer is
+provenance, never delegated authority. No legacy backfill/new owner, ACK,
+verification, grant, release or cleanup results. Its existing canonical grant set
+stays unchanged; the known-ID fallback blocks later conflicting admission/start
+across reopen. Repeated retained observations consume no event slot; unavailable
+storage or unchanged limits refuse, never repair or retry. A different subject's
+`root` alias is not resolved with the observer's account.
+
+Other marker kinds' unresolved rows are refusal/discovery, not new lifecycle
+implementations. Unmarked legacy behavior is neither origin nor ancestry
+certification. No ancestry walk, root content lock, OAuth expansion or K5 claim is
+introduced. Missing actual participant discovery/final windows below remain real.
+
 ## Remaining safety gates before semantic execution
 
 Complete actual ancestry/marker association (including unknown-created-ID races),
