@@ -1,7 +1,7 @@
-# Semantic read foundation (S02, incomplete)
+# Semantic read foundation (S02 offline coverage complete; delivery held)
 
-These are original read-only source modules. **S02 is not complete and the three
-new tool names are not registered by `server.ts`.** The offline native host uses
+These are original read-only source modules. **S02 offline outcomes are complete;
+the three new tool names are still not registered by `server.ts`.** The offline native host uses
 the production registration/schema seam directly. Existing public read and write
 tools are unchanged. Do not activate this seam merely because its focused tests
 pass.
@@ -108,29 +108,28 @@ extending ordinary read/selection authority. At most 32 pin owners per snapshot.
 Expired evidence is collected lazily during insertion or explicit sweep. No
 uncertain mutation evidence is stored or garbage-collected by this module.
 
-## Remaining S02 gates
+## Offline S02 coverage and remaining delivery gates
 
-Of **367 S02 outcome keys / 95 variants**, 238 have historical independent
-acceptance and 129 remain; four supplemental candidates are separate. Read
-closures are 42/59; serving exposure remains zero. The [test path](../../features/docs/testing.md)
+All **367 S02 outcome keys / 95 variants** have current execution and independent
+acceptance; none remain and no supplemental candidates remain. Read closures are
+59/59; serving exposure remains zero. The prior 238 accepted outcomes and four
+supplemental candidates are historical, not rewritten evidence. The additional
+129 outcomes were implemented, executed and reviewed separately. The [test path](../../features/docs/testing.md)
 records actual core/application, adapter and mandatory native/SQLite companion
-execution without promoting counts merely because setup changes. Required work includes:
+boundaries; changing setup alone never promotes coverage.
 
-1. Complete the rich/opaque/style/registry projections and loss evidence across
-   every assigned variant, including exhaustive section/span and normalization
-   boundaries and exact resource limits.
-2. Complete the K3 read-witness interfaces and independent tests without inventing
-   downstream planner/executor/approval success. Generated-stage protocols remain
-   S03 work; their needed pure evidence interfaces are not complete here.
-3. Extend existing fixed product-intake executors, schema/variant inventory joins,
-   independent outcome fixtures and concrete ledger Examples to the remaining
-   keys. Keep counterfeit absent-driver/missing-companion tests and all S01
-   protections; application evidence never stands in for native invocation,
-   durable storage or a live provider result.
-4. Close every exposed variant's sibling and dependency outcomes, including
-   C009, before wiring the read registration into the server factory.
-5. Independent review, supported activation under a fresh writer quiet window,
-   applied-code verification and scoped delivery remain separate gates.
+The implemented projections, scoped selection, provenance, identity and K3 witness
+interfaces retain exact independent semantic and boundary expectations. Generated
+read comparison is not submitted-stage/approval/acknowledgement evidence; the
+execution protocol remains S03 work. All S01 counterfeit/source/fixture/Examples,
+companion and exposure-closure controls remain. Application evidence never stands
+in for native invocation, durable storage or a live provider result.
+
+Complete offline read closures do not authorize wiring the held registration into
+`server.ts`. Supported activation, writer quiet-window controls, rendered and
+applied-code/runtime/provider verification and scoped delivery remain separate,
+unclaimed gates. No source switch, permission change or live action follows from
+these test results.
 
 Markdown/HTML projections remain S12; regex remains C014's later slice; table and
 named-range selectors remain in their assigned slices. This list does not reduce
