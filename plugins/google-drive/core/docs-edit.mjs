@@ -1,5 +1,7 @@
 // Narrow Docs port: complete inspection, one literal replacement, owner policy.
 // No arbitrary request objects or index-based editing escape this boundary.
+import { randomUUID } from 'node:crypto';
+import { writerDigest } from './docs-semantic/writer-coordination.mjs';
 import { docsApprovalDecision, docsApprovalReceipt, diagnoseDocsApproval } from './docs-approval.mjs';
 export const DOC_LIMIT = 50_000; // UTF-16 code units across every tab
 export const EDIT_LIMIT = 2_000;
@@ -14,6 +16,7 @@ const MESSAGES = Object.freeze({
   write_rejected: 'Google rejected the required revision or replacement. Inspect the document again; nothing was written.',
   authorization_failed: 'Google rejected access. Check the selected account, document edit permission and authorized scopes in Settings.',
   remote_unavailable: 'Google Docs inspection or authorization is unavailable. No write was attempted.',
+  document_operation_busy: 'Another local operation is holding this document. Inspect its retained operation before another edit; do not retry an unresolved write.',
   image_operation_busy: 'An image operation is reviewing, writing or unresolved on this document. Recover it with gdocs_image_status and its original account/key before another edit.',
   approval_required: 'Per-edit approval was re-enabled before submission. No write was attempted. Request a fresh review.',
   approval_policy_unavailable: 'The Google Docs approval setting could not be checked. No write was attempted. Check plugin Settings and try again.',
@@ -106,6 +109,7 @@ function replacement(snapshot, args) {
   return { tab, offset };
 }
 export function createDocsEditService({ store, drive, docs, diagnose = (_stage, _error) => {}, approve = async (_proposal) => /** @type {unknown} */ ({ outcome: 'cancelled', reason: 'request-aborted' }), approvalRequired = async () => true }) {
+  function journalDiagnostic(){try{diagnose('docs_replacement_journal',docsError('remote_unavailable'));}catch{ /* logger cannot replace persistence outcome */ }}
   async function needsApproval() {
     try { return (await approvalRequired()) !== false; }
     catch { throw docsError('approval_policy_unavailable'); }
@@ -150,6 +154,12 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     // No-card writes use explicit standing consent in Settings, not a forged
     // owner submission. Re-inspect in both modes, then close the remaining race
     // with requiredRevisionId in the single atomic provider request.
+    const coordination=store.writers,executionKey=coordination?randomUUID():null;
+    const evidence={version:1,documentId:snapshot.documentId,tabId:tab.tabId,expectedRevisionId:snapshot.revisionId,
+      expectedTabs:snapshot.tabs.map(t=>({tabId:t.tabId,textHash:writerDigest(t.tabId===tab.tabId?tab.text.slice(0,offset)+args.newText+tab.text.slice(offset+args.oldText.length):t.text)})),verification:'legacy-all-tab-body-text-only'};
+    if(coordination&&!coordination.acquire('legacyReplacement',{operationId:executionKey,subject:record.subject,documentId:snapshot.documentId,replacementEvidence:evidence},'replacement'))throw docsError('document_operation_busy');
+    let invoked=false;
+    try {
     const current = await load(args);
     if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
     if (current.record.subject !== record.subject) throw docsError('authorization_failed');
@@ -161,9 +171,12 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     const approval = ownerApproved ? 'owner_approved' : 'disabled_in_settings';
     if (signal?.aborted) return stop({ outcome: 'cancelled', reason: 'caller_aborted' });
     let response;
+    if(coordination)coordination.fact('legacyReplacement',executionKey,{kind:'intent',stage:'replace'});
+    invoked=true;
     try { response = await writer.replace(proposal, signal, async () => {
       // Re-observe local authority after the adapter's final async auth. This is
-      // not an atomic account/policy epoch lock and acquires no durable claim.
+      // not an atomic account/policy epoch lock. The durable coordination owner
+      // was acquired earlier; this legacy asynchronous callback is still NOT K5.
       const currentAccount = await store.byEmail(args.account);
       if (currentAccount?.subject !== record.subject) throw docsError('authorization_failed');
       if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
@@ -172,19 +185,34 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     }); }
     catch (error) {
       // Only the adapter can establish a definitive rejection before application.
+      if(coordination){try{coordination.fact('legacyReplacement',executionKey,error?.docsWriteAttempted===false?{kind:'knownNotSent'}:[400,401,403,404].includes(error?.status)?{kind:'rejected',httpStatus:error.status}:{kind:'stopped'});}catch{journalDiagnostic(); /* prior durable intent remains authoritative */ }}
       if (error?.docsWriteAttempted === false || ['authorization_failed', 'write_rejected', 'scope_required', 'stale_revision'].includes(error?.docsCode)) throw error;
       diagnose('docs_write_uncertain', error);
       return { outcome: 'uncertain', writeAttempted: true, approval, retrySafe: false, guidance: 'Inspect the document before deciding what to do. Never replay this replacement blindly.' };
     }
     try {
       if (response?.documentId !== snapshot.documentId || response.replies?.length !== 1 || response.replies[0]?.replaceAllText?.occurrencesChanged !== 1 || !nonempty(response.writeControl?.requiredRevisionId, 2048)) throw docsError('unsupported_document');
+      if(coordination)coordination.fact('legacyReplacement',executionKey,{kind:'ack',stage:'replace',documentId:snapshot.documentId,revisionId:response.writeControl.requiredRevisionId,replyDigest:writerDigest(response)});
       const after = (await load(args)).snapshot;
       if (after.revisionId !== response.writeControl.requiredRevisionId || after.tabs.length !== snapshot.tabs.length || after.tabs.some((t, i) => t.tabId !== snapshot.tabs[i].tabId || t.text !== (t.tabId === tab.tabId ? tab.text.slice(0, offset) + args.newText + tab.text.slice(offset + args.oldText.length) : snapshot.tabs[i].text))) throw docsError('unsupported_document');
+      if(coordination)coordination.fact('legacyReplacement',executionKey,{kind:'verified'});
       return { outcome: 'verified', writeAttempted: true, approval, documentId: snapshot.documentId, tabId: tab.tabId, revisionId: after.revisionId, replacements: 1, verification: 'All tab body text matches the expected single replacement. Formatting is not independently verified.' };
     } catch (error) {
+      if(coordination){try{const r=coordination.get('legacyReplacement',executionKey);if(r?.disposition==='held')coordination.fact('legacyReplacement',executionKey,{kind:'stopped'});}catch{journalDiagnostic();}}
       diagnose('docs_write_verification', error);
       return { outcome: 'verification_unavailable', writeAttempted: true, approval, retrySafe: false, guidance: 'Google returned a result, but the exact post-write document could not be verified. Inspect it; do not replay the replacement.' };
     }
+    } finally {
+      if(coordination&&!invoked){try{const r=coordination.get('legacyReplacement',executionKey);if(r?.disposition==='held')coordination.fact('legacyReplacement',executionKey,{kind:'knownNotSent'});}catch{journalDiagnostic(); /* retained hold, never manufacture release */ }}
+    }
   }
-  return { inspect, replace };
+  // Private recovery only; deliberately not a new registered tool or an upgrade
+  // of historical unrecorded replacements. Never resumes or releases a hold.
+  async function inspectReplacement({account,executionKey}) {
+    const record=await store.byEmail(account);if(!record)throw docsError('unknown_account');
+    const receipt=store.writers.inspect({subject:record.subject},'legacyReplacement',executionKey),e=receipt.facts.evidence;
+    try{const current=await load({account,document:e.documentId});if(current.record.subject!==record.subject)throw docsError('authorization_failed');const matches=current.snapshot.tabs.length===e.expectedTabs.length&&current.snapshot.tabs.every((t,i)=>t.tabId===e.expectedTabs[i].tabId&&writerDigest(t.text)===e.expectedTabs[i].textHash);return {...receipt,observation:{matches,revisionMatchesAcknowledged:receipt.facts.submission==='acknowledged'&&current.snapshot.revisionId===receipt.facts.acknowledgement?.revisionId},historicalEvidenceVersion:'legacy-replacement-text-v1'};}
+    catch{try{diagnose('docs_replacement_recovery',docsError('remote_unavailable'));}catch{}return {...receipt,observation:{unavailable:true},historicalEvidenceVersion:'legacy-replacement-text-v1'}; }
+  }
+  return { inspect, replace, inspectReplacement };
 }

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { documentId, inspectDocument, rejectSuggestions, docsError, docsErrorMessage } from './docs-edit.mjs';
 import { docsApprovalDecision, diagnoseDocsApproval } from './docs-approval.mjs';
 const target = { account: z.string().min(1).max(320), document: z.string().min(1).max(1024) };
+import { writerDigest } from './docs-semantic/writer-coordination.mjs';
 export const imageInspectSchema = z.object(target).strict();
 export const imageStatusSchema = z.object({ account: target.account, operationId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/) }).strict();
 export const imageSchema = z.object({ ...target, operationId: imageStatusSchema.shape.operationId,
@@ -149,7 +150,7 @@ export function createDocsImageService({ store, drive, docs, assets, diagnose = 
   const receipt = (op, extra = {}) => ({ operationId: op.operationId, documentId: op.documentId, outcome: op.state, retrySafe: false,
     providerAcknowledged: !!op.appliedRevision && !!op.objectId, approval: op.approval || 'not_checked', objectId: op.objectId || null,
     guidance: 'Only verified confirms the acknowledged inline-object insertion, API source URI/dimensions and preservation of original content/styles. Not proof of image bytes, visual rendering or alt text. After uncertainty use gdocs_image_status with SAME account/key; never replay, roll back or replace the key.', ...extra });
-  async function save(op, state) { op.state = state; await store.images.update(op); }
+  async function save(op, state, coordinationEvent) { op.state = state; await store.images.update(op,coordinationEvent); }
   async function inspect(input) { const args = imageInspectSchema.parse(input), r = await record(args.account); return { account: r.email, ...inspectImages(await load(r, documentId(args.document)), documentId(args.document)), locationRule: 'Only listed paragraph-start indices are supported. Existing text is preserved; inline objects occupy one UTF-16 unit.' }; }
   async function insert(input, signal, approve) {
     const parsed = imageSchema.safeParse(input); if (!parsed.success) throw imageError('invalid');
@@ -199,16 +200,16 @@ export function createDocsImageService({ store, drive, docs, assets, diagnose = 
       const revision = result?.writeControl?.requiredRevisionId, key = result?.replies?.[0]?.insertInlineImage?.objectId;
       const acknowledged = result?.documentId === id && Array.isArray(result?.replies) && result.replies.length === 1 && typeof revision === 'string' && revision.length > 0 && revision.length <= 2048 && typeof key === 'string' && key.length > 0 && key.length <= 256;
       op.appliedRevision = acknowledged ? revision : null; op.objectId = acknowledged ? key : null;
-      await save(op, 'uncertain');
+      await save(op, 'uncertain',acknowledged?{kind:'ack',stage:'content',documentId:id,revisionId:revision,replyDigest:writerDigest(result)}:undefined);
       const after = await load(current, id), readback = imageReadback(after, op);
       const verified = acknowledged && after.revisionId === op.appliedRevision && readback.matches;
       if (!verified) diagnose('docs_image_verification_mismatch', null);
-      await save(op, verified ? 'verified' : 'uncertain');
+      await save(op, verified ? 'verified' : 'uncertain',verified?{kind:'verified'}:undefined);
       return receipt(op, { writeAttempted: true, revisionId: verified ? after.revisionId : null });
     } catch (error) {
       diagnose(`docs_image_${stage}`, error);
       const attempted = ['write', 'verify'].includes(stage), rejected = stage === 'write' && (error?.docsWriteAttempted === false || ['write_rejected', 'authorization_failed', 'scope_required', 'stale_revision'].includes(error?.docsCode));
-      try { await save(op, !attempted ? 'not_submitted' : rejected ? 'rejected' : 'uncertain'); } catch (storageError) { diagnose('docs_image_receipt', storageError); }
+      try { await save(op, !attempted ? 'not_submitted' : rejected ? 'rejected' : 'uncertain',error?.docsWriteAttempted===false?{kind:'knownNotSent'}:rejected&&[400,401,403,404].includes(error?.status)?{kind:'rejected',httpStatus:error.status}:undefined); } catch (storageError) { diagnose('docs_image_receipt', storageError); }
       return receipt(op, { writeAttempted: attempted && !rejected, error: imageMessage(error) });
     } finally { active.delete(op.operationId); }
   }

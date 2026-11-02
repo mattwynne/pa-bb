@@ -7,6 +7,7 @@ import { docsApprovalDecision, diagnoseDocsApproval } from './docs-approval.mjs'
 import { pageFormat } from './docs-page-format.mjs';
 const target = { account: z.string().min(1).max(320), document: z.string().min(1).max(1024) };
 const nonempty = shape => z.object(shape).strict().refine(v => Object.keys(v).length > 0);
+import { writerDigest } from './docs-semantic/writer-coordination.mjs';
 export const textFormat = nonempty({ fontFamily: z.string().regex(/^[A-Za-z][A-Za-z0-9 -]{0,79}$/).optional(),
   sizePt: z.number().min(6).max(72).optional(), bold: z.boolean().optional(),
   foregroundColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional() });
@@ -322,7 +323,7 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
     // available. Null preserves legacy/unsaved intent ambiguity; never backfill it.
     historicalWriteAttempted: typeof op.writeAttempted === 'boolean' ? op.writeAttempted : null,
     guidance: 'Only verified confirms exact API style/text readback, not font rendering. After uncertainty use gdocs_formatting_status with the SAME account/key; never replay, roll back or replace a key to bypass recovery.', ...extra });
-  async function save(op, state) { op.state = state; await store.updateFormatting(op); }
+  async function save(op, state, coordinationEvent) { op.state = state; await store.updateFormatting(op, coordinationEvent); }
   async function inspect(input) {
     const args = formatInspectSchema.parse(input), r = await record(args.account);
     const id = documentId(args.document), pageOnly = args.mode === 'page';
@@ -393,11 +394,11 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
       const revision = result?.writeControl?.requiredRevisionId;
       op.appliedRevision = result?.documentId === id && Array.isArray(result.replies) && result.replies.length === formatRequests(args).length
         && typeof revision === 'string' && revision.length > 0 && revision.length <= 2048 ? revision : null;
-      await save(op, 'uncertain');
+      await save(op, 'uncertain', op.appliedRevision?{kind:'ack',stage:'content',documentId:id,revisionId:op.appliedRevision,replyDigest:writerDigest(result)}:undefined);
       const after = await load(r, id, op.pageOnly === true);
       const matches = op.appliedRevision !== null && after.revisionId === op.appliedRevision && formattingReadbackMatches(after, op);
       if (!matches) diagnose('docs_format_verification_mismatch', null);
-      await save(op, matches ? 'verified' : 'uncertain');
+      await save(op, matches ? 'verified' : 'uncertain', matches?{kind:'verified'}:undefined);
       return receipt(op, { writeAttempted: true, revisionId: matches ? after.revisionId : null });
     } catch (error) {
       diagnose(`docs_format_${stage}`, error);
@@ -405,7 +406,7 @@ export function createDocsFormatService({ store, drive, docs, approve = async (_
       // A GET/storage failure cannot reject the earlier POST or release its claim.
       const rejected = stage === 'write' && attempted && ['write_rejected', 'authorization_failed', 'scope_required', 'stale_revision'].includes(error?.docsCode);
       op.writeAttempted = attempted;
-      try { await save(op, !attempted ? 'not_submitted' : rejected ? 'rejected' : 'uncertain'); }
+      try { await save(op, !attempted ? 'not_submitted' : rejected ? 'rejected' : 'uncertain', error?.docsWriteAttempted===false?{kind:'knownNotSent'}:rejected&&[400,401,403,404].includes(error?.status)?{kind:'rejected',httpStatus:error.status}:undefined); }
       catch (storageError) { diagnose('docs_format_receipt', storageError); }
       // Keep the legacy rejected-call convention, but expose the saved attempt
       // separately. Never reuse a no-write inspection message after submission.

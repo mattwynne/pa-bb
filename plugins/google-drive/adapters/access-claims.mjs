@@ -2,8 +2,10 @@
 // every inspected ancestor. Acquire both workflows' claims in one SQLite
 // transaction, not a read/check followed by a separately scheduled claim.
 // These local claims cannot exclude changes from other Google clients.
-export function claimSharingAccess(db, fileId, claim) {
+import { createWriterStore } from './writer-coordination-store.mjs';
+export function claimSharingAccess(db, fileId, claim, operationId) {
   return db.transaction(() => {
+    if(!createWriterStore(db).compatible('drive_sharing_operations',{operationId,fileId},'sharing'))return false;
     const conflict = db.prepare(`SELECT 1 FROM drive_filing_operations AS op,
       json_each(op.receipt, '$.contextIds') AS context
       WHERE op.state IN ('reviewing','writing','uncertain') AND context.value = ?
@@ -16,6 +18,7 @@ export function claimSharingAccess(db, fileId, claim) {
 
 export function claimFilingAccess(db, op, claim) {
   return db.transaction(() => {
+    if(!createWriterStore(db).compatible('drive_filing_operations',op,'filing'))return false;
     const conflict = db.prepare(`SELECT 1 FROM drive_sharing_operations
       WHERE state IN ('reviewing','writing','uncertain')
       AND file_id IN (SELECT value FROM json_each(?)) LIMIT 1`)
@@ -32,6 +35,7 @@ export function claimFilingAccess(db, op, claim) {
 
 export function claimCreationAccess(db, op, claim) {
   return db.transaction(() => {
+    if(!createWriterStore(db).compatible('docs_creations',op,op.kind==='upload'?'upload':op.kind==='copy'?'copy':'nativeCreate'))return false;
     const ids = JSON.stringify(op.contextIds);
     const sharing = db.prepare(`SELECT 1 FROM drive_sharing_operations WHERE state IN ('reviewing','writing','uncertain')
       AND file_id IN (SELECT value FROM json_each(?)) LIMIT 1`).get(ids);

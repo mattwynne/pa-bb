@@ -20,7 +20,7 @@ async function setup() {
       const changed = changes.get(id) !== false;
       const preview = { kind, account: r.email, title: huge ? 'x'.repeat(40_000) : id, from: 'Old folder', to: 'Destination', fileId: request.fileId || '', destinationId: request.folderId || request.parentId,
         sourceAudience: 'Owner', destinationAudience: 'Owner and partner', accessChanges: changed ? 'Partner may gain editing access.' : 'No access change found.', impact: 'Direct shares preserved.' };
-      return { fingerprint: filingHash([request, changed]), resource: `file:${id}`, contextIds: ['source', 'destination', id], requiresApproval: changed, preview,
+      return { fingerprint: filingHash([request, changed]), resource: kind === 'folder' ? `folder:${r.subject}:${request.parentId}:${filingHash(request.name)}` : `file:${id}`, contextIds: kind === 'folder' ? [request.parentId] : ['source', 'destination', id], requiresApproval: changed, preview,
         fileId: request.fileId, destinationId: request.folderId || request.parentId, sourceParentId: 'source', mimeType: 'application/pdf' };
     },
     async prepare() { beforePrepare(); return async (kind, request) => { writes.push(request); effects.add(request.fileId); if (lost) throw new Error('private-provider-sentinel'); return { id: request.fileId || 'created-folder' }; }; },

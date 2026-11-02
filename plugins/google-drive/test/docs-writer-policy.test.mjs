@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {writerResources,resourcesConflict,writerOwner,nextWriterFact,legacyWriterResources} from '../core/docs-semantic/writer-coordination.mjs';
+const owner=(key='key-a',subject='subject-a')=>writerOwner('legacyReplacement',{operationId:key,subject,documentId:'doc-a'});
+test('provider-ID conflicts cross subjects; exact roles preserve shared ancestry read/read',()=>{
+ const a=writerResources('content',{documentId:'doc-a',contextIds:['root','folder']}),b=writerResources('content',{documentId:'doc-b',contextIds:['root','folder']});assert.deepEqual(a,[{id:'doc-a',role:'accessStable'},{id:'doc-a',role:'contentWrite'},{id:'folder',role:'accessStable'},{id:'root',role:'accessStable'}]);assert.equal(resourcesConflict(a,b),false);assert.equal(resourcesConflict(a,writerResources('sharing',{fileId:'folder'})),true);assert.equal(resourcesConflict(a,writerResources('move',{fileId:'doc-a',contextIds:['root']})),true);assert.equal(resourcesConflict(a,writerResources('copy',{sourceId:'doc-a',destinationId:'root'})),false);assert.equal(resourcesConflict(a,writerResources('content',{documentId:'doc-a'})),true);
+});
+test('explicit intent/response facts never derive acknowledgement from an observation or legacy boolean',()=>{
+ let r=owner();r=nextWriterFact(r,{kind:'intent',stage:'replace'});assert.equal(r.submission,'unknown');r=nextWriterFact(r,{kind:'observedId',id:'doc-a'});assert.equal(r.submission,'unknown');assert.equal(r.disposition,'held');assert.throws(()=>nextWriterFact(r,{kind:'verified'}));r=nextWriterFact(r,{kind:'ack',stage:'replace',documentId:'doc-a',revisionId:'r2',replyDigest:'1'.repeat(64)});r=nextWriterFact(r,{kind:'verified'});assert.equal(r.submission,'acknowledged');assert.equal(r.disposition,'released');assert.throws(()=>nextWriterFact(r,{kind:'intent',stage:'replace'}));
+});
+test('created-ID facts and blocked attachment are partial/held without losing acknowledgement',()=>{
+ let r=writerOwner('docs_creations',{operationId:'create-a',subject:'subject-a',kind:'document',destinationId:'root'});r=nextWriterFact(r,{kind:'intent',stage:'create'});r=nextWriterFact(r,{kind:'ack',stage:'create',documentId:'new-doc',replyDigest:'2'.repeat(64)});r=nextWriterFact(r,{kind:'attachmentBlocked',id:'new-doc'});assert.equal(r.createdId,'new-doc');assert.equal(r.createAcknowledged,true);assert.equal(r.disposition,'held');assert.equal(r.phase,'partial');assert.throws(()=>nextWriterFact(r,{kind:'knownNotSent'}));
+});
+test('retained private creation and SQL-authoritative legacy claims remain blockers without invented ack',()=>{
+ const rows=[{namespace:'docs_creations',key:'old-key',subject:'s',state:null,resource:null,receipt:JSON.stringify({operationId:'old-key',subject:'s',documentId:'doc-a',destinationId:'root',outcome:'incomplete'})},{namespace:'drive_formatting_operations',key:'format-key',subject:'s',state:'reviewing',resource:'doc-b',receipt:JSON.stringify({operationId:'format-key',subject:'s',documentId:'doc-b',state:'proposed'})}];assert.ok(legacyWriterResources(rows[0]).some(r=>r.id==='doc-a'&&r.role==='contentWrite'));assert.ok(legacyWriterResources(rows[1]).some(r=>r.id==='doc-b'&&r.role==='contentWrite'));assert.throws(()=>legacyWriterResources({...rows[0],receipt:'PRIVATE_NOT_JSON'}),/unsupported/);
+});

@@ -1,5 +1,7 @@
 // A plugin-owned SQLite store. BB owns its persistent data.db and backup lifecycle.
 // Only the backend opens it; neither tokens nor pending PKCE verifiers reach RPC/UI.
+import { createWriterStore, WRITER_COORDINATION_MIGRATION } from './writer-coordination-store.mjs';
+import { writerDigest, writerCheck } from '../core/docs-semantic/writer-coordination.mjs';
 import { createDraftJournal, SEMANTIC_DRAFT_MIGRATION } from './docs-draft-store.mjs';
 import { createSemanticSnapshotStore, SEMANTIC_SNAPSHOT_MIGRATION, SEMANTIC_BOOKKEEPING_MIGRATION } from './docs-semantic-store.mjs';
 import { createDocsImageStore, DOCS_IMAGE_MIGRATION } from './docs-image-store.mjs';
@@ -38,14 +40,16 @@ export function createBbStore(db, migrate) {
     SEMANTIC_SNAPSHOT_MIGRATION,
     SEMANTIC_BOOKKEEPING_MIGRATION,
     SEMANTIC_DRAFT_MIGRATION,
+    WRITER_COORDINATION_MIGRATION,
   ]);
   const row = item => item && ({ subject: item.subject, email: item.email, refreshToken: item.refresh_token, accessToken: item.access_token, expiresAt: item.expires_at });
-  const semanticSnapshots = createSemanticSnapshotStore(db);
+  const semanticSnapshots = createSemanticSnapshotStore(db), writers = createWriterStore(db);
   return {
+    writers,
     semanticSnapshots,
     semanticDrafts: createDraftJournal(db, { snapshots: semanticSnapshots }),
-    images: createDocsImageStore(db),
-    sheetsEdits: createSheetsEditStore(db),
+    images: createDocsImageStore(db, writers),
+    sheetsEdits: createSheetsEditStore(db, writers),
     filing: createFilingStore(db),
     async getFormatting(operationId) {
       const r = db.prepare('SELECT state,receipt FROM drive_formatting_operations WHERE operation_id = ?').get(operationId);
@@ -62,19 +66,22 @@ export function createBbStore(db, migrate) {
       return db.prepare("SELECT operation_id FROM drive_formatting_operations WHERE document_id = ? AND state IN ('reviewing','writing','uncertain')").get(documentId)?.operation_id || null;
     },
     async claimFormatting(operationId, documentId) {
-      return db.transaction(() => {
+      const row = db.prepare('SELECT subject FROM drive_formatting_operations WHERE operation_id=? AND document_id=?').get(operationId,documentId);
+      if (!row) return false;
+      return writers.acquire('drive_formatting_operations', { operationId, documentId, subject:row.subject }, 'content', () => {
         if (db.prepare("SELECT 1 FROM docs_image_operations WHERE document_id = ? AND state IN ('reviewing','writing','uncertain')").get(documentId)) return false;
         return db.prepare("UPDATE OR IGNORE drive_formatting_operations SET state = 'reviewing' WHERE operation_id = ? AND document_id = ? AND state = 'proposed'")
           .run(operationId, documentId).changes === 1;
-      })();
+      });
     },
     async startFormattingWrite(op) {
-      return db.prepare("UPDATE drive_formatting_operations SET state = 'writing',receipt = ? WHERE operation_id = ? AND subject = ? AND state = 'reviewing'")
-        .run(JSON.stringify({ ...op, state: 'writing' }), op.operationId, op.subject).changes === 1;
+      return writers.start('drive_formatting_operations',op,'content',()=>db.prepare("UPDATE drive_formatting_operations SET state = 'writing',receipt = ? WHERE operation_id = ? AND subject = ? AND state = 'reviewing'")
+        .run(JSON.stringify({ ...op, state: 'writing' }), op.operationId, op.subject).changes === 1);
     },
-    async updateFormatting(op) {
-      if (db.prepare('UPDATE drive_formatting_operations SET state = ?,receipt = ? WHERE operation_id = ? AND subject = ?')
+    async updateFormatting(op, coordinationEvent) {
+      return db.transaction(()=>{if (db.prepare('UPDATE drive_formatting_operations SET state = ?,receipt = ? WHERE operation_id = ? AND subject = ?')
         .run(op.state, JSON.stringify(op), op.operationId, op.subject).changes !== 1) throw new Error('Formatting receipt unavailable');
+      writers.finishLegacy('drive_formatting_operations',op,coordinationEvent);})();
     },
     async getSharing(operationId) {
       const row = db.prepare('SELECT state,receipt FROM drive_sharing_operations WHERE operation_id = ?').get(operationId);
@@ -90,11 +97,11 @@ export function createBbStore(db, migrate) {
     async claimSharing(operationId, fileId) {
       return claimSharingAccess(db, fileId, () =>
         db.prepare("UPDATE OR IGNORE drive_sharing_operations SET state = 'reviewing' WHERE operation_id = ? AND file_id = ? AND state = 'proposed'")
-          .run(operationId, fileId).changes === 1);
+          .run(operationId, fileId).changes === 1, operationId);
     },
     async startSharingWrite(op) {
-      return db.prepare("UPDATE drive_sharing_operations SET state = 'writing', receipt = ? WHERE operation_id = ? AND subject = ? AND state = 'reviewing'")
-        .run(JSON.stringify({ ...op, state: 'writing' }), op.operationId, op.subject).changes === 1;
+      return db.transaction(()=>{if(!writers.compatible('drive_sharing_operations',op,'sharing'))return false;return db.prepare("UPDATE drive_sharing_operations SET state = 'writing', receipt = ? WHERE operation_id = ? AND subject = ? AND state = 'reviewing'")
+        .run(JSON.stringify({ ...op, state: 'writing' }), op.operationId, op.subject).changes === 1;})();
     },
     async cancelSharingReview(operationId) {
       return db.prepare("UPDATE drive_sharing_operations SET state = 'cancelled' WHERE operation_id = ? AND state = 'reviewing'").run(operationId).changes === 1;
@@ -108,38 +115,60 @@ export function createBbStore(db, migrate) {
       return item ? JSON.parse(item.receipt) : null;
     },
     async reserveCreation(op) {
+      if (op.kind==='copy' && !writers.compatible('docs_creations',op,'copy')) return false;
       return db.prepare('INSERT OR IGNORE INTO docs_creations (operation_id,subject,receipt) VALUES (?,?,?)')
         .run(op.operationId, op.subject, JSON.stringify(op)).changes === 1;
     },
     async reserveSharedCreation(op) {
-      return claimCreationAccess(db, op, () => db.prepare('INSERT OR IGNORE INTO docs_creations (operation_id,subject,receipt) VALUES (?,?,?)')
-        .run(op.operationId, op.subject, JSON.stringify(op)).changes === 1);
+      return writers.acquire('docs_creations',op,'nativeCreate',()=>claimCreationAccess(db, op, () => db.prepare('INSERT OR IGNORE INTO docs_creations (operation_id,subject,receipt) VALUES (?,?,?)')
+        .run(op.operationId, op.subject, JSON.stringify(op)).changes === 1));
     },
     async claimUploadReview(op) {
       return claimCreationAccess(db, op, () => db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
         AND json_extract(receipt, '$.kind') = 'upload' AND json_extract(receipt, '$.claimState') = 'proposed'`)
         .run(JSON.stringify(op), op.operationId, op.subject).changes === 1);
     },
-    async startSharedCreation(op) {
-      return db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
-        AND json_extract(receipt, '$.claimState') = 'reviewing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1;
+    async beginNativeCreation(op) { return writers.acquire('docs_creations',op,'nativeCreate'); },
+    async startNativeCreation(op) { return writers.start('docs_creations',op,'create'); },
+    async finishNativeCreation(op) {
+      return db.transaction(()=>{const current=writers.get('docs_creations',op.operationId);writerCheck(current?.subject===op.subject,'owner');if(current.disposition==='released')return current;return writers.fact('docs_creations',op.operationId,{kind:'legacyVerified'});})();
     },
-    async attachSharedCreation(op) {
-      return claimCreationAccess(db, op, () => db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
-        AND json_extract(receipt, '$.claimState') = 'writing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1);
+    async stopNativeCreation(op, event) {
+      return db.transaction(()=>{
+        const current=writers.get('docs_creations',op.operationId);writerCheck(current?.subject===op.subject,'owner');if(current.disposition==='released')return current;
+        if(event)return writers.fact('docs_creations',op.operationId,event);
+        if(!current.createdId&&current.submission==='not_sent')return writers.fact('docs_creations',op.operationId,{kind:'knownNotSent'});
+        const id=op.documentId??op.spreadsheetId;if(id&&!current.createdId)writers.returned('docs_creations',op,'nativeCreate',{kind:'observedId',id},()=>true);
+        return writers.fact('docs_creations',op.operationId,{kind:'stopped'});
+      })();
+    },
+    async attachNativeCreated(op, created) {
+      return writers.returned('docs_creations',op,'nativeCreate',{kind:'ack',stage:'create',documentId:created?.id,replyDigest:writerDigest(created)},()=>db.prepare('UPDATE docs_creations SET receipt=? WHERE operation_id=? AND subject=?').run(JSON.stringify(op),op.operationId,op.subject).changes===1);
+    },
+    async startSharedCreation(op) {
+      const write=()=>db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
+        AND json_extract(receipt, '$.claimState') = 'reviewing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1;
+      return writers.get('docs_creations',op.operationId)?writers.start('docs_creations',op,'create',write):write();
+    },
+    async attachSharedCreation(op, created) {
+      const save=()=>db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
+        AND json_extract(receipt, '$.claimState') = 'writing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1;
+      if(writers.get('docs_creations',op.operationId))return writers.returned('docs_creations',op,'nativeCreate',created?{kind:'ack',stage:'create',documentId:created.id,replyDigest:writerDigest(created)}:{kind:'observedId',id:op.documentId??op.spreadsheetId},()=>save());
+      // A returned ID/ack remains durable even if its access attachment conflicts.
+      return db.transaction(()=>{if(!save())return false;return claimCreationAccess(db,op,()=>true);})();
     },
     async attachUploadObservation(op) {
-      return claimCreationAccess(db, op, () => db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
+      return db.transaction(()=>{const saved=db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
         AND json_extract(receipt, '$.kind') = 'upload' AND json_extract(receipt, '$.claimState') IN ('writing','uncertain')`)
-        .run(JSON.stringify(op), op.operationId, op.subject).changes === 1);
+        .run(JSON.stringify(op), op.operationId, op.subject).changes === 1;if(!saved)return false;return claimCreationAccess(db,op,()=>true);})();
     },
     async cancelSharedCreationReview(op) {
-      return db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
-        AND json_extract(receipt, '$.claimState') = 'reviewing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1;
+      return db.transaction(()=>{const changed=db.prepare(`UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?
+        AND json_extract(receipt, '$.claimState') = 'reviewing'`).run(JSON.stringify(op), op.operationId, op.subject).changes === 1;if(changed)writers.finishLegacy('docs_creations',op);return changed;})();
     },
     async updateCreation(op) {
-      if (db.prepare('UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?')
-        .run(JSON.stringify(op), op.operationId, op.subject).changes !== 1) throw new Error('Creation receipt unavailable');
+      return db.transaction(()=>{if (db.prepare('UPDATE docs_creations SET receipt = ? WHERE operation_id = ? AND subject = ?')
+        .run(JSON.stringify(op), op.operationId, op.subject).changes !== 1) throw new Error('Creation receipt unavailable');writers.finishLegacy('docs_creations',op);})();
     },
     async accounts() { return db.prepare('SELECT * FROM drive_accounts ORDER BY email').all().map(row); },
     async byEmail(email) { return row(db.prepare('SELECT * FROM drive_accounts WHERE email = ? COLLATE NOCASE').get(email)); },

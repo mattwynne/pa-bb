@@ -1,3 +1,4 @@
+import { createWriterStore } from './writer-coordination-store.mjs';
 import { claimFilingAccess } from './access-claims.mjs';
 // Plugin-owned receipts; append the migration after every already-applied entry.
 export const FILING_MIGRATION = `CREATE TABLE drive_filing_operations (
@@ -22,8 +23,8 @@ export function createFilingStore(db) {
           .run(op.operationId, op.subject).changes === 1);
     },
     async start(op) {
-      return db.prepare("UPDATE drive_filing_operations SET state = 'writing',receipt = ? WHERE operation_id = ? AND subject = ? AND state = 'reviewing'")
-        .run(JSON.stringify({ ...op, state: 'writing', writeAttempted: true }), op.operationId, op.subject).changes === 1;
+      return db.transaction(()=>{if(!createWriterStore(db).compatible('drive_filing_operations',op,'filing'))return false;return db.prepare("UPDATE drive_filing_operations SET state = 'writing',receipt = ? WHERE operation_id = ? AND subject = ? AND state = 'reviewing'")
+        .run(JSON.stringify({ ...op, state: 'writing', writeAttempted: true }), op.operationId, op.subject).changes === 1;})();
     },
     async save(op) {
       if (db.prepare('UPDATE drive_filing_operations SET state = ?,receipt = ? WHERE operation_id = ? AND subject = ?')

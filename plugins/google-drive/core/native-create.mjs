@@ -142,27 +142,31 @@ export function createNativeCreationService({ store, drive, creation, assessment
     }
     let stage = 'reserve';
     try {
+      if(store.beginNativeCreation&&!await store.beginNativeCreation(op))throw creationError('busy');
       op.writeAttempted = true;
       await save(op);
+      if(store.startNativeCreation&&!await store.startNativeCreation(op))throw creationError('busy');
       stage = 'create';
       const created = await writer.create({ operationId: op.operationId, title: args.title, folderId: destinationId }, signal);
       if (!fileId(created?.id)) throw docsError('unsupported_document');
       op[spec.idField] = created.id;
       op.outcome = 'created';
-      await save(op); // No population without durable known ID.
+      await save(op); // Retain the legacy durable-ID boundary and its failures.
+      if(store.attachNativeCreated&&!await store.attachNativeCreated(op,created))throw creationError('busy'); // Ack/attachment must also persist before population.
       stage = 'populate';
       await spec.populate(writer, record, op, args, signal);
       stage = 'verify';
       if (!await verify(record, op)) throw docsError('unsupported_document');
       op.outcome = 'verified';
       await save(op);
+      await store.finishNativeCreation?.(op);
       return result(op);
     } catch (error) {
       diagnose(`${spec.stage}_${stage}`, error);
       op.outcome = resourceId(op) ? (stage === 'verify' ? 'verification_unavailable' : 'incomplete') : 'uncertain';
       if (stage === 'create' && error?.creationRejected === true) op.outcome = 'not_created';
       if (stage === 'reserve' || (stage === 'create' && error?.creationWriteAttempted === false)) { op.outcome = 'not_created'; op.writeAttempted = false; }
-      try { await save(op); } catch (storageError) { diagnose(`${spec.stage}_receipt`, storageError); }
+      try { await save(op); await store.stopNativeCreation?.(op,!resourceId(op)&&(stage==='reserve'||stage==='create'&&error?.creationWriteAttempted===false)?{kind:'knownNotSent'}:undefined); } catch (storageError) { diagnose(`${spec.stage}_receipt`, storageError); }
       return result(op);
     }
   }
@@ -211,7 +215,7 @@ export function createNativeCreationService({ store, drive, creation, assessment
       const created = await writer.create({ operationId: op.operationId, title: args.title, folderId: destinationId }, signal);
       if (!fileId(created?.id)) throw docsError('unsupported_document');
       op[spec.idField] = created.id; op.createAcknowledged = true; op.contextIds = [...new Set([...op.contextIds, created.id])];
-      if (!await store.attachSharedCreation(op)) throw creationError('busy');
+      if (!await store.attachSharedCreation(op,created)) throw creationError('busy');
       stage = 'prepopulate';
       await spec.populate({ ...writer, async populate(input, writeSignal) {
         const fresh = await recheck();
@@ -222,13 +226,13 @@ export function createNativeCreationService({ store, drive, creation, assessment
       stage = 'verify';
       if (!await verify(record, op) || (await assessment.assessDestination(record, destinationId)).fingerprint !== op.destinationFingerprint
         || !await assessment.verifyCreated(record, op[spec.idField], destinationId, spec.mimeType, op.allowedAccess)) throw docsError('unsupported_document');
-      op.claimState = 'verified'; op.outcome = 'verified'; await save(op); return result(op);
+      op.claimState = 'verified'; op.outcome = 'verified'; await save(op); await store.finishNativeCreation?.(op); return result(op);
     } catch (error) {
       diagnose(`${spec.stage}_${stage}`, error);
       if (['approval', 'revalidate'].includes(stage) || (stage === 'create' && (error?.creationRejected || error?.creationWriteAttempted === false)) || stage === 'prepopulate') {
         op.claimState = 'not_submitted'; op.outcome = resourceId(op) ? 'incomplete' : 'not_created';
       } else { op.claimState = 'uncertain'; op.outcome = 'uncertain'; }
-      try { await save(op); } catch (storageError) { diagnose(`${spec.stage}_receipt`, storageError); }
+      try { await save(op); await store.stopNativeCreation?.(op,!resourceId(op)&&(['approval','revalidate'].includes(stage)||stage==='create'&&error?.creationWriteAttempted===false)?{kind:'knownNotSent'}:undefined); } catch (storageError) { diagnose(`${spec.stage}_receipt`, storageError); }
       return result(op);
     } finally { active.delete(op.operationId); }
   }
