@@ -1,0 +1,3260 @@
+{
+  "provenance": {
+    "source": "selection-fixtures.mjs: original literal provider coordinates and expected selections",
+    "authorship": "Inert independently authored raw source/outline/links/intervals/nodes; no production oracle imports"
+  },
+  "caseId": "C004.depth__read.bounds",
+  "variant": "depth",
+  "outcome": "bounds",
+  "document": {
+    "documentId": "doc-s02",
+    "revisionId": "docs-r1",
+    "suggestionsViewMode": "SUGGESTIONS_INLINE",
+    "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+    "tabs": [
+      {
+        "tabProperties": {
+          "tabId": "tab-d",
+          "title": "Main",
+          "index": 7
+        },
+        "documentTab": {
+          "body": {
+            "content": [
+              {
+                "startIndex": 1,
+                "endIndex": 3,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "id-A"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 1,
+                      "endIndex": 3,
+                      "textRun": {
+                        "content": "A\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 3,
+                "endIndex": 5,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 3,
+                      "endIndex": 5,
+                      "textRun": {
+                        "content": "x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 5,
+                "endIndex": 7,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_3",
+                    "headingId": "id-B"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 5,
+                      "endIndex": 7,
+                      "textRun": {
+                        "content": "B\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 7,
+                "endIndex": 9,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 7,
+                      "endIndex": 9,
+                      "textRun": {
+                        "content": "y\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 9,
+                "endIndex": 11,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_2",
+                    "headingId": "id-C"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 9,
+                      "endIndex": 11,
+                      "textRun": {
+                        "content": "C\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 11,
+                "endIndex": 13,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 11,
+                      "endIndex": 13,
+                      "textRun": {
+                        "content": "z\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 13,
+                "endIndex": 15,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "id-D"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 13,
+                      "endIndex": 15,
+                      "textRun": {
+                        "content": "D\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 15,
+                "endIndex": 17,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 15,
+                      "endIndex": 17,
+                      "textRun": {
+                        "content": "w\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 17,
+                "endIndex": 51,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-0 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 17,
+                      "endIndex": 51,
+                      "textRun": {
+                        "content": "Tail 0 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 51,
+                "endIndex": 85,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-1 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 51,
+                      "endIndex": 85,
+                      "textRun": {
+                        "content": "Tail 1 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 85,
+                "endIndex": 119,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-2 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 85,
+                      "endIndex": 119,
+                      "textRun": {
+                        "content": "Tail 2 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 119,
+                "endIndex": 153,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-3 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 119,
+                      "endIndex": 153,
+                      "textRun": {
+                        "content": "Tail 3 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 153,
+                "endIndex": 187,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-4 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 153,
+                      "endIndex": 187,
+                      "textRun": {
+                        "content": "Tail 4 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 187,
+                "endIndex": 221,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-5 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 187,
+                      "endIndex": 221,
+                      "textRun": {
+                        "content": "Tail 5 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 221,
+                "endIndex": 255,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-6 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 221,
+                      "endIndex": 255,
+                      "textRun": {
+                        "content": "Tail 6 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 255,
+                "endIndex": 289,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-7 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 255,
+                      "endIndex": 289,
+                      "textRun": {
+                        "content": "Tail 7 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 289,
+                "endIndex": 323,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-8 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 289,
+                      "endIndex": 323,
+                      "textRun": {
+                        "content": "Tail 8 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 323,
+                "endIndex": 357,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-9 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 323,
+                      "endIndex": 357,
+                      "textRun": {
+                        "content": "Tail 9 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 357,
+                "endIndex": 391,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-10 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 357,
+                      "endIndex": 391,
+                      "textRun": {
+                        "content": "Tail 10 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 391,
+                "endIndex": 425,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-11 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 391,
+                      "endIndex": 425,
+                      "textRun": {
+                        "content": "Tail 11 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 425,
+                "endIndex": 459,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-12 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 425,
+                      "endIndex": 459,
+                      "textRun": {
+                        "content": "Tail 12 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 459,
+                "endIndex": 493,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-13 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 459,
+                      "endIndex": 493,
+                      "textRun": {
+                        "content": "Tail 13 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 493,
+                "endIndex": 527,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-14 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 493,
+                      "endIndex": 527,
+                      "textRun": {
+                        "content": "Tail 14 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 527,
+                "endIndex": 561,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-15 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 527,
+                      "endIndex": 561,
+                      "textRun": {
+                        "content": "Tail 15 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 561,
+                "endIndex": 595,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-16 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 561,
+                      "endIndex": 595,
+                      "textRun": {
+                        "content": "Tail 16 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 595,
+                "endIndex": 629,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-17 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 595,
+                      "endIndex": 629,
+                      "textRun": {
+                        "content": "Tail 17 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 629,
+                "endIndex": 663,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-18 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 629,
+                      "endIndex": 663,
+                      "textRun": {
+                        "content": "Tail 18 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 663,
+                "endIndex": 697,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-19 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 663,
+                      "endIndex": 697,
+                      "textRun": {
+                        "content": "Tail 19 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 697,
+                "endIndex": 731,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-20 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 697,
+                      "endIndex": 731,
+                      "textRun": {
+                        "content": "Tail 20 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 731,
+                "endIndex": 765,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-21 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 731,
+                      "endIndex": 765,
+                      "textRun": {
+                        "content": "Tail 21 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 765,
+                "endIndex": 799,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-22 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 765,
+                      "endIndex": 799,
+                      "textRun": {
+                        "content": "Tail 22 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 799,
+                "endIndex": 833,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-23 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 799,
+                      "endIndex": 833,
+                      "textRun": {
+                        "content": "Tail 23 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 833,
+                "endIndex": 867,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-24 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 833,
+                      "endIndex": 867,
+                      "textRun": {
+                        "content": "Tail 24 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 867,
+                "endIndex": 901,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-25 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 867,
+                      "endIndex": 901,
+                      "textRun": {
+                        "content": "Tail 25 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 901,
+                "endIndex": 935,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-26 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 901,
+                      "endIndex": 935,
+                      "textRun": {
+                        "content": "Tail 26 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 935,
+                "endIndex": 969,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-27 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 935,
+                      "endIndex": 969,
+                      "textRun": {
+                        "content": "Tail 27 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 969,
+                "endIndex": 1003,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-28 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 969,
+                      "endIndex": 1003,
+                      "textRun": {
+                        "content": "Tail 28 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 1003,
+                "endIndex": 1037,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-29 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 1003,
+                      "endIndex": 1037,
+                      "textRun": {
+                        "content": "Tail 29 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 1037,
+                "endIndex": 1071,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-30 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 1037,
+                      "endIndex": 1071,
+                      "textRun": {
+                        "content": "Tail 30 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 1071,
+                "endIndex": 1105,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-31 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 1071,
+                      "endIndex": 1105,
+                      "textRun": {
+                        "content": "Tail 31 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "id": "doc-s02",
+    "name": "Original selection",
+    "mimeType": "application/vnd.google-apps.document",
+    "version": "17",
+    "capabilities": {
+      "canEdit": true
+    }
+  },
+  "outline": [
+    {
+      "node": "s02-a:2",
+      "providerId": "id-A",
+      "title": "A",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 1,
+        "end": 13
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-A",
+      "path": [
+        "A"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:14"
+      }
+    },
+    {
+      "node": "s02-a:6",
+      "providerId": "id-B",
+      "title": "B",
+      "level": 3,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 5,
+        "end": 9
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-B",
+      "path": [
+        "A",
+        "B"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:10"
+      }
+    },
+    {
+      "node": "s02-a:10",
+      "providerId": "id-C",
+      "title": "C",
+      "level": 2,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 9,
+        "end": 13
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-C",
+      "path": [
+        "A",
+        "C"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:14"
+      }
+    },
+    {
+      "node": "s02-a:14",
+      "providerId": "id-D",
+      "title": "D",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 13,
+        "end": 17
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-D",
+      "path": [
+        "D"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:18"
+      }
+    },
+    {
+      "node": "s02-a:18",
+      "providerId": "tail-0 /😀",
+      "title": "Tail 0 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 17,
+        "end": 85
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-0%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 0 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:22"
+      }
+    },
+    {
+      "node": "s02-a:20",
+      "providerId": "tail-1 /😀",
+      "title": "Tail 1 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 51,
+        "end": 85
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-1%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 0 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+        "Tail 1 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:22"
+      }
+    },
+    {
+      "node": "s02-a:22",
+      "providerId": "tail-2 /😀",
+      "title": "Tail 2 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 85,
+        "end": 153
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-2%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 2 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:26"
+      }
+    },
+    {
+      "node": "s02-a:24",
+      "providerId": "tail-3 /😀",
+      "title": "Tail 3 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 119,
+        "end": 153
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-3%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 2 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+        "Tail 3 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:26"
+      }
+    },
+    {
+      "node": "s02-a:26",
+      "providerId": "tail-4 /😀",
+      "title": "Tail 4 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 153,
+        "end": 221
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-4%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 4 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:30"
+      }
+    },
+    {
+      "node": "s02-a:28",
+      "providerId": "tail-5 /😀",
+      "title": "Tail 5 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 187,
+        "end": 221
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-5%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 4 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+        "Tail 5 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:30"
+      }
+    },
+    {
+      "node": "s02-a:30",
+      "providerId": "tail-6 /😀",
+      "title": "Tail 6 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 221,
+        "end": 289
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-6%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 6 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:34"
+      }
+    },
+    {
+      "node": "s02-a:32",
+      "providerId": "tail-7 /😀",
+      "title": "Tail 7 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 255,
+        "end": 289
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-7%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 6 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+        "Tail 7 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:34"
+      }
+    },
+    {
+      "node": "s02-a:34",
+      "providerId": "tail-8 /😀",
+      "title": "Tail 8 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 289,
+        "end": 357
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-8%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 8 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:38"
+      }
+    },
+    {
+      "node": "s02-a:36",
+      "providerId": "tail-9 /😀",
+      "title": "Tail 9 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 323,
+        "end": 357
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-9%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 8 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+        "Tail 9 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:38"
+      }
+    },
+    {
+      "node": "s02-a:38",
+      "providerId": "tail-10 /😀",
+      "title": "Tail 10 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 357,
+        "end": 425
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-10%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 10 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:42"
+      }
+    },
+    {
+      "node": "s02-a:40",
+      "providerId": "tail-11 /😀",
+      "title": "Tail 11 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 391,
+        "end": 425
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-11%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 10 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 11 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:42"
+      }
+    },
+    {
+      "node": "s02-a:42",
+      "providerId": "tail-12 /😀",
+      "title": "Tail 12 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 425,
+        "end": 493
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-12%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 12 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:46"
+      }
+    },
+    {
+      "node": "s02-a:44",
+      "providerId": "tail-13 /😀",
+      "title": "Tail 13 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 459,
+        "end": 493
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-13%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 12 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 13 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:46"
+      }
+    },
+    {
+      "node": "s02-a:46",
+      "providerId": "tail-14 /😀",
+      "title": "Tail 14 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 493,
+        "end": 561
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-14%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 14 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:50"
+      }
+    },
+    {
+      "node": "s02-a:48",
+      "providerId": "tail-15 /😀",
+      "title": "Tail 15 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 527,
+        "end": 561
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-15%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 14 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 15 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:50"
+      }
+    },
+    {
+      "node": "s02-a:50",
+      "providerId": "tail-16 /😀",
+      "title": "Tail 16 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 561,
+        "end": 629
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-16%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 16 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:54"
+      }
+    },
+    {
+      "node": "s02-a:52",
+      "providerId": "tail-17 /😀",
+      "title": "Tail 17 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 595,
+        "end": 629
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-17%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 16 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 17 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:54"
+      }
+    },
+    {
+      "node": "s02-a:54",
+      "providerId": "tail-18 /😀",
+      "title": "Tail 18 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 629,
+        "end": 697
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-18%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 18 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:58"
+      }
+    },
+    {
+      "node": "s02-a:56",
+      "providerId": "tail-19 /😀",
+      "title": "Tail 19 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 663,
+        "end": 697
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-19%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 18 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 19 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:58"
+      }
+    },
+    {
+      "node": "s02-a:58",
+      "providerId": "tail-20 /😀",
+      "title": "Tail 20 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 697,
+        "end": 765
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-20%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 20 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:62"
+      }
+    },
+    {
+      "node": "s02-a:60",
+      "providerId": "tail-21 /😀",
+      "title": "Tail 21 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 731,
+        "end": 765
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-21%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 20 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 21 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:62"
+      }
+    },
+    {
+      "node": "s02-a:62",
+      "providerId": "tail-22 /😀",
+      "title": "Tail 22 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 765,
+        "end": 833
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-22%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 22 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:66"
+      }
+    },
+    {
+      "node": "s02-a:64",
+      "providerId": "tail-23 /😀",
+      "title": "Tail 23 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 799,
+        "end": 833
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-23%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 22 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 23 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:66"
+      }
+    },
+    {
+      "node": "s02-a:66",
+      "providerId": "tail-24 /😀",
+      "title": "Tail 24 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 833,
+        "end": 901
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-24%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 24 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:70"
+      }
+    },
+    {
+      "node": "s02-a:68",
+      "providerId": "tail-25 /😀",
+      "title": "Tail 25 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 867,
+        "end": 901
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-25%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 24 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 25 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:70"
+      }
+    },
+    {
+      "node": "s02-a:70",
+      "providerId": "tail-26 /😀",
+      "title": "Tail 26 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 901,
+        "end": 969
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-26%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 26 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:74"
+      }
+    },
+    {
+      "node": "s02-a:72",
+      "providerId": "tail-27 /😀",
+      "title": "Tail 27 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 935,
+        "end": 969
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-27%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 26 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 27 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:74"
+      }
+    },
+    {
+      "node": "s02-a:74",
+      "providerId": "tail-28 /😀",
+      "title": "Tail 28 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 969,
+        "end": 1037
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-28%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 28 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:78"
+      }
+    },
+    {
+      "node": "s02-a:76",
+      "providerId": "tail-29 /😀",
+      "title": "Tail 29 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 1003,
+        "end": 1037
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-29%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 28 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 29 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:78"
+      }
+    },
+    {
+      "node": "s02-a:78",
+      "providerId": "tail-30 /😀",
+      "title": "Tail 30 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 1037,
+        "end": 1105
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-30%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 30 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "segmentBoundary",
+        "node": "s02-a:80"
+      }
+    },
+    {
+      "node": "s02-a:80",
+      "providerId": "tail-31 /😀",
+      "title": "Tail 31 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 1071,
+        "end": 1105
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-31%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 30 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 31 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "segmentBoundary",
+        "node": "s02-a:80"
+      }
+    }
+  ],
+  "checks": [],
+  "operation": "outline",
+  "depth": 32,
+  "pageBytes": 3000,
+  "expectedOutline": [
+    {
+      "node": "s02-a:2",
+      "providerId": "id-A",
+      "title": "A",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 1,
+        "end": 13
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-A",
+      "path": [
+        "A"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:14"
+      }
+    },
+    {
+      "node": "s02-a:6",
+      "providerId": "id-B",
+      "title": "B",
+      "level": 3,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 5,
+        "end": 9
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-B",
+      "path": [
+        "A",
+        "B"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:10"
+      }
+    },
+    {
+      "node": "s02-a:10",
+      "providerId": "id-C",
+      "title": "C",
+      "level": 2,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 9,
+        "end": 13
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-C",
+      "path": [
+        "A",
+        "C"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:14"
+      }
+    },
+    {
+      "node": "s02-a:14",
+      "providerId": "id-D",
+      "title": "D",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 13,
+        "end": 17
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-D",
+      "path": [
+        "D"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:18"
+      }
+    },
+    {
+      "node": "s02-a:18",
+      "providerId": "tail-0 /😀",
+      "title": "Tail 0 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 17,
+        "end": 85
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-0%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 0 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:22"
+      }
+    },
+    {
+      "node": "s02-a:20",
+      "providerId": "tail-1 /😀",
+      "title": "Tail 1 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 51,
+        "end": 85
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-1%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 0 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+        "Tail 1 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:22"
+      }
+    },
+    {
+      "node": "s02-a:22",
+      "providerId": "tail-2 /😀",
+      "title": "Tail 2 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 85,
+        "end": 153
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-2%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 2 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:26"
+      }
+    },
+    {
+      "node": "s02-a:24",
+      "providerId": "tail-3 /😀",
+      "title": "Tail 3 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 119,
+        "end": 153
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-3%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 2 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+        "Tail 3 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:26"
+      }
+    },
+    {
+      "node": "s02-a:26",
+      "providerId": "tail-4 /😀",
+      "title": "Tail 4 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 153,
+        "end": 221
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-4%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 4 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:30"
+      }
+    },
+    {
+      "node": "s02-a:28",
+      "providerId": "tail-5 /😀",
+      "title": "Tail 5 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 187,
+        "end": 221
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-5%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 4 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+        "Tail 5 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:30"
+      }
+    },
+    {
+      "node": "s02-a:30",
+      "providerId": "tail-6 /😀",
+      "title": "Tail 6 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 221,
+        "end": 289
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-6%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 6 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:34"
+      }
+    },
+    {
+      "node": "s02-a:32",
+      "providerId": "tail-7 /😀",
+      "title": "Tail 7 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 255,
+        "end": 289
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-7%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 6 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+        "Tail 7 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:34"
+      }
+    },
+    {
+      "node": "s02-a:34",
+      "providerId": "tail-8 /😀",
+      "title": "Tail 8 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 289,
+        "end": 357
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-8%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 8 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:38"
+      }
+    },
+    {
+      "node": "s02-a:36",
+      "providerId": "tail-9 /😀",
+      "title": "Tail 9 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 323,
+        "end": 357
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-9%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 8 😀😀😀😀😀😀😀😀😀😀😀😀xx",
+        "Tail 9 😀😀😀😀😀😀😀😀😀😀😀😀xx"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:38"
+      }
+    },
+    {
+      "node": "s02-a:38",
+      "providerId": "tail-10 /😀",
+      "title": "Tail 10 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 357,
+        "end": 425
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-10%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 10 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:42"
+      }
+    },
+    {
+      "node": "s02-a:40",
+      "providerId": "tail-11 /😀",
+      "title": "Tail 11 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 391,
+        "end": 425
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-11%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 10 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 11 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:42"
+      }
+    },
+    {
+      "node": "s02-a:42",
+      "providerId": "tail-12 /😀",
+      "title": "Tail 12 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 425,
+        "end": 493
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-12%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 12 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:46"
+      }
+    },
+    {
+      "node": "s02-a:44",
+      "providerId": "tail-13 /😀",
+      "title": "Tail 13 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 459,
+        "end": 493
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-13%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 12 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 13 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:46"
+      }
+    },
+    {
+      "node": "s02-a:46",
+      "providerId": "tail-14 /😀",
+      "title": "Tail 14 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 493,
+        "end": 561
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-14%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 14 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:50"
+      }
+    },
+    {
+      "node": "s02-a:48",
+      "providerId": "tail-15 /😀",
+      "title": "Tail 15 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 527,
+        "end": 561
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-15%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 14 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 15 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:50"
+      }
+    },
+    {
+      "node": "s02-a:50",
+      "providerId": "tail-16 /😀",
+      "title": "Tail 16 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 561,
+        "end": 629
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-16%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 16 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:54"
+      }
+    },
+    {
+      "node": "s02-a:52",
+      "providerId": "tail-17 /😀",
+      "title": "Tail 17 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 595,
+        "end": 629
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-17%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 16 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 17 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:54"
+      }
+    },
+    {
+      "node": "s02-a:54",
+      "providerId": "tail-18 /😀",
+      "title": "Tail 18 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 629,
+        "end": 697
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-18%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 18 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:58"
+      }
+    },
+    {
+      "node": "s02-a:56",
+      "providerId": "tail-19 /😀",
+      "title": "Tail 19 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 663,
+        "end": 697
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-19%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 18 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 19 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:58"
+      }
+    },
+    {
+      "node": "s02-a:58",
+      "providerId": "tail-20 /😀",
+      "title": "Tail 20 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 697,
+        "end": 765
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-20%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 20 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:62"
+      }
+    },
+    {
+      "node": "s02-a:60",
+      "providerId": "tail-21 /😀",
+      "title": "Tail 21 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 731,
+        "end": 765
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-21%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 20 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 21 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:62"
+      }
+    },
+    {
+      "node": "s02-a:62",
+      "providerId": "tail-22 /😀",
+      "title": "Tail 22 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 765,
+        "end": 833
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-22%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 22 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:66"
+      }
+    },
+    {
+      "node": "s02-a:64",
+      "providerId": "tail-23 /😀",
+      "title": "Tail 23 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 799,
+        "end": 833
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-23%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 22 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 23 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:66"
+      }
+    },
+    {
+      "node": "s02-a:66",
+      "providerId": "tail-24 /😀",
+      "title": "Tail 24 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 833,
+        "end": 901
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-24%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 24 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:70"
+      }
+    },
+    {
+      "node": "s02-a:68",
+      "providerId": "tail-25 /😀",
+      "title": "Tail 25 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 867,
+        "end": 901
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-25%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 24 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 25 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:70"
+      }
+    },
+    {
+      "node": "s02-a:70",
+      "providerId": "tail-26 /😀",
+      "title": "Tail 26 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 901,
+        "end": 969
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-26%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 26 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:74"
+      }
+    },
+    {
+      "node": "s02-a:72",
+      "providerId": "tail-27 /😀",
+      "title": "Tail 27 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 935,
+        "end": 969
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-27%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 26 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 27 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:74"
+      }
+    },
+    {
+      "node": "s02-a:74",
+      "providerId": "tail-28 /😀",
+      "title": "Tail 28 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 969,
+        "end": 1037
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-28%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 28 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:78"
+      }
+    },
+    {
+      "node": "s02-a:76",
+      "providerId": "tail-29 /😀",
+      "title": "Tail 29 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 1003,
+        "end": 1037
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-29%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 28 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 29 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:78"
+      }
+    },
+    {
+      "node": "s02-a:78",
+      "providerId": "tail-30 /😀",
+      "title": "Tail 30 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 1037,
+        "end": 1105
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-30%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 30 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "segmentBoundary",
+        "node": "s02-a:80"
+      }
+    },
+    {
+      "node": "s02-a:80",
+      "providerId": "tail-31 /😀",
+      "title": "Tail 31 😀😀😀😀😀😀😀😀😀😀😀😀x",
+      "level": 6,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 1071,
+        "end": 1105
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=tail-31%20%2F%F0%9F%98%80",
+      "path": [
+        "Tail 30 😀😀😀😀😀😀😀😀😀😀😀😀x",
+        "Tail 31 😀😀😀😀😀😀😀😀😀😀😀😀x"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "segmentBoundary",
+        "node": "s02-a:80"
+      }
+    }
+  ],
+  "outlineProbes": [],
+  "invalid": null,
+  "invalidChecks": [],
+  "invalidDocument": {
+    "documentId": "doc-s02",
+    "revisionId": "docs-r1",
+    "suggestionsViewMode": "SUGGESTIONS_INLINE",
+    "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+    "tabs": [
+      {
+        "tabProperties": {
+          "tabId": "tab-d",
+          "title": "Main",
+          "index": 7
+        },
+        "documentTab": {
+          "body": {
+            "content": [
+              {
+                "startIndex": 1,
+                "endIndex": 3,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "id-A"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 1,
+                      "endIndex": 3,
+                      "textRun": {
+                        "content": "A\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 3,
+                "endIndex": 5,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 3,
+                      "endIndex": 5,
+                      "textRun": {
+                        "content": "x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 5,
+                "endIndex": 7,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_3",
+                    "headingId": "id-B"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 5,
+                      "endIndex": 7,
+                      "textRun": {
+                        "content": "B\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 7,
+                "endIndex": 9,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 7,
+                      "endIndex": 9,
+                      "textRun": {
+                        "content": "y\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 9,
+                "endIndex": 11,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_2",
+                    "headingId": "id-C"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 9,
+                      "endIndex": 11,
+                      "textRun": {
+                        "content": "C\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 11,
+                "endIndex": 13,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 11,
+                      "endIndex": 13,
+                      "textRun": {
+                        "content": "z\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 13,
+                "endIndex": 15,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "id-D"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 13,
+                      "endIndex": 15,
+                      "textRun": {
+                        "content": "D\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 15,
+                "endIndex": 17,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 15,
+                      "endIndex": 17,
+                      "textRun": {
+                        "content": "w\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 17,
+                "endIndex": 51,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-0 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 17,
+                      "endIndex": 51,
+                      "textRun": {
+                        "content": "Tail 0 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 51,
+                "endIndex": 85,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-1 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 51,
+                      "endIndex": 85,
+                      "textRun": {
+                        "content": "Tail 1 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 85,
+                "endIndex": 119,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-2 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 85,
+                      "endIndex": 119,
+                      "textRun": {
+                        "content": "Tail 2 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 119,
+                "endIndex": 153,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-3 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 119,
+                      "endIndex": 153,
+                      "textRun": {
+                        "content": "Tail 3 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 153,
+                "endIndex": 187,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-4 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 153,
+                      "endIndex": 187,
+                      "textRun": {
+                        "content": "Tail 4 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 187,
+                "endIndex": 221,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-5 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 187,
+                      "endIndex": 221,
+                      "textRun": {
+                        "content": "Tail 5 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 221,
+                "endIndex": 255,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-6 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 221,
+                      "endIndex": 255,
+                      "textRun": {
+                        "content": "Tail 6 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 255,
+                "endIndex": 289,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-7 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 255,
+                      "endIndex": 289,
+                      "textRun": {
+                        "content": "Tail 7 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 289,
+                "endIndex": 323,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-8 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 289,
+                      "endIndex": 323,
+                      "textRun": {
+                        "content": "Tail 8 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 323,
+                "endIndex": 357,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-9 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 323,
+                      "endIndex": 357,
+                      "textRun": {
+                        "content": "Tail 9 😀😀😀😀😀😀😀😀😀😀😀😀xx\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 357,
+                "endIndex": 391,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-10 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 357,
+                      "endIndex": 391,
+                      "textRun": {
+                        "content": "Tail 10 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 391,
+                "endIndex": 425,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-11 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 391,
+                      "endIndex": 425,
+                      "textRun": {
+                        "content": "Tail 11 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 425,
+                "endIndex": 459,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-12 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 425,
+                      "endIndex": 459,
+                      "textRun": {
+                        "content": "Tail 12 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 459,
+                "endIndex": 493,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-13 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 459,
+                      "endIndex": 493,
+                      "textRun": {
+                        "content": "Tail 13 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 493,
+                "endIndex": 527,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-14 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 493,
+                      "endIndex": 527,
+                      "textRun": {
+                        "content": "Tail 14 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 527,
+                "endIndex": 561,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-15 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 527,
+                      "endIndex": 561,
+                      "textRun": {
+                        "content": "Tail 15 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 561,
+                "endIndex": 595,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-16 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 561,
+                      "endIndex": 595,
+                      "textRun": {
+                        "content": "Tail 16 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 595,
+                "endIndex": 629,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-17 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 595,
+                      "endIndex": 629,
+                      "textRun": {
+                        "content": "Tail 17 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 629,
+                "endIndex": 663,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-18 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 629,
+                      "endIndex": 663,
+                      "textRun": {
+                        "content": "Tail 18 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 663,
+                "endIndex": 697,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-19 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 663,
+                      "endIndex": 697,
+                      "textRun": {
+                        "content": "Tail 19 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 697,
+                "endIndex": 731,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-20 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 697,
+                      "endIndex": 731,
+                      "textRun": {
+                        "content": "Tail 20 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 731,
+                "endIndex": 765,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-21 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 731,
+                      "endIndex": 765,
+                      "textRun": {
+                        "content": "Tail 21 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 765,
+                "endIndex": 799,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-22 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 765,
+                      "endIndex": 799,
+                      "textRun": {
+                        "content": "Tail 22 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 799,
+                "endIndex": 833,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-23 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 799,
+                      "endIndex": 833,
+                      "textRun": {
+                        "content": "Tail 23 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 833,
+                "endIndex": 867,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-24 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 833,
+                      "endIndex": 867,
+                      "textRun": {
+                        "content": "Tail 24 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 867,
+                "endIndex": 901,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-25 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 867,
+                      "endIndex": 901,
+                      "textRun": {
+                        "content": "Tail 25 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 901,
+                "endIndex": 935,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-26 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 901,
+                      "endIndex": 935,
+                      "textRun": {
+                        "content": "Tail 26 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 935,
+                "endIndex": 969,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-27 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 935,
+                      "endIndex": 969,
+                      "textRun": {
+                        "content": "Tail 27 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 969,
+                "endIndex": 1003,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-28 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 969,
+                      "endIndex": 1003,
+                      "textRun": {
+                        "content": "Tail 28 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 1003,
+                "endIndex": 1037,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-29 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 1003,
+                      "endIndex": 1037,
+                      "textRun": {
+                        "content": "Tail 29 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 1037,
+                "endIndex": 1071,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "tail-30 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 1037,
+                      "endIndex": 1071,
+                      "textRun": {
+                        "content": "Tail 30 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 1071,
+                "endIndex": 1105,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_6",
+                    "headingId": "tail-31 /😀"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 1071,
+                      "endIndex": 1105,
+                      "textRun": {
+                        "content": "Tail 31 😀😀😀😀😀😀😀😀😀😀😀😀x\n"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "invalidInput": "doc-s02"
+}

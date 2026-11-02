@@ -1,6 +1,6 @@
 // Fixed production-bound local capture, analogous to the native execute wrapper.
 // Routes receive methods, never a callback/record constructor or writable log.
-import { resolveSelector as productionSelector } from '../../../core/docs-semantic/selectors.mjs';
+import { resolveSelector as productionSelector, parseDocument as productionParse, resolveScope as productionScope, evaluateLogicalIdentity as productionIdentity } from '../../../core/docs-semantic/selectors.mjs';
 import { evaluateWitness as productionWitness } from '../../../core/docs-semantic/coverage.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -18,6 +18,9 @@ export function localInvocationBoundary(store) {
   }
   return Object.freeze({
     resolveSelector(snapshot,scope,selector){return observe('resolveSelector',{scope,selector},snapshot,()=>productionSelector(snapshot,scope,selector));},
+    parseDocument(input){return observe('parseDocument',{input},null,()=>productionParse(input));},
+    resolveScope(snapshot,scope,urlTab){return observe('resolveScope',{scope,urlTab},snapshot,()=>productionScope(snapshot,scope,urlTab));},
+    evaluateLogicalIdentity(origin,destination,mapping,logicalSource){return observe('evaluateLogicalIdentity',{destination:modelBinding(destination),mapping,logicalSource},origin,()=>productionIdentity(origin,destination,mapping,logicalSource));},
     evaluateWitness(snapshot,fp,options){return observe('coverage.evaluateWitness',{footprint:fp,options},snapshot,()=>productionWitness(snapshot,fp,options));},
     getSnapshot(snapshotId,owner,now){return observe('semanticSnapshots.get',{snapshotId,owner,now},null,()=>get(snapshotId,owner,now));},
     records(){return copy(records);},

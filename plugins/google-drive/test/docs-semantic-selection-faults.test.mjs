@@ -1,0 +1,20 @@
+// Actual leaf-source mutations, not passing flags or per-case package copies.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {registerHooks} from 'node:module';
+import {materialize} from '../core/docs-semantic/model.mjs';
+import {selectionFixture,selectionOwner,selectionScope,sectionDocument,sectionOutline} from '../features/docs/coverage/selection-fixtures.mjs';
+import {identityFacts} from '../features/docs/coverage/selection-execution.mjs';
+const base=new URL('../core/docs-semantic/',import.meta.url),bind={snapshotId:'s02-a',...selectionOwner,documentId:'doc-s02',view:'inline',retrievedAt:0};
+const mutations=[
+ ['heading ID','model.mjs','providerId:ps.headingId',"providerId:'counterfeit'",m=>assert.deepEqual(m.materialize({document:sectionDocument(),metadata:{},binding:bind,reviewIncluded:true}).outline,sectionOutline())],
+ ['depth versus level','model.mjs','h.depth=ancestry.length','h.depth=h.level-1',m=>assert.deepEqual(m.materialize({document:sectionDocument(),metadata:{},binding:bind,reviewIncluded:true}).outline,sectionOutline())],
+ ['peer paragraph boundary','model.mjs','const peerExtent=next?nodes[next.node].extent:null','const peerExtent=next?next.extent:null',m=>{const d=sectionDocument();d.tabs[0].documentTab.body.content.push({startIndex:17,paragraph:{elements:[]}});assert.deepEqual(m.materialize({document:d,metadata:{},binding:bind,reviewIncluded:true}).outline[0].extent,{start:1,end:13});}],
+ ['section heading exclusion','selectors.mjs','const start=h.includeHeading?headingExtent.start:headingExtent.end','const start=headingExtent.start',m=>{const model=materialize({document:sectionDocument(),metadata:{},binding:bind,reviewIncluded:true});assert.deepEqual(m.resolveSelector(model,selectionScope,{section:{headingId:'id-B',includeHeading:false}}).nodes,['s02-a:8','s02-a:9']);}],
+ ['inclusive span','selectors.mjs','nodes=siblings.slice(i,j+1)','nodes=siblings.slice(i,j)',m=>{const model=materialize({document:sectionDocument(),metadata:{},binding:bind,reviewIncluded:true});assert.deepEqual(m.resolveSelector(model,selectionScope,{span:{from:'s02-a:4',to:'s02-a:10'}}).nodes,[4,6,8,10].map(n=>`s02-a:${n}`));}],
+ ['URL conflict','selectors.mjs',"requireValue(!urlTab||tabs.length===1&&tabs[0].providerId===urlTab,'conflict')","requireValue(true,'conflict')",m=>{const model=materialize({document:sectionDocument(),metadata:{},binding:bind,reviewIncluded:true});assert.throws(()=>m.resolveScope(model,selectionScope,'other'),e=>e.semanticCode==='conflict');}],
+ ['snapshot ordinal','selectors.mjs',"requireValue(selector.snapshotId===snapshot.binding.snapshotId,'snapshot')","requireValue(true,'snapshot')",m=>{const model=materialize({document:sectionDocument(),metadata:{},binding:bind,reviewIncluded:true});assert.throws(()=>m.resolveScope(model,{tabs:{ordinal:0,snapshotId:'old'},segments:[{kind:'body'}]}),e=>e.semanticCode==='snapshot');}],
+ ['identity uniqueness','selectors.mjs',"matching&&matching[1].length===1&&after.get(matching[0])?.length===1&&after.get(matching[0])[0]===to.id","matching",m=>{const f=identityFacts(true);assert.throws(()=>m.evaluateLogicalIdentity(f.origin,f.destination,f.mapping,'origin:8'),e=>e.semanticCode==='conflict');}],
+];
+for(const [name,file,from,to,probe]of mutations)test('original oracle kills '+name,async()=>{const url=new URL(file,base),source=readFileSync(url,'utf8');assert.equal(source.split(from).length,2,'unique actual-source mutation');const changed=source.replace(from,to).replace(/from '(\.\/[^']+)'/g,(_,p)=>`from '${new URL(p,url).href}'`),moduleUrl='data:text/javascript;base64,'+Buffer.from(changed).toString('base64'),hook=registerHooks({resolve(specifier,context,next){return next(specifier==='./offline-selection-mutant.mjs'&&context.parentURL===import.meta.url?moduleUrl:specifier,context);}});let mutant;try{mutant=await import('./offline-selection-mutant.mjs');}finally{hook.deregister();}assert.throws(()=>probe(mutant),e=>e.code==='ERR_ASSERTION'||Boolean(e.semanticCode),'independent original oracle must detect actual fault');});

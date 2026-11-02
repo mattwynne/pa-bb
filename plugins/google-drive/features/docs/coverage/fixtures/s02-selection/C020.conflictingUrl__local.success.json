@@ -1,0 +1,281 @@
+{
+  "provenance": {
+    "source": "selection-fixtures.mjs: original literal provider coordinates and expected selections",
+    "authorship": "Inert independently authored raw source/outline/links/intervals/nodes; no production oracle imports"
+  },
+  "caseId": "C020.conflictingUrl__local.success",
+  "variant": "conflictingUrl",
+  "outcome": "success",
+  "document": {
+    "documentId": "doc-s02",
+    "revisionId": "docs-r1",
+    "suggestionsViewMode": "SUGGESTIONS_INLINE",
+    "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+    "tabs": [
+      {
+        "tabProperties": {
+          "tabId": "A",
+          "title": "Main",
+          "index": 7
+        },
+        "documentTab": {
+          "body": {
+            "content": [
+              {
+                "startIndex": 1,
+                "endIndex": 3,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 1,
+                      "endIndex": 3,
+                      "textRun": {
+                        "content": "a\n"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "childTabs": [
+          {
+            "tabProperties": {
+              "tabId": "B",
+              "title": "Child",
+              "index": 9
+            },
+            "documentTab": {
+              "body": {
+                "content": [
+                  {
+                    "startIndex": 1,
+                    "endIndex": 3,
+                    "paragraph": {
+                      "paragraphStyle": {},
+                      "elements": [
+                        {
+                          "startIndex": 1,
+                          "endIndex": 3,
+                          "textRun": {
+                            "content": "b\n"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "tabProperties": {
+          "tabId": "C",
+          "title": "Sibling",
+          "index": 1
+        },
+        "documentTab": {
+          "body": {
+            "content": [
+              {
+                "startIndex": 1,
+                "endIndex": 3,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 1,
+                      "endIndex": 3,
+                      "textRun": {
+                        "content": "c\n"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "id": "doc-s02",
+    "name": "Original selection",
+    "mimeType": "application/vnd.google-apps.document",
+    "version": "17",
+    "capabilities": {
+      "canEdit": true
+    }
+  },
+  "outline": [],
+  "checks": [
+    {
+      "operation": "tab",
+      "input": "https://docs.google.com/document/d/doc-s02/edit#tab=B",
+      "scope": {
+        "tabs": {
+          "ids": [
+            "B"
+          ]
+        },
+        "segments": [
+          {
+            "kind": "body"
+          }
+        ]
+      },
+      "parsed": {
+        "documentId": "doc-s02",
+        "urlTab": "B"
+      },
+      "expected": {
+        "status": "resolved",
+        "tabs": [
+          "B"
+        ],
+        "roots": [
+          "s02-a:4"
+        ],
+        "nodes": [
+          "s02-a:4",
+          "s02-a:5",
+          "s02-a:6"
+        ]
+      }
+    },
+    {
+      "operation": "tab",
+      "input": "https://docs.google.com/document/d/doc-s02/edit?tab=B#tab=C",
+      "scope": {
+        "tabs": {
+          "ids": [
+            "B"
+          ]
+        },
+        "segments": [
+          {
+            "kind": "body"
+          }
+        ]
+      },
+      "parsed": {
+        "documentId": "doc-s02",
+        "urlTab": "B"
+      },
+      "error": "conflict"
+    },
+    {
+      "operation": "tab",
+      "input": "doc-s02",
+      "scope": {
+        "tabs": {
+          "ids": [
+            "A",
+            "B"
+          ]
+        },
+        "segments": [
+          {
+            "kind": "body"
+          }
+        ]
+      },
+      "parsed": {
+        "documentId": "doc-s02",
+        "urlTab": null
+      },
+      "expected": {
+        "status": "resolved",
+        "tabs": [
+          "A",
+          "B"
+        ],
+        "roots": [
+          "s02-a:1",
+          "s02-a:4"
+        ],
+        "nodes": [
+          "s02-a:1",
+          "s02-a:2",
+          "s02-a:3",
+          "s02-a:4",
+          "s02-a:5",
+          "s02-a:6"
+        ]
+      }
+    }
+  ],
+  "control": {
+    "operation": "tab",
+    "input": "https://docs.google.com/document/d/doc-s02/edit?tab=B",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "B"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "parsed": {
+      "documentId": "doc-s02",
+      "urlTab": "B"
+    },
+    "expected": {
+      "status": "resolved",
+      "tabs": [
+        "B"
+      ],
+      "roots": [
+        "s02-a:4"
+      ],
+      "nodes": [
+        "s02-a:4",
+        "s02-a:5",
+        "s02-a:6"
+      ]
+    }
+  },
+  "primary": {
+    "operation": "tab",
+    "input": "https://docs.google.com/document/d/doc-s02/edit?tab=B",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "B"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "parsed": {
+      "documentId": "doc-s02",
+      "urlTab": "B"
+    },
+    "expected": {
+      "status": "resolved",
+      "tabs": [
+        "B"
+      ],
+      "roots": [
+        "s02-a:4"
+      ],
+      "nodes": [
+        "s02-a:4",
+        "s02-a:5",
+        "s02-a:6"
+      ]
+    }
+  }
+}

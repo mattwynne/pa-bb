@@ -2,6 +2,7 @@
 // routes, not capabilities inferred from labels or the obligation manifest.
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
+import { isSelection,selectionBoundary,executeSelection,compareSelection } from './selection-execution.mjs';
 import { isDiscoveryApplication,executeDiscovery,compareDiscovery,discoveryBoundary } from './discovery-execution.mjs';
 import { executeMetadataDiscovery,compareMetadataDiscovery } from './discovery-native.mjs';
 import { applicationFamily,applicationBoundary,executeApplication,compareApplication } from './application-execution.mjs';
@@ -23,6 +24,7 @@ import { executeC013, compareC013 } from './c013-execution.mjs';
 import { executeC015, compareC015 } from './c015-execution.mjs';
 const owner=Object.freeze({subject:'subject-d',account:'reader@example.test',threadId:'thread-d'});
 const routes=Object.freeze({
+  ...Object.fromEntries(Object.entries({'docs_inspect.outline':['headingIds','levels','depth','deepLinks','sectionExtent'],'selector.section':['headingId','headingPath','level','peerBoundary','includeHeading'],'selector.handle':['node','span','staleOrdinal','transformedIdentity'],'selector.tab':['url','id','path','conflictingUrl','noImplicitFirst']}).flatMap(([op,variants])=>variants.map(v=>[`${op}/${v}__${op==='docs_inspect.outline'?'read':'local'}`,{driver:op==='docs_inspect.outline'?'docs_inspect':'selector-resolver',schema:op==='docs_inspect.outline'?'inspect.include-and-scope':'selector.closed-union',mode:op==='docs_inspect.outline'?'read':'local',native:'docs_inspect',action:'selection',outcomes:op==='docs_inspect.outline'?['success','invalid','preservation','bounds','wrongSubject']:['success','counterexample']}]))),
   ...Object.fromEntries(['deniedComments','missingReviewCoverage','tabsAndInline'].map(v=>[`docs_read.reviewView/${v}__read`,{driver:'docs_read',schema:'read.scope-format-view',mode:'read',native:'docs_read',action:'c011',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
   ...Object.fromEntries(['inline','acceptedPreview','rejectedPreview','projectionNotEditProof'].map(v=>[`docs_read.view/${v}__read`,{driver:'docs_read',schema:'read.scope-format-view',mode:'read',native:'docs_read',action:'c010',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
   ...Object.fromEntries(['body','header','footer','footnote'].map(v=>[`docs_read.segment/${v}__read`,{driver:'docs_read',schema:'read.scope-format-view',mode:'read',native:'docs_read',action:'c003',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
@@ -127,9 +129,10 @@ function nodeFacts(snapshot) {
   return Object.values(snapshot.nodes).map(n=>({id:n.id,kind:n.kind,parent:n.parent,tabId:n.tabId,segment:n.segment,extent:n.extent,...n.text!==undefined?{text:n.text}:{}}));
 }
 function substitute(args) {return JSON.parse(JSON.stringify(args).replaceAll('"$snapshot"','"snap-d"'));}
-export const isApplicationOutcome=r=>applicationFamily(r)||isDiscoveryApplication(r);
-export function currentApplicationBoundary(r){return isDiscoveryApplication(r)?discoveryBoundary(r):applicationBoundary(r);}
+export const isApplicationOutcome=r=>applicationFamily(r)||isDiscoveryApplication(r)||isSelection(r);
+export function currentApplicationBoundary(r){return isSelection(r)?selectionBoundary(r):isDiscoveryApplication(r)?discoveryBoundary(r):applicationBoundary(r);}
 export async function executeAdapter(record,fixture,inventory) {
+  if(isSelection(record)){implementedRoute(record);return executeSelection(record,fixture);}
   if(isDiscoveryApplication(record)){implementedRoute(record);return executeDiscovery(record,fixture);}
   if(applicationFamily(record)){implementedRoute(record);return executeApplication(record,fixture);}
   return executeNativeAdapter(record,fixture,inventory);
@@ -353,6 +356,7 @@ function compareLocalInvocation(record,t) {
 // Re-run by the parent on the captured observations, independently of any
 // Cucumber attachment flags. Every expectation below originates in inert data.
 export function compareExecution(record,f,t) {
+  if(isSelection(record))return compareSelection(record,f,t);
   if(isDiscoveryApplication(record)){implementedRoute(record);return compareDiscovery(record,f,t);}
   if(applicationFamily(record)){implementedRoute(record);return compareApplication(record,f,t);}
   return compareNativeExecution(record,f,t);

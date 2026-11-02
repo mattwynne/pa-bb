@@ -1,0 +1,412 @@
+{
+  "provenance": {
+    "source": "selection-fixtures.mjs: original literal provider coordinates and expected selections",
+    "authorship": "Inert independently authored raw source/outline/links/intervals/nodes; no production oracle imports"
+  },
+  "caseId": "C017.span__local.counterexample",
+  "variant": "span",
+  "outcome": "counterexample",
+  "document": {
+    "documentId": "doc-s02",
+    "revisionId": "docs-r1",
+    "suggestionsViewMode": "SUGGESTIONS_INLINE",
+    "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+    "tabs": [
+      {
+        "tabProperties": {
+          "tabId": "tab-d",
+          "title": "Main",
+          "index": 7
+        },
+        "documentTab": {
+          "body": {
+            "content": [
+              {
+                "startIndex": 1,
+                "endIndex": 3,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "id-A"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 1,
+                      "endIndex": 3,
+                      "textRun": {
+                        "content": "A\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 3,
+                "endIndex": 5,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 3,
+                      "endIndex": 5,
+                      "textRun": {
+                        "content": "x\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 5,
+                "endIndex": 7,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_3",
+                    "headingId": "id-B"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 5,
+                      "endIndex": 7,
+                      "textRun": {
+                        "content": "B\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 7,
+                "endIndex": 9,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 7,
+                      "endIndex": 9,
+                      "textRun": {
+                        "content": "y\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 9,
+                "endIndex": 11,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_2",
+                    "headingId": "id-C"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 9,
+                      "endIndex": 11,
+                      "textRun": {
+                        "content": "C\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 11,
+                "endIndex": 13,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 11,
+                      "endIndex": 13,
+                      "textRun": {
+                        "content": "z\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 13,
+                "endIndex": 15,
+                "paragraph": {
+                  "paragraphStyle": {
+                    "namedStyleType": "HEADING_1",
+                    "headingId": "id-D"
+                  },
+                  "elements": [
+                    {
+                      "startIndex": 13,
+                      "endIndex": 15,
+                      "textRun": {
+                        "content": "D\n"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 15,
+                "endIndex": 17,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 15,
+                      "endIndex": 17,
+                      "textRun": {
+                        "content": "w\n"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "id": "doc-s02",
+    "name": "Original selection",
+    "mimeType": "application/vnd.google-apps.document",
+    "version": "17",
+    "capabilities": {
+      "canEdit": true
+    }
+  },
+  "outline": [
+    {
+      "node": "s02-a:2",
+      "providerId": "id-A",
+      "title": "A",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 1,
+        "end": 13
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-A",
+      "path": [
+        "A"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:14"
+      }
+    },
+    {
+      "node": "s02-a:6",
+      "providerId": "id-B",
+      "title": "B",
+      "level": 3,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 5,
+        "end": 9
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-B",
+      "path": [
+        "A",
+        "B"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:10"
+      }
+    },
+    {
+      "node": "s02-a:10",
+      "providerId": "id-C",
+      "title": "C",
+      "level": 2,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 9,
+        "end": 13
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-C",
+      "path": [
+        "A",
+        "C"
+      ],
+      "depth": 1,
+      "sectionEnd": {
+        "kind": "nextHeading",
+        "node": "s02-a:14"
+      }
+    },
+    {
+      "node": "s02-a:14",
+      "providerId": "id-D",
+      "title": "D",
+      "level": 1,
+      "tabId": "tab-d",
+      "segment": {
+        "kind": "body"
+      },
+      "extent": {
+        "start": 13,
+        "end": 17
+      },
+      "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-d#heading=id-D",
+      "path": [
+        "D"
+      ],
+      "depth": 0,
+      "sectionEnd": {
+        "kind": "segmentBoundary",
+        "node": "s02-a:16"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "operation": "selector",
+      "scope": {
+        "tabs": {
+          "ids": [
+            "tab-d"
+          ]
+        },
+        "segments": [
+          {
+            "kind": "body"
+          }
+        ]
+      },
+      "selector": {
+        "span": {
+          "from": "s02-a:4",
+          "to": "s02-a:5"
+        }
+      },
+      "expected": {
+        "status": "missing",
+        "snapshotId": "s02-a",
+        "nodes": [],
+        "candidates": [],
+        "readProof": false
+      }
+    },
+    {
+      "operation": "selector",
+      "scope": {
+        "tabs": {
+          "ids": [
+            "tab-d"
+          ]
+        },
+        "segments": [
+          {
+            "kind": "body"
+          }
+        ]
+      },
+      "selector": {
+        "span": {
+          "from": "s02-a:6",
+          "to": "s02-a:6"
+        }
+      },
+      "expected": {
+        "status": "resolved",
+        "snapshotId": "s02-a",
+        "nodes": [
+          "s02-a:6"
+        ],
+        "candidates": [
+          {
+            "node": "s02-a:6",
+            "kind": "paragraph"
+          }
+        ],
+        "readProof": false
+      }
+    }
+  ],
+  "control": {
+    "operation": "selector",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "span": {
+        "from": "s02-a:4",
+        "to": "s02-a:10"
+      }
+    },
+    "expected": {
+      "status": "resolved",
+      "snapshotId": "s02-a",
+      "nodes": [
+        "s02-a:4",
+        "s02-a:6",
+        "s02-a:8",
+        "s02-a:10"
+      ],
+      "candidates": [
+        {
+          "node": "s02-a:4",
+          "kind": "paragraph"
+        },
+        {
+          "node": "s02-a:6",
+          "kind": "paragraph"
+        },
+        {
+          "node": "s02-a:8",
+          "kind": "paragraph"
+        },
+        {
+          "node": "s02-a:10",
+          "kind": "paragraph"
+        }
+      ],
+      "readProof": false
+    }
+  },
+  "primary": {
+    "operation": "selector",
+    "scope": {
+      "tabs": {
+        "ids": [
+          "tab-d"
+        ]
+      },
+      "segments": [
+        {
+          "kind": "body"
+        }
+      ]
+    },
+    "selector": {
+      "span": {
+        "from": "s02-a:10",
+        "to": "s02-a:4"
+      }
+    },
+    "error": "scope"
+  }
+}
