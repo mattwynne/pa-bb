@@ -1,0 +1,264 @@
+{
+  "provenance": {
+    "source": "s02-discovery/generate-metadata.mjs: original independent native metadata/1MiB transport expectations",
+    "authorship": "Node-only declarative facts, no production imports or captured answers"
+  },
+  "caseId": "C165.fileMetadata__read.invalid",
+  "variant": "fileMetadata",
+  "outcome": "invalid",
+  "primary": {
+    "kind": "schema",
+    "args": {
+      "account": "reader@example.test",
+      "fileId": 17,
+      "unknown": "stripped"
+    },
+    "metadata": {
+      "id": "doc-s02",
+      "name": "Literal <metadata>",
+      "mimeType": "application/vnd.google-apps.document",
+      "description": "Untrusted PRIVATE_CONTENT",
+      "modifiedTime": "2026-11-01T00:00:00Z",
+      "parents": [
+        "folder-original"
+      ],
+      "trashed": true
+    },
+    "expected": {
+      "account": "reader@example.test",
+      "file": {
+        "id": "doc-s02",
+        "name": "Literal <metadata>",
+        "mimeType": "application/vnd.google-apps.document",
+        "description": "Untrusted PRIVATE_CONTENT",
+        "modifiedTime": "2026-11-01T00:00:00Z",
+        "parents": [
+          "folder-original"
+        ],
+        "url": "https://docs.google.com/document/d/doc-s02/edit"
+      }
+    }
+  },
+  "control": {
+    "kind": "success",
+    "args": {
+      "account": "reader@example.test",
+      "fileId": "doc-s02",
+      "unknown": "stripped"
+    },
+    "metadata": {
+      "id": "doc-s02",
+      "name": "Literal <metadata>",
+      "mimeType": "application/vnd.google-apps.document",
+      "description": "Untrusted PRIVATE_CONTENT",
+      "modifiedTime": "2026-11-01T00:00:00Z",
+      "parents": [
+        "folder-original"
+      ],
+      "trashed": true
+    },
+    "expected": {
+      "account": "reader@example.test",
+      "file": {
+        "id": "doc-s02",
+        "name": "Literal <metadata>",
+        "mimeType": "application/vnd.google-apps.document",
+        "description": "Untrusted PRIVATE_CONTENT",
+        "modifiedTime": "2026-11-01T00:00:00Z",
+        "parents": [
+          "folder-original"
+        ],
+        "url": "https://docs.google.com/document/d/doc-s02/edit"
+      }
+    }
+  },
+  "checks": [
+    {
+      "kind": "success",
+      "args": {
+        "account": "reader@example.test",
+        "fileId": "doc-s02",
+        "unknown": "stripped"
+      },
+      "metadata": {
+        "id": "doc-s02",
+        "name": "Literal <metadata>",
+        "mimeType": "application/vnd.google-apps.folder",
+        "description": "Untrusted PRIVATE_CONTENT",
+        "modifiedTime": "2026-11-01T00:00:00Z",
+        "parents": [
+          "folder-original"
+        ],
+        "trashed": true
+      },
+      "expected": {
+        "account": "reader@example.test",
+        "file": {
+          "id": "doc-s02",
+          "name": "Literal <metadata>",
+          "mimeType": "application/vnd.google-apps.folder",
+          "description": "Untrusted PRIVATE_CONTENT",
+          "modifiedTime": "2026-11-01T00:00:00Z",
+          "parents": [
+            "folder-original"
+          ],
+          "url": "https://drive.google.com/drive/folders/doc-s02"
+        }
+      }
+    },
+    {
+      "kind": "success",
+      "args": {
+        "account": "reader@example.test",
+        "fileId": "doc-s02",
+        "unknown": "stripped"
+      },
+      "metadata": {
+        "id": "doc-s02",
+        "name": "Literal <metadata>",
+        "mimeType": "text/plain",
+        "description": "Untrusted PRIVATE_CONTENT",
+        "modifiedTime": "2026-11-01T00:00:00Z",
+        "parents": [
+          "folder-original"
+        ],
+        "trashed": true
+      },
+      "expected": {
+        "account": "reader@example.test",
+        "file": {
+          "id": "doc-s02",
+          "name": "Literal <metadata>",
+          "mimeType": "text/plain",
+          "description": "Untrusted PRIVATE_CONTENT",
+          "modifiedTime": "2026-11-01T00:00:00Z",
+          "parents": [
+            "folder-original"
+          ],
+          "url": "https://drive.google.com/file/d/doc-s02/view"
+        }
+      }
+    },
+    {
+      "kind": "success",
+      "args": {
+        "account": "reader@example.test",
+        "fileId": "doc-s02",
+        "unknown": "stripped"
+      },
+      "metadata": {
+        "id": "doc-s02",
+        "name": "Literal <metadata>",
+        "mimeType": "application/vnd.google-apps.document",
+        "description": "Untrusted PRIVATE_CONTENT",
+        "modifiedTime": "2026-11-01T00:00:00Z",
+        "parents": [
+          "folder-original"
+        ],
+        "trashed": true,
+        "webViewLink": "https://example.test/original"
+      },
+      "expected": {
+        "account": "reader@example.test",
+        "file": {
+          "id": "doc-s02",
+          "name": "Literal <metadata>",
+          "mimeType": "application/vnd.google-apps.document",
+          "description": "Untrusted PRIVATE_CONTENT",
+          "modifiedTime": "2026-11-01T00:00:00Z",
+          "parents": [
+            "folder-original"
+          ],
+          "url": "https://example.test/original"
+        }
+      }
+    },
+    {
+      "kind": "mismatch",
+      "args": {
+        "account": "reader@example.test",
+        "fileId": "doc-s02",
+        "unknown": "stripped"
+      },
+      "metadata": {
+        "id": "other-file",
+        "name": "Literal <metadata>",
+        "mimeType": "application/vnd.google-apps.document",
+        "description": "Untrusted PRIVATE_CONTENT",
+        "modifiedTime": "2026-11-01T00:00:00Z",
+        "parents": [
+          "folder-original"
+        ],
+        "trashed": true
+      },
+      "expected": {
+        "account": "reader@example.test",
+        "file": {
+          "id": "doc-s02",
+          "name": "Literal <metadata>",
+          "mimeType": "application/vnd.google-apps.document",
+          "description": "Untrusted PRIVATE_CONTENT",
+          "modifiedTime": "2026-11-01T00:00:00Z",
+          "parents": [
+            "folder-original"
+          ],
+          "url": "https://docs.google.com/document/d/doc-s02/edit"
+        }
+      }
+    },
+    {
+      "kind": "success",
+      "args": {
+        "account": "reader@example.test",
+        "fileId": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "unknown": "stripped"
+      },
+      "metadata": {
+        "id": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "name": "Literal <metadata>",
+        "mimeType": "application/vnd.google-apps.document",
+        "description": "Untrusted PRIVATE_CONTENT",
+        "modifiedTime": "2026-11-01T00:00:00Z",
+        "parents": [
+          "folder-original"
+        ],
+        "trashed": true
+      },
+      "expected": {
+        "account": "reader@example.test",
+        "file": {
+          "id": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "name": "Literal <metadata>",
+          "mimeType": "application/vnd.google-apps.document",
+          "description": "Untrusted PRIVATE_CONTENT",
+          "modifiedTime": "2026-11-01T00:00:00Z",
+          "parents": [
+            "folder-original"
+          ],
+          "url": "https://docs.google.com/document/d/ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/edit"
+        }
+      }
+    },
+    {
+      "kind": "longInput",
+      "args": {
+        "account": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.test",
+        "fileId": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "metadata": {
+        "id": "doc-s02",
+        "name": "Literal <metadata>",
+        "mimeType": "application/vnd.google-apps.document",
+        "description": "Untrusted PRIVATE_CONTENT",
+        "modifiedTime": "2026-11-01T00:00:00Z",
+        "parents": [
+          "folder-original"
+        ],
+        "trashed": true
+      },
+      "expected": {
+        "errorText": "Unknown Google Drive account. Check connected accounts in BB settings."
+      }
+    }
+  ]
+}

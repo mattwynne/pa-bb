@@ -43,8 +43,9 @@ async function sourceFactory() {
 }
 export const schemaShape=(schema,io='output')=>z.toJSONSchema(schema,{unrepresentable:'any',io});
 export async function productionHost(fetchImpl,options={}) {
-  assert.ok(Object.keys(options).every(k=>['c009','pageBytes'].includes(k)));
+  assert.ok(Object.keys(options).every(k=>['c009','pageBytes','s02Scenario'].includes(k)));
   if(options.c009)assert.ok([3000,6000,65536].includes(options.pageBytes));
+  if(options.s02Scenario)assert.ok(['summary','change','paged','pagedOwnership','proof','error'].includes(options.s02Scenario));
   let c009=null;
   const plugin=await sourceFactory(),host=createFakePluginHost({pluginId:'google-drive',agentSkillIds:['google-docs-editing','google-drive-sharing','google-sheets','google-sheets-editing','google-drive-filing','google-drive-copy','google-drive-upload']});
   // Retain the official dispatcher before the mutable host reaches any route.
@@ -120,7 +121,7 @@ export async function productionHost(fetchImpl,options={}) {
     const clock=c009?c009.clock:()=>0;
     const adapter=createGoogleAdapter({store,fetchImpl,getClient:async()=>{throw new Error('Unexpected refresh');},clock});
     const legacyCount=tools.length;let identity=0;
-    registerSemanticReadTools(host.bb,store,adapter,{clock,ids:()=>options.c009?(++identity===1?'snap-d':`read-d-${identity}`):'snap-d',...options.c009?{pageBytes:options.pageBytes}:{}});
+    registerSemanticReadTools(host.bb,store,adapter,{clock,ids:()=>options.s02Scenario?(++identity===1?'s02-a':options.s02Scenario==='change'&&identity===2?'s02-b':`s02-token-${identity}`):options.c009?(++identity===1?'snap-d':`read-d-${identity}`):'snap-d',...options.c009||options.s02Scenario&&options.pageBytes?{pageBytes:options.pageBytes}:{}});
     assert.deepEqual(tools.slice(legacyCount).map(t=>t.name).sort(),['docs_find','docs_inspect','docs_read'],'unjoined semantic native registration');
     assert.equal(new Set(tools.map(t=>t.name)).size,tools.length,'duplicate native registration');
     for(const [name,schema] of Object.entries(SEMANTIC_READ_SCHEMAS)) {

@@ -8,13 +8,14 @@ two C006 raw-mask exclusions, sixteen C009 invariants, thirty C005 projection
 outcomes, twenty C006 structural outcomes, twenty C007 rich-cell outcomes and
 twenty-five C008 opaque outcomes, twenty C003 segment outcomes, twenty C010 view
 outcomes, fifteen C011 review-view outcomes, twenty C012 literal-search outcomes
-and forty C013 normalization outcomes, plus ten C015 local cardinality invariants;
-10,959 keys remain unclosed. Exactly two D cardinality candidates join the earlier
-migrations without duplication; four supplemental candidates remain. The current
-run mechanically closes 238/367 S02 keys and the unchanged 42/59 read closures.
-C015 still requires independent review; accepted accounting remains 228/367. These
-are source execution results, not enabled semantic products. `registry.json`
-deliberately exposes nothing new.
+and forty C013 normalization outcomes, ten C015 local cardinality invariants,
+and sixty independently reviewed C001/C002/C165 discovery and metadata outcomes;
+10,899 keys remain unclosed. The original native inspection and metadata success
+fixtures join only their exact keys with unchanged bytes/provenance and fresh
+native execution. Two C021 supplemental candidates remain separate. Current
+accepted accounting is 298/367 S02 keys, 69 remaining and 54/59 read closures.
+These are offline source execution results, not enabled semantic products.
+`registry.json` deliberately exposes nothing new.
 
 ## Execution and identities
 

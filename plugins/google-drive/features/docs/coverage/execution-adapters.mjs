@@ -2,7 +2,9 @@
 // routes, not capabilities inferred from labels or the obligation manifest.
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { applicationFamily,executeApplication,compareApplication } from './application-execution.mjs';
+import { isDiscoveryApplication,executeDiscovery,compareDiscovery,discoveryBoundary } from './discovery-execution.mjs';
+import { executeMetadataDiscovery,compareMetadataDiscovery } from './discovery-native.mjs';
+import { applicationFamily,applicationBoundary,executeApplication,compareApplication } from './application-execution.mjs';
 import { productionHost, schemaShape } from '../support/production-host.mjs';
 import { footprint } from '../../../core/docs-semantic/coverage.mjs';
 import { modelBinding } from '../support/local-invocations.mjs';
@@ -29,7 +31,7 @@ const routes=Object.freeze({
   ...Object.fromEntries(['styles','objects','ranges','suggestions'].map(v=>[`docs_read.structure/${v}__read`,{driver:'docs_read',schema:'read.scope-format-view',mode:'read',native:'docs_read',action:'c006',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
   ...Object.fromEntries(['cursorExpiry','cursorReplay','draftPinnedEvidence','empty','overrun','partial','snapshotExpiry'].map(v=>[`snapshot.coverage/${v}__local`,{driver:'snapshot-store',schema:'snapshot.contract',mode:'local',native:'docs_inspect',action:'c009',outcomes:['success','counterexample']}])),
   'policy.publicRawMask/refuseRawMask__capability':{driver:'schema-policy-refusal',schema:'explicit-excluded-operation',mode:'capability',native:'docs_read',action:'rawMask',outcomes:['refused','noMutation']},
-  'docs_inspect.kind/nativeDoc__read':{driver:'docs_inspect',schema:'inspect.include-and-scope',mode:'read',native:'docs_inspect',action:'inspect',outcomes:['success']},
+  ...Object.fromEntries(Object.entries({'docs_inspect.kind':['nativeDoc','markdownBlob','wordBlob','permissionUnknown','capabilityUnverified'],'docs_inspect.tabs':['recursive','selected','all','duplicateTitle'],'docs_inspect.provenance':['changeAwareness','notReadProof']}).flatMap(([op,variants])=>variants.map(v=>[`${op}/${v}__read`,{driver:'docs_inspect',schema:'inspect.include-and-scope',mode:'read',native:'docs_inspect',action:v==='nativeDoc'?'inspect':'discovery',outcomes:['success','invalid','preservation','bounds','wrongSubject']}]))),
   ...Object.fromEntries(['structured','styleAnnotations','reviewAnnotations','omitImages','continuation'].map(v=>[`docs_read.projection/${v}__read`,{driver:'docs_read',schema:'read.scope-format-view',mode:'read',native:'docs_read',action:'c005',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
   'docs_read.projection/text__read':{driver:'docs_read',schema:'read.scope-format-view',mode:'read',native:'docs_read',action:'read',outcomes:['success','invalid','preservation','bounds','wrongSubject']},
   ...Object.fromEntries(['exact','typographic','nfc','caseFold','inverseMap','emoji','combining','rtl'].map(v=>[`docs_find.normalization/${v}__read`,{driver:'docs_find',schema:'find.matcher',mode:'read',native:'docs_find',action:'c013',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
@@ -37,7 +39,7 @@ const routes=Object.freeze({
   'snapshot.coverage/wrongThread__local':{driver:'snapshot-store',schema:'snapshot.contract',mode:'local',native:'docs_inspect',action:'snapshot',outcomes:['success','counterexample']},
   ...Object.fromEntries(['exactlyOne','explicitOccurrenceZero','allExpectedCount','ambiguous','missing'].map(v=>[`selector.cardinality/${v}__local`,{driver:'selector-resolver',schema:'selector.closed-union',mode:'local',native:'docs_find',action:'c015',outcomes:['success','counterexample']}])),
   'coverage.witness/broadDelivered__local':{driver:'coverage-auditor',schema:'coverage.manifest-and-witness',mode:'local',native:'docs_read',action:'witness',outcomes:['success','counterexample']},
-  'gdrive_get_file.metadata/fileMetadata__read':{driver:'gdrive_get_file',schema:'drive-file.metadata',mode:'read',native:'gdrive_get_file',action:'metadata',outcomes:['success']},
+  'gdrive_get_file.metadata/fileMetadata__read':{driver:'gdrive_get_file',schema:'drive-file.metadata',mode:'read',native:'gdrive_get_file',action:'metadata',outcomes:['success','invalid','preservation','bounds','wrongSubject']},
 });
 export const adapterBindings=()=>structuredClone(routes);
 const key=r=>`${r.operation}/${r.semanticVariant}`;
@@ -125,12 +127,16 @@ function nodeFacts(snapshot) {
   return Object.values(snapshot.nodes).map(n=>({id:n.id,kind:n.kind,parent:n.parent,tabId:n.tabId,segment:n.segment,extent:n.extent,...n.text!==undefined?{text:n.text}:{}}));
 }
 function substitute(args) {return JSON.parse(JSON.stringify(args).replaceAll('"$snapshot"','"snap-d"'));}
+export const isApplicationOutcome=r=>applicationFamily(r)||isDiscoveryApplication(r);
+export function currentApplicationBoundary(r){return isDiscoveryApplication(r)?discoveryBoundary(r):applicationBoundary(r);}
 export async function executeAdapter(record,fixture,inventory) {
+  if(isDiscoveryApplication(record)){implementedRoute(record);return executeDiscovery(record,fixture);}
   if(applicationFamily(record)){implementedRoute(record);return executeApplication(record,fixture);}
   return executeNativeAdapter(record,fixture,inventory);
 }
 export async function executeNativeAdapter(record,fixture,inventory) {
   const route=implementedRoute(record),http=[],authentication=[],faults=[];
+  if(route.action==='metadata'&&record.outcomeVariant!=='success')return executeMetadataDiscovery(record,fixture);
   if(route.action==='c015'){
     const trace=await executeC015(record,fixture,inventory);
     compareC015(record,fixture,trace);
@@ -212,7 +218,7 @@ export async function executeNativeAdapter(record,fixture,inventory) {
       const tool=w.tools.find(t=>t.name===name);assert.ok(tool,'no actual native registration');
       const parsed=tool.parameters.safeParse(raw);
       let result,error;
-      try {result=route.action==='rawMask'?await w.invokeNative(name,raw,threadId):await w.host.harness.behavior.callAgentTool(name,raw,{threadId});}
+      try {result=['rawMask','inspect','metadata'].includes(route.action)?await w.invokeNative(name,raw,threadId):await w.host.harness.behavior.callAgentTool(name,raw,{threadId});}
       catch {error='schema';assert.equal(parsed.success,false,'unexpected native host exception');}
       const invocation=w.invocations.slice(before);
       assert.equal(invocation.length,parsed.success?1:0,'driver without actual invocation');
@@ -255,6 +261,7 @@ export async function executeNativeAdapter(record,fixture,inventory) {
       deliveries:db.prepare('SELECT id,snapshot,data FROM docs_semantic_delivery ORDER BY id').all().map(r=>({...r,data:JSON.parse(r.data)}))};
     assert.ok(!JSON.stringify(w.host.harness.logEntries).includes('PRIVATE_'),'private sentinel in native diagnostics');
     trace={calls,http,authentication,snapshotAccess:structuredClone(w.snapshotAccess),internal,localCalls:w.local.records(),output,snapshot:snapshot?{modelDigest:modelBinding(snapshot).modelDigest,binding:snapshot.binding,revision:snapshot.revision,nodes:nodeFacts(snapshot),evidence:snapshot.evidence,metadata:snapshot.metadata}:null,deliveries,persisted,providerAfter:structuredClone(fixture.provider)};
+    if(['inspect','metadata'].includes(route.action))trace.nativeCalls=w.nativeCalls();
     if(route.action==='rawMask'){
       trace.nativeCalls=w.nativeCalls();
       w.storage.capture();
@@ -346,11 +353,13 @@ function compareLocalInvocation(record,t) {
 // Re-run by the parent on the captured observations, independently of any
 // Cucumber attachment flags. Every expectation below originates in inert data.
 export function compareExecution(record,f,t) {
+  if(isDiscoveryApplication(record)){implementedRoute(record);return compareDiscovery(record,f,t);}
   if(applicationFamily(record)){implementedRoute(record);return compareApplication(record,f,t);}
   return compareNativeExecution(record,f,t);
 }
 export function compareNativeExecution(record,f,t) {
   const route=implementedRoute(record);
+  if(route.action==='metadata'&&record.outcomeVariant!=='success')return compareMetadataDiscovery(record,f,t);
   if(route.action==='c015'){compareC015(record,f,t);return;}
   if(route.action==='c013'){compareC013(record,f,t);return;}
   if(route.action==='c012'){compareC012(record,f,t);return;}
@@ -363,6 +372,7 @@ export function compareNativeExecution(record,f,t) {
   if(route.action==='c005'||(record.operation==='docs_read.projection'&&record.bridgeCandidate===false)){compareC005(record,f,t);return;}
   if(route.action==='c009'||(record.operation==='snapshot.coverage'&&record.bridgeCandidate===false)){compareC009(record,f,t);return;}
   compareLocalInvocation(record,t);
+  if(['inspect','metadata'].includes(route.action)){assert.equal(t.nativeCalls?.length,t.calls.length,'missing actual original native capture');for(const [i,c]of t.nativeCalls.entries()){assert.match(c.id,/^[a-f0-9-]{36}$/);assert.equal(c.sequence,i+1);assert.equal(c.name,t.calls[i].name);assert.deepEqual(c.args,t.calls[i].args);assert.equal(c.threadId,t.calls[i].threadId);assert.deepEqual(c.result,t.calls[i].result);}}
   assert.deepEqual(t.http,f.http.map(({method,url})=>({method,url})),'actual HTTP sequence');
   assert.deepEqual(t.providerAfter,f.provider,'preserved provider state');
   assert.ok(t.calls.length,'driver without actual invocation');

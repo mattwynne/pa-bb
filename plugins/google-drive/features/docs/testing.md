@@ -1,8 +1,8 @@
 # Semantic rewrite test boundaries
 
 ADR 0003 governs the existing S02 code. This changes proof placement, not product
-scope: 238/367 accepted outcomes, 129 remaining, four supplemental candidates,
-42/59 read closures and no new serving exposure. Historical receipts and fixture
+scope: 298/367 independently reviewed outcomes, 69 remaining, two supplemental candidates,
+54/59 read closures and no new serving exposure. Historical receipts and fixture
 provenance are unchanged. The manifest's old acceptance descriptions are historical;
 new results record their actual current boundary.
 
@@ -19,8 +19,8 @@ new results record their actual current boundary.
   including fixed mandatory native/HTTP/SQLite companions. No saved summary is
   treated as a fresh pass. Package `test` runs this once, not inside each family.
 
-The existing 220 implemented semantic outcomes execute the actual application
-with memory snapshots, scripted authority and raw document observations. The
+The existing 220 semantic outcomes and 54 discovery outcomes execute the actual
+application with memory snapshots, scripted authority and raw document observations. The
 fixed executor owns layer/entry-point/port declarations; a fixture cannot choose
 an easier boundary. Existing instruction programs and all independent expected
 nodes, projections, losses, Unicode extents, fragments and refusal answers remain.
@@ -28,9 +28,16 @@ The application comparator checks exact public envelopes, ownership/expiry,
 continuation identity, no invented read authority and source preservation.
 
 Sixteen C009 outcomes and the two raw-mask outcomes remain on their genuine
-integration paths. Four supplemental candidates remain separate. Fifteen named
-native companion cases cover inspect/read/find, query/selector branches,
-continuations, rich/opaque/registry paths, all views and denied/missing review.
+integration paths. The original native inspection and metadata success fixtures
+are now joined at their exact keys, with unchanged bytes and provenance and fresh
+native execution. Four further metadata outcomes exercise the existing registered
+`gdrive_get_file`, not a semantic alias. Two C021 candidates remain separate.
+Fifteen existing native companions retain inspect/read/find, query/selector,
+continuation, rich/opaque/registry, view and review coverage. Six fixed discovery
+companions add metadata-only blobs and diagnostic tab pagination, owner refusal,
+capabilities, provenance and non-content witness checks. Five metadata companions
+exercise the real userinfo/GET path, unknown-field stripping, long legacy inputs,
+returned-ID equality and exact 1 MiB streamed success versus one-byte overflow.
 Their original native/HTTP/SQL comparators still run. Ten shared logical snapshot
 contracts execute both memory and actual SQLite implementations; memory makes no
 physical quota, seal, migration, crash, reopen or durability claim. Those
@@ -53,6 +60,7 @@ boundary, not a removal of capability keys.
 | Previous repeated path | Current proof and fault control |
 |---|---|
 | C003/C005/C006/C007/C008/C010/C011/C012/C013/C015 family aggregate runner and per-variant/outcome package copies | Every existing fixture/program runs in `docs-semantic-application.test.mjs` and Cucumber. Independent typed model/projection/find/refusal/envelope checks are in `application-execution.mjs`. Each case has matched positive, omitted-call, false-authority and false-layer controls. Original full native comparators run on fixed family companions, not every semantic combination. |
+| C001/C002/C165 discovery | Original declarative provider/envelope facts, variant-specific tab-invalid controls, full diagnostic envelopes, JSON-round-tripped output corruption, exact logical delivery/cursor/work accounting and literal failure expectations. Fixed native/HTTP/SQLite companions separately prove native dispatch and persisted state; memory traces claim neither. |
 | C013 exact/typography/NFC/simple-fold/inverse-map/emoji/combining/RTL algorithm mutations | Eight in-process actual-source leaf mutants in `docs-semantic-semantic-faults.test.mjs`; independently authored fixture results must kill each. No package copies or child suites. All original bounds and scalar/normalization cases remain in the instruction programs. |
 | C009 aggregate/accounting and package-copy fault probes | All sixteen actual integration traces still execute/compare in normal acceptance. Real `c009-atomic`, `c009-packing`, store/store-b, migration-b, retention-c and native suites retain rollback, work, capacity, collision, seal, reopen and lifetime checks. Direct comparator omission tests and shared-contract late failure prove publication rejection without a package sandbox. |
 | Historical D/E aggregate counts, candidate migration and exposure assertions | `docs-semantic-evidence.test.mjs` checks exact current accepted keys/counts/closures and all 367 missing-execution declarations. The single runner checks actual discovery, Examples, fixtures, modes, outcomes, every required key and orphan/interrupted records. Historical intermediate totals are not rerun as current products. |

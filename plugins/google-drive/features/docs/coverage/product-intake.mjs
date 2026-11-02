@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { fixtureFile, digest } from './audit.mjs';
 import { expand } from './expand.mjs';
-import { applicationFamily,applicationBoundary } from './application-execution.mjs';
+import { isApplicationOutcome,currentApplicationBoundary } from './execution-adapters.mjs';
 import { compareCompanions } from './companions.mjs';
 import { implementedRoute, compareExecution, compareInventory, adapterBindings } from './execution-adapters.mjs';
 export function assertProductIntake({manifest,registry,results,fixtures,root,receipts=[],inventory,runId,fingerprint,companions}) {
@@ -41,16 +41,17 @@ export function assertProductIntake({manifest,registry,results,fixtures,root,rec
     const data=fixtureFile(root,fixture);assert.equal(data.caseId,record.caseId,'fixture identity');
     assert.equal(digest(JSON.stringify(receipt.trace)),result.executionDigest,'execution observation digest');
     compareExecution({...record,bridgeCandidate:candidate},data,receipt.trace);
-    if(applicationFamily({...record,bridgeCandidate:candidate})){
-      assert.deepEqual(receipt.trace.boundary,applicationBoundary(record),'core evidence cannot be relabelled native');
+    if(isApplicationOutcome({...record,bridgeCandidate:candidate})){
+      assert.deepEqual(receipt.trace.boundary,currentApplicationBoundary(record),'core evidence cannot be relabelled native');
       for(const call of receipt.trace.events){assert.ok(!localInvocationIds.has(call.id),'reused application invocation');localInvocationIds.add(call.id);}
     }else if((['C005','C009'].includes(record.ledgerId)||['docs_read.structure','docs_read.richCell','docs_read.opaque','docs_read.segment','docs_read.view','docs_read.reviewView','docs_find.literal','docs_find.normalization','selector.cardinality'].includes(record.operation))&&!candidate){
       const storage=receipt.trace.localCalls[0].result;
       assert.ok(!connections.has(storage.connectionId)&&!databaseFiles.has(storage.fileDigest),`reused actual ${record.ledgerId} storage connection`);
       connections.add(storage.connectionId);databaseFiles.add(storage.fileDigest);
     }
+    for(const event of receipt.trace.events??[])if(event.storage){const a=event.storage[0],file=a.databases.find(d=>d.name==='main').fileDigest;assert.ok(!connections.has(a.connectionId)&&!databaseFiles.has(file),'reused actual discovery storage connection');connections.add(a.connectionId);databaseFiles.add(file);}
     for(const call of [...(receipt.trace.localCalls??[]),...(receipt.trace.selectorCalls??[])]){assert.ok(!localInvocationIds.has(call.id),'reused actual local invocation');localInvocationIds.add(call.id);}
-    for(const call of receipt.trace.nativeCalls??[]){assert.ok(!nativeInvocationIds.has(call.id),'reused actual native schema invocation');nativeInvocationIds.add(call.id);}
+    for(const call of [...(receipt.trace.nativeCalls??[]),...(receipt.trace.events??[]).flatMap(e=>e.nativeCalls??[])]){assert.ok(!nativeInvocationIds.has(call.id),'reused actual native schema invocation');nativeInvocationIds.add(call.id);}
     if(candidate)assert.equal(manifest.expansion.deliveryOverrides[record.key]?.status??'planned','planned','candidate cannot promote delivery');
   }
   assert.equal(used.size,receipts.length,'orphan/interrupted/replayed execution record');
@@ -59,6 +60,6 @@ export function assertProductIntake({manifest,registry,results,fixtures,root,rec
   // preserve auditEvidence's full closure before changing this closed boundary.
   assert.deepEqual(registry.exposed,[],'no implemented semantic variant may be exposed');
   assert.deepEqual(manifest.expansion.variantExposure,{},'no implemented semantic exposure adapter');
-  if(results.some(r=>applicationFamily(records.get(r.caseId)??{})))compareCompanions(root,companions,fingerprint,runId);
+  if(results.some(r=>isApplicationOutcome(records.get(r.caseId)??{})))compareCompanions(root,companions,fingerprint,runId);
   return {bridgeCandidates:results.filter(r=>r.pickle?.tags.some(t=>t.name==='@bridgeCandidate')).length,implementedAdapterVariants:Object.keys(adapterBindings()).length};
 }

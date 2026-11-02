@@ -1,0 +1,1105 @@
+{
+  "provenance": {
+    "source": "s02-discovery/generate.mjs: original independently authored hierarchy, heading extents, metadata and capability facts",
+    "authorship": "Node-only declarative provider/expected facts; no production imports or captured semantic answers"
+  },
+  "caseId": "C002.duplicateTitle__read.preservation",
+  "variant": "duplicateTitle",
+  "outcome": "preservation",
+  "primary": {
+    "kind": "summary",
+    "metadata": {
+      "id": "doc-s02",
+      "name": "Original S02 inspection",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "17",
+      "modifiedTime": "2026-11-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-s02",
+      "revisionId": "docs-r1",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-a",
+            "title": "Main",
+            "index": 7
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 6,
+                  "paragraph": {
+                    "paragraphStyle": {
+                      "headingId": "plan",
+                      "namedStyleType": "HEADING_1"
+                    },
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 6,
+                        "textRun": {
+                          "content": "Plan\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 6,
+                  "endIndex": 12,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 6,
+                        "endIndex": 12,
+                        "textRun": {
+                          "content": "Alpha\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 12,
+                  "endIndex": 18,
+                  "paragraph": {
+                    "paragraphStyle": {
+                      "headingId": "terms",
+                      "namedStyleType": "HEADING_2"
+                    },
+                    "elements": [
+                      {
+                        "startIndex": 12,
+                        "endIndex": 18,
+                        "textRun": {
+                          "content": "Terms\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 18,
+                  "endIndex": 23,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 18,
+                        "endIndex": 23,
+                        "textRun": {
+                          "content": "Beta\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 23,
+                  "endIndex": 28,
+                  "paragraph": {
+                    "paragraphStyle": {
+                      "headingId": "next",
+                      "namedStyleType": "HEADING_1"
+                    },
+                    "elements": [
+                      {
+                        "startIndex": 23,
+                        "endIndex": 28,
+                        "textRun": {
+                          "content": "Next\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 28,
+                  "endIndex": 34,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 28,
+                        "endIndex": 34,
+                        "textRun": {
+                          "content": "Omega\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "childTabs": [
+            {
+              "tabProperties": {
+                "tabId": "tab-child",
+                "title": "Details",
+                "index": 9
+              },
+              "documentTab": {
+                "body": {
+                  "content": [
+                    {
+                      "startIndex": 1,
+                      "endIndex": 7,
+                      "paragraph": {
+                        "elements": [
+                          {
+                            "startIndex": 1,
+                            "endIndex": 7,
+                            "textRun": {
+                              "content": "Child\n"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "childTabs": [
+                {
+                  "tabProperties": {
+                    "tabId": "tab-leaf",
+                    "title": "Leaf",
+                    "index": 0
+                  },
+                  "documentTab": {
+                    "body": {
+                      "content": [
+                        {
+                          "startIndex": 1,
+                          "endIndex": 6,
+                          "paragraph": {
+                            "elements": [
+                              {
+                                "startIndex": 1,
+                                "endIndex": 6,
+                                "textRun": {
+                                  "content": "Leaf\n"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tabProperties": {
+            "tabId": "tab-b",
+            "title": "Main",
+            "index": 1
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 9,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 9,
+                        "textRun": {
+                          "content": "Sibling\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "tabs": [
+      {
+        "id": "tab-a",
+        "title": "Main",
+        "parent": null,
+        "ordinal": 0,
+        "siblingIndex": 7,
+        "depth": 0,
+        "segment": "s02-a:1",
+        "count": 13
+      },
+      {
+        "id": "tab-child",
+        "title": "Details",
+        "parent": "tab-a",
+        "ordinal": 1,
+        "siblingIndex": 9,
+        "depth": 1,
+        "segment": "s02-a:14",
+        "count": 3
+      },
+      {
+        "id": "tab-leaf",
+        "title": "Leaf",
+        "parent": "tab-child",
+        "ordinal": 2,
+        "siblingIndex": 0,
+        "depth": 2,
+        "segment": "s02-a:17",
+        "count": 3
+      },
+      {
+        "id": "tab-b",
+        "title": "Main",
+        "parent": null,
+        "ordinal": 3,
+        "siblingIndex": 1,
+        "depth": 0,
+        "segment": "s02-a:20",
+        "count": 3
+      }
+    ],
+    "nodes": 22,
+    "args": {
+      "account": "reader@example.test",
+      "document": "doc-s02",
+      "scope": {
+        "tabs": {
+          "all": true
+        },
+        "segments": [
+          {
+            "kind": "body"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "kind": "nativeDoc",
+      "metadata": {
+        "id": "doc-s02",
+        "name": "Original S02 inspection",
+        "mimeType": "application/vnd.google-apps.document",
+        "version": "17",
+        "modifiedTime": "2026-11-01T00:00:00Z",
+        "trashed": false,
+        "capabilities": {
+          "canEdit": true
+        }
+      },
+      "capabilities": {
+        "read": {
+          "schema": "supported",
+          "account": "observed"
+        },
+        "nativeSuggestions": {
+          "schema": "supported",
+          "account": "unverified"
+        },
+        "authoring": {
+          "product": "not_exposed",
+          "account": "unverified"
+        },
+        "documentPermission": "editorObserved"
+      },
+      "snapshotId": "s02-a",
+      "view": "inline",
+      "revision": {
+        "kind": "docs",
+        "id": "docs-r1",
+        "subject": "subject-d"
+      },
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Main",
+          "parent": null,
+          "ordinal": 0,
+          "siblingIndex": 7,
+          "depth": 0,
+          "segments": [
+            {
+              "node": "s02-a:1",
+              "segment": {
+                "kind": "body"
+              }
+            }
+          ]
+        },
+        {
+          "id": "tab-child",
+          "title": "Details",
+          "parent": "tab-a",
+          "ordinal": 1,
+          "siblingIndex": 9,
+          "depth": 1,
+          "segments": [
+            {
+              "node": "s02-a:14",
+              "segment": {
+                "kind": "body"
+              }
+            }
+          ]
+        },
+        {
+          "id": "tab-leaf",
+          "title": "Leaf",
+          "parent": "tab-child",
+          "ordinal": 2,
+          "siblingIndex": 0,
+          "depth": 2,
+          "segments": [
+            {
+              "node": "s02-a:17",
+              "segment": {
+                "kind": "body"
+              }
+            }
+          ]
+        },
+        {
+          "id": "tab-b",
+          "title": "Main",
+          "parent": null,
+          "ordinal": 3,
+          "siblingIndex": 1,
+          "depth": 0,
+          "segments": [
+            {
+              "node": "s02-a:20",
+              "segment": {
+                "kind": "body"
+              }
+            }
+          ]
+        }
+      ],
+      "outline": [
+        {
+          "providerId": "plan",
+          "node": "s02-a:2",
+          "tabId": "tab-a",
+          "segment": {
+            "kind": "body"
+          },
+          "level": 1,
+          "title": "Plan",
+          "extent": {
+            "start": 1,
+            "end": 23
+          },
+          "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-a#heading=plan",
+          "path": [
+            "Plan"
+          ],
+          "depth": 0,
+          "sectionEnd": {
+            "kind": "nextHeading",
+            "node": "s02-a:10"
+          }
+        },
+        {
+          "providerId": "terms",
+          "node": "s02-a:6",
+          "tabId": "tab-a",
+          "segment": {
+            "kind": "body"
+          },
+          "level": 2,
+          "title": "Terms",
+          "extent": {
+            "start": 12,
+            "end": 23
+          },
+          "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-a#heading=terms",
+          "path": [
+            "Plan",
+            "Terms"
+          ],
+          "depth": 1,
+          "sectionEnd": {
+            "kind": "nextHeading",
+            "node": "s02-a:10"
+          }
+        },
+        {
+          "providerId": "next",
+          "node": "s02-a:10",
+          "tabId": "tab-a",
+          "segment": {
+            "kind": "body"
+          },
+          "level": 1,
+          "title": "Next",
+          "extent": {
+            "start": 23,
+            "end": 34
+          },
+          "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-a#heading=next",
+          "path": [
+            "Next"
+          ],
+          "depth": 0,
+          "sectionEnd": {
+            "kind": "segmentBoundary",
+            "node": "s02-a:12"
+          }
+        }
+      ],
+      "counts": {
+        "nodes": 22,
+        "unknownNodes": 0
+      },
+      "registries": [
+        {
+          "tabId": "tab-a",
+          "counts": {
+            "lists": 0,
+            "namedStyles": 0,
+            "namedRanges": 0,
+            "inlineObjects": 0,
+            "positionedObjects": 0,
+            "bookmarks": 0,
+            "dropdownDefinitions": 0,
+            "commentAnchors": 0
+          },
+          "readProof": false
+        },
+        {
+          "tabId": "tab-child",
+          "counts": {
+            "lists": 0,
+            "namedStyles": 0,
+            "namedRanges": 0,
+            "inlineObjects": 0,
+            "positionedObjects": 0,
+            "bookmarks": 0,
+            "dropdownDefinitions": 0,
+            "commentAnchors": 0
+          },
+          "readProof": false
+        },
+        {
+          "tabId": "tab-leaf",
+          "counts": {
+            "lists": 0,
+            "namedStyles": 0,
+            "namedRanges": 0,
+            "inlineObjects": 0,
+            "positionedObjects": 0,
+            "bookmarks": 0,
+            "dropdownDefinitions": 0,
+            "commentAnchors": 0
+          },
+          "readProof": false
+        },
+        {
+          "tabId": "tab-b",
+          "counts": {
+            "lists": 0,
+            "namedStyles": 0,
+            "namedRanges": 0,
+            "inlineObjects": 0,
+            "positionedObjects": 0,
+            "bookmarks": 0,
+            "dropdownDefinitions": 0,
+            "commentAnchors": 0
+          },
+          "readProof": false
+        }
+      ],
+      "diagnosticRead": {
+        "include": [
+          "tabs",
+          "outline",
+          "styles",
+          "lists",
+          "objects",
+          "ranges",
+          "review",
+          "diagnostics"
+        ],
+        "paged": true
+      },
+      "provenance": {
+        "provider": "googleDocs",
+        "retrievedAt": 0,
+        "responseDigest": "693eddd8da50656b4ec3764cdfcbb80acd99e2cd7848187ce5a10a0b18866b7b",
+        "source": "current",
+        "effectiveDefaults": "unknownWhenAbsent"
+      },
+      "coverage": {
+        "materialized": "complete",
+        "delivered": "summary",
+        "readProof": false,
+        "missingReviewCoverage": false
+      },
+      "thisCall": {
+        "providerMutationCount": 0
+      }
+    }
+  },
+  "control": {
+    "kind": "summary",
+    "metadata": {
+      "id": "doc-s02",
+      "name": "Original S02 inspection",
+      "mimeType": "application/vnd.google-apps.document",
+      "version": "17",
+      "modifiedTime": "2026-11-01T00:00:00Z",
+      "trashed": false,
+      "capabilities": {
+        "canEdit": true
+      }
+    },
+    "document": {
+      "documentId": "doc-s02",
+      "revisionId": "docs-r1",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE",
+      "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+      "tabs": [
+        {
+          "tabProperties": {
+            "tabId": "tab-a",
+            "title": "Main",
+            "index": 7
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 6,
+                  "paragraph": {
+                    "paragraphStyle": {
+                      "headingId": "plan",
+                      "namedStyleType": "HEADING_1"
+                    },
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 6,
+                        "textRun": {
+                          "content": "Plan\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 6,
+                  "endIndex": 12,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 6,
+                        "endIndex": 12,
+                        "textRun": {
+                          "content": "Alpha\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 12,
+                  "endIndex": 18,
+                  "paragraph": {
+                    "paragraphStyle": {
+                      "headingId": "terms",
+                      "namedStyleType": "HEADING_2"
+                    },
+                    "elements": [
+                      {
+                        "startIndex": 12,
+                        "endIndex": 18,
+                        "textRun": {
+                          "content": "Terms\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 18,
+                  "endIndex": 23,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 18,
+                        "endIndex": 23,
+                        "textRun": {
+                          "content": "Beta\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 23,
+                  "endIndex": 28,
+                  "paragraph": {
+                    "paragraphStyle": {
+                      "headingId": "next",
+                      "namedStyleType": "HEADING_1"
+                    },
+                    "elements": [
+                      {
+                        "startIndex": 23,
+                        "endIndex": 28,
+                        "textRun": {
+                          "content": "Next\n"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "startIndex": 28,
+                  "endIndex": 34,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 28,
+                        "endIndex": 34,
+                        "textRun": {
+                          "content": "Omega\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "childTabs": [
+            {
+              "tabProperties": {
+                "tabId": "tab-child",
+                "title": "Details",
+                "index": 9
+              },
+              "documentTab": {
+                "body": {
+                  "content": [
+                    {
+                      "startIndex": 1,
+                      "endIndex": 7,
+                      "paragraph": {
+                        "elements": [
+                          {
+                            "startIndex": 1,
+                            "endIndex": 7,
+                            "textRun": {
+                              "content": "Child\n"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "childTabs": [
+                {
+                  "tabProperties": {
+                    "tabId": "tab-leaf",
+                    "title": "Leaf",
+                    "index": 0
+                  },
+                  "documentTab": {
+                    "body": {
+                      "content": [
+                        {
+                          "startIndex": 1,
+                          "endIndex": 6,
+                          "paragraph": {
+                            "elements": [
+                              {
+                                "startIndex": 1,
+                                "endIndex": 6,
+                                "textRun": {
+                                  "content": "Leaf\n"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tabProperties": {
+            "tabId": "tab-b",
+            "title": "Main",
+            "index": 1
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 9,
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "startIndex": 1,
+                        "endIndex": 9,
+                        "textRun": {
+                          "content": "Sibling\n"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "tabs": [
+      {
+        "id": "tab-a",
+        "title": "Main",
+        "parent": null,
+        "ordinal": 0,
+        "siblingIndex": 7,
+        "depth": 0,
+        "segment": "s02-a:1",
+        "count": 13
+      },
+      {
+        "id": "tab-child",
+        "title": "Details",
+        "parent": "tab-a",
+        "ordinal": 1,
+        "siblingIndex": 9,
+        "depth": 1,
+        "segment": "s02-a:14",
+        "count": 3
+      },
+      {
+        "id": "tab-leaf",
+        "title": "Leaf",
+        "parent": "tab-child",
+        "ordinal": 2,
+        "siblingIndex": 0,
+        "depth": 2,
+        "segment": "s02-a:17",
+        "count": 3
+      },
+      {
+        "id": "tab-b",
+        "title": "Main",
+        "parent": null,
+        "ordinal": 3,
+        "siblingIndex": 1,
+        "depth": 0,
+        "segment": "s02-a:20",
+        "count": 3
+      }
+    ],
+    "nodes": 22,
+    "args": {
+      "account": "reader@example.test",
+      "document": "doc-s02",
+      "scope": {
+        "tabs": {
+          "all": true
+        },
+        "segments": [
+          {
+            "kind": "body"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "kind": "nativeDoc",
+      "metadata": {
+        "id": "doc-s02",
+        "name": "Original S02 inspection",
+        "mimeType": "application/vnd.google-apps.document",
+        "version": "17",
+        "modifiedTime": "2026-11-01T00:00:00Z",
+        "trashed": false,
+        "capabilities": {
+          "canEdit": true
+        }
+      },
+      "capabilities": {
+        "read": {
+          "schema": "supported",
+          "account": "observed"
+        },
+        "nativeSuggestions": {
+          "schema": "supported",
+          "account": "unverified"
+        },
+        "authoring": {
+          "product": "not_exposed",
+          "account": "unverified"
+        },
+        "documentPermission": "editorObserved"
+      },
+      "snapshotId": "s02-a",
+      "view": "inline",
+      "revision": {
+        "kind": "docs",
+        "id": "docs-r1",
+        "subject": "subject-d"
+      },
+      "tabs": [
+        {
+          "id": "tab-a",
+          "title": "Main",
+          "parent": null,
+          "ordinal": 0,
+          "siblingIndex": 7,
+          "depth": 0,
+          "segments": [
+            {
+              "node": "s02-a:1",
+              "segment": {
+                "kind": "body"
+              }
+            }
+          ]
+        },
+        {
+          "id": "tab-child",
+          "title": "Details",
+          "parent": "tab-a",
+          "ordinal": 1,
+          "siblingIndex": 9,
+          "depth": 1,
+          "segments": [
+            {
+              "node": "s02-a:14",
+              "segment": {
+                "kind": "body"
+              }
+            }
+          ]
+        },
+        {
+          "id": "tab-leaf",
+          "title": "Leaf",
+          "parent": "tab-child",
+          "ordinal": 2,
+          "siblingIndex": 0,
+          "depth": 2,
+          "segments": [
+            {
+              "node": "s02-a:17",
+              "segment": {
+                "kind": "body"
+              }
+            }
+          ]
+        },
+        {
+          "id": "tab-b",
+          "title": "Main",
+          "parent": null,
+          "ordinal": 3,
+          "siblingIndex": 1,
+          "depth": 0,
+          "segments": [
+            {
+              "node": "s02-a:20",
+              "segment": {
+                "kind": "body"
+              }
+            }
+          ]
+        }
+      ],
+      "outline": [
+        {
+          "providerId": "plan",
+          "node": "s02-a:2",
+          "tabId": "tab-a",
+          "segment": {
+            "kind": "body"
+          },
+          "level": 1,
+          "title": "Plan",
+          "extent": {
+            "start": 1,
+            "end": 23
+          },
+          "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-a#heading=plan",
+          "path": [
+            "Plan"
+          ],
+          "depth": 0,
+          "sectionEnd": {
+            "kind": "nextHeading",
+            "node": "s02-a:10"
+          }
+        },
+        {
+          "providerId": "terms",
+          "node": "s02-a:6",
+          "tabId": "tab-a",
+          "segment": {
+            "kind": "body"
+          },
+          "level": 2,
+          "title": "Terms",
+          "extent": {
+            "start": 12,
+            "end": 23
+          },
+          "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-a#heading=terms",
+          "path": [
+            "Plan",
+            "Terms"
+          ],
+          "depth": 1,
+          "sectionEnd": {
+            "kind": "nextHeading",
+            "node": "s02-a:10"
+          }
+        },
+        {
+          "providerId": "next",
+          "node": "s02-a:10",
+          "tabId": "tab-a",
+          "segment": {
+            "kind": "body"
+          },
+          "level": 1,
+          "title": "Next",
+          "extent": {
+            "start": 23,
+            "end": 34
+          },
+          "link": "https://docs.google.com/document/d/doc-s02/edit?tab=tab-a#heading=next",
+          "path": [
+            "Next"
+          ],
+          "depth": 0,
+          "sectionEnd": {
+            "kind": "segmentBoundary",
+            "node": "s02-a:12"
+          }
+        }
+      ],
+      "counts": {
+        "nodes": 22,
+        "unknownNodes": 0
+      },
+      "registries": [
+        {
+          "tabId": "tab-a",
+          "counts": {
+            "lists": 0,
+            "namedStyles": 0,
+            "namedRanges": 0,
+            "inlineObjects": 0,
+            "positionedObjects": 0,
+            "bookmarks": 0,
+            "dropdownDefinitions": 0,
+            "commentAnchors": 0
+          },
+          "readProof": false
+        },
+        {
+          "tabId": "tab-child",
+          "counts": {
+            "lists": 0,
+            "namedStyles": 0,
+            "namedRanges": 0,
+            "inlineObjects": 0,
+            "positionedObjects": 0,
+            "bookmarks": 0,
+            "dropdownDefinitions": 0,
+            "commentAnchors": 0
+          },
+          "readProof": false
+        },
+        {
+          "tabId": "tab-leaf",
+          "counts": {
+            "lists": 0,
+            "namedStyles": 0,
+            "namedRanges": 0,
+            "inlineObjects": 0,
+            "positionedObjects": 0,
+            "bookmarks": 0,
+            "dropdownDefinitions": 0,
+            "commentAnchors": 0
+          },
+          "readProof": false
+        },
+        {
+          "tabId": "tab-b",
+          "counts": {
+            "lists": 0,
+            "namedStyles": 0,
+            "namedRanges": 0,
+            "inlineObjects": 0,
+            "positionedObjects": 0,
+            "bookmarks": 0,
+            "dropdownDefinitions": 0,
+            "commentAnchors": 0
+          },
+          "readProof": false
+        }
+      ],
+      "diagnosticRead": {
+        "include": [
+          "tabs",
+          "outline",
+          "styles",
+          "lists",
+          "objects",
+          "ranges",
+          "review",
+          "diagnostics"
+        ],
+        "paged": true
+      },
+      "provenance": {
+        "provider": "googleDocs",
+        "retrievedAt": 0,
+        "responseDigest": "693eddd8da50656b4ec3764cdfcbb80acd99e2cd7848187ce5a10a0b18866b7b",
+        "source": "current",
+        "effectiveDefaults": "unknownWhenAbsent"
+      },
+      "coverage": {
+        "materialized": "complete",
+        "delivered": "summary",
+        "readProof": false,
+        "missingReviewCoverage": false
+      },
+      "thisCall": {
+        "providerMutationCount": 0
+      }
+    }
+  },
+  "checks": [],
+  "preservation": true
+}
