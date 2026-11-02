@@ -2,6 +2,8 @@
 // routes, not capabilities inferred from labels or the obligation manifest.
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
+import { isWitness,witnessBoundary,executeWitness,compareWitness } from './witness-execution.mjs';
+import { witnessVariants } from './witness-fixtures.mjs';
 import { isSelection,selectionBoundary,executeSelection,compareSelection } from './selection-execution.mjs';
 import { isDiscoveryApplication,executeDiscovery,compareDiscovery,discoveryBoundary } from './discovery-execution.mjs';
 import { executeMetadataDiscovery,compareMetadataDiscovery } from './discovery-native.mjs';
@@ -40,7 +42,7 @@ const routes=Object.freeze({
   ...Object.fromEntries(['crossRun','paragraphBoundary','chipBoundary','boundedContext'].map(v=>[`docs_find.literal/${v}__read`,{driver:'docs_find',schema:'find.matcher',mode:'read',native:'docs_find',action:'c012',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
   'snapshot.coverage/wrongThread__local':{driver:'snapshot-store',schema:'snapshot.contract',mode:'local',native:'docs_inspect',action:'snapshot',outcomes:['success','counterexample']},
   ...Object.fromEntries(['exactlyOne','explicitOccurrenceZero','allExpectedCount','ambiguous','missing'].map(v=>[`selector.cardinality/${v}__local`,{driver:'selector-resolver',schema:'selector.closed-union',mode:'local',native:'docs_find',action:'c015',outcomes:['success','counterexample']}])),
-  'coverage.witness/broadDelivered__local':{driver:'coverage-auditor',schema:'coverage.manifest-and-witness',mode:'local',native:'docs_read',action:'witness',outcomes:['success','counterexample']},
+  ...Object.fromEntries(witnessVariants.map(v=>[`coverage.witness/${v}__local`,{driver:'coverage-auditor',schema:'coverage.manifest-and-witness',mode:'local',native:'docs_read',action:v==='broadDelivered'?'witness':'typedWitness',outcomes:['success','counterexample']}])),
   'gdrive_get_file.metadata/fileMetadata__read':{driver:'gdrive_get_file',schema:'drive-file.metadata',mode:'read',native:'gdrive_get_file',action:'metadata',outcomes:['success','invalid','preservation','bounds','wrongSubject']},
 });
 export const adapterBindings=()=>structuredClone(routes);
@@ -129,9 +131,10 @@ function nodeFacts(snapshot) {
   return Object.values(snapshot.nodes).map(n=>({id:n.id,kind:n.kind,parent:n.parent,tabId:n.tabId,segment:n.segment,extent:n.extent,...n.text!==undefined?{text:n.text}:{}}));
 }
 function substitute(args) {return JSON.parse(JSON.stringify(args).replaceAll('"$snapshot"','"snap-d"'));}
-export const isApplicationOutcome=r=>applicationFamily(r)||isDiscoveryApplication(r)||isSelection(r);
-export function currentApplicationBoundary(r){return isSelection(r)?selectionBoundary(r):isDiscoveryApplication(r)?discoveryBoundary(r):applicationBoundary(r);}
+export const isApplicationOutcome=r=>applicationFamily(r)||isDiscoveryApplication(r)||isSelection(r)||isWitness(r);
+export function currentApplicationBoundary(r){return isWitness(r)?witnessBoundary(r):isSelection(r)?selectionBoundary(r):isDiscoveryApplication(r)?discoveryBoundary(r):applicationBoundary(r);}
 export async function executeAdapter(record,fixture,inventory) {
+  if(isWitness(record)){implementedRoute(record);return executeWitness(record,fixture);}
   if(isSelection(record)){implementedRoute(record);return executeSelection(record,fixture);}
   if(isDiscoveryApplication(record)){implementedRoute(record);return executeDiscovery(record,fixture);}
   if(applicationFamily(record)){implementedRoute(record);return executeApplication(record,fixture);}
@@ -356,6 +359,7 @@ function compareLocalInvocation(record,t) {
 // Re-run by the parent on the captured observations, independently of any
 // Cucumber attachment flags. Every expectation below originates in inert data.
 export function compareExecution(record,f,t) {
+  if(isWitness(record)){implementedRoute(record);return compareWitness(record,f,t);}
   if(isSelection(record))return compareSelection(record,f,t);
   if(isDiscoveryApplication(record)){implementedRoute(record);return compareDiscovery(record,f,t);}
   if(applicationFamily(record)){implementedRoute(record);return compareApplication(record,f,t);}

@@ -60,6 +60,6 @@ export function assertProductIntake({manifest,registry,results,fixtures,root,rec
   // preserve auditEvidence's full closure before changing this closed boundary.
   assert.deepEqual(registry.exposed,[],'no implemented semantic variant may be exposed');
   assert.deepEqual(manifest.expansion.variantExposure,{},'no implemented semantic exposure adapter');
-  if(results.some(r=>isApplicationOutcome(records.get(r.caseId)??{})))compareCompanions(root,companions,fingerprint,runId);
+  if(results.some(r=>isApplicationOutcome(records.get(r.caseId)??{})||records.get(r.caseId)?.ledgerId==='C021'))compareCompanions(root,companions,fingerprint,runId);
   return {bridgeCandidates:results.filter(r=>r.pickle?.tags.some(t=>t.name==='@bridgeCandidate')).length,implementedAdapterVariants:Object.keys(adapterBindings()).length};
 }

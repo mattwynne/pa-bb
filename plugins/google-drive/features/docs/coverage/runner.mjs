@@ -124,7 +124,7 @@ export async function run() {
     s02:{required:s02Records.length,executed:s02Records.length-remaining.length,remaining:remaining.length,
       readVariants:readVariants.length,completeReadClosures:Object.values(readClosures).filter(c=>c.missing.length===0).length},
     intakeCounterexamples,
-    testBoundaries:{applicationOutcomes:semanticResults.filter(r=>isApplicationOutcome(records.get(r.caseId))&&!isCandidate(r)).length,nativeCompanionCases:companions.native.length+companions.discovery.length+companions.metadata.length+companions.selection.length,persistenceContractCases:companions.persistence.length,liveProvider:false},
+    testBoundaries:{coreOrApplicationOutcomes:semanticResults.filter(r=>isApplicationOutcome(records.get(r.caseId))&&!isCandidate(r)).length,nativeCompanionCases:companions.native.length+companions.discovery.length+companions.metadata.length+companions.selection.length+1,persistenceContractCases:companions.persistence.length,liveProvider:false},
     cucumberScenarios: messages.filter(m => m.testCaseFinished).length, externalEvidence: 'separate; no rendered/applied-code credit' };
   writeFileSync(join(dir,'summary.json'), JSON.stringify(summary,null,2)+'\n'); console.log(JSON.stringify(summary));
 }

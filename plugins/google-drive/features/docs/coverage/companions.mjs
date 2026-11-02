@@ -10,6 +10,7 @@ import { sqliteContractObservation,compareSqliteContractObservation } from '../s
 import { fixtureFile,digest } from './audit.mjs';
 import { expand } from './expand.mjs';
 import { executeNativeAdapter,compareNativeExecution } from './execution-adapters.mjs';
+import { executeWitnessNative,compareWitnessNative } from './witness-native.mjs';
 import { selectionCompanionCases,executeSelectionNative,compareSelectionNative } from './selection-native.mjs';
 import { discoveryCompanionCases,executeDiscoveryNative,compareDiscoveryNative } from './discovery-native.mjs';
 export const nativeCompanionCases=Object.freeze([
@@ -25,13 +26,14 @@ export async function executeCompanions(root,inventory,sourceDigest,runId){
   const discovery=[];for(const caseId of discoveryCompanionCases){const record=records.get(caseId),entry=fixtures[caseId],trace=await executeDiscoveryNative(record,fixtureFile(root,entry));discovery.push({caseId,fixtureDigest:entry.sha256,trace});}
   const metadata=[];for(const outcome of ['success','invalid','preservation','bounds','wrongSubject']){const caseId=`C165.fileMetadata__read.${outcome}`,record=records.get(caseId),entry=fixtures[caseId],trace=await executeNativeAdapter(record,fixtureFile(root,entry),inventory);metadata.push({caseId,fixtureDigest:entry.sha256,trace});}
   const selection=[];for(const caseId of selectionCompanionCases){const record=records.get(caseId),entry=fixtures[caseId],trace=await executeSelectionNative(record,fixtureFile(root,entry));selection.push({caseId,fixtureDigest:entry.sha256,trace});}
+  const witness=await executeWitnessNative();
   const persistence=[];
   for(const [name,run]of Object.entries(snapshotContractCases())){const h=createFakePluginHost({pluginId:'semantic-companion'});try{assert.notEqual(h.bb.storage.database().name,':memory:');const port=createBbStore(h.bb.storage.database(),h.bb.storage.migrate).semanticSnapshots,observation=sqliteContractObservation(h.bb.storage.database());observation.capture();const events=captureSnapshotContract(port,run);observation.capture();persistence.push({name,events,sqlite:observation.result()});}finally{await h.harness.lifecycle.dispose();}}
-  return {sourceDigest,runId,native,discovery,metadata,selection,persistence,ids:['semantic-native-read','semantic-sqlite-contract','semantic-http-contract','s02-discovery-native','s02-selection-native'],scope:'offline native/SQLite and real-adapter stubbed HTTP; no live Google'};
+  return {sourceDigest,runId,native,discovery,metadata,selection,witness,persistence,ids:['semantic-native-read','semantic-sqlite-contract','semantic-http-contract','s02-discovery-native','s02-selection-native','s02-witness-native'],scope:'offline native/SQLite and real-adapter stubbed HTTP; no live Google'};
 }
 export function compareCompanions(root,proofs,sourceDigest,runId){
   assert.ok(proofs,'missing required native/persistence/adapter companions');assert.equal(proofs.sourceDigest,sourceDigest,'stale companion source');assert.equal(proofs.runId,runId,'stale companion run');
-  assert.deepEqual(proofs.ids,['semantic-native-read','semantic-sqlite-contract','semantic-http-contract','s02-discovery-native','s02-selection-native'],'missing required companion binding');assert.deepEqual(proofs.native.map(c=>c.caseId),nativeCompanionCases,'missing/wrong-route native companion');
+  assert.deepEqual(proofs.ids,['semantic-native-read','semantic-sqlite-contract','semantic-http-contract','s02-discovery-native','s02-selection-native','s02-witness-native'],'missing required companion binding');assert.deepEqual(proofs.native.map(c=>c.caseId),nativeCompanionCases,'missing/wrong-route native companion');
   const {records,fixtures}=read(root);
   const calls=new Set(),connections=new Set(),files=new Set();
   for(const c of proofs.native){const entry=fixtures[c.caseId];assert.equal(c.fixtureDigest,entry.sha256,'stale companion fixture');assert.ok(Array.isArray(c.trace?.nativeCalls)&&Array.isArray(c.trace?.localCalls),'application/fake-store evidence cannot prove native/SQLite companion');compareNativeExecution(records.get(c.caseId),fixtureFile(root,entry),c.trace);
@@ -44,6 +46,7 @@ export function compareCompanions(root,proofs,sourceDigest,runId){
   }
   assert.deepEqual(proofs.selection?.map(c=>c.caseId),selectionCompanionCases,'missing/wrong-route selection companion');
   for(const c of proofs.selection){const entry=fixtures[c.caseId];assert.equal(c.fixtureDigest,entry.sha256);compareSelectionNative(records.get(c.caseId),fixtureFile(root,entry),c.trace);const a=c.trace.storage[0],file=a.databases.find(d=>d.name==='main').fileDigest;assert.ok(!connections.has(a.connectionId)&&!files.has(file),'reused selection SQLite connection');connections.add(a.connectionId);files.add(file);for(const call of c.trace.nativeCalls){assert.ok(!calls.has(call.id),'reused selection native invocation');calls.add(call.id);}}
+  compareWitnessNative(proofs.witness);const witnessStorage=proofs.witness.storage[0],witnessFile=witnessStorage.databases.find(d=>d.name==='main').fileDigest;assert.ok(!connections.has(witnessStorage.connectionId)&&!files.has(witnessFile),'reused witness SQLite connection');connections.add(witnessStorage.connectionId);files.add(witnessFile);for(const call of [...proofs.witness.nativeCalls,...proofs.witness.events]){assert.ok(!calls.has(call.id),'reused witness invocation');calls.add(call.id);}
   // Replay independently expected contracts against recorded actual port calls,
   // never a passing flag. Physical capacity/tamper/reopen remain package tests.
   assert.deepEqual(proofs.persistence.map(c=>c.name),Object.keys(snapshotContractCases()),'missing SQLite logical-contract execution');

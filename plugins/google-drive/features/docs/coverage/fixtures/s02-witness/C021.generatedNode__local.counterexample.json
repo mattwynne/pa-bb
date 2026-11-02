@@ -1,0 +1,213 @@
+{
+  "caseId": "C021.generatedNode__local.counterexample",
+  "variant": "generatedNode",
+  "outcome": "counterexample",
+  "provenance": {
+    "source": "witness-fixtures.mjs and inert witness-c-vectors.mjs",
+    "authorship": "S02 independent original raw source and typed disclosures; legacy broad pair remains separate immutable native primary"
+  },
+  "document": {
+    "documentId": "doc-a",
+    "revisionId": "r1",
+    "suggestionsViewMode": "SUGGESTIONS_INLINE",
+    "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+    "tabs": [
+      {
+        "tabProperties": {
+          "tabId": "tab-a",
+          "title": "Main"
+        },
+        "documentTab": {
+          "body": {
+            "content": [
+              {
+                "startIndex": 1,
+                "endIndex": 3,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 1,
+                      "endIndex": 3,
+                      "textRun": {
+                        "content": "A\n",
+                        "textStyle": {}
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 3,
+                "endIndex": 5,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 3,
+                      "endIndex": 5,
+                      "textRun": {
+                        "content": "B\n",
+                        "textStyle": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "unknownPayload": {
+            "startIndex": 73,
+            "endIndex": 91,
+            "label": "untouched"
+          }
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "id": "doc-a",
+    "name": "Synthetic witness",
+    "mimeType": "application/vnd.google-apps.document",
+    "capabilities": {
+      "canEdit": true
+    }
+  },
+  "after": {
+    "documentId": "doc-a",
+    "revisionId": "r2",
+    "suggestionsViewMode": "SUGGESTIONS_INLINE",
+    "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+    "tabs": [
+      {
+        "tabProperties": {
+          "tabId": "tab-a",
+          "title": "Main"
+        },
+        "documentTab": {
+          "body": {
+            "content": [
+              {
+                "startIndex": 1,
+                "endIndex": 3,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 1,
+                      "endIndex": 3,
+                      "textRun": {
+                        "content": "A\n",
+                        "textStyle": {}
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 3,
+                "endIndex": 9,
+                "table": {
+                  "rows": 1,
+                  "columns": 1,
+                  "tableRows": [
+                    {
+                      "startIndex": 4,
+                      "endIndex": 8,
+                      "tableCells": [
+                        {
+                          "startIndex": 5,
+                          "endIndex": 8,
+                          "content": [
+                            {
+                              "startIndex": 6,
+                              "endIndex": 7,
+                              "paragraph": {
+                                "paragraphStyle": {},
+                                "elements": [
+                                  {
+                                    "startIndex": 6,
+                                    "endIndex": 7,
+                                    "textRun": {
+                                      "content": "\n",
+                                      "textStyle": {}
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "startIndex": 9,
+                "endIndex": 11,
+                "paragraph": {
+                  "paragraphStyle": {},
+                  "elements": [
+                    {
+                      "startIndex": 9,
+                      "endIndex": 11,
+                      "textRun": {
+                        "content": "B\n",
+                        "textStyle": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "unknownPayload": {
+            "startIndex": 73,
+            "endIndex": 91,
+            "label": "untouched"
+          }
+        }
+      }
+    ]
+  },
+  "table": {
+    "startIndex": 3,
+    "endIndex": 9,
+    "table": {
+      "rows": 1,
+      "columns": 1,
+      "tableRows": [
+        {
+          "startIndex": 4,
+          "endIndex": 8,
+          "tableCells": [
+            {
+              "startIndex": 5,
+              "endIndex": 8,
+              "content": [
+                {
+                  "startIndex": 6,
+                  "endIndex": 7,
+                  "paragraph": {
+                    "paragraphStyle": {},
+                    "elements": [
+                      {
+                        "startIndex": 6,
+                        "endIndex": 7,
+                        "textRun": {
+                          "content": "\n",
+                          "textStyle": {}
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

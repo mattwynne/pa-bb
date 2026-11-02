@@ -1,8 +1,9 @@
 # Semantic rewrite test boundaries
 
 ADR 0003 governs the existing S02 code. This changes proof placement, not product
-scope: 351/367 independently reviewed outcomes, 16 remaining, two supplemental candidates,
-59/59 read closures and no new serving exposure. Historical receipts and fixture
+scope: 367/367 independently reviewed offline outcomes, none remaining, no supplemental candidates,
+59/59 read closures and no new serving exposure. This is not S03, deployment,
+rendered/applied/runtime/provider acceptance or whole-plan completion. Historical receipts and fixture
 provenance are unchanged. The manifest's old acceptance descriptions are historical;
 new results record their actual current boundary.
 
@@ -34,7 +35,17 @@ Sixteen C009 outcomes and the two raw-mask outcomes remain on their genuine
 integration paths. The original native inspection and metadata success fixtures
 are now joined at their exact keys, with unchanged bytes and provenance and fresh
 native execution. Four further metadata outcomes exercise the existing registered
-`gdrive_get_file`, not a semantic alias. Two C021 candidates remain separate.
+`gdrive_get_file`, not a semantic alias. Fourteen C021 outcomes execute the actual
+local read-effect, named-style, generated-comparison or stored-token service paths
+with independent source/target/dependency/change/page/preservation facts. The two
+original C021 broad-delivery fixtures now execute at their exact canonical keys
+through their unchanged legacy native/SQLite path. Their original bytes,
+descriptors and provenance are preserved: legacy `content` is not typed
+`storedContent`. A separate required typed broad-delivery companion composes
+actual registered `docs_inspect`/`docs_read`, the real Google adapter with closed
+HTTP, file SQLite tokens and `createReadEvidenceService.evaluate`. It asserts
+selected/full and no-token/sibling/prefix/tail/foreign-owner controls. It is not a
+second scored outcome or a native witness/authoring tool.
 Fifteen existing native companions retain inspect/read/find, query/selector,
 continuation, rich/opaque/registry, view and review coverage. Six fixed discovery
 companions add metadata-only blobs and diagnostic tab pagination, owner refusal,
@@ -72,6 +83,7 @@ boundary, not a removal of capability keys.
 | C013 exact/typography/NFC/simple-fold/inverse-map/emoji/combining/RTL algorithm mutations | Eight in-process actual-source leaf mutants in `docs-semantic-semantic-faults.test.mjs`; independently authored fixture results must kill each. No package copies or child suites. All original bounds and scalar/normalization cases remain in the instruction programs. |
 | C009 aggregate/accounting and package-copy fault probes | All sixteen actual integration traces still execute/compare in normal acceptance. Real `c009-atomic`, `c009-packing`, store/store-b, migration-b, retention-c and native suites retain rollback, work, capacity, collision, seal, reopen and lifetime checks. Direct comparator omission tests and shared-contract late failure prove publication rejection without a package sandbox. |
 | C004/C016/C017/C020 outline and selection | `selection-execution.mjs` compares all 53 fixed variant/outcome programs against original inert facts. Eight actual-source mutations cover heading identity, depth, immutable peer boundary, heading exclusion, inclusive span, URL conflict, stale ordinal and identity uniqueness. Six native companions independently check complete records and exact frozen membership. Direct controls reject synchronized missing/duplicate structural output, changed runs/tabs/ancestors/cursor request and counterfeit identity origin/destination/source bindings. |
+| C021 read/effect witnesses | `witness-execution.mjs` checks exact UTF-16/cardinality/induced effects, original preview objects/boundaries, complete named usages/pages, current versus historical evidence, sibling versus selected stored tokens, and generated anchored before/after plus full preservation. Full independent page facts never come from `inspectEffectEvidence`. Real comparator omission/counterfeit controls reject missing targets/dependencies/changes/effects, forged usage owners/overrides/fallbacks, false completion/digests, changed untouched prose/unknown fields and invented stage authority. Generated `protocolProvenance` remains `notEstablished`. Mandatory typed native/token/SQLite composition is distinct from immutable legacy primary evidence; neither grants authoring authority. |
 | Historical D/E aggregate counts, candidate migration and exposure assertions | `docs-semantic-evidence.test.mjs` checks exact current accepted keys/counts/closures and all 367 missing-execution declarations. The single runner checks actual discovery, Examples, fixtures, modes, outcomes, every required key and orphan/interrupted records. Historical intermediate totals are not rerun as current products. |
 | D/E source/fixture/outcome/driver/schema/subject/dispatcher/local-call counterfeit sandboxes | Existing `coverage.test`, wire/schema contracts, fixed inventory and product intake retain independent structural joins; application trace controls reject omissions, false authority and relabelling. `evidence.test` rejects missing/stale/wrong-route/fixture and fake-store/native companions. Genuine original-handler/alias/schema capture checks remain in `native-target-e` and `capture-corrections-e`. |
 | Per-copy journal/timeout probes | `docs-semantic-journal.test.mjs` retains exact 367-record, byte/count, UTF-8, truncated, aggregate and timeout bounds, plus actual child-channel complete/truncated/failed/timeout-after-publication cases. `assertCompletedChild` is also the runner's gate. No synchronous callback timeout is described as a hard aggregate deadline. |
