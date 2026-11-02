@@ -1,9 +1,12 @@
 # Semantic rewrite test boundaries
 
-ADR 0003 governs the existing S02 code. This changes proof placement, not product
-scope: 367/367 independently reviewed offline outcomes, none remaining, no supplemental candidates,
-59/59 read closures and no new serving exposure. This is not S03, deployment,
-rendered/applied/runtime/provider acceptance or whole-plan completion. Historical receipts and fixture
+ADR 0003 governs the S02 code and the reviewed no-write S03 tranche. S02 retains
+367/367 independently reviewed offline outcomes, no supplemental candidates and
+59/59 read closures. Thirty independently reviewed internal S03 outcomes are now
+integrated into normal acceptance: 30/268 S03, 238 remaining; 397/11,197 overall,
+10,800 planned. Final integration delta audit remains a separate gate. No new
+serving exposure, deployment, rendered/applied/runtime/provider acceptance or
+whole-S03/whole-plan completion follows. Historical receipts and fixture
 provenance are unchanged. The manifest's old acceptance descriptions are historical;
 new results record their actual current boundary.
 
@@ -62,6 +65,24 @@ contracts execute both memory and actual SQLite implementations; memory makes no
 physical quota, seal, migration, crash, reopen or durability claim. Those
 SQL-specific suites remain separate and unchanged in substance.
 
+The thirty internal no-write S03 cases run through the same normal profile,
+canonical fixture index, registry, complete current-run intake and delivered-key
+auditor as the original367. `docs-semantic-draft-evidence-core.test.mjs` is in the
+guarded fast command; `docs-semantic-draft-evidence.test.mjs` is in integration.
+Actual draft/planner/compiler/independent-verifier entry points retain literal
+source/target/dependency/after expectations and closed argument/result shapes.
+Shared monotonic service/port lineage proves reservation before the observed
+application source read; it does not invent journal-internal observations.
+Twenty-four exact per-outcome file-SQLite companions prove retained keys,
+rollback/reopen, precise head/revision/pin sets and real legacy reservation/claim
+controls. S02's actual native witness input companion remains separate and is
+not a draft-native control handler. The six C194 cases establish only the
+supported `paragraphBold/1` verifier contract, with attribution not established,
+not all future families. Four default-budget cases, twelve public-named controls,
+sealing, dispatch/authority/claims, richer composition and full private legacy
+verification remain planned. No fixture can substitute passing flags, memory
+storage or a test-only public wrapper for those missing guarantees.
+
 Companions are executed by the parent runner, independently of the child outcome
 journal. Intake requires current source/run/fixture bindings and the exact fixed
 companion inventory before credit. Application records cannot stand in for native
@@ -95,6 +116,6 @@ binding/digest rejection and failure after pin validation but before witness
 publication; early refusal is not advertised as transaction proof.
 
 Rendered BB review, applied-code inspection, live-provider observation and actual
-activation remain separate gates. This offline refactor does not satisfy them or
-implement S03–S16. Legacy tools, approval policy, no-replay rules and adjacent
+activation remain separate gates. This offline integration does not satisfy them,
+complete S03 or implement S04–S16. Legacy tools, approval policy, no-replay rules and adjacent
 Drive/Sheets/upload/security tests remain in the full package gate.

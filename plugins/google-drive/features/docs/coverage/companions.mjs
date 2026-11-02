@@ -12,6 +12,8 @@ import { expand } from './expand.mjs';
 import { executeNativeAdapter,compareNativeExecution } from './execution-adapters.mjs';
 import { executeWitnessNative,compareWitnessNative } from './witness-native.mjs';
 import { selectionCompanionCases,executeSelectionNative,compareSelectionNative } from './selection-native.mjs';
+import { draftCaseIds } from './draft-execution.mjs';
+import { executeDraftCompanions } from './draft-persistence.mjs';
 import { discoveryCompanionCases,executeDiscoveryNative,compareDiscoveryNative } from './discovery-native.mjs';
 export const nativeCompanionCases=Object.freeze([
   'C003.footnote__read.success','C005.continuation__read.success','C006.styles__read.success','C007.nestedTable__read.success','C008.unknown__read.success',
@@ -19,9 +21,9 @@ export const nativeCompanionCases=Object.freeze([
   'C011.deniedComments__read.success','C011.missingReviewCoverage__read.success','C011.tabsAndInline__read.success',
   'C012.crossRun__read.success','C013.inverseMap__read.success','C015.explicitOccurrenceZero__local.success',
 ]);
-const read=root=>{const json=p=>JSON.parse(readFileSync(join(root,p)));return {records:new Map(expand(json('features/docs/coverage/obligations.json')).map(r=>[r.caseId,r])),fixtures:json('features/docs/coverage/fixtures/index.json')};};
+const read=root=>{const json=p=>JSON.parse(readFileSync(join(root,p))),manifest=json('features/docs/coverage/obligations.json');return {manifest,records:new Map(expand(manifest).map(r=>[r.caseId,r])),fixtures:json('features/docs/coverage/fixtures/index.json')};};
 export async function executeCompanions(root,inventory,sourceDigest,runId){
-  const {records,fixtures}=read(root),native=[];
+  const {manifest,records,fixtures}=read(root),native=[];
   for(const caseId of nativeCompanionCases){const record=records.get(caseId),entry=fixtures[caseId],fixture=fixtureFile(root,entry),trace=await executeNativeAdapter(record,fixture,inventory);compareNativeExecution(record,fixture,trace);native.push({caseId,fixtureDigest:entry.sha256,trace});}
   const discovery=[];for(const caseId of discoveryCompanionCases){const record=records.get(caseId),entry=fixtures[caseId],trace=await executeDiscoveryNative(record,fixtureFile(root,entry));discovery.push({caseId,fixtureDigest:entry.sha256,trace});}
   const metadata=[];for(const outcome of ['success','invalid','preservation','bounds','wrongSubject']){const caseId=`C165.fileMetadata__read.${outcome}`,record=records.get(caseId),entry=fixtures[caseId],trace=await executeNativeAdapter(record,fixtureFile(root,entry),inventory);metadata.push({caseId,fixtureDigest:entry.sha256,trace});}
@@ -29,7 +31,9 @@ export async function executeCompanions(root,inventory,sourceDigest,runId){
   const witness=await executeWitnessNative();
   const persistence=[];
   for(const [name,run]of Object.entries(snapshotContractCases())){const h=createFakePluginHost({pluginId:'semantic-companion'});try{assert.notEqual(h.bb.storage.database().name,':memory:');const port=createBbStore(h.bb.storage.database(),h.bb.storage.migrate).semanticSnapshots,observation=sqliteContractObservation(h.bb.storage.database());observation.capture();const events=captureSnapshotContract(port,run);observation.capture();persistence.push({name,events,sqlite:observation.result()});}finally{await h.harness.lifecycle.dispose();}}
-  return {sourceDigest,runId,native,discovery,metadata,selection,witness,persistence,ids:['semantic-native-read','semantic-sqlite-contract','semantic-http-contract','s02-discovery-native','s02-selection-native','s02-witness-native'],scope:'offline native/SQLite and real-adapter stubbed HTTP; no live Google'};
+  const draftRecords=[...records.values()].filter(r=>draftCaseIds.includes(r.caseId)&&manifest.expansion.deliveryOverrides[r.key]?.status==='delivered');
+  const draft=draftRecords.length?{sourceDigest,runId,producerPid:process.pid,cases:await executeDraftCompanions(draftRecords,fixtures,entry=>fixtureFile(root,entry))}:undefined;
+  return {sourceDigest,runId,native,discovery,metadata,selection,witness,persistence,...(draft?{draft}:{}),ids:['semantic-native-read','semantic-sqlite-contract','semantic-http-contract','s02-discovery-native','s02-selection-native','s02-witness-native'],scope:'offline native/SQLite and real-adapter stubbed HTTP; no live Google'};
 }
 export function compareCompanions(root,proofs,sourceDigest,runId){
   assert.ok(proofs,'missing required native/persistence/adapter companions');assert.equal(proofs.sourceDigest,sourceDigest,'stale companion source');assert.equal(proofs.runId,runId,'stale companion run');

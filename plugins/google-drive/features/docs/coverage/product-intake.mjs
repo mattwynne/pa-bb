@@ -5,6 +5,8 @@ import { fixtureFile, digest } from './audit.mjs';
 import { expand } from './expand.mjs';
 import { isApplicationOutcome,currentApplicationBoundary } from './execution-adapters.mjs';
 import { compareCompanions } from './companions.mjs';
+import { isDraftOutcome } from './draft-execution.mjs';
+import { compareDraftCompanions } from './draft-persistence.mjs';
 import { implementedRoute, compareExecution, compareInventory, adapterBindings } from './execution-adapters.mjs';
 export function assertProductIntake({manifest,registry,results,fixtures,root,receipts=[],inventory,runId,fingerprint,companions}) {
   // Preserve synthetic refusal before every other join (including missing driver).
@@ -44,6 +46,7 @@ export function assertProductIntake({manifest,registry,results,fixtures,root,rec
     if(isApplicationOutcome({...record,bridgeCandidate:candidate})){
       assert.deepEqual(receipt.trace.boundary,currentApplicationBoundary(record),'core evidence cannot be relabelled native');
       for(const call of receipt.trace.events){assert.ok(!localInvocationIds.has(call.id),'reused application invocation');localInvocationIds.add(call.id);}
+      if(isDraftOutcome(record))for(const call of [...receipt.trace.journalCalls,...receipt.trace.snapshotCalls]){assert.ok(!localInvocationIds.has(call.id),'reused draft port invocation');localInvocationIds.add(call.id);}
     }else if((['C005','C009'].includes(record.ledgerId)||['docs_read.structure','docs_read.richCell','docs_read.opaque','docs_read.segment','docs_read.view','docs_read.reviewView','docs_find.literal','docs_find.normalization','selector.cardinality'].includes(record.operation))&&!candidate){
       const storage=receipt.trace.localCalls[0].result;
       assert.ok(!connections.has(storage.connectionId)&&!databaseFiles.has(storage.fileDigest),`reused actual ${record.ledgerId} storage connection`);
@@ -61,5 +64,7 @@ export function assertProductIntake({manifest,registry,results,fixtures,root,rec
   assert.deepEqual(registry.exposed,[],'no implemented semantic variant may be exposed');
   assert.deepEqual(manifest.expansion.variantExposure,{},'no implemented semantic exposure adapter');
   if(results.some(r=>isApplicationOutcome(records.get(r.caseId)??{})||records.get(r.caseId)?.ledgerId==='C021'))compareCompanions(root,companions,fingerprint,runId);
+  const draftKeys=new Set(results.filter(r=>isDraftOutcome(records.get(r.caseId))).map(r=>r.key));
+  if(draftKeys.size)compareDraftCompanions(companions?.draft,[...records.values()].filter(r=>draftKeys.has(r.key)),fixtures,entry=>fixtureFile(root,entry),fingerprint,runId,receipts.filter(r=>draftKeys.has(r.key)).map(r=>r.trace));
   return {bridgeCandidates:results.filter(r=>r.pickle?.tags.some(t=>t.name==='@bridgeCandidate')).length,implementedAdapterVariants:Object.keys(adapterBindings()).length};
 }
