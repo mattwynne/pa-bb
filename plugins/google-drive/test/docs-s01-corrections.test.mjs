@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,readdirSync,cpSync,symlinkSync,readFileSync,writeFileSync,appendFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,readdirSync,cpSync,symlinkSync,readFileSync,writeFileSync,appendFileSync,rmSync,mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {spawnSync} from 'node:child_process';
-import {sourceDigest,packageRoot} from '../features/docs/coverage/runner.mjs';
+import {runR1Child} from './docs-r1-owned-child.mjs';
+import {readJournal,MESSAGE_LIMITS} from '../features/docs/coverage/execution-journal.mjs';
+import {decodeCurrentJournal} from '../features/docs/coverage/inventory-envelope.mjs';
+import {sourceDigest,packageRoot,auditBaseline} from '../features/docs/coverage/runner.mjs';
 import {assertProductIntake} from '../features/docs/coverage/product-intake.mjs';
 import {digest,auditEvidence} from '../features/docs/coverage/audit.mjs';
 import {auditControl,readManifest} from '../features/docs/coverage/control.mjs';
@@ -22,19 +24,57 @@ function isolated() {
   }
   return root;
 }
-test('R1 real runner rejects counterfeit delivery from JSON, including all true booleans', {timeout:120000},()=>{
-  const root=isolated(),load=p=>JSON.parse(readFileSync(join(root,p))),save=(p,v)=>writeFileSync(join(root,p),JSON.stringify(v));
+test('R1 real runner rejects counterfeit delivery from JSON, including all true booleans', {timeout:120000},async()=>{
+  // Shared elapsed budget includes setup; synchronous clone/hash/copy is not preemptible.
+  const deadline=Date.now()+119000,root=isolated(),load=p=>JSON.parse(readFileSync(join(root,p))),save=(p,v)=>writeFileSync(join(root,p),JSON.stringify(v));
+  const proof=mkdtempSync(join(process.env.DOCS_COST_PROOF_DIR??tmpdir(),'docs-r1-proof-'));
+  console.log(`R1 test-owned provenance: ${proof}`);
   try {
     const caseId='C193.noRetry__local.success',key='C193/docs_operation_status.observe/noRetry__local/success';
-    const m=load('features/docs/coverage/obligations.json');m.expansion.deliveryOverrides[key]={status:'delivered'};save('features/docs/coverage/obligations.json',m);
-    const registry=load('features/docs/coverage/registry.json');registry.operations['docs_operation_status.observe']={variants:{noRetry__local:{driver:'docs_operation_status',schema:'K6.status-key-or-handle',requestedMode:'local',requests:['documents.get','files.get'],capability:'arbitrary-truthy-label'}}};save('features/docs/coverage/registry.json',registry);
+    const carrierKey='C165/gdrive_get_file.metadata/fileMetadata__read/success';
+    const m=load('features/docs/coverage/obligations.json');m.expansion.deliveryOverrides={[carrierKey]:m.expansion.deliveryOverrides[carrierKey],[key]:{status:'delivered'}};m.expansion.variantExposure={};save('features/docs/coverage/obligations.json',m);
+    assert.equal(Object.keys(m.rows).length,211);assert.equal(expand(m).length,11197);assert.equal(allClosures(m,expand(m)).size,1036);
+    assert.equal(m.expansion.deliveryOverrides[carrierKey].status,'delivered');assert.deepEqual(Object.keys(m.expansion.deliveryOverrides).sort(),[carrierKey,key].sort());
+    const registry=load('features/docs/coverage/registry.json'),metadata=registry.operations['gdrive_get_file.metadata'].variants.fileMetadata__read;
+    registry.operations={'gdrive_get_file.metadata':{variants:{fileMetadata__read:metadata}}};registry.exposed=[];registry.operations['docs_operation_status.observe']={variants:{noRetry__local:{driver:'docs_operation_status',schema:'K6.status-key-or-handle',requestedMode:'local',requests:['documents.get','files.get'],capability:'arbitrary-truthy-label'}}};save('features/docs/coverage/registry.json',registry);
+    save('features/docs/coverage/bridge-cases.json',{});
+    assert.equal(Object.keys(registry.operations).length,2);
+    writeFileSync(join(root,'features/docs/contracts/r1-carrier.feature'),`@docs @bridgeExecution @C165 @F_ADJACENT @S_METADATA\nFeature: R1 genuine metadata journal carrier\n  Scenario: Actual metadata execution [C165.fileMetadata__read.success]\n    When the offline production bridge executes "C165.fileMetadata__read.success"\n`);
+    writeFileSync(join(root,'cucumber.mjs'),`export default {};\nexport const docs=${JSON.stringify({paths:['features/docs/formatting.feature','features/docs/contracts/boundaries.feature','features/docs/contracts/r1-carrier.feature','features/docs/contracts/counterfeit.feature'],import:['features/docs/steps/formatting.steps.mjs','features/docs/contracts/steps/boundaries.steps.mjs','features/docs/steps/bridge-d.steps.mjs','features/docs/contracts/steps/counterfeit.steps.mjs'],format:['progress']})};\n`);
     const path='features/docs/coverage/fixtures/counterfeit.json',provenance={source:'synthetic negative test',authorship:'original test; no application ran'};
     writeFileSync(join(root,'features/docs/contracts/counterfeit.feature'),`@docs @F_EXEC @S_RECOVERY\nFeature: Counterfeit delivery\n  Scenario: JSON is not invocation [${caseId}]\n    When counterfeit JSON is attached\n`);
     for(const synthetic of [true,false]) {
       const vector={provenance,auditControlOnly:synthetic,before:{text:'never read'},after:{text:'never read'}};save(path,vector);
       const sha256=digest(readFileSync(join(root,path))),f=load('features/docs/coverage/fixtures/index.json');f[caseId]={caseId,path,sha256,provenance};save('features/docs/coverage/fixtures/index.json',f);
       writeFileSync(join(root,'features/docs/contracts/steps/counterfeit.steps.mjs'),`import {When} from '@cucumber/cucumber';\nWhen('counterfeit JSON is attached',async function(){await this.attach(JSON.stringify({key:${JSON.stringify(key)},caseId:${JSON.stringify(caseId)},fixtureId:${JSON.stringify(caseId)},fixtureDigest:${JSON.stringify(sha256)},driver:'docs_operation_status',schema:'K6.status-key-or-handle',kind:'control',requestedMode:'local',observedOutcome:'success',runId:process.env.DOCS_ACCEPTANCE_RUN_ID,sourceDigest:process.env.DOCS_ACCEPTANCE_SOURCE_DIGEST,applicationInvoked:${!synthetic},realSqlite:${!synthetic},closedHttp:${!synthetic}}),'application/vnd.pa.docs-evidence+json');});\n`);
-      const run=spawnSync(process.execPath,['features/docs/coverage/runner.mjs'],{cwd:root,encoding:'utf8'});
+      const sample=join(proof,String(synthetic));mkdirSync(sample);
+      for(const p of ['cucumber.mjs','features/docs/coverage/obligations.json','features/docs/coverage/registry.json','features/docs/coverage/bridge-cases.json',path,'features/docs/coverage/fixtures/index.json','features/docs/contracts/counterfeit.feature','features/docs/contracts/r1-carrier.feature','features/docs/contracts/steps/counterfeit.steps.mjs']) {
+        const dest=join(sample,p);mkdirSync(join(dest,'..'),{recursive:true});cpSync(join(root,p),dest);
+      }
+      const fingerprint=sourceDigest(root);
+      let run;
+      try {run=await runR1Child({cwd:root,deadline,confirmWindowsCompletion:actual=>{
+        // Normal Windows root close alone is insufficient. Validate the known
+        // runner's actual child/journal contract; never taskkill an exited PID.
+        const artifact=actual.stdout.match(/Docs current-run evidence: ([^\r\n]+)/)?.[1];assert.ok(artifact);
+        const meta=JSON.parse(readFileSync(join(artifact,'run.json'))),child=JSON.parse(readFileSync(join(artifact,'child.json')));
+        assert.equal(meta.sourceDigest,fingerprint);assert.ok(child.pid>0&&child.pid!==actual.pid);assert.equal(child.status,0);assert.equal(child.signal,null);assert.equal(child.error,null);
+        const rows=readJournal(join(artifact,'executions.ndjson'));
+        const envelope=decodeCurrentJournal(rows,{inventory:rows[0].inventory,runId:meta.runId,sourceDigest:fingerprint,childPid:child.pid});
+        assert.equal(envelope.receipts.length,1);assert.equal(envelope.receipts[0].key,carrierKey);
+        return true;
+      }});}
+      catch(error){if(error.result)writeFileSync(join(sample,'lifecycle-failure.json'),JSON.stringify(error.result));throw error;}
+      writeFileSync(join(sample,'runner.json'),JSON.stringify(run));
+      assert.equal(run.cleanupEstablished,true);assert.equal(run.signal,null);
+      const artifact=run.stdout.match(/Docs current-run evidence: ([^\r\n]+)/)?.[1];assert.ok(artifact,'real runner artifact required');
+      const meta=JSON.parse(readFileSync(join(artifact,'run.json'))),child=JSON.parse(readFileSync(join(artifact,'child.json')));
+      assert.equal(meta.timeout,300000);assert.equal(meta.sourceDigest,fingerprint);assert.ok(child.pid>0&&child.pid!==run.pid);assert.equal(child.status,0);assert.equal(child.signal,null);assert.equal(child.error,null);
+      const messages=readJournal(join(artifact,'messages.ndjson'),MESSAGE_LIMITS);assert.deepEqual(auditBaseline(messages,meta.runId,fingerprint,root),{baseline:30,s01ApplicationCases:3});
+      const rows=readJournal(join(artifact,'executions.ndjson')),envelope=decodeCurrentJournal(rows,{inventory:rows[0].inventory,runId:meta.runId,sourceDigest:fingerprint,childPid:child.pid});
+      assert.equal(rows.filter(r=>r.kind==='inventoryContext').length,1);assert.equal(envelope.receipts.length,1);assert.equal(envelope.receipts[0].key,carrierKey);assert.equal(envelope.receipts[0].caseId,'C165.fileMetadata__read.success');
+      const companions=JSON.parse(readFileSync(join(artifact,'companions.json')));assert.equal(companions.semanticNative,undefined);assert.equal(companions.draft,undefined);for(const k of ['native','discovery','metadata','selection','persistence'])assert.ok(companions[k].length>0,k);assert.ok(companions.witness);
+      writeFileSync(join(sample,'artifact-provenance.json'),JSON.stringify({artifact,run:meta,child,runnerPid:run.pid,elapsedMs:run.elapsedMs,cleanupEstablished:run.cleanupEstablished,cleanup:run.cleanup,physicalRecords:envelope.physicalRecords,receiptKeys:envelope.receipts.map(r=>r.key),baseline:{baseline:30,s01ApplicationCases:3},declaredKeys:Object.keys(m.expansion.deliveryOverrides)},null,2));
       assert.notEqual(run.status,0);assert.match(run.stdout,/scenarios \(\d+ passed\)/,'counterfeit must reach successful real Cucumber execution');
       assert.match(run.stderr,synthetic?/auditControlOnly fixture forbidden/:/missing implemented semantic driver/);
       assert.doesNotMatch(run.stdout,/"executedObligations":1/);

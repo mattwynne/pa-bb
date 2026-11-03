@@ -1,0 +1,216 @@
+{
+  "caseId": "C192.dispatchRejected__local.success",
+  "operation": "executor.stageFacts",
+  "base": "dispatchRejected",
+  "outcome": "success",
+  "requestedMode": "local",
+  "contract": "native-invariants/1",
+  "provenance": {
+    "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+    "authorship": "offline native acceptance literal fixtures"
+  },
+  "http": {
+    "definiteRejection": {
+      "before": {
+        "documentId": "draft-doc",
+        "revisionId": "r1",
+        "suggestionsViewMode": "SUGGESTIONS_INLINE",
+        "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+        "tabs": [
+          {
+            "tabProperties": {
+              "tabId": "tab-a",
+              "title": "Main",
+              "index": 0
+            },
+            "documentTab": {
+              "body": {
+                "content": [
+                  {
+                    "startIndex": 1,
+                    "endIndex": 6,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 1,
+                          "endIndex": 4,
+                          "textRun": {
+                            "content": "A😀",
+                            "textStyle": {
+                              "bold": false,
+                              "italic": true
+                            }
+                          }
+                        },
+                        {
+                          "startIndex": 4,
+                          "endIndex": 6,
+                          "textRun": {
+                            "content": "x\n",
+                            "textStyle": {
+                              "bold": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 6,
+                    "endIndex": 11,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 6,
+                          "endIndex": 11,
+                          "textRun": {
+                            "content": "Keep\n",
+                            "textStyle": {
+                              "bold": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "futureUnknown": {
+          "retained": "OPAQUE",
+          "startIndex": 777
+        }
+      },
+      "after": {
+        "documentId": "draft-doc",
+        "revisionId": "r2",
+        "suggestionsViewMode": "SUGGESTIONS_INLINE",
+        "commentsViewMode": "COMMENTS_VIEW_MODE_INCLUDED",
+        "tabs": [
+          {
+            "tabProperties": {
+              "tabId": "tab-a",
+              "title": "Main",
+              "index": 0
+            },
+            "documentTab": {
+              "body": {
+                "content": [
+                  {
+                    "startIndex": 1,
+                    "endIndex": 6,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 1,
+                          "endIndex": 4,
+                          "textRun": {
+                            "content": "A😀",
+                            "textStyle": {
+                              "bold": true,
+                              "italic": true
+                            }
+                          }
+                        },
+                        {
+                          "startIndex": 4,
+                          "endIndex": 6,
+                          "textRun": {
+                            "content": "x\n",
+                            "textStyle": {
+                              "bold": true
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "startIndex": 6,
+                    "endIndex": 11,
+                    "paragraph": {
+                      "elements": [
+                        {
+                          "startIndex": 6,
+                          "endIndex": 11,
+                          "textRun": {
+                            "content": "Keep\n",
+                            "textStyle": {
+                              "bold": false
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "futureUnknown": {
+          "retained": "OPAQUE",
+          "startIndex": 777
+        }
+      },
+      "reply": {
+        "documentId": "draft-doc",
+        "replies": [
+          {}
+        ],
+        "writeControl": {
+          "requiredRevisionId": "r2"
+        }
+      },
+      "humanValue": {
+        "approved": true
+      }
+    }
+  },
+  "expected": {
+    "definiteRejection": {
+      "state": "rejected",
+      "claim": "released",
+      "submission": "rejected",
+      "verification": "not_run",
+      "intent": true,
+      "eventKinds": [
+        "activation",
+        "consent",
+        "intent",
+        "response"
+      ],
+      "artifacts": [
+        "reply"
+      ],
+      "writerEvents": 2,
+      "sealed": true,
+      "wire": {
+        "writeControl": {
+          "requiredRevisionId": "r1",
+          "writeMode": "EDIT"
+        },
+        "requests": [
+          {
+            "updateTextStyle": {
+              "range": {
+                "tabId": "tab-a",
+                "startIndex": 1,
+                "endIndex": 6
+              },
+              "textStyle": {
+                "bold": true
+              },
+              "fields": "bold"
+            }
+          }
+        ]
+      },
+      "capabilityVersion": "paragraph-bold/1",
+      "posts": 1,
+      "approval": "standing"
+    }
+  }
+}

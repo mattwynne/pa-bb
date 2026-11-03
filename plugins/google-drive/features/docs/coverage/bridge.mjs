@@ -27,7 +27,7 @@ export async function executeBridgeCase(root,pickle,testCaseStartedId,caseId) {
   assert.ok(runId&&sourceDigest&&process.env.DOCS_EXECUTION_FD==='3','runner-owned execution channel required');
   inventory??=await productionInventory();
   if(!context){context=createInventoryContext({inventory,runId,sourceDigest});checkPublication(context);writeSync(3,JSON.stringify(context)+'\n');}
-  const trace=await executeAdapter({...record,bridgeCandidate:candidate},fixture,inventory);
+  const trace=await executeAdapter({...record,bridgeCandidate:candidate},fixture,inventory,{runId,sourceDigest,fixtureDigest:entry.sha256,role:'primary',pickleId:pickle.id,astNodeIds:pickle.astNodeIds,uri:pickle.uri,testCaseStartedId});
   // Publish only after independent comparison AND actual transport/SQLite
   // teardown. Interrupted execution has no completed record and earns nothing.
   const ref=randomUUID(),receipt={ref,runId,sourceDigest,caseId,key:record.key,driver:record.driver,schema:record.schema,requestedMode:record.requestedMode,

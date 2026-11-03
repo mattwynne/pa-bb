@@ -11,8 +11,10 @@ import { digest, cucumberResults, fixtureFile, auditEvidence } from './audit.mjs
 import { allClosures, expand } from './expand.mjs';
 import { assertProductIntake } from './product-intake.mjs';
 import { productionInventory } from './execution-adapters.mjs';
+import {assertNativeIntakeControls} from './native-intake-controls.mjs';
 import { assertIntakeFaultControls } from './intake-controls.mjs';
 import { executeCompanions } from './companions.mjs';
+import {isNativeOutcome} from './native-programs.mjs';
 import { isApplicationOutcome } from './execution-adapters.mjs';
 import { readJournal, MESSAGE_LIMITS, childTimeout, assertCompletedChild } from './execution-journal.mjs';
 import { decodeCurrentJournal } from './inventory-envelope.mjs';
@@ -92,9 +94,10 @@ export async function run() {
   const envelope=decodeCurrentJournal(readJournal(journal),{inventory,runId,sourceDigest:fingerprint,childPid:result.pid});
   assert.equal(statSync(journal).size,envelope.physicalBytes,'execution journal encoded byte accounting');
   const receipts=envelope.receipts;
-  const intake={manifest,registry,results:semanticResults,fixtures:{...fixtures,...candidates},root:packageRoot,receipts,inventory,runId,fingerprint,companions};
+  const intake={manifest,registry,results:semanticResults,fixtures:{...fixtures,...candidates},root:packageRoot,receipts,inventory,runId,fingerprint,companions,childPid:result.pid};
   const bridge=assertProductIntake(intake);
   const intakeCounterexamples=assertIntakeFaultControls(intake);
+  const nativeIntakeCounterexamples=assertNativeIntakeControls(intake);
   assert.deepEqual(Object.keys(fixtures).filter(id=>id.startsWith('C')).sort(),semanticResults.filter(r=>!isCandidate(r)).map(r=>r.fixtureId).sort(),'normal semantic fixture discovery/reverse orphan');
   const records = new Map(expand(manifest).map(r => [r.caseId,r]));
   const cases = semanticResults.map(result => {
@@ -113,6 +116,8 @@ export async function run() {
     }
     return { ...result, featureId: expected.featureId, scenarioId: expected.scenarioId, exampleId: result.caseId };
   });
+  const nativeJoins=cases.filter(c=>isNativeOutcome(records.get(c.caseId))).map(c=>{const receipt=receipts.find(r=>r.ref===c.ref),companion=companions.semanticNative.cases.find(x=>x.caseId===c.caseId);return {caseId:c.caseId,key:c.key,fixtureDigest:c.fixtureDigest,runId,sourceDigest:fingerprint,primaryRef:c.ref,primaryExecutionId:receipt.trace.executionId,primaryProducerPid:result.pid,pickleId:c.pickle.id,astNodeIds:c.pickle.astNodeIds,testCaseStartedId:c.testCaseStartedId,companionExecutionId:companion.trace.executionId,companionProducerPid:companions.semanticNative.producerPid,primaryPhysicalChildren:receipt.trace.runs.flatMap(r=>r.physical?[r.physical.first.pid,r.physical.second.pid]:[]),companionPhysicalChildren:companion.trace.runs.flatMap(r=>r.physical?[r.physical.first.pid,r.physical.second.pid]:[])};});
+  writeFileSync(join(dir,'native-joins.json'),JSON.stringify(nativeJoins,null,2)+'\n');
   const coverage = auditEvidence({ manifest, registry, cases:cases.filter(c=>!isCandidate(c)), results: semanticResults.filter(r=>!isCandidate(r)), fixtures, root: packageRoot, runId });
   const closures=allClosures(manifest,[...records.values()]);
   const completedKeys=new Set(cases.filter(c=>!isCandidate(c)).map(c=>c.key));
@@ -126,9 +131,9 @@ export async function run() {
     remainingPlannedKeys:records.size-completedKeys.size,
     s02:{required:s02Records.length,executed:s02Records.length-remaining.length,remaining:remaining.length,
       readVariants:readVariants.length,completeReadClosures:Object.values(readClosures).filter(c=>c.missing.length===0).length},
-    intakeCounterexamples,
+    intakeCounterexamples,nativeIntakeCounterexamples,
     executionJournal:{physicalRecords:envelope.physicalRecords,semanticReceipts:receipts.length,physicalBytes:envelope.physicalBytes,maxLogicalReceiptBytes:envelope.maxLogicalReceiptBytes,logicalReceiptBytes:envelope.logicalReceiptBytes,sharedInventories:1,childPid:result.pid},
-    testBoundaries:{coreOrApplicationOutcomes:semanticResults.filter(r=>isApplicationOutcome(records.get(r.caseId))&&!isCandidate(r)).length,nativeCompanionCases:companions.native.length+companions.discovery.length+companions.metadata.length+companions.selection.length+1,persistenceContractCases:companions.persistence.length,liveProvider:false},
+    testBoundaries:{coreOrApplicationOutcomes:semanticResults.filter(r=>isApplicationOutcome(records.get(r.caseId))&&!isCandidate(r)).length,nativeCompanionCases:companions.native.length+companions.discovery.length+companions.metadata.length+companions.selection.length+1,persistenceContractCases:companions.persistence.length,nativeExecutionCompanions:companions.semanticNative?.cases.length??0,nativeExecutionCompanionBytes:companions.semanticNative?Buffer.byteLength(JSON.stringify(companions.semanticNative)):0,nativeJoins:nativeJoins.length,liveProvider:false},
     cucumberScenarios: messages.filter(m => m.testCaseFinished).length, externalEvidence: 'separate; no rendered/applied-code credit' };
   writeFileSync(join(dir,'summary.json'), JSON.stringify(summary,null,2)+'\n'); console.log(JSON.stringify(summary));
 }

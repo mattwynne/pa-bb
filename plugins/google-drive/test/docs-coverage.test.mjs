@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, rmSync, openSync, closeSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, openSync, closeSync, writeFileSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { expand, exposureClosure, allClosures } from '../features/docs/coverage/expand.mjs';
 import { readManifest, auditControl, corruptControl } from '../features/docs/coverage/control.mjs';
@@ -61,13 +61,29 @@ test('guard controls cannot be swapped to suggest-refused; all explicit negative
 test('actual Cucumber messages: nonce, Examples rows, source/fixture identities and every executed step are required', {timeout:120000}, () => {
   const dir=mkdtempSync(join(tmpdir(),'docs-runner-contract-')),runId='runner-contract-'+Date.now(), fingerprint=sourceDigest();
   try {
-    const output=join(dir,'messages.ndjson');
-    const fd=openSync(join(dir,'executions.ndjson'),'wx');let p;
-    try { p=spawnSync(process.execPath,['node_modules/@cucumber/cucumber/bin/cucumber.js','--profile','docs','--format',`message:${output}`],{cwd:packageRoot,encoding:'utf8',stdio:['pipe','pipe','pipe',fd],env:{...process.env,DOCS_ACCEPTANCE_RUN_ID:runId,DOCS_ACCEPTANCE_SOURCE_DIGEST:fingerprint,DOCS_EXECUTION_FD:'3'}}); }
+    const output=join(dir,'messages.ndjson'),config=join(dir,'config.mjs');
+    writeFileSync(config,`export default {};\nexport const docs=${JSON.stringify({paths:['features/docs/formatting.feature','features/docs/contracts/boundaries.feature'],import:['features/docs/steps/formatting.steps.mjs','features/docs/contracts/steps/boundaries.steps.mjs'],format:['progress']})};\n`);
+    const fd=openSync(join(dir,'executions.ndjson'),'wx'),childStarted=Date.now();let p;
+    try { p=spawnSync(process.execPath,['node_modules/@cucumber/cucumber/bin/cucumber.js','--config',relative(packageRoot,config),'--profile','docs','--format',`message:${output}`],{cwd:packageRoot,encoding:'utf8',timeout:120000,killSignal:'SIGKILL',maxBuffer:1024*1024,stdio:['pipe','pipe','pipe',fd],env:{...process.env,DOCS_ACCEPTANCE_RUN_ID:runId,DOCS_ACCEPTANCE_SOURCE_DIGEST:fingerprint,DOCS_EXECUTION_FD:'3'}}); }
     finally {closeSync(fd);}
-    assert.equal(p.status,0,p.stdout+p.stderr);
+    writeFileSync(join(dir,'child.json'),JSON.stringify({pid:p.pid,status:p.status,signal:p.signal,error:p.error?.code??null,elapsedMs:Date.now()-childStarted,runId,sourceDigest:fingerprint}));
+    writeFileSync(join(dir,'stdout.log'),p.stdout??'');writeFileSync(join(dir,'stderr.log'),p.stderr??'');
+    assert.ifError(p.error);assert.equal(p.signal,null);assert.equal(p.status,0,p.stdout+p.stderr);
     const messages=readFileSync(output,'utf8').trim().split('\n').map(JSON.parse);
     assert.deepEqual(auditBaseline(messages,runId,fingerprint),{baseline:30,s01ApplicationCases:3});
+    const expectedIds=[
+      ...['docs403','metadata403','storage','reject403','reject400','auth403','finalAuth403','lost'].map(f=>`S00.format.${f}`),
+      ...['policy','account','subject','cancel','expiry'].map(f=>`S00.format.auth.${f}`),
+      ...['policy','account','subject','cancel'].map(f=>`S00.replace.auth.${f}`),
+      ...['policy','cancel','expiry'].map(f=>`S00.format.claim.${f}`),
+      ...['cancel','expiry'].map(f=>`S00.format.policy.${f}`),'S00.format.intent.policy',
+      ...['policy','cancel'].map(f=>`S00.replace.claim.${f}`),'S00.replace.policy.cancel',
+      ...['format','replace'].flatMap(kind=>['off','on'].map(policy=>`S00.${kind}.consent.${policy}`)),
+      'S01.format.appliedLost','S01.format.wirePreservation','S01.replace.wirePreservation'
+    ];
+    const actual=cucumberResults(messages,runId);assert.equal(expectedIds.length,33);assert.deepEqual(actual.map(r=>r.caseId).sort(),expectedIds.sort());
+    assert.deepEqual([...new Set(messages.filter(m=>m.pickle).map(m=>m.pickle.uri))].sort(),['features/docs/contracts/boundaries.feature','features/docs/formatting.feature']);
+    writeFileSync(join(dir,'baseline-identities.json'),JSON.stringify({runId,sourceDigest:fingerprint,childPid:p.pid,caseIds:expectedIds,pickles:messages.filter(m=>m.pickle).length,finished:messages.filter(m=>m.testCaseFinished).length}));
     assert.throws(()=>auditBaseline(messages,'other-run',fingerprint),/stale result/);
     assert.throws(()=>auditBaseline(messages,runId,'old-source'),/stale result source/);
     const mutated=structuredClone(messages), step=mutated.find(x=>x.testStepFinished);step.testStepFinished.testStepResult.status='SKIPPED';
@@ -79,5 +95,10 @@ test('actual Cucumber messages: nonce, Examples rows, source/fixture identities 
     const phantom=structuredClone(messages);phantom.find(x=>x.testCase).testCase.pickleId='phantom';
     assert.throws(()=>cucumberResults(phantom,runId),/phantom scenario/);
     assert.equal(sourceDigest(),fingerprint);
-  } finally {rmSync(dir,{recursive:true,force:true});}
+  } finally {
+    if(process.env.DOCS_COST_PROOF_DIR) {
+      const proof=mkdtempSync(join(process.env.DOCS_COST_PROOF_DIR,'docs-message-proof-'));cpSync(dir,proof,{recursive:true});console.log(`Direct message test-owned provenance: ${proof}`);
+    }
+    rmSync(dir,{recursive:true,force:true});
+  }
 });

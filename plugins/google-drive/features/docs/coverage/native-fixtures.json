@@ -1,0 +1,290 @@
+{
+  "C187.tokeninfoBarrier__local.success": {
+    "caseId": "C187.tokeninfoBarrier__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.tokeninfoBarrier__local.success.json",
+    "sha256": "e3ce944064824b5aaca9699bd0c2efbf6a321cf4ef5c63005eb1854e3a6648b2",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.tokeninfoBarrier__local.counterexample": {
+    "caseId": "C187.tokeninfoBarrier__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.tokeninfoBarrier__local.counterexample.json",
+    "sha256": "452ba599e357b0e5a4c4e639dc1ffc4088a3b8d6d21a0ddf03d26a200580e8aa",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.policyAwait__local.success": {
+    "caseId": "C187.policyAwait__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.policyAwait__local.success.json",
+    "sha256": "5a7d838bc0714d6207f439a804da9ec4c5f0a796961938ed6d31cde5437ad056",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.policyAwait__local.counterexample": {
+    "caseId": "C187.policyAwait__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.policyAwait__local.counterexample.json",
+    "sha256": "a144a282b39f132783321a743226c9793417c1d4b4ffb3d0bede492d47de1f94",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.intentPersistence__local.success": {
+    "caseId": "C187.intentPersistence__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.intentPersistence__local.success.json",
+    "sha256": "d55a2e5a52de7af8e52a82d114f667022f4d0054eacebb0cf1ed29d6efc96245",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.intentPersistence__local.counterexample": {
+    "caseId": "C187.intentPersistence__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.intentPersistence__local.counterexample.json",
+    "sha256": "a384f677aa94dac85c970cc9b55dac88f1d62e805a084008904b6af28db51ac5",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.preDispatchEpoch__local.success": {
+    "caseId": "C187.preDispatchEpoch__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.preDispatchEpoch__local.success.json",
+    "sha256": "2b4d5c86aeef62f2764d630e88461e078887fd08eeb02b08d4de3dcd17fe70a7",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.preDispatchEpoch__local.counterexample": {
+    "caseId": "C187.preDispatchEpoch__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.preDispatchEpoch__local.counterexample.json",
+    "sha256": "5b05387144e6915df95897097dc6fdf0093b5bda7d8d298444c836822ce8075c",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.cancellation__local.success": {
+    "caseId": "C187.cancellation__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.cancellation__local.success.json",
+    "sha256": "1ad334306b783eaa0fc4689a38cbbe40e089deca54ede279568335fbb2b86583",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.cancellation__local.counterexample": {
+    "caseId": "C187.cancellation__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.cancellation__local.counterexample.json",
+    "sha256": "5509416ab3203c50d1f30741f5f0aa4eb8c0dbe31e2b0c500efe8101f55a3354",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.expiry__local.success": {
+    "caseId": "C187.expiry__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.expiry__local.success.json",
+    "sha256": "5121f02089fda633425553b1e8e448401604ffa4bdd5231e14f29a4695fb00f6",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C187.expiry__local.counterexample": {
+    "caseId": "C187.expiry__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C187.expiry__local.counterexample.json",
+    "sha256": "f4676c771cc2c05996a1b68cb2ef39b864e32162ea087ff51d92c917feef6723",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.notSent__local.success": {
+    "caseId": "C192.notSent__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.notSent__local.success.json",
+    "sha256": "c5356e1f7f630004b2458ce0cdcdf7ab186419eddcf1fe8bc610db1944078e7a",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.notSent__local.counterexample": {
+    "caseId": "C192.notSent__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.notSent__local.counterexample.json",
+    "sha256": "dd161d66f18e626dd28d846aee2f601984a734aff2c94c6dadc71156984df282",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.intentCrashUnknown__local.success": {
+    "caseId": "C192.intentCrashUnknown__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.intentCrashUnknown__local.success.json",
+    "sha256": "541000b9eabc409e312b348ff3d556e175958b3c2aebb25a1aab196ed1b616fd",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.intentCrashUnknown__local.counterexample": {
+    "caseId": "C192.intentCrashUnknown__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.intentCrashUnknown__local.counterexample.json",
+    "sha256": "edccb3e42ce12322e210e1634abd3237c0eb0931b2c04ee0628c1517d6f3fa6c",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.dispatchRejected__local.success": {
+    "caseId": "C192.dispatchRejected__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.dispatchRejected__local.success.json",
+    "sha256": "48eb778c0e3c649824f86bbf8858bfaf48c15a1f362ce6c16d1d4d3e29101b39",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.dispatchRejected__local.counterexample": {
+    "caseId": "C192.dispatchRejected__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.dispatchRejected__local.counterexample.json",
+    "sha256": "3caabbd087e8393e40c1d6a125b0d4b7589911cc9a56d2c226b1629ac62e1cbf",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.acknowledged__local.success": {
+    "caseId": "C192.acknowledged__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.acknowledged__local.success.json",
+    "sha256": "91e2fe525cfc15e43b5c801d61a1749ef36a5c7ce68530a415591008a54715e0",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.acknowledged__local.counterexample": {
+    "caseId": "C192.acknowledged__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.acknowledged__local.counterexample.json",
+    "sha256": "68dd735c8be5001faae8e49132b967a3e4274f75977bf857e0a5c881595e2260",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.read403AfterAck__local.success": {
+    "caseId": "C192.read403AfterAck__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.read403AfterAck__local.success.json",
+    "sha256": "9754c5c5fed15f926ca467b678e202f1390e8acf3b3627e6f0a0f36a20050e14",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.read403AfterAck__local.counterexample": {
+    "caseId": "C192.read403AfterAck__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.read403AfterAck__local.counterexample.json",
+    "sha256": "75cfe7d50d7372bd5dc1ec7dbc728ba527e79e31a22c5c3b2e91f552c2a0911b",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.ackSaveFailure__local.success": {
+    "caseId": "C192.ackSaveFailure__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.ackSaveFailure__local.success.json",
+    "sha256": "1db3dd8a7de7db55939fbf7b85f9f1d05a85fbd0aa76dc9d287261fc88c9461d",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.ackSaveFailure__local.counterexample": {
+    "caseId": "C192.ackSaveFailure__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.ackSaveFailure__local.counterexample.json",
+    "sha256": "9457405a4be130ac2f30fd6b740574c2172ebeb8fa0b2ef44e3fd336af237fff",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.currentCallMutationCount__local.success": {
+    "caseId": "C192.currentCallMutationCount__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.currentCallMutationCount__local.success.json",
+    "sha256": "5516445ae27904abd231f7f9067af123b85196379bd1f0d817cea5387b8b8c20",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C192.currentCallMutationCount__local.counterexample": {
+    "caseId": "C192.currentCallMutationCount__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C192.currentCallMutationCount__local.counterexample.json",
+    "sha256": "1b8ebd6a8fe035c87ec7aa5e9514b59563ee0eb1911c2b0b4f4673b3a840594c",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C194.documentedNormalizationOnly__local.success": {
+    "caseId": "C194.documentedNormalizationOnly__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C194.documentedNormalizationOnly__local.success.json",
+    "sha256": "56ed6b063db7dd6452866b87cc9f4294797595f5c723bed14fe539a105f5210b",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C194.documentedNormalizationOnly__local.counterexample": {
+    "caseId": "C194.documentedNormalizationOnly__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C194.documentedNormalizationOnly__local.counterexample.json",
+    "sha256": "798b1933c04ad30b91d74fc591f0b47ddf10705e68b1e4f4c1afb0e12b2edd5e",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C200.cancel__local.success": {
+    "caseId": "C200.cancel__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C200.cancel__local.success.json",
+    "sha256": "22aeb912712f008ebd471e37d0c75d0935a7c004e0b91a8bc721c45e7fbd7a74",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C200.cancel__local.counterexample": {
+    "caseId": "C200.cancel__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C200.cancel__local.counterexample.json",
+    "sha256": "812294cef18c15bff4913fc2cdd3aaf9967293e2a9a72d3b98241a2e23727316",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C200.enabledCard__local.success": {
+    "caseId": "C200.enabledCard__local.success",
+    "path": "features/docs/coverage/fixtures/s03-native/C200.enabledCard__local.success.json",
+    "sha256": "770de933c6bbfe8fe1d1179855641041b81458eaee3dbfa0410246feede3788e",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  },
+  "C200.enabledCard__local.counterexample": {
+    "caseId": "C200.enabledCard__local.counterexample",
+    "path": "features/docs/coverage/fixtures/s03-native/C200.enabledCard__local.counterexample.json",
+    "sha256": "9de0052da72017e735c6a23cfd89ec348ba25142ab151f4b838c5860c072306b",
+    "provenance": {
+      "source": "Original independent literal HTTP/r1/r2/UTF16/native-human/protocol contracts in native-fixture-author.mjs; no production-output oracle",
+      "authorship": "offline native acceptance literal fixtures"
+    }
+  }
+}

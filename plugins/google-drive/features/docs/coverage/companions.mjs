@@ -12,6 +12,8 @@ import { expand } from './expand.mjs';
 import { executeNativeAdapter,compareNativeExecution } from './execution-adapters.mjs';
 import { executeWitnessNative,compareWitnessNative } from './witness-native.mjs';
 import { selectionCompanionCases,executeSelectionNative,compareSelectionNative } from './selection-native.mjs';
+import {isNativeOutcome} from './native-programs.mjs';
+import {executeNativeCompanions} from './native-companions.mjs';
 import { draftCaseIds } from './draft-execution.mjs';
 import { executeDraftCompanions } from './draft-persistence.mjs';
 import { discoveryCompanionCases,executeDiscoveryNative,compareDiscoveryNative } from './discovery-native.mjs';
@@ -33,7 +35,9 @@ export async function executeCompanions(root,inventory,sourceDigest,runId){
   for(const [name,run]of Object.entries(snapshotContractCases())){const h=createFakePluginHost({pluginId:'semantic-companion'});try{assert.notEqual(h.bb.storage.database().name,':memory:');const port=createBbStore(h.bb.storage.database(),h.bb.storage.migrate).semanticSnapshots,observation=sqliteContractObservation(h.bb.storage.database());observation.capture();const events=captureSnapshotContract(port,run);observation.capture();persistence.push({name,events,sqlite:observation.result()});}finally{await h.harness.lifecycle.dispose();}}
   const draftRecords=[...records.values()].filter(r=>draftCaseIds.includes(r.caseId)&&manifest.expansion.deliveryOverrides[r.key]?.status==='delivered');
   const draft=draftRecords.length?{sourceDigest,runId,producerPid:process.pid,cases:await executeDraftCompanions(draftRecords,fixtures,entry=>fixtureFile(root,entry))}:undefined;
-  return {sourceDigest,runId,native,discovery,metadata,selection,witness,persistence,...(draft?{draft}:{}),ids:['semantic-native-read','semantic-sqlite-contract','semantic-http-contract','s02-discovery-native','s02-selection-native','s02-witness-native'],scope:'offline native/SQLite and real-adapter stubbed HTTP; no live Google'};
+  const nativeRecords=[...records.values()].filter(r=>isNativeOutcome(r)&&manifest.expansion.deliveryOverrides[r.key]?.status==='delivered');
+  const semanticNative=nativeRecords.length?await executeNativeCompanions(nativeRecords,fixtures,entry=>fixtureFile(root,entry),sourceDigest,runId):undefined;
+  return {sourceDigest,runId,native,discovery,metadata,selection,witness,persistence,...(draft?{draft}:{}),...(semanticNative?{semanticNative}:{}),ids:['semantic-native-read','semantic-sqlite-contract','semantic-http-contract','s02-discovery-native','s02-selection-native','s02-witness-native'],scope:'offline native/SQLite and real-adapter stubbed HTTP; no live Google'};
 }
 export function compareCompanions(root,proofs,sourceDigest,runId){
   assert.ok(proofs,'missing required native/persistence/adapter companions');assert.equal(proofs.sourceDigest,sourceDigest,'stale companion source');assert.equal(proofs.runId,runId,'stale companion run');

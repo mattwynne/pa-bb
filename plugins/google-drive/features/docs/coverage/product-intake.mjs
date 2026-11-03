@@ -5,10 +5,12 @@ import { fixtureFile, digest } from './audit.mjs';
 import { expand } from './expand.mjs';
 import { isApplicationOutcome,currentApplicationBoundary } from './execution-adapters.mjs';
 import { compareCompanions } from './companions.mjs';
+import {isNativeOutcome} from './native-programs.mjs';
+import {compareNativeCompanions} from './native-companions.mjs';
 import { isDraftOutcome } from './draft-execution.mjs';
 import { compareDraftCompanions } from './draft-persistence.mjs';
 import { implementedRoute, compareExecution, compareInventory, adapterBindings } from './execution-adapters.mjs';
-export function assertProductIntake({manifest,registry,results,fixtures,root,receipts=[],inventory,runId,fingerprint,companions}) {
+export function assertProductIntake({manifest,registry,results,fixtures,root,receipts=[],inventory,runId,fingerprint,companions,childPid}) {
   // Preserve synthetic refusal before every other join (including missing driver).
   for(const result of results){const f=fixtures[result.fixtureId];assert.ok(f,'product fixture missing');assert.ok(!fixtureFile(root,f).auditControlOnly,'synthetic auditControlOnly fixture forbidden on product intake');}
   // Reject unsupported delivery declarations before expensive expansion/trace
@@ -43,6 +45,7 @@ export function assertProductIntake({manifest,registry,results,fixtures,root,rec
     const data=fixtureFile(root,fixture);assert.equal(data.caseId,record.caseId,'fixture identity');
     assert.equal(digest(JSON.stringify(receipt.trace)),result.executionDigest,'execution observation digest');
     compareExecution({...record,bridgeCandidate:candidate},data,receipt.trace);
+    if(isNativeOutcome(record)){assert.equal(receipt.trace.producerPid,childPid,'actual native primary Cucumber PID');assert.equal(receipt.trace.role,'primary');for(const field of ['runId','sourceDigest','fixtureDigest','pickleId','uri','testCaseStartedId'])assert.equal(receipt.trace[field],receipt[field],`native primary ${field}`);assert.deepEqual(receipt.trace.astNodeIds,receipt.astNodeIds,'native primary actual AST');}
     if(isApplicationOutcome({...record,bridgeCandidate:candidate})){
       assert.deepEqual(receipt.trace.boundary,currentApplicationBoundary(record),'core evidence cannot be relabelled native');
       for(const call of receipt.trace.events){assert.ok(!localInvocationIds.has(call.id),'reused application invocation');localInvocationIds.add(call.id);}
@@ -66,5 +69,7 @@ export function assertProductIntake({manifest,registry,results,fixtures,root,rec
   if(results.some(r=>isApplicationOutcome(records.get(r.caseId)??{})||records.get(r.caseId)?.ledgerId==='C021'))compareCompanions(root,companions,fingerprint,runId);
   const draftKeys=new Set(results.filter(r=>isDraftOutcome(records.get(r.caseId))).map(r=>r.key));
   if(draftKeys.size)compareDraftCompanions(companions?.draft,[...records.values()].filter(r=>draftKeys.has(r.key)),fixtures,entry=>fixtureFile(root,entry),fingerprint,runId,receipts.filter(r=>draftKeys.has(r.key)).map(r=>r.trace));
+  const nativeKeys=new Set(results.filter(r=>isNativeOutcome(records.get(r.caseId))).map(r=>r.key));
+  if(nativeKeys.size)compareNativeCompanions(companions?.semanticNative,[...records.values()].filter(r=>nativeKeys.has(r.key)),fixtures,entry=>fixtureFile(root,entry),fingerprint,runId,receipts.filter(r=>nativeKeys.has(r.key)).map(r=>r.trace));
   return {bridgeCandidates:results.filter(r=>r.pickle?.tags.some(t=>t.name==='@bridgeCandidate')).length,implementedAdapterVariants:Object.keys(adapterBindings()).length};
 }

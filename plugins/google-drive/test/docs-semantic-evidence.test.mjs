@@ -13,8 +13,26 @@ test('all 367 S02 declarations without current execution are rejected, not promo
 test('held accounting preserves exact accepted keys, closures, future modes and zero exposure',()=>{
   const records=expand(manifest),accepted=records.filter(r=>manifest.expansion.deliveryOverrides[r.key]?.status==='delivered'),s02=records.filter(r=>r.earliestSlice==='S02'),keys=new Set(accepted.map(r=>r.key)),closures=allClosures(manifest,records);
   const families=new Set(['C001','C002','C003','C004','C005','C006','C007','C008','C009','C010','C011','C012','C013','C015','C016','C017','C020','C021','C165']),expected=records.filter(r=>r.earliestSlice==='S02'&&families.has(r.ledgerId));assert.equal(expected.length,367);
-  const noWriteBases={'draft.composition':['sameRequestRecovery','cancelDraft','noDraftClaims'],'journal.keys':['serverIssued','requestIdRecovery','identicalDuplicate','differentInputConflict','failedPlanningConsumed','cancelledTombstone','crossNamespaceCollision'],'journal.claims':['draftNoClaim'],'verifier.independence':['noCompilerOracle','exactFootprint','unknownFields'],'budgets.lifecycle':['draftTtl']},s03=records.filter(r=>r.earliestSlice==='S03'),newKeys=s03.filter(r=>r.requestedMode==='local'&&noWriteBases[r.operation]?.includes(r.base));assert.equal(s03.length,268);assert.equal(newKeys.length,30);assert.equal(s03.filter(r=>!keys.has(r.key)).length,238);assert.deepEqual(accepted.map(r=>r.key).sort(),[...expected,...newKeys].map(r=>r.key).sort(),'independently selected exact S02 plus reviewed no-write S03 keys');
-  assert.equal(Object.keys(manifest.rows).length,211);assert.equal(records.length,11197);assert.equal(accepted.length,397);assert.equal(s02.length,367);assert.equal(s02.filter(r=>!keys.has(r.key)).length,0);assert.deepEqual(manifest.expansion.variantExposure,{});
+  // Literal review selections, independent of delivery overrides, registry and routing.
+  // Source declarations below are not external adoption of the native candidates.
+  const reviewedNoWrite=[
+    ['C027','draft.composition',['sameRequestRecovery','cancelDraft','noDraftClaims']],
+    ['C190','journal.keys',['serverIssued','requestIdRecovery','identicalDuplicate','differentInputConflict','failedPlanningConsumed','cancelledTombstone','crossNamespaceCollision']],
+    ['C191','journal.claims',['draftNoClaim']],
+    ['C194','verifier.independence',['noCompilerOracle','exactFootprint','unknownFields']],
+    ['C203','budgets.lifecycle',['draftTtl']]
+  ],reviewedNative=[
+    ['C187','executor.authorityDispatch',['tokeninfoBarrier','policyAwait','intentPersistence','preDispatchEpoch','cancellation','expiry']],
+    ['C192','executor.stageFacts',['notSent','intentCrashUnknown','dispatchRejected','acknowledged','read403AfterAck','ackSaveFailure','currentCallMutationCount']],
+    ['C194','verifier.independence',['documentedNormalizationOnly']],
+    ['C200','approval.policy',['cancel','enabledCard']]
+  ];
+  const pairKeys=selection=>selection.flatMap(([id,operation,bases])=>bases.flatMap(base=>['success','counterexample'].map(outcome=>`${id}/${operation}/${base}__local/${outcome}`)));
+  const oldS03Keys=pairKeys(reviewedNoWrite),nativeKeys=pairKeys(reviewedNative),expectedKeys=[...expected.map(r=>r.key),...oldS03Keys,...nativeKeys],s03=records.filter(r=>r.earliestSlice==='S03');
+  assert.equal(oldS03Keys.length,30);assert.equal(nativeKeys.length,32);assert.equal(new Set(expectedKeys).size,429,'no overlapping reviewed memberships');
+  assert.equal(s03.length,268);assert.equal(s03.filter(r=>keys.has(r.key)).length,62);assert.equal(s03.filter(r=>!keys.has(r.key)).length,206);
+  assert.deepEqual(accepted.map(r=>r.key).sort(),expectedKeys.sort(),'exact old 367 S02 + 30 no-write S03 + 32 reviewed native declarations; no missing keys or unreviewed extras');
+  assert.equal(Object.keys(manifest.rows).length,211);assert.equal(records.length,11197);assert.equal(accepted.length,429);assert.equal(s02.length,367);assert.equal(s02.filter(r=>!keys.has(r.key)).length,0);assert.deepEqual(manifest.expansion.variantExposure,{});
   const variants=[...new Set(s02.filter(r=>r.profile==='read').map(r=>`${r.operation}/${r.semanticVariant}`))];assert.equal(variants.length,59);assert.equal(variants.filter(v=>closures.get(v).every(r=>keys.has(r.key))).length,59);assert.equal(new Set(variants.flatMap(v=>closures.get(v).map(r=>r.key))).size,311);assert.equal(new Set(variants.flatMap(v=>closures.get(v).filter(r=>!keys.has(r.key)).map(r=>r.key))).size,0);for(const v of variants)assert.equal(closures.get(v).filter(r=>!keys.has(r.key)).length,0);assert.deepEqual(json('features/docs/coverage/bridge-cases.json'),{},'no supplemental cases counted twice');assert.equal(records.filter(r=>r.ledgerId==='C021'&&keys.has(r.key)).length,16);
 });
 test('fixed actual native/HTTP/SQLite companions reject missing, stale, wrong-route, counterfeit evidence',async()=>{

@@ -2,6 +2,8 @@
 // routes, not capabilities inferred from labels or the obligation manifest.
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
+import {normalNativeBindings,isNativeOutcome} from './native-programs.mjs';
+import {executeNativeInvariant,compareNativeInvariant,nativeBoundary} from './native-execution.mjs';
 import { draftBindings,isDraftOutcome,draftBoundary,draftNeedsSql,executeDraftApplication,compareDraftExecution } from './draft-execution.mjs';
 import { executeDraftSqlite,compareDraftSqlite } from './draft-persistence.mjs';
 import { isWitness,witnessBoundary,executeWitness,compareWitness } from './witness-execution.mjs';
@@ -29,6 +31,7 @@ import { executeC015, compareC015 } from './c015-execution.mjs';
 const owner=Object.freeze({subject:'subject-d',account:'reader@example.test',threadId:'thread-d'});
 const routes=Object.freeze({
   ...draftBindings(),
+  ...normalNativeBindings(),
   ...Object.fromEntries(Object.entries({'docs_inspect.outline':['headingIds','levels','depth','deepLinks','sectionExtent'],'selector.section':['headingId','headingPath','level','peerBoundary','includeHeading'],'selector.handle':['node','span','staleOrdinal','transformedIdentity'],'selector.tab':['url','id','path','conflictingUrl','noImplicitFirst']}).flatMap(([op,variants])=>variants.map(v=>[`${op}/${v}__${op==='docs_inspect.outline'?'read':'local'}`,{driver:op==='docs_inspect.outline'?'docs_inspect':'selector-resolver',schema:op==='docs_inspect.outline'?'inspect.include-and-scope':'selector.closed-union',mode:op==='docs_inspect.outline'?'read':'local',native:'docs_inspect',action:'selection',outcomes:op==='docs_inspect.outline'?['success','invalid','preservation','bounds','wrongSubject']:['success','counterexample']}]))),
   ...Object.fromEntries(['deniedComments','missingReviewCoverage','tabsAndInline'].map(v=>[`docs_read.reviewView/${v}__read`,{driver:'docs_read',schema:'read.scope-format-view',mode:'read',native:'docs_read',action:'c011',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
   ...Object.fromEntries(['inline','acceptedPreview','rejectedPreview','projectionNotEditProof'].map(v=>[`docs_read.view/${v}__read`,{driver:'docs_read',schema:'read.scope-format-view',mode:'read',native:'docs_read',action:'c010',outcomes:['success','invalid','preservation','bounds','wrongSubject']}])),
@@ -134,9 +137,10 @@ function nodeFacts(snapshot) {
   return Object.values(snapshot.nodes).map(n=>({id:n.id,kind:n.kind,parent:n.parent,tabId:n.tabId,segment:n.segment,extent:n.extent,...n.text!==undefined?{text:n.text}:{}}));
 }
 function substitute(args) {return JSON.parse(JSON.stringify(args).replaceAll('"$snapshot"','"snap-d"'));}
-export const isApplicationOutcome=r=>isDraftOutcome(r)||applicationFamily(r)||isDiscoveryApplication(r)||isSelection(r)||isWitness(r);
-export function currentApplicationBoundary(r){return isDraftOutcome(r)?draftBoundary(r):isWitness(r)?witnessBoundary(r):isSelection(r)?selectionBoundary(r):isDiscoveryApplication(r)?discoveryBoundary(r):applicationBoundary(r);}
-export async function executeAdapter(record,fixture,inventory) {
+export const isApplicationOutcome=r=>isNativeOutcome(r)||isDraftOutcome(r)||applicationFamily(r)||isDiscoveryApplication(r)||isSelection(r)||isWitness(r);
+export function currentApplicationBoundary(r){return isNativeOutcome(r)?nativeBoundary():isDraftOutcome(r)?draftBoundary(r):isWitness(r)?witnessBoundary(r):isSelection(r)?selectionBoundary(r):isDiscoveryApplication(r)?discoveryBoundary(r):applicationBoundary(r);}
+export async function executeAdapter(record,fixture,inventory,identity) {
+  if(isNativeOutcome(record)){implementedRoute(record);return executeNativeInvariant(record,fixture,identity);}
   if(isDraftOutcome(record)){implementedRoute(record);return draftNeedsSql(record)?executeDraftSqlite(record,fixture):executeDraftApplication(record,fixture);}
   if(isWitness(record)){implementedRoute(record);return executeWitness(record,fixture);}
   if(isSelection(record)){implementedRoute(record);return executeSelection(record,fixture);}
@@ -363,6 +367,7 @@ function compareLocalInvocation(record,t) {
 // Re-run by the parent on the captured observations, independently of any
 // Cucumber attachment flags. Every expectation below originates in inert data.
 export function compareExecution(record,f,t) {
+  if(isNativeOutcome(record)){implementedRoute(record);return compareNativeInvariant(record,f,t);}
   if(isDraftOutcome(record)){implementedRoute(record);return draftNeedsSql(record)?compareDraftSqlite(record,f,t):compareDraftExecution(record,f,t);}
   if(isWitness(record)){implementedRoute(record);return compareWitness(record,f,t);}
   if(isSelection(record))return compareSelection(record,f,t);
