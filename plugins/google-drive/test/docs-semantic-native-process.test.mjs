@@ -10,10 +10,11 @@ import {fileURLToPath} from 'node:url';
 import {createFakePluginHost} from '@get-bb/plugin-sdk/testing';
 import {validDraftDocument,boldAfter,boldRequest,draftOwner as owner} from './docs-semantic-draft-fixtures.mjs';
 import {textVector} from './docs-semantic-text-vectors.mjs';
+import {weightVector} from './docs-semantic-weight-vectors.mjs';
 const childFile=fileURLToPath(new URL('./docs-semantic-native-child.mjs',import.meta.url));
 async function fixture(options={}){
  const dir=await mkdtemp(join(tmpdir(),'semantic-process-')),dbPath=join(dir,'execution.db'),h=createFakePluginHost({pluginId:'semantic-process-observer'}),Db=h.bb.storage.database().constructor;
- const vector=options.profile==='text'?textVector():null;
+ const vector=options.profile==='weight'?weightVector():options.profile==='text'?textVector():null;
  const state={posts:0,follow:0,document:vector?.before??validDraftDocument(),intentVisible:false,writeLockFree:false};
  const json=(res,value,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(value));};
  const server=createServer(async(req,res)=>{try{
@@ -43,7 +44,7 @@ async function fixture(options={}){
  }
  return {dir,dbPath,Db,state,run,close:async()=>{server.closeAllConnections();server.close();await once(server,'close');await h.harness.lifecycle.dispose();await rm(dir,{recursive:true,force:true});}};
 }
-for(const profile of ['bold','text'])for(const boundary of ['afterIntent','beforeResponseCommit','afterResponseCommit'])test(`actual ${profile} SIGKILL ${boundary}: real HTTP/file-SQLite reopen never replays, source survives expiry`,async()=>{
+for(const profile of ['bold','text','weight'])for(const boundary of ['afterIntent','beforeResponseCommit','afterResponseCommit'])test(`actual ${profile} SIGKILL ${boundary}: real HTTP/file-SQLite reopen never replays, source survives expiry`,async()=>{
  const f=await fixture({profile});try{
   const killed=await f.run(boundary);assert.equal(killed.signal,'SIGKILL',killed.stderr);assert.equal(killed.code,null);assert.equal(killed.events[0].pid,killed.pid);assert.equal(killed.events[0].stage,boundary);
   const count=boundary==='afterIntent'?0:1;assert.equal(f.state.posts,count);if(count){assert.equal(f.state.intentVisible,true);assert.equal(f.state.writeLockFree,true);}
@@ -54,7 +55,7 @@ for(const profile of ['bold','text'])for(const boundary of ['afterIntent','befor
 for(const status of [307,308])test(`actual redirect ${status} cannot repeat captured native POST or follow endpoint`,async()=>{
  const f=await fixture({redirect:status});try{const run=await f.run('none');assert.equal(run.code,0,run.stderr);assert.equal(f.state.posts,1);assert.equal(f.state.follow,0);assert.equal(run.events[0].result.submission,'unknown');assert.equal(run.events[0].result.claim,'held');assert.equal(run.events[0].result.thisCall.providerMutationCount,1);assert.equal(f.state.intentVisible,true);assert.equal(f.state.writeLockFree,true);}finally{await f.close();}
 });
-for(const profile of ['bold','text'])for(const failure of ['lost','denyAfter'])test(`actual ${profile} server ${failure}: submission facts survive response/readback failure`,async()=>{
+for(const profile of ['bold','text','weight'])for(const failure of ['lost','denyAfter'])test(`actual ${profile} server ${failure}: submission facts survive response/readback failure`,async()=>{
  const f=await fixture({[failure]:true,profile});try{const run=await f.run('none');assert.equal(run.code,0,run.stderr);assert.equal(f.state.posts,1);assert.equal(run.events[0].result.submission,failure==='lost'?'unknown':'acknowledged');assert.equal(run.events[0].result.claim,'held');const reopened=await f.run('reopen');assert.equal(reopened.code,0,reopened.stderr);assert.equal(reopened.events[0].result.submission,run.events[0].result.submission);assert.equal(f.state.posts,1);}finally{await f.close();}
 });
 test('actual credential tokeninfo redirect refuses before native intent/POST',async()=>{

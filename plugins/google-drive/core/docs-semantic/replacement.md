@@ -8,7 +8,7 @@ immutable head. The serving server and app entrypoints do not register this path
 
 ## Supported intent and actual evidence
 
-`paragraphReplace` / `paragraph-replace/1` selects exactly one nonempty literal in
+`paragraphReplace` (original `/1`, narrowly extended `/2` below) selects exactly one nonempty literal in
 THAT paragraph. Other occurrences in preceding/following paragraphs or other tabs
 do not contribute to cardinality. No normalization, regex, occurrence fallback or
 replaceAllText exists. Strings are scalar-valid, at most2000 UTF-16 units; no-op,
@@ -36,7 +36,7 @@ object registries refuse. Opaque unrelated document metadata, unused named-style
 properties and other unchanged tabs are retained, not recursively interpreted as
 indices merely because a property is named startIndex/endIndex.
 
-The selected paragraph must have homogeneous COMPLETE OBSERVED supported text
+The original `/1` selected paragraph must have homogeneous COMPLETE OBSERVED supported text
 style: bold, italic, underline, strikethrough, fontSize(PT), weightedFontFamily
 (with observed weight), foregroundColor(with all RGB components). Values may be
 explicit or read from its actual named-style definition; no defaults are invented.
@@ -48,12 +48,51 @@ Every inserted changed interval explicitly restores ALL seven properties, even
 when the neighboring paragraph has a different font/colour/bold. No wildcard
 style clearing, paragraph-style mutation or rendered-font equivalence is claimed.
 
+## Closed /2 documented font-weight default only
+
+New planning selects `paragraph-replace/2` ONLY when the actual selected style
+needs documented font-weight400 derivation. All-observed inputs keep EXACT `/1`
+plans/heads/payloads; old saved `/1` normalization and NoDSP never upgrade.
+`/2` has witness version2, stage `text-2`, execution `nativeParagraphReplace-v2`,
+and the closed `docs-weight-400/1` provenance/normalization contract. No caller
+profile flag exists. This is not an extension of S02's observed model.
+
+The pinned Docs discovery WeightedFontFamily.weight and the official TextStyle /
+[WeightedFontFamily reference](https://developers.google.com/docs/api/reference/rest/v1/documents#WeightedFontFamily)
+explicitly default an OMITTED weight to400. Only an EXISTING font object with a
+valid nonblank fontFamily qualifies. Present weight must be an integer multiple
+of100 in100..900; null/false/0/NaN/invalid presence is NOT omission. A whole font
+property is selected atomically: explicit `{fontFamily:'Inter'}` overrides named
+`{fontFamily:'Arial',weight:700}` as Inter/default400, never Inter/borrowed700.
+Absent whole font uses a known active parent property, never invented Arial or a
+font object. Default-derived admission requires the actual Reader to have source
+property evidence for all seven fields and an actual named-style reference where
+inheritance is needed. Raw explicit/named objects, missing keys and S02 partial /
+missing propertyEvidence remain unchanged. The replacement witness and actual
+native card label400 as DOCUMENTED DEFAULT, NOT OBSERVED, with source/reference.
+Weight400 is not a rendered-weight/font-fidelity claim; bold remains independent.
+
+The /2 compiler restores effective400 inside the inserted interval ONLY. The
+independent verifier rederives400 from retained raw before/after. Its extra
+normalization permits omitted-weight/explicit400 equivalence ONLY in recognized
+body TextStyle.weightedFontFamily objects and the actual active named-style
+TextStyle owner; it never adds a whole font property or recursively walks opaque
+objects named weight/weightedFontFamily. Whole-property inheritance and all other
+values remain exact. Full actual raw after and its omission facts are retained.
+Malformed raw scalars are rejected BEFORE coalescing. Old /1 still mismatches an
+after weight omission: no implicit contract backfill.
+
+RGB remains COMPLETE OBSERVED: black{}, missing zero channels, whole colour /
+colour children / nulls still refuse. No RGB-zero codec is established here.
+Active baselineOffset/smallCaps/background/link and other unsupported styles
+still refuse. This is not support for every ordinary Google Doc.
+
 ## One protected execution, independent verification
 
 The SAME controller, opaque fresh-winner store capability, observed authority,
 consent clock, synchronous intent/gate/once-fetch, ACK journal, budget accounting
 and no-replay recovery are reused. Header kind/capability and text-1 stage are
-closed; immutable programShape holds independently derived delete/insert units.
+closed (with the versioned text-2 extension above); immutable programShape holds independently derived delete/insert units.
 Reply arity is one delete plus insert/style pairs when present, NOT compiler
 request length as authority. Expected counts are1/2/3 for the supported shapes.
 No SQL migration changes; old v1 NoDSP and v2 bold records are not reinterpreted.

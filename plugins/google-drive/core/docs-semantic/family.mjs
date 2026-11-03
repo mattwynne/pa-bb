@@ -6,6 +6,7 @@ import {compareParagraphBold} from './verification/paragraph-bold.mjs';
 import {compareParagraphReplace} from './verification/paragraph-replace.mjs';
 export function family(value){
  if(value.kind==='paragraphBold'&&value.capabilityVersion==='paragraph-bold/1')return {kind:'paragraphBold',capabilityVersion:'paragraph-bold/1',stageId:'bold-1',execution:'nativeBold-v1',contextKind:'paragraphBoldTargetContext',compile:compileParagraphBold,compare:compareParagraphBold};
+ if(value.kind==='paragraphReplace'&&value.capabilityVersion==='paragraph-replace/2')return {kind:'paragraphReplace',capabilityVersion:'paragraph-replace/2',stageId:'text-2',execution:'nativeParagraphReplace-v2',contextKind:'paragraphReplaceTargetContext',compile:compileParagraphReplace,compare:compareParagraphReplace};
  if(value.kind==='paragraphReplace'&&value.capabilityVersion==='paragraph-replace/1')return {kind:'paragraphReplace',capabilityVersion:'paragraph-replace/1',stageId:'text-1',execution:'nativeParagraphReplace-v1',contextKind:'paragraphReplaceTargetContext',compile:compileParagraphReplace,compare:compareParagraphReplace};
  requireValue(false,'unsupported');
 }
