@@ -1,6 +1,7 @@
 // Closed logical-plan invariants, not a planner or compiler. Checksums are
 // integrity checks only; independent verification still resolves the command
 // against the actual before observation. Publication also checks that observation.
+import {assertReplacementPlan} from './replacement-plan.mjs';
 import {boundedTree,LIMITS,requireValue,digest} from './common.mjs';
 import {validatedReadModel} from './selectors.mjs';
 import {inspectEffectEvidence,compareReadEvidence} from './read-effects.mjs';
@@ -22,6 +23,7 @@ export function logicalPlanBinding(snapshot){
 }
 export const BOLD_VERIFICATION_LIMIT='Exact observed run topology; no rendering or submission attribution';
 export function assertLogicalPlan(p,{record,snapshot}={}){
+ if(p?.kind==='paragraphReplace')return assertReplacementPlan(p,{record,snapshot});
  try{boundedTree(p,{...LIMITS,providerBytes:65536,nodes:20000,depth:64});}catch{check(false);}
  keys(p,['version','kind','mode','capabilityVersion','lifecycle','binding','command','sourceEvidence','target','effect','verification','integrity']);
  check(p.version===1&&p.kind==='paragraphBold'&&p.mode==='direct'&&p.capabilityVersion==='paragraph-bold/1');

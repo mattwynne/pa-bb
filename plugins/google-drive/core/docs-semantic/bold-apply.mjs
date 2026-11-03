@@ -4,8 +4,8 @@ import {ownerCheck,strict,demand,keyValid,hashValid,draftError,draftHash} from '
 import {createBoldSealService} from './bold-seal.mjs';
 import {createBoldTargetContextService} from './bold-target-context.mjs';
 import {sealResult,sealOwner,checkSealLineage,currentBefore} from './seal-policy.mjs';
-import {compileParagraphBold} from './compiler/paragraph-bold.mjs';
-import {compareParagraphBold} from './verification/paragraph-bold.mjs';
+import {family} from './family.mjs';
+import {replacementConsentPayload} from './replacement-consent.mjs';
 import {runtimeResult} from './execution-policy.mjs';
 import {boldConsentPayload,boldApprovalDecision} from './bold-consent.mjs';
 export function createBoldApplyService({store,docs,batch,authority,review,clock=Date.now,ids=randomUUID,diagnose=()=>{},checkpoint=()=>{}}){
@@ -29,9 +29,9 @@ export function createBoldApplyService({store,docs,batch,authority,review,clock=
    const before=store.semanticExecutions.evidence(owner,input),original=store.semanticDrafts.byId(owner,input.operationId);checkSealLineage(sealed.saved,original,before);
    stage='policy';const approvalRequired=await authority.readPolicy();loaded();
    const deadline=Math.min(clock()+600000,sealed.saved.header.deadline);
-   const consent=boldConsentPayload(sealed.saved,original.plan,before,deadline);
+   const profile=family(original.plan),consent=(profile.kind==='paragraphReplace'?replacementConsentPayload:boldConsentPayload)(sealed.saved,original.plan,before,deadline);
    if(approvalRequired){
-    stage='approval';const remaining=deadline-clock();demand(remaining>0,'snapshot');const raw=await review(consent.payload,remaining,signal,owner.threadId);loaded();
+    stage='approval';const remaining=deadline-clock();demand(remaining>0,'snapshot');const raw=await review(consent.payload,remaining,signal,owner.threadId,profile.kind);loaded();
     const decision=boldApprovalDecision(raw);
     if(decision.outcome!=='approved')return result(store.semanticExecutions.recordNotSent(owner,input,storeCapability,decision.outcome==='declined'?'declined':'cancelled'));
     demand(clock()<deadline,'snapshot');
@@ -42,7 +42,7 @@ export function createBoldApplyService({store,docs,batch,authority,review,clock=
    async function account(){loaded();const record=await store.byEmail(sealed.saved.header.account);loaded();demand(record?.subject===owner.subject,'owner');return record;}
    stage='authority';let record=await account();loaded();await docs.authority(record,()=>{loaded();});loaded();record=await account();loaded();
    stage='current_read';const currentRead=await docs.readExecution(record,sealed.saved.header.documentId,signal,()=>{loaded();});loaded();record=await account();loaded();currentBefore(original,before,currentRead);
-   stage='prepare';const compiled=compileParagraphBold(original.plan),prepared=await batch.prepare(record,sealed.saved.header.documentId,compiled,signal,()=>{loaded();});loaded();
+   stage='prepare';const compiled=profile.compile(original.plan),prepared=await batch.prepare(record,sealed.saved.header.documentId,compiled,signal,()=>{loaded();});loaded();
    stage='final_policy';const policyNow=await authority.readPolicy();loaded();demand(policyNow===approvalRequired,'owner');record=await account();loaded();
    stage='intent';store.semanticExecutions.persistIntent(owner,input,storeCapability,context,currentRead,prepared.programHash,prepared.wireHash,clock());
    // Technical checkpoints are synchronous; never await here. Tests can kill a
@@ -81,7 +81,7 @@ export function createBoldApplyService({store,docs,batch,authority,review,clock=
  async function observe(owner,input,signal){
   inputCheck(owner,input);const saved=store.semanticExecutions.byId(owner,input.operationId);demand(saved&&saved.header.headHash===input.planHash,'unknown');
   let observation={kind:'unavailable'};
-  try{const record=await store.byEmail(saved.header.account);demand(record?.subject===saved.header.subject,'owner');const raw=await docs.readExecution(record,saved.header.documentId,signal),before=store.semanticExecutions.evidence(owner,input),plan=store.semanticDrafts.byId(owner,input.operationId).plan;observation={kind:compareParagraphBold({plan,before,after:raw.document}).matched?'observed_matching':'observed_mismatch',attribution:'notEstablished'};}catch{try{diagnose('observe','after_unavailable');}catch{/* diagnostic cannot change facts */}/* no mutation, ACK or release from observation */}
+  try{const record=await store.byEmail(saved.header.account);demand(record?.subject===saved.header.subject,'owner');const raw=await docs.readExecution(record,saved.header.documentId,signal),before=store.semanticExecutions.evidence(owner,input),plan=store.semanticDrafts.byId(owner,input.operationId).plan;observation={kind:family(plan).compare({plan,before,after:raw.document}).matched?'observed_matching':'observed_mismatch',attribution:'notEstablished'};}catch{try{diagnose('observe','after_unavailable');}catch{/* diagnostic cannot change facts */}/* no mutation, ACK or release from observation */}
   return result(saved,0,observation);
  }
  return Object.freeze({apply,status,observe,drain:()=>Promise.all([...active.values()].map(c=>c.finished))});

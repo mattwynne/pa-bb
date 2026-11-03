@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import {createGoogleAdapter} from '../adapters/google.mjs';
 import {createFilingService} from '../core/filing.mjs';
 import {nativeWorld,parse,owner,keys} from './docs-semantic-native-fixtures.mjs';
-for(const resultId of ['foreign-folder','unrelated-folder'])test(`actual in-flight Filing POST returns ${resultId} AFTER native seal/preflight; fresh intent cut sees retained ID without optional context`,async()=>{
- const w=await nativeWorld({approval:false});let release;const released=new Promise(r=>{release=r;}),entered={};entered.promise=new Promise(r=>{entered.resolve=r;});let filingPosts=0,filingPromise;
+import {textVector} from './docs-semantic-text-vectors.mjs';
+for(const profile of ['bold','text'])for(const resultId of ['foreign-folder','unrelated-folder'])test(`actual ${profile} in-flight Filing POST returns ${resultId} AFTER native seal/preflight; fresh intent cut sees retained ID without optional context`,async()=>{
+ const vector=profile==='text'?textVector():null;
+ const w=await nativeWorld({approval:false,...vector?{document:vector.before,after:vector.after,wire:vector.wire,replyCount:3,sdkPlan:true,paragraphIndex:1,oldText:vector.oldText,newText:vector.newText}:{}});let release;const released=new Promise(r=>{release=r;}),entered={};entered.promise=new Promise(r=>{entered.resolve=r;});let filingPosts=0,filingPromise;
  try{
   const adjacent=createGoogleAdapter({store:w.store,getClient:async()=>({clientId:'SYNTHETIC',clientSecret:'SYNTHETIC'}),fetchImpl:async(url,init={})=>{
    const u=new URL(url),id=u.pathname.split('/').at(-1);

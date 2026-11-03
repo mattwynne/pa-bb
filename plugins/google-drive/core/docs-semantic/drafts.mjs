@@ -3,6 +3,8 @@
 // linked seals project their actual state, without transport or consent decisions.
 import {sealResult} from './seal-policy.mjs';
 import {randomUUID} from 'node:crypto';
+import {planParagraphReplace} from './planner/paragraph-replace.mjs';
+import {family} from './family.mjs';
 import {planParagraphBold} from './planner/paragraph-bold.mjs';
 import {compileParagraphBold} from './compiler/paragraph-bold.mjs';
 import {DRAFT_LIMITS,demand,strict,ownerCheck,inputCheck,reservation,draftHash,draftResult as unsealedResult,planningCategory,draftError,keyValid} from './draft-policy.mjs';
@@ -24,7 +26,7 @@ export function createDraftService({snapshots,journal,clock=Date.now,ids=randomU
   try{
    const snapshot=snapshots.get(input.snapshotId,owner,now);
    demand(snapshot.binding.subject===owner.subject&&snapshot.binding.threadId===owner.threadId&&snapshot.binding.account===owner.account,'owner');
-   logical=planParagraphBold(snapshot,input.command,{createdAt:candidate.createdAt,limits});compileParagraphBold(logical);
+   logical=(input.command.op==='paragraphReplace'?planParagraphReplace:planParagraphBold)(snapshot,input.command,{createdAt:candidate.createdAt,limits});family(logical).compile(logical);
   }catch(error){const category=planningCategory(error);report('draft_planning_rejected',category);return draftResult(journal.reject(candidate.operationId,owner,category),clock());}
   try{return draftResult(journal.publish(candidate.operationId,owner,logical,clock()),clock());}
   catch(error){

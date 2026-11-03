@@ -1,6 +1,6 @@
 // Purpose-specific synchronous seal/cancel operations. No provider I/O/async callback.
 import {nextExecutionFact,replayExecutionFacts,responseFact,verificationFact,validateRuntimeEvidence,STAGE_LIMITS} from '../core/docs-semantic/execution-policy.mjs';
-import {compileParagraphBold} from '../core/docs-semantic/compiler/paragraph-bold.mjs';
+import {family} from '../core/docs-semantic/family.mjs';
 import {digest} from '../core/docs-semantic/common.mjs';
 import {interpretLocalContext} from '../core/docs-semantic/target-context.mjs';
 import {knownResultObligations} from '../core/docs-semantic/seal-policy.mjs';
@@ -89,7 +89,7 @@ export function createSealStore(db,{snapshots,writers,draft}){
    const {c,saved:s}=capability(owner,input,cap),dispatchOwner=c.dispatchOwner;demand(!c.intent&&!c.invoked,'conflict');sealOwner(s.header,owner,{origin:true});demand(s.header.headHash===input.planHash&&now<s.header.deadline,'head');
    checkSealAccount({record:s.header},owner,db.prepare('SELECT subject,email FROM drive_accounts WHERE email=? COLLATE NOCASE').get(s.header.account));
    const original=originalDrafts.byId(owner,input.operationId),before=snapshots.readExecutionEvidence(s.header,owner),resources=sealResources(original,context);demand(draftHash(resources)===draftHash(s.header.resources),'conflict');
-   const compiled=compileParagraphBold(original.plan);demand(draftHash(compiled)===programHash&&digest(JSON.stringify(compiled))===wireHash,'corrupt');
+   const compiled=family(original.plan).compile(original.plan);demand(draftHash(compiled)===programHash&&digest(JSON.stringify(compiled))===wireHash,'corrupt');
    const raw=writers.readTargetContextFacts({resourceIds:[...new Set(resources.map(g=>g.id))].sort(),markerKeys:markerKeysFor(context.observations)}),local=interpretLocalContext(raw,resources,context.observations,{operationId:s.header.operationId,subject:s.header.subject,headerDigest:draftHash(s.header)});
    demand(local.blockers.length===0&&knownResultObligations(raw,resources.map(g=>g.id)).length===0&&local.origins.every(o=>o.kind==='unmarked'||o.kind==='historicalMarker'),'conflict');
    // Full current source, not Drive version or the old pin, remains unchanged.

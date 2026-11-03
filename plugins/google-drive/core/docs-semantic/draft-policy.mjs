@@ -1,6 +1,7 @@
 // Internal no-write draft lifecycle. No provider/BB/database dependencies.
 import {createHash} from 'node:crypto';
 import {boundedTree,LIMITS,freeze} from './common.mjs';
+import {replacementCommand} from './replacement-evidence.mjs';
 import {assertLogicalPlan} from './logical-plan.mjs';
 // Versioned conservative local admission bounds, not provider limits. No eviction.
 export const DRAFT_LIMITS=Object.freeze({version:1,records:1024,totalBytes:8*1024*1024,recordBytes:65536,planBytes:65536,draftMs:1800000,catalogBytes:4*1024*1024});
@@ -14,7 +15,7 @@ function sorted(x){if(Array.isArray(x))return x.map(sorted);if(x&&typeof x==='ob
 export const draftHash=x=>createHash('sha256').update(JSON.stringify(sorted(x))).digest('hex');
 export const immutable=x=>freeze(structuredClone(x));
 export function ownerCheck(owner){strict(owner,['subject','account','threadId']);for(const v of Object.values(owner))demand(typeof v==='string'&&v.length>0&&v.length<=320&&v.isWellFormed());}
-export function inputCheck(input){strict(input,['requestId','snapshotId','mode','command']);demand(typeof input.requestId==='string'&&/^[A-Za-z0-9._-]{1,128}$/.test(input.requestId));demand(typeof input.snapshotId==='string'&&input.snapshotId.length>0&&input.snapshotId.length<=128);demand(input.mode==='direct');strict(input.command,['op','node','bold']);demand(input.command.op==='paragraphBold'&&typeof input.command.node==='string'&&input.command.node.length>0&&input.command.node.length<=512&&typeof input.command.bold==='boolean');}
+export function inputCheck(input){strict(input,['requestId','snapshotId','mode','command']);demand(typeof input.requestId==='string'&&/^[A-Za-z0-9._-]{1,128}$/.test(input.requestId));demand(typeof input.snapshotId==='string'&&input.snapshotId.length>0&&input.snapshotId.length<=128);demand(input.mode==='direct');if(input.command?.op==='paragraphReplace'){replacementCommand(input.command);return;}strict(input.command,['op','node','bold']);demand(input.command.op==='paragraphBold'&&typeof input.command.node==='string'&&input.command.node.length>0&&input.command.node.length<=512&&typeof input.command.bold==='boolean');}
 export function timeCheck(now){demand(Number.isSafeInteger(now)&&now>=0);}
 export function checkLimits(limits){demand(limits.version===1,'unsupported');for(const k of ['records','totalBytes','recordBytes','planBytes','draftMs','catalogBytes'])demand(Number.isSafeInteger(limits[k])&&limits[k]>0&&limits[k]<=DRAFT_LIMITS[k],'budget');demand(limits.draftMs===DRAFT_LIMITS.draftMs,'budget');}
 export function admit(usage,delta,count,limits=DRAFT_LIMITS){checkLimits(limits);demand(usage.records+count<=limits.records&&usage.bytes+delta<=limits.totalBytes,'capacity');}

@@ -1,3 +1,4 @@
+export {inspectParagraphReplacementEvidence,compareParagraphReplacementEvidence} from './replacement-evidence.mjs';
 // INTERNAL read/effect comparison vocabulary, deliberately not a planner.
 // Effects describe proposed intent; these functions compare its exact disclosure
 // with observed source facts. No requests, permission, claims or approvals exist.

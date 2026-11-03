@@ -1,4 +1,6 @@
 // First bold seal only: no dispatch, consent decision, ACK or verification.
+import {family,replyCount} from './family.mjs';
+import {replacementShape} from './replacement-evidence.mjs';
 import {validateRuntimeRecord,runtimeWriterMatches,runtimeResult,nextExecutionFact} from './execution-policy.mjs';
 import {bytes,draftHash,immutable,strict,demand,hashValid,keyValid,ownerCheck,timeCheck,validateSaved,requireDraftEvidence} from './draft-policy.mjs';
 import {checkContextDraft,checkInitialEvidence,contextObservation,contextRights,interpretLocalContext} from './target-context.mjs';
@@ -10,7 +12,7 @@ export function sealOwner(header,owner,{origin=false}={}){
 }
 export function sealResources(saved,context){
  const b=saved.plan.binding;
- demand(context?.kind==='paragraphBoldTargetContext'&&context.binding?.operationId===saved.record.operationId&&context.binding.headHash===saved.record.headHash,'head');
+ demand(context?.kind===family(saved.plan).contextKind&&context.binding?.operationId===saved.record.operationId&&context.binding.headHash===saved.record.headHash,'head');
  for(const k of ['subject','account','threadId','snapshotId','documentId'])demand(context.binding[k]===b[k],'owner');
  demand(sameLogical(context.binding.initialRevision,b.revision)&&context.binding.initialEvidenceDigest===b.evidenceDigest,'corrupt');
  demand(context.ancestry?.status==='observed'&&context.ancestry.boundary?.kind==='myDriveRoot','unsupported');
@@ -57,16 +59,16 @@ export function admitSeal({saved,owner,input,context,snapshot,read,raw,now}){
  demand(knownResultObligations(raw,resources.map(r=>r.id)).length===0,'conflict');
  demand(local.origins.every(o=>o.kind==='unmarked'||o.kind==='historicalMarker'),'conflict');
  const r=saved.record,b=saved.plan.binding;
- const header={version:1,operationId:r.operationId,headHash:r.headHash,subject:r.subject,account:r.account,threadId:r.threadId,createdAt:now,deadline:r.expiresAt,kind:'paragraphBold',capabilityVersion:'paragraph-bold/1',documentId:b.documentId,initialRevision:b.revision,
+ const header={version:1,operationId:r.operationId,headHash:r.headHash,subject:r.subject,account:r.account,threadId:r.threadId,createdAt:now,deadline:r.expiresAt,kind:saved.plan.kind,capabilityVersion:saved.plan.capabilityVersion,...(saved.plan.kind==='paragraphReplace'?{programShape:replacementShape(saved.plan.effect)}:{}),documentId:b.documentId,initialRevision:b.revision,
   before:{snapshotId:r.snapshotId,evidenceDigest:b.evidenceDigest,modelDigest:draftHash(snapshot),rawBytes:bytes(snapshot.evidence),modelBytes:bytes(snapshot)},
   resources,contextDigest:draftHash(context),localCaptureDigest:raw.digest,currentReadDigest:read.responseDigest,origin:'unresolved',originPolicy:'ordinary-existing-local-exclusion/1',futureCredit:SEAL_LIMITS.futureCredit};
  validateSealHeader(header);
- const record={version:1,operationId:r.operationId,headHash:r.headHash,headerDigest:draftHash(header),status:'sealed',claim:'held',approvalIntent:'pending',stage:{stageId:'bold-1',submission:'not_sent',intentPersisted:false,verification:'not_run'}};
+ const record={version:1,operationId:r.operationId,headHash:r.headHash,headerDigest:draftHash(header),status:'sealed',claim:'held',approvalIntent:'pending',stage:{stageId:family(header).stageId,submission:'not_sent',intentPersisted:false,verification:'not_run'}};
  return immutable({header,record});
 }
 export function validateSealHeader(h){
- strict(h,['version','operationId','headHash','subject','account','threadId','createdAt','deadline','kind','capabilityVersion','documentId','initialRevision','before','resources','contextDigest','localCaptureDigest','currentReadDigest','origin','originPolicy','futureCredit']);
- demand(h.version===1&&keyValid(h.operationId)&&hashValid(h.headHash)&&h.kind==='paragraphBold'&&h.capabilityVersion==='paragraph-bold/1','corrupt');
+ strict(h,['version','operationId','headHash','subject','account','threadId','createdAt','deadline','kind','capabilityVersion','documentId','initialRevision','before','resources','contextDigest','localCaptureDigest','currentReadDigest','origin','originPolicy','futureCredit',...(h.kind==='paragraphReplace'?['programShape']:[])]);
+ demand(h.version===1&&keyValid(h.operationId)&&hashValid(h.headHash),'corrupt');family(h);replyCount(h);
  ownerCheck({subject:h.subject,account:h.account,threadId:h.threadId});timeCheck(h.createdAt);timeCheck(h.deadline);demand(h.createdAt<h.deadline,'corrupt');
  demand(h.initialRevision?.kind==='docs'&&h.initialRevision.subject===h.subject&&typeof h.initialRevision.id==='string'&&h.initialRevision.id.length>0,'corrupt');
  strict(h.before,['snapshotId','evidenceDigest','modelDigest','rawBytes','modelBytes']);
@@ -82,12 +84,13 @@ export function validateSeal(saved){
  strict(r,['version','operationId','headHash','headerDigest','status','claim','approvalIntent','stage']);
  demand(r.version===1&&r.operationId===h.operationId&&r.headHash===h.headHash&&r.headerDigest===draftHash(h),'corrupt');
  demand(['sealed','cancelled'].includes(r.status)&&r.claim===(r.status==='sealed'?'held':'released')&&r.approvalIntent==='pending','corrupt');
- strict(r.stage,['stageId','submission','intentPersisted','verification']);demand(r.stage.stageId==='bold-1'&&r.stage.submission==='not_sent'&&r.stage.intentPersisted===false&&r.stage.verification==='not_run','corrupt');
+ strict(r.stage,['stageId','submission','intentPersisted','verification']);demand(r.stage.stageId===family(h).stageId&&r.stage.submission==='not_sent'&&r.stage.intentPersisted===false&&r.stage.verification==='not_run','corrupt');
  demand(bytes(r)<=SEAL_LIMITS.recordBytes,'budget');return saved;
 }
 export function checkSealLineage(seal,draft,snapshot){
  validateSeal(seal);demand(draft,'corrupt');validateSaved(draft);requireDraftEvidence(draft.plan,snapshot);
  const h=seal.header,r=draft.record,b=draft.plan.binding;
+ demand(h.kind===draft.plan.kind&&h.capabilityVersion===draft.plan.capabilityVersion&&(h.kind!=='paragraphReplace'||sameLogical(h.programShape,replacementShape(draft.plan.effect))),'corrupt');
  demand(r.state==='draft'&&r.operationId===h.operationId&&r.headHash===h.headHash&&r.subject===h.subject&&r.account===h.account&&r.threadId===h.threadId&&r.expiresAt===h.deadline,'corrupt');
  demand(b.documentId===h.documentId&&b.snapshotId===h.before.snapshotId&&sameLogical(b.revision,h.initialRevision)&&b.evidenceDigest===h.before.evidenceDigest,'corrupt');
 }

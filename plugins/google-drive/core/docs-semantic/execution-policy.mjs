@@ -1,15 +1,15 @@
 // Closed one-stage EDIT facts. No transport, host, database or approved input.
 import {strict,demand,draftHash,bytes,immutable,keyValid,hashValid} from './draft-policy.mjs';
 import {sameLogical} from './logical-plan.mjs';
-import {compareParagraphBold} from './verification/paragraph-bold.mjs';
+import {family,replyCount} from './family.mjs';
 export const STAGE_LIMITS=Object.freeze({events:16,eventBytes:4096,recordBytes:4096,replyBytes:16384,afterBytes:1048576});
-export function initialExecutionRecord(h){return {version:1,operationId:h.operationId,headHash:h.headHash,headerDigest:draftHash(h),status:'sealed',claim:'held',approvalIntent:'pending',stage:{stageId:'bold-1',submission:'not_sent',intentPersisted:false,verification:'not_run'}};}
+export function initialExecutionRecord(h){return {version:1,operationId:h.operationId,headHash:h.headHash,headerDigest:draftHash(h),status:'sealed',claim:'held',approvalIntent:'pending',stage:{stageId:family(h).stageId,submission:'not_sent',intentPersisted:false,verification:'not_run'}};}
 export function validateRuntimeRecord(h,r){
  strict(r,['version','operationId','headHash','headerDigest','status','claim','approvalIntent','stage','dispatchOwner','consent','programHash','wireHash','response','reply','after','reason']);
  demand(r.version===2&&r.operationId===h.operationId&&r.headHash===h.headHash&&r.headerDigest===draftHash(h)&&keyValid(r.dispatchOwner),'corrupt');
  demand(['reviewing','not_submitted','uncertain','rejected','verified'].includes(r.status)&&['held','released'].includes(r.claim)&&['pending','recorded'].includes(r.approvalIntent),'corrupt');
  strict(r.stage,['stageId','submission','intentPersisted','verification']);const s=r.stage;
- demand(s.stageId==='bold-1'&&['not_sent','unknown','acknowledged','rejected'].includes(s.submission)&&typeof s.intentPersisted==='boolean'&&['not_run','matched','mismatch','unavailable'].includes(s.verification),'corrupt');
+ demand(s.stageId===family(h).stageId&&['not_sent','unknown','acknowledged','rejected'].includes(s.submission)&&typeof s.intentPersisted==='boolean'&&['not_run','matched','mismatch','unavailable'].includes(s.verification),'corrupt');
  demand(s.submission==='not_sent'||s.intentPersisted,'corrupt');demand(s.verification==='not_run'||s.submission==='acknowledged','corrupt');
  demand(r.claim==='released'?['not_submitted','rejected','verified'].includes(r.status):!['not_submitted','rejected','verified'].includes(r.status),'corrupt');
  demand(r.status!=='verified'||s.submission==='acknowledged'&&s.verification==='matched'&&r.after!==null&&r.response?.saveAcceptable===true,'corrupt');
@@ -27,10 +27,10 @@ export function responseFact(header,envelope){
  if([400,401,403,404].includes(envelope.status))return {kind:'rejected',httpStatus:envelope.status};
  if(envelope.status!==200)return null;
  const b=envelope.body;
- if(!b||b.documentId!==header.documentId||!Array.isArray(b.replies)||b.replies.length!==1||typeof b.writeControl?.requiredRevisionId!=='string'||!b.writeControl.requiredRevisionId||b.writeControl.requiredRevisionId.length>2048)return null;
+ if(!b||b.documentId!==header.documentId||!Array.isArray(b.replies)||b.replies.length!==replyCount(header)||typeof b.writeControl?.requiredRevisionId!=='string'||!b.writeControl.requiredRevisionId||b.writeControl.requiredRevisionId.length>2048)return null;
  const save=Object.hasOwn(b,'commentUpdateState')?b.commentUpdateState:'ABSENT';
- const reply=b.replies[0];if(!reply||typeof reply!=='object'||Array.isArray(reply))return null;
- const unexpectedReply=Object.keys(reply).length!==0,unexpectedControl=Object.keys(b).some(k=>!['documentId','replies','writeControl','commentUpdateState','suggestionResponses'].includes(k))||Object.keys(b.writeControl).some(k=>!['requiredRevisionId','writeMode'].includes(k))||Object.hasOwn(b.writeControl,'writeMode')&&b.writeControl.writeMode!=='EDIT';
+ if(b.replies.some(reply=>!reply||typeof reply!=='object'||Array.isArray(reply)))return null;
+ const unexpectedReply=b.replies.some(reply=>Object.keys(reply).length!==0),unexpectedControl=Object.keys(b).some(k=>!['documentId','replies','writeControl','commentUpdateState','suggestionResponses'].includes(k))||Object.keys(b.writeControl).some(k=>!['requiredRevisionId','writeMode'].includes(k))||Object.hasOwn(b.writeControl,'writeMode')&&b.writeControl.writeMode!=='EDIT';
  const unexpectedSuggestions=Object.hasOwn(b,'suggestionResponses')&&(!Array.isArray(b.suggestionResponses)||b.suggestionResponses.length!==0);
  return {kind:'acknowledged',documentId:b.documentId,revisionId:b.writeControl.requiredRevisionId,replyDigest:draftHash(b),save:typeof save==='string'&&['ABSENT','ALL_SAVED','NO_UPDATES_REQUESTED','ALL_FAILED_UNKNOWN_REASON','UNSPECIFIED'].includes(save)?save:'UNKNOWN',saveAcceptable:!unexpectedControl&&!unexpectedReply&&!unexpectedSuggestions&&['ABSENT','ALL_SAVED','NO_UPDATES_REQUESTED'].includes(save),unexpectedSuggestions,unexpectedReply,unexpectedControl};
 }
@@ -84,7 +84,7 @@ export function authorizeSemanticWriterEvent(r,owner,event){
 export function verificationFact(header,r,plan,before,after){
  demand(r.stage.submission==='acknowledged','conflict');
  if(after?.documentId!==header.documentId||after?.revisionId!==r.response.revisionId)return 'mismatch';
- return compareParagraphBold({plan,before,after}).matched&&r.response.saveAcceptable?'matched':'mismatch';
+ return family(header).compare({plan,before,after}).matched&&r.response.saveAcceptable?'matched':'mismatch';
 }
 export function validateRuntimeEvidence(header,r,plan,before,reply,after){
  validateRuntimeRecord(header,r);
@@ -93,5 +93,5 @@ export function validateRuntimeEvidence(header,r,plan,before,reply,after){
 }
 export function runtimeResult(saved,mutationCount=0,observation){
  const {header:h,record:r}=saved;validateRuntimeRecord(h,r);
- return immutable({operationId:h.operationId,draftId:h.operationId,draftHash:h.headHash,state:r.status,submission:r.stage.submission,claim:r.claim,stage:r.stage,approval:r.consent?.kind??'intent_pending',execution:'nativeBold-v1',response:r.response,reason:r.reason,thisCall:{providerMutationCount:mutationCount},retrySafe:false,...observation?{observation}:{}});
+ return immutable({operationId:h.operationId,draftId:h.operationId,draftHash:h.headHash,state:r.status,submission:r.stage.submission,claim:r.claim,stage:r.stage,approval:r.consent?.kind??'intent_pending',execution:family(h).execution,response:r.response,reason:r.reason,thisCall:{providerMutationCount:mutationCount},retrySafe:false,...observation?{observation}:{}});
 }

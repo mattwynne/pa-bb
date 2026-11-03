@@ -2,7 +2,8 @@
 
 This is an isolated implementation, not a serving registration, live-provider
 proof, rendered-UI acceptance or additional scored coverage. `server.ts` does not
-register it. Text replacement, suggestion/collaboration editing, shared-drive
+register it. The closed [first literal replacement profile](replacement.md) now
+reuses this same protected path. Suggestion/collaboration editing, shared-drive
 boundary support and multi-stage execution are not supplied.
 
 ## Actual composition

@@ -1,4 +1,5 @@
 // Observation policy only. No execution authority, provider I/O or persistence.
+import {family} from './family.mjs';
 import {boundedTree,LIMITS} from './common.mjs';
 import {bytes,draftHash,immutable,ownerCheck,strict,timeCheck,validateSaved,requireDraftEvidence} from './draft-policy.mjs';
 import {WRITER_LIMITS,writerResources,canonicalWriterGrants,validateWriter,nextWriterFact,assertWriterGrants,writerDigest,legacyWriterResources,resourcesConflict} from './writer-coordination.mjs';
@@ -15,7 +16,7 @@ export function checkContextDraft(saved,owner,input,now){
  contextCheck(r.subject===owner.subject&&r.account===owner.account&&r.threadId===owner.threadId,'owner');
  contextCheck(r.operationId===input.operationId&&r.headHash===input.planHash,'head');
  contextCheck(r.state==='draft','state');contextCheck(now<r.expiresAt,'expired');
- contextCheck(plan.kind==='paragraphBold'&&plan.capabilityVersion==='paragraph-bold/1','unsupported');
+ family(plan);
  contextCheck(id(plan.binding.documentId),'invalid');return saved;
 }
 export function checkInitialEvidence(saved,snapshot){requireDraftEvidence(saved.plan,snapshot);return snapshot;}
@@ -87,7 +88,7 @@ export function interpretLocalContext(raw,rights,observations,ownedExecution=nul
 }
 export function contextResult(saved,ancestry,observations,rights,local,capturedAt){
  const p=saved.plan,r=saved.record;
- const result={version:1,kind:'paragraphBoldTargetContext',ephemeral:true,
+ const result={version:1,kind:family(saved.plan).contextKind,ephemeral:true,
   binding:{operationId:r.operationId,headHash:r.headHash,subject:r.subject,account:r.account,threadId:r.threadId,documentId:p.binding.documentId,snapshotId:r.snapshotId,initialRevision:p.binding.revision,initialEvidenceDigest:p.binding.evidenceDigest},
   initialEvidence:'validatedDraftPin',currentDocsRevision:'notObserved',ancestry,observations,resources:rights,
   origin:{observations:local.origins,policy:'unresolved'},localCoordination:{capturedAt,digest:local.captureDigest,counts:local.counts,blockers:local.blockers},
