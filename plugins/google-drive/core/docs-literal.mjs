@@ -5,7 +5,7 @@ const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const canonical=x=>JSON.stringify(x,(_,v)=>object(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
 const same=(a,b)=>canonical(a)===canonical(b);
 const fields=['bold','italic','underline','strikethrough','smallCaps','backgroundColor','foregroundColor','fontSize','weightedFontFamily','baselineOffset','link'];
-function style(value={}){
+export function style(value={}){
  if(!object(value)||Object.keys(value).some(k=>!fields.includes(k)||k==='link'))fail();
  for(const [k,v]of Object.entries(value)){
   if(fields.slice(0,5).includes(k)){if(typeof v!=='boolean')fail();}
@@ -18,7 +18,7 @@ function style(value={}){
  return value;
 }
 const bounds=n=>object(n)&&Number.isSafeInteger(n.startIndex??0)&&Number.isSafeInteger(n.endIndex)&&(n.startIndex??0)>=0&&n.endIndex>=(n.startIndex??0);
-function bodyWalk(content,visit,depth=0,allowEmpty=false){
+export function bodyWalk(content,visit,depth=0,allowEmpty=false){
  if(depth>16||!Array.isArray(content))fail();let previous=0;
  for(const item of content){
   if(!bounds(item)||(item.startIndex??0)<previous||['paragraph','table','tableOfContents','sectionBreak'].filter(k=>Object.hasOwn(item,k)).length!==1)fail();previous=item.endIndex;
@@ -88,11 +88,47 @@ export function literalRequests(p){
 // Only real textRun styles in the affected paragraph use this equivalence;
 // untouched definitions, other paragraphs/tabs and opaque metadata stay exact.
 function observedStyle(value){const f=value?.weightedFontFamily;return object(f)&&Object.keys(f).every(k=>['fontFamily','weight'].includes(k))&&scalar(f.fontFamily)&&f.fontFamily.length<=100&&f.fontFamily.trim()&&!/[\p{Cc}\p{Cs}]/u.test(f.fontFamily)&&(!Object.hasOwn(f,'weight')||f.weight===400)?{...value,weightedFontFamily:{...f,weight:400}}:value;}
-function pieces(elements,start,end){let pos=start;const out=[];for(const p of elements){if(!scalar(p.textRun?.content)||!p.textRun.content.length||p.startIndex!==pos||p.endIndex!==pos+p.textRun.content.length||Object.keys(p).some(k=>!['startIndex','endIndex','textRun'].includes(k))||Object.keys(p.textRun).some(k=>!['content','textStyle'].includes(k)))fail();pos=p.endIndex;const last=out.at(-1),value={text:p.textRun.content,style:observedStyle(p.textRun.textStyle??{})};if(last&&same(last.style,value.style))last.text+=value.text;else out.push(value);}if(pos!==end)fail();return out;}
+export function pieces(elements,start,end){let pos=start;const out=[];for(const p of elements){if(!scalar(p.textRun?.content)||!p.textRun.content.length||p.startIndex!==pos||p.endIndex!==pos+p.textRun.content.length||Object.keys(p).some(k=>!['startIndex','endIndex','textRun'].includes(k))||Object.keys(p.textRun).some(k=>!['content','textStyle'].includes(k)))fail();pos=p.endIndex;const last=out.at(-1),value={text:p.textRun.content,style:observedStyle(p.textRun.textStyle??{})};if(last&&same(last.style,value.style))last.text+=value.text;else out.push(value);}if(pos!==end)fail();return out;}
+// Only explicit same-tab named-style observations establish parent values.
+// Unknown editor defaults, ambiguous definitions and links stay unknown.
+export function knownTextParent(data, paragraph) {
+ const named = data.namedStyles?.styles;
+ const type = paragraph.paragraphStyle?.namedStyleType;
+ if (!Array.isArray(named) || !type) return {};
+ const normal = named.filter(n => n.namedStyleType === 'NORMAL_TEXT');
+ const selected = named.filter(n => n.namedStyleType === type);
+ if (normal.length !== 1 || selected.length !== 1 || [normal[0].textStyle,selected[0].textStyle].some(s => s !== undefined && !object(s))) return {};
+ const inherited = {...normal[0].textStyle, ...selected[0].textStyle}, known = {};
+ for (const key of fields) {
+  if (key === 'link' || !Object.hasOwn(inherited,key)) continue;
+  try { style({[key]:inherited[key]}); known[key] = inherited[key]; } catch { /* unsupported parent value is not a known default */ }
+ }
+ return observedStyle(known);
+}
+// UpdateTextStyle can unset direct values equal to the parent. Resolve that
+// equivalence ONLY inside the actual updated span, splitting coalesced runs at
+// its boundaries. Unmodified prefixes, suffixes and newlines stay direct/exact
+// under the pre-existing pieces contract; no paragraph-wide inheritance pass.
+export function updatedPieces(elements,start,end,updatedStart,updatedEnd,parent) {
+ const out = [];
+ let position = start;
+ for (const piece of pieces(elements,start,end)) {
+  const next = position + piece.text.length;
+  const boundaries = [...new Set([position,next,Math.max(position,Math.min(next,updatedStart)),Math.max(position,Math.min(next,updatedEnd))])].sort((a,b) => a-b);
+  for (let i=0;i<boundaries.length-1;i++) {
+   const a = boundaries[i], b = boundaries[i+1];
+   const value = {text:piece.text.slice(a-position,b-position),style:a >= updatedStart && b <= updatedEnd ? {...parent,...piece.style} : piece.style};
+   const last = out.at(-1);
+   if (last && same(last.style,value.style)) last.text += value.text; else out.push(value);
+  }
+  position = next;
+ }
+ return out;
+}
 // Image contentUri is a requester-tagged, expiring read URL, not a durable
 // document-content identity. Ignore only that known output field when BOTH
 // observations have it at the same image-object slot; all other fields stay exact.
-function stableObservations(before,after){
+export function stableObservations(before,after){
  const left=structuredClone(before),right=structuredClone(after);
  function maps(a,b,kind){if(!object(a)||!object(b))return;for(const [id,value]of Object.entries(a)){const x=value?.[kind]?.embeddedObject?.imageProperties,y=b[id]?.[kind]?.embeddedObject?.imageProperties;if(typeof x?.contentUri==='string'&&x.contentUri&&typeof y?.contentUri==='string'&&y.contentUri){delete x.contentUri;delete y.contentUri;}}}
  function data(a,b){maps(a?.inlineObjects,b?.inlineObjects,'inlineObjectProperties');maps(a?.positionedObjects,b?.positionedObjects,'positionedObjectProperties');}
@@ -109,7 +145,8 @@ export function literalReadbackMatches(before,after,args){
   const expected=structuredClone(source.paragraph.elements),chosen=expected[t.run.partIndex],at=t.startIndex-chosen.startIndex;
   chosen.textRun.content=chosen.textRun.content.slice(0,at)+args.newText+chosen.textRun.content.slice(at+args.oldText.length);chosen.endIndex+=delta;
   for(let i=t.run.partIndex+1;i<expected.length;i++){expected[i].startIndex+=delta;expected[i].endIndex+=delta;}
-  if(!same(pieces(expected.filter(p=>p.textRun.content.length),source.startIndex,source.endIndex+delta),pieces(actual.paragraph.elements,source.startIndex,source.endIndex+delta)))return false;
+  const parent = knownTextParent(a,source.paragraph), updatedEnd = t.startIndex+args.newText.length;
+  if(!same(updatedPieces(expected.filter(p=>p.textRun.content.length),source.startIndex,source.endIndex+delta,t.startIndex,updatedEnd,parent),updatedPieces(actual.paragraph.elements,source.startIndex,source.endIndex+delta,t.startIndex,updatedEnd,parent)))return false;
   source.paragraph.elements=[];actual.paragraph.elements=[];
   const originals=[],observed=[];bodyWalk(a.body.content,n=>originals.push(n),0,true);bodyWalk(b.body.content,n=>observed.push(n),0,true);if(originals.length!==observed.length)return false;
   for(let i=0;i<originals.length;i++){

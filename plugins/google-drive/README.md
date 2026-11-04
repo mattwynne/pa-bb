@@ -31,6 +31,7 @@ An independent Google Drive and Docs plugin with explicitly consented full Drive
 | `gsheets_edit_status` | Read-only current comparison/recovery; never replays a write or releases unresolved locks |
 | `gdocs_read` | Read plain text across a Google Doc's tabs by explicit account and document ID or URL |
 | `gdocs_inspect_for_edit` | Complete, bounded text/revision inspection; rejects unsupported structures |
+| `gdocs_replace_section` | Replace uniform prose under one exact native heading; preserve heading, final newline and outside content; revision guard, approval and no-replay holds |
 | `gdocs_replace_text` | Preview or apply a revision-guarded exact replacement under the owner's global approval setting |
 | `gdocs_review_edit_example` | Test native approval delivery with fixed synthetic data; every choice is a no-op |
 | `gdocs_inspect_formatting` | Complete paragraph ranges and styles, or page-only mode for bounded structured Docs; tab page styles and revision |

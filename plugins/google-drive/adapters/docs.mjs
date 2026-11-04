@@ -1,5 +1,6 @@
 import { docsError, documentId } from '../core/docs-edit.mjs';
 import {literalRequests} from '../core/docs-literal.mjs';
+import {sectionRequests} from '../core/docs-section.mjs';
 import { imageRequest, imageSchema } from '../core/docs-image.mjs';
 import { formatRequests, formatSchema } from '../core/docs-format.mjs';
 import { createDocsTransport, DOCS_BASE, rejection } from './docs-transport.mjs';
@@ -41,7 +42,8 @@ export function createDocsAdapter({ verifiedAccess, fetchImpl = fetch }) {
         replace(proposal, signal, beforeSubmission) {
           let requests;
           try{
-            if(proposal.literal){for(const key of ['documentId','expectedRevisionId','tabId','oldText','newText'])if(proposal.literal[key]!==proposal[key])throw docsError('invalid_input');requests=literalRequests(proposal.literal);}
+            if(proposal.section){for(const key of ['documentId','expectedRevisionId','tabId','heading','oldText','newText'])if(proposal.section[key]!==proposal[key])throw docsError('invalid_section_input');requests=sectionRequests(proposal.section);}
+            else if(proposal.literal){for(const key of ['documentId','expectedRevisionId','tabId','oldText','newText'])if(proposal.literal[key]!==proposal[key])throw docsError('invalid_input');requests=literalRequests(proposal.literal);}
           }catch(error){throw Object.assign(error,{docsWriteAttempted:false});}
           return post(`${DOCS_BASE}/${encodeURIComponent(proposal.documentId)}:batchUpdate`, {
             writeControl: { requiredRevisionId: proposal.expectedRevisionId }, requests: requests??[{ replaceAllText: {

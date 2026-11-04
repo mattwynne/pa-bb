@@ -12,6 +12,7 @@ const target = { account: z.string().min(1).max(320).describe('Explicit connecte
   document: z.string().min(1).max(1024).describe('Google Docs URL or document ID.') };
 const schemas = {
   gdocs_inspect_for_edit: z.object(target).strict(),
+  gdocs_replace_section: z.object({...target,tabId:z.string().min(1).max(256),expectedRevisionId:z.string().min(1).max(2048),heading:z.string().min(1).max(256),newText:z.string().min(1).max(EDIT_LIMIT),preview:z.boolean().optional()}).strict(),
   gdocs_replace_text: z.object({ ...target, tabId: z.string().min(1).max(256),
     expectedRevisionId: z.string().min(1).max(2048).describe('Opaque revision from a complete gdocs_inspect_for_edit result for this account.'),
     oldText: z.string().min(1).max(EDIT_LIMIT), newText: z.string().max(EDIT_LIMIT),
@@ -44,9 +45,10 @@ export function registerDocsTools(bb: BbPluginApi, store: ReturnType<typeof crea
   for (const [name, parameters] of Object.entries(schemas)) {
     bb.agents.registerTool({ name, parameters,
       description: name === 'gdocs_inspect_for_edit'
-        ? 'Inspect a bounded Google Doc and revision for a unique literal body-paragraph edit. Tables and logos elsewhere are allowed; body text includes table text and object placeholders. Targets must fit one ordinary top-level body text run. Suggestions, headers/footnotes and unsupported affected styles/registries are refused. Does not replace gdocs_read for general reading.'
+        ? 'Inspect a bounded Google Doc and revision, including native heading text/levels for section replacement, or a unique literal body-paragraph edit. Tables and logos elsewhere are allowed; body text includes table text and object placeholders. Targets must fit one ordinary top-level body text run. Suggestions, headers/footnotes and unsupported affected styles/registries are refused. Does not replace gdocs_read for general reading.'
+        : name === 'gdocs_replace_section' ? 'Preview (default) or replace prose under one exact unique native heading in an explicit tab, retaining the heading and last body newline. Requires inspected revision. Only nonempty ordinary paragraphs with identical supported text styles and inherited or NORMAL_TEXT paragraph styles with default/explicit LEFT_TO_RIGHT; no nested headings, lists, links, objects or tables in the section. Other supported structure is preserved. LF separates nonblank new paragraphs; no final LF. Maximum 2000 UTF-16 units old/new prose. Approval follows Docs Settings. Only verified is completion; never replay uncertain writes.'
         : 'Preview (default) or apply one revision-guarded, unique literal replacement within one ordinary body text run in a selected tab, including documents with tables/logos elsewhere. Rich-document edits independently verify supported styles and preserved content/structure, excluding known expiring image read URLs and rendering; legacy plain-text edits retain their text-only verification contract. Asks for owner approval unless disabled globally in Google Drive Settings. No line breaks; max 2000 UTF-16 units per text. Never retry uncertain writes. Requires a separately owner-authorized write grant; read-only connections cannot edit.',
-      instructions: name === 'gdocs_replace_text' ? 'Only for user-requested edits. Preview is not completion. Per-edit owner approval is required by default; the owner can disable it globally in Google Drive Settings. Do not change that setting yourself. The tool enforces the current policy; arguments cannot override it. Only outcome verified confirms completion. After uncertain outcomes inspect again; do not replay.' : undefined,
+      instructions: name !== 'gdocs_inspect_for_edit' ? 'Only for user-requested edits. Preview is not completion. Per-edit owner approval is required by default; the owner can disable it globally in Google Drive Settings. Do not change that setting yourself. The tool enforces the current policy; arguments cannot override it. Only outcome verified confirms completion. After uncertain outcomes inspect again; do not replay.' : undefined,
       async execute(args, ctx) {
         const diagnose = (stage: string, error: unknown) => bb.log.warn(`Google Drive ${stage} ${docsFailureCategory(error)} ${failureCategory(error)}`);
         const approve = async (proposal: Proposal) => {
@@ -60,7 +62,7 @@ export function registerDocsTools(bb: BbPluginApi, store: ReturnType<typeof crea
         };
         const service = createDocsEditService({ store, drive: adapter.drive, docs: adapter.docs, diagnose, approve, approvalRequired });
         try {
-          const result = name === 'gdocs_inspect_for_edit' ? await service.inspect(args) : await service.replace(args, ctx.signal);
+          const result = name === 'gdocs_inspect_for_edit' ? await service.inspect(args) : name === 'gdocs_replace_section' ? await service.replaceSection(args,ctx.signal) : await service.replace(args, ctx.signal);
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
         } catch (error) {
           diagnose(`agent_tool ${name}`, error);

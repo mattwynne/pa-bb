@@ -125,6 +125,38 @@ turn if waiting and let the owner review in ordinary BB. Do not use a live Doc
 for engineering tests. This does not waive a no-browser instruction or establish
 desktop/narrow/keyboard review by itself.
 
+## Replace prose under a native heading
+
+For an explicitly requested section rewrite, inspect with `gdocs_inspect_for_edit`;
+use its exact native `headings` text, explicit tab ID and revision. Then preview
+`gdocs_replace_section({account, document, tabId, expectedRevisionId, heading,
+newText, preview:true})`. Apply identical arguments with `preview:false` under
+the existing Docs approval setting. Do not change that setting yourself.
+
+The heading must be unique in that tab and native HEADING_1–HEADING_6, not manually
+bold text. Its heading stays. The body ends at the next same-or-higher native
+heading or tab end. Only nonempty, nonblank ordinary prose paragraphs with
+identical supported direct text styles and inherited/`NORMAL_TEXT` paragraph
+styles are supported. Absent/explicit LEFT_TO_RIGHT is the documented
+non-inherited direction default; the batch restores LTR and compares that
+equivalence only on replaced body paragraphs. RTL refuses. Custom spacing/indent/alignment, mixed styles,
+nested headings, lists, links, tables and objects inside the section are refused.
+Supported tables/logos and other tabs outside it are preserved. Suggestions,
+headers/footnotes and index-bearing registries retain inspection restrictions.
+Old/new prose is limited to 2000 UTF-16 units. New prose is nonempty, with LF
+between nonblank paragraphs and no final LF, controls or malformed Unicode.
+
+Preview/review shows complete old/new prose, heading, internal UTF-16 bounds
+and formatting consequences. Paragraph count may change; the original last body
+newline is retained, including at tab end. Uniform stored text and normal
+paragraph styles are explicitly retained, not replaced with guessed defaults.
+Only `verified` confirms acknowledged readback of prose/styles and complete
+untouched structure with justified shifts (excluding expiring image read URIs),
+not actual rendering. Unknown/lost responses and verification drift keep the
+writer hold even when a fresh inspection matches. Never replay, roll back or
+force-unlock; inspect and reconcile with the owner. No raw-index editing,
+restructuring or general rich-section editing is exposed.
+
 ## Existing document replacements
 
 Use explicit Google Docs URLs/IDs.
@@ -157,8 +189,15 @@ object, chip or mixed-run span. Suggestions, headers/footers/footnotes,
 unsupported styles/links in the affected paragraph (including insertion
 inheritance neighbors) and index-bearing registries are refused.
 Supported partial stored styles are preserved without guessing omitted defaults;
-only Google's documented direct-font weight 400 equivalence is allowed in the
-affected paragraph (not unrelated definitions or opaque data). Rich readback checks the requested text, stored styles, coordinates and entire
+Google's documented direct-font weight 400 equivalence is allowed in the
+affected paragraph (not unrelated definitions or opaque data). Additionally,
+only on newly inserted literal text, direct values may compare equal to
+inherited omissions when unchanged, unambiguous same-tab NORMAL_TEXT/named-style
+observations explicitly prove the parent value. Links never inherit; unknown
+editor defaults remain unknown. This does not normalize untouched prefix,
+suffix or newline text. For section replacement the styled body, including its
+retained last newline, is the affected span. Changed parent definitions or
+effective styles still fail verification. Rich readback checks the requested text, stored styles, coordinates and entire
 remaining raw document. Only known expiring image `contentUri` read URLs may
 rotate at the same image-object slot; source URI, identity, geometry and opaque
 fields remain checked. This does not verify image bytes. Legacy plain-text replacements keep their prior

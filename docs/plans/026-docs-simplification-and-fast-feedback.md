@@ -8,6 +8,46 @@ The retired acceptance/evidence engine is removed, with 235 paths and approximat
 
 Existing native plain-text creation is reused. Existing inspect/replace handlers add one bounded body-paragraph literal edit beside unrelated tables/logos, with style and structural preservation checks, existing approval, revision control and uncertain-write holds. Arbitrary rich editing, table authoring, section reconstruction and live Google correctness are not claimed. The unchanged replacement approval was reviewed in disposable BB at desktop/narrow widths with keyboard, cancellation and error states. The exact committed source was then verified independently of unfinished work: 58 fast tests, 728 integration/regression cases, 12 OAuth scenarios, build/types and shared UI checks passed. The existing local plugin was updated through its native lifecycle with a state backup; plugin identity, source, enablement and configuration fingerprint were preserved. Applied build files matched the clean verified build, new tool descriptions were registered, and a synthetic unknown-account inspection stopped before provider access. No real Google document was created, read or edited for activation testing.
 
+## Next bounded increment: heading prose
+
+Independently reviewed, not yet applied: `gdocs_replace_section` selects one exact
+unique native heading in an explicit tab and replaces its nonempty uniform
+ordinary prose. The heading and last body newline remain. LF-separated new
+paragraphs can change the paragraph count; nested headings, mixed styles, lists,
+links, objects, tables and custom paragraph styles in the section refuse before
+submission. Paragraph style is inherited or `NORMAL_TEXT`, permitting only
+absent/explicit LEFT_TO_RIGHT direction (documented non-inherited LTR default)
+as an additional property. Old/new prose is at most 2000 UTF-16 units.
+Supported structure outside the section is preserved and independently compared.
+
+Selection, compilation and independent verification are pure core functions.
+The operation shares the existing inspection/revision, approval-policy,
+required-revision batch and legacy writer exclusion flow. No new executor,
+journal, draft system or public raw-index input was added. Historical receipt
+interpretation stays text-only; new immediate section readback does not upgrade
+old receipts. Unknown responses remain held, even if later content matches.
+
+Independent review identified two bounded applicability corrections: explicit/
+default LTR, and direct text values set to inherit when equal to a proven parent.
+Both are now handled only on affected content. Unchanged, unambiguous same-tab
+NORMAL_TEXT/named-style observations must prove a supported parent value;
+unknown editor defaults remain unknown. The new inheritance equivalence is
+confined to newly inserted literal text, or the styled section body including
+its last newline. Untouched text and parent definitions remain exact under the
+existing preservation contract. No general style-resolution engine was added.
+
+The affected loop now runs 112 cases in measured 310/320/340 ms end-to-end with
+npm startup. The separate full pure suite passes 1061 cases in 16.84 seconds.
+Focused production-handler/SDK/file-SQLite/HTTP, creation/literal, approval,
+writer/recovery, transport, formatting and registration regression passes 185
+cases in 17.04 seconds. Build, types and shared connection UI checks pass. Disposable BB
+rendered section approval at desktop/narrow widths, keyboard approval, busy,
+error, cancellation and incomplete states; no Google port was present. Live
+Google semantics/rendering and installation availability remain unverified.
+Independent correction review passed, including 16 separate pure probes and
+three production-handler probes; parent integration remains pending. No live
+reload or publication is implied. Exact supported scope: [editing guide](../../plugins/google-drive/docs/editing.md#replace-prose-under-a-heading).
+
 ## Decision
 
 Sharpen the axe first. Reduce code and test complexity, establish a millisecond-scale development loop, then deliver useful Google Docs creation and editing. Apply the 80/20 rule to sequencing, not to authorization, preservation or truthful outcomes.

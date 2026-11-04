@@ -9,6 +9,13 @@ import {richLiteralVector} from './docs-literal-fixtures.mjs';
 async function setup(options={}){
  const v=richLiteralVector(options.kind),h=createFakePluginHost({pluginId:'google-drive',settings:{clientId:'SYNTHETIC',clientSecret:'SYNTHETIC',requireDocsApproval:options.approval??false}}),db=h.bb.storage.database(),original=globalThis.fetch;
  if(options.font){v.before.tabs[0].documentTab.body.content[1].paragraph.elements[0].textRun.textStyle={weightedFontFamily:{fontFamily:'Arial'}};for(const p of v.after.tabs[0].documentTab.body.content[1].paragraph.elements)p.textRun.textStyle={weightedFontFamily:{fontFamily:'Arial',weight:400}};v.wire.requests[2].updateTextStyle.textStyle={weightedFontFamily:{fontFamily:'Arial'}};}
+ if(options.inherit){
+  const stored=structuredClone(v.wire.requests[2].updateTextStyle.textStyle);
+  for(const d of [v.before,v.after])d.tabs[0].documentTab.namedStyles.styles[0].textStyle=structuredClone(stored);
+  v.after.tabs[0].documentTab.body.content[1].paragraph.elements[1].textRun.textStyle=options.styleFault==='effective'?{bold:false}:{};
+  if(options.styleFault==='parent')v.after.tabs[0].documentTab.namedStyles.styles[0].textStyle.bold=false;
+  if(options.styleFault==='outside')v.after.tabs[0].documentTab.body.content[1].paragraph.elements[0].textRun.textStyle={};
+ }
  if(options.unknownNeighbor)v.before.tabs[0].documentTab.body.content[1].paragraph.elements=[{startIndex:1,endIndex:10,textRun:{content:'Hello 😀 ',textStyle:{futureStyle:true}}},{startIndex:10,endIndex:15,textRun:{content:'old.\n',textStyle:{bold:true,italic:false,fontSize:{magnitude:12,unit:'PT'}}}}];
  let doc=structuredClone(v.before),posts=0,reads=0,wireError=null;const methods=[];
  globalThis.fetch=async(url,init={})=>{
@@ -50,6 +57,14 @@ test('production rich edit tolerates per-GET expiring logo URLs without treating
 });
 test('production rich partial direct font accepts only documented API weight400 normalization',async()=>{
  const h=await setup({font:true});try{const r=value(await h.call('gdocs_replace_text',{...h.v.args,preview:false}));assert.equal(r.outcome,'verified');assert.equal(h.posts,1);assert.equal(h.owner().disposition,'released');}finally{await h.close();}
+});
+test('production literal equal-known-parent omission only inside inserted text verifies',async()=>{
+ const h=await setup({inherit:true});try{assert.equal(value(await h.call('gdocs_replace_text',{...h.v.args,preview:false})).outcome,'verified');assert.equal(h.posts,1);assert.equal(h.owner().submission,'acknowledged');assert.equal(h.owner().disposition,'released');}finally{await h.close();}
+});
+for(const styleFault of ['effective','parent','outside'])test('production literal '+styleFault+' style drift retains ACK hold and current-revision retry exclusion',async()=>{
+ const h=await setup({inherit:true,styleFault});try{assert.equal(value(await h.call('gdocs_replace_text',{...h.v.args,preview:false})).outcome,'verification_unavailable');assert.equal(h.owner().submission,'acknowledged');assert.equal(h.owner().disposition,'held');
+  const retry=await h.call('gdocs_replace_text',{...h.v.args,expectedRevisionId:'r2',oldText:'newer',newText:'fresh',preview:false});assert.equal(retry.isError,true);assert.match(retry.content[0].text,/Another local operation is holding/);assert.equal(h.posts,1);
+ }finally{await h.close();}
 });
 for(const kind of ['shorter','delete','astral'])test('production rich '+kind+' uses independent wire and preserved provider observation',async()=>{
  const h=await setup({kind});try{const r=value(await h.call('gdocs_replace_text',{...h.v.args,preview:false}));assert.equal(r.outcome,'verified');assert.equal(h.posts,1);assert.equal(h.owner().disposition,'released');}finally{await h.close();}

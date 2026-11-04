@@ -22,6 +22,11 @@ test('approval shows exact target/account/before/after as escaped text, not exec
   assert.match(html, /https:\/\/docs.google.com\/document\/d\/doc-a\/edit/);
   assert.match(html, /<details><summary>Technical details/); assert.doesNotMatch(html, /<details open/);
 });
+test('section approval identifies exact heading, complete prose, bounds and changed paragraph count without literal promises',()=>{
+  const section={...payload,kind:'section',heading:'Focus <safe>',startIndex:7,endIndex:7+payload.oldText.length,formatting:'Keep uniform styles; paragraph count may change.'};
+  const html=render(section);assert.match(html,/Under heading: Focus &lt;safe&gt;/);assert.match(html,/Current section prose \(complete\)/);assert.match(html,/end exclusive/);assert.match(html,/paragraph count may change/);assert.doesNotMatch(html,/paragraph boundaries stay unchanged/);
+  for(const p of [{...section,heading:''},{...section,endIndex:999},{...section,newText:''}])assert.match(render(p),/disabled=""[^>]*>Approve replacement/);
+});
 test('deletion preview and missing data cannot be confused with a saved write', () => {
   assert.match(render({ ...payload, newText: '' }), /delete the matched text/);
   for (const p of [null, {}, { ...payload, oldText: undefined }, { ...payload, newText: undefined }, { ...payload, documentId: 'javascript:bad' }]) {

@@ -45,9 +45,62 @@ Its output **does not authorize edits**. Use the separate complete inspection.
    does not repeat the document contents.
 
 There is no editing CLI, arbitrary Google request proxy, insertion-at-index,
-full-document replacement or multi-change batch. For several paragraphs, inspect
-and approve each replacement with its current revision. Do not reuse a revision
+full-document replacement or multi-change batch. For unrelated literal matches,
+inspect and approve each with its current revision. One compatible prose section
+can instead use the bounded heading operation below. Do not reuse a revision
 from another account/document or a previous successful write.
+
+## Replace prose under a heading
+
+`gdocs_inspect_for_edit` also returns top-level native `headings: [{text, level}]` in each
+tab. For a user-requested rewrite, preview:
+
+```json
+{"account":"writer@example.com","document":"DOCUMENT_ID","tabId":"TAB_ID","expectedRevisionId":"REVISION_FROM_INSPECTION","heading":"Background","newText":"A clearer introduction.\nA short conclusion.","preview":true}
+```
+
+Call **`gdocs_replace_section`** with the identical inputs and `preview:false`
+to apply under the existing owner-controlled Docs approval setting. A heading
+must match exactly once in the explicit tab and use native HEADING_1–HEADING_6;
+manually bold text is not a heading. Retain the heading; replace its body up to
+the next same-or-higher heading or tab end. Nested headings in that range refuse.
+
+Initial `heading-prose/1` profile:
+- Nonempty ordinary prose only, no blank existing/new paragraphs. Old/new prose
+  at most 2000 UTF-16 units; heading at most 256. New prose uses LF between
+  paragraphs, no final LF, controls, private-use characters or malformed Unicode.
+- All affected text runs have identical supported direct text styles (the
+  literal style profile above), including newline runs. All paragraph styles
+  are identical modulo absent/explicit `direction: LEFT_TO_RIGHT`, with
+  inherited or `namedStyleType: NORMAL_TEXT` only. Direction is not inherited;
+  its documented omitted default is LTR, which the batch explicitly restores.
+  RTL and other paragraph-style properties refuse. Custom spacing, indents/alignment, mixed rich styles, lists, links, tables,
+  objects and unknown paragraph metadata in the range refuse before POST.
+- Supported tables/logos/other tabs outside the section stay intact. Existing
+  suggestion/header/footnote/registry inspection restrictions still apply.
+- The last original body newline is retained, even at tab end. Deletion excludes
+  it, insertion has no final LF, and supported stored text and normal paragraph
+  styles are restored in the same required-revision batch. Differing paragraph
+  counts are supported without merging or restyling the next heading. Empty or
+  no-body sections and empty replacement are refused; no multi-stage workaround.
+- Preview and approval identify the heading, complete before/after prose,
+  internal end-exclusive UTF-16 range and formatting consequences. No public
+  raw-index input exists. Literal approval keeps its original boundary promise;
+  section approval explicitly says paragraph count may change.
+- Only `verified` establishes acknowledged exact prose/styles plus complete
+  untouched raw structure with justified UTF-16 shifts and the same narrow
+  image-read-URI/direct-font normalization as rich literal editing, plus
+  absent/explicit default LTR only on replaced body paragraphs. The known-parent
+  text inheritance rule below applies to the styled section body, including
+  its last newline; headings and other content remain exact. It does not
+  certify rendering or later collaborator state. Fresh revision/source, account,
+  scope, owner policy and durable writer exclusion reuse the existing flow.
+  Unknown responses or ACK plus drift remain held. Matching content cannot
+  create acknowledgement or authorize retry, rollback or forced unlock.
+
+This is section prose replacement, not general document restructuring. Live
+Google section-write correctness has not been tested; synthetic independent
+wire/readback fixtures and disposable BB approvals are separate evidence.
 
 ## Global per-edit approval setting
 
@@ -109,7 +162,15 @@ setting on the owner's behalf unless separately explicitly requested.
   affected paragraph only, an explicitly named direct font's omitted weight is
   equivalent to Google's documented 400. Missing whole font properties are not
   invented. Untouched paragraphs/tabs, named definitions and opaque metadata
-  remain exact. Provider run coalescing with equivalent stored styles is allowed;
+  remain exact. For supported text fields except non-inheriting links, an
+  explicit direct value and an inherited omission may compare equal only when
+  unchanged, unambiguous same-tab NORMAL_TEXT/named-style definitions explicitly
+  prove that parent value. An absent property with an unknown editor default
+  remains unknown. This additional rule applies only inside newly inserted
+  literal text, never its untouched prefix, suffix or newline. Missing named
+  style type/definitions, malformed/ambiguous parent definitions and changed
+  effective values do not acquire a guessed equivalence. Parent definitions
+  themselves remain exact. Provider run coalescing with equivalent stored styles is allowed;
   unexplained style materialization/drift fails verification.
 - Image `contentUri` is a requester-tagged read URL with a documented default
   lifetime of 30 minutes, not image identity. It may differ between observations

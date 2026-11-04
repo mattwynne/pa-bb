@@ -1,6 +1,7 @@
 // Narrow Docs port: complete inspection, one literal replacement, owner policy.
 // No arbitrary request objects or index-based editing escape this boundary.
 import { randomUUID } from 'node:crypto';
+import {planSectionEdit,sectionRequests,sectionReadbackMatches} from './docs-section.mjs';
 import {inspectLiteralDocument,planLiteralEdit,literalRequests,literalReadbackMatches,literalSourceMatches} from './docs-literal.mjs';
 import { writerDigest } from './docs-semantic/writer-coordination.mjs';
 import { targetMarker,classifyWriterMarker } from './docs-semantic/writer-markers.mjs';
@@ -8,6 +9,9 @@ import { docsApprovalDecision, docsApprovalReceipt, diagnoseDocsApproval } from 
 export const DOC_LIMIT = 50_000; // UTF-16 code units across every tab
 export const EDIT_LIMIT = 2_000;
 const MESSAGES = Object.freeze({
+  invalid_section_input: 'Use one exact native heading (up to 256 UTF-16 units), an explicit tab and revision, and different nonempty prose up to 2000 UTF-16 units. Separate nonblank paragraphs with LF, without a final LF or controls.',
+  unsupported_section: 'This section requires nonempty uniform ordinary prose with identical supported text styles and only inherited or NORMAL_TEXT paragraph styles. Nested headings, lists, links, objects, tables and index-bearing registries are unsupported. Nothing was written.',
+  heading_not_unique: 'The exact native heading must occur once in the selected tab. Manually bold text is not a native heading. Nothing was written.',
   invalid_input: 'Use an explicit connected account, Google Docs URL/ID, tab ID, revision and bounded nonempty old text. Replacement text may be empty. Use one text run, without line breaks or control characters.',
   unknown_account: 'Unknown Google Drive account. Check connected accounts in BB settings.',
   wrong_type: 'This file is not an available Google Doc.',
@@ -127,7 +131,7 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     }catch(error){const category=['marker','marker_missing','marker_ambiguous','marker_budget','conflict','owner','capacity','corrupt'].includes(error?.writerCode)?error.writerCode:'storage_unavailable';try{diagnose(`docs_replacement_marker_${category}`,docsError('document_operation_busy'));}catch{}}
     throw docsError('document_operation_busy');
   }
-  async function load(args) {
+  async function load(args, section = false) {
     if (!nonempty(args.account, 320)) throw docsError('invalid_input');
     const record = await store.byEmail(args.account);
     if (!record) throw docsError('unknown_account');
@@ -135,21 +139,29 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     const metadata = await fileMetadata(record,id);
     const raw=await docs.inspect(record,id);
     let snapshot;
-    try{snapshot=inspectDocument(raw,id);}catch(error){if(error?.docsCode!=='unsupported_document')throw error;snapshot=inspectLiteralDocument(raw,id);}
-    return {record,metadata,snapshot};
+    if(section) snapshot=inspectLiteralDocument(raw,id);
+    else try{snapshot=inspectDocument(raw,id);}catch(error){if(error?.docsCode!=='unsupported_document')throw error;snapshot=inspectLiteralDocument(raw,id);}
+    return {record,metadata,snapshot,raw};
   }
   async function inspect(args) {
-    const { record, snapshot } = await load(args);
+    const { record, snapshot, raw: observation } = await load(args);
+    const native = inspectLiteralDocument(observation,snapshot.documentId);
+    const headings = new Map(native.tabs.map(t => [t.tabId,t.data.body.content.filter(n => /^HEADING_[1-6]$/.test(n.paragraph?.paragraphStyle?.namedStyleType ?? '')).map(n => ({text:n.paragraph.elements.map(p => p.textRun?.content ?? '\uFFFC').join('').replace(/\n$/, ''),level:Number(n.paragraph.paragraphStyle.namedStyleType.at(-1))}))]));
     const {raw,...publicSnapshot}=snapshot;
-    return { account: record.email, ...publicSnapshot, complete: true, ...(raw?{projection:'Body text including table text; object placeholders are U+FFFC. Only ordinary top-level body paragraphs are edit targets.'}:{}), tabs: snapshot.tabs.map(({ runs, data, ...tab }) => tab) };
+    return { account: record.email, ...publicSnapshot, complete: true, ...(raw?{projection:'Body text including table text; object placeholders are U+FFFC. Only ordinary top-level body paragraphs are edit targets.'}:{}), tabs: snapshot.tabs.map(({ runs, data, ...tab }) => ({...tab,headings:headings.get(tab.tabId)})) };
   }
-  async function replace(args, signal) {
-    const { record, snapshot, metadata } = await load(args);
+  async function replace(args, signal, section = false) {
+    const { record, snapshot, metadata } = await load(args,section);
     if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
-    const { tab, offset } = replacement(snapshot, args);
-    const literal=snapshot.profile==='body-literal/1'?planLiteralEdit(snapshot,args):null;
+    const sectionPlan = section ? planSectionEdit(snapshot,args) : null;
+    if(sectionPlan) args = {...args,oldText:sectionPlan.oldText};
+    const sectionTab = sectionPlan ? snapshot.tabs.find(t => t.tabId === args.tabId) : null;
+    const selected = sectionPlan ? {tab:sectionTab,offset:sectionTab.runs.find(r => r.startIndex === sectionPlan.startIndex).offset} : replacement(snapshot,args);
+    const {tab,offset} = selected;
+    const literal=!section && snapshot.profile==='body-literal/1'?planLiteralEdit(snapshot,args):null;
     const proposal = { account: record.email, documentId: snapshot.documentId, title: snapshot.title,
-      tabId: tab.tabId, tabTitle: tab.title, expectedRevisionId: snapshot.revisionId, oldText: args.oldText, newText: args.newText };
+      tabId: tab.tabId, tabTitle: tab.title, expectedRevisionId: snapshot.revisionId, oldText: args.oldText, newText: args.newText,
+      ...(sectionPlan ? {kind:'section',heading:args.heading,startIndex:sectionPlan.startIndex,endIndex:sectionPlan.endIndex,formatting:'Retain the heading and last body newline. Replace all body prose; paragraph count may change. New paragraphs retain the uniform original text and normal paragraph styles.'} : {}) };
     if (args.preview !== false) {await markerInterlock(record,metadata,false);return { outcome: 'preview', writeAttempted: false, writeAuthorization: 'not_checked', proposal };}
     // Obtain a same-account, scope-checked writer BEFORE requesting consent.
     // No tokens or arbitrary request proxy leave the adapter.
@@ -178,12 +190,12 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     if(coordination&&!coordination.acquire('legacyReplacement',{operationId:executionKey,subject:record.subject,documentId:snapshot.documentId,replacementEvidence:evidence},'replacement'))throw docsError('document_operation_busy');
     let invoked=false;
     try {
-    const current = await load(args);
+    const current = await load(args,section);
     await markerInterlock(current.record,current.metadata,true);
     if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
     if (current.record.subject !== record.subject) throw docsError('authorization_failed');
-    replacement(current.snapshot, args);
-    if(literal&&(!current.snapshot.raw||!literalSourceMatches(snapshot.raw,current.snapshot.raw)))throw docsError('stale_revision');
+    if(section) planSectionEdit(current.snapshot,args); else replacement(current.snapshot, args);
+    if((literal||sectionPlan)&&(!current.snapshot.raw||!literalSourceMatches(snapshot.raw,current.snapshot.raw)))throw docsError('stale_revision');
     // Recheck policy after inspection, before entering provider submission.
     // A form already open still needs its own explicit choice.
     if (!ownerApproved && await needsApproval()) return { outcome: 'approval_required', writeAttempted: false,
@@ -193,7 +205,7 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     let response;
     if(coordination)coordination.fact('legacyReplacement',executionKey,{kind:'intent',stage:'replace'});
     invoked=true;
-    try { response = await writer.replace(literal?{...proposal,literal}:proposal, signal, async () => {
+    try { response = await writer.replace(sectionPlan?{...proposal,section:sectionPlan}:literal?{...proposal,literal}:proposal, signal, async () => {
       // Re-observe local authority after the adapter's final async auth. This is
       // not an atomic account/policy epoch lock. The durable coordination owner
       // was acquired earlier; this legacy asynchronous callback is still NOT K5.
@@ -213,15 +225,16 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     }
     try {
       const replies=response?.replies;
-      const matchedReply=literal?Array.isArray(replies)&&replies.length===literalRequests(literal).length&&replies.every(r=>r&&typeof r==='object'&&!Array.isArray(r)&&Object.keys(r).length===0):replies?.length===1&&replies[0]?.replaceAllText?.occurrencesChanged===1;
+      const matchedReply=literal||sectionPlan?Array.isArray(replies)&&replies.length===(sectionPlan?sectionRequests(sectionPlan):literalRequests(literal)).length&&replies.every(r=>r&&typeof r==='object'&&!Array.isArray(r)&&Object.keys(r).length===0):replies?.length===1&&replies[0]?.replaceAllText?.occurrencesChanged===1;
       if (response?.documentId !== snapshot.documentId || !matchedReply || !nonempty(response.writeControl?.requiredRevisionId, 2048)) throw docsError('unsupported_document');
       if(coordination)coordination.fact('legacyReplacement',executionKey,{kind:'ack',stage:'replace',documentId:snapshot.documentId,revisionId:response.writeControl.requiredRevisionId,replyDigest:writerDigest(response)});
-      const afterLoad=await load(args),after=afterLoad.snapshot;
+      const afterLoad=await load(args,section),after=afterLoad.snapshot;
       if(afterLoad.record.subject!==record.subject)throw docsError('authorization_failed');
+      if(sectionPlan&&(!after.raw||!sectionReadbackMatches(snapshot.raw,after.raw,args)))throw docsError('unsupported_section');
       if(literal&&(!after.raw||!literalReadbackMatches(snapshot.raw,after.raw,args)))throw docsError('unsupported_document');
       if (after.revisionId !== response.writeControl.requiredRevisionId || after.tabs.length !== snapshot.tabs.length || after.tabs.some((t, i) => t.tabId !== snapshot.tabs[i].tabId || t.text !== (t.tabId === tab.tabId ? tab.text.slice(0, offset) + args.newText + tab.text.slice(offset + args.oldText.length) : snapshot.tabs[i].text))) throw docsError('unsupported_document');
       if(coordination)coordination.fact('legacyReplacement',executionKey,{kind:'verified'});
-      return { outcome: 'verified', writeAttempted: true, approval, documentId: snapshot.documentId, tabId: tab.tabId, revisionId: after.revisionId, replacements: 1, verification: literal?'The requested literal, stored text styles (documented direct-font weight 400 equivalence), untouched content/object structure (excluding expiring image read URLs) and UTF-16 coordinates match the independent readback. Rendering and submission attribution are not certified.':'All tab body text matches the expected single replacement. Formatting is not independently verified.' };
+      return { outcome: 'verified', writeAttempted: true, approval, documentId: snapshot.documentId, tabId: tab.tabId, revisionId: after.revisionId, replacements: 1, verification: sectionPlan?'The selected section prose and uniform styles match independent readback (documented default LTR and proven equal-parent inheritance only in the styled body); the heading and complete untouched structure/styles match with justified UTF-16 shifts (excluding expiring image read URLs). Rendering is not certified.':literal?'The requested literal, stored text styles (documented direct-font weight 400 equivalence; proven equal-parent inheritance only in inserted text), untouched content/object structure (excluding expiring image read URLs) and UTF-16 coordinates match the independent readback. Rendering and submission attribution are not certified.':'All tab body text matches the expected single replacement. Formatting is not independently verified.' };
     } catch (error) {
       if(coordination){try{const r=coordination.get('legacyReplacement',executionKey);if(r?.disposition==='held')coordination.fact('legacyReplacement',executionKey,{kind:'stopped'});}catch{journalDiagnostic();}}
       diagnose('docs_write_verification', error);
@@ -239,5 +252,5 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     try{const current=await load({account,document:e.documentId});if(current.record.subject!==record.subject)throw docsError('authorization_failed');const matches=current.snapshot.tabs.length===e.expectedTabs.length&&current.snapshot.tabs.every((t,i)=>t.tabId===e.expectedTabs[i].tabId&&writerDigest(t.text)===e.expectedTabs[i].textHash);return {...receipt,observation:{matches,revisionMatchesAcknowledged:receipt.facts.submission==='acknowledged'&&current.snapshot.revisionId===receipt.facts.acknowledgement?.revisionId},historicalEvidenceVersion:'legacy-replacement-text-v1'};}
     catch{try{diagnose('docs_replacement_recovery',docsError('remote_unavailable'));}catch{}return {...receipt,observation:{unavailable:true},historicalEvidenceVersion:'legacy-replacement-text-v1'}; }
   }
-  return { inspect, replace, inspectReplacement };
+  return { inspect, replace, replaceSection: (args,signal) => replace(args,signal,true), inspectReplacement };
 }

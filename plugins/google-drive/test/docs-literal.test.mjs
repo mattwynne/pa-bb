@@ -31,6 +31,41 @@ test('documented direct font weight400 equivalence is scoped to real text styles
  const outside=structuredClone(v.after);outside.tabs[0].documentTab.namedStyles.styles[0].textStyle.weightedFontFamily.weight=400;assert.equal(literalReadbackMatches(v.before,outside,v.args),false);
  v.before.opaqueMetadata.weightedFontFamily={fontFamily:'Opaque'};v.after.opaqueMetadata.weightedFontFamily={fontFamily:'Opaque',weight:400};assert.equal(literalReadbackMatches(v.before,v.after,v.args),false);
 });
+const inheritedStyles=[{bold:true},{italic:false},{underline:true},{strikethrough:false},{smallCaps:true},{backgroundColor:{}},{foregroundColor:{color:{rgbColor:{blue:1}}}},{fontSize:{magnitude:12,unit:'PT'}},{weightedFontFamily:{fontFamily:'Arial'}},{baselineOffset:'SUPERSCRIPT'}];
+for(const stored of inheritedStyles)test('literal equal-known-parent omission only in newly inserted text: '+JSON.stringify(stored),()=>{
+ const v=richLiteralVector();
+ for(const d of [v.before,v.after])d.tabs[0].documentTab.namedStyles.styles[0].textStyle=structuredClone(stored);
+ v.before.tabs[0].documentTab.body.content[1].paragraph.elements[0].textRun.textStyle=structuredClone(stored);
+ for(const p of v.after.tabs[0].documentTab.body.content[1].paragraph.elements)p.textRun.textStyle=structuredClone(stored);
+ v.after.tabs[0].documentTab.body.content[1].paragraph.elements[1].textRun.textStyle={};
+ assert.equal(literalReadbackMatches(v.before,v.after,v.args),true);
+ const changed=structuredClone(v.after);changed.tabs[0].documentTab.namedStyles.styles[0].textStyle={};assert.equal(literalReadbackMatches(v.before,changed,v.args),false);
+ delete v.before.tabs[0].documentTab.namedStyles;delete v.after.tabs[0].documentTab.namedStyles;
+ assert.equal(literalReadbackMatches(v.before,v.after,v.args),false,'unknown defaults cannot explain omission');
+});
+for(const outside of ['prefix','suffix','newline','coalesced'])test('equal-parent omission outside inserted literal span refuses: '+outside,()=>{
+ const v=richLiteralVector(),stored={bold:true};for(const d of [v.before,v.after])d.tabs[0].documentTab.namedStyles.styles[0].textStyle=stored;
+ v.before.tabs[0].documentTab.body.content[1].paragraph.elements[0].textRun.textStyle=stored;
+ const parts=v.after.tabs[0].documentTab.body.content[1].paragraph.elements;
+ for(const p of parts)p.textRun.textStyle=stored;
+ parts[1].textRun.textStyle={};
+ if(outside==='prefix')parts[0].textRun.textStyle={};
+ if(outside==='suffix')parts[2].textRun.textStyle={};
+ if(outside==='newline')parts.splice(2,1,{startIndex:15,endIndex:16,textRun:{content:'.',textStyle:stored}},{startIndex:16,endIndex:17,textRun:{content:'\n',textStyle:{}}});
+ if(outside==='coalesced')parts.splice(0,parts.length,{startIndex:1,endIndex:17,textRun:{content:'Hello 😀 newer.\n',textStyle:{}}});
+ assert.equal(literalReadbackMatches(v.before,v.after,v.args),false);
+});
+test('literal named-style parent overrides normal; changed effective text style and ambiguous parents refuse',()=>{
+ const v=richLiteralVector();
+ for(const d of [v.before,v.after]){d.tabs[0].documentTab.body.content[1].paragraph.paragraphStyle.namedStyleType='HEADING_2';d.tabs[0].documentTab.namedStyles.styles=[{namedStyleType:'NORMAL_TEXT',textStyle:{bold:false,italic:false,fontSize:{magnitude:12,unit:'PT'}}},{namedStyleType:'HEADING_2',textStyle:{bold:true}}];}
+ v.after.tabs[0].documentTab.body.content[1].paragraph.elements[1].textRun.textStyle={};
+ assert.equal(literalReadbackMatches(v.before,v.after,v.args),true);
+ const changed=structuredClone(v.after);changed.tabs[0].documentTab.body.content[1].paragraph.elements[1].textRun.textStyle={bold:false};assert.equal(literalReadbackMatches(v.before,changed,v.args),false);
+ for(const d of [v.before,v.after])d.tabs[0].documentTab.namedStyles.styles[1].textStyle.bold=false;
+ assert.equal(literalReadbackMatches(v.before,v.after,v.args),false,'known but unequal parent cannot explain omission');
+ for(const d of [v.before,v.after]){d.tabs[0].documentTab.namedStyles.styles[1].textStyle.bold=true;d.tabs[0].documentTab.namedStyles.styles.push({namedStyleType:'NORMAL_TEXT',textStyle:{bold:true}});}
+ assert.equal(literalReadbackMatches(v.before,v.after,v.args),false);
+});
 for(const stored of [{},{bold:false},{weightedFontFamily:{fontFamily:'Arial'}},{foregroundColor:{color:{rgbColor:{blue:1}}}},{backgroundColor:{}}])test('supported partial style is copied/reset literally without inventing missing values: '+JSON.stringify(stored),()=>{
  const v=richLiteralVector();v.before.tabs[0].documentTab.body.content[1].paragraph.elements[0].textRun.textStyle=structuredClone(stored);for(const p of v.after.tabs[0].documentTab.body.content[1].paragraph.elements)p.textRun.textStyle=structuredClone(stored);
  const plan=prepare(v),requests=literalRequests(plan);assert.deepEqual(requests[2].updateTextStyle.textStyle,stored);assert.equal(literalReadbackMatches(v.before,v.after,v.args),true);

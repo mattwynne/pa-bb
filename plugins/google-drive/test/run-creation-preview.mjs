@@ -15,7 +15,7 @@ const literalReview = process.env.PA_DOCS_LITERAL_REVIEW === '1';
 const uploadReview = process.env.PA_DRIVE_UPLOAD_REVIEW === '1';
 const imageReview = process.env.PA_DRIVE_IMAGE_REVIEW === '1';
 const fixtureId = literalReview ? 'docs-literal-review' : imageReview ? 'drive-image-review' : uploadReview ? 'drive-upload-review' : 'drive-creation-review';
-const states = literalReview ? ['replacement', 'delete', 'invalid', 'error'] : imageReview ? ['image', 'long', 'invalid', 'error', 'busy'] : uploadReview ? ['binary', 'conversion', 'docx', 'pptx', 'invalid', 'error'] : ['document', 'spreadsheet', 'invalid', 'error'];
+const states = literalReview ? ['section', 'section-error', 'replacement', 'delete', 'invalid', 'error'] : imageReview ? ['image', 'long', 'invalid', 'error', 'busy'] : uploadReview ? ['binary', 'conversion', 'docx', 'pptx', 'invalid', 'error'] : ['document', 'spreadsheet', 'invalid', 'error'];
 const previewFolder = literalReview ? 'literal-preview' : imageReview ? 'image-preview' : uploadReview ? 'upload-preview' : 'creation-preview';
 const bbRoot = process.env.BB_REVIEW_ROOT || join(source, 'node_modules/bb-app');
 let apps = join(bbRoot, 'apps'); try { await access(apps); } catch { apps = bbRoot; }
