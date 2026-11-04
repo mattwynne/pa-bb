@@ -2,15 +2,15 @@
 
 Status: simplification and bounded create/edit increment applied locally after owner authorization. Synthetic handler/rendered checks and runtime registration checks passed; real Google document operations remain unverified.
 
-## Current result
+## Initial cleanup and literal-edit result
 
 The retired acceptance/evidence engine is removed, with 235 paths and approximately 160,500 lines removed in the cleanup checkpoint. The affected create/edit loop now runs 58 real behavior/negative cases in roughly 320–450 ms including npm startup. The complete maintained pure suite remains separate: 1,007 cases in 17.35 seconds, not milliseconds. Focused actual-handler/storage regression passed 282 cases in 75.69 seconds.
 
 Existing native plain-text creation is reused. Existing inspect/replace handlers add one bounded body-paragraph literal edit beside unrelated tables/logos, with style and structural preservation checks, existing approval, revision control and uncertain-write holds. Arbitrary rich editing, table authoring, section reconstruction and live Google correctness are not claimed. The unchanged replacement approval was reviewed in disposable BB at desktop/narrow widths with keyboard, cancellation and error states. The exact committed source was then verified independently of unfinished work: 58 fast tests, 728 integration/regression cases, 12 OAuth scenarios, build/types and shared UI checks passed. The existing local plugin was updated through its native lifecycle with a state backup; plugin identity, source, enablement and configuration fingerprint were preserved. Applied build files matched the clean verified build, new tool descriptions were registered, and a synthetic unknown-account inspection stopped before provider access. No real Google document was created, read or edited for activation testing.
 
-## Next bounded increment: heading prose
+## Applied bounded increment: heading prose
 
-Independently reviewed, not yet applied: `gdocs_replace_section` selects one exact
+Applied locally after independent review: `gdocs_replace_section` selects one exact
 unique native heading in an explicit tab and replaces its nonempty uniform
 ordinary prose. The heading and last body newline remain. LF-separated new
 paragraphs can change the paragraph count; nested headings, mixed styles, lists,
@@ -42,11 +42,17 @@ Focused production-handler/SDK/file-SQLite/HTTP, creation/literal, approval,
 writer/recovery, transport, formatting and registration regression passes 185
 cases in 17.04 seconds. Build, types and shared connection UI checks pass. Disposable BB
 rendered section approval at desktop/narrow widths, keyboard approval, busy,
-error, cancellation and incomplete states; no Google port was present. Live
-Google semantics/rendering and installation availability remain unverified.
+error, cancellation and incomplete states; no Google port was present.
 Independent correction review passed, including 16 separate pure probes and
-three production-handler probes; parent integration remains pending. No live
-reload or publication is implied. Exact supported scope: [editing guide](../../plugins/google-drive/docs/editing.md#replace-prose-under-a-heading).
+three production-handler probes. Parent checks passed 112 fast cases in 350 ms
+and 36 actual section/literal handler cases. The reviewed source was applied
+through the existing local plugin's native lifecycle with a state backup;
+plugin identity, source, enablement and configuration fingerprint were retained.
+All five build artifacts matched the reviewed build and the section tool was
+registered in the running plugin. A synthetic unknown-account inspection stopped
+before provider access. Real Google document semantics/rendering remain
+unverified; no real document test operation or publication was performed.
+Exact supported scope: [editing guide](../../plugins/google-drive/docs/editing.md#replace-prose-under-a-heading).
 
 ## Decision
 
