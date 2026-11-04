@@ -143,7 +143,7 @@ function canonical(doc, ranges = []) {
 // body structures. Validate the envelope independently of paragraph editability.
 const pageStyleKeys = new Set(['background', 'pageSize', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'marginHeader', 'marginFooter', 'flipPageOrientation', 'documentFormat', 'defaultHeaderId', 'defaultFooterId', 'firstPageHeaderId', 'firstPageFooterId', 'evenPageHeaderId', 'evenPageFooterId', 'useFirstPageHeaderFooter', 'useEvenPageHeaderFooter']);
 const object = v => v !== null && typeof v === 'object' && !Array.isArray(v);
-function inspectPageDocument(doc, id) {
+export function inspectPageDocument(doc, id) {
   const fail = () => { throw formatError('unsupported'); };
   if (!object(doc) || doc.documentId !== id || typeof doc.revisionId !== 'string' || !doc.revisionId.length || doc.revisionId.length > 2048 || doc.suggestionsViewMode !== 'SUGGESTIONS_INLINE' || !Array.isArray(doc.tabs) || !doc.tabs.length || Buffer.byteLength(JSON.stringify(doc), 'utf8') > 1_048_576) fail();
   rejectSuggestions(doc);

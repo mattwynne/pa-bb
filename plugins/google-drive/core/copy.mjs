@@ -6,6 +6,11 @@ const SHORTCUT = 'application/vnd.google-apps.shortcut';
 const fail = code => Object.assign(new Error('Copy is unavailable.'), { copyCode: code });
 const validText = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 255 && value.isWellFormed();
 
+export function copyReadbackMatches(file,op,id) {
+  return file.id === id && file.trashed === false && file.mimeType === op.mimeType &&
+    Array.isArray(file.parents) && file.parents.length === 1 && file.parents[0] === op.destinationId &&
+    typeof file.name === 'string' && hash(file.name) === op.titleHash && file.appProperties?.paCopyCreation === op.operationId;
+}
 // Shares the durable creation reservation store, not the native population workflow.
 export function createCopyService({ store, drive, fileInfo, diagnose = () => {} }) {
   const active = new Set();
@@ -24,9 +29,7 @@ export function createCopyService({ store, drive, fileInfo, diagnose = () => {} 
   }
   async function verify(record, op, id) {
     const file = await drive.getFile(record, id);
-    const matches = file.id === id && file.trashed === false && file.mimeType === op.mimeType &&
-      Array.isArray(file.parents) && file.parents.length === 1 && file.parents[0] === op.destinationId &&
-      typeof file.name === 'string' && hash(file.name) === op.titleHash && file.appProperties?.paCopyCreation === op.operationId;
+    const matches = copyReadbackMatches(file,op,id);
     return { matches, file };
   }
   async function copy(args) {

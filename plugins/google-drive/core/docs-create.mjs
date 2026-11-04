@@ -2,6 +2,10 @@ import { inspectDocument, docsError } from './docs-edit.mjs';
 import { createNativeCreationService, creationError, hash } from './native-create.mjs';
 export { creationKey, creationError, creationErrorMessage, creationFailureCategory } from './native-create.mjs';
 export const CREATE_TEXT_LIMIT = 40_000;
+export function docsCreationReadbackMatches(document,op) {
+  const snapshot = inspectDocument(document,op.documentId);
+  return hash(snapshot.title) === op.titleHash && snapshot.tabs.length === 1 && hash(snapshot.tabs[0].text) === op.textHash;
+}
 export function createDocsCreationService({ store, drive, docs, creation, assessment, diagnose }) {
   return createNativeCreationService({ store, drive, creation, assessment, diagnose, spec: {
     kind: 'document', idField: 'documentId', mimeType: 'application/vnd.google-apps.document', stage: 'docs_creation',
@@ -15,8 +19,7 @@ export function createDocsCreationService({ store, drive, docs, creation, assess
         || /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\uE000-\uF8FF\u2028\u2029]/u.test(args.text)) throw creationError('invalid_input');
     },
     async verify(record, op) {
-      const snapshot = inspectDocument(await docs.inspect(record, op.documentId), op.documentId);
-      return hash(snapshot.title) === op.titleHash && snapshot.tabs.length === 1 && hash(snapshot.tabs[0].text) === op.textHash;
+      return docsCreationReadbackMatches(await docs.inspect(record, op.documentId),op);
     },
     async populate(writer, record, op, args, signal) {
       const blank = inspectDocument(await docs.inspect(record, op.documentId), op.documentId);
