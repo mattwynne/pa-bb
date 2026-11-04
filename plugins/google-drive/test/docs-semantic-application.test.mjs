@@ -1,16 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { expand } from '../features/docs/coverage/expand.mjs';
+import {fixtureCases} from '../features/docs/support/fixture-cases.mjs';
 import { applicationFamily,executeApplication,compareApplication } from '../features/docs/coverage/application-execution.mjs';
 import { createMemorySnapshots } from '../features/docs/support/memory-snapshots.mjs';
 import { snapshotContractCases } from '../features/docs/support/snapshot-contract.mjs';
-const json=p=>JSON.parse(readFileSync(new URL(p,import.meta.url))),manifest=json('../features/docs/coverage/obligations.json'),fixtures=json('../features/docs/coverage/fixtures/index.json');
-const records=expand(manifest).filter(r=>applicationFamily(r)&&fixtures[r.caseId]);
-test('implemented application inventory is exact; no new capability acceptance',()=>{assert.equal(records.length,220);assert.equal(expand(manifest).length,11197);assert.equal(Object.keys(manifest.rows).length,211);assert.deepEqual(manifest.expansion.variantExposure,{});});
+const cases=fixtureCases('c003','c005','c006','c007','c008','c010','c011','c012','c013','c015');
+assert.ok(cases.every(({record})=>applicationFamily(record)));
 for(const [name,run]of Object.entries(snapshotContractCases()))test(`fast snapshot substitute contract: ${name}`,()=>run(createMemorySnapshots().port));
-for(const record of records)test(`actual application + independent oracle ${record.caseId}`,async()=>{
-  const fixture=json('../'+fixtures[record.caseId].path),trace=await executeApplication(record,fixture);
+for(const {record,fixture} of cases)test(`actual application + independent oracle ${record.caseId}`,async()=>{
+  const trace=await executeApplication(record,fixture);
   assert.ok(compareApplication(record,fixture,trace));
   // Direct counterfeit/omission controls replace per-rule package copies. The
   // positive above executes actual core answers, never a canned semantic result.

@@ -1,14 +1,15 @@
-# Docs acceptance foundation and semantic test boundaries
+# Docs test boundaries
 
-Run `npm run test:docs` for the source-level Cucumber profile. `npm test` builds
-Drive and the sibling Calendar plugin, runs both OAuth and Docs profiles, and
-then the Node suites. No future/pending scenarios are counted as implemented.
+`npm test` is the affected-edit loop, not a build or acceptance pipeline.
+[testing.md](testing.md) lists the separate full core, adapter, file-SQLite/SDK,
+OAuth and build checks and the plan 026 retirement map. No future/pending
+scenario is counted as implemented. The old obligation/intake runner is retired.
 
-For S02, [testing.md](testing.md) defines enforced fast core/application tests,
-stubbed-I/O adapter contracts and focused real integration companions. Normal
-acceptance runs once; family tests do not recursively invoke the full suite or
-copy the package per semantic example. The S00/S01 guarantees below retain their
-real adapters and databases.
+The S00/S01 harness and contract notes below are historical context, not a
+current exposure ledger. Their real formatting/replacement authorization and
+uncertain-response tests remain in `test/docs-s00.test.mjs` and the legacy tool
+suites. Later writer-coordination/receipt contracts are tested separately; these
+notes do not supersede them.
 
 `support/world.mjs` has no import-time test registration or host/network setup.
 Each scenario explicitly creates real formatting/replacement services, the real

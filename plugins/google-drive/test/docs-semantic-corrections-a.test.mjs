@@ -43,8 +43,8 @@ for(const mode of ['exactEnd','pastObservedEnd','noStart','emptyTerminal','unkno
 }
 // The literal list is independently pinned to ParagraphElement's TextStyle refs.
 const styleKinds=['textRun','inlineObjectElement','person','richLink','dateElement','dropdown','footnoteReference','pageBreak','columnBreak','horizontalRule','autoText'];
+const {schemas}=JSON.parse(readFileSync(new URL('../features/docs/coverage/fixtures/docs-discovery.json',import.meta.url)));
 test('A2 independently enumerated inline classes match pinned TextStyle ownership',()=>{
-  const {schemas}=JSON.parse(readFileSync(new URL('../features/docs/coverage/fixtures/docs-discovery.json',import.meta.url)));
   const actual=Object.entries(schemas.ParagraphElement.properties).filter(([,property])=>schemas[property.$ref]?.properties?.textStyle?.$ref==='TextStyle').map(([name])=>name);
   assert.deepEqual(actual.sort(),[...styleKinds].sort());
 });

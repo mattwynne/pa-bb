@@ -13,12 +13,11 @@ All other vectors are original synthetic, hand-authored contracts derived from
 [official requests](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request).
 They do not copy any reference library's code, tests or prose. Expected values
 are literal data, never produced by production planner/compiler/verifier code.
-The fixture index pins file digests and authorship/source provenance; runner
-attachments bind executed case identities to those exact bytes. Authorship
-metadata alone cannot establish a pass: the auditor requires actual files,
-current Cucumber results and matching registered drivers/modes.
+Tests now load the retained literal vectors directly; plan 026 retired the
+fixture index, outcome producer and acceptance auditor. Authorship metadata is
+not a passing result. Git preserves original and retired tracked bytes.
 
-Only explicitly supported request validators may validate payloads. Structural
-checks of planned mappings do not assert that future payloads are verified.
+Only explicitly supported request validators may validate payloads. The remaining
+wire probes do not assert that future capabilities are implemented or exposed.
 The simulator supports only the legacy text formatting/replacement vectors;
 it is not a Google emulator, semantic planner or verification oracle.

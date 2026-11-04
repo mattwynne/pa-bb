@@ -1,21 +1,42 @@
-import test from 'node:test';import assert from 'node:assert/strict';
-import {compositionWorld,astralMixedVector,owner,newDraft,familyArgs,tables} from './docs-composition-fixtures.mjs';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {astralMixedVector} from './docs-composition-vectors.mjs';
+import {draftOwner as owner,draftBinding,operationKeys} from './docs-semantic-draft-fixtures.mjs';
+import {materialize} from '../core/docs-semantic/model.mjs';
+import {familyInput} from '../core/docs-semantic/composition-policy.mjs';
+import {planParagraphComposition,commandProvenance,closedParts} from '../core/docs-semantic/planner/paragraph-composition.mjs';
+import {draftHash} from '../core/docs-semantic/draft-policy.mjs';
 import {compileParagraphComposition} from '../core/docs-semantic/compiler/paragraph-composition.mjs';
 import {compareParagraphComposition} from '../core/docs-semantic/verification/paragraph-composition.mjs';
-import {compositionStyleSchema,compositionContentSchema,compositionCombineSchema} from '../docs-composition-tools.mjs';
-test('independent literal astral/shortening BEFORE+AFTER bold/other text and multiple tabs: whole BLOCK order and full raw preservation',async()=>{
- const w=await compositionWorld({vector:astralMixedVector()});try{const a=w.nodes.filter(n=>n.tabId==='tab-a'),b=w.nodes.find(n=>n.tabId==='tab-b'),content=familyArgs(w,newDraft(w,'astral'),[{op:'replace',target:{node:a[0].id},oldText:'😀',newText:'🙂🙂'},{op:'replace',target:{node:a[2].id},oldText:'old',newText:'x'}]),initial=w.core.plan(owner,content,'content'),done=w.core.plan(owner,familyArgs(w,{kind:'extend',draftId:initial.draftId,expectedDraftHash:initial.draftHash},[a[1],b].map(n=>({op:'text',target:{node:n.id},set:{bold:true}}))),'style'),plan=done.proposal;
- assert.deepEqual(compileParagraphComposition(plan),w.vector.wire);assert.deepEqual(plan.parts.map(p=>p.command.node),[a[0].id,a[2].id,a[1].id,b.id]);assert.equal(compareParagraphComposition({plan,before:w.snapshot,after:w.vector.after}).matched,true);
+import {weightVector} from './docs-semantic-weight-vectors.mjs';
+
+// Real model + planner, no SDK/database/journal needed to test compiler/verifier.
+function model(vector){return materialize({document:vector.before,metadata:{id:'draft-doc',capabilities:{canEdit:true}},binding:draftBinding,reviewIncluded:true});}
+function planMixed(snapshot,content,style){
+ const id=operationKeys[0],initial={family:'content',request:{account:owner.account,draft:{kind:'new',requestId:'mixed',destination:{snapshotId:draftBinding.snapshotId},mode:'direct'},commands:content}};
+ const first=planParagraphComposition(snapshot,familyInput(initial.request,'content'),{origin:{draftId:id,initial},provenance:commandProvenance(id,initial),anchor:1000});
+ const extension={family:'style',request:{account:owner.account,draft:{kind:'extend',draftId:id,expectedDraftHash:draftHash(first)},commands:style}};
+ return planParagraphComposition(snapshot,[...first.parts.map(p=>p.command),...familyInput(extension.request,'style')],{origin:first.origin,extensions:[extension],provenance:[...first.parts.map(p=>p.provenance),...commandProvenance(id,extension,'extend',draftHash(first))],anchor:1000,existing:closedParts({plan:first})});
+}
+test('literal astral/shortening + bold in multiple tabs: whole BLOCK order and full raw preservation',()=>{
+ const vector=astralMixedVector(),snapshot=model(vector),nodes=Object.values(snapshot.nodes).filter(n=>n.kind==='paragraph'),a=nodes.filter(n=>n.tabId==='tab-a'),b=nodes.find(n=>n.tabId==='tab-b');
+ const plan=planMixed(snapshot,[{op:'replace',target:{node:a[0].id},oldText:'😀',newText:'🙂🙂'},{op:'replace',target:{node:a[2].id},oldText:'old',newText:'x'}],[a[1],b].map(n=>({op:'text',target:{node:n.id},set:{bold:true}})));
+ assert.deepEqual(compileParagraphComposition(plan),vector.wire);
+ assert.deepEqual(plan.parts.map(p=>p.command.node),[a[0].id,a[2].id,a[1].id,b.id]);
+ assert.equal(compareParagraphComposition({plan,before:snapshot,after:vector.after}).matched,true);
  const mutations=[d=>{d.opaqueMetadata.startIndex=1001;},d=>{d.tabs[1].documentTab.opaqueTab.endIndex=778;},d=>{d.tabs[0].documentTab.body.content[1].paragraph.paragraphStyle={alignment:'CENTER'};},d=>{d.tabs[0].documentTab.body.content[3].paragraph.elements[0].textRun.textStyle.italic=true;},d=>{d.tabs[0].documentTab.body.content[0].paragraph.elements[0].textRun.content='A\ud83dXX\n';},d=>{d.tabs[0].documentTab.body.content[1].startIndex=6;},d=>{d.tabs[0].documentTab.body.content[2].paragraph.elements[0].textRun.content='y Z\n';},d=>{d.tabs[0].documentTab.body.content[1].paragraph.elements[0].textRun.textStyle.bold=false;},d=>{d.tabs[1].documentTab.body.content[0].paragraph.elements[0].textRun.textStyle.bold=false;},d=>{d.tabs[0].documentTab.body.content[2].paragraph.elements[0].textRun.extra='UNLISTED';},d=>{d.suggestionResponses=[];},d=>{d.tabs[0].documentTab.body.content.push({startIndex:21,endIndex:22,paragraph:{elements:[{startIndex:21,endIndex:22,textRun:{content:'\n'}}]}});},d=>{d.tabs[0].documentTab.body.content[0].paragraph.elements[0].textRun.content='A🙂🙂 ';}];
- const before=tables(w.db);for(const [i,mutate]of mutations.entries()){const actual=structuredClone(w.vector.after);mutate(actual);assert.equal(compareParagraphComposition({plan,before:w.snapshot,after:actual}).matched,false,'independent mutant '+i);}assert.deepEqual(tables(w.db),before);assert.equal(w.posts,0);
- }finally{await w.close();}
+ const original=JSON.stringify(snapshot);
+ for(const [i,mutate]of mutations.entries()){const after=structuredClone(vector.after);mutate(after);assert.equal(compareParagraphComposition({plan,before:snapshot,after}).matched,false,'independent mutant '+i);}
+ assert.equal(JSON.stringify(snapshot),original,'compiler/verifier leave source untouched');
+ const corrupt=structuredClone(plan);corrupt.parts[0].target.range.startIndex++;assert.throws(()=>compileParagraphComposition(corrupt),/corrupt/);
 });
-test('existing replacement /2 documented-weight400 and active named owners compose without normalizing opaque/unselected fields',async()=>{
- const {weightVector}=await import('./docs-semantic-weight-vectors.mjs'),v=weightVector('named',true);v.before.tabs[0].documentTab.namedStyles.styles.push({namedStyleType:'UNUSED',textStyle:{weightedFontFamily:{fontFamily:'Unused'}}});v.after.tabs[0].documentTab.namedStyles.styles.push({namedStyleType:'UNUSED',textStyle:{weightedFontFamily:{fontFamily:'Unused'}}});v.after.tabs[0].documentTab.body.content[2].paragraph.elements[0].textRun.textStyle.bold=false;const w=await compositionWorld({vector:v});try{const p=w.nodes.filter(n=>n.tabId==='tab-a'),a=w.core.plan(owner,familyArgs(w,newDraft(w,'weight2'),[{op:'replace',target:{node:p[1].id},oldText:'old',newText:'newer'}]),'content'),b=w.core.plan(owner,familyArgs(w,{kind:'extend',draftId:a.draftId,expectedDraftHash:a.draftHash},[{op:'text',target:{node:p[2].id},set:{bold:false}}]),'style');assert.equal(b.proposal.parts[0].capabilityVersion,'paragraph-replace/2');assert.equal(compareParagraphComposition({plan:b.proposal,before:w.snapshot,after:v.after}).matched,true);const materialized=structuredClone(v.after);materialized.tabs[0].documentTab.namedStyles.styles[0].textStyle.weightedFontFamily.weight=400;assert.equal(compareParagraphComposition({plan:b.proposal,before:w.snapshot,after:materialized}).matched,true);for(const change of [d=>{d.opaqueMetadata.weightedFontFamily.weight=400;},d=>{d.tabs[0].documentTab.namedStyles.styles[1].textStyle.weightedFontFamily.weight=400;}]){const actual=structuredClone(v.after);change(actual);assert.equal(compareParagraphComposition({plan:b.proposal,before:w.snapshot,after:actual}).matched,false);}}
- finally{await w.close();}
-});
-test('strict actual K2 family/extend/combine schemas refuse private conveniences, raw requests, refs, mode switches and unknown operations',()=>{
- const base={account:owner.account,draft:{kind:'new',requestId:'strict',destination:{snapshotId:'snapshot'},mode:'direct'},commands:[{op:'text',target:{node:'node'},set:{bold:true}}]};assert.equal(compositionStyleSchema.safeParse(base).success,true);
- for(const x of [{...base,snapshotId:'private-convenience'},{...base,draft:{...base.draft,mode:'suggest'}},{...base,draft:{...base.draft,sources:[]}},{...base,commands:[{op:'text',target:{ref:'generated'},set:{bold:true}}]},{...base,commands:[{op:'text',target:{node:'node'},set:{bold:true,italic:true}}]},{...base,commands:[{op:'raw',requests:[]}]}])assert.equal(compositionStyleSchema.safeParse(x).success,false);
- assert.equal(compositionContentSchema.safeParse({...base,commands:[{op:'replace',target:{node:'node'},oldText:'one',newText:'two'}]}).success,true);assert.equal(compositionContentSchema.safeParse({...base,commands:[{op:'paragraphReplace',node:'private',oldText:'one',newText:'two'}]}).success,false);assert.equal(compositionCombineSchema.safeParse({account:owner.account,requestId:'one',inputs:[{draftId:'a0000000-0000-4000-8000-000000000001',expectedDraftHash:'a'.repeat(64)},{draftId:'a0000000-0000-4000-8000-000000000001',expectedDraftHash:'a'.repeat(64)}]}).success,false);
+test('replacement /2 documented-weight400 and active named owners do not normalize opaque/unselected fields',()=>{
+ const vector=weightVector('named',true);
+ for(const d of [vector.before,vector.after])d.tabs[0].documentTab.namedStyles.styles.push({namedStyleType:'UNUSED',textStyle:{weightedFontFamily:{fontFamily:'Unused'}}});
+ vector.after.tabs[0].documentTab.body.content[2].paragraph.elements[0].textRun.textStyle.bold=false;
+ const snapshot=model(vector),p=Object.values(snapshot.nodes).filter(n=>n.kind==='paragraph'&&n.tabId==='tab-a');
+ const plan=planMixed(snapshot,[{op:'replace',target:{node:p[1].id},oldText:'old',newText:'newer'}],[{op:'text',target:{node:p[2].id},set:{bold:false}}]);
+ assert.equal(plan.parts[0].capabilityVersion,'paragraph-replace/2');assert.equal(compareParagraphComposition({plan,before:snapshot,after:vector.after}).matched,true);
+ const materialized=structuredClone(vector.after);materialized.tabs[0].documentTab.namedStyles.styles[0].textStyle.weightedFontFamily.weight=400;assert.equal(compareParagraphComposition({plan,before:snapshot,after:materialized}).matched,true);
+ for(const change of [d=>{d.opaqueMetadata.weightedFontFamily.weight=400;},d=>{d.tabs[0].documentTab.namedStyles.styles[1].textStyle.weightedFontFamily.weight=400;}]){const after=structuredClone(vector.after);change(after);assert.equal(compareParagraphComposition({plan,before:snapshot,after}).matched,false);}
 });

@@ -147,21 +147,3 @@ export function validateRequest(request, effects = {}) {
     if (style[mask]) assert.deepEqual(Object.keys(style[mask]).sort(), ['color','dashStyle','padding','width'], 'complete paragraph border');
   }
 }
-export function validatePlannedMappings(m) {
-  let requests = 0, paths = 0;
-  for (const [operation, b] of Object.entries(m.bindingCatalog.operationBindings)) {
-    for (const name of b.requests ?? []) if (!name.includes('.')) { requestSchema(name); requests++; }
-    for (const names of Object.values(b.requestsByVariant ?? {})) for (const name of names) assert.ok(b.requests.includes(name), 'variant request outside binding');
-    for (const [path, values] of Object.entries(b.enums ?? {})) {
-      assert.equal(b.requests.length, 1, 'enum mapping needs exact request');
-      const schema = writablePath(b.requests[0], path);
-      for (const value of values) valueCheck(schema, value, path);
-    }
-    const request = m.wireSchemaContract.fieldBindingRequests[operation];
-    if (!request) continue;
-    const fields = [...(Array.isArray(b.fields) ? b.fields : []), ...Object.values(b.fieldsByVariant ?? {})];
-    for (const field of fields.flatMap(f => f.split(','))) { writablePath(request, field); paths++; }
-  }
-  for (const [request, fields] of Object.entries(m.wireSchemaContract.extraWritablePaths)) for (const f of fields) { writablePath(request, f); paths++; }
-  return { requests, paths, payloadValidation: 'only explicitly supported actual fixtures; planned mappings are structural evidence' };
-}

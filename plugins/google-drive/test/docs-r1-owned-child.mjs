@@ -21,7 +21,8 @@ export function requestWindowsR1Stop({pid,exited},invoke,remainingMs) {
 export function windowsR1CleanupEstablished({rootClosed,taskkill,completionProof}) {
   return rootClosed===true&&(taskkill?.acknowledged===true||completionProof===true);
 }
-export async function runR1Child({cwd,deadline,args=['features/docs/coverage/runner.mjs'],confirmWindowsCompletion}) {
+export async function runR1Child({cwd,deadline,args,confirmWindowsCompletion}) {
+  if(!Array.isArray(args)||args.length===0)throw new Error('Owned child requires explicit arguments');
   const started=Date.now(),reserve=1500,available=deadline-started-reserve;
   if(available<=0) throw new Error('R1 shared deadline exhausted before spawn');
   const windows=process.platform==='win32';

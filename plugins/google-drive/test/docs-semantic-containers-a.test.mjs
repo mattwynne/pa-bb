@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { containerCases,checkContainerPure,checkContainerApplication } from '../features/docs/support/a-container-checks.mjs';
+const {schemas}=JSON.parse(readFileSync(new URL('../features/docs/coverage/fixtures/docs-discovery.json',import.meta.url)));
 test('A4 container expectations match pinned property types',()=>{
-  const {schemas}=JSON.parse(readFileSync(new URL('../features/docs/coverage/fixtures/docs-discovery.json',import.meta.url)));
   assert.equal(schemas.ParagraphStyle.properties.tabStops.type,'array');
   assert.equal(schemas.SectionStyle.properties.columnProperties.type,'array');
   assert.equal(schemas.Dimension.type,'object');

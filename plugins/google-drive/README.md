@@ -62,8 +62,19 @@ Search page tokens are **per account**, and `incompleteSearch` and `nextPageToke
 
 ```sh
 npm install
-npm test
+npm test                       # affected Docs edit loop; no build or provider calls
+npm run test:docs:core          # broader pure-core suite
+npm run test:docs:adapters
+npm run test:docs:integration   # explicit real temporary SQLite/SDK checks
+npm run build
 npm run typecheck
 ```
+
+Use Node 24.21 (tested: 24.21.0) for these development commands; the plugin's
+Node runtime engine declaration is separate. See [Docs test boundaries](features/docs/testing.md)
+for scope, timing limits and the explicit broader Drive review recipe (shared UI,
+OAuth and relevant Docs/Sheets/copy/sharing/filing/upload tests). The fast default
+is not whole Drive validation.
+The retired acceptance/intake engine is not a development prerequisite.
 
 The core uses injectable storage, OAuth and provider ports; the BB adapter stores separate Drive account/pending tables. Docs and Sheets creation share a durable native-file lifecycle and adapter-private creation/scope policies, preserving existing Docs receipts. Creation, editing and permission mutations share adapter-private HTTP, scope inspection, timeouts and bounded response decoding in `adapters/docs-transport.mjs`. Each adapter retains its own allowed write scopes and rejection rules; core services still receive only narrow document/sharing operations, never an arbitrary HTTP proxy. The [Gherkin acceptance feature](features/oauth-client-reuse.feature) runs both plugin servers under fake BB hosts to check client reuse in either order; the cross-plugin test builds Calendar's sibling package in this monorepo. Host tests use synthetic tokens and Google responses. Real Google sign-in and provider-session reads remain to be verified after an installation owner configures the Web OAuth client. Do not use this plugin on a multi-user BB installation until BB can enforce per-user isolation.

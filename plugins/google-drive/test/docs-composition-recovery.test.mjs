@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtempSync,rmSync} from 'node:fs';import {join} from 'node:path';import {tmpdir} from 'node:os';
-import {compositionWorld,trapCalibrations,owner,newDraft,familyArgs,styleCommand,textCommand,tables} from './docs-composition-fixtures.mjs';
+import {compositionWorld,owner,newDraft,familyArgs,styleCommand,textCommand,tables} from './docs-composition-fixtures.mjs';
 import {createSemanticReadService} from '../core/docs-semantic/application.mjs';
 import {draftHash} from '../core/docs-semantic/draft-policy.mjs';import {createRecoveryReadStore} from '../adapters/docs-recovery-store.mjs';import {decodeRecoveryRow} from '../core/docs-semantic/recovery.mjs';
 const main=w=>w.nodes.filter(n=>n.tabId==='tab-a');
@@ -22,7 +22,7 @@ test('new codec supported metadata needs real local lineage; unknown/corrupt ver
  }finally{await w.close();}
 });
 test('separate technical exec/pragma attempt calibration: caught errors retain counters, no product counter reset',async()=>{
- const w=await compositionWorld();try{w.db.pragma('query_only=ON');const before=tables(w.db);w.statusPhase=true;try{try{w.db.exec('UPDATE drive_accounts SET expires_at=0');}catch(e){assert.match(e.message,/FORBIDDEN exec/);}try{w.db.pragma('query_only=OFF');}catch(e){assert.match(e.message,/FORBIDDEN pragma/);}}finally{w.statusPhase=false;}assert.deepEqual(w.forbidden,['exec','pragma']);assert.equal(w.db.pragma('query_only',{simple:true}),1);assert.deepEqual(tables(w.db),before);trapCalibrations.push({technicalOnly:true,blockedCaughtAttempts:2,exec:true,pragma:true,allRowsUnchanged:true,productCounterReset:false});
+ const w=await compositionWorld();try{w.db.pragma('query_only=ON');const before=tables(w.db);w.statusPhase=true;try{try{w.db.exec('UPDATE drive_accounts SET expires_at=0');}catch(e){assert.match(e.message,/FORBIDDEN exec/);}try{w.db.pragma('query_only=OFF');}catch(e){assert.match(e.message,/FORBIDDEN pragma/);}}finally{w.statusPhase=false;}assert.deepEqual(w.forbidden,['exec','pragma']);assert.equal(w.db.pragma('query_only',{simple:true}),1);assert.deepEqual(tables(w.db),before);
  }finally{await w.close();}
 });
 test('E1 actual combined unknown/held -> expiry/ordinary sweep/reopen: validated ROOT execution source validates superseded ancestry without renewing pins',async()=>{

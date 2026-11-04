@@ -1,12 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { expand } from '../features/docs/coverage/expand.mjs';
+import {fixtureCases} from '../features/docs/support/fixture-cases.mjs';
 import { materialize } from '../core/docs-semantic/model.mjs';
 import { compareReadEvidence,compareNamedStyleEvidence,compareGeneratedEvidence } from '../core/docs-semantic/coverage.mjs';
 import { witnessFixture,descriptor,requestFor,namedStyleOracle,generatedRequest,generatedDocuments } from '../features/docs/coverage/witness-fixtures.mjs';
 import { executeWitness,compareWitness } from '../features/docs/coverage/witness-execution.mjs';
-const records=expand(JSON.parse(readFileSync(new URL('../features/docs/coverage/obligations.json',import.meta.url)))).filter(r=>r.ledgerId==='C021');assert.equal(records.length,16);
+const records=fixtureCases('s02-witness').map(x=>x.record);
 const model=(document,id='witness-a',time=0)=>{const s=descriptor(document,id,time);return materialize({document,metadata:{id:'doc-a',name:'Synthetic witness',mimeType:'application/vnd.google-apps.document',capabilities:{canEdit:true}},binding:{...s.binding,responseDigest:s.evidenceDigest,responseBytes:Buffer.byteLength(JSON.stringify(document))},reviewIncluded:true});};
 test('real K3 comparators reject independent omitted/forged disclosure facts, not only outer trace corruption',()=>{
  for(const variant of ['narrowLiteral','styleFromMetadata','completePreview']){const r=records.find(r=>r.base===variant&&r.outcomeVariant==='success'),f=witnessFixture(r),s=model(f.document),q=requestFor(f,s);assert.equal(compareReadEvidence(s,q).witnessSatisfied,true);for(const fault of ['target','dependency','change','effect']){const bad=structuredClone(q);if(fault==='target')bad.presentation.target.count++;if(fault==='dependency')bad.presentation.dependencies.nodes.pop();if(fault==='change')bad.presentation.changes=[];if(fault==='effect')bad.presentation.effect={...bad.effect,hidden:true};const result=compareReadEvidence(s,bad);assert.equal(result.witnessSatisfied,false);assert.deepEqual(result.missingAspects,['effectPresentation']);assert.equal(result.authoringAuthority,'notEstablished');}}

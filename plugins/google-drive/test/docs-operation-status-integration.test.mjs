@@ -1,8 +1,6 @@
-import test,{after} from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
-import {isDeepStrictEqual} from 'node:util';
-import {sourceDigest} from '../features/docs/coverage/runner.mjs';
+import {mkdtempSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
@@ -21,8 +19,6 @@ import {document,account,record} from './docs-fixtures.mjs';
 import {nativeWorld,parse,owner,keys} from './docs-semantic-native-fixtures.mjs';
 import {textWorld} from './docs-semantic-text-fixtures.mjs';
 import {weightVector} from './docs-semantic-weight-vectors.mjs';
-const recoveryProofs=[],trapCalibrations=[];
-after(()=>{if(process.env.DOCS_RECOVERY_PROOF_DIR)writeFileSync(join(process.env.DOCS_RECOVERY_PROOF_DIR,`sdk-no-write-${process.pid}.json`),JSON.stringify({producerPid:process.pid,sourceDigest:sourceDigest(),trapCalibrations,proofs:recoveryProofs},null,2)+'\n');});
 const key='11111111-1111-4111-8111-111111111111',hash=x=>createHash('sha256').update(x).digest('hex');
 function snapshot(db){return Object.fromEntries(db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(({name})=>[name,db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all()]));}
 function noWrites(store,violations=[]){
@@ -48,7 +44,6 @@ function install(w,fetchImpl,clock=Date.now){
   try{result=parse(await w.h.harness.behavior.callAgentTool('docs_operation_status',input,{threadId:'DIFFERENT_RECOVERY_THREAD'}));return result;}
   finally{
    w.statusReading=false;const current=snapshot(w.db),calls=w.outerCalls.slice(start),worldCalls=w.calls.slice(worldStart);
-   recoveryProofs.push({tool:'docs_operation_status',threadId:'DIFFERENT_RECOVERY_THREAD',queryOnly:true,providerCounterBoundary:'complete outer status fetch',providerTransactionStates:calls.map(c=>c.inTransaction),noNetworkInTransaction:calls.every(c=>c.inTransaction===false),allTablesBeforeSha256:hash(JSON.stringify(before)),allTablesAfterSha256:hash(JSON.stringify(current)),allRowsEqual:isDeepStrictEqual(before,current),accountsEqual:isDeepStrictEqual(before.drive_accounts,current.drive_accounts),forbiddenStoreOrSqlAttempts:w.forbidden.length,providerMethods:calls.map(c=>c.method),underlyingWorldRecordedMethods:worldCalls.map(c=>c.method),providerMutationCount:calls.filter(c=>c.method!=='GET').length,status:result?.status??'schemaError',observation:result?.observation?.kind??null,historicalEvidenceVersion:result?.historicalEvidenceVersion??null});
    assert.ok(calls.every(c=>c.method==='GET'&&c.inTransaction===false),'OUTER HTTP method/transaction failures cannot be masked by handler unavailable');
    assert.deepEqual(w.forbidden,[],'NO attempted mutating store/prepare/exec/pragma, even when caught');
   }
@@ -248,7 +243,7 @@ test('outer request measurement includes shortcut 403 and SQL exec/pragma traps 
  const w=await legacy('format');try{
   w.db.pragma('query_only = ON');const before=snapshot(w.db);w.statusReading=true;
   try{assert.throws(()=>{try{w.db.exec('UPDATE drive_accounts SET expires_at=0');}catch(e){assert.match(e.message,/FORBIDDEN SQL exec/);throw e;}},/FORBIDDEN SQL exec/);assert.throws(()=>w.db.pragma('query_only = OFF'),/FORBIDDEN SQL pragma/);}finally{w.statusReading=false;}
-  assert.deepEqual(w.forbidden,['SQL exec','SQL pragma']);assert.equal(w.db.pragma('query_only',{simple:true}),1);assert.deepEqual(snapshot(w.db),before);trapCalibrations.push({technicalOnly:true,blockedExec:true,blockedPragma:true,caughtAttempts:w.forbidden.length,allRowsEqual:true});w.forbidden.length=0;
+  assert.deepEqual(w.forbidden,['SQL exec','SQL pragma']);assert.equal(w.db.pragma('query_only',{simple:true}),1);assert.deepEqual(snapshot(w.db),before);w.forbidden.length=0;
   w.override=async u=>u.hostname==='docs.googleapis.com'?Response.json({secret:'PRIVATE_DENIED'},{status:403}):null;const outerStart=w.outerCalls.length;assert.equal((await w.status({account,operationId:key})).observation.kind,'unavailable');assert.equal(w.outerCalls.length-outerStart,3);assert.ok(w.outerCalls.slice(outerStart).every(c=>c.inTransaction===false&&c.method==='GET'));assert.deepEqual(snapshot(w.db),before);
  }finally{await w.close();rmSync(w.dir,{recursive:true,force:true});}
 });

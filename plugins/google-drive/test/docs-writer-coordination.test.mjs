@@ -1,9 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {readFileSync} from 'node:fs';
-import {expand} from '../features/docs/coverage/expand.mjs';
-import {executeDraftSqlite,compareDraftSqlite} from '../features/docs/coverage/draft-persistence.mjs';
 import {createFakePluginHost} from '@get-bb/plugin-sdk/testing';
 import {createBbStore} from '../adapters/bb-store.mjs';
 import {createDocsEditService} from '../core/docs-edit.mjs';
@@ -14,10 +11,6 @@ async function setup(){const h=createFakePluginHost({pluginId:'writer-coordinati
 const fmt=(id=randomUUID(),subject='subject-b',documentId='doc-a')=>({operationId:id,subject,documentId,state:'proposed'});
 const replacement=(id=randomUUID(),file='doc-a',contextIds=[])=>({operationId:id,subject:'subject-a',documentId:file,contextIds});
 const ownerRows=db=>db.prepare('SELECT * FROM docs_writer_owners').all();
-test('accepted draftNoClaim SQL proof captures actual new coordination tables and rejects hidden grants/events',async()=>{
- const manifest=JSON.parse(readFileSync(new URL('../features/docs/coverage/obligations.json',import.meta.url))),record=expand(manifest).find(r=>r.caseId==='C191.draftNoClaim__local.success'),fixture=JSON.parse(readFileSync(new URL('../features/docs/coverage/fixtures/s03-draft/C191.draftNoClaim__local.success.json',import.meta.url))),trace=await executeDraftSqlite(record,fixture);assert.equal(compareDraftSqlite(record,fixture,trace),true);
- for(const mutate of [t=>{t.storage.after.docs_writer_owners=[];},t=>{t.storage.after.docs_writer_resources=[];},t=>{t.storage.after.docs_writer_events.push({namespace:'legacyReplacement',operation_id:'extra',sequence:1,event:JSON.stringify({kind:'intent',stage:'replace'})});},t=>{t.storage.after.docs_writer_resources.push({...t.storage.after.docs_writer_resources[0],namespace:'legacyReplacement',operation_id:'hidden-draft-owner'});}]){const changed=structuredClone(trace);mutate(changed);assert.throws(()=>compareDraftSqlite(record,fixture,changed));}
-});
 test('actual formatting/image versus replacement acquisition is reciprocal across subjects and file reopen',async()=>{
  for(const namespace of ['format','image'])for(const oldFirst of [true,false]){const f=await setup();try{const op=fmt(),rep=replacement();const reserve=()=>namespace==='format'?f.store.reserveFormatting(op):f.store.images.reserve(op),claim=()=>namespace==='format'?f.store.claimFormatting(op.operationId,op.documentId):f.store.images.claim(op);await reserve();if(oldFirst){assert.equal(await claim(),true);assert.equal(f.store.writers.acquire('legacyReplacement',rep,'replacement'),false);}else{assert.equal(f.store.writers.acquire('legacyReplacement',rep,'replacement'),true);assert.equal(await claim(),false);}assert.equal(ownerRows(f.db).length,1);f.db.close();const db=f.h.bb.storage.database(),store=createBbStore(db,f.h.bb.storage.migrate);assert.equal(store.writers.resources(oldFirst?(namespace==='format'?'drive_formatting_operations':'docs_image_operations'):'legacyReplacement',oldFirst?op.operationId:rep.operationId).length,2);assert.equal(store.writers.acquire('legacyReplacement',replacement(),'replacement'),false);
  }finally{await f.close();}}

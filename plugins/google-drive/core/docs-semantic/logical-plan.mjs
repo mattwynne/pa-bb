@@ -20,7 +20,7 @@ const equal=(a,b)=>check(sameLogical(a,b));
 // Transport response accounting belongs to the retained snapshot, not draft intent.
 export function logicalPlanBinding(snapshot){
  const b=snapshot.binding;
- return Object.fromEntries([...['subject','account','threadId','snapshotId','documentId','view','retrievedAt'].map(k=>[k,b[k]]),...Object.hasOwn(b,'source')?[['source',b.source]]:[],['revision',snapshot.revision],['evidenceDigest',snapshot.evidenceDigest]]);
+ return Object.fromEntries([...['subject','account','threadId','snapshotId','documentId','view','retrievedAt'].map(k=>[k,b[k]]),...Object.hasOwn(b,'source')?[['source',b.source]]:[],['revision',structuredClone(snapshot.revision)],['evidenceDigest',snapshot.evidenceDigest]]);
 }
 export const BOLD_VERIFICATION_LIMIT='Exact observed run topology; no rendering or submission attribution';
 export function assertLogicalPlan(p,{record,snapshot}={}){

@@ -33,7 +33,13 @@ function exactKeys(value,keys) {
 // Rebuild both observations with the real bounded materializer, then compare
 // the complete derived semantic facts before using ANY graph edge/path/kind.
 // Continuity below consumes only those rebuilt models, never supplied graphs.
+// Only memoize completely immutable inputs AFTER full independent validation.
+// Mutable/deserialized inputs are always rechecked; Object.freeze(root) alone
+// is insufficient. The rebuilt model is already recursively frozen.
+const validatedModels=new WeakMap();
+const deepFrozen=value=>typeof value==='function'?false:value===null||typeof value!=='object'||Object.isFrozen(value)&&Object.values(Object.getOwnPropertyDescriptors(value)).every(d=>Object.hasOwn(d,'value')&&deepFrozen(d.value));
 export function validatedReadModel(snapshot) {
+  if(snapshot&&typeof snapshot==='object'&&validatedModels.has(snapshot))return validatedModels.get(snapshot);
   boundedTree(snapshot,{...LIMITS,providerBytes:LIMITS.modelBytes,nodes:1000000,depth:96});
   requireValue(typeof snapshot.missingReviewCoverage==='boolean','corrupt');
   const observed=materialize({document:snapshot.evidence,metadata:snapshot.metadata,binding:snapshot.binding,
@@ -43,6 +49,8 @@ export function validatedReadModel(snapshot) {
   for(const field of fields){
     requireValue(Object.hasOwn(snapshot,field)&&digest(snapshot[field])===digest(observed[field]),'corrupt');
   }
+  validatedModels.set(observed,observed);
+  if(deepFrozen(snapshot))validatedModels.set(snapshot,observed);
   return observed;
 }
 function mappingBinding(snapshot,observed) {
