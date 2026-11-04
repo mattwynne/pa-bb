@@ -1,6 +1,12 @@
 # 026 — Simplify Docs, make feedback fast, then deliver create/edit
 
-Status: authorized for implementation; live activation and provider writes remain separately gated.
+Status: simplification and bounded create/edit increment reviewed; synthetic handler and rendered replacement checks passed. Live activation and provider writes remain separately gated.
+
+## Current result
+
+The retired acceptance/evidence engine is removed, with 235 paths and approximately 160,500 lines removed in the cleanup checkpoint. The affected create/edit loop now runs 58 real behavior/negative cases in roughly 320–450 ms including npm startup. The complete maintained pure suite remains separate: 1,007 cases in 17.35 seconds, not milliseconds. Focused actual-handler/storage regression passed 282 cases in 75.69 seconds.
+
+Existing native plain-text creation is reused. Existing inspect/replace handlers add one bounded body-paragraph literal edit beside unrelated tables/logos, with style and structural preservation checks, existing approval, revision control and uncertain-write holds. Arbitrary rich editing, table authoring, section reconstruction and live Google correctness are not claimed. The unchanged replacement approval was reviewed in disposable BB at desktop/narrow widths with keyboard, cancellation and error states. No live plugin was reloaded and no real document was created or edited.
 
 ## Decision
 

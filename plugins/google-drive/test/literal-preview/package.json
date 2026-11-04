@@ -1,0 +1,9 @@
+{
+  "name": "bb-plugin-docs-literal-review",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bb": { "name": "Docs literal review", "description": "Synthetic replacement approval only; no Google access.", "branding": { "icon": "FolderOpen" }, "server": "./test/literal-preview/server.ts", "app": "./test/literal-preview/app.tsx" },
+  "dependencies": { "zod": "4.6.5" },
+  "devDependencies": { "@get-bb/plugin-sdk": "0.6.80", "react": "19.2.0" }
+}

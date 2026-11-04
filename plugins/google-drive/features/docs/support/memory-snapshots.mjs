@@ -10,11 +10,12 @@ export function createMemorySnapshots({ids=randomUUID,limits=LIMITS}={}) {
   const pair=(a,b)=>JSON.stringify([a,b]);
   function owned(id,owner){const row=rows.get(id);checkSnapshotOwner(row,owner);return row;}
   function live(id,owner,now){checkSnapshotTime(now);const row=owned(id,owner);checkSnapshotLive(row,now);return row;}
-  function readCursor(id,owner,now,expected){token(id);const c=cursors.get(id);requireValue(c&&now<c.expires&&(!expected||c.snapshot===expected),'snapshot');const row=live(c.snapshot,owner,now);validateCursorState(row.model,c.state,limits);return {snapshot:copy(row.model),state:copy(c.state)};}
+  function readCursor(id,owner,now,expected){token(id);const c=cursors.get(id);requireValue(c&&now<c.expires&&(!expected||c.snapshot===expected),'snapshot');const row=live(c.snapshot,owner,now);validateCursorState(row.model,c.state,limits);return {snapshot:row.model,state:c.state};}
   function records(id,tokens){requireValue(Array.isArray(tokens)&&tokens.length<=1000&&new Set(tokens).size===tokens.length);let bytes=0;return tokens.map(t=>{token(t);const d=deliveries.get(t);requireValue(d?.snapshot===id,'snapshot');bytes+=jsonBytes(d.data,limits.pageBytes);requireValue(bytes<=limits.modelBytes,'budget');return copy(d.data);});}
   const api={
     put(snapshot,now){checkSnapshotTime(now);boundedTree(snapshot,{...limits,providerBytes:limits.poolBytes,nodes:1000000,depth:96});api.sweep(now);const b=snapshot.binding;requireValue(!rows.has(b.snapshotId),'conflict');checkSnapshotAdmission(b,now,[...rows.values()].filter(r=>r.subject===b.subject&&r.thread===b.threadId).length,limits);const row={id:b.snapshotId,subject:b.subject,account:b.account,thread:b.threadId,created:now,expires:b.retrievedAt+limits.snapshotMs,evidence_digest:snapshot.evidenceDigest};const {evidence,...rest}=snapshot;jsonBytes(evidence,limits.providerBytes);jsonBytes(rest,limits.poolBytes);requireValue(digest(JSON.stringify(evidence))===snapshot.evidenceDigest,'corrupt');validateStoredModel(snapshot,row,limits);rows.set(row.id,{...row,model:copy(snapshot)});},
-    get(id,owner,now){return copy(live(id,owner,now).model);},
+    // Ingestion owns and recursively freezes the model. Reads need no new copy.
+    get(id,owner,now){return live(id,owner,now).model;},
     pageTokens(){const values={deliveryToken:ids(),nextCursor:ids()};token(values.deliveryToken);token(values.nextCursor);requireValue(values.deliveryToken!==values.nextCursor,'conflict');return Object.freeze(values);},
     issueCursor(id,owner,state,now){const row=live(id,owner,now);validateCursorState(row.model,state,limits);const cursor=ids();token(cursor);requireValue(!cursors.has(cursor),'conflict');cursors.set(cursor,{snapshot:id,expires:Math.min(now+limits.cursorMs,row.expires),state:copy(state)});return cursor;},
     peekCursor:readCursor,
@@ -35,7 +36,7 @@ export function createMemorySnapshots({ids=randomUUID,limits=LIMITS}={}) {
     },
     chargeReadWork(id,owner,readId,bytes,now){live(id,owner,now);token(readId);const key=pair(id,readId);work.set(key,nextReadWork(work.get(key)??0,bytes,limits));},
     pin(id,owner,pinId,now,expires){live(id,owner,now);token(pinId);const key=pair(id,pinId);checkPin(now,expires,pins.get(key)?.expires,[...pins.values()].filter(p=>p.snapshot===id).length,limits);pins.set(key,{snapshot:id,owner:pinId,expires});},
-    readPinned(id,owner,pinId,now){checkSnapshotTime(now);const row=owned(id,owner);token(pinId);const pin=pins.get(pair(id,pinId));requireValue(pin&&now<pin.expires,'snapshot');return copy(row.model);},
+    readPinned(id,owner,pinId,now){checkSnapshotTime(now);const row=owned(id,owner);token(pinId);const pin=pins.get(pair(id,pinId));requireValue(pin&&now<pin.expires,'snapshot');return row.model;},
     retainWitness(id,owner,pinId,record,now,expires){checkNewWitness(record,pins.has(pair(id,pinId)));const row=live(id,owner,now);token(pinId);checkPin(now,expires,undefined,[...pins.values()].filter(p=>p.snapshot===id).length,limits);validateDelivery(row.model,record,limits);const t=ids();token(t);requireValue(!deliveries.has(t),'conflict');const saved=copy(record);pins.set(pair(id,pinId),{snapshot:id,owner:pinId,expires});deliveries.set(t,{snapshot:id,data:saved});return {pinId,expires,deliveryToken:t};},
     pinnedWitness(id,owner,pinId,t,now){const snapshot=api.readPinned(id,owner,pinId,now),pin=pins.get(pair(id,pinId)),[record]=records(id,[t]);checkRetainedWitness(record,pinId,pin.expires);records(id,record.references?.deliveryTokens??[]);return {snapshot,record,pinId,expires:pin.expires};},
     releasePin(id,owner,pinId){owned(id,owner);token(pinId);pins.delete(pair(id,pinId));},

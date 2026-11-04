@@ -73,11 +73,13 @@ test('nested tab explicit placement and later paragraph UTF-16 shifts preserve e
     assert.equal(data.body.content.at(-1).paragraph.elements[1].endIndex, start + 5);
   } finally { await h.close(); }
 });
-test('insertion does not grant text/paragraph editing; page-only formatting inspection stays usable', async () => {
+test('image insertion does not authorize editing an image-containing paragraph; rich inspection and page-only formatting stay usable', async () => {
   const h = await setupImage(); try {
     await h.service.insert({ ...imageArgs(), preview: false }, undefined, h.approve);
     const edit = createDocsEditService(h.ports), format = createDocsFormatService(h.ports);
-    await assert.rejects(() => edit.inspect({ account, document: 'doc-a' }), /ordinary text paragraphs/);
+    assert.equal((await edit.inspect({ account, document: 'doc-a' })).profile, 'body-literal/1');
+    await assert.rejects(() => edit.replace({account,document:'doc-a',tabId:'tab-a',expectedRevisionId:'rev-b',oldText:'Wordmark',newText:'Heading',preview:false}), error=>error.docsCode==='unsupported_document');
+    assert.equal(h.writes,1,'inspection/refused literal target cannot add another write');
     await assert.rejects(() => format.inspect({ account, document: 'doc-a' }), /ordinary text paragraphs/);
     assert.equal((await format.inspect({ account, document: 'doc-a', mode: 'page' })).complete, true);
   } finally { await h.close(); }

@@ -13,8 +13,11 @@ Its output **does not authorize edits**. Use the separate complete inspection.
    ```
 
    Call **`gdocs_inspect_for_edit`**. A successful response has `complete: true`,
-   `documentId`, opaque `revisionId` and every tab's `tabId`, `title` and exact
-   `text`. No pagination, clipping or implicit first-tab fallback is allowed.
+   `documentId`, opaque `revisionId` and every tab's `tabId`, `title` and body
+   `text`. Rich results identify `profile: "body-literal/1"` and explicitly
+   describe the projection: table body text is included; non-text inline objects
+   use U+FFFC placeholders. Only ordinary top-level body paragraphs are eligible
+   edit targets. No pagination, clipping or implicit first-tab fallback is allowed.
 3. Call **`gdocs_replace_text`** to preview one literal replacement:
 
    ```json
@@ -31,10 +34,15 @@ Its output **does not authorize edits**. Use the separate complete inspection.
    tool arguments cannot override that policy. The service re-inspects in both
    modes. A changed revision is rejected before submission; the single provider
    request also closes the remaining race.
-5. Only `outcome: "verified"` confirms the provider's single replacement count
-   **and** exact readback of all tab body text at the returned revision. The
-   response does not repeat the document contents. It does not independently
-   verify formatting or promise that collaborators will not edit it later.
+5. Only `outcome: "verified"` confirms the applicable readback contract at the
+   acknowledged revision. Legacy plain-document replacements retain their
+   single replacement-count + all-tab body-text contract (formatting is not
+   independently verified). Rich body-literal edits verify requested text,
+   selected stored styles, UTF-16 coordinate changes and preservation of the
+   remaining raw document, including tables and logos, with the narrow documented
+   normalization rules below. Neither verifies image bytes, visual rendering,
+   attribution or later collaborator changes. The response
+   does not repeat the document contents.
 
 There is no editing CLI, arbitrary Google request proxy, insertion-at-index,
 full-document replacement or multi-change batch. For several paragraphs, inspect
@@ -73,12 +81,14 @@ setting on the owner's behalf unless separately explicitly requested.
 
 - At most 50,000 UTF-16 code units across at most 16 tabs (including nested tabs),
   within a 1 MiB complete provider response. Oversized reads fail, never truncate.
-- Every tab must contain ordinary text paragraphs with contiguous UTF-16 indices.
-  Suggestions, tables, tables of contents, headers, footers, footnotes, inline or
-  positioned objects, chips, equations and unknown paragraph elements are rejected.
-  Missing/malformed tab bodies, missing revision IDs and projected suggestion
-  views are rejected. Documents with these features remain readable using
-  `gdocs_read` but are not editable through this initial capability.
+- Plain documents keep the original text-only profile. The rich body-literal
+  profile permits tables and logos elsewhere, including after a length-changing
+  edit. The target must be in one ordinary top-level body paragraph with valid
+  scalar/UTF-16 coordinates; it cannot be inside a table, chip or object.
+- Suggestions, headers, footers, footnotes, malformed/incomplete tabs and
+  projected suggestion views are refused. Index-bearing named ranges,
+  bookmarks/comment anchors and unknown tab/body structures affecting the chosen
+  tab are unsupported. No table or object is authored by this operation.
 - Exact, case-sensitive, non-regex `oldText` must occur once in the selected tab
   (overlapping occurrences count as ambiguous) and fit within one text run.
   Matching text in other tabs is not changed. Matching across differently styled
@@ -88,9 +98,29 @@ setting on the owner's behalf unless separately explicitly requested.
   deletes the match. Newlines, controls, private-use characters, invalid Unicode
   and no-op replacements are rejected. Preserve the paragraph-ending newline by
   **not** including it in the match. No new paragraph structure is generated.
-- Google handles formatting inheritance for `replaceAllText`. Existing paragraph
-  boundaries and unrelated content are retained; exact replacement styling is
-  not guaranteed. Review styling in Docs if it matters.
+- The affected paragraph's text runs must use supported stored styles (including
+  neighboring runs that can supply insertion inheritance); links or unknown
+  style fields there are refused before dispatch. Partial styles are allowed:
+  booleans, RGB
+  foreground/background colour, positive PT font size, font family with optional
+  documented weight, and baseline offset. Affected links and unknown/invalid
+  style fields are refused. Explicit empty OptionalColor objects stay transparent;
+  missing properties are reset to inheritance, not filled with guesses. In the
+  affected paragraph only, an explicitly named direct font's omitted weight is
+  equivalent to Google's documented 400. Missing whole font properties are not
+  invented. Untouched paragraphs/tabs, named definitions and opaque metadata
+  remain exact. Provider run coalescing with equivalent stored styles is allowed;
+  unexplained style materialization/drift fails verification.
+- Image `contentUri` is a requester-tagged read URL with a documented default
+  lifetime of 30 minutes, not image identity. It may differ between observations
+  only at the same known inline/positioned image-object slot when both values
+  are present. Object IDs, source URI, geometry, other properties and opaque
+  fields remain checked. Missing image fields, content/source changes or a
+  different revision are not normalized. No embedded image-byte claim is made.
+- Legacy `replaceAllText` still uses Google's formatting inheritance and keeps
+  its text-only guarantee. Rich edits explicitly restore selected stored style
+  properties in the same revision-guarded batch. Neither changes paragraph
+  boundaries or certifies font rendering.
 
 ## Safe rendered review (no Google document)
 
@@ -143,18 +173,20 @@ Inspection uses `documents.get` with `includeTabsContent=true` and
 metadata for the native Google Doc type and verifies token identity against the
 explicit connected account. Revision IDs are only provided to document editors.
 
-The only mutation is `documents.batchUpdate` with:
+Both profiles use one `documents.batchUpdate`. Legacy plain documents retain:
 
 ```json
 {"writeControl":{"requiredRevisionId":"REVISION_FROM_INSPECTION"},"requests":[{"replaceAllText":{"containsText":{"text":"OLD","matchCase":true,"searchByRegex":false},"replaceText":"NEW","tabsCriteria":{"tabIds":["TAB_ID"]}}}]}
 ```
 
 Never use `targetRevisionId`: that permits collaborator-change reconciliation.
-`requiredRevisionId` rejects a non-current revision. Numeric indices are validated
-using JavaScript string lengths (UTF-16, not Unicode code-point counts), but are
-**not** submitted for editing. Literal matching avoids offset conversion errors
-around emoji. All tabs must be inspected because native replacements otherwise
-can have broader scope; this request always supplies one explicit tab ID.
+`requiredRevisionId` rejects a non-current revision. Legacy plain requests do not submit numeric indices. Rich requests use the
+inspected literal's exact UTF-16 range for delete + insert + supported stored-style
+restoration (deletion alone needs only delete). These are private compiled
+requests, never tool arguments or an arbitrary-request proxy. Whole-document
+readback independently checks scalar boundaries, paragraph/run coordinates and
+known table/object element coordinate shifts. The same explicit tab and required
+revision bind every request. All tabs/raw structures are read for preservation.
 
 Google may reject stale or otherwise invalid requests with HTTP 400. The plugin
 reports a definitive rejection without assuming every 400 proves a revision
@@ -163,7 +195,11 @@ success responses or transport loss). A transport/server error can mean the
 write happened: `uncertain` is not failure. A successful provider response with
 failed/concurrent readback returns `verification_unavailable`, not `verified`.
 Both set `retrySafe: false`. Inspect the document and reconcile the observed text
-before proposing a new change; never blindly replay or roll back.
+before proposing a new change; never blindly replay or roll back. Existing
+writer exclusion retains unresolved claims. A matching observation alone does
+not release a claim or authorize a second POST. Historical text-only receipts
+and private recovery remain text-only; the new rich verifier does not upgrade
+old receipt interpretation.
 
 ## Authorization and deployment
 

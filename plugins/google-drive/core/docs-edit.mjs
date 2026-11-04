@@ -1,6 +1,7 @@
 // Narrow Docs port: complete inspection, one literal replacement, owner policy.
 // No arbitrary request objects or index-based editing escape this boundary.
 import { randomUUID } from 'node:crypto';
+import {inspectLiteralDocument,planLiteralEdit,literalRequests,literalReadbackMatches,literalSourceMatches} from './docs-literal.mjs';
 import { writerDigest } from './docs-semantic/writer-coordination.mjs';
 import { targetMarker,classifyWriterMarker } from './docs-semantic/writer-markers.mjs';
 import { docsApprovalDecision, docsApprovalReceipt, diagnoseDocsApproval } from './docs-approval.mjs';
@@ -10,7 +11,7 @@ const MESSAGES = Object.freeze({
   invalid_input: 'Use an explicit connected account, Google Docs URL/ID, tab ID, revision and bounded nonempty old text. Replacement text may be empty. Use one text run, without line breaks or control characters.',
   unknown_account: 'Unknown Google Drive account. Check connected accounts in BB settings.',
   wrong_type: 'This file is not an available Google Doc.',
-  unsupported_document: 'Editing requires a complete, bounded, suggestion-free document containing only ordinary text paragraphs in every tab. Tables, headers, footers, footnotes, objects and other structures are not supported.',
+  unsupported_document: 'This operation requires a complete bounded observation and supported ordinary text paragraphs. Rich literal targets must fit one ordinary top-level body run; suggestions, headers/footnotes, affected links, unknown styles and index-bearing registries are unsupported. Paragraph formatting uses its own stricter inspection.',
   stale_revision: 'The document revision changed. Inspect it again and prepare a new replacement; nothing was written.',
   match_not_unique: 'Old text must match exactly once in the selected tab and fit within one text run. Nothing was written.',
   scope_required: 'This account lacks an owner-authorized Docs write grant. Existing read-only connections cannot edit. Use supported Settings reauthorization only when a write-consent flow has been delivered and approved by the account owner; reconnecting to a read-only flow will not help. Never handle tokens manually.',
@@ -132,16 +133,21 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     if (!record) throw docsError('unknown_account');
     const id = documentId(args.document);
     const metadata = await fileMetadata(record,id);
-    return { record, metadata, snapshot: inspectDocument(await docs.inspect(record, id), id) };
+    const raw=await docs.inspect(record,id);
+    let snapshot;
+    try{snapshot=inspectDocument(raw,id);}catch(error){if(error?.docsCode!=='unsupported_document')throw error;snapshot=inspectLiteralDocument(raw,id);}
+    return {record,metadata,snapshot};
   }
   async function inspect(args) {
     const { record, snapshot } = await load(args);
-    return { account: record.email, ...snapshot, complete: true, tabs: snapshot.tabs.map(({ runs, ...tab }) => tab) };
+    const {raw,...publicSnapshot}=snapshot;
+    return { account: record.email, ...publicSnapshot, complete: true, ...(raw?{projection:'Body text including table text; object placeholders are U+FFFC. Only ordinary top-level body paragraphs are edit targets.'}:{}), tabs: snapshot.tabs.map(({ runs, data, ...tab }) => tab) };
   }
   async function replace(args, signal) {
     const { record, snapshot, metadata } = await load(args);
     if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
     const { tab, offset } = replacement(snapshot, args);
+    const literal=snapshot.profile==='body-literal/1'?planLiteralEdit(snapshot,args):null;
     const proposal = { account: record.email, documentId: snapshot.documentId, title: snapshot.title,
       tabId: tab.tabId, tabTitle: tab.title, expectedRevisionId: snapshot.revisionId, oldText: args.oldText, newText: args.newText };
     if (args.preview !== false) {await markerInterlock(record,metadata,false);return { outcome: 'preview', writeAttempted: false, writeAuthorization: 'not_checked', proposal };}
@@ -177,6 +183,7 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     if (await store.images?.active(snapshot.documentId)) throw docsError('image_operation_busy');
     if (current.record.subject !== record.subject) throw docsError('authorization_failed');
     replacement(current.snapshot, args);
+    if(literal&&(!current.snapshot.raw||!literalSourceMatches(snapshot.raw,current.snapshot.raw)))throw docsError('stale_revision');
     // Recheck policy after inspection, before entering provider submission.
     // A form already open still needs its own explicit choice.
     if (!ownerApproved && await needsApproval()) return { outcome: 'approval_required', writeAttempted: false,
@@ -186,7 +193,7 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
     let response;
     if(coordination)coordination.fact('legacyReplacement',executionKey,{kind:'intent',stage:'replace'});
     invoked=true;
-    try { response = await writer.replace(proposal, signal, async () => {
+    try { response = await writer.replace(literal?{...proposal,literal}:proposal, signal, async () => {
       // Re-observe local authority after the adapter's final async auth. This is
       // not an atomic account/policy epoch lock. The durable coordination owner
       // was acquired earlier; this legacy asynchronous callback is still NOT K5.
@@ -205,12 +212,16 @@ export function createDocsEditService({ store, drive, docs, diagnose = (_stage, 
       return { outcome: 'uncertain', writeAttempted: true, approval, retrySafe: false, guidance: 'Inspect the document before deciding what to do. Never replay this replacement blindly.' };
     }
     try {
-      if (response?.documentId !== snapshot.documentId || response.replies?.length !== 1 || response.replies[0]?.replaceAllText?.occurrencesChanged !== 1 || !nonempty(response.writeControl?.requiredRevisionId, 2048)) throw docsError('unsupported_document');
+      const replies=response?.replies;
+      const matchedReply=literal?Array.isArray(replies)&&replies.length===literalRequests(literal).length&&replies.every(r=>r&&typeof r==='object'&&!Array.isArray(r)&&Object.keys(r).length===0):replies?.length===1&&replies[0]?.replaceAllText?.occurrencesChanged===1;
+      if (response?.documentId !== snapshot.documentId || !matchedReply || !nonempty(response.writeControl?.requiredRevisionId, 2048)) throw docsError('unsupported_document');
       if(coordination)coordination.fact('legacyReplacement',executionKey,{kind:'ack',stage:'replace',documentId:snapshot.documentId,revisionId:response.writeControl.requiredRevisionId,replyDigest:writerDigest(response)});
-      const after = (await load(args)).snapshot;
+      const afterLoad=await load(args),after=afterLoad.snapshot;
+      if(afterLoad.record.subject!==record.subject)throw docsError('authorization_failed');
+      if(literal&&(!after.raw||!literalReadbackMatches(snapshot.raw,after.raw,args)))throw docsError('unsupported_document');
       if (after.revisionId !== response.writeControl.requiredRevisionId || after.tabs.length !== snapshot.tabs.length || after.tabs.some((t, i) => t.tabId !== snapshot.tabs[i].tabId || t.text !== (t.tabId === tab.tabId ? tab.text.slice(0, offset) + args.newText + tab.text.slice(offset + args.oldText.length) : snapshot.tabs[i].text))) throw docsError('unsupported_document');
       if(coordination)coordination.fact('legacyReplacement',executionKey,{kind:'verified'});
-      return { outcome: 'verified', writeAttempted: true, approval, documentId: snapshot.documentId, tabId: tab.tabId, revisionId: after.revisionId, replacements: 1, verification: 'All tab body text matches the expected single replacement. Formatting is not independently verified.' };
+      return { outcome: 'verified', writeAttempted: true, approval, documentId: snapshot.documentId, tabId: tab.tabId, revisionId: after.revisionId, replacements: 1, verification: literal?'The requested literal, stored text styles (documented direct-font weight 400 equivalence), untouched content/object structure (excluding expiring image read URLs) and UTF-16 coordinates match the independent readback. Rendering and submission attribution are not certified.':'All tab body text matches the expected single replacement. Formatting is not independently verified.' };
     } catch (error) {
       if(coordination){try{const r=coordination.get('legacyReplacement',executionKey);if(r?.disposition==='held')coordination.fact('legacyReplacement',executionKey,{kind:'stopped'});}catch{journalDiagnostic();}}
       diagnose('docs_write_verification', error);

@@ -74,8 +74,10 @@ Google or image URL is accessed. Every choice returns exampleOnly:true and
 writeAttempted:false. Engineering tests never authorize a live Doc mutation.
 
 General `gdocs_read` is lossy text with U+FFFC image placeholders, never edit proof.
-Image inspection is not replacement/paragraph-format proof; those strict tools
-continue rejecting image-containing documents. Page-only formatting still uses
+Image inspection is not replacement/paragraph-format proof. Obtain fresh
+replacement inspection: logos elsewhere no longer block a bounded body-literal
+edit. A literal target cannot include the image; paragraph formatting keeps its
+own stricter inspector. Page-only formatting still uses
 its separate structured-document inspector. No headers/footers or wordmark
 replacement is implied by inserting a body image.
 
@@ -128,7 +130,9 @@ desktop/narrow/keyboard review by itself.
 Use explicit Google Docs URLs/IDs.
 
 1. Call `gdocs_inspect_for_edit({account, document})`. Require `complete: true`;
-   keep the exact `revisionId`, tab ID and existing text.
+   keep the exact `revisionId`, tab ID and existing text. Rich results identify
+   `body-literal/1`; table body text is included and non-text objects use U+FFFC
+   placeholders, not editable literals.
 2. Call `gdocs_replace_text({account, document, tabId, expectedRevisionId,
    oldText, newText, preview: true})`. Preview is the default and is not a write
    or evidence of write authorization.
@@ -147,9 +151,20 @@ Use explicit Google Docs URLs/IDs.
 This initial capability supports one unique literal match within one text run
 in a selected tab, at most 2,000 UTF-16 units per text. No newlines/controls;
 empty replacement deletes the match without deleting the paragraph boundary.
-Documents must be complete, bounded and contain only simple text paragraphs in
-all tabs. Tables, suggestions, headers/footers, objects and mixed-run matches are
-not supported. Google controls formatting inheritance; styling isn't verified.
+Tables and logos elsewhere are allowed in the rich body-literal profile. The
+unique match must fit an ordinary top-level body paragraph/run, not a table,
+object, chip or mixed-run span. Suggestions, headers/footers/footnotes,
+unsupported styles/links in the affected paragraph (including insertion
+inheritance neighbors) and index-bearing registries are refused.
+Supported partial stored styles are preserved without guessing omitted defaults;
+only Google's documented direct-font weight 400 equivalence is allowed in the
+affected paragraph (not unrelated definitions or opaque data). Rich readback checks the requested text, stored styles, coordinates and entire
+remaining raw document. Only known expiring image `contentUri` read URLs may
+rotate at the same image-object slot; source URI, identity, geometry and opaque
+fields remain checked. This does not verify image bytes. Legacy plain-text replacements keep their prior
+text-only guarantee, not independently verified formatting. Neither establishes
+visual rendering or later collaborator state. Existing unresolved writer claims
+stay held; a matching inspection alone never authorizes a second POST.
 
 Check scope without reading any document or exposing tokens:
 `bb google-drive editing-access --account ACCOUNT_EMAIL`. It distinguishes a

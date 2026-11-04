@@ -1,4 +1,5 @@
 import { docsError, documentId } from '../core/docs-edit.mjs';
+import {literalRequests} from '../core/docs-literal.mjs';
 import { imageRequest, imageSchema } from '../core/docs-image.mjs';
 import { formatRequests, formatSchema } from '../core/docs-format.mjs';
 import { createDocsTransport, DOCS_BASE, rejection } from './docs-transport.mjs';
@@ -38,8 +39,12 @@ export function createDocsAdapter({ verifiedAccess, fetchImpl = fetch }) {
           }, signal, { beforeSubmission });
         },
         replace(proposal, signal, beforeSubmission) {
+          let requests;
+          try{
+            if(proposal.literal){for(const key of ['documentId','expectedRevisionId','tabId','oldText','newText'])if(proposal.literal[key]!==proposal[key])throw docsError('invalid_input');requests=literalRequests(proposal.literal);}
+          }catch(error){throw Object.assign(error,{docsWriteAttempted:false});}
           return post(`${DOCS_BASE}/${encodeURIComponent(proposal.documentId)}:batchUpdate`, {
-            writeControl: { requiredRevisionId: proposal.expectedRevisionId }, requests: [{ replaceAllText: {
+            writeControl: { requiredRevisionId: proposal.expectedRevisionId }, requests: requests??[{ replaceAllText: {
               containsText: { text: proposal.oldText, matchCase: true, searchByRegex: false },
               replaceText: proposal.newText, tabsCriteria: { tabIds: [proposal.tabId] },
             } }],

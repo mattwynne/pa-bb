@@ -18,11 +18,11 @@ Node 22 release can run the development commands. No runtime upgrade is implied.
 
 | Command | Purpose |
 | --- | --- |
-| `npm test` / `npm run test:docs:edit` | Normal affected-edit loop: legacy literal edit, real composition model/planner/compiler/verifier, and immutable-model validation regressions. No build, SDK, SQLite, process launch or network during cases. |
+| `npm test` / `npm run test:docs:edit` | Normal affected-capability loop: real native creation service, legacy literal edits, rich body-literal compiler/verifier/service, immutable snapshot/model and revision-ownership regressions. Unregistered composition examples remain in the full core suite. No build, SDK, SQLite, process launch or network during cases. |
 | `npm run test:docs:fast` | Compatibility spelling for the same affected-edit loop, not a claim to run every core case. |
 | `npm run test:docs:core` | Full maintained pure-core/application suite, including all retained read/selection/witness vectors, policy and original leaf-algorithm mutants. This is broader and slower than the affected-edit loop. |
 | `npm run test:docs:adapters` | Real adapter/decoder/transport, strict composition schemas, privacy sentinels, and a separate runner-boundary calibration. Only the calibration launches a bounded child. |
-| `npm run test:docs:integration` | Focused real file-SQLite/SDK authorization, claims, draft storage, dispatch, recovery and no-replay checks. Still slow; not the editing loop. |
+| `npm run test:docs:integration` | Actual registered creation + rich-edit handlers and focused real file-SQLite/SDK authorization, claims, draft storage, dispatch, recovery and no-replay checks. Still slow; not the editing loop. |
 | `npm run test:docs` | Explicit core + adapters + focused integration, each once. No acceptance producer, build, source fingerprint or obligation intake. |
 | `npm run test:all` | All remaining Node files, including unfinished local table tests when present. Not certified by this simplification checkpoint. |
 | `npm run test:oauth` | Separate OAuth Cucumber checks. |
@@ -52,13 +52,13 @@ explicitly because that unfinished candidate is not certified; `test:all` still
 includes them if present. Their exclusion does not mark them passing. No old
 obligation runner, release publication or live provider action is required.
 
-The affected-edit target is **500 ms end-to-end**, including npm, Node startup,
+The affected-capability target is **500 ms end-to-end**, including npm, Node startup,
 fixture discovery and assertions. Measure with a fresh process, for example:
 `env -u NODE_OPTIONS /usr/bin/time -f '%e' npm test`.
 Report the first process and repeats; do not describe a warm function benchmark
 as suite time or call filesystem-cache-warm runs OS-cold. Measure the full core
 suite independently. Large generated pagination vectors and diagnostic trace
-cloning still make that suite take seconds; SDK composition graph checks are
+comparisons still make that suite take seconds; SDK composition graph checks are
 slower again. Neither limitation is a reason to run them on each leaf edit.
 
 Node's `--test-isolation=none` avoids a new process/import graph for each pure
@@ -104,10 +104,17 @@ reuse. Only recursively immutable data-descriptor inputs are memoized. Mutable,
 shallow-frozen and accessor inputs revalidate. Forged frozen graphs still fail;
 plan and witness revision bindings do not alias. This eliminates repeated
 materialization without trusting checksums or caller-supplied graph facts.
+The memory snapshot substitute also returns its already owned/frozen model on
+reads instead of cloning that entire immutable graph on each page. Ingestion
+still clones external inputs; owner/expiry checks and shared SQL/port contracts
+remain. This is not a durability or mutable-input cache.
 
 Unfinished table source remains deferred and unregistered, with its exact
 pre-simplification candidate preserved privately. No table tests are presented
 as acceptance. Historical migrations, legacy tools, approval settings, subject
 binding, required revisions, receipt interpretation and uncertain-write holds
 are unchanged. Build/test success establishes neither rendered BB behavior nor
-live activation. This checkpoint does not deliver a new create/edit workflow.
+live activation. The follow-up body-literal profile improves the existing registered edit
+handlers; existing native creation is reused. See the editing guide for limits.
+Synthetic handler and rendered no-op approval checks are not Google rollout or
+live activation.
