@@ -17,7 +17,7 @@ const legacyHash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex')
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 const hash=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const resource=x=>typeof x==='string'&&/^[\w-]{1,256}$/.test(x);
-const lifecycle=new Set(['proposed','reviewing','writing','uncertain','verified','rejected','not_submitted','expired','declined','cancelled','approval_unavailable','approval_required','stale','unverified','conflict','preparing','interrupted','partial','reserved','created','incomplete','not_created','verification_unavailable','mismatch','published','planning','draft','sealed']);
+const lifecycle=new Set(['proposed','reviewing','writing','uncertain','verified','rejected','not_submitted','expired','declined','cancelled','approval_unavailable','approval_required','stale','unverified','conflict','preparing','interrupted','partial','reserved','created','incomplete','not_created','verification_unavailable','mismatch','published','planning','draft','sealed','superseded']);
 const editStates=new Set(['proposed','reviewing','writing','uncertain','verified','rejected','not_submitted','expired','declined','cancelled','approval_unavailable','approval_required']);
 const accessStates=new Set(['proposed','reviewing','writing','uncertain','verified','not_submitted','expired','declined','cancelled']);
 const nativeStates=new Set(['reserved','created','verified','incomplete','not_created','uncertain','verification_unavailable']);
@@ -41,7 +41,7 @@ export function decodeRecoveryRow(row,semanticLocal,account){
   // Apply the existing no-downgrade guard BEFORE any family/default-kind branch.
   if(Object.hasOwn(p,'copyBindingVersion')||Object.hasOwn(p,'copySource'))readCopySourceBinding(p);
   if(row.writer){const current=JSON.parse(row.writer.record),initial=JSON.parse(row.writer.initial_record);validateWriter(current);validateWriter(initial);if(!object(current)||!object(initial)||[current,initial].some(w=>w.version!==1||w.namespace!==row.namespace||w.operationId!==row.operationId||w.subject!==row.subject)||writerDigest(current)!==row.writer.digest)throw 0;writerFacts=Object.fromEntries(['version','phase','disposition','submission','acknowledgement','createAcknowledged','createdId','legacyVerified'].map(k=>[k,current[k]]));}
-  if(['version','schemaVersion'].some(k=>Object.hasOwn(p,k)&&p[k]!==1)){reason='version';throw 0;}
+  if(['version','schemaVersion'].some(k=>Object.hasOwn(p,k)&&!(k==='version'&&row.namespace==='semantic'?[1,2,3].includes(p[k]):p[k]===1))){reason='version';throw 0;}
   if(Object.hasOwn(p,'createdAt')&&p.createdAt!==null&&(!Number.isSafeInteger(p.createdAt)||p.createdAt<0))throw 0;
   if(['requestHash','titleHash','textHash','contentHash','beforeHash','afterHash','destinationFingerprint'].some(k=>Object.hasOwn(p,k)&&!hash(p[k])))throw 0;
   if(['writeAttempted','acknowledged','providerAcknowledged','createAcknowledged','populateAcknowledged'].some(k=>Object.hasOwn(p,k)&&p[k]!==null&&typeof p[k]!=='boolean'))throw 0;
@@ -49,7 +49,7 @@ export function decodeRecoveryRow(row,semanticLocal,account){
    if(!hash(row.draftDigest)||draftHash(p)!==row.draftDigest||!semanticLocal||draftHash(semanticLocal.draft)!==draftHash(p))throw 0;
    validateSaved({record:semanticLocal.draft,plan:semanticLocal.plan});
    if(row.execution){if(!hash(row.execution.digest)||!hash(row.execution.record_digest))throw 0;const header=JSON.parse(row.execution.header),runtime=JSON.parse(row.execution.record);if(header.subject!==row.subject||header.operationId!==row.operationId||draftHash(header)!==row.execution.digest||draftHash(runtime)!==row.execution.record_digest||![1,2].includes(runtime.version)||!lifecycle.has(runtime.status))throw 0;validateSeal(semanticLocal.saved);if(draftHash(semanticLocal.saved.header)!==draftHash(header)||draftHash(semanticLocal.saved.record)!==draftHash(runtime))throw 0;checkSealLineage(semanticLocal.saved,{record:semanticLocal.draft,plan:semanticLocal.plan},semanticLocal.before);codec=runtime.version===2?'semantic-execution-v2':'semantic-seal-v1';}
-   else {if(!lifecycle.has(p.state))throw 0;codec='semantic-draft-v1';}
+   else {if(!lifecycle.has(p.state))throw 0;codec=p.version===2?'semantic-composition-draft-v2':p.version===3?'semantic-superseded-v3':'semantic-draft-v1';}
   }else if(row.namespace==='docs_creations'){
    const kind=Object.hasOwn(p,'kind')?p.kind:'document';if(!['document','spreadsheet','copy','upload'].includes(kind)||p.sharedVersion!==undefined&&p.sharedVersion!==1)throw 0;
    const outcomes=kind==='copy'?new Set(['reserved','uncertain','verified','mismatch','not_created','verification_unavailable']):p.sharedVersion===1||kind==='upload'?new Set([...nativeStates,...accessStates]):nativeStates;
@@ -159,7 +159,7 @@ export function createRecoveryService({store,reads,clock=Date.now,diagnose=()=>{
   if(eligible.length>1)return immutable({status:'ambiguous',candidates:eligible.map(c=>c.candidate),thisCall:call,retrySafe:false});
   const c=eligible[0],base={operationId:selected.operationId,receiptKind:c.candidate.receiptKind,status:c.candidate.status,createdAt:c.candidate.createdAt,claim:'retainedUnknown',historicalEvidenceVersion:c.codec,legacyFacts:c.legacyFacts,thisCall:call,retrySafe:false};
   let observer,evidence;
-  if(c.codec==='semantic-draft-v1'){base.claim=c.row.writer?'retainedUnknown':'none';base.legacyFacts.semantic={originThreadId:c.local.draft.threadId,status:c.local.draft.state};}
+  if(['semantic-draft-v1','semantic-composition-draft-v2','semantic-superseded-v3'].includes(c.codec)){base.claim=c.row.writer?'retainedUnknown':'none';base.legacyFacts.semantic={originThreadId:c.local.draft.threadId,status:c.local.draft.state};}
   if(c.codec==='semantic-execution-v2'||c.codec==='semantic-seal-v1'){
    try{
     evidence=c.local;

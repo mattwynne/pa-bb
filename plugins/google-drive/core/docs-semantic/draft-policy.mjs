@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {boundedTree,LIMITS,freeze} from './common.mjs';
 import {replacementCommand} from './replacement-evidence.mjs';
 import {assertLogicalPlan} from './logical-plan.mjs';
+import {validateCompositionRecord,validateSupersededRecord,completedCompositionRecord} from './composition-policy.mjs';
 // Versioned conservative local admission bounds, not provider limits. No eviction.
 export const DRAFT_LIMITS=Object.freeze({version:1,records:1024,totalBytes:8*1024*1024,recordBytes:65536,planBytes:65536,draftMs:1800000,catalogBytes:4*1024*1024});
 export const draftError=code=>Object.assign(new Error(`Semantic draft ${code}`),{draftCode:code});
@@ -21,6 +22,8 @@ export function checkLimits(limits){demand(limits.version===1,'unsupported');for
 export function admit(usage,delta,count,limits=DRAFT_LIMITS){checkLimits(limits);demand(usage.records+count<=limits.records&&usage.bytes+delta<=limits.totalBytes,'capacity');}
 export function boundedPlan(plan,limits=DRAFT_LIMITS){boundedTree(plan,{...LIMITS,providerBytes:limits.planBytes,nodes:20000,depth:64});demand(bytes(plan)<=limits.planBytes,'budget');}
 export function validateRecord(record,limits=DRAFT_LIMITS){
+ if(record?.version===2)return validateCompositionRecord(record,limits);
+ if(record?.version===3)return validateSupersededRecord(record,limits);
  strict(record,['version','operationId','subject','account','threadId','requestId','requestHash','snapshotId','createdAt','expiresAt','state','headHash','error','cancelledAt']);
  demand(record.version===1,'unsupported');demand(keyValid(record.operationId)&&hashValid(record.requestHash),'corrupt');ownerCheck({subject:record.subject,account:record.account,threadId:record.threadId});timeCheck(record.createdAt);timeCheck(record.expiresAt);demand(record.expiresAt===record.createdAt+limits.draftMs,'corrupt');demand(typeof record.requestId==='string'&&/^[A-Za-z0-9._-]{1,128}$/.test(record.requestId),'corrupt');demand(typeof record.snapshotId==='string'&&record.snapshotId.length>0&&record.snapshotId.length<=128,'corrupt');
  demand(['planning','draft','rejected','cancelled'].includes(record.state),'corrupt');demand(record.headHash===null||hashValid(record.headHash),'corrupt');demand(['draft','cancelled'].includes(record.state)?hashValid(record.headHash):record.headHash===null,'corrupt');
@@ -31,6 +34,7 @@ export function validateReservation(record,limits=DRAFT_LIMITS){validateRecord(r
 export function sameRequest(record,candidate){demand(record.subject===candidate.subject&&record.threadId===candidate.threadId&&record.requestId===candidate.requestId,'corrupt');demand(record.requestHash===candidate.requestHash,'request_conflict');}
 export function completedRecord(record,plan,limits=DRAFT_LIMITS){
  validateRecord(record,limits);demand(record.state==='planning','head');boundedPlan(plan,limits);assertLogicalPlan(plan,{record});
+ if(record.version===2)return completedCompositionRecord(record,plan);
  const {integrity,...body}=plan;demand(integrity===draftHash(body)&&plan.lifecycle?.createdAt===record.createdAt&&plan.lifecycle.expiresAt===record.expiresAt&&plan.lifecycle.budgets?.version===limits.version,'corrupt');
  const request={requestId:record.requestId,snapshotId:record.snapshotId,mode:plan.mode,command:plan.command};inputCheck(request);demand(draftHash(request)===record.requestHash,'corrupt');
  return validateRecord({...record,state:'draft',headHash:draftHash(plan)},limits);

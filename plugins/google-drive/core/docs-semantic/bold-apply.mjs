@@ -6,6 +6,7 @@ import {createBoldTargetContextService} from './bold-target-context.mjs';
 import {sealResult,sealOwner,checkSealLineage,currentBefore} from './seal-policy.mjs';
 import {family} from './family.mjs';
 import {replacementConsentPayload} from './replacement-consent.mjs';
+import {compositionConsentPayload} from './composition-consent.mjs';
 import {runtimeResult} from './execution-policy.mjs';
 import {boldConsentPayload,boldApprovalDecision} from './bold-consent.mjs';
 export function createBoldApplyService({store,docs,batch,authority,review,clock=Date.now,ids=randomUUID,diagnose=()=>{},checkpoint=()=>{}}){
@@ -29,7 +30,7 @@ export function createBoldApplyService({store,docs,batch,authority,review,clock=
    const before=store.semanticExecutions.evidence(owner,input),original=store.semanticDrafts.byId(owner,input.operationId);checkSealLineage(sealed.saved,original,before);
    stage='policy';const approvalRequired=await authority.readPolicy();loaded();
    const deadline=Math.min(clock()+600000,sealed.saved.header.deadline);
-   const profile=family(original.plan),consent=(profile.kind==='paragraphReplace'?replacementConsentPayload:boldConsentPayload)(sealed.saved,original.plan,before,deadline);
+   const profile=family(original.plan),consent=(profile.kind==='paragraphComposition'?compositionConsentPayload:profile.kind==='paragraphReplace'?replacementConsentPayload:boldConsentPayload)(sealed.saved,original.plan,before,deadline);
    if(approvalRequired){
     stage='approval';const remaining=deadline-clock();demand(remaining>0,'snapshot');const raw=await review(consent.payload,remaining,signal,owner.threadId,profile.kind);loaded();
     const decision=boldApprovalDecision(raw);

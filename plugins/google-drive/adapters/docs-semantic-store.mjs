@@ -305,6 +305,25 @@ export function createSemanticSnapshotStore(db,{ids=randomUUID,limits=LIMITS}={}
         seal('pin',pinOwner,id,{binding:rowBinding(row),expires});
       }
     })();},
+    // Metadata/codec evidence ONLY, not fresh planning or first-dispatch authority.
+    readRetainedDraft(id,owner,pinOwner){
+      const row=getRow(id);token(pinOwner);
+      const pin=db.prepare('SELECT expires FROM docs_semantic_pins WHERE snapshot=? AND owner=?').get(id,pinOwner);
+      if(pin){checkOwner(row,owner);verify('pin',pinOwner,id,{binding:rowBinding(row),expires:pin.expires});return decode(row);}
+      const saved=executionRefsPresent()?db.prepare('SELECT CASE WHEN length(CAST(header AS BLOB))<=65536 THEN header ELSE NULL END header,digest FROM docs_semantic_execution WHERE operation_id=? AND subject=?').get(pinOwner,owner.subject):null;
+      // Collected unsealed history still has immutable full RAW command
+      // witnesses/revisions/results. Null is metadata-only, NEVER authority.
+      if(!saved){if(row){checkOwner(row,owner);return decode(row);}return null;}let header;try{header=JSON.parse(saved.header);}catch{throw semanticError('corrupt');}
+      requireValue(draftHash(header)===saved.digest&&header.operationId===pinOwner&&header.before?.snapshotId===id,'corrupt');return api.readExecutionEvidence(header,owner);
+    },
+    // Transfer only an existing live retained footprint. NEVER renew source TTL
+    // or use an expired ordinary snapshot to authorize additional targets.
+    pinFromRetained(id,owner,fromOwner,pinOwner,now,expires){return db.transaction(()=>{
+      api.readPinned(id,owner,fromOwner,now);token(pinOwner);const row=getRow(id),source=db.prepare('SELECT expires FROM docs_semantic_pins WHERE snapshot=? AND owner=?').get(id,fromOwner);
+      requireValue(expires<=source.expires,'snapshot');const previous=db.prepare('SELECT expires FROM docs_semantic_pins WHERE snapshot=? AND owner=?').get(id,pinOwner);requireValue(!previous,'conflict');
+      checkPin(now,expires,undefined,db.prepare('SELECT count(*) AS n FROM docs_semantic_pins WHERE snapshot=?').get(id).n,limits);
+      capacity(STORE_ROW_BYTES+2*size(id+pinOwner)+integrityBytes('pin',pinOwner,id));db.prepare('INSERT INTO docs_semantic_pins VALUES (?,?,?)').run(id,pinOwner,expires);seal('pin',pinOwner,id,{binding:rowBinding(row),expires});
+    })();},
     readPinned(id,owner,pinOwner,now){
       time(now);const row=getRow(id);checkOwner(row,owner);token(pinOwner);
       const pin=db.prepare('SELECT expires FROM docs_semantic_pins WHERE snapshot=? AND owner=?').get(id,pinOwner);

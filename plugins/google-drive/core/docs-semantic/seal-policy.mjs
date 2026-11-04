@@ -1,6 +1,7 @@
 // First bold seal only: no dispatch, consent decision, ACK or verification.
 import {family,replyCount} from './family.mjs';
 import {replacementShape} from './replacement-evidence.mjs';
+import {compositionShape} from './composition-plan.mjs';
 import {validateRuntimeRecord,runtimeWriterMatches,runtimeResult,nextExecutionFact} from './execution-policy.mjs';
 import {bytes,draftHash,immutable,strict,demand,hashValid,keyValid,ownerCheck,timeCheck,validateSaved,requireDraftEvidence} from './draft-policy.mjs';
 import {checkContextDraft,checkInitialEvidence,contextObservation,contextRights,interpretLocalContext} from './target-context.mjs';
@@ -59,7 +60,7 @@ export function admitSeal({saved,owner,input,context,snapshot,read,raw,now}){
  demand(knownResultObligations(raw,resources.map(r=>r.id)).length===0,'conflict');
  demand(local.origins.every(o=>o.kind==='unmarked'||o.kind==='historicalMarker'),'conflict');
  const r=saved.record,b=saved.plan.binding;
- const header={version:1,operationId:r.operationId,headHash:r.headHash,subject:r.subject,account:r.account,threadId:r.threadId,createdAt:now,deadline:r.expiresAt,kind:saved.plan.kind,capabilityVersion:saved.plan.capabilityVersion,...(saved.plan.kind==='paragraphReplace'?{programShape:replacementShape(saved.plan.effect)}:{}),documentId:b.documentId,initialRevision:b.revision,
+ const header={version:1,operationId:r.operationId,headHash:r.headHash,subject:r.subject,account:r.account,threadId:r.threadId,createdAt:now,deadline:r.expiresAt,kind:saved.plan.kind,capabilityVersion:saved.plan.capabilityVersion,...(saved.plan.kind==='paragraphReplace'?{programShape:replacementShape(saved.plan.effect)}:saved.plan.kind==='paragraphComposition'?{programShape:compositionShape(saved.plan)}:{}),documentId:b.documentId,initialRevision:b.revision,
   before:{snapshotId:r.snapshotId,evidenceDigest:b.evidenceDigest,modelDigest:draftHash(snapshot),rawBytes:bytes(snapshot.evidence),modelBytes:bytes(snapshot)},
   resources,contextDigest:draftHash(context),localCaptureDigest:raw.digest,currentReadDigest:read.responseDigest,origin:'unresolved',originPolicy:'ordinary-existing-local-exclusion/1',futureCredit:SEAL_LIMITS.futureCredit};
  validateSealHeader(header);
@@ -67,7 +68,7 @@ export function admitSeal({saved,owner,input,context,snapshot,read,raw,now}){
  return immutable({header,record});
 }
 export function validateSealHeader(h){
- strict(h,['version','operationId','headHash','subject','account','threadId','createdAt','deadline','kind','capabilityVersion','documentId','initialRevision','before','resources','contextDigest','localCaptureDigest','currentReadDigest','origin','originPolicy','futureCredit',...(h.kind==='paragraphReplace'?['programShape']:[])]);
+ strict(h,['version','operationId','headHash','subject','account','threadId','createdAt','deadline','kind','capabilityVersion','documentId','initialRevision','before','resources','contextDigest','localCaptureDigest','currentReadDigest','origin','originPolicy','futureCredit',...(['paragraphReplace','paragraphComposition'].includes(h.kind)?['programShape']:[])]);
  demand(h.version===1&&keyValid(h.operationId)&&hashValid(h.headHash),'corrupt');family(h);replyCount(h);
  ownerCheck({subject:h.subject,account:h.account,threadId:h.threadId});timeCheck(h.createdAt);timeCheck(h.deadline);demand(h.createdAt<h.deadline,'corrupt');
  demand(h.initialRevision?.kind==='docs'&&h.initialRevision.subject===h.subject&&typeof h.initialRevision.id==='string'&&h.initialRevision.id.length>0,'corrupt');
@@ -90,7 +91,7 @@ export function validateSeal(saved){
 export function checkSealLineage(seal,draft,snapshot){
  validateSeal(seal);demand(draft,'corrupt');validateSaved(draft);requireDraftEvidence(draft.plan,snapshot);
  const h=seal.header,r=draft.record,b=draft.plan.binding;
- demand(h.kind===draft.plan.kind&&h.capabilityVersion===draft.plan.capabilityVersion&&(h.kind!=='paragraphReplace'||sameLogical(h.programShape,replacementShape(draft.plan.effect))),'corrupt');
+ demand(h.kind===draft.plan.kind&&h.capabilityVersion===draft.plan.capabilityVersion&&(h.kind!=='paragraphReplace'||sameLogical(h.programShape,replacementShape(draft.plan.effect)))&&(h.kind!=='paragraphComposition'||sameLogical(h.programShape,compositionShape(draft.plan))),'corrupt');
  demand(r.state==='draft'&&r.operationId===h.operationId&&r.headHash===h.headHash&&r.subject===h.subject&&r.account===h.account&&r.threadId===h.threadId&&r.expiresAt===h.deadline,'corrupt');
  demand(b.documentId===h.documentId&&b.snapshotId===h.before.snapshotId&&sameLogical(b.revision,h.initialRevision)&&b.evidenceDigest===h.before.evidenceDigest,'corrupt');
 }
