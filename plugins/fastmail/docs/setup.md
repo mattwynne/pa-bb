@@ -15,6 +15,10 @@ To change access, **Disconnect** in BB and reconnect with a new Fastmail consent
 
 MCP cannot move messages into Inbox. To enable the separate JMAP label-update tool, save a mail-access API token in **JMAP API token (optional)** under Configuration. Follow the [JMAP setup and safety guide](jmap-labels.md). This token is independent of MCP: Disconnect does not clear it. Clear the setting and revoke the token in Fastmail to stop JMAP access.
 
+## Optional original attachment downloads
+
+The MCP provider offers original images/PDFs but extracted text for Office documents, not a general binary download. The separate `fastmail_download_attachment` tool preserves original bytes in current BB-server thread storage using the existing optional JMAP token. It requires both account views to pass conservative identity/ownership checks; mail-only tokens without identity-read capability are refused. Downloads do not authorize Drive uploads. See [usage, account prerequisites and safety limits](attachment-downloads.md). Do not change grants merely to pass an engineering test.
+
 ## Optional contact-group membership
 
 To inspect groups or change membership used by future-mail rules, configure **CardDAV username (optional)** and **CardDAV app password (optional)** under Configuration. These are independent of MCP and JMAP. Follow the [contact-group setup and safety guide](contact-groups.md) for the Fastmail prerequisite, secure setup, preview/apply workflow and uncertain-write recovery. Message-label changes do not change contact groups. Disconnect does not clear these credentials; clear the settings and revoke the app password separately.
