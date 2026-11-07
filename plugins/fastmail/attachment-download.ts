@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { saveOriginal, safeAttachmentName } from './attachment-file.ts';
 
 const CORE = 'urn:ietf:params:jmap:core';
 const MAIL = 'urn:ietf:params:jmap:mail';
-const SUBMISSION = 'urn:ietf:params:jmap:submission';
 export const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024; // Existing Drive upload ceiling.
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,256}$/);
 const account = z.string().min(1).max(320).regex(/^[^\s\x00-\x1f\x7f]+$/);
@@ -25,10 +25,8 @@ type Options = {
 export class AttachmentError extends Error {
   stage: string; category: string;
   constructor(stage: string, category: string) {
-    super(category === 'identity_access_missing'
-      ? 'Original download is blocked: the existing JMAP token does not expose the identity-read capability required for cross-account verification. Owner setup must be reviewed separately; do not broaden grants or substitute MCP credentials. No attachment was downloaded or uploaded.'
-      : category === 'account_mismatch' || category === 'identity_ambiguous'
-      ? 'Original download is blocked because the separate MCP and JMAP account views could not be safely bound. Verify the authorized accounts; do not guess. No attachment was downloaded or uploaded.'
+    super(category === 'account_mismatch'
+      ? 'Original download is blocked because the requested JMAP account does not match the authenticated session. Select the account reported by preflight; do not guess. No attachment was downloaded or uploaded.'
       : category === 'cleanup_failed'
       ? 'Local download cleanup could not be confirmed. A partial or complete file may remain in this thread storage. Inspect it before another download. No upload was attempted.'
       : 'Original attachment download did not complete. No upload was attempted. Check Fastmail attachment download setup and the exact attachment metadata; do not bypass a refusal.');
@@ -42,12 +40,24 @@ function endpoint(value: unknown, download = false): string {
   try {
     if (typeof value !== 'string' || /[\x00-\x20\x7f]/.test(value)) throw new Error();
     const u = new URL(value);
-    // Never forward the separate token to a provider-selected arbitrary host.
-    if (u.protocol !== 'https:' || u.hostname !== 'api.fastmail.com' || u.username || u.password || u.port || u.hash ||
-        (download ? ([...u.searchParams.keys()].length !== 1 || !u.searchParams.get('type')) : Boolean(u.search)) ||
-        !(download ? u.pathname.startsWith('/jmap/download/') : u.pathname.startsWith('/jmap/'))) throw new Error();
+    // Fastmail advertises sharded API hosts and a separate dedicated content
+    // domain. Only the authenticated session's download template may select a
+    // fastmailusercontent.com host; agent/sender URLs never reach this function.
+    // Metadata stays on the API family used by our JMAP label adapter.
+    const allowedHost = /^(?:[a-z0-9-]+\.)?api\.fastmail\.com$/.test(u.hostname) || download &&
+      /^(?:[a-z0-9-]+\.)*fastmailusercontent\.com$/.test(u.hostname);
+    if (u.protocol !== 'https:' || u.username || u.password || u.port || u.hash)
+      return attachmentFail('attachment_session', download ? 'download_endpoint_origin' : 'api_endpoint_origin');
+    if (!allowedHost) {
+      const family = /(?:^|\.)fastmailusercontent\.com$/.test(u.hostname) ? 'content_family' : /(?:^|\.)fastmail\.com$/.test(u.hostname) ? 'fastmail_family' : 'origin';
+      return attachmentFail('attachment_session', download ? `download_endpoint_${family}` : 'api_endpoint_origin');
+    }
+    if (download ? ([...u.searchParams.keys()].length !== 1 || !u.searchParams.get('type')) : Boolean(u.search))
+      return attachmentFail('attachment_session', download ? 'download_endpoint_query' : 'api_endpoint_query');
+    if (!(download ? u.pathname.startsWith('/jmap/download/') : u.pathname.startsWith('/jmap/')))
+      return attachmentFail('attachment_session', download ? 'download_endpoint_path' : 'api_endpoint_path');
     return u.href;
-  } catch { return attachmentFail('attachment_session', 'invalid_endpoint'); }
+  } catch (error) { if (error instanceof AttachmentError) throw error; return attachmentFail('attachment_session', 'invalid_endpoint'); }
 }
 async function abortable<T>(work: Promise<T>, signal: AbortSignal, stage: string): Promise<T> {
   let abort: () => void = () => {};
@@ -88,20 +98,20 @@ function mcpJson(result: unknown): unknown {
       try { values.push(JSON.parse(p.text)); } catch { /* Non-JSON is not metadata proof. */ }
     }
   }
-  if (!values.length || values.some(v => JSON.stringify(v).length > 512 * 1024) ||
-      values.some(v => JSON.stringify(v) !== JSON.stringify(values[0]))) return attachmentFail('attachment_mcp', 'invalid_response');
+  if (!values.length || values.some(v => JSON.stringify(v).length > 512 * 1024)) return attachmentFail('attachment_mcp', 'invalid_response');
+  if (values.some(v => !isDeepStrictEqual(v, values[0]))) return attachmentFail('attachment_mcp', 'invalid_response');
   return values[0];
 }
-function identities(value: unknown, mcp: boolean): string[] {
-  const list = Array.isArray(value) ? value : object(value) ? value[mcp ? 'identities' : 'list'] : undefined;
-  if (!Array.isArray(list) || !list.length || list.length > 100) return attachmentFail('attachment_identity', 'identity_unavailable');
-  const addresses = list.map(v => {
-    if (!object(v) || typeof v.email !== 'string' || !/^[^\s@<>\x00-\x1f\x7f]+@[^\s@<>\x00-\x1f\x7f]+$/.test(v.email) || v.email.length > 320)
-      return attachmentFail('attachment_identity', 'identity_unavailable');
-    return v.email.toLowerCase();
-  });
-  if (new Set(addresses).size !== addresses.length) return attachmentFail('attachment_identity', 'identity_ambiguous');
-  return addresses.sort();
+function messageIds(value: unknown): string[] | null {
+  if (value === null || value === undefined) return null;
+  if (!Array.isArray(value) || !value.length || value.length > 16 || value.some(v => typeof v !== 'string' || !v || v.length > 998 || /[\x00-\x20\x7f]/.test(v)))
+    return attachmentFail('attachment_ownership', 'invalid_message_identity');
+  return value;
+}
+function receivedAt(value: unknown): number {
+  if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?(?:Z|[+-]\d\d:\d\d)$/.test(value) || !Number.isFinite(Date.parse(value)))
+    return attachmentFail('attachment_ownership', 'invalid_message_identity');
+  return Date.parse(value);
 }
 class DownloadClient {
   token: string; options: Options; signal: AbortSignal; api = ''; accountId = ''; username = ''; template = '';
@@ -155,21 +165,20 @@ class DownloadClient {
     if (!account.safeParse(session.username).success) return attachmentFail('attachment_session', 'session_username_missing');
     if (session.accounts[aid].isPersonal !== true) return attachmentFail('attachment_session', 'personal_account_required');
     if (!object(session.accounts[aid].accountCapabilities?.[MAIL])) return attachmentFail('attachment_session', 'mail_access_missing');
-    if (!object(session.accounts[aid].accountCapabilities?.[SUBMISSION])) return attachmentFail('attachment_session', 'identity_access_missing');
     this.accountId = aid; this.username = session.username; this.api = endpoint(session.apiUrl);
-    if (typeof session.downloadUrl !== 'string' || session.downloadUrl.length > 2048) return attachmentFail('attachment_session', 'invalid_endpoint');
+    if (typeof session.downloadUrl !== 'string' || session.downloadUrl.length > 2048) return attachmentFail('attachment_session', 'invalid_download_template');
     // Only the documented Fastmail JMAP template; no signed URLs or redirects.
     this.template = session.downloadUrl;
     const skeleton = this.template.replace(/\{(?:accountId|blobId|name|type)\}/g, 'placeholder');
-    if (/[{}]/.test(skeleton) || ['accountId', 'blobId', 'name', 'type'].some(key => this.template.split(`{${key}}`).length !== 2)) return attachmentFail('attachment_session', 'invalid_endpoint');
+    if (/[{}]/.test(skeleton) || ['accountId', 'blobId', 'name', 'type'].some(key => this.template.split(`{${key}}`).length !== 2)) return attachmentFail('attachment_session', 'invalid_download_template');
     endpoint(skeleton, true);
-    const jmap = identities(await this.call('Identity/get', { properties: ['id', 'email'] }, [SUBMISSION]), false);
-    const mcp = identities(await this.mcp('list_identities', {}), true);
-    // A display/default sender is NOT a login. Compare complete sets, then bind
-    // the exact immutable email/attachment in both APIs below. Fail closed.
-    if (JSON.stringify(jmap) !== JSON.stringify(mcp)) return attachmentFail('attachment_identity', 'account_mismatch');
+    // JMAP's authenticated session is authoritative for its own account. MCP
+    // sending aliases are not login identities, and may omit the actual login.
+    // Never assert account equivalence: the caller selects this explicit JMAP
+    // account, and download independently verifies the exact source message and
+    // attachment membership against MCP evidence before reading any blob bytes.
     this.options.ensureCurrent();
-    return { account: this.username, accountId: this.accountId, identityBinding: 'complete-sending-identity-set' as const };
+    return { account: this.username, accountId: this.accountId, identityBinding: 'authenticated-jmap-session' as const };
   }
   async download(r: Request, threadId: string) {
     const identity = await this.open();
@@ -179,11 +188,13 @@ class DownloadClient {
       return attachmentFail('attachment_ownership', 'invalid_response');
     const matches = mcp.attachments.filter((a: Json) => object(a) && a.blobId === r.blobId);
     if (matches.length !== 1 || !matchesMetadata(matches[0], r)) return attachmentFail('attachment_ownership', 'metadata_mismatch');
-    const data = await this.call('Email/get', { ids: [r.emailId], properties: ['id', 'threadId', 'attachments'] }, [MAIL]);
+    const data = await this.call('Email/get', { ids: [r.emailId], properties: ['id', 'threadId', 'messageId', 'receivedAt', 'attachments'] }, [MAIL]);
     if (data.list.length !== 1) return attachmentFail('attachment_ownership', 'email_missing');
     const email = data.list[0];
     if (!object(email) || email.id !== r.emailId || email.threadId !== mcp.threadId || !Array.isArray(email.attachments) || email.attachments.length > 256)
       return attachmentFail('attachment_ownership', 'metadata_mismatch');
+    if (!isDeepStrictEqual(messageIds(email.messageId), messageIds(mcp.messageId)) || receivedAt(email.receivedAt) !== receivedAt(mcp.receivedAt))
+      return attachmentFail('attachment_ownership', 'message_identity_mismatch');
     const parts = email.attachments.filter((a: Json) => object(a) && a.blobId === r.blobId);
     if (parts.length !== 1 || !matchesMetadata(parts[0], r)) return attachmentFail('attachment_ownership', 'metadata_mismatch');
     // Never interpolate untrusted names into paths before validation, even URLs.
@@ -204,7 +215,8 @@ class DownloadClient {
     this.signal.throwIfAborted(); this.options.ensureCurrent();
     const provenance = { provider: 'Fastmail', ...identity, emailId: r.emailId, threadId: mcp.threadId, blobId: r.blobId,
       name: r.expectedName, mimeType: r.expectedMimeType, sizeBytes: bytes.length, sha256, downloadedAt: new Date().toISOString(),
-      ownershipBinding: 'exact-email-thread-attachment-metadata-in-both-apis' };
+      sourceMessage: { messageId: messageIds(email.messageId), receivedAt: email.receivedAt },
+      ownershipBinding: 'exact-email-thread-message-attachment-metadata-in-both-apis' };
     const path = await saveOriginal(await abortable(this.options.location(), this.signal, 'attachment_file'), r.expectedName, bytes, provenance, () => { this.signal.throwIfAborted(); this.options.ensureCurrent(); });
     return { status: 'downloaded', source: { host: 'bb-server', threadId, path }, name: r.expectedName,
       mimeType: r.expectedMimeType, sizeBytes: bytes.length, sha256, provenance,

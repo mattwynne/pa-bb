@@ -17,7 +17,7 @@ MCP cannot move messages into Inbox. To enable the separate JMAP label-update to
 
 ## Optional original attachment downloads
 
-The MCP provider offers original images/PDFs but extracted text for Office documents, not a general binary download. The separate `fastmail_download_attachment` tool preserves original bytes in current BB-server thread storage using the existing optional JMAP token. It requires both account views to pass conservative identity/ownership checks; mail-only tokens without identity-read capability are refused. Downloads do not authorize Drive uploads. See [usage, account prerequisites and safety limits](attachment-downloads.md). Do not change grants merely to pass an engineering test.
+The MCP provider offers original images/PDFs but extracted text for Office documents, not a general binary download. The separate `fastmail_download_attachment` tool preserves original bytes in current BB-server thread storage using the existing optional JMAP token. It authenticates the explicitly selected JMAP account independently and checks the exact source message and attachment's ownership against MCP evidence, without assuming that sending aliases are login identities. Mail-only JMAP access is sufficient; submission/identity-read permissions are not required. Downloads do not authorize Drive uploads. See [usage, account prerequisites and safety limits](attachment-downloads.md). Do not change grants merely to pass an engineering test.
 
 ## Optional contact-group membership
 

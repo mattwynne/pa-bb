@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFakePluginHost, makePluginAgentConfigurationContext } from '@get-bb/plugin-sdk/testing';
 import plugin from '../dist/server.js';
-const MAIL = 'urn:ietf:params:jmap:mail'; const SUB = 'urn:ietf:params:jmap:submission';
+const MAIL = 'urn:ietf:params:jmap:mail';
 const args = { account: 'login@example.test', emailId: 'M1', blobId: 'B1', expectedName: 'Example.docx', expectedMimeType: 'application/octet-stream', expectedSize: 4 };
-const email = { id: 'M1', threadId: 'T1', attachments: [{ blobId: 'B1', name: args.expectedName, type: args.expectedMimeType, size: 4 }] };
+const email = { id: 'M1', threadId: 'T1', messageId: ['synthetic@example.test'], receivedAt: '2026-01-02T12:00:00Z', attachments: [{ blobId: 'B1', name: args.expectedName, type: args.expectedMimeType, size: 4 }] };
 async function setup(root, changes = {}) {
   const calls = []; const downloads = [];
   const host = createFakePluginHost({ pluginId: 'fastmail', settings: { jmapApiToken: 'private-token-sentinel' }, sdk: {
@@ -17,16 +17,17 @@ async function setup(root, changes = {}) {
   const db = host.bb.storage.database();
   db.prepare('CREATE TABLE fastmail_oauth (id INTEGER PRIMARY KEY, value TEXT NOT NULL)').run();
   db.prepare('INSERT INTO fastmail_oauth VALUES (1, ?)').run(JSON.stringify({ tokens: { access_token: 'private-mcp-sentinel' } }));
-  const connect = () => ({ client: { connect: async () => {}, close: async () => {}, request: async () => ({ tools: ['list_identities', 'read_email'].map(name => ({ name, inputSchema: { type: 'object' } })) }),
-    callTool: async ({ name }) => ({ content: [{ type: 'text', text: JSON.stringify(name === 'list_identities' ? [{ email: 'sender@example.test' }] : email) }] }),
+  const connect = () => ({ client: { connect: async () => {}, close: async () => {}, request: async () => ({ tools: [{ name: 'read_email', inputSchema: { type: 'object' } }] }),
+    callTool: async ({ name }) => { assert.equal(name, 'read_email'); return { content: [{ type: 'text', text: JSON.stringify(email) }], structuredContent: Object.fromEntries(Object.entries(email).reverse()) }; },
   }, transport: { close: async () => {} } });
   const fetcher = async (url, init) => {
     if (changes.error) throw Object.assign(new Error('private-body-sentinel https://example.test?token=private-token-sentinel'), { code: 'private-code-sentinel' });
-    if (url.includes('/session')) return Response.json({ username: args.account, apiUrl: 'https://api.fastmail.com/jmap/api/', downloadUrl: 'https://api.fastmail.com/jmap/download/{accountId}/{blobId}/{name}?type={type}', primaryAccounts: { [MAIL]: 'A1' }, accounts: { A1: { isPersonal: true, accountCapabilities: { [MAIL]: {}, [SUB]: {} } } } });
+    if (url.includes('/session')) return Response.json({ username: changes.mismatch ? 'other@example.test' : args.account, apiUrl: 'https://synthetic.api.fastmail.com/jmap/api/', downloadUrl: 'https://download.gateway.fastmailusercontent.com/jmap/download/{accountId}/{blobId}/{name}?type={type}', primaryAccounts: { [MAIL]: 'A1' }, accounts: { A1: { isPersonal: true, accountCapabilities: { [MAIL]: {} } } } });
     if (url.includes('/download/')) { downloads.push(url); if (changes.onDownload) await changes.onDownload(host); return new Response(Buffer.from([0, 1, 255, 7]), { headers: { 'Content-Type': args.expectedMimeType } }); }
     const [method, input, id] = JSON.parse(init.body).methodCalls[0];
-    assert.ok(['Identity/get', 'Email/get'].includes(method));
-    return Response.json({ methodResponses: [[method, { accountId: input.accountId, notFound: [], list: method === 'Identity/get' ? [{ id: 'I1', email: changes.mismatch ? 'other@example.test' : 'sender@example.test' }] : [email] }, id]] });
+    assert.equal(method, 'Email/get');
+    assert.deepEqual(JSON.parse(init.body).using, ['urn:ietf:params:jmap:core', MAIL]);
+    return Response.json({ methodResponses: [[method, { accountId: input.accountId, notFound: [], list: [email] }, id]] });
   };
   await plugin(host.bb, connect, fetcher);
   return { ...host, calls, downloads };
@@ -65,7 +66,7 @@ for (const [name, changes, diagnostic] of [
   try {
     const response = await h.harness.behavior.callAgentTool('fastmail_download_attachment', args, { threadId: 'thr_current' });
     assert.equal(response.isError, true);
-    if (changes.error || changes.mismatch) {
+    if (changes.error) {
       const status = await h.harness.behavior.callRpc('attachmentDownloadPreflight', null);
       assert.equal(status.status, 'blocked'); assert.equal(typeof status.category, 'string');
     }

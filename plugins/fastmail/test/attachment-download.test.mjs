@@ -6,22 +6,24 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { AttachmentError, downloadAttachment, attachmentStatus, MAX_ATTACHMENT_BYTES } from '../attachment-download.ts';
 import { saveOriginal } from '../attachment-file.ts';
-const MAIL = 'urn:ietf:params:jmap:mail'; const SUB = 'urn:ietf:params:jmap:submission';
+const MAIL = 'urn:ietf:params:jmap:mail';
 const TOKEN = 'private-token-sentinel';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 function fixture(root, changes = {}) {
   const bytes = changes.bytes ?? Buffer.from([0x50, 0x4b, 0, 0xff, 0x80, 7, 0, 1]);
   const request = { account: 'login@example.test', emailId: 'M1', blobId: 'B1', expectedName: 'Example.docx', expectedMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', expectedSize: bytes.length, ...changes.request };
   const attachment = { blobId: 'B1', name: request.expectedName, type: request.expectedMimeType, size: bytes.length, ...changes.attachment };
-  const email = { id: 'M1', threadId: 'T1', attachments: [attachment], ...changes.email };
-  const session = { username: 'login@example.test', apiUrl: 'https://api.fastmail.com/jmap/api/', downloadUrl: 'https://api.fastmail.com/jmap/download/{accountId}/{blobId}/{name}?type={type}', primaryAccounts: { [MAIL]: 'A1' }, accounts: { A1: { isPersonal: true, accountCapabilities: { [MAIL]: {}, [SUB]: {} } } }, ...changes.session };
+  const email = { id: 'M1', threadId: 'T1', messageId: ['synthetic@example.test'], receivedAt: '2026-01-02T12:00:00Z', attachments: [attachment], ...changes.email };
+  const session = { username: 'login@example.test', apiUrl: 'https://synthetic.api.fastmail.com/jmap/api/', downloadUrl: 'https://download.gateway.fastmailusercontent.com/jmap/download/{accountId}/{blobId}/{name}?type={type}', primaryAccounts: { [MAIL]: 'A1' }, accounts: { A1: { isPersonal: true, accountCapabilities: { [MAIL]: {} } } }, ...changes.session };
   const calls = []; const mcpCalls = [];
   const options = { location: async () => root, ensureCurrent() {}, ...changes.options,
     async mcp(name, args) {
       mcpCalls.push([name, args]);
       if (changes.mcpError) return { isError: true, content: [{ type: 'text', text: 'private-content-sentinel' }] };
       if (changes.mcpThrow) throw new Error('private-content-sentinel');
-      return { content: [{ type: 'text', text: JSON.stringify(name === 'list_identities' ? changes.mcpIdentities ?? [{ email: 'sender@example.test' }] : { ...email, ...changes.mcpEmail }) }] };
+      assert.equal(name, 'read_email'); // No account equivalence inferred from sending aliases.
+      const data = { ...email, ...changes.mcpEmail };
+      return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: changes.mcpStructured ?? Object.fromEntries(Object.entries(data).reverse()) };
     },
     async fetch(url, init) {
       calls.push([url, init]);
@@ -30,9 +32,10 @@ function fixture(root, changes = {}) {
       if (url.includes('/session')) return changes.sessionResponse?.() ?? Response.json(session);
       if (url.includes('/download/')) return changes.download?.(init) ?? new Response(bytes, { headers: { 'Content-Type': request.expectedMimeType, 'Content-Length': String(bytes.length), ...changes.headers }, status: changes.httpStatus ?? 200 });
       const [method, args, id] = JSON.parse(init.body).methodCalls[0];
-      assert.ok(['Identity/get', 'Email/get'].includes(method)); // No provider writes.
-      if (method === 'Email/get') assert.deepEqual(args.properties, ['id', 'threadId', 'attachments']);
-      const data = { accountId: 'A1', notFound: [], list: method === 'Identity/get' ? changes.jmapIdentities ?? [{ id: 'I1', email: 'sender@example.test' }] : [email], ...changes.methodResult };
+      assert.equal(method, 'Email/get'); // No identity/submission methods or provider writes.
+      assert.deepEqual(JSON.parse(init.body).using, ['urn:ietf:params:jmap:core', MAIL]);
+      assert.deepEqual(args.properties, ['id', 'threadId', 'messageId', 'receivedAt', 'attachments']);
+      const data = { accountId: 'A1', notFound: [], list: [email], ...changes.methodResult };
       return Response.json({ methodResponses: [[changes.methodError ? 'error' : method, data, id]] });
     },
   };
@@ -51,25 +54,27 @@ test('exact binary bytes, name, MIME, size, private regular file and persisted p
   assert.deepEqual(JSON.parse(await readFile(join(directory, '.provenance.json'), 'utf8')), result.provenance);
   assert.deepEqual((await readdir(directory)).sort(), ['.provenance.json', 'Example.docx']);
   assert.doesNotMatch(JSON.stringify(result), /private-token-sentinel|https:|Bearer/);
-  assert.deepEqual(f.mcpCalls.map(c => c[0]), ['list_identities', 'read_email']);
+  assert.deepEqual(f.mcpCalls.map(c => c[0]), ['read_email']);
+  assert.equal(result.provenance.identityBinding, 'authenticated-jmap-session');
 }));
 for (const type of ['application/pdf', 'image/png', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/octet-stream']) {
   test(`ordinary binary MIME ${type} is neither opened nor converted`, () => temp(async root => {
     const f = fixture(root, { request: { expectedMimeType: type } }); const result = await f.run(); assert.equal(result.mimeType, type); assert.deepEqual(await readFile(join(root, result.source.path)), f.bytes);
   }));
 }
-test('preflight verifies both identity sets without email/byte/file access', () => temp(async root => {
+test('mail-only preflight authenticates its independent account without MCP alias assumptions or email/byte/file access', () => temp(async root => {
   const f = fixture(root); const status = await attachmentStatus(TOKEN, f.options);
   assert.equal(status.account, 'login@example.test'); assert.equal(status.accountId, 'A1');
-  assert.deepEqual(f.mcpCalls.map(c => c[0]), ['list_identities']); assert.equal(f.calls.length, 2); assert.deepEqual(await readdir(root), []);
+  assert.deepEqual(f.mcpCalls, []); assert.equal(f.calls.length, 1); assert.deepEqual(await readdir(root), []);
 }));
 for (const [name, changes, category] of [
-  ['MCP identity differs', { mcpIdentities: [{ email: 'other@example.test' }] }, 'account_mismatch'],
-  ['default sender alone is not complete account proof', { jmapIdentities: [{ email: 'sender@example.test' }, { email: 'alias@example.test' }] }, 'account_mismatch'],
-  ['ambiguous identities', { mcpIdentities: [{ email: 'sender@example.test' }, { email: 'sender@example.test' }] }, 'identity_ambiguous'],
+  ['MCP Message-ID differs', { mcpEmail: { messageId: ['different@example.test'] } }, 'message_identity_mismatch'],
+  ['MCP receivedAt differs', { mcpEmail: { receivedAt: '2026-01-02T13:00:00Z' } }, 'message_identity_mismatch'],
+  ['MCP receivedAt invalid', { mcpEmail: { receivedAt: 'private-content-sentinel' } }, 'invalid_message_identity'],
+  ['MCP Message-ID malformed', { mcpEmail: { messageId: 'private-content-sentinel' } }, 'invalid_message_identity'],
+  ['text/structured metadata conflict', { mcpStructured: { id: 'M2' } }, 'invalid_response'],
   ['expected JMAP login differs', { request: { account: 'other@example.test' } }, 'account_mismatch'],
-  ['missing identity-read capability', { session: { accounts: { A1: { isPersonal: true, accountCapabilities: { [MAIL]: {} } } } } }, 'identity_access_missing'],
-  ['missing mail capability', { session: { accounts: { A1: { isPersonal: true, accountCapabilities: { [SUB]: {} } } } } }, 'mail_access_missing'],
+  ['missing mail capability', { session: { accounts: { A1: { isPersonal: true, accountCapabilities: {} } } } }, 'mail_access_missing'],
   ['missing primary account', { session: { primaryAccounts: {} } }, 'primary_account_missing'],
   ['missing session username', { session: { username: '' } }, 'session_username_missing'],
   ['nonpersonal primary account', { session: { accounts: { A1: { isPersonal: false } } } }, 'personal_account_required'],
@@ -92,10 +97,12 @@ for (const [name, changes, category] of [
   ['unsafe Windows name', { request: { expectedName: 'C:\\outside.docx' } }, 'unsafe_filename'],
   ['control name', { request: { expectedName: 'file\n.docx' } }, 'unsafe_filename'],
   ['hidden name', { request: { expectedName: '.private' } }, 'unsafe_filename'],
-  ['endpoint SSRF', { session: { apiUrl: 'https://example.test/jmap/api/' } }, 'invalid_endpoint'],
-  ['download SSRF', { session: { downloadUrl: 'https://localhost/jmap/download/{accountId}/{blobId}/{name}?type={type}' } }, 'invalid_endpoint'],
-  ['signed download URL', { session: { downloadUrl: 'https://api.fastmail.com/jmap/download/{accountId}/{blobId}/{name}?type={type}&token=private' } }, 'invalid_endpoint'],
-  ['unknown URL placeholder', { session: { downloadUrl: 'https://api.fastmail.com/jmap/download/{accountId}/{blobId}/{name}/{unknown}?type={type}' } }, 'invalid_endpoint'],
+  ['endpoint SSRF', { session: { apiUrl: 'https://example.test/jmap/api/' } }, 'api_endpoint_origin'],
+  ['download SSRF', { session: { downloadUrl: 'https://localhost/jmap/download/{accountId}/{blobId}/{name}?type={type}' } }, 'download_endpoint_origin'],
+  ['content domain lookalike', { session: { downloadUrl: 'https://fastmailusercontent.com.example.test/jmap/download/{accountId}/{blobId}/{name}?type={type}' } }, 'download_endpoint_origin'],
+  ['content host cannot serve API metadata', { session: { apiUrl: 'https://download.gateway.fastmailusercontent.com/jmap/api/' } }, 'api_endpoint_origin'],
+  ['signed download URL', { session: { downloadUrl: 'https://api.fastmail.com/jmap/download/{accountId}/{blobId}/{name}?type={type}&token=private' } }, 'download_endpoint_query'],
+  ['unknown URL placeholder', { session: { downloadUrl: 'https://api.fastmail.com/jmap/download/{accountId}/{blobId}/{name}/{unknown}?type={type}' } }, 'invalid_download_template'],
   ['wrong HTTP size', { headers: { 'Content-Length': '7' } }, 'metadata_mismatch'],
   ['wrong HTTP MIME', { headers: { 'Content-Type': 'text/html' } }, 'metadata_mismatch'],
   ['encoded response', { headers: { 'Content-Encoding': 'gzip' } }, 'metadata_mismatch'],
@@ -111,6 +118,15 @@ for (const [name, changes, category] of [
   const f = fixture(root, changes);
   await assert.rejects(f.run(), e => { assert.ok(e instanceof AttachmentError); assert.equal(e.category, category); assert.doesNotMatch(e.message, /private-|Bearer|https:/); return true; });
   assert.deepEqual(await readdir(root), []);
+}));
+test('a message without an RFC Message-ID still binds through native IDs, receivedAt and exact attachment membership', () => temp(async root => {
+  const f = fixture(root, { email: { messageId: null } }); const result = await f.run();
+  assert.equal(result.status, 'downloaded'); assert.equal(result.provenance.sourceMessage.messageId, null);
+}));
+test('an explicitly selected independent JMAP login requires no sending alias or submission capability', () => temp(async root => {
+  const f = fixture(root, { request: { account: 'independent@example.test' }, session: { username: 'independent@example.test' } });
+  const result = await f.run(); assert.equal(result.provenance.account, 'independent@example.test');
+  assert.deepEqual(f.mcpCalls.map(c => c[0]), ['read_email']);
 }));
 test('stream cancellation bounds stalled reads and saves nothing', () => temp(async root => {
   const controller = new AbortController(); let cancelled = false;
