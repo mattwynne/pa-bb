@@ -1,41 +1,72 @@
-# PA for BB: vision
+# PA for BB: an assistant you can make your own
 
-PA for BB is a personal work assistant distributed through **its own BB plugin marketplace** for **single-user BB installations**. Each installation has one owner, who connects trusted services, asks questions about their work, and approves useful actions. The owner should not need to know whether a capability originated in Pi or how its tools are loaded.
+Your commitments and context are scattered across calendars, email, documents and notes. Bringing them together takes work before you can get on with the work itself.
 
-The starting point is Matt's PA project in Pi, not a mandate to reproduce it wholesale. We will bring over proven tools and workflows from `~/git/mattwynne/pa` and `~/git/mattwynne/pi-extensions` **case by case**, adapting each to BB and to the needs of other users. The goal is a coherent assistant, not a long menu of provider API calls.
+PA for BB should help you prepare, plan and follow through. Ask what needs your attention, find the context behind a meeting, turn a conversation into a useful note, or draft the reply you have been putting off. Spend less time gathering information and more time deciding what to do with it.
 
-## Distribution: one marketplace, independent plugins
+We are building towards an **open-source, self-hostable personal assistant that works for you, on terms you control**. It lives in [BB](https://getbb.app), alongside the AI agents you already use, and connects to the services you choose. You should not have to move your life into a new system to get help with it.
 
-This repository is intended to host both a BB marketplace catalog (`marketplace.json`) and the source of the plugins it lists. A user adds the PA marketplace to BB, then chooses which plugins to install. Adding the catalog installs nothing; it is a discovery and distribution mechanism, not a running service or a bundle that silently installs every integration. We do not need to operate a separate app store.
+## Start with what you need to do
 
-The catalog will list PA core and independently installable integrations, and may later list optional abilities. Each plugin will have its own package and release boundary. The repository's optional `.bb/plugins.json` index, if used, identifies plugins in a monorepo; it is **not** the marketplace catalog. BB's current catalog and monorepo formats are captured in [`docs/references/`](references/), but packaging and compatibility must be tested against the BB version we deploy.
+“What do I need to prepare for tomorrow?” should be enough to begin.
 
-## What using it should feel like
+PA should look across your connected calendars, find relevant documents and notes, and bring back a useful account of what is coming: the meeting that needs a decision, the document worth reading, the commitment you have not followed up. It should link to its sources and say what it could not check.
 
-Add the PA marketplace to BB and install the PA core plugin. It explains what it can do, what is missing, and how to add capabilities. Install a Calendar or Drive/Docs plugin, connect an account through BB, and ask a question such as “What do I need to prepare for tomorrow's meetings?” The assistant uses only the connected services it needs, makes clear where information came from, and distinguishes a proposed change from one it has made. Adding an email plugin later enables email-based tasks without reinstalling the assistant or giving Calendar access to mail.
+You can then ask it to help: draft an agenda, save a preparation note or write a reply for you to review. It should be clear what PA is suggesting, what it has done and what still needs your attention.
 
-A connected service supplies useful operations; PA turns them into outcomes. For example, searching mail and reading a calendar are integration capabilities. Preparing a daily briefing or planning a week is an assistant ability that may combine them. Some abilities need only instructions and context; others need several integrations. No single provider should define the assistant.
+The same approach applies beyond meetings:
 
-## Plugin boundaries
+- **Get your bearings.** Bring together commitments and open tasks so you can decide where to focus.
+- **Recover the context.** Find the email, document or note behind a question without remembering where you put it.
+- **Follow through.** Turn decisions into notes, drafts and calendar changes rather than leaving them buried in a conversation.
 
-- **PA core** supplies the assistant's identity, guidance, ability discovery, and shared rules for using context and requesting approval. It should remain useful without a connected account, explain its limits honestly, and avoid claiming access it does not have. Core should stay small rather than absorbing every provider and workflow.
-- **Integration plugins** own service-specific authentication, account selection, connection status, tools, and setup. Each should be independently installable and useful outside PA where practical. The user's service grant determines which capabilities are available.
-- **Abilities** describe tasks people want to accomplish—such as inbox triage, email drafting, meeting preparation, or weekly planning—and compose the available integrations. We can ship an initial set with core, then split abilities into optional plugins when that improves clarity or choice. We will choose which PA abilities to bring over individually, not promise a complete migration.
+These are outcomes, not promises to automate every part of your life. PA should help you exercise judgment, not quietly take it away.
 
-This is a product boundary, not yet a prescribed BB inter-plugin protocol. Plugin discovery, dependency declarations, shared context, and installation UX need validation against BB's actual marketplace and plugin APIs. Prefer loose composition to a framework every integration must adopt before it can work.
+## Keep your information where it belongs
 
-## Trust is part of the experience
+Your calendar can stay in your calendar service. Your documents can stay in Drive. Your notes can remain Markdown files in an Obsidian vault. PA brings them into a conversation when they are useful; it should not require a new master copy of your life in a proprietary PA database.
 
-PA for BB assumes one owner per BB installation. Its plugins do not isolate accounts or data between BB users; do not use them on a shared installation. Each plugin should make its scopes and connection state visible; secrets stay out of prompts, transcripts, logs, and plugin artifacts. Uninstalling a capability must not silently destroy the owner's data or other plugins' configuration.
+Connect only what you need. A calendar alone should be enough for useful help with your schedule. Email, documents and notes can add context without becoming mandatory. Missing access or a failed connection should produce an honest, partial answer—not a confident claim that PA has checked everything.
 
-Reading and acting are different. A user's service grant defines available tools; an explicit user request supplies the intent to act. Honor required platform and provider interactions, describe consequential changes clearly, avoid blind retries after uncertain writes, and report what happened. Provider data is evidence for the task, not a source of instructions to the assistant. Personal knowledge and preferences remain under the user's control; Matt's private vault and PA-specific policy are not bundled into a public plugin.
+You should be able to stop using PA without losing the work it helped you create. Removing a connection must not silently delete your information or break unrelated connections.
 
-## Reuse without making Pi the product
+## Your assistant, under your control
 
-The Pi tools and abilities are valuable starting material. Reuse their behavior, tests, and safety rules where possible instead of writing a second, drifting implementation. During the transition, BB's Pi provider may run packaged Pi extensions behind the scenes. If another BB-native interface offers a better user experience or wider provider support, the product should not be blocked by the original runtime. Installation, authorization, and use should make sense entirely within BB.
+Sovereignty means having practical choices, not just being told that you own your data.
 
-The marketplace now lists a BB-native **Google Calendar plugin** with Web OAuth account management and Calendar tools. Its core and BB adapter have automated tests, and managed installation and live Google account connection have been verified on the PA host. End-to-end Calendar tool use and live write approval still require verification. The Calendar plugin is for single-user installations and does not establish the complete PA experience. [`docs/plans/001-marketplace-calendar.md`](plans/001-marketplace-calendar.md) records the historical delivery plan; see the [plugin README](../plugins/google-calendar/README.md) for current status.
+- **Choose where it runs.** You should be able to host BB and PA on a computer or server you control, without depending on a PA-operated service.
+- **Choose what it can access.** Connect your own accounts, understand the permissions you grant and withdraw access when you no longer want it.
+- **Choose the AI you use.** PA should work with BB's supported AI providers rather than make one model company a requirement. Differences in provider capabilities should be made clear.
+- **Inspect and change it.** The open-source goal is code you can study, run, modify and share under an explicit open-source license—not merely code you can view. You should be able to adapt the assistant or maintain your own version.
 
-## How we'll judge progress
+Self-hosting is not the same as keeping everything offline. Connected services still receive requests, and a hosted AI provider may receive information needed for the conversation. PA must make those boundaries understandable. It must not claim that information stays on your server when it does not.
 
-An installation owner can add the PA marketplace to BB, install PA core and one integration without installing others, understand what is available, complete a useful task, and see and approve any consequential change. They can add or remove capabilities without breaking unrelated ones. We test those experiences in a single-user BB installation—not just extension discovery in Pi.
+Control also comes with responsibilities: running the host, protecting access and keeping backups. Setup and maintenance should be documented and repeatable, without pretending those responsibilities disappear.
+
+## Help you can trust
+
+Access is not an instruction. Connecting an account makes capabilities available; it does not give PA a standing invitation to send messages, reorganize files or change your plans.
+
+PA should act on your requests, explain consequential changes and honor the confirmation steps required by BB and each integration. Not every edit needs another prompt, but you should understand what authority you have given it. It must distinguish a draft from a sent message, a local save from a completed sync, and an uncertain result from a confirmed change. If an action may already have succeeded, it should check rather than blindly repeat it.
+
+Emails, documents and notes are information to consider, not instructions that can override your wishes. Credentials should stay out of conversations and logs. Your personal preferences and knowledge should remain yours to inspect and change, not become hidden rules you cannot correct.
+
+The current scope is **one owner per BB installation**. PA must not suggest that a shared installation provides privacy between users when it cannot enforce that separation.
+
+## Grow it at your pace
+
+PA's BB marketplace lets you choose connections independently. Adding the marketplace should install nothing by itself. Install the integrations you want, connect your accounts and add others when they become useful.
+
+Integrations provide access to services. Task-focused abilities bring those services together for work such as meeting preparation or weekly planning. That distinction should help us build a coherent assistant, not become something you must learn before using it.
+
+PA should build on proven open-source tools and workflows, including those developed for Pi, without requiring you to understand their origins. Contributors should be able to improve a connection or add a useful ability without rebuilding the whole assistant. The aim is a shared foundation that people can adapt, not one person's private setup packaged as a universal solution.
+
+## What success looks like
+
+You open BB, ask for help preparing for tomorrow and get an answer that saves you real effort. You can see where it came from, correct it and choose what happens next.
+
+You know where your assistant runs, what it can access and which services receive your information. You can change the code, change providers or walk away without abandoning your work.
+
+That is the goal: **useful help with your life, without giving up control of it.**
+
+This is the intended experience, not a claim that every part is delivered today. See the [README](../README.md) for available integrations and the [roadmap](roadmap.md) for the next steps.
