@@ -98,6 +98,11 @@ try {
     assert.equal(await page.locator('[data-sonner-toast]').count(), 0);
     await context.setOffline(false); await page.getByRole('button', { name: 'Open iCloud settings', exact: true }).waitFor();
     assert.equal(methods.filter(method => method === 'attentionAction').length, claimsBeforeOffline);
+    const inlineWindow = await context.newPage(); await inlineWindow.goto(base + '/plugins/icloud?configure=icloud');
+    await inlineWindow.locator('.pa-icloud__attention').waitFor(); await page.waitForTimeout(300);
+    assert.equal(await page.locator('[data-sonner-toast]').count(), 0);
+    await inlineWindow.close(); await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.getByRole('button', { name: 'Open iCloud settings', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Remind tomorrow', exact: true }).click();
     await page.waitForTimeout(300); assert.equal(await page.locator('[data-sonner-toast]').count(), 0);
     await page.reload(); await page.waitForTimeout(1000); assert.equal(await page.locator('[data-sonner-toast]').count(), 0);
