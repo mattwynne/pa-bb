@@ -25,7 +25,7 @@ The **Last successful sync** time changes only after successful completion. “S
 - **Pause** stops future scheduled runs or a pending retry, preserving local files, the baseline and the last failed outcome. A running operation must finish before controls can change it.
 - **Resume** enables an intact paused mirror. For a failed mirror waiting after Reconnect, it runs the ordinary native bisync path; it never forces resync. Retained previous mirrors cannot resume.
 - **Retry sync** is available for an initialized failed mirror whose automatic retry is paused, including conservatively upgraded legacy records. It uses the ordinary path and does not clear the old outcome before the attempt.
-- **Reconnect** repeats Apple authorization and makes each enabled, recoverable folder wait for explicit **Resume**. Authorization succeeding does not restart any of those folders. Paused and retained folders stay stopped, and existing storage, configuration or critical blockers remain in place. Rclone's documented trust-token lifetime is about 30 days.
+- **Reconnect** repeats Apple authorization and makes each enabled, recoverable folder wait for explicit **Resume**. Authorization succeeding does not restart any of those folders. Paused and retained folders stay stopped, and existing storage, configuration or critical blockers remain in place. BB estimates a renewal reminder at 25 days after a verified completed sign-in, not a guaranteed expiry. Older installations with no recorded date honestly show Unknown; startup, sync and ordinary checks never seed that date.
 - **Disconnect** removes local password/session credentials and pauses sync. Local files and recovery copies remain. It does not revoke authorization at Apple. Remove/uninstall behaviour is governed by BB's host data policy; archive local data before asking BB to remove plugin data.
 
 ## Recovery
@@ -59,6 +59,12 @@ Schema-2 cloud filenames use the pinned rclone standard encoding, marked by `clo
 An operating-system flock at `/usr/bin/flock` prevents worker overlap. Command children inherit the lock, so it stays held across a parent crash until the last old child exits. Mounted procfs lets a replacement plugin generation identify and defer to a live same-parent daemon without signalling it or replacing its lock/socket paths. Never bypass the lock; confirm no child is alive before operator inspection. Preserve baseline, staging and recovery files and inspect possible partial mutations.
 
 After an abrupt native transfer termination, rclone may retain a non-empty bounded `<name>.<8-hex>.partial` file alongside the subsequently recovered full object. That partial can contain unique evidence. The plugin does not delete it automatically; inspect it separately before any operator cleanup.
+
+## In-app sign-in reminders
+
+On BB 0.49+, one persistent native toast opens iCloud Settings; the same attention is visible inline there. **Remind tomorrow** saves a 24-hour snooze. A newly proven authentication rejection can override an age reminder's snooze once. Repeated failures and polls do not create a notification storm. Clearing native notification history does not fix the connection. Reminders are in-app only: BB must be open, and no OS permission or push notification is used.
+
+An exact native trust-token rejection is different from HTTP 421: the latter holds ordinary cloud retries but only says the connection needs attention. Network/check failures do not prove expiry, and a sync timeout or recovery stop is not an authentication diagnosis. Age reminders never disconnect Apple or stop scheduling. Complete sign-in only in the protected Settings forms, never chat. Successful sign-in clears connection attention, not paused folders, recovery fences or preserved conflicts; no sync is started by sign-in.
 
 ## Diagnostics
 

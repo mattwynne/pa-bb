@@ -102,6 +102,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     noteInspectConflict(input, context) { obsidianOnly(context); return noteAction('note_inspect_conflict', () => runtime!.access(input.mirrorId, input.revision, root => runtime!.overlay.inspect(input.mirrorId, input.path, root))); },
     noteResolveConflict(input, context) { obsidianOnly(context); return noteAction('note_resolve_conflict', () => runtime!.resolve(input.mirrorId, input.revision, input.path, input)); },
     status() { return status(); },
+    attentionAction({ generation, action }, context) { clientOnly(context); return sync.attentionAction(generation, action); },
+    attentionPresence({ windowId, visible }, context) { clientOnly(context); sync.attentionPresence(windowId, visible); return null; },
     async browse({ parent }, context) { clientOnly(context); try { return await sync.browse(parent); } catch { throw new Error('Could not browse iCloud folders. Reconnect Apple or try again after the current operation finishes.'); } },
     async select({ folderId }, context) { clientOnly(context); return action(() => sync.select(folderId)); },
     async enable(input, context) {

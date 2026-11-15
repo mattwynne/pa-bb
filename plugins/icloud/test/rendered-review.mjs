@@ -7,7 +7,7 @@ const base = process.env.BB_REVIEW_BASE;
 if (!base) throw new Error('Set BB_REVIEW_BASE to an isolated BB instance.');
 const artifacts = process.env.BB_REVIEW_ARTIFACTS ?? '/tmp/icloud-rendered-review';
 await mkdir(artifacts, { recursive: true });
-const browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : {}) });
+const browser = await chromium.launch({ headless: true, args: ['--disable-gpu'], ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : {}) });
 const mirror = { id: 'review-mirror', folder: { id: 'review-folder', name: 'Test Vault', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-10-10T12:00:00.000Z', failure: null, blocker: null, retryPending: false, stale: false, recovering: false, progress: null };
 try {
   const statusViews = ['first', 'prerequisite', 'pending', 'empty', 'connected', 'paused', 'running', 'retry-pending', 'repeated-stale', 'source-changed', 'recovering', 'reconnect-needed', 'reconnected-resume', 'multi-reconnected-resume', 'capacity', 'configuration', 'critical', 'critical-paused', 'continuing-interrupted', 'critical-disconnected', 'legacy-retry', 'initial-block', 'retained', 'error'];
@@ -100,7 +100,7 @@ try {
       await section.getByText('Resume required', { exact: true }).waitFor();
       await section.getByText(/Apple is connected again/).waitFor();
       assert.equal(await section.getByText('Reconnect required', { exact: true }).count(), 0);
-      await section.getByText('Recovery steps', { exact: true }).click();
+      await section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true }).click();
       const resume = section.getByRole('button', { name: 'Resume Test Vault', exact: true }); await page.keyboard.press('Tab'); await resume.focus();
       assert.equal(await resume.evaluate(element => element === document.activeElement), true);
       assert.equal(await resume.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
@@ -108,7 +108,7 @@ try {
     }
     if (view === 'multi-reconnected-resume') {
       assert.equal(await section.getByText('Resume required', { exact: true }).count(), 2);
-      const steps = section.getByText('Recovery steps', { exact: true });
+      const steps = section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true });
       for (let i = 0; i < 2; i++) await steps.nth(i).click();
       for (const folder of ['Test Vault', 'Other Vault']) {
         const resume = section.getByRole('button', { name: `Resume ${folder}`, exact: true }); await page.keyboard.press('Tab'); await resume.focus();
@@ -119,7 +119,7 @@ try {
       assert.equal(await section.getByRole('button', { name: /Pause scheduling for/ }).count(), 2);
     }
     if (['capacity', 'configuration'].includes(view)) {
-      await section.getByText('Recovery steps', { exact: true }).click();
+      await section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true }).click();
       await section.getByText(/Fix .* first\. Ask the host operator if needed, then Retry\./).waitFor();
       const retry = section.getByRole('button', { name: 'Retry Test Vault', exact: true }); await page.keyboard.press('Tab'); await retry.focus();
       assert.equal(await retry.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
@@ -130,11 +130,11 @@ try {
       await page.keyboard.press('Tab'); await retry.focus();
     }
     if (view === 'critical') {
-      await section.getByRole('alert').getByText(/This mirror is stopped for recovery review/).waitFor();
+      await section.getByRole('alert').getByText(/Sync needs recovery checks. Local notes and unsent edits are kept/).waitFor();
       assert.equal(await section.getByText(/Rclone cannot safely continue/).count(), 0);
     }
     if (['critical', 'critical-paused', 'critical-disconnected'].includes(view)) {
-      await section.getByText('Recovery steps', { exact: true }).click();
+      await section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true }).click();
       const continuation = section.getByRole('button', { name: 'Continue interrupted sync for Test Vault', exact: true });
       assert.equal(await continuation.isDisabled(), view === 'critical-disconnected');
       if (view !== 'critical-disconnected') {
@@ -159,7 +159,7 @@ try {
       assert.equal(await section.getByRole('button', { name: /Continue interrupted|Pause|Create fresh mirror/ }).count(), 0);
     }
     if (['critical', 'initial-block'].includes(view)) {
-      if (view === 'initial-block') await section.getByText('Recovery steps', { exact: true }).click();
+      if (view === 'initial-block') await section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true }).click();
       const fresh = section.getByRole('button', { name: 'Create fresh mirror' }); await page.keyboard.press('Tab'); await fresh.focus();
       assert.equal(await fresh.evaluate(element => element === document.activeElement), true);
       assert.equal(await fresh.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');

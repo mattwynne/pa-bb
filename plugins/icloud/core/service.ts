@@ -1,3 +1,4 @@
+import { attentionSnapshot, emptyAttention, loadAttention, verifiedDate, DAY } from './attention.ts';
 import { CloudError, category, evidence, emptyState, activity } from './ports.ts';
 import type { CloudProvider, StateRepository, State, CloudFolder, Mirror, SyncProgress, ProgressReporter, Diagnose, Failure, FailureEvidence, Blocker } from './ports.ts';
 import { progressSnapshot } from './progress.ts';
@@ -6,8 +7,12 @@ import type { RunHistoryRepository, HistoryInput } from './diagnostics.ts';
 
 export class ICloudSync {
   private state: State = emptyState();
+  private connectionCheck: 'unknown' | 'verified' | 'unavailable' = 'unknown';
   private progress = new Map<string, SyncProgress>();
   private busy = false;
+  private saving: Promise<void> = Promise.resolve();
+  private attentionWrites: Promise<unknown> = Promise.resolve();
+  private inlineWindows = new Map<string, number>();
   private stopped = false;
   private stopping: Promise<void> | null = null;
   private current: Promise<unknown> | null = null;
@@ -20,6 +25,8 @@ export class ICloudSync {
   }
   async start() {
     this.state = await this.repository.load() ?? emptyState();
+    this.state.lastSignInCompletedAt = verifiedDate(this.state.lastSignInCompletedAt, Date.parse(this.clock()));
+    this.state.attentionState = loadAttention(this.state.attentionState);
     await this.history.start();
     // Authentication continuations live only inside the provider instance.
     this.state.challenge = null;
@@ -41,20 +48,58 @@ export class ICloudSync {
     if (this.state.connected) setImmediate(() => {
       if (this.stopped) return;
       void this.exclusive(async () => {
-        try { await this.provider.verifyConnection(); }
+        try { await this.provider.verifyConnection(); this.connectionCheck = 'verified'; }
         catch (error) {
           const failure = category(error);
-          if (failure === 'authentication') {
-            this.state.connected = false; this.requireResume(); await this.save();
-          }
+          this.connectionCheck = 'unavailable'; this.connectionFailure(failure); await this.save();
           this.diagnose('restore_connection', failure, { evidence: evidence(error) });
         }
       }).catch(error => this.diagnose('restore_connection', category(error), { evidence: evidence(error) }));
     });
   }
-  status() { return { ...structuredClone(this.state), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), retryPending: this.state.connected && mirror.enabled && mirror.initialized && mirror.phase === 'failed' && mirror.blocker === null, recovering: mirror.phase === 'running' && mirror.failure !== null, progress: mirror.phase === 'running' ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
+  status() { return { connected: this.state.connected, challenge: this.state.challenge, connectionCheck: this.connectionCheck, lastSignInCompletedAt: verifiedDate(this.state.lastSignInCompletedAt, Date.parse(this.clock())), attention: this.attention(), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), retryPending: this.state.connected && mirror.enabled && mirror.initialized && mirror.phase === 'failed' && mirror.blocker === null, recovering: mirror.phase === 'running' && mirror.failure !== null, progress: mirror.phase === 'running' ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
   diagnostics(query: HistoryInput = {}) { return this.history.snapshot(query); }
-  private save() { return this.repository.save(structuredClone(this.state)); }
+  private save() {
+    const snapshot = structuredClone(this.state);
+    const task = this.saving.catch(() => {}).then(() => this.repository.save(snapshot));
+    this.saving = task; return task;
+  }
+  private attention() {
+    const now = Date.parse(this.clock());
+    const item = attentionSnapshot(this.state.attentionState ?? emptyAttention(), this.state.lastSignInCompletedAt, now);
+    return item ? { ...item, inlineVisible: [...this.inlineWindows.values()].some(until => until > now) } : null;
+  }
+  attentionPresence(windowId: string, visible: boolean) {
+    if (this.stopped) return;
+    const now = Date.parse(this.clock());
+    for (const [id, until] of this.inlineWindows) if (until <= now) this.inlineWindows.delete(id);
+    if (!visible) this.inlineWindows.delete(windowId);
+    else if (this.inlineWindows.size < 32 || this.inlineWindows.has(windowId)) this.inlineWindows.set(windowId, now + 45_000);
+  }
+  // Attention writes deliberately do not acquire the native-operation mutex.
+  attentionAction(generation: string, action: 'claim' | 'snooze'): Promise<boolean> {
+    if (this.stopped) return Promise.reject(new CloudError('busy'));
+    const task = this.attentionWrites.catch(() => {}).then(async () => {
+      const current = this.attention();
+      if (!current || current.generation !== generation || current.snoozedUntil) return false;
+      const state = this.state.attentionState!;
+      const now = Date.parse(this.clock());
+      if (action === 'claim' && (state.deliveredGeneration === generation || [...this.inlineWindows.values()].some(until => until > now))) return false;
+      const before = structuredClone(state);
+      if (action === 'snooze') { state.snoozedUntil = new Date(now + DAY).toISOString(); state.snoozedStage = current.stage; state.deliveredGeneration = null; }
+      else state.deliveredGeneration = generation;
+      try { await this.save(); return true; }
+      catch { if (this.state.attentionState === state) this.state.attentionState = before; this.diagnose('attention_write', 'unavailable'); throw new CloudError('unavailable'); }
+    });
+    this.attentionWrites = task; return task;
+  }
+  private connectionFailure(failure: Failure) {
+    if (failure !== 'authentication' && failure !== 'provider_rejected') return;
+    const state = this.state.attentionState!;
+    if (state.issue !== failure && state.issue !== 'authentication') { state.issue = failure; state.revision = (state.revision + 1) % Number.MAX_SAFE_INTEGER; }
+    if (failure === 'authentication') this.state.connected = false;
+    this.requireResume(failure);
+  }
   private folder(id: string) {
     const folder = this.state.mirrors.find(item => item.id === id);
     if (!folder) throw new CloudError('invalid_selection');
@@ -67,32 +112,38 @@ export class ICloudSync {
     this.current = task; return task;
   }
   async checkAvailability() { return this.provider.checkAvailability(); }
-  private requireResume() {
+  private requireResume(failure: Failure = 'authentication') {
     // Authorization belongs to the account, not just the first folder that
     // encountered expiry. Preserve Pause/Disconnect and stronger safety stops.
     for (const mirror of this.state.mirrors) {
       if (!mirror.enabled || !mirror.initialized || mirror.phase === 'retained' || mirror.blocker !== null) continue;
-      mirror.phase = 'failed'; mirror.failure = 'authentication'; mirror.blocker = 'reconnect';
+      mirror.phase = 'failed'; mirror.failure = failure; mirror.blocker = 'reconnect';
     }
   }
   connect(credentials: { account: string; password: string }) {
     return this.exclusive(async () => {
       this.requireResume();
-      this.state.connected = false; this.state.challenge = null; this.discovered.clear();
+      this.connectionCheck = 'unknown'; this.state.connected = false; this.state.challenge = null; this.discovered.clear();
       await this.save();
       try { return await this.applyConnection(await this.provider.connect(credentials)); }
-      catch (error) { this.diagnose('connect', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
+      catch (error) { this.connectionFailure(category(error)); await this.save(); this.diagnose('connect', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
     });
   }
   answerChallenge(answer: string) {
     return this.exclusive(async () => {
       if (!this.state.challenge) throw new CloudError('authentication');
       try { return await this.applyConnection(await this.provider.answerChallenge(answer)); }
-      catch (error) { this.diagnose('challenge', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
+      catch (error) { this.connectionFailure(category(error)); await this.save(); this.diagnose('challenge', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
     });
   }
   private async applyConnection(result: Awaited<ReturnType<CloudProvider['connect']>>) {
     this.state.connected = result.connected; this.state.challenge = result.connected ? null : result.challenge;
+    this.connectionCheck = result.connected ? 'verified' : 'unknown';
+    if (result.connected) {
+      // Provider returns connected only after the protected flow's verification read.
+      this.state.lastSignInCompletedAt = verifiedDate(this.clock(), Date.parse(this.clock()));
+      this.state.attentionState = emptyAttention();
+    }
     await this.save(); return this.status();
   }
   browse(parent: string | null) {
@@ -100,10 +151,10 @@ export class ICloudSync {
       if (!this.state.connected) throw new CloudError('authentication');
       if (parent !== null && !this.discovered.has(parent)) throw new CloudError('invalid_selection');
       try {
-        const folders = await this.provider.listFolders(parent);
+        const folders = await this.provider.listFolders(parent); this.connectionCheck = 'verified';
         for (const folder of folders) this.discovered.set(folder.id, folder);
         return folders;
-      } catch (error) { this.diagnose('browse', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
+      } catch (error) { this.connectionCheck = 'unavailable'; this.connectionFailure(category(error)); await this.save(); this.diagnose('browse', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
     });
   }
   select(folderId: string) {
@@ -185,7 +236,7 @@ export class ICloudSync {
   }
   private blockerFor(failure: Failure | null, initial: boolean): Blocker | null {
     if (initial) return failure === null ? null : 'initialization';
-    if (failure === 'authentication') return 'reconnect';
+    if (failure === 'authentication' || failure === 'provider_rejected') return 'reconnect';
     if (failure === 'configuration') return 'configuration';
     if (failure === 'capacity') return 'capacity';
     if (failure === 'invalid_selection') return 'configuration';
@@ -212,7 +263,7 @@ export class ICloudSync {
       } catch (error) {
         mirror.phase = 'failed'; mirror.failure = category(error); mirror.blocker = interrupted ? 'rebuild' : this.blockerFor(mirror.failure, initial); failure = mirror.failure; proof = evidence(error);
         if (initial) mirror.enabled = false;
-        if (mirror.failure === 'authentication') { this.state.connected = false; this.requireResume(); }
+        this.connectionFailure(mirror.failure);
         this.diagnose(`${initial ? 'prepare' : 'sync'}/${this.progress.get(mirror.id)?.stage ?? 'checking'}`, mirror.failure, this.history.context(proof));
       }
       await this.save(); completed = true;
@@ -226,7 +277,7 @@ export class ICloudSync {
   }
   disconnect() {
     return this.exclusive(async () => {
-      this.state.connected = false; this.state.challenge = null; this.discovered.clear();
+      this.connectionCheck = 'unknown'; this.state.connected = false; this.state.challenge = null; this.discovered.clear();
       for (const mirror of this.state.mirrors) { mirror.enabled = false; if (mirror.blocker === null && mirror.phase !== 'retained') mirror.phase = 'paused'; }
       await this.save();
       try { await this.provider.disconnect(); } catch (error) { this.diagnose('disconnect', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
@@ -239,6 +290,8 @@ export class ICloudSync {
     return this.stopping ??= (async () => {
       this.provider.requestStop?.();
       await this.current?.catch(() => {});
+      await this.attentionWrites.catch(() => {});
+      await this.saving.catch(() => {});
       await this.provider.stop();
     })();
   }

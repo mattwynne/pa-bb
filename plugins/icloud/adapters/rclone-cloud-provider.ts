@@ -43,7 +43,7 @@ export class RcloneCloudProvider implements CloudProvider {
   }
   private async authResult(result: any): Promise<Connection> {
     // Provider help/error/defaults may contain secrets. Return fixed domain copy only.
-    if (result?.Error) throw new CloudError('authentication');
+    if (result?.Error) throw new CloudError('sync_failed');
     if (result?.State === '') {
       this.continuation = null;
       // A successful harmless read proves the session works before showing connected.
@@ -132,7 +132,7 @@ export class RcloneCloudProvider implements CloudProvider {
       if (error instanceof CloudError && error.category === 'sync_failed') {
         try { await this.verifyConnection(); }
         catch (check) {
-          if (check instanceof CloudError && check.category === 'authentication') throw new CloudError('authentication', error.evidence ?? undefined);
+          if (check instanceof CloudError && ['authentication', 'provider_rejected'].includes(check.category)) throw new CloudError(check.category, error.evidence ?? undefined);
         }
       }
       throw error;

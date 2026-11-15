@@ -51,3 +51,7 @@
 .pa-icloud .pa-connection__footer { flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; justify-content: flex-start; }
 .pa-icloud .pa-connection__footer .pa-connection__button { margin-left: 0; }
 .pa-icloud .pa-connection__disclosure .pa-connection__button { margin-right: 0.5rem; }
+
+.pa-icloud__attention { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-block: 12px; background: var(--muted); overflow-wrap: anywhere; }
+.pa-icloud__attention p { margin-block: 8px; }
+.pa-icloud__attention-actions { display: flex; gap: 8px; flex-wrap: wrap; }

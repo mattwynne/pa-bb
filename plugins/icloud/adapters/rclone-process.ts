@@ -1,3 +1,4 @@
+import { rcConnectionFailure } from './rclone-connection-failure.ts';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { request } from 'node:http';
@@ -170,14 +171,7 @@ export class RcloneProcess {
         res.on('error', fail);
         res.on('end', () => {
           if (res.statusCode !== 200) {
-            // Stock v1.75.2 wraps backend errors in RC HTTP 500. Recognize
-            // only its exact native expiry marker, not Apple error prose,
-            // substrings, or HTTP 500 alone. Never retain the private envelope.
-            let expired = false;
-            if (res.statusCode === 500 && method === 'operations/list' && body.fs === 'icloud:') {
-              try { expired = JSON.parse(data)?.error === 'trust token expired, please reauth'; } catch { /* Unknown failure stays retryable. */ }
-            }
-            return reject(new CloudError(expired ? 'authentication' : 'sync_failed'));
+            return reject(new CloudError(rcConnectionFailure(method, body, res.statusCode, data)));
           }
           try { resolve(JSON.parse(data)); } catch { fail(); }
         });

@@ -31,7 +31,7 @@ test('Apple configuration maps to domain challenge and keeps secrets in private 
 });
 test('arbitrary provider error/help/defaults never escape the adapter', async () => {
   const f = fixture(); f.respond({ Error: 'sentinel-password', State: 'sentinel-state' });
-  await assert.rejects(f.provider.connect({ account: 'synthetic@example.test', password: 'sentinel' }), error => { assert.equal((error as Error).message, 'authentication'); return true; });
+  await assert.rejects(f.provider.connect({ account: 'synthetic@example.test', password: 'sentinel' }), error => { assert.equal((error as Error).message, 'sync_failed'); return true; });
   f.respond({ State: 'sentinel-state', Option: { Name: 'unexpected', Help: 'sentinel-password' } });
   await assert.rejects(f.provider.connect({ account: 'synthetic@example.test', password: 'sentinel' }), /unavailable/);
 });

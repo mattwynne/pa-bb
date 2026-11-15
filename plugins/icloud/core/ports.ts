@@ -1,5 +1,6 @@
+import type { AttentionState } from './attention.ts';
 // Domain ports: no command flags, config keys, remote syntax or raw errors.
-export const FAILURES = ['unavailable', 'authentication', 'configuration', 'capacity', 'interrupted', 'sync_failed', 'source_changed', 'busy', 'invalid_selection', 'recovery_required', 'unknown'] as const;
+export const FAILURES = ['unavailable', 'authentication', 'provider_rejected', 'configuration', 'capacity', 'interrupted', 'sync_failed', 'source_changed', 'busy', 'invalid_selection', 'recovery_required', 'unknown'] as const;
 export type Failure = typeof FAILURES[number];
 export type CommandFailureEvidence = { kind: 'command_exit'; exitCode: number | null; native?: 'retryable_abort' | 'resync_required_abort' | 'unknown_fatal'; reason?: 'listing_failure' } | { kind: 'command_timeout' | 'command_output_limit' | 'command_signal' | 'command_start' | 'command_stopped' };
 export type FailureEvidence = CommandFailureEvidence | { kind: 'post_run_reconcile'; reason: 'uncertain' | 'unavailable'; command: CommandFailureEvidence | null };
@@ -25,6 +26,7 @@ export class CloudError extends Error {
   constructor(category: Failure, evidence?: FailureEvidence) { super(category); this.name = 'CloudError'; this.category = category; this.evidence = failureEvidence(evidence); }
 }
 export type Challenge = 'verification_code' | 'trusted_device';
+// Connected means the protected authentication flow and verification read succeeded.
 export type Connection = { connected: true } | { connected: false; challenge: Challenge };
 export type CloudFolder = { id: string; name: string; ancestors: string[] };
 export const BLOCKERS = ['reconnect', 'configuration', 'capacity', 'initialization', 'rebuild'] as const;
@@ -36,7 +38,7 @@ export type TransferProgress = { bytes: number; totalBytes: number | null; files
 export type SyncProgress = TransferProgress & { stage: SyncStage; reusedFiles?: number };
 export type ProgressReporter = (progress: SyncProgress) => void;
 export const activity = (stage: SyncStage): SyncProgress => ({ stage, bytes: 0, totalBytes: null, files: 0, totalFiles: null });
-export type State = { connected: boolean; challenge: Challenge | null; mirrors: Mirror[] };
+export type State = { connected: boolean; challenge: Challenge | null; mirrors: Mirror[]; lastSignInCompletedAt?: string | null; attentionState?: AttentionState };
 export interface CloudProvider {
   checkAvailability(): Promise<void>;
   verifyConnection(): Promise<void>;
