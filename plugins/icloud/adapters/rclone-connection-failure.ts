@@ -10,7 +10,8 @@ export function rcConnectionFailure(method: string, body: Record<string, unknown
     if (error === 'trust token expired, please reauth') return 'authentication';
     // lib/rest/rest.go's exact native wrapper. Its quoted response body is
     // untrusted and contributes nothing to the diagnosis; 421 is ambiguous.
-    if (typeof error === 'string' && /^HTTP error 421 \(421(?: Misdirected Request)?\) returned body: "(?:[^"\\]|\\.)*"$/.test(error)) return 'provider_rejected';
+    // api/session.go also wraps this with the pinned Drive PCS operation.
+    if (typeof error === 'string' && /^(?:requestPCS\(iclouddrive\): )?HTTP error 421 \(421(?: Misdirected Request)?\) returned body: "(?:[^"\\]|\\.)*"$/.test(error)) return 'provider_rejected';
   } catch { /* No validated native evidence. */ }
   return 'sync_failed';
 }

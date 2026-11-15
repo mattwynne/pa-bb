@@ -67,6 +67,22 @@ test('bounded current RC evidence does not diagnose arbitrary prose, unrelated o
   assert.equal(classify('trust token expired, please reauth'), 'authentication');
   assert.equal(classify('PRIVATE_SENTINEL trust token expired, please reauth'), 'sync_failed');
   assert.equal(classify('HTTP error 421 (421 Misdirected Request) returned body: "PRIVATE_SENTINEL"'), 'provider_rejected');
+  const pcs = 'requestPCS(iclouddrive): HTTP error 421 (421 Misdirected Request) returned body: "PRIVATE_SENTINEL"';
+  assert.equal(classify(pcs), 'provider_rejected');
+  for (const error of [
+    'PRIVATE_SENTINEL: ' + pcs,
+    pcs + ' PRIVATE_SENTINEL',
+    pcs.replace('iclouddrive', 'PRIVATE_SENTINEL'),
+    pcs.replace('requestPCS', 'PRIVATE_SENTINEL'),
+    'requestPCS(iclouddrive): trust token expired, please reauth',
+    'requestPCS(iclouddrive): PRIVATE_SENTINEL HTTP error 421',
+    'requestPCS(iclouddrive): HTTP error 421 (421 Misdirected Request) returned body: PRIVATE_SENTINEL',
+    'requestPCS(iclouddrive): ' + pcs,
+  ]) assert.equal(classify(error), 'sync_failed');
+  assert.equal(classify(pcs, 503), 'sync_failed');
+  assert.equal(classify(pcs, 500, 'config/create'), 'sync_failed');
+  assert.equal(classify(pcs, 500, 'operations/list', { fs: 'other:' }), 'sync_failed');
+  assert.equal(classify('HTTP error 500 (500 Internal Server Error) returned body: ' + JSON.stringify(pcs)), 'sync_failed');
   assert.equal(classify('PRIVATE_SENTINEL says token expired HTTP 421'), 'sync_failed');
   assert.equal(classify('connection reset by peer PRIVATE_SENTINEL'), 'sync_failed');
   assert.equal(classify('anything', 421), 'provider_rejected');
