@@ -35,7 +35,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     // Runtime state is read only after sync.start; construction is side-effect free.
     runtime = dependencies?.runtime ?? new NoteRuntime(root, database as Database.Database, process, notes, () => sync.status(), undefined, diagnose);
     if (runtime.root !== root || runtime.worker !== process) throw new CloudError('unavailable');
-    provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body), (args, capture, report) => runtime!.run(args, capture, report), () => process.checkAvailability(), () => runtime!.stop(), undefined, undefined, mirror => runtime!.registerMirror(mirror), operation => runtime!.idleFiles(operation), () => runtime!.requestStop());
+    provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body), (args, capture, report) => runtime!.run(args, capture, report), () => process.checkAvailability(), () => runtime!.stop(), undefined, undefined, mirror => runtime!.registerMirror(mirror), operation => runtime!.idleFiles(operation), () => runtime!.requestStop(), (args, capture, report) => runtime!.continueInterrupted(args, capture, report));
   }
   const sync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose, dependencies?.history ?? bbRunHistory(bb));
   const updatePause = new UpdatePause(sync, { get: () => bb.storage.kv.get('pa-update-pause-v1'), set: value => bb.storage.kv.set('pa-update-pause-v1', value) });
@@ -109,6 +109,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       clientOnly(context); return pauseAction(() => updatePause.userEnable(input.id));
     },
     async retry({ id }, context) { clientOnly(context); return action(() => { updatePause.assertUserCanStartSync(); return sync.retry(id); }); },
+    async continueInterrupted({ id }, context) { clientOnly(context); return action(() => { updatePause.assertUserCanStartSync(); return sync.continueInterrupted(id); }); },
     async rebuild({ id }, context) { clientOnly(context); return action(() => { updatePause.assertUserCanStartSync(); return sync.rebuild(id); }); },
     async pause(input, context) {
       if ('updateJob' in input) { updaterOnly(context); return pauseAction(() => updatePause.pause(input.updateJob)); }

@@ -1,5 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash, randomUUID } from 'node:crypto';
+import Database from 'better-sqlite3';
+import { NoteRuntime } from '../adapters/note-runtime.ts';
+import { NoteStore } from '../adapters/note-store.ts';
+import { ICloudSync } from '../core/service.ts';
+import { RcloneCloudProvider } from '../adapters/rclone-cloud-provider.ts';
+import { MemoryState } from './fakes.ts';
 import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, chmod, stat, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -135,4 +142,92 @@ test('stock bisync recovers graceful and abrupt interruption, renews and expires
     assert.equal((await stat(join(f.local, 'slow.bin'))).size, 40 * 1024 * 1024);
     assert.ok(retainedPartials.length > 0, 'abruptly interrupted native partial was not preserved');
   } finally { await rm(f.root, { recursive: true }); }
+});
+
+// The interrupted command alone is bandwidth-limited to expose the real native
+// rename-both/copy window. The continuation has exactly the production args.
+for (const canonicalD of [false, true]) test(`owned interrupted conflict continuation preserves native B/C${canonicalD ? '/D and remains fenced' : ' and captures the complete pair'}`, { skip: !binary || process.platform !== 'linux', timeout: 180_000 }, async () => {
+  const root = await mkdtemp('/tmp/icloud-native-copy-window-');
+  const cloud = join(root, 'cloud'), source = join(cloud, 'generated');
+  const local = join(root, 'mirrors/one'), baseline = join(root, 'baselines/one');
+  for (const path of [source, local, baseline]) await mkdir(path, { recursive: true });
+  const db = new Database(':memory:');
+  const worker = new RcloneProcess(root, binary);
+  let runtime: NoteRuntime | undefined;
+  let interrupted = true, continuations = 0;
+  const repository = new MemoryState(); repository.value.connected = true;
+  repository.value.mirrors.push({ id: 'one', folder: { id: Buffer.from('generated').toString('base64url'), name: 'Generated', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', failure: null, blocker: null, lastSuccess: null });
+  const provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body),
+    (args, capture, report) => runtime!.run(interrupted ? [...args, '--bwlimit', '16k', '--transfers', '1', '--checkers', '1'] : args, capture, report),
+    async () => {}, async () => runtime!.stop(), undefined, undefined, undefined, undefined, undefined,
+    (args, capture, report) => { continuations++; assert.deepEqual(args, syncArguments('icloud:generated', local, baseline, false)); return runtime!.continueInterrupted(args, capture, report); });
+  const sync = new ICloudSync(provider, repository, () => new Date().toISOString(), () => 'unused', () => {});
+  const sha = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
+  const B = 'B'.repeat(512 * 1024), C = 'C'.repeat(512 * 1024), D = 'Distinct canonical D';
+  try {
+    await worker.ensure();
+    await worker.call('config/create', { name: 'icloud', type: 'alias', parameters: { remote: cloud }, opt: { nonInteractive: true } });
+    for (let i = 0; i < 5; i++) await put(join(source, `seed-${i}`), 'seed');
+    await put(join(source, 'Note.md'), 'Original A');
+    await worker.run(syncArguments('icloud:generated', local, baseline, true));
+    await worker.run(syncArguments('icloud:generated', local, baseline, false)); // native old listing pair
+    await writeFile(join(baseline, 'initialized'), '1', { mode: 0o600 });
+    await sync.start();
+    runtime = new NoteRuntime(root, db, worker, new NoteStore(join(root, 'legacy')), () => sync.status());
+    runtime.wake = () => {}; await runtime.start(); runtime.configure(1, ['one']);
+    const time = Date.now().toString(16).padStart(12, '0');
+    const operationId = `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
+    await runtime.commit(1, { mirrorId: 'one', path: 'Note.md', operationId, kind: 'replace', expectedHash: sha('Original A'), text: B });
+    await runtime.call('rc/noop', {}); // apply real B, not a manual rename fixture
+    assert.equal(sha(await readFile(join(local, 'Note.md'))), sha(B));
+    await put(join(source, 'Note.md'), C, 15_000);
+    const active = sync.tick();
+    await eventually(async () => {
+      const names = await readdir(local);
+      if (!names.includes('Note.md.bb-conflict1') || names.includes('Note.md') || names.includes('Note.md.icloud-conflict1')) return null;
+      const child = [...(worker as any).children][0];
+      assert.ok(child, 'native child must own the actual rename-both window');
+      child.kill('SIGKILL'); return true;
+    });
+    await active; interrupted = false;
+    assert.equal(sync.status().mirrors[0].blocker, 'rebuild');
+    assert.equal(runtime.overlay.beforeRun('one').length, 1);
+    assert.equal(sha(await readFile(join(local, 'Note.md.bb-conflict1'))), sha(B));
+    await assert.rejects(readFile(join(local, 'Note.md.icloud-conflict1')));
+    const receipt = await runtime.overlay.receipt(operationId);
+    assert.ok((await readdir(baseline)).some(name => name.endsWith('.lst-old')));
+    if (canonicalD) {
+      await put(join(source, 'Note.md'), D, 20_000);
+    }
+    // Native lock expiry, never removal/rewriting or a shortened production lock.
+    {
+      const lock = await find(baseline, '.lck');
+      assert.ok(lock);
+      const record = JSON.parse(await readFile(lock, 'utf8')) as { TimeExpires: string };
+      const expiry = Date.parse(record.TimeExpires); assert.ok(Number.isFinite(expiry));
+      await eventually(async () => Date.now() > expiry + 250 ? true : null, Math.max(1, expiry - Date.now() + 10_000));
+    }
+    await sync.continueInterrupted('one'); // EXACTLY ONE ordinary owned continuation
+    assert.equal(continuations, 1);
+    for (const side of [source, local]) {
+      assert.equal(sha(await readFile(join(side, 'Note.md.bb-conflict1'))), sha(B));
+      assert.equal(sha(await readFile(join(side, 'Note.md.icloud-conflict1'))), sha(C));
+      if (canonicalD) assert.equal(sha(await readFile(join(side, 'Note.md'))), sha(D));
+      else await assert.rejects(readFile(join(side, 'Note.md')), 'application must not republish canonical B');
+    }
+    assert.deepEqual(await runtime.overlay.receipt(operationId), receipt);
+    if (canonicalD) {
+      assert.equal(sync.status().mirrors[0].blocker, 'rebuild');
+      assert.equal(runtime.overlay.beforeRun('one').length, 1);
+      assert.equal(await runtime.overlay.inspect('one', 'Note.md'), null, 'must not capture C while hiding D');
+      await assert.rejects(runtime.read('one', 1, 'Note.md'));
+      assert.equal((await sync.diagnostics()).runs[0].evidence?.kind, 'post_run_reconcile');
+    } else {
+      assert.equal(sync.status().mirrors[0].blocker, null);
+      const conflict = await runtime.overlay.inspect('one', 'Note.md');
+      assert.equal(conflict?.incomingHash, sha(C));
+      assert.equal(await runtime.overlay.readIncoming('one', 'Note.md', conflict!.token), C);
+      assert.equal((await runtime.read('one', 1, 'Note.md') as any).hash, sha(B));
+    }
+  } finally { await sync.stop(); await runtime?.stop(); await worker.stop(); db.close(); await rm(root, { recursive: true, force: true }); }
 });

@@ -25,7 +25,8 @@ export class RcloneCloudProvider implements CloudProvider {
     private readonly reconcileNotes?: (mirror: Mirror) => Promise<void>,
     private readonly registerNotes?: (mirror: Mirror) => Promise<void>,
     private readonly idleFiles?: <T>(action: () => Promise<T>) => Promise<T>,
-    private readonly interrupt?: () => void) {}
+    private readonly interrupt?: () => void,
+    private readonly continueRun?: CommandRunner) {}
   async withMirrorFiles<T>(mirror: Mirror, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (!this.files) throw new CloudError('unavailable');
     return this.files(async signal => {
@@ -88,9 +89,9 @@ export class RcloneCloudProvider implements CloudProvider {
     return join(this.root, 'mirrors', mirror.id);
   }
   private remote(mirror: Mirror) { return `icloud:${decode(mirror.folder.id)}`; }
-  private async bisync(mirror: Mirror, initial: boolean, report?: ProgressReporter) {
+  private async bisync(mirror: Mirror, initial: boolean, report?: ProgressReporter, runner = this.run) {
     report?.(activity('checking'));
-    await this.run(syncArguments(this.remote(mirror), this.localFolder(mirror), join(this.root, 'baselines', mirror.id), initial), false, report ? stats => {
+    await runner(syncArguments(this.remote(mirror), this.localFolder(mirror), join(this.root, 'baselines', mirror.id), initial), false, report ? stats => {
       const complete = stats.totalFiles !== null && stats.files >= stats.totalFiles && (stats.totalBytes === null || stats.bytes >= stats.totalBytes);
       // Preserve measured completion counters for diagnostics before returning to finishing activity.
       report({ ...stats, stage: stats.bytes || stats.totalBytes || stats.totalFiles ? 'transferring' : 'checking' });
@@ -136,6 +137,10 @@ export class RcloneCloudProvider implements CloudProvider {
       }
       throw error;
     }
+  }
+  async continueInterrupted(mirror: Mirror, report?: ProgressReporter) {
+    if (!this.continueRun || !mirror.initialized || mirror.blocker !== 'rebuild' || mirror.phase !== 'running') throw new CloudError('recovery_required');
+    await this.bisync(mirror, false, report, this.continueRun);
   }
   async disconnect() {
     this.continuation = null;

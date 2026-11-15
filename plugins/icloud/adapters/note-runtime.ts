@@ -96,10 +96,10 @@ export class NoteRuntime {
   }
   private mirror(id: string) { return this.state().mirrors.find(m => m.id === id); }
   private localPath(mirror: Mirror) { return join(this.root, 'mirrors', mirror.id); }
-  private async local(mirror: Mirror) {
-    if (!mirror.initialized || mirror.phase === 'retained' || ['rebuild', 'initialization', 'configuration'].includes(mirror.blocker ?? '')) throw new CloudError('source_changed');
+  private async local(mirror: Mirror, interrupted = false) {
+    if (!mirror.initialized || mirror.phase === 'retained' || (interrupted ? mirror.blocker !== 'rebuild' : ['rebuild', 'initialization', 'configuration'].includes(mirror.blocker ?? ''))) throw new CloudError('source_changed');
     const bound = this.db.prepare('SELECT * FROM icloud_note_bindings WHERE mirror_id=?').get(mirror.id) as { folder_id: string; root_dev: number; root_ino: number; baseline_dev: number; baseline_ino: number } | undefined;
-    if (bound && bound.folder_id !== mirror.folder.id) throw new CloudError('source_changed');
+    if ((interrupted && !bound) || (bound && bound.folder_id !== mirror.folder.id)) throw new CloudError('source_changed');
     const root = this.localPath(mirror), baseline = join(this.root, 'baselines', mirror.id);
     const [rootInfo, baselineInfo] = await Promise.all([lstat(root).catch(() => null), lstat(baseline).catch(() => null)]);
     if ([rootInfo, baselineInfo].some(info => !info?.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.())) throw new CloudError('source_changed');
@@ -127,7 +127,7 @@ export class NoteRuntime {
   }
   async availability(id: string): Promise<{ available: boolean; reason: 'ownership' | 'recovery_required' | 'source_changed' | null }> {
     if (!this.ready || this.closed) return { available: false, reason: 'ownership' };
-    if (this.storageBlocked || this.blocked.has(id)) return { available: false, reason: 'recovery_required' };
+    if (this.storageBlocked || this.blocked.has(id) || this.nativeBlocked.get(id) === 'uncertain' || this.mirror(id)?.blocker === 'rebuild') return { available: false, reason: 'recovery_required' };
     const mirror = this.mirror(id);
     if (!mirror) return { available: false, reason: 'source_changed' };
     try { await this.local(mirror); return { available: true, reason: null }; }
@@ -148,7 +148,7 @@ export class NoteRuntime {
   }
   private guard(id: string) {
     const active = this.context.getStore();
-    if (this.storageBlocked) throw new CloudError('recovery_required');
+    if (this.storageBlocked || this.blocked.has(id) || this.nativeBlocked.get(id) === 'uncertain' || ['rebuild', 'initialization', 'configuration'].includes(this.mirror(id)?.blocker ?? '')) throw new CloudError('recovery_required');
     if (!this.ready || this.closed || !active || active.mirrorId !== id || active.revision !== this.revision || !this.members.has(id)) throw new CloudError('invalid_selection');
     const mirror = this.mirror(id);
     const bound = this.db.prepare('SELECT * FROM icloud_note_bindings WHERE mirror_id=?').get(id) as { folder_id: string; root_dev: number; root_ino: number; baseline_dev: number; baseline_ino: number } | undefined;
@@ -175,6 +175,7 @@ export class NoteRuntime {
     try { return await task; } finally { this.entered.delete(task); }
   }
   private guardWithin(id: string, revision: number) {
+    if (this.blocked.has(id) || this.nativeBlocked.get(id) === 'uncertain' || this.mirror(id)?.blocker === 'rebuild') throw new CloudError('recovery_required');
     if (this.closed || this.revision !== revision || !this.members.has(id)) throw new CloudError('invalid_selection');
   }
   async searchNotes(input: SearchRequest) {
@@ -245,7 +246,7 @@ export class NoteRuntime {
       if (id && !args.includes('--resync')) {
         if (this.nativeBlocked.get(id) === 'native_failure' && this.mirror(id)?.blocker === null) this.nativeBlocked.delete(id); // explicit Retry cleared the prior blocker
         await this.quantum();
-        if (this.nativeBlocked.has(id) || this.overlay.hasUnresolvedJournals(id)) throw new CloudError('recovery_required');
+        if (this.mirror(id)?.blocker === 'rebuild' || this.nativeBlocked.has(id) || this.overlay.hasUnresolvedJournals(id)) throw new CloudError('recovery_required');
       }
       const eligible = id && !args.includes('--resync') ? this.overlay.beforeRun(id) : [];
       let succeeded = false;
@@ -266,6 +267,32 @@ export class NoteRuntime {
             });
           }
         }
+      }
+    });
+  }
+  continueInterrupted(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
+    return this.turn(async () => {
+      const mirror = this.state().mirrors.find(m => this.localPath(m) === args[2]);
+      if (!this.ready || this.storageBlocked || !mirror || mirror.blocker !== 'rebuild' || mirror.phase !== 'running' || args[0] !== 'bisync' || args.includes('--resync')) throw new CloudError('recovery_required');
+      // The service persisted the existing rebuild fence BEFORE this turn.
+      // Already-entered saves must drain through the final publication guard.
+      await Promise.allSettled([...this.entered]);
+      await this.bindAccount();
+      const root = await this.local(mirror, true);
+      const held = await this.overlay.interruptedCopies(root, mirror.id).catch(() => { throw new CloudError('recovery_required'); });
+      try {
+        const output = await this.worker.run(args, capture, report);
+        await this.local(mirror, true);
+        // Validate EVERY held head before collision capture or retirement. In
+        // particular canonical D alongside B/C is not a verified conflict.
+        await this.overlay.interruptedCopies(root, mirror.id, held);
+        await this.overlay.afterRun(root, mirror.id, this.overlay.beforeRun(mirror.id), true);
+        this.nativeBlocked.delete(mirror.id); this.blocked.delete(mirror.id);
+        return output;
+      } catch (error) {
+        this.nativeBlocked.set(mirror.id, 'uncertain');
+        if (error instanceof CloudError) throw error;
+        throw new CloudError('recovery_required', { kind: 'post_run_reconcile', reason: error instanceof NoteError && error.category === 'uncertain' ? 'uncertain' : 'unavailable', command: null });
       }
     });
   }
@@ -321,7 +348,7 @@ export class NoteRuntime {
     setImmediate(() => { this.wakeScheduled = false; if (!this.closed) void this.turn(async () => {}).catch(() => {}); });
   }
   pendingAgeMs(id: string) { return this.overlay.pendingAgeMs(id); }
-  applicationBlocker(id: string) { return this.nativeBlocked.get(id) === 'uncertain' ? 'application_uncertain' as const : this.nativeBlocked.has(id) ? 'native_recovery' as const : null; }
+  applicationBlocker(id: string) { return this.mirror(id)?.blocker === 'rebuild' || this.nativeBlocked.get(id) === 'uncertain' ? 'application_uncertain' as const : this.nativeBlocked.has(id) ? 'native_recovery' as const : null; }
   requestStop() {
     this.closed = true; this.ready = false;
     this.worker.requestStop();

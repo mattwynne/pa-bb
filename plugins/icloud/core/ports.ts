@@ -45,6 +45,8 @@ export interface CloudProvider {
   listFolders(parent: string | null): Promise<CloudFolder[]>;
   prepareMirror(mirror: Mirror, report?: ProgressReporter): Promise<void>;
   synchronize(mirror: Mirror, report?: ProgressReporter): Promise<void>;
+  // Explicit assessment plus one ordinary native continuation; never Retry.
+  continueInterrupted?(mirror: Mirror, report?: ProgressReporter): Promise<void>;
   disconnect(): Promise<void>;
   // Close admission and interrupt work without releasing its native owner.
   requestStop?(): void;

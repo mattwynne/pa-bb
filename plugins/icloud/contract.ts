@@ -17,7 +17,7 @@ export const rpcContract = defineRpcContract({
   rcloneLogs: { input: z.union([z.null(), traceQuerySchema]), output: traceSnapshotSchema },
   browse: { input: z.object({ parent: z.string().max(4096).nullable() }).strict(), output: z.array(folder) },
   select: { input: z.object({ folderId: z.string().min(1).max(4096) }).strict(), output: statusSchema },
-  enable: { input: pauseOrResume, output: statusSchema }, retry: { input: id, output: statusSchema }, rebuild: { input: id, output: statusSchema }, pause: { input: pauseOrResume, output: statusSchema },
+  enable: { input: pauseOrResume, output: statusSchema }, retry: { input: id, output: statusSchema }, continueInterrupted: { input: id, output: statusSchema }, rebuild: { input: id, output: statusSchema }, pause: { input: pauseOrResume, output: statusSchema },
   disconnect: { input: z.null(), output: statusSchema },
   inventory: { input: z.null(), output: z.array(z.object({ id: z.string(), name: z.string(), phase: z.string(), lastSuccess: z.string().nullable(), local })) },
 });

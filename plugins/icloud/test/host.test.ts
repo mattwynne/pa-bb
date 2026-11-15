@@ -74,7 +74,7 @@ test('other plugins cannot invoke sync consent or account controls', async () =>
   const { harness } = await setup();
   try {
     const context = { experimental_caller: { kind: 'plugin' as const, pluginId: 'fastmail' } };
-    for (const [method, input] of [['disconnect', null], ['browse', { parent: null }], ['select', { folderId: 'test' }], ['enable', { id: 'mirror-1' }], ['retry', { id: 'mirror-1' }], ['pause', { id: 'mirror-1' }]] as const) await assert.rejects(harness.behavior.callRpc(method, input, context), /settings/);
+    for (const [method, input] of [['disconnect', null], ['browse', { parent: null }], ['select', { folderId: 'test' }], ['enable', { id: 'mirror-1' }], ['retry', { id: 'mirror-1' }], ['continueInterrupted', { id: 'mirror-1' }], ['pause', { id: 'mirror-1' }]] as const) await assert.rejects(harness.behavior.callRpc(method, input, context), /settings/);
   } finally { await harness.lifecycle.dispose(); }
 });
 test('host-verified updater owns only its Pause reservation; clients and other plugins cannot forge it', async () => {
@@ -93,13 +93,13 @@ test('host-verified updater owns only its Pause reservation; clients and other p
     await harness.behavior.callRpc('pause', { updateJob }, updater);
     assert.deepEqual(await bb.storage.kv.get('pa-update-pause-v1'), { jobId: updateJob, ownedIds: [id] });
     assert.equal(statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].enabled, false);
-    for (const method of ['enable', 'retry', 'rebuild']) await assert.rejects(harness.behavior.callRpc(method, { id }), /operation/);
+    for (const method of ['enable', 'retry', 'rebuild', 'continueInterrupted']) await assert.rejects(harness.behavior.callRpc(method, { id }), /operation/);
     await assert.rejects(harness.behavior.callRpc('enable', { updateJob: '22222222-2222-4222-8222-222222222222' }, updater), /operation/);
     const synced = provider.synced; await harness.behavior.runSchedule('selected-folder-sync'); assert.equal(provider.synced, synced);
     await harness.behavior.callRpc('enable', { updateJob }, updater);
     assert.equal(statusSchema.parse(await harness.behavior.callRpc('status', null)).mirrors[0].enabled, true);
     assert.equal(provider.synced, synced, 'resume does not invent a new manual sync');
-    for (const [method, input] of [['disconnect', null], ['browse', { parent: null }], ['select', { folderId: 'test' }], ['retry', { id }], ['rebuild', { id }]] as const) await assert.rejects(harness.behavior.callRpc(method, input, updater), /settings/);
+    for (const [method, input] of [['disconnect', null], ['browse', { parent: null }], ['select', { folderId: 'test' }], ['retry', { id }], ['continueInterrupted', { id }], ['rebuild', { id }]] as const) await assert.rejects(harness.behavior.callRpc(method, input, updater), /settings/);
   } finally { await harness.lifecycle.dispose(); }
 });
 test('user Pause during draining stays paused after the updater reservation and reload', async () => {

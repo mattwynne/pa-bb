@@ -28,8 +28,8 @@ export class ICloudSync {
       // migration framework, but their prior failure is never silently cleared.
       if ((mirror as Partial<Mirror>).blocker === undefined) mirror.blocker = this.blockerFor(mirror.failure, !mirror.initialized);
       if (mirror.phase === 'running') {
-        mirror.phase = 'failed'; mirror.failure = 'interrupted';
-        mirror.blocker = mirror.initialized ? null : 'initialization';
+        mirror.phase = 'failed'; if (mirror.blocker !== 'rebuild' || mirror.failure === null) mirror.failure = 'interrupted';
+        mirror.blocker = mirror.initialized ? mirror.blocker : 'initialization';
         if (!mirror.initialized) mirror.enabled = false;
         this.diagnose('restart', 'interrupted');
       }
@@ -143,6 +143,17 @@ export class ICloudSync {
       return this.status();
     });
   }
+  continueInterrupted(id: string) {
+    return this.exclusive(async () => {
+      if (!this.state.connected) throw new CloudError('authentication');
+      const mirror = this.folder(id);
+      if (!mirror.initialized || mirror.phase !== 'failed' || mirror.blocker !== 'rebuild' || !this.provider.continueInterrupted) throw new CloudError('recovery_required');
+      // Keep enabled exactly as the user left it. This is not Resume, Retry,
+      // conflict resolution or permission to clear the durable recovery fence.
+      await this.run(mirror, false, true);
+      return this.status();
+    });
+  }
   pause(id: string) {
     return this.exclusive(async () => {
       const mirror = this.folder(id); mirror.enabled = false;
@@ -181,7 +192,7 @@ export class ICloudSync {
     if (failure === 'recovery_required' || failure === 'unknown') return 'rebuild';
     return null;
   }
-  private async run(mirror: Mirror, initial: boolean) {
+  private async run(mirror: Mirror, initial: boolean, interrupted = false) {
     mirror.phase = 'running'; this.progress.set(mirror.id, activity('checking'));
     await this.history.begin(initial ? 'initial' : 'sync'); this.history.update(activity('checking'));
     let reporting = true; let completed = false; let failure: Failure | null = null; let proof: FailureEvidence | null = null;
@@ -192,13 +203,14 @@ export class ICloudSync {
     try {
       await this.save();
       try {
-        if (initial) await this.provider.prepareMirror(structuredClone(mirror), report);
+        if (interrupted) await this.provider.continueInterrupted!(structuredClone(mirror), report);
+        else if (initial) await this.provider.prepareMirror(structuredClone(mirror), report);
         else await this.provider.synchronize(structuredClone(mirror), report);
         if (this.stopped) throw new CloudError('interrupted');
         // Recorded after the provider operation returns, not proof of delivery to another device.
-        mirror.initialized = true; mirror.lastSuccess = this.clock(); mirror.failure = null; mirror.blocker = null; mirror.phase = 'ready';
+        mirror.initialized = true; mirror.lastSuccess = this.clock(); mirror.failure = null; mirror.blocker = null; mirror.phase = interrupted && !mirror.enabled ? 'paused' : 'ready';
       } catch (error) {
-        mirror.phase = 'failed'; mirror.failure = category(error); mirror.blocker = this.blockerFor(mirror.failure, initial); failure = mirror.failure; proof = evidence(error);
+        mirror.phase = 'failed'; mirror.failure = category(error); mirror.blocker = interrupted ? 'rebuild' : this.blockerFor(mirror.failure, initial); failure = mirror.failure; proof = evidence(error);
         if (initial) mirror.enabled = false;
         if (mirror.failure === 'authentication') { this.state.connected = false; this.requireResume(); }
         this.diagnose(`${initial ? 'prepare' : 'sync'}/${this.progress.get(mirror.id)?.stage ?? 'checking'}`, mirror.failure, this.history.context(proof));
@@ -215,7 +227,7 @@ export class ICloudSync {
   disconnect() {
     return this.exclusive(async () => {
       this.state.connected = false; this.state.challenge = null; this.discovered.clear();
-      for (const mirror of this.state.mirrors) { mirror.enabled = false; mirror.blocker = null; if (mirror.phase !== 'retained') mirror.phase = 'paused'; }
+      for (const mirror of this.state.mirrors) { mirror.enabled = false; if (mirror.blocker === null && mirror.phase !== 'retained') mirror.phase = 'paused'; }
       await this.save();
       try { await this.provider.disconnect(); } catch (error) { this.diagnose('disconnect', category(error), { evidence: evidence(error) }); throw new CloudError(category(error)); }
       return this.status();
