@@ -118,3 +118,96 @@ test('a routine network check failure is unavailable, not proven expiry or a new
   assert.equal(f.sync.status().connectionCheck, 'unavailable'); assert.equal(f.sync.status().connected, true);
   assert.equal(f.sync.status().attention, null); assert.equal(f.sync.status().lastSignInCompletedAt, signed);
 });
+
+for (const issue of ['authentication', 'provider_rejected'] as const) test(`${issue} claim becomes eligible after 24 hours across renderer loss/reload, not each poll`, async () => {
+  const f = fixture();
+  f.repository.value.attentionState = { ...emptyAttention(), issue, revision: 1 };
+  await f.sync.start(); const generation = f.sync.status().attention!.generation;
+  assert.equal(await f.sync.attentionAction(generation, 'claim'), true);
+  const reload = async () => {
+    const sync = new ICloudSync(f.provider, f.repository, () => new Date(Date.parse(signed) + elapsed * DAY).toISOString(), () => 'id', () => {});
+    await sync.start(); return sync;
+  };
+  let elapsed = 0.999; let reloaded = await reload();
+  assert.equal(await reloaded.attentionAction(generation, 'claim'), false);
+  elapsed = 1; reloaded = await reload();
+  assert.deepEqual(await Promise.all([reloaded.attentionAction(generation, 'claim'), reloaded.attentionAction(generation, 'claim')]), [true, false]);
+  elapsed = 1.5; reloaded = await reload();
+  assert.equal(await reloaded.attentionAction(generation, 'claim'), false);
+  elapsed = 2; reloaded = await reload();
+  assert.equal(await reloaded.attentionAction(generation, 'claim'), true);
+});
+test('reminder generation rollover cannot produce two same-stage claims less than 24 hours apart', async () => {
+  const f = fixture(); f.repository.value.lastSignInCompletedAt = signed; f.advance(25.9); await f.sync.start();
+  const first = f.sync.status().attention!.generation;
+  assert.equal(await f.sync.attentionAction(first, 'claim'), true);
+  f.advance(0.2); const next = f.sync.status().attention!.generation; assert.notEqual(next, first);
+  assert.equal(await f.sync.attentionAction(next, 'claim'), false);
+  f.advance(0.8); assert.equal(await f.sync.attentionAction(f.sync.status().attention!.generation, 'claim'), true);
+});
+for (const deliveredAt of [undefined, null, 'PRIVATE_SENTINEL', '2026-02-30T00:00:00.000Z', '2027-01-01T00:00:00.000Z']) test(`legacy/invalid delivery time ${JSON.stringify(deliveredAt)} cannot suppress an unresolved warning forever`, async () => {
+  const f = fixture();
+  f.repository.value.attentionState = Object.assign(emptyAttention(), { issue: 'authentication' as const, revision: 1, deliveredGeneration: 'authentication:1', deliveredAt });
+  await f.sync.start();
+  const generation = f.sync.status().attention!.generation;
+  assert.equal(await f.sync.attentionAction(generation, 'claim'), true);
+  assert.equal(await f.sync.attentionAction(generation, 'claim'), false);
+  assert.doesNotMatch(JSON.stringify([f.sync.status(), f.logs]), /PRIVATE_SENTINEL/);
+});
+for (const action of ['claim', 'snooze'] as const) test(`failed deferred ${action} cannot roll a concurrent new authentication issue back to provider_rejected`, async () => {
+  const f = fixture();
+  f.repository.value = { connected: true, challenge: null, mirrors: [mirror('one', { phase: 'failed', failure: 'provider_rejected', blocker: 'reconnect' }), mirror('paused', { enabled: false, phase: 'paused' }), mirror('critical', { phase: 'failed', failure: 'recovery_required', blocker: 'rebuild' })], attentionState: { ...emptyAttention(), issue: 'provider_rejected', revision: 1 } };
+  await f.sync.start();
+  const preserved = f.sync.status().mirrors.filter(m => m.id !== 'one');
+  let releaseNative!: () => void; f.provider.pending = new Promise<void>(resolve => { releaseNative = resolve; });
+  const running = f.sync.enable('one'); await new Promise(resolve => setImmediate(resolve));
+  const save = f.repository.save.bind(f.repository); let first = true; let rejectWrite!: (error: Error) => void;
+  f.repository.save = async state => { if (first) { first = false; await new Promise<void>((_resolve, reject) => { rejectWrite = reject; }); } await save(state); };
+  const write = assert.rejects(f.sync.attentionAction(f.sync.status().attention!.generation, action), /unavailable/);
+  await new Promise(resolve => setImmediate(resolve));
+  f.provider.fail = 'authentication'; releaseNative(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.sync.status().attention!.stage, 'authentication');
+  rejectWrite(new Error('PRIVATE_SENTINEL')); await write; await running;
+  assert.equal(f.sync.status().attention!.stage, 'authentication');
+  assert.equal(f.sync.status().attention!.snoozedUntil, null);
+  assert.equal(f.sync.status().connected, false);
+  assert.equal(f.repository.value.attentionState!.issue, 'authentication');
+  assert.equal(f.sync.status().mirrors[0].blocker, 'reconnect');
+  assert.deepEqual(f.sync.status().mirrors.filter(m => m.id !== 'one'), preserved);
+  await f.sync.pause('one');
+  assert.equal(f.repository.value.attentionState!.issue, 'authentication');
+  assert.equal(f.repository.value.mirrors[0].enabled, false); assert.equal(f.repository.value.mirrors[0].blocker, 'reconnect');
+  assert.doesNotMatch(JSON.stringify([f.sync.status(), f.logs, f.repository.value]), /PRIVATE_SENTINEL/);
+});
+test('failed deferred claim cannot replace attention cleared by successful protected sign-in', async () => {
+  const f = fixture(); f.repository.value.lastSignInCompletedAt = signed; f.advance(25); await f.sync.start();
+  await f.sync.connect({ account: 'synthetic', password: 'PRIVATE_SENTINEL' });
+  const save = f.repository.save.bind(f.repository); let first = true; let rejectWrite!: (error: Error) => void;
+  f.repository.save = async state => { if (first) { first = false; await new Promise<void>((_resolve, reject) => { rejectWrite = reject; }); } await save(state); };
+  const write = assert.rejects(f.sync.attentionAction(f.sync.status().attention!.generation, 'claim'), /unavailable/);
+  await new Promise(resolve => setImmediate(resolve));
+  const signedIn = f.sync.answerChallenge('123456'); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.sync.status().attention, null);
+  rejectWrite(new Error('PRIVATE_SENTINEL')); await write; await signedIn;
+  assert.equal(f.sync.status().attention, null); assert.equal(f.repository.value.attentionState!.issue, null);
+  assert.equal(f.repository.value.attentionState!.deliveredGeneration, null);
+});
+
+test('a stronger authentication issue can override a recent provider-rejection claim and snooze only once', async () => {
+  const f = fixture(); f.repository.value.connected = true;
+  f.repository.value.attentionState = { ...emptyAttention(), issue: 'provider_rejected', revision: 1 };
+  await f.sync.start();
+  const previous = f.sync.status().attention!.generation;
+  assert.equal(await f.sync.attentionAction(previous, 'claim'), true);
+  f.advance(0.25); assert.equal(await f.sync.attentionAction(previous, 'snooze'), true);
+  f.provider.verifyConnection = async () => { throw new CloudError('authentication'); };
+  f.sync.restoreConnection(); await new Promise(resolve => setImmediate(resolve));
+  const auth = f.sync.status().attention!;
+  assert.equal(auth.stage, 'authentication'); assert.equal(auth.snoozedUntil, null);
+  assert.equal(await f.sync.attentionAction(auth.generation, 'claim'), true);
+  assert.equal(await f.sync.attentionAction(auth.generation, 'claim'), false);
+  f.advance(0.25); assert.equal(await f.sync.attentionAction(auth.generation, 'snooze'), true);
+  f.advance(0.9); assert.equal(await f.sync.attentionAction(auth.generation, 'claim'), false);
+  f.advance(0.1); assert.equal(await f.sync.attentionAction(auth.generation, 'claim'), true);
+  assert.equal(await f.sync.attentionAction(auth.generation, 'claim'), false);
+});

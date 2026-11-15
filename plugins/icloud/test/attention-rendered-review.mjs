@@ -105,6 +105,15 @@ try {
     await page.getByRole('button', { name: 'Open iCloud settings', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Remind tomorrow', exact: true }).click();
     await page.waitForTimeout(300); assert.equal(await page.locator('[data-sonner-toast]').count(), 0);
+    // Model the server's 24-hour snooze expiry without changing the failure
+    // generation: a renderer must claim again, not replay its old ownership.
+    const actionsBeforeExpiry = methods.filter(method => method === 'attentionAction').length;
+    state.attention.snoozedUntil = null; claimed = false;
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await page.getByRole('button', { name: 'Open iCloud settings', exact: true }).waitFor();
+    assert.equal(methods.filter(method => method === 'attentionAction').length, actionsBeforeExpiry + 1);
+    await page.getByRole('button', { name: 'Remind tomorrow', exact: true }).click();
+    await page.waitForTimeout(300); assert.equal(await page.locator('[data-sonner-toast]').count(), 0);
     await page.reload(); await page.waitForTimeout(1000); assert.equal(await page.locator('[data-sonner-toast]').count(), 0);
     await context.close(); console.log(`PASS BB0.49 attention journey, native toast, keyboard, dedupe, failed snooze, protected 2FA, preserved paused/critical, unsuccessful Continue/Pause, active status, offline/reload at ${width}px`);
   }

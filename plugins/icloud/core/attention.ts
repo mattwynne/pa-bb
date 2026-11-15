@@ -1,8 +1,8 @@
 export const DAY = 86_400_000;
 export type ConnectionIssue = 'authentication' | 'provider_rejected';
-export type AttentionState = { issue: ConnectionIssue | null; revision: number; snoozedUntil: string | null; snoozedStage: string | null; deliveredGeneration: string | null };
+export type AttentionState = { issue: ConnectionIssue | null; revision: number; snoozedUntil: string | null; snoozedStage: string | null; deliveredGeneration: string | null; deliveredAt: string | null };
 export type Attention = { stage: 'reminder' | ConnectionIssue; generation: string; snoozedUntil: string | null };
-export const emptyAttention = (): AttentionState => ({ issue: null, revision: 0, snoozedUntil: null, snoozedStage: null, deliveredGeneration: null });
+export const emptyAttention = (): AttentionState => ({ issue: null, revision: 0, snoozedUntil: null, snoozedStage: null, deliveredGeneration: null, deliveredAt: null });
 export function verifiedDate(value: unknown, now: number): string | null {
   if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value)) return null;
   const time = Date.parse(value);
@@ -17,10 +17,10 @@ export function attentionSnapshot(state: AttentionState, completed: unknown, now
   const snooze = verifiedDate(state.snoozedUntil, now + DAY);
   return { stage, generation, snoozedUntil: state.snoozedStage === stage && snooze && Date.parse(snooze) > now ? snooze : null };
 }
-export function loadAttention(value: AttentionState | undefined): AttentionState {
+export function loadAttention(value: AttentionState | undefined, now: number): AttentionState {
   return { ...emptyAttention(), issue: value?.issue === 'authentication' || value?.issue === 'provider_rejected' ? value.issue : null,
     revision: Number.isSafeInteger(value?.revision) && value!.revision >= 0 ? value!.revision : 0,
     snoozedUntil: typeof value?.snoozedUntil === 'string' ? value.snoozedUntil : null,
     snoozedStage: ['reminder', 'authentication', 'provider_rejected'].includes(value?.snoozedStage ?? '') ? value!.snoozedStage : null,
-    deliveredGeneration: typeof value?.deliveredGeneration === 'string' && value.deliveredGeneration.length < 160 ? value.deliveredGeneration : null };
+    deliveredGeneration: typeof value?.deliveredGeneration === 'string' && value.deliveredGeneration.length < 160 ? value.deliveredGeneration : null, deliveredAt: verifiedDate(value?.deliveredAt, now) };
 }

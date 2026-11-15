@@ -38,7 +38,7 @@ export function ICloudAttention() {
         const state = await rpc.call('status', null);
         if (disposed || inlineVisible || document.hidden || !navigator.onLine) return;
         const item = state.attention;
-        if (!item || item.snoozedUntil || item.inlineVisible) { dismiss(); return; }
+        if (!item || item.snoozedUntil || item.inlineVisible) { if (!item || item.snoozedUntil) owned = null; dismiss(); return; }
         if (shown === item.generation) return;
         if (owned !== item.generation && !await rpc.call('attentionAction', { generation: item.generation, action: 'claim' })) { dismiss(); return; }
         owned = item.generation;
@@ -48,7 +48,7 @@ export function ICloudAttention() {
         const show = (failed = false) => toast.warning(copy.title, { id: TOAST_ID, duration: Infinity, dismissible: false,
           description: failed ? 'Could not save the reminder. Try again in iCloud settings.' : copy.description,
           action: { label: 'Open iCloud settings', onClick: () => { window.location.assign('/plugins/icloud?configure=icloud'); } },
-          cancel: { label: 'Remind tomorrow', onClick: () => { void rpc.call('attentionAction', { generation: item.generation, action: 'snooze' }).then(saved => { if (saved) dismiss(); else show(true); }).catch(() => show(true)); } } });
+          cancel: { label: 'Remind tomorrow', onClick: () => { void rpc.call('attentionAction', { generation: item.generation, action: 'snooze' }).then(saved => { if (saved) { owned = null; dismiss(); } else show(true); }).catch(() => show(true)); } } });
         show();
       } catch { dismiss(); /* Offline checks do not queue notifications or diagnose expiry. */ }
       finally { pending = false; }

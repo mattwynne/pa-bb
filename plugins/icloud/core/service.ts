@@ -26,7 +26,7 @@ export class ICloudSync {
   async start() {
     this.state = await this.repository.load() ?? emptyState();
     this.state.lastSignInCompletedAt = verifiedDate(this.state.lastSignInCompletedAt, Date.parse(this.clock()));
-    this.state.attentionState = loadAttention(this.state.attentionState);
+    this.state.attentionState = loadAttention(this.state.attentionState, Date.parse(this.clock()));
     await this.history.start();
     // Authentication continuations live only inside the provider instance.
     this.state.challenge = null;
@@ -84,12 +84,20 @@ export class ICloudSync {
       if (!current || current.generation !== generation || current.snoozedUntil) return false;
       const state = this.state.attentionState!;
       const now = Date.parse(this.clock());
-      if (action === 'claim' && (state.deliveredGeneration === generation || [...this.inlineWindows.values()].some(until => until > now))) return false;
+      const deliveredAt = verifiedDate(state.deliveredAt, now);
+      // Same-stage delivery is at most daily, even across reminder-generation
+      // rollover. Unknown legacy delivery times cannot suppress indefinitely.
+      const deliveredRecently = state.deliveredGeneration?.startsWith(`${current.stage}:`) && deliveredAt && now - Date.parse(deliveredAt) < DAY;
+      if (action === 'claim' && (deliveredRecently || [...this.inlineWindows.values()].some(until => until > now))) return false;
       const before = structuredClone(state);
       if (action === 'snooze') { state.snoozedUntil = new Date(now + DAY).toISOString(); state.snoozedStage = current.stage; state.deliveredGeneration = null; }
-      else state.deliveredGeneration = generation;
+      else { state.deliveredGeneration = generation; state.deliveredAt = new Date(now).toISOString(); }
       try { await this.save(); return true; }
-      catch { if (this.state.attentionState === state) this.state.attentionState = before; this.diagnose('attention_write', 'unavailable'); throw new CloudError('unavailable'); }
+      catch {
+        // Connection rejection can advance this same object while persistence waits.
+        if (this.state.attentionState === state && state.issue === before.issue && state.revision === before.revision) this.state.attentionState = before;
+        this.diagnose('attention_write', 'unavailable'); throw new CloudError('unavailable');
+      }
     });
     this.attentionWrites = task; return task;
   }
