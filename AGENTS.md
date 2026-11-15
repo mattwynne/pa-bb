@@ -2,20 +2,19 @@
 
 ## PA server development
 
-- Follow the [Git-first updater specification](docs/plans/021-git-first-pa-updates.md): **edit → try on the server → commit and push**. Changes from `origin` become available updates; a separate versioned release is not required. ADR 0002 and plan 020 are superseded for this workflow.
-- Work in `$HOME/src/pa-bb`. Locally developed plugins should load from this working copy through BB's local-path mode. BB-managed packages and caches are deployments, not source workspaces; do not patch them.
-- Before trying unpublished server-side changes, inspect the plugin's actual installation. If it still uses GitHub, offer a configuration-preserving switch to Local development with the user's permission. Do not present committing/pushing as necessary just to try the UI. If safe switching is unavailable, explain the blocker and offer a disposable BB preview; publishing is a separate choice.
-- Keep plugin ID, configuration, enabled state and data when changing its code source. Require the explicit BB capability for the actual installation (direct Git/path or Git-backed marketplace) and use native same-ID installation; never fall back to uninstall/reinstall. BB changes belong in the separate fork, not this repository. Delivering or testing controls never authorizes switching live plugins. Never edit BB's private database/cache or introduce a data-migration framework.
-- Inspect the branch, edited files and unpushed commits before editing. Preserve unrelated work. Never reset, rebase, merge, stash or publish it silently.
-- **Check again** is read-only: fetch comparison refs in an owned temporary directory. **Update PA** may explicitly fast-forward the working copy; it must stop rather than overwrite local work or invent a merge strategy. Applying local changes builds/reloads without committing or pushing them.
-- Compare plugin contents, not just versions or whole-repository commits. A working copy matching `origin` is not proof that BB is running that code. Unknown or unapplied code must not get a green **Up to date** check.
-- Agents use normal Git for commits, pushes and resolving both-sided changes. The Settings page is not a Git client. Keep server-wide agent guidance outside the checkout; do not alter source merely to refresh private instructions.
-- Formal releases remain an optional distribution task, not a prerequisite for server development. Do not build a release catalogue or expand credential permissions for this updater.
+- Use stock BB with permanent local-path plugin installations from a Git checkout for server development: **edit → reload → try → commit and push**. Applying code does not publish it; pushing does not reload it. A separate versioned release is not required. See [Contributing](CONTRIBUTING.md#local-path-development).
+- Edit the checkout that BB actually loads. BB-managed packages and caches are deployments, not source workspaces; do not patch them. Use BB's supported build/reload lifecycle, retaining plugin ID, configuration, enabled state and data.
+- Before editing, inspect the branch, edited files and unpushed commits. Preserve unrelated work. Never reset, rebase, merge, stash or publish it silently.
+- Use normal Git to inspect and bring in incoming changes. Fast-forward only when safe; stop for local work or divergence and resolve it explicitly. There is no PA updater or source-switching Settings workflow, and no BB fork is required for local-path development.
+- Inspect the actual installation before applying code. Moving an existing managed installation to a local path is a separately authorized deployment task, not an implicit development step. Do not uninstall/reinstall configured plugins, edit BB's private database/cache, or assume a source transition preserves state. If safe application is unavailable, use a disposable BB preview and report the blocker.
+- Before reloading file-writing integrations, pause and drain applicable work through supported controls. Preserve failures, locks, sync baselines, receipts and recovery state. Restore only prior enablement; never auto-resume a user-paused or failed folder.
+- Verify applied code with a harmless read and bounded logs; a checkout matching `origin` does not prove BB is running it. Keep server-wide agent guidance and private infrastructure configuration outside this repository.
+- Formal releases remain an optional distribution task, not a prerequisite for server development. Keep native BB and runtime update controls; do not build a replacement updater or expand credential permissions.
 
 ## Repository workflow
 
-- Use one implementation thread at a time; do not fan work out to parallel implementation agents. Sequential subagents are approved for the source-mode controls; read-only research/review may run independently.
+- Use one implementation thread at a time; do not fan work out to parallel implementation agents. Read-only research/review may run independently.
 - For any plugin UI planning, implementation, or review, load the project-local `bb-plugin-ux` skill at `.agents/skills/bb-plugin-ux/SKILL.md`. Its rendered-BB review is a delivery gate, not a passing-build substitute.
-- Public documentation must describe portable requirements, not Matt's private deployment. Keep hostnames, private addresses, machine IDs, usernames, home paths, and personal provisioning details out of briefs, ADRs, and public references. Keep deployment notes in private infrastructure documentation.
+- Public documentation must describe portable requirements, not private deployments. Keep hostnames, private addresses, machine IDs, usernames, home paths, and personal provisioning details out of briefs, ADRs, and public references. Keep deployment notes in private infrastructure documentation.
 - For plugin backend changes and reviews, follow `docs/o11y-standards.md`; test failure diagnostics without exposing account content or credentials.
-- Once implementation passes its gates, load `.agents/skills/release-and-deploy/SKILL.md` and follow its verify, apply, commit/push and feedback steps rather than stopping at a local test pass.
+- Once implementation passes its gates, load `.agents/skills/release-and-deploy/SKILL.md` and follow its verify, apply, commit/push and feedback steps, subject to explicit deployment/publication holds.

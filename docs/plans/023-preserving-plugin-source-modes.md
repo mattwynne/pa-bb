@@ -1,5 +1,7 @@
 # 023 — Preserve configuration when changing plugin sources
 
+> Historical: the PA updater, source-switching controls and dependent release publisher are retired. This document records prior plans/evidence, not current instructions or live state. Referenced updater code and gate scripts are available in Git history. Use [local-path development](../../CONTRIBUTING.md#local-path-development) with stock BB.
+
 Status: delivered as PA updates 0.5.0 (`bee6d23`) and BB fork `611fb55ba`; superseded by iteration 024. Replaces the resetting source-switch path from iteration 022. Tracked by the configuration-preservation follow-up in `yx`.
 
 Correction: the live readiness check missed marketplace ownership. The controls were offered for unsupported marketplace installs, although the native proof below covered only direct Git installs. [Iteration 024](024-marketplace-local-source-modes.md) fixes this gap and tests the actual installation shape. Opening/cancelling live confirmations was not proof that those switches would work.

@@ -1,5 +1,7 @@
 # 022 — Per-plugin GitHub and local development modes
 
+> Historical: the PA updater, source-switching controls and dependent release publisher are retired. This document records prior plans/evidence, not current instructions or live state. Referenced updater code and gate scripts are available in Git history. Use [local-path development](../../CONTRIBUTING.md#local-path-development) with stock BB.
+
 Status: delivered as PA updates 0.4.0 (`3c574b2`). Tracked in `yx` under “Switch PA plugins between GitHub and local development”. Extends 021 with an explicitly approved destructive transition; retaining configuration is follow-up work, not a prerequisite.
 
 The resetting implementation below is historical. [Iteration 023](023-preserving-plugin-source-modes.md) replaces it with capability-verified preserving switches; new operations never use removal.

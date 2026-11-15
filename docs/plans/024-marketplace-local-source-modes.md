@@ -1,5 +1,7 @@
 # Marketplace installs can be tried locally
 
+> Historical: the PA updater, source-switching controls and dependent release publisher are retired. This document records prior plans/evidence, not current instructions or live state. Referenced updater code and gate scripts are available in Git history. Use [local-path development](../../CONTRIBUTING.md#local-path-development) with stock BB.
+
 Status: delivered. PA updates 0.5.1 (`0285b4c`) and standalone BB fork `52a6a22ba` are running.
 
 ## What went wrong

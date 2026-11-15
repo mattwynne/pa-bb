@@ -2,6 +2,8 @@
 
 Plans are numbered in delivery order as `NNN-<iteration-name>.md`. Keep the number when a plan becomes historical; record the current outcome in the ledger rather than rewriting its original starting conditions.
 
+Updater iterations **017, 018 and 020–024 are historical**: the updater, source-switching controls and dependent release publisher are retired. Their outcomes below describe earlier deliveries, not current live state or pending work. Referenced deleted code/gate scripts remain in Git history. Current development uses [stock BB and local-path installs](../../CONTRIBUTING.md#local-path-development).
+
 | Iteration | Status | Outcome |
 | --- | --- | --- |
 | [001 — Marketplace and Google Calendar](001-marketplace-calendar.md) | Delivered | Git marketplace and independently installable Google Calendar plugin. The plan is historical; the [plugin README](../../plugins/google-calendar/README.md) records current verification limits. |

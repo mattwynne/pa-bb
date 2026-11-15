@@ -24,11 +24,6 @@ For a new installation, start with [host setup](#1-prepare-the-host). This repos
 
 These plugins are early-stage and intended for **single-user BB installations**, not shared servers. Listed capabilities are implemented, but not every action has been verified against a live account. In particular, live Google Drive sign-in/reads, Calendar tool/approval flows, and Fastmail writes remain unverified; each plugin guide records its limits. PA core and other [planned integrations](docs/roadmap.md) are not available yet.
 
-The optional [PA updates](plugins/pa-updates/README.md) plugin reviews and applies
-integration and BB/Pi/Codex updates on the configured PA server. Local integration
-customizations default to **Keep local**. It requires BB **0.46.0+** and uses BB’s
-normal installers and restart controls. See its guide for tested paths and limits.
-
 ## Get started
 
 ### 1. Prepare the host
@@ -55,7 +50,7 @@ bb marketplace refresh pa-for-bb
 bb plugin install fastmail@pa-for-bb
 ```
 
-If the marketplace is already registered, skip the first command. Replace `fastmail` with `google-calendar`, `google-drive`, `icloud`, `obsidian` or `pa-updates` to install another integration. Adding or refreshing the marketplace **does not install or update plugins**.
+If the marketplace is already registered, skip the first command. Replace `fastmail` with `google-calendar`, `google-drive`, `icloud` or `obsidian` to install another integration. Adding or refreshing the marketplace **does not install or update plugins**.
 
 ### 3. Connect your services
 
@@ -82,7 +77,7 @@ These screenshots show the installed plugins in BB with **example accounts and v
 
 ## Further reading
 
-- [Contributing](CONTRIBUTING.md) — development setup, tests and shared UI workflow.
+- [Contributing](CONTRIBUTING.md) — local-path development with stock BB: edit → reload → try → commit/push, tests and shared UI workflow.
 - [Vision](docs/vision.md) and [roadmap](docs/roadmap.md) — where the project is heading.
 - [Plans and findings](docs/plans/README.md) — implementation history and verification evidence.
 - [Host provisioning](provisioning/README.md) — portable Linux dependency requirements and Ansible role.

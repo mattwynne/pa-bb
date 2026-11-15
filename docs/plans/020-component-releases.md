@@ -1,5 +1,7 @@
 # 020 — Component releases and released-code installation
 
+> Historical: the PA updater, source-switching controls and dependent release publisher are retired. This document records prior plans/evidence, not current instructions or live state. Referenced updater code and gate scripts are available in Git history. Use [local-path development](../../CONTRIBUTING.md#local-path-development) with stock BB.
+
 Status: **superseded before implementation** by [021 — Git-first PA updates](021-git-first-pa-updates.md) on 2026-10-22. The owner chose server editing, local application and normal Git synchronization rather than a mandatory component-release stage. Do not build this pipeline as an updater prerequisite.
 
 The original plan below is retained as history. [ADR 0002](../adrs/0002-component-releases.md) is likewise superseded for this workflow.

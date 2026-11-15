@@ -1,5 +1,7 @@
 # 018 — Update PA, with local-customization choices
 
+> Historical: the PA updater, source-switching controls and dependent release publisher are retired. This document records prior plans/evidence, not current instructions or live state. Referenced updater code and gate scripts are available in Git history. Use [local-path development](../../CONTRIBUTING.md#local-path-development) with stock BB.
+
 Status: review/application and native runtime actions implemented; final review
 and delivery gates remain open. [Evidence](018-pa-platform-updates-ordinary-proof.md)
 includes original integration handlers, real Pi/Codex installs, BB 0.46.0 → 0.46.1

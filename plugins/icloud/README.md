@@ -30,15 +30,18 @@ without weakening anchored no-follow traversal or conditional saves. It changes
 neither storage schema nor receipt identities. Unsupported-file warnings and
 partial/null-total semantics remain for genuine omissions.
 
-Version **0.3.2** adds a narrow, host-verified PA updater Pause reservation.
-It blocks new scheduling while work drains, persists only updater-owned resume
-rights, and preserves a user’s Pause across reload. Failed folders stay paused
-but release those rights so normal recovery controls remain usable. Account
-and Obsidian note authorization are unchanged; this is not a general plugin grant.
+Version **0.3.2** introduced a narrow, host-verified PA updater Pause reservation.
+The updater is now retired, but iCloud retains its durable `pa-update-pause-v1`
+state and reservation RPC compatibility for existing installations. A saved hold
+still blocks scheduling and ordinary Enable/Retry/Rebuild; deleting updater
+source does not release it. Settle any outstanding updater operation and verify
+`status.updatePause.jobId` is null before retiring an installed updater. Do not
+clear the stored hold or auto-resume folders to bypass recovery. User Pause,
+failed-folder state, account and Obsidian note authorization remain unchanged.
 
 ## Upgrading from 0.1.x
 
-Use iCloud **0.3.2** with Obsidian **0.3.1**, or later compatible 0.3.x releases. Use this same stopped-update sequence when upgrading from 0.2.x or first introducing updater-aware Pause to an existing 0.3.x installation. Record which plugins and sources were enabled. Disable Obsidian, use iCloud's supported Pause controls, let active sync finish, then disable iCloud. Keep **both plugins disabled until both managed updates have fully completed**, including stabilization. Enable iCloud first and check local readiness, then enable Obsidian if it was previously enabled. Resume only the sources that were enabled before maintenance. Keep previously disabled plugins disabled.
+Use iCloud **0.3.2** with Obsidian **0.3.1**, or later compatible 0.3.x releases. Use this same stopped-update sequence when upgrading from 0.2.x. Record which plugins and sources were enabled. Disable Obsidian, use iCloud's supported Pause controls, let active sync finish, then disable iCloud. Keep **both plugins disabled until both code updates/reloads have fully completed**, including stabilization. Enable iCloud first and check local readiness, then enable Obsidian if it was previously enabled. Resume only the sources that were enabled before maintenance. Keep previously disabled plugins disabled.
 
 Existing vault selections, source identities, baselines, receipts and recovery copies are preserved. If an update or startup fails, keep both plugins stopped and preserve their files for inspection and a corrected update. Do not clear baselines or locks, force resync, or load an old binary after the new storage format has been admitted.
 

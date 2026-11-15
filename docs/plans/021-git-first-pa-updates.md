@@ -1,5 +1,7 @@
 # 021 — Git-first PA updates
 
+> Historical: the PA updater, source-switching controls and dependent release publisher are retired. This document records prior plans/evidence, not current instructions or live state. Referenced updater code and gate scripts are available in Git history. Use [local-path development](../../CONTRIBUTING.md#local-path-development) with stock BB.
+
 Status: updater 0.3.0 delivered; local-path development verified in disposable BB. Existing managed installations still need BB's supported Git-to-local source switch before they can use local development. Supersedes the release-based updater direction in ADR 0002 and plan 020.
 
 ## Purpose

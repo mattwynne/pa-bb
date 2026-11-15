@@ -1,5 +1,7 @@
 # 017 — PA update discovery and local-work review
 
+> Historical: the PA updater, source-switching controls and dependent release publisher are retired. This document records prior plans/evidence, not current instructions or live state. Referenced updater code and gate scripts are available in Git history. Use [local-path development](../../CONTRIBUTING.md#local-path-development) with stock BB.
+
 Status: delivered; real baseline published, independent checker 0.1.1 installed,
 and live read-only/rendered checks passed. Owner feedback selected the
 platform-first application flow planned in [iteration 018](018-pa-platform-updates.md).
