@@ -35,7 +35,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     // Runtime state is read only after sync.start; construction is side-effect free.
     runtime = dependencies?.runtime ?? new NoteRuntime(root, database as Database.Database, process, notes, () => sync.status(), undefined, diagnose);
     if (runtime.root !== root || runtime.worker !== process) throw new CloudError('unavailable');
-    provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body), (args, capture, report) => runtime!.run(args, capture, report), () => process.checkAvailability(), () => runtime!.stop(), undefined, undefined, mirror => runtime!.registerMirror(mirror), operation => runtime!.idleFiles(operation));
+    provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body), (args, capture, report) => runtime!.run(args, capture, report), () => process.checkAvailability(), () => runtime!.stop(), undefined, undefined, mirror => runtime!.registerMirror(mirror), operation => runtime!.idleFiles(operation), () => runtime!.requestStop());
   }
   const sync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose, dependencies?.history ?? bbRunHistory(bb));
   const updatePause = new UpdatePause(sync, { get: () => bb.storage.kv.get('pa-update-pause-v1'), set: value => bb.storage.kv.set('pa-update-pause-v1', value) });
@@ -152,8 +152,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
   });
   bb.onDispose(async () => {
     const paused = updatePause.stop();
-    const closed = runtime?.stop(); // close local admission before draining entered publications
-    try { await sync.stop(); } finally { await closed; await paused; }
+    runtime?.requestStop(); // fence local admission, retaining ownership until service drain
+    try { await sync.stop(); } finally { await runtime?.stop(); await paused; }
   });
   bb.agents.registerTool({ name: 'icloud_list_local_folders', description: 'List initialized iCloud folders, local note availability and last cloud sync. Paused or disconnected cloud delivery does not revoke sound local access. Never ask for Apple credentials in chat.', parameters: z.object({}),
     async execute() { return { content: [{ type: 'text' as const, text: JSON.stringify(await inventory()) }] }; } });

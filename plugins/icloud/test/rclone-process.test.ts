@@ -26,10 +26,10 @@ test('subprocess environment excludes credentials and provider overrides', () =>
   assert.equal(safeEnvironment().RCLONE_CONFIG_PASS, undefined); assert.equal(safeEnvironment().BB_TOKEN, undefined);
   delete process.env.RCLONE_CONFIG_PASS; delete process.env.BB_TOKEN;
 });
-test('commands retain stock retry defaults and bounded category-specific timeouts', () => {
+test('commands retain stock retry defaults and category-specific deadlines without a total bisync deadline', () => {
   const runner = new RcloneProcess('/tmp/unused-defaults') as unknown as { flags(): string[] };
   const flags = runner.flags(); assert.ok(!flags.includes('--retries')); assert.ok(!flags.includes('--low-level-retries'));
-  assert.deepEqual(COMMAND_TIMEOUTS, { listing: 300_000, transfer: 900_000, bisync: 1_200_000 });
+  assert.deepEqual(COMMAND_TIMEOUTS, { listing: 300_000, transfer: 900_000, initialBisync: 1_200_000, bisync: null });
   assert.equal(FLOCK_BINARY, '/usr/bin/flock');
 });
 test('real stock rclone uses a private socket, encrypted config and survives a clean restart', { skip: !binary }, async () => {
@@ -177,16 +177,17 @@ test('unavailable trace storage neither fails a successful command nor changes n
     assert.equal(await readFile(root + '/rclone-logs', 'utf8'), 'PRIVATE_SENTINEL');
   } finally { await runner.stop(); await rm(root, { recursive: true }); }
 });
-test('real stock bisync emits bounded debug activity into the private rotating trace', { skip: !binary, timeout: 30000 }, async () => {
+test('real stock bisync retains lifecycle and counters rather than routine empty debug projections', { skip: !binary, timeout: 30000 }, async () => {
   const root = await mkdtemp('/tmp/icloud-trace-native-'); const runner = new RcloneProcess(root + '/worker', binary);
   try {
     for (const name of ['cloud', 'local', 'baseline']) await mkdir(root + '/' + name);
     await writeFile(root + '/cloud/PRIVATE_SENTINEL.md', 'PRIVATE_SENTINEL');
     await runner.run(syncArguments(root + '/cloud', root + '/local', root + '/baseline', true), false, () => {});
     const trace = await runner.trace.snapshot(500);
-    assert.equal(trace.available, true); assert.ok(trace.entries.length > 3);
-    assert.ok(trace.entries.some(e => e.level === 'debug'));
-    assert.ok(trace.entries.some(e => e.component === 'bisync'));
+    assert.equal(trace.available, true);
+    assert.equal(trace.entries[0]?.event, 'command_start');
+    assert.ok(trace.entries.some(e => e.event === 'stats'));
+    assert.ok(!trace.entries.some(e => e.event === 'message' && e.level === 'debug' && !e.category));
     assert.equal(trace.entries.at(-1)?.outcome, 'succeeded');
     assert.doesNotMatch(JSON.stringify(trace), /PRIVATE_SENTINEL|\/tmp\/|password|token|cookie/);
     assert.equal(await readFile(root + '/local/PRIVATE_SENTINEL.md', 'utf8'), 'PRIVATE_SENTINEL');
@@ -260,4 +261,74 @@ test('a command child retains OS exclusivity after its parent crashes', { skip: 
     await new Promise(resolve => setTimeout(resolve, 3200));
     const recovered = new RcloneProcess(root + '/worker', binary); await recovered.ensure(); await recovered.stop();
   } finally { parent.kill('SIGKILL'); await rm(root, { recursive: true }); }
+});
+
+test('ordinary bisync outlives the former total deadline, including listing without transfers', async () => {
+  const root = await mkdtemp('/tmp/icloud-duration-'); const executable = root + '/synthetic.cjs';
+  const runner = new RcloneProcess(root) as any;
+  try {
+    await writeFile(executable, `#!/usr/bin/env node
+const listing = { level: 'debug', source: 'bisync/listing.go:10', msg: 'Reading current listings' };
+process.stderr.write(JSON.stringify(listing) + '\\n');
+setTimeout(() => { process.stderr.write(JSON.stringify({stats:{bytes:4,transfers:1,totalBytes:4,totalTransfers:1}}) + '\\n'); }, 250);
+`, { mode: 0o700 });
+    runner.ensure = async () => {}; runner.binary = executable;
+    const execute = runner.execute.bind(runner);
+    // Scale every finite production deadline, not the command's duration.
+    runner.execute = (binary: string, args: string[], capture: boolean, timeout: number | null, ...rest: any[]) => execute(binary, args, capture, timeout === null ? null : 100, ...rest);
+    const progress: TransferProgress[] = [];
+    await runner.run(['bisync', 'generated:'], false, (stats: TransferProgress) => progress.push(stats));
+    assert.equal(progress.at(-1)?.bytes, 4);
+    await assert.rejects(runner.run(['lsjson', 'generated:']), (error: any) => error.evidence.kind === 'command_timeout');
+    await assert.rejects(runner.run(['bisync', 'generated:', '--resync']), (error: any) => error.evidence.kind === 'command_timeout');
+  } finally { await runner.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('owned stop escalates an uncooperative child once, and concurrent stops wait for teardown', { timeout: 3000 }, async () => {
+  const runner = new RcloneProcess('/tmp/unused-stop-grace', undefined, undefined, undefined, 80);
+  const task = (runner as any).execute(process.execPath, ['-e', 'process.on("SIGINT", () => {}); process.stdout.write("ready"); setInterval(() => {}, 1000)'], true, null);
+  const failed = assert.rejects(task, (error: any) => error.category === 'interrupted' && error.evidence.kind === 'command_stopped');
+  const child = [...(runner as any).children][0] as any;
+  await new Promise(resolve => child.stdout.once('data', resolve));
+  const signals: string[] = []; const kill = child.kill.bind(child);
+  child.kill = (signal: string) => { signals.push(signal); return kill(signal); };
+  const at = performance.now();
+  runner.requestStop(); runner.requestStop();
+  await assert.rejects(runner.run(['lsjson']), /interrupted/);
+  const first = runner.stop(), second = runner.stop();
+  assert.equal(first, second);
+  await Promise.all([first, second, failed]);
+  assert.deepEqual(signals, ['SIGINT', 'SIGKILL']);
+  assert.ok(performance.now() - at < 2000);
+  assert.equal(child.signalCode, 'SIGKILL');
+});
+
+test('debug flood filtering preserves the pinned native retry observer and terminal trace', async () => {
+  const root = await mkdtemp('/tmp/icloud-observer-flood-'); const runner = new RcloneProcess(root);
+  const retry = { time: '2026-01-01T00:00:00Z', level: 'error', msg: 'Bisync aborted. Error is retryable without --resync due to --resilient mode.', source: 'bisync/operations.go:201' };
+  const script = `const routine = JSON.stringify({level:'debug',msg:'PRIVATE_SENTINEL unchanged',object:'PRIVATE_SENTINEL'})+'\\n'; for(let i=0;i<10000;i++) process.stderr.write(routine); process.stderr.end(${JSON.stringify(JSON.stringify(retry) + '\n')}, () => { process.exitCode=7; });`;
+  try {
+    await runner.trace.start();
+    await assert.rejects((runner as any).execute(process.execPath, ['-e', script], false, 5000, undefined, 'bisync'), (error: unknown) => {
+      assert.ok(error instanceof CloudError); assert.equal(error.category, 'sync_failed');
+      assert.deepEqual(error.evidence, { kind: 'command_exit', exitCode: 7, native: 'retryable_abort' }); return true;
+    });
+    const snapshot = await runner.trace.snapshot();
+    assert.equal(snapshot.droppedRecords, 0);
+    assert.equal(snapshot.entries.at(-1)?.event, 'command_end');
+    assert.ok(snapshot.entries.some(entry => entry.level === 'error'));
+    assert.doesNotMatch(JSON.stringify(snapshot), /PRIVATE_SENTINEL/);
+  } finally { await runner.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('stop during native startup drains the in-flight acquisition without admitting a new command or deadlocking', { skip: !binary, timeout: 10000 }, async () => {
+  const root = await mkdtemp('/tmp/icloud-start-stop-'); const worker = new RcloneProcess(root, binary);
+  try {
+    const starting = worker.ensure().catch(error => { assert.ok(error instanceof CloudError); });
+    await worker.stop(); await starting;
+    await assert.rejects(worker.run(['lsjson', 'generated:']), /interrupted/);
+    const replacement = new RcloneProcess(root, binary);
+    try { await replacement.ensure(); await replacement.call('rc/noop', {}); }
+    finally { await replacement.stop(); }
+  } finally { await worker.stop(); await rm(root, { recursive: true, force: true }); }
 });

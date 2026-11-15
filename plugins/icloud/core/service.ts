@@ -9,6 +9,7 @@ export class ICloudSync {
   private progress = new Map<string, SyncProgress>();
   private busy = false;
   private stopped = false;
+  private stopping: Promise<void> | null = null;
   private current: Promise<unknown> | null = null;
   private discovered = new Map<string, CloudFolder>();
   private history: SyncDiagnostics;
@@ -221,5 +222,12 @@ export class ICloudSync {
     });
   }
   inventory() { return this.state.mirrors.filter(m => m.initialized || m.phase === 'retained').map(m => ({ id: m.id, name: m.folder.name, phase: m.phase, lastSuccess: m.lastSuccess })); }
-  async stop() { this.stopped = true; await this.current?.catch(() => {}); await this.provider.stop(); }
+  stop(): Promise<void> {
+    this.stopped = true;
+    return this.stopping ??= (async () => {
+      this.provider.requestStop?.();
+      await this.current?.catch(() => {});
+      await this.provider.stop();
+    })();
+  }
 }

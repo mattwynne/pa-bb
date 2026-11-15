@@ -4,7 +4,7 @@ import { open, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
-import { CloudError } from '../core/ports.ts';
+import { CloudError, evidence } from '../core/ports.ts';
 import type { Mirror, State } from '../core/ports.ts';
 import { NoteError, NoteStore } from './note-store.ts';
 import type { CommitInput } from './note-store.ts';
@@ -24,6 +24,7 @@ export class NoteRuntime {
   private queue: Promise<void> = Promise.resolve();
   private entered = new Set<Promise<unknown>>();
   private closed = false;
+  private stopped: Promise<void> | null = null;
   private ready = false;
   private wakeScheduled = false;
   private maintenanceScheduled = false;
@@ -248,14 +249,22 @@ export class NoteRuntime {
       }
       const eligible = id && !args.includes('--resync') ? this.overlay.beforeRun(id) : [];
       let succeeded = false;
+      let commandEvidence: ReturnType<typeof evidence> = null;
       try { const output = await this.worker.run(args, capture, report); succeeded = true; return output; }
       catch (error) {
+        commandEvidence = evidence(error);
         if (id && error instanceof CloudError && ['recovery_required', 'capacity', 'configuration', 'invalid_selection'].includes(error.category)) this.nativeBlocked.set(id, 'native_failure');
         throw error;
       } finally {
         if (id && eligible.length) {
           try { await this.overlay.afterRun(this.localPath(this.mirror(id)!), id, eligible, succeeded); }
-          catch { this.nativeBlocked.set(id, 'uncertain'); throw new CloudError('recovery_required'); }
+          catch (error) {
+            this.nativeBlocked.set(id, 'uncertain');
+            throw new CloudError('recovery_required', {
+              kind: 'post_run_reconcile', reason: error instanceof NoteError && error.category === 'uncertain' ? 'uncertain' : 'unavailable',
+              command: commandEvidence?.kind === 'post_run_reconcile' ? commandEvidence.command : commandEvidence,
+            });
+          }
         }
       }
     });
@@ -313,13 +322,18 @@ export class NoteRuntime {
   }
   pendingAgeMs(id: string) { return this.overlay.pendingAgeMs(id); }
   applicationBlocker(id: string) { return this.nativeBlocked.get(id) === 'uncertain' ? 'application_uncertain' as const : this.nativeBlocked.has(id) ? 'native_recovery' as const : null; }
-  async stop() {
-    if (this.closed) return;
+  requestStop() {
     this.closed = true; this.ready = false;
-    await this.search.stop();
-    await Promise.allSettled([...this.entered]);
-    await this.queue;
-    await this.maintenance;
-    await this.worker.stop();
+    this.worker.requestStop();
+  }
+  stop(): Promise<void> {
+    this.requestStop();
+    return this.stopped ??= (async () => {
+      await this.search.stop();
+      await Promise.allSettled([...this.entered]);
+      await this.queue;
+      await this.maintenance;
+      await this.worker.stop();
+    })();
   }
 }

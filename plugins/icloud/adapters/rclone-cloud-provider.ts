@@ -24,7 +24,8 @@ export class RcloneCloudProvider implements CloudProvider {
     private readonly files?: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>,
     private readonly reconcileNotes?: (mirror: Mirror) => Promise<void>,
     private readonly registerNotes?: (mirror: Mirror) => Promise<void>,
-    private readonly idleFiles?: <T>(action: () => Promise<T>) => Promise<T>) {}
+    private readonly idleFiles?: <T>(action: () => Promise<T>) => Promise<T>,
+    private readonly interrupt?: () => void) {}
   async withMirrorFiles<T>(mirror: Mirror, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (!this.files) throw new CloudError('unavailable');
     return this.files(async signal => {
@@ -142,5 +143,6 @@ export class RcloneCloudProvider implements CloudProvider {
     if (remotes?.includes('icloud')) await this.rc('config/unset', { name: 'icloud', keys: ['password', 'cookies', 'trust_token', '_auth_session'] });
     await this.rc('fscache/clear', {});
   }
+  requestStop() { this.interrupt?.(); }
   stop() { return this.shutdown(); }
 }

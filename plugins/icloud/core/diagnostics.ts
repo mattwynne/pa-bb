@@ -8,9 +8,13 @@ export const HISTORY_CAPACITY = { successRows: 20_000, errorRows: 5_000, success
 const integer = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const stages = z.enum(['checking', 'backing_up_cloud', 'backing_up_local', 'saving_recovery', 'transferring', 'verifying']);
 const timestamp = z.iso.datetime().max(40).refine(value => Number.isFinite(Date.parse(value)));
-const evidenceSchema = z.union([
+const commandEvidenceSchema = z.union([
   z.object({ kind: z.literal('command_exit'), exitCode: z.number().int().min(1).max(10).nullable(), native: z.enum(['retryable_abort', 'resync_required_abort', 'unknown_fatal']).optional(), reason: z.literal('listing_failure').optional() }).strict(),
   z.object({ kind: z.enum(['command_timeout', 'command_output_limit', 'command_signal', 'command_start', 'command_stopped']) }).strict(),
+]);
+const evidenceSchema = z.union([
+  commandEvidenceSchema,
+  z.object({ kind: z.literal('post_run_reconcile'), reason: z.enum(['uncertain', 'unavailable']), command: commandEvidenceSchema.nullable() }).strict(),
 ]);
 const stageSchema = z.object({ stage: stages, durationMs: integer, bytes: integer, totalBytes: integer.positive().nullable(), files: integer, totalFiles: integer.positive().nullable(), reusedFiles: integer.nullable() }).strict();
 export const pendingRunSchema = z.object({ sequence: integer.positive(), kind: z.enum(['initial', 'sync']), startedAt: timestamp }).strict();
