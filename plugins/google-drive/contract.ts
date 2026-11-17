@@ -11,6 +11,7 @@ export const rpcContract = defineRpcContract({
   beginReconnect: { input: z.object({ subject: z.string().min(1) }).strict(), output: z.object({ url: z.string().url() }) },
   removeAccount: { input: z.object({ subject: z.string().min(1) }).strict(), output: z.object({ removed: z.boolean() }) },
   importCalendarOAuthClient: { input: z.null(), output: z.object({ imported: z.boolean() }) },
+  exportOAuthClientForWorkspace: { input: z.null(), output: z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }) },
   // Only Calendar may request the configured Web client server-to-server.
   exportOAuthClientForCalendar: { input: z.null(), output: z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }) },
 });

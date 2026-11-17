@@ -105,6 +105,13 @@ export default async function plugin(bb: BbPluginApi) {
       return { url };
     },
     async removeAccount({ subject }) { return { removed: await service().removeAccount(subject) }; },
+    async exportOAuthClientForWorkspace(_input, context) {
+      if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'google-workspace')
+        throw new Error('OAuth client export is restricted to the Google Workspace plugin');
+      const { clientId, clientSecret } = await getClient();
+      if (!clientId || !clientSecret) throw new Error('Calendar OAuth client is not configured');
+      return { clientId, clientSecret };
+    },
     async exportOAuthClientForDrive(_input, context) {
       if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'google-drive')
         throw new Error('OAuth client export is restricted to the Google Drive plugin');

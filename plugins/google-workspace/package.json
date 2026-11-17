@@ -1,0 +1,44 @@
+{
+  "name": "bb-plugin-google-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22",
+    "bb": ">=0.45.0",
+    "bbPluginSdk": ">=0.6.15 <1"
+  },
+  "bb": {
+    "name": "Google Workspace",
+    "description": "Use Drive, Docs, Sheets, Calendar and Gmail through Workspace MCP with a BB-managed Google connection.",
+    "branding": {
+      "icon": "PanelsTopLeft"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.15",
+    "@types/node": "22.20.5",
+    "@types/react": "19.2.7",
+    "bb-app": "0.45.0",
+    "better-sqlite3": "13.0.3",
+    "cron-parser": "5.5.0",
+    "hono": "4.13.13",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "build": "bb plugin build",
+    "typecheck": "tsc --noEmit && bb plugin types --check",
+    "test": "node --test test/*.test.mjs",
+    "test:host": "npm run build && node --test test/host/plugin.test.mjs test/host/store.test.mjs",
+    "test:legacy": "npm --prefix ../google-calendar run build && npm --prefix ../google-drive run build && node --test test/host/legacy-client.test.mjs",
+    "test:runtime": "node --test test/runtime.integration.mjs"
+  }
+}

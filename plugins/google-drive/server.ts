@@ -133,6 +133,13 @@ export default async function plugin(bb: BbPluginApi) {
       await settings.experimental_set(client);
       return { imported: true };
     },
+    async exportOAuthClientForWorkspace(_input, context) {
+      if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'google-workspace')
+        throw new Error('OAuth client export is restricted to the Google Workspace plugin');
+      const { clientId, clientSecret } = await getClient();
+      if (!clientId || !clientSecret) throw new Error('Drive OAuth client is not configured');
+      return { clientId, clientSecret };
+    },
     async exportOAuthClientForCalendar(_input, context) {
       if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'google-calendar')
         throw new Error('OAuth client export is restricted to the Google Calendar plugin');

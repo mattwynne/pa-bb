@@ -1,0 +1,5 @@
+.pa-workspace { min-width: 0; }
+.pa-workspace code { overflow-wrap: anywhere; }
+.pa-workspace__callback, .pa-workspace__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .5rem; }
+.pa-workspace__callback code { min-width: 0; flex: 1 1 15rem; }
+.pa-workspace__status { color: var(--muted-foreground); font-size: .875rem; margin: 1rem 0 0; }
