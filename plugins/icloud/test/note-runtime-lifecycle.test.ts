@@ -15,11 +15,11 @@ import { MemoryState } from './fakes.ts';
 import { diagnosticMessage } from '../adapters/diagnostic-log.ts';
 
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
-async function fixture(native = false) {
+async function fixture(native = false, initialized = true) {
   const root = await mkdtemp('/tmp/icloud-lifecycle-');
   const db = new Database(':memory:');
   const state = emptyState(); state.connected = true;
-  state.mirrors.push({ id: 'one', folder: { id: 'Z2VuZXJhdGVk', name: 'Generated', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', failure: null, blocker: null, lastSuccess: null });
+  state.mirrors.push({ id: 'one', folder: { id: 'Z2VuZXJhdGVk', name: 'Generated', ancestors: [] }, initialized, enabled: true, phase: 'ready', failure: null, blocker: null, lastSuccess: null });
   await mkdir(join(root, 'mirrors/one'), { recursive: true }); await mkdir(join(root, 'baselines/one'), { recursive: true });
   await writeFile(join(root, 'baselines/one/initialized'), '1', { mode: 0o600 });
   const worker = new RcloneProcess(root, process.env.RCLONE_TEST_BINARY);
@@ -36,6 +36,43 @@ async function fixture(native = false) {
   await runtime.start();
   return { root, state, runtime, worker, async close() { await runtime.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
 }
+
+test('registration verifies account outside filesystem exclusion but in the same serialized turn', async () => {
+  const f = await fixture(false, false);
+  const entered = deferred(), release = deferred();
+  let fileWork = false;
+  const events: string[] = [];
+  f.worker.call = async method => {
+    assert.equal(fileWork, false, 'RC must not enter filesystem exclusion');
+    events.push(method);
+    if (method === 'config/get') { entered.resolve(); await release.promise; }
+    return { type: 'alias', remote: 'generated' };
+  };
+  f.worker.withFiles = async action => {
+    assert.equal(fileWork, false); fileWork = true; events.push('files');
+    try { return await action(new AbortController().signal); }
+    finally { fileWork = false; }
+  };
+  try {
+    const registration = f.runtime.registerMirror(f.state.mirrors[0]);
+    await entered.promise;
+    const queued = f.runtime.call('rc/noop', {});
+    assert.deepEqual(events, ['config/get']);
+    release.resolve(); await registration; await queued;
+    assert.deepEqual(events, ['config/get', 'files', 'rc/noop']);
+    f.state.mirrors[0].initialized = true;
+    assert.equal((await f.runtime.availability('one')).available, true);
+    // Account mismatch still fails before any filesystem work; private config
+    // or exception content must not escape as the domain error.
+    f.worker.call = async () => ({ type: 'alias', remote: 'PRIVATE_SENTINEL' });
+    events.length = 0;
+    await assert.rejects(f.runtime.registerMirror(f.state.mirrors[0]), (error: any) => {
+      assert.equal(error.category, 'source_changed');
+      assert.doesNotMatch(String(error) + JSON.stringify(error), /PRIVATE_SENTINEL/); return true;
+    });
+    assert.deepEqual(events, []);
+  } finally { release.resolve(); await f.close(); }
+});
 
 test('native failure plus failed post-run reconciliation preserves both safe boundaries and fails closed', { skip: process.platform !== 'linux' }, async () => {
   const f = await fixture();

@@ -121,13 +121,18 @@ export class NoteRuntime {
   // Initial resync creates a previously uninitialized mirror. Only after its
   // marker is written may a native-idle turn bind and index it for local RPCs.
   async registerMirror(mirror: Mirror) {
-    await this.turn(() => this.worker.withFiles(async () => {
+    await this.turn(async () => {
+      // Config reads cannot enter withFiles. Keep account verification inside
+      // this native-idle turn, before acquiring filesystem exclusion, so no
+      // queued config change or native command can interleave with binding.
       await this.bindAccount();
-      const initialized = { ...mirror, initialized: true };
-      await this.local(initialized);
-      await this.overlay.indexLegacy(mirror.id, this.localPath(initialized));
-      this.blocked.delete(mirror.id);
-    }));
+      await this.worker.withFiles(async () => {
+        const initialized = { ...mirror, initialized: true };
+        await this.local(initialized);
+        await this.overlay.indexLegacy(mirror.id, this.localPath(initialized));
+        this.blocked.delete(mirror.id);
+      });
+    });
   }
   async availability(id: string): Promise<{ available: boolean; reason: 'ownership' | 'recovery_required' | 'source_changed' | null }> {
     if (!this.ready || this.closed) return { available: false, reason: 'ownership' };
