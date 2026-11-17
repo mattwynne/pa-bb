@@ -35,7 +35,12 @@ test('BB owns the combined connection and independent callback, without an upstr
     assert.equal(status.redirectUri, 'https://bb.example/api/v1/plugins/google-workspace/http/callback');
     assert.deepEqual(status.accounts, []);
     assert.deepEqual(w.mcp.calls, []);
-    assert.equal((await w.connect()).status, 200);
+    const response = await w.connect();
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get('location'), '/settings/plugins/google-workspace');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.doesNotMatch(response.headers.get('location'), /SECRET|state=|code=/);
     const connected = await w.rpc('status');
     assert.deepEqual(connected.accounts, [{ subject: 'alice-id', email: 'alice@example.test' }]);
     assert.doesNotMatch(JSON.stringify(connected), /SECRET/);
@@ -116,12 +121,32 @@ test('unknown account gives useful feedback before any provider call', async () 
   } finally { await w.close(); }
 });
 
+test('cancelled reconnect offers recovery without removing the connected account', async () => {
+  const w = await world();
+  try {
+    await w.connect();
+    const before = (await w.rpc('status')).accounts;
+    const { url } = await w.rpc('beginReconnect', { subject: 'alice-id' });
+    const response = await w.host.harness.behavior.fetchHttp('GET', '/callback?state=' + new URL(url).searchParams.get('state') + '&error=access_denied');
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /Back to Workspace/);
+    assert.deepEqual((await w.rpc('status')).accounts, before);
+  } finally { await w.close(); }
+});
+
 test('invalid callback is rejected and secrets are never logged', async () => {
   const w = await world();
   try {
     const response = await w.host.harness.behavior.fetchHttp('GET', '/callback?state=UNKNOWN_STATE&code=SECRET_CODE');
     assert.equal(response.status, 400);
-    assert.doesNotMatch(await response.text(), /UNKNOWN_STATE|SECRET_CODE/);
+    assert.equal(response.headers.get('location'), null);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    const html = await response.text();
+    assert.match(html, /name="viewport"/);
+    assert.match(html, /<main>/);
+    assert.match(html, /href="\/settings\/plugins\/google-workspace"/);
+    assert.doesNotMatch(html, /UNKNOWN_STATE|SECRET_CODE/);
     assert.doesNotMatch(JSON.stringify(w.host.harness.inspection.logEntries), /UNKNOWN_STATE|SECRET/);
   } finally { await w.close(); }
 });

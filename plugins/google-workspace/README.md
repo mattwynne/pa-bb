@@ -22,6 +22,8 @@ bb plugin install ./plugins/google-workspace
 
 Use BB's native update lifecycle for an existing installation. Do not uninstall a configured plugin to update its source, or remove Calendar/Drive to try Workspace. Workspace is not yet listed in the PA marketplace.
 
+Successful Google sign-in returns directly to these Workspace settings, where the verified account is listed. If sign-in cannot finish, a standalone recovery page links back to Workspace without showing callback details.
+
 ### Reuse the existing Google Cloud OAuth app
 
 No second OAuth app is needed. The existing Web OAuth client can authorize Workspace too; Workspace owns a separate combined user grant, not copies of the old plugins' tokens.

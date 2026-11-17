@@ -78,12 +78,29 @@ export default async function plugin(bb: BbPluginApi, ports: any = {}) {
   });
   // Google callbacks are public, protected by expiring one-use state and PKCE.
   bb.http.route('GET', '/callback', async ctx => {
-    let ok = true;
+    const headers = { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' };
+    const settingsPath = '/settings/plugins/google-workspace';
     try {
       await auth.finishConnect({ state: ctx.req.query('state'), code: ctx.req.query('code'), error: ctx.req.query('error') });
       await refresh();
-    } catch (error) { diagnose('oauth_callback', error); ok = false; }
-    return ctx.html(`<!doctype html><html lang="en"><meta charset="utf-8"><title>Google Workspace</title><h1>${ok ? 'Google account connected' : 'Google connection failed'}</h1><p>Return to Workspace settings in BB${ok ? '.' : ' and start again.'}</p><a href="/">Return to BB</a></html>`, ok ? 200 : 400);
+      return new Response(null, { status: 303, headers: { ...headers, location: settingsPath } });
+    } catch (error) { diagnose('oauth_callback', error); }
+    return new Response(`<!doctype html><html lang="en"><head>
+      <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="color-scheme" content="light dark"><title>Google Workspace — Connection not completed</title>
+      <style>
+        body { margin: 0; padding: 1.5rem; font: 1rem/1.5 system-ui, sans-serif; background: Canvas; color: CanvasText; }
+        main { max-width: 30rem; margin: 12vh auto; }
+        .service { color: GrayText; font-size: .875rem; font-weight: 600; }
+        h1 { font-size: 1.75rem; line-height: 1.2; margin: .75rem 0; }
+        p { margin: 1rem 0 1.5rem; }
+        a { display: inline-block; padding: .625rem 1rem; border-radius: .5rem; background: CanvasText; color: Canvas; font-weight: 600; text-decoration: none; }
+        a:focus-visible { outline: 2px solid Highlight; outline-offset: 4px; }
+      </style></head><body><main>
+      <div class="service">Google Workspace</div><h1>Connection not completed</h1>
+      <p>Return to Workspace settings and try connecting your Google account again.</p>
+      <a href="${settingsPath}">Back to Workspace</a>
+      </main></body></html>`, { status: 400, headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } });
   }, { auth: 'none' });
   bb.agents.registerTool({ name: 'gworkspace_accounts', description: 'List the Google accounts connected to Workspace.', parameters: z.object({}),
     async execute() { return { content: [{ type: 'text' as const, text: JSON.stringify(await auth.list()) }] }; },
