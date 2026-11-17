@@ -30,6 +30,8 @@ The **Last successful sync** time changes only after successful completion. “S
 
 ## Recovery
 
+A first download has a 2 GiB transfer allowance; ordinary later runs keep their 256 MiB change budget. The bandwidth, memory and twenty-minute initial setup limits remain unchanged. Earlier versions used the ordinary budget for first downloads too, so a larger folder could stop partway through setup. Such a partial mirror is not a completed download: after addressing the limit, use **Create fresh mirror** to download into a new empty local folder. The previous partial folder and its baseline stay separate and untouched; do not force resync over them. Folders exceeding the new allowance still require operator review.
+
 ### Finish an already-downloaded setup
 
 For a failed initial setup with `source_changed`, **Finish downloaded setup** checks whether the existing download can safely complete registration. It requires a pre-existing verified account binding, the successful-download marker, private owned directories, matching account and folder/filesystem bindings, and a usable native baseline. It runs one ordinary two-way native sync with recovery checks; it never forces resync, replaces the mirror, or deletes its recovery state. Success makes local note access available and leaves syncing **paused**. Choose Resume separately when ready.
