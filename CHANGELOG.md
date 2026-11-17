@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Google Workspace replaces the standalone Google Calendar and Google Drive plugins in the marketplace. Retired source packages and Workspace's old client-import controls are removed; existing Workspace connections and OAuth client settings are retained.
+
 - PA updates 0.2.9 uses one **Local changes** decision for installed edits and unpublished source work, defaulting to **Keep local**. Source work is found at the standard server workspace without a configuration form. PA updater joins the six-component list and replaces itself last, preserving the same receipt across native replacement and BB restart without replaying uncertain writes.
 
 - PA updates 0.2.8 can inspect one explicitly mapped development checkout. Affected integrations show amber **Unpublished local changes**, separately from installed customizations; dirty files and unpublished branch changes are checked against fresh published main without changing the checkout or authorizing an update.

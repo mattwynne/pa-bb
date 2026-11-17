@@ -19,10 +19,10 @@ Before(function () {
     transport: { finishAuth: async () => {}, close: async () => {} },
   }) });
 });
-Given('a standalone Fastmail installation beside Google Calendar', function () {
+Given('a standalone Fastmail installation beside Google Workspace', function () {
   const marketplace = JSON.parse(readFileSync(new URL('../../../../marketplace.json', import.meta.url), 'utf8'));
   const plugins = new Map(marketplace.plugins.map(entry => [entry.id, entry]));
-  for (const id of ['fastmail', 'google-calendar']) {
+  for (const id of ['fastmail', 'google-workspace']) {
     const entry = plugins.get(id);
     assert.equal(entry.source.git.subdir, `plugins/${id}`);
     const manifest = JSON.parse(readFileSync(new URL(`../../../${id}/package.json`, import.meta.url), 'utf8'));
@@ -33,11 +33,11 @@ When('Fastmail grants a mail read and a calendar mutation tool', async function 
 Then('both granted Fastmail tools are selectable with provider schemas', function () {
   assert.equal(this.ids.length, 2); assert.deepEqual(this.registered[1].parameters.properties, { title: { type: 'string' } });
 });
-Then('Google Calendar remains independent', function () {
-  const manifest = JSON.parse(readFileSync(new URL('../../../google-calendar/package.json', import.meta.url), 'utf8'));
-  assert.equal(manifest.name, 'bb-plugin-google-calendar');
+Then('Google Workspace remains independent', function () {
+  const manifest = JSON.parse(readFileSync(new URL('../../../google-workspace/package.json', import.meta.url), 'utf8'));
+  assert.equal(manifest.name, 'bb-plugin-google-workspace');
   assert.equal(manifest.bb.server, './server.ts');
-  assert.ok(!this.registered.some(tool => tool.name.startsWith('gcal_')));
+  assert.ok(!this.registered.some(tool => tool.name.startsWith('gworkspace_')));
 });
 Given('Fastmail authorization is pending', async function () {
   this.state = await this.connection.provider.state(); this.connection.provider.saveCodeVerifier('mock-verifier');

@@ -16,13 +16,12 @@ For a new installation, start with [host setup](#1-prepare-the-host). This repos
 
 | Integration | What you can do | What you need |
 | --- | --- | --- |
-| [Google Calendar](plugins/google-calendar/README.md) | Search events, check availability, and create, update or delete events after approval. Connect multiple Google accounts. | Your own Google Web OAuth client. [Setup guide](plugins/google-calendar/docs/google-oauth-setup.md). |
+| [Google Workspace](plugins/google-workspace/README.md) | Use Drive, Docs, Sheets, Calendar and Gmail across connected Google accounts. Requested writes run without a second PA approval prompt. | Your own Google Web OAuth client and `uvx` on the BB service's PATH. [Setup guide](plugins/google-workspace/README.md#setup). |
 | [Fastmail](plugins/fastmail/README.md) | Use Fastmail's mail, calendar and contacts tools. Available actions depend on the access you grant, including write/send access if selected. An optional API token enables Inbox and label updates. | One Fastmail account. [Setup guide](plugins/fastmail/docs/setup.md). |
-| [Google Drive & Docs](plugins/google-drive/README.md) | Find files, browse folders and read Google Docs across connected accounts. **Read-only.** | Your own Google Web OAuth client; Calendar and Drive can reuse its configuration while keeping separate account grants. [Setup guide](plugins/google-drive/docs/setup.md). |
 | [iCloud Drive](plugins/icloud/README.md) | Sync selected folders in both directions between iCloud Drive and the BB host. | A supported Linux host with rclone. [Setup and recovery guide](plugins/icloud/docs/setup.md). |
 | [Obsidian](plugins/obsidian/README.md) | Search, read, create and edit Markdown notes, properties and tasks across connected vaults. No Obsidian app or Mac relay required. | The iCloud plugin, an initialized synced vault, and the [host search requirements](provisioning/README.md). [Setup guide](plugins/obsidian/docs/setup.md). |
 
-These plugins are early-stage and intended for **single-user BB installations**, not shared servers. Listed capabilities are implemented, but not every action has been verified against a live account. In particular, live Google Drive sign-in/reads, Calendar tool/approval flows, and Fastmail writes remain unverified; each plugin guide records its limits. PA core and other [planned integrations](docs/roadmap.md) are not available yet.
+These plugins are early-stage and intended for **single-user BB installations**, not shared servers. Listed capabilities are implemented, but not every action has been verified against a live account. Google Workspace replaces the retired standalone Calendar and Drive plugins. Each plugin guide records verification limits; an available tool catalog is not proof of every provider operation. PA core and other [planned integrations](docs/roadmap.md) are not available yet.
 
 ## Get started
 
@@ -38,7 +37,7 @@ Install [BB](https://getbb.app) **0.45 or later**, with Node.js **22 or later**,
 
 Use the role from a reviewed Git revision in your own infrastructure project, or follow the [standalone playbook instructions](provisioning/README.md#consume-from-infrastructure). It installs and checks host dependencies, including native Chrome. After BB is running, a separate role installs/enables `builtin:browser-automation` as the BB service user; see [browser provisioning](provisioning/README.md#browser-automation-installation-and-runtime). **It does not create a server, install BB, connect accounts or enable sync**. You manage the host, persistent storage, service and private configuration. The plugins never install system packages themselves.
 
-Calendar, Fastmail and Drive do not need these iCloud/Obsidian dependencies.
+Fastmail and Google Workspace do not need these iCloud/Obsidian dependencies. Workspace requires `uvx`; see its setup guide.
 
 ### 2. Add the marketplace and install plugins
 
@@ -50,7 +49,7 @@ bb marketplace refresh pa-for-bb
 bb plugin install fastmail@pa-for-bb
 ```
 
-If the marketplace is already registered, skip the first command. Replace `fastmail` with `google-calendar`, `google-drive`, `icloud` or `obsidian` to install another integration. Adding or refreshing the marketplace **does not install or update plugins**.
+If the marketplace is already registered, skip the first command. Replace `fastmail` with `google-workspace`, `icloud` or `obsidian` to install another integration. Adding or refreshing the marketplace **does not install or update plugins**.
 
 ### 3. Connect your services
 
@@ -58,18 +57,14 @@ Open the installed plugin's settings in BB and follow its setup guide. Then star
 
 ### Before connecting accounts
 
-- **Google setup needs your own client.** Create a Google Cloud Web OAuth client and register the callback URL shown in BB. The marketplace supplies no shared Google credentials. Calendar and Drive keep separate permissions even if they share client configuration.
+- **Google setup needs your own client.** Create a Google Cloud Web OAuth client and register the callback URL shown in BB. The marketplace supplies no shared Google credentials. Workspace requests combined access to Drive, Docs, Sheets, Calendar and Gmail.
 - **Fastmail controls the granted access.** Choose the permissions at Fastmail sign-in. If the browser cannot open the final localhost redirect, paste that address into the plugin's protected field in BB—not into chat or logs.
-- **Write permissions differ.** Calendar changes require approval. Fastmail follows the access you grant without an extra plugin-specific confirmation. Connecting an Obsidian vault grants read/write access to the **whole vault**, including hidden folders, without per-edit confirmations.
+- **Write permissions differ.** Workspace and Fastmail follow the access you grant without an extra plugin-specific confirmation. Connecting an Obsidian vault grants read/write access to the **whole vault**, including hidden folders, without per-edit confirmations.
 - **Sync is not a backup.** iCloud changes and deletions can propagate both ways. An Obsidian save confirms a local save, not delivery to iCloud or another device. Use a disposable folder for your first sync test and keep separate backups.
 
 ## A look inside BB
 
 These screenshots show the installed plugins in BB with **example accounts and vault data**, not real connected accounts. See [how they were captured](docs/screenshots/README.md).
-
-### Connect more than one calendar account
-
-![Google Calendar settings in BB, showing two example connected Google accounts.](docs/screenshots/google-calendar.png)
 
 ### Connect your notes
 

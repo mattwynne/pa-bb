@@ -4,7 +4,7 @@ import { resolve, dirname } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const files = ['connection-ui.tsx', 'connection-ui.css'];
-const plugins = ['google-calendar', 'fastmail', 'google-drive', 'google-workspace', 'icloud', 'obsidian'];
+const plugins = ['fastmail', 'google-workspace', 'icloud', 'obsidian'];
 const check = process.argv.includes('--check');
 let drift = false;
 for (const file of files) {

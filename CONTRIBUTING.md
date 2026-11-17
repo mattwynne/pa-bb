@@ -12,7 +12,7 @@ npm --prefix plugins/fastmail test
 npm --prefix plugins/fastmail run typecheck
 ```
 
-Replace `fastmail` with `google-calendar`, `google-drive`, `icloud` or `obsidian` as appropriate. Check the [plugin guides](README.md#available-integrations) for additional requirements and verification steps. Calendar's tests also validate the marketplace catalog; Drive's tests build the sibling Calendar package for cross-plugin checks.
+Replace `fastmail` with `google-workspace`, `icloud` or `obsidian` as appropriate. Check the [plugin guides](README.md#available-integrations) for additional requirements and verification steps. Fastmail's tests also validate the marketplace catalog. Workspace's `test:host` script checks its built BB handlers and storage without Google access.
 
 Tests use generated data and fake credentials. Real native iCloud tests need an explicit pinned `RCLONE_TEST_BINARY`; without it, their platform/binary gates skip them. A default passing test run is not proof of native sync or a successful provider call.
 

@@ -22,12 +22,6 @@ export function WorkspaceSettings() {
       window.location.assign(url);
     } catch { setError('Could not start Google sign-in. Check the OAuth client and registered callback in the setup guide.'); setBusy(false); }
   }
-  async function copyClient(source: 'google-drive' | 'google-calendar') {
-    setBusy(true); setError('');
-    try { await rpc.call('importOAuthClient', { source }); await load(); }
-    catch { setError('Could not copy the Web client. Update the source plugin or enter the same client ID and secret in Configuration.'); }
-    finally { setBusy(false); }
-  }
   async function remove(subject: string, email: string) {
     if (!window.confirm(`Remove ${email} from Workspace? This leaves your Google files, mail and other plugins unchanged.`)) return;
     setBusy(true); setError('');
@@ -58,9 +52,7 @@ export function WorkspaceSettings() {
         <ol>
           <li>Enable the Drive, Docs, Sheets, Calendar and Gmail APIs in your Google Cloud project.</li>
           <li>Add this authorized redirect URI to your existing Web OAuth client:{callback}</li>
-          <li>Copy the client settings from an updated PA plugin, or save the same client ID and secret in Configuration above.
-            <div className="pa-workspace__actions"><ConnectionButton disabled={busy} onClick={() => void copyClient('google-drive')}>Use Drive’s OAuth client</ConnectionButton>
-              <ConnectionButton disabled={busy} onClick={() => void copyClient('google-calendar')}>Use Calendar’s OAuth client</ConnectionButton></div></li>
+          <li>Save your Web OAuth client ID and secret in Configuration above.</li>
           <li>Install <code>uv</code> on the BB server with <code>uvx</code> on the service’s PATH. Workspace starts its pinned backend automatically.</li>
         </ol>
         <p>Then connect an account and approve the requested permissions, including Gmail. No separate MCP login or per-action approval prompts.</p>
@@ -74,7 +66,7 @@ export function WorkspaceSettings() {
           </>} />)}</ConnectionAccounts>
         <p className="pa-workspace__status" role="status">{busy ? 'Working…' : status.ready ? 'Workspace tools available.' : 'Choose Refresh to start the Workspace backend.'}</p>
       </> : <ConnectionSetup title="Connect your first account"><p>Confirm this callback is registered on your Web OAuth client, then choose Connect account:</p>{callback}
-        <p>Google will ask for access to all five services. Existing Drive and Calendar permissions do not cover Gmail.</p></ConnectionSetup>}
+        <p>Google will ask for access to all five services, including Gmail.</p></ConnectionSetup>}
     <ConnectionFooter>
       {status?.accounts.length ? <ConnectionButton disabled={busy} onClick={() => void refresh()}>{busy ? 'Refreshing…' : 'Refresh'}</ConnectionButton> : null}
       <ConnectionGuide href={GUIDE} />

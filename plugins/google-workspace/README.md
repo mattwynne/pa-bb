@@ -2,7 +2,7 @@
 
 A thin connector to [Workspace MCP](https://github.com/taylorwilsdon/google_workspace_mcp), enabling **Drive, Docs, Sheets, Calendar and Gmail**. Google operations and document-editing behaviour stay upstream. BB owns account selection, Google sign-in, token refresh and the local backend process.
 
-**Status:** installed for an owner trial using a local-path source. Synthetic tests, real Linux backend startup, anonymous-auth refusal and rendered BB settings checks pass. Google account consent and real Google operations remain for owner testing. The existing Calendar and Drive plugins remain independent; this does not retire them.
+**Status:** installed for an owner trial using a local-path source. Synthetic tests, real Linux backend startup, anonymous-auth refusal and rendered BB settings checks pass. Google account consent and real Google operations remain for owner testing. Workspace replaces the retired standalone Calendar and Drive plugins; their source and earlier verification records remain in Git history.
 
 Requested writes run without a second PA approval prompt. The connector adds no document model, edit planner, operation journal or recovery framework. It makes one attempt per call; inspect current Google state before retrying an uncertain write.
 
@@ -20,25 +20,27 @@ cd ../..
 bb plugin install ./plugins/google-workspace
 ```
 
-Use BB's native update lifecycle for an existing installation. Do not uninstall a configured plugin to update its source, or remove Calendar/Drive to try Workspace. Workspace is not yet listed in the PA marketplace.
+Workspace is also available as `google-workspace@pa-for-bb` in the PA marketplace. Use BB's native update lifecycle for an existing Workspace installation; do not uninstall a configured plugin to update its source.
+
+When replacing an old Calendar/Drive installation, configure Workspace and verify the Google tasks you need first. Then explicitly uninstall the old plugins with `bb plugin uninstall google-calendar` and `bb plugin uninstall google-drive`. Uninstalling deletes their BB settings, secrets and schedules, not Google content. Do not revoke the shared Google OAuth app just to retire the plugins; that may also affect Workspace.
 
 Successful Google sign-in returns directly to these Workspace settings, where the verified account is listed. If sign-in cannot finish, a standalone recovery page links back to Workspace without showing callback details.
 
 ### Reuse the existing Google Cloud OAuth app
 
-No second OAuth app is needed. The existing Web OAuth client can authorize Workspace too; Workspace owns a separate combined user grant, not copies of the old plugins' tokens.
+No second OAuth app is needed. The existing Web OAuth client can authorize Workspace too; Workspace obtains its own combined user grant; it does not import another plugin's tokens.
 
 1. In the existing Google Cloud project, enable **Drive API, Docs API, Sheets API, Calendar API and Gmail API**.
 2. Configure the OAuth app's audience/test users and data access as appropriate. Workspace requests `openid`, `email`, `drive`, `calendar`, `gmail.modify` and `gmail.settings.basic`. Drive permission also authorizes Docs and Sheets operations. Gmail adds real permissions; old Drive/Calendar tokens cannot silently gain mail access. Public Gmail integrations may require Google's verification; testing-mode requirements are different.
-3. Open Workspace's BB settings. Copy its displayed callback URL into the Web client's **Authorized redirect URIs**, alongside the old callbacks. Its form is `https://<BB origin>/api/v1/plugins/google-workspace/http/callback`.
-4. Choose **Use Drive's OAuth client** or **Use Calendar's OAuth client**, or enter that same client ID and secret in Configuration. The buttons require updated source plugins exposing the caller-checked `exportOAuthClientForWorkspace` RPC. They copy only client settings server-to-server, never user tokens. Manual entry works without either plugin installed.
+3. Open Workspace's BB settings. Copy its displayed callback URL into the Web client's **Authorized redirect URIs**. Its form is `https://<BB origin>/api/v1/plugins/google-workspace/http/callback`.
+4. Enter the Web client's ID and secret in Workspace's Configuration. Existing Workspace settings are retained when updating; no other Google plugin is needed.
 5. Choose **Connect account**, select the Google account and approve all requested services, including Gmail. Return to BB after the callback, then choose **Refresh** if the backend is still unavailable. A first runtime download can take longer than later starts.
 
 Add more accounts with **Add account**. Every agent call selects an account explicitly. **Reconnect** preserves account identity. **Remove** deletes this plugin's saved account connection, not Google content or another plugin's grant. Revoke remote access separately in Google account settings if wanted.
 
 ## Using it
 
-The connector discovers schemas at runtime and registers names such as `gworkspace_modify_doc_text_<schema-hash>`. Old and new plugin tools have distinct names. Start a fresh agent session after connecting or changing the catalogue.
+The connector discovers schemas at runtime and registers names such as `gworkspace_modify_doc_text_<schema-hash>`. Start a fresh agent session after connecting, changing the catalogue or removing an old plugin.
 
 - `gworkspace_accounts`: list connected accounts, without tokens.
 - `gworkspace_list_tools`: inspect the discovered upstream tools and their BB-facing schemas.
@@ -62,7 +64,6 @@ See [the ports](core/ports.md) and [ADR 0004](../../docs/adrs/0004-google-worksp
 ```sh
 npm test                 # Fast core/adapter/contract tests; no server or Google
 npm run test:host        # Built BB handlers and real temporary SQLite; synthetic MCP/OAuth
-npm run test:legacy      # Build old plugins; prove caller-checked Web-client export
 npm run test:runtime     # Opt-in: real pinned backend startup; uvx required; no Google login
 npm run typecheck
 ```

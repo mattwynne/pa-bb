@@ -85,7 +85,7 @@ test('tool and discovery failures produce bounded diagnostics without provider o
     assert.doesNotMatch(logs, /PRIVATE_CONTENT|SECRET|alice@example|recipient@example/);
   } finally { await w.close(); }
 });
-test('removing Workspace account disables its tools without affecting original plugins', async () => {
+test('removing Workspace account disables its tools without calling other plugins', async () => {
   const w = await world();
   try {
     await w.connect();
@@ -95,19 +95,13 @@ test('removing Workspace account disables its tools without affecting original p
     assert.deepEqual(w.host.harness.sdk.callsTo('plugins.callRpc'), []);
   } finally { await w.close(); }
 });
-test('original Web client can be copied server-side without importing tokens', async () => {
-  const w = await world({});
+test('Workspace connects with its saved Web client without another plugin', async () => {
+  const w = await world();
   try {
-    w.host.harness.sdk.stub('plugins.callRpc', async args => {
-      assert.equal(args.pluginId, 'google-drive'); assert.equal(args.method, 'exportOAuthClientForWorkspace');
-      return { clientId: 'imported-web-client', clientSecret: 'SECRET_IMPORTED' };
-    });
-    assert.deepEqual(await w.rpc('importOAuthClient', { source: 'google-drive' }), { imported: true });
-    assert.equal(new URL((await w.rpc('beginConnect')).url).searchParams.get('client_id'), 'imported-web-client');
-    assert.deepEqual((await w.rpc('status')).accounts, []);
+    assert.equal(new URL((await w.rpc('beginConnect')).url).searchParams.get('client_id'), 'existing-web-client');
     await w.connect();
-    await assert.rejects(w.rpc('importOAuthClient', { source: 'google-drive' }), /Disconnect/);
-    assert.doesNotMatch(JSON.stringify(w.host.harness.inspection.logEntries), /SECRET_IMPORTED/);
+    assert.equal((await w.rpc('status')).accounts.length, 1);
+    assert.deepEqual(w.host.harness.sdk.callsTo('plugins.callRpc'), []);
   } finally { await w.close(); }
 });
 test('unknown account gives useful feedback before any provider call', async () => {

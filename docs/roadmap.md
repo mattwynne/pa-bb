@@ -6,11 +6,10 @@ This is a proposed order of work, not a promise to port every PA package. The [v
 
 ## Where we are
 
-**Five independent plugins are listed in the marketplace: Google Calendar, Fastmail, read-only Google Drive/Docs, iCloud folder sync, and Obsidian.** All five are installed; PA core and Gmail are not delivered. Verification limits differ by plugin.
+**Four independent plugins are listed in the marketplace: Google Workspace, Fastmail, iCloud folder sync, and Obsidian.** PA core is not delivered. Verification limits differ by plugin.
 
-- **Google Calendar:** managed installation and multiple account connections verified; end-to-end Calendar tool use and live write approval still need verification.
+- **Google Workspace:** replaces the retired standalone Calendar and Drive plugins. The thin Workspace MCP connector exposes Drive, Docs, Sheets, Calendar and Gmail through BB-managed Google connections. Requested writes need no second PA approval. The owner reports successful use; that is not proof of every operation. See its [guide](../plugins/google-workspace/README.md) for setup and verification limits.
 - **Fastmail:** standalone official MCP connection installed, with session recovery and stable tool IDs. A [recorded BB workflow](problems/google-drive-email-attachments.md) includes a completed email-draft call, superseding the earlier blanket “no live writes” status. This is not proof of sending or every mail/calendar/contacts operation. Optional [JMAP Inbox and label updates](../plugins/fastmail/docs/jmap-labels.md) are built and synthetically tested; live JMAP writes remain unverified.
-- **Google Drive/Docs:** read-only search, folder browsing, metadata and Docs text tools are built. The same workflow records live account discovery, search and browsing; a complete consent/Docs-read verification record is still missing. Downloads and exports are not implemented.
 - **iCloud:** **0.3.1** retains [continuous local note access](plans/015-icloud-continuous-note-access.md), conditional saves and per-note recovery behind native ownership. Routine sync no longer determines note availability. Both-disabled delivery preserved source choices; a normal scheduled run completed with local access/discovery retained. Sync takes no whole-folder backups. Phone round trips and real authorization-expiry recovery remain unverified.
 - **Obsidian:** **0.3.1** supplies independent multi-vault settings and nine assistant tools over iCloud note access v2, now including complete-scope ripgrep search, typed properties, explicit scopes and honest counts. No vault is connected automatically. Generated installed-BB long-sync workloads, retirement, original-handler provider bridge and rendered review passed; production checks were read-only. Connecting grants whole-vault read/write without confirmations. Local receipts and alias visibility are not proof of cloud/device delivery.
 
@@ -42,21 +41,17 @@ Keep the core small. It should explain installed capabilities and missing connec
 
 The first cross-provider use case remains **calendar awareness**: answer across connected Google and Fastmail calendars, preserve each event's provider/account/calendar identity, and report partial failures instead of silently treating one provider as complete. Calendar interpretation and availability reasoning belong above the providers. Do not invent a shared calendar write API merely to support a combined read.
 
-### 4. Google Drive and Docs: finish useful file workflows
+### 4. Google Workspace: verify useful file workflows
 
-Extend the [read-only first slice](plans/003-google-drive-discovery.md) around demonstrated tasks, not the Pi extension's tool list. The [Drive-to-email attachment gap](problems/google-drive-email-attachments.md) is concrete: the assistant can find files but cannot retrieve their bytes, so it substitutes links or asks for manual uploads. Add bounded downloads and explicit Google-native export formats, with safe backend transfer to the mail provider and temporary-file cleanup. Keep binary content and credentials out of agent context. Preparing attachments must not imply permission to send.
-
-Add approved document creation, editing, sharing and filing with an explicit scope-upgrade path when needed. Add Sheets and Slides for demonstrated workflows, not as prerequisites to useful Drive access.
+Use the upstream Workspace MCP tools for Drive, Docs and Sheets rather than rebuilding the retired plugins. Verify demonstrated tasks, including file movement, editing and attachments, through the actual discovered schemas. Automatic BB thread-file handling remains a separate gap. Keep binary content and credentials out of agent context; preparing an attachment does not imply permission to send.
 
 ### 5. Outcome abilities
 
 Once sources are connected, package the work people ask PA to do. Begin with **meeting preparation / Get Perspective** across available calendars and context; follow with a daily briefing, saved email drafting, inbox triage, and weekly planning where their dependencies are ready. Adapt PA's existing abilities rather than copying Pi-specific commands, subagents, private policies, or filesystem assumptions verbatim. Each ability should remain useful with a subset of integrations and be explicit about what it could not inspect.
 
-### 6. Gmail — read-only iteration planned
+### 6. Gmail — available through Workspace
 
-The [Gmail investigation](problems/gmail-plugin.md) recommends an independent provider plugin using the Gmail REST API and existing Calendar/Drive OAuth patterns. Start with multi-account search, message and thread reads; add drafts next and approved sending only as a separately agreed capability. Reuse an installation's Web OAuth client through caller-checked backend copying, never its account tokens. Gmail still needs its own consent and verified scopes; shared Google projects do not guarantee independent provider-side revocation.
-
-[Iteration 014 — Gmail search and message reading](plans/014-gmail-search-and-read.md) defines the first release: read-only multi-account search and message/thread text, with no drafts or sending. Before live access, establish the applicable Google verification/deployment model, encrypted storage and BB-to-model data handling. Gmail reading and drafting use restricted scopes; Google's draft scope also permits sending, so a future draft-only release must expose no send path. No Gmail plugin or live Gmail access has been delivered. Mailbox mutations, attachments and background synchronization stay deferred until needed.
+Workspace supplies Gmail search/read, attachments, drafts/send, labels and filters under its combined Google consent. The earlier [Gmail investigation](problems/gmail-plugin.md) and [read-only plan](plans/014-gmail-search-and-read.md) are historical, not instructions to build another plugin. Verify each needed workflow independently; never send mail merely to prove deployment.
 
 ### 7. Fill remaining provider gaps
 
@@ -71,12 +66,12 @@ Consider Xero, meeting capture and transcripts, Discord, DNSimple, and other PA 
 ## Next milestones
 
 1. **Useful Obsidian search:** test the delivered [ripgrep search correction](plans/016-ripgrep-vault-search.md) in personal use. Generated installed-handler tests prove complete text/property counts beyond the old cutoffs; the owner now assesses actual counts and responsiveness. The existing long-sync and save evidence does not establish large-vault search completeness. Generated two-vault writes, stale edits, lost-response inspection and removal remain separately verified. Any new provider test or disposable cloud/device round trip needs specific authorization; local receipts and sync timestamps remain separate evidence.
-2. **First composed assistant task:** install PA core alongside Google Calendar and Fastmail, then ask: “What's on across all my calendars tomorrow, and what do I need to prepare?” Identify each event's provider/account/calendar, use only connected services, and report partial failures. Drive, Obsidian and email may improve the answer but must not be required.
+2. **First composed assistant task:** install PA core alongside Google Workspace and Fastmail, then ask: “What's on across all my calendars tomorrow, and what do I need to prepare?” Identify each event's provider/account/calendar, use only connected services, and report partial failures. Drive, Obsidian and email may improve the answer but must not be required.
 
 ## Gates that apply throughout
 
 - **Consent determines capability; user intent determines action.** Offer the tools allowed by each service grant, including writes, without an extra Fastmail-specific gate. Do not treat connected services or untrusted provider content as instructions to mutate data. Honor BB and provider interaction/permission flows, describe consequential changes clearly, and inspect uncertain write outcomes instead of retrying blindly.
-- **Do not promise multi-user privacy without an enforceable boundary.** The current Google Calendar plugin is explicitly single-user because BB agent tools and plugin routes do not supply a user identity. Keep new connections scoped to single-user installations until BB can enforce per-user account and data isolation. BB plugins run as trusted server code, not as security-isolated providers.
+- **Do not promise multi-user privacy without an enforceable boundary.** The Google Workspace plugin is explicitly single-user because BB agent tools and plugin routes do not supply a user identity. Keep new connections scoped to single-user installations until BB can enforce per-user account and data isolation. BB plugins run as trusted server code, not as security-isolated providers.
 - **Validate in BB, not just in Pi.** Prove installation, connection, tool visibility, and the intended approval behavior in target BB provider sessions. Review changed UI in rendered BB at desktop/narrow widths with keyboard navigation. Record installed versions/commits and distinguish synthetic tests, host checks, provider calls and device delivery; none substitutes for the others.
 - **Make failures diagnosable without exposing content.** Follow the [observability standards](o11y-standards.md) and test handled failures with synthetic private sentinels. Keep credentials, note/mail bodies, account details, host paths and raw provider errors out of diagnostics.
-- **Keep integrations independent.** Removing Fastmail must not break Google Calendar; removing an ability must not delete a user's account or provider data. Avoid a mandatory shared plugin framework before real composition requires one.
+- **Keep integrations independent.** Removing Fastmail must not break Google Workspace; removing an ability must not delete a user's account or provider data. Avoid a mandatory shared plugin framework before real composition requires one.

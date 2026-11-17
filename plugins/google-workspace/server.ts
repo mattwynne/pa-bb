@@ -65,15 +65,6 @@ export default async function plugin(bb: BbPluginApi, ports: any = {}) {
     async beginConnect() { return auth.beginConnect(); },
     async beginReconnect({ subject }) { return auth.beginConnect({ subject }); },
     async removeAccount({ subject }) { const result = await auth.removeAccount(subject); await refresh(); return result; },
-    async importOAuthClient({ source }) {
-      if ((await auth.list()).length) throw new Error('Disconnect Workspace accounts before changing their OAuth client');
-      try {
-        const client = await bb.sdk.plugins.callRpc({ pluginId: source, method: 'exportOAuthClientForWorkspace', input: null,
-          outputSchema: z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }) });
-        await settings.experimental_set(client);
-        return { imported: true };
-      } catch (error) { diagnose('oauth_client_import', error); throw new Error('Could not copy the Web OAuth client. Update the source plugin, or enter the same client settings in Configuration.'); }
-    },
     refresh,
   });
   // Google callbacks are public, protected by expiring one-use state and PKCE.
