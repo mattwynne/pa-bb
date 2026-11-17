@@ -14,6 +14,7 @@ type Folder = { id: string; name: string; ancestors: string[] };
 const GUIDE = 'https://github.com/mattwynne/pa-bb/blob/main/plugins/icloud/docs/setup.md';
 type Mirror = Status['mirrors'][number];
 function mirrorStatus(mirror: Mirror, connected: boolean) {
+  if (mirror.completingInitial) return 'Finishing downloaded setup…';
   if (mirror.phase === 'retained') return 'Previous mirror kept';
   if (mirror.phase === 'running' && mirror.blocker === 'rebuild') return 'Continuing interrupted sync…';
   if (mirror.phase === 'running') return mirror.recovering ? 'Retrying…' : 'Syncing…';
@@ -27,12 +28,14 @@ function mirrorStatus(mirror: Mirror, connected: boolean) {
   return mirror.retryPending ? 'Retry pending' : 'Sync unsuccessful';
 }
 function failureMessage(mirror: Mirror, connected: boolean, issue?: string) {
+  if (mirror.completingInitial) return 'Checking the existing download and baseline with an ordinary native sync. Local note access and scheduling stay paused until all checks finish.';
   if (mirror.blocker === 'reconnect' && issue === 'provider_rejected') return 'Apple returned HTTP 421. Cloud retries are held; sign-in may help, but expiry is not confirmed. Review the connection before resuming.';
   if (mirror.phase === 'running' && mirror.blocker === 'rebuild') return 'Checking the existing mirror and continuing only verified interrupted copies. Local note access stays paused until all recovery checks pass.';
   if (mirror.recovering) return 'The previous attempt did not complete. Retrying with rclone’s normal checks. The last successful sync changes only when this run finishes.';
   if (mirror.blocker === 'reconnect') return connected ? 'Apple is connected again. Choose Resume to check and sync this folder.' : 'Apple authorization needs attention. Reconnect, then choose Resume for this folder.';
   if (mirror.blocker === 'capacity') return 'Sync stopped because host storage or transfer capacity needs attention. A fresh mirror is not a capacity fix.';
   if (mirror.blocker === 'configuration') return 'Sync stopped because the host or rclone configuration needs attention.';
+  if (mirror.blocker === 'initialization' && mirror.initialCompletionAttempted) return 'A setup completion was attempted. If it did not finish, preserve the downloaded files and ask the host operator to inspect diagnostics. Do not repeat an uncertain operation.';
   if (mirror.blocker === 'initialization') return 'Initial preparation did not complete. This folder will not sync until you choose a supported recovery path.';
   if (mirror.blocker === 'rebuild') return 'Sync needs recovery checks. Local notes and unsent edits are kept. Continue checks whether this mirror can safely finish; otherwise it stays stopped.';
   if (mirror.retryPending && mirror.failure === 'interrupted') return 'Sync was interrupted. BB will retry with rclone’s normal checks on the next scheduled run.';
@@ -55,7 +58,7 @@ function ICloudSettings() {
     try { setState(await rpc.call('status', null)); setLoadError(''); if (!quiet) setError(''); }
     catch { setLoadError('Status unavailable. Showing last-known status, not a new connection check. Check BB and refresh.'); }
   }
-  const pollMs = busy || state?.mirrors.some(mirror => mirror.phase === 'running') ? 1_000 : 15_000;
+  const pollMs = busy || state?.mirrors.some(mirror => mirror.phase === 'running' || mirror.completingInitial) ? 1_000 : 15_000;
   useEffect(() => { void refresh(); }, []);
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -149,11 +152,20 @@ function ICloudSettings() {
       </>}
       <ul className="pa-icloud__mirrors">{state.mirrors.map(mirror => <li key={mirror.id}>
         <div className="pa-icloud__mirror-head"><strong className="pa-icloud__mirror-name"><Icon name="Folder" className="pa-icloud__icon" aria-hidden />{mirror.folder.name}</strong><span role="status">{mirrorStatus(mirror, state.connected)}</span></div>
-        {mirror.phase === 'running' && <SyncProgressView progress={mirror.progress} folderName={mirror.folder.name} />}
+        {(mirror.phase === 'running' || mirror.completingInitial) && <SyncProgressView progress={mirror.progress} folderName={mirror.folder.name} />}
         <p>Last successful host sync finished: {mirror.lastSuccess ? new Date(mirror.lastSuccess).toLocaleString(undefined, { timeZoneName: 'short' }) : 'No successful sync recorded (never synced or history unknown)'}</p>
-        {mirror.failure && mirror.phase !== 'retained' && (mirror.recovering || mirror.retryPending
+        {mirror.failure && mirror.phase !== 'retained' && (mirror.completingInitial || mirror.recovering || mirror.retryPending
           ? <p role="status">{failureMessage(mirror, state.connected, state.attention?.stage)}</p>
           : <ConnectionAlert>{failureMessage(mirror, state.connected, state.attention?.stage)}</ConnectionAlert>)}
+        {mirror.phase === 'failed' && !mirror.initialized && !mirror.enabled && mirror.failure === 'source_changed' && mirror.blocker === 'initialization' && !mirror.initialCompletionAttempted && <>
+          <p>Finish setup using the already-downloaded files. BB checks the account, folder and saved baseline, then runs one ordinary two-way sync. No forced resync or fresh mirror. If all checks pass, the folder remains paused.</p>
+          <ConnectionButton tone="primary" disabled={busy || !state.connected} aria-label={`Finish downloaded setup for ${mirror.folder.name}`} onClick={() => void act(async () => {
+            const next = await rpc.call('completeInitialRegistration', { id: mirror.id });
+            const result = next.mirrors.find(item => item.id === mirror.id);
+            setNotice(result?.initialized && result.phase === 'paused' && result.blocker === null ? 'Downloaded setup finished. The folder is paused; choose Resume when ready.' : 'Setup completion did not pass. The folder remains stopped. Preserve its files and ask the host operator to inspect diagnostics before any further action.');
+            return next;
+          })}>Finish downloaded setup</ConnectionButton>
+        </>}
         {mirror.phase === 'failed' && mirror.initialized && mirror.blocker === 'rebuild' && <ConnectionButton tone="primary" disabled={busy || !state.connected} aria-label={`Continue interrupted sync for ${mirror.folder.name}`} onClick={() => void act(async () => {
           const next = await rpc.call('continueInterrupted', { id: mirror.id });
           const result = next.mirrors.find(item => item.id === mirror.id);

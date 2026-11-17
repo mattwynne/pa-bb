@@ -110,9 +110,9 @@ export class NoteRuntime {
     if (bound && (bound.root_dev !== rootInfo!.dev || bound.root_ino !== rootInfo!.ino || bound.baseline_dev !== baselineInfo!.dev || bound.baseline_ino !== baselineInfo!.ino)) throw new CloudError('source_changed');
     let marker;
     try {
-      marker = await open(join(baseline, 'initialized'), constants.O_RDONLY | constants.O_NOFOLLOW);
+      marker = await open(join(baseline, 'initialized'), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const info = await marker.stat();
-      if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0 || info.size !== 1 || await marker.readFile('utf8') !== '1') throw new Error();
+      if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0 || info.size !== 1 || await marker.readFile('utf8') !== '1') throw new Error();
     } catch { throw new CloudError('source_changed'); }
     finally { await marker?.close(); }
     if (!bound) this.db.prepare('INSERT INTO icloud_note_bindings(mirror_id, folder_id, root_dev, root_ino, baseline_dev, baseline_ino) VALUES (?, ?, ?, ?, ?, ?)').run(mirror.id, mirror.folder.id, rootInfo!.dev, rootInfo!.ino, baselineInfo!.dev, baselineInfo!.ino);
@@ -132,6 +132,40 @@ export class NoteRuntime {
         await this.overlay.indexLegacy(mirror.id, this.localPath(initialized));
         this.blocked.delete(mirror.id);
       });
+    });
+  }
+  // One owned turn covers validation, the ordinary native baseline check and
+  // final registration. The service keeps its durable failed/disabled record
+  // throughout; only this validated local clone bypasses initialization.
+  completeInitialRegistration(mirror: Mirror, args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
+    return this.turn(async () => {
+      const current = this.mirror(mirror.id);
+      if (!this.ready || this.storageBlocked || !current || current.initialized || current.enabled || current.phase !== 'failed' || current.failure !== 'source_changed' || current.blocker !== 'initialization' || !current.initialCompletionAttempted || current.folder.id !== mirror.folder.id || args[0] !== 'bisync' || args[2] !== this.localPath(current) || args.includes('--resync') || args.includes('--force') || args[args.indexOf('--workdir') + 1] !== join(this.root, 'baselines', current.id)) throw new CloudError('recovery_required');
+      // A marker alone cannot prove the original account. This incident's
+      // existing account binding must already exist; never adopt a new one.
+      if (!this.db.prepare('SELECT fingerprint FROM icloud_note_account WHERE id=1').get()) throw new CloudError('source_changed');
+      if (this.nativeBlocked.has(current.id) || this.overlay.hasUnresolvedJournals(current.id) || this.overlay.pending().some(item => item.mirrorId === current.id) || this.overlay.beforeRun(current.id).length) throw new CloudError('recovery_required');
+      const initialized = { ...current, initialized: true, blocker: null };
+      const validate = async () => {
+        await this.bindAccount();
+        await this.worker.withFiles(async () => {
+          // Require private directories as well as the existing exact marker,
+          // ownership, folder and inode checks. Never create/reset a baseline.
+          for (const path of [this.localPath(current), join(this.root, 'baselines', current.id)]) {
+            const info = await lstat(path).catch(() => null);
+            if (!info?.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.() || (info.mode & 0o077)) throw new CloudError('source_changed');
+          }
+          await this.local(initialized);
+        });
+      };
+      await validate();
+      await this.nativeCommand(args, capture, report);
+      await validate();
+      await this.worker.withFiles(async () => {
+        await this.overlay.indexLegacy(current.id, this.localPath(current));
+        this.blocked.delete(current.id);
+      });
+      return '';
     });
   }
   async availability(id: string): Promise<{ available: boolean; reason: 'ownership' | 'recovery_required' | 'source_changed' | null }> {

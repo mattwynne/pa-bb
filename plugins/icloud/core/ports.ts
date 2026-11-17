@@ -31,7 +31,7 @@ export type Connection = { connected: true } | { connected: false; challenge: Ch
 export type CloudFolder = { id: string; name: string; ancestors: string[] };
 export const BLOCKERS = ['reconnect', 'configuration', 'capacity', 'initialization', 'rebuild'] as const;
 export type Blocker = typeof BLOCKERS[number];
-export type Mirror = { id: string; folder: CloudFolder; initialized: boolean; enabled: boolean; phase: 'paused' | 'ready' | 'running' | 'failed' | 'retained'; lastSuccess: string | null; failure: Failure | null; blocker: Blocker | null };
+export type Mirror = { initialCompletionAttempted?: boolean; id: string; folder: CloudFolder; initialized: boolean; enabled: boolean; phase: 'paused' | 'ready' | 'running' | 'failed' | 'retained'; lastSuccess: string | null; failure: Failure | null; blocker: Blocker | null };
 export type MirrorStatus = Mirror & { retryPending: boolean; recovering: boolean };
 export type SyncStage = 'checking' | 'backing_up_cloud' | 'backing_up_local' | 'saving_recovery' | 'transferring' | 'verifying';
 export type TransferProgress = { bytes: number; totalBytes: number | null; files: number; totalFiles: number | null };
@@ -49,6 +49,8 @@ export interface CloudProvider {
   synchronize(mirror: Mirror, report?: ProgressReporter): Promise<void>;
   // Explicit assessment plus one ordinary native continuation; never Retry.
   continueInterrupted?(mirror: Mirror, report?: ProgressReporter): Promise<void>;
+  // One explicit completion of an already-downloaded, registration-failed mirror.
+  completeInitialRegistration?(mirror: Mirror, report?: ProgressReporter): Promise<void>;
   disconnect(): Promise<void>;
   // Close admission and interrupt work without releasing its native owner.
   requestStop?(): void;

@@ -30,6 +30,13 @@ The **Last successful sync** time changes only after successful completion. “S
 
 ## Recovery
 
+### Finish an already-downloaded setup
+
+For a failed initial setup with `source_changed`, **Finish downloaded setup** checks whether the existing download can safely complete registration. It requires a pre-existing verified account binding, the successful-download marker, private owned directories, matching account and folder/filesystem bindings, and a usable native baseline. It runs one ordinary two-way native sync with recovery checks; it never forces resync, replaces the mirror, or deletes its recovery state. Success makes local note access available and leaves syncing **paused**. Choose Resume separately when ready.
+
+This is a single explicit attempt, not a general repair. Missing or unsafe markers, mismatched bindings, other failure categories and native failures stay stopped. An attempted or uncertain completion cannot be repeated through the control, including after restart; preserve the files and ask the host operator to inspect diagnostics. The original failure history remains. Client-only RPC: `completeInitialRegistration` with `{ "id": "<mirror-id>" }`.
+
+
 Legacy recovery archives, including incomplete or ambiguous staging, are preserved without being inspected or changed by sync. They are no longer a precondition for an ordinary attempt. An already saved capacity or critical blocker is not cleared automatically; review its cause separately rather than assuming it came from the retired backup layer.
 
 A temporary failure or interruption remains visible and retains the last successful timestamp. If the folder is still enabled, BB retries on its ordinary schedule. Choose **Pause** to cancel future attempts while keeping the failure visible. Pending and active retries use calm status messages; stopped conditions needing action use error messages.

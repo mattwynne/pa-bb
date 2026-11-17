@@ -26,7 +26,8 @@ export class RcloneCloudProvider implements CloudProvider {
     private readonly registerNotes?: (mirror: Mirror) => Promise<void>,
     private readonly idleFiles?: <T>(action: () => Promise<T>) => Promise<T>,
     private readonly interrupt?: () => void,
-    private readonly continueRun?: CommandRunner) {}
+    private readonly continueRun?: CommandRunner,
+    private readonly completeInitialRun?: (mirror: Mirror, args: string[], capture?: boolean, report?: Parameters<CommandRunner>[2]) => Promise<string>) {}
   async withMirrorFiles<T>(mirror: Mirror, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (!this.files) throw new CloudError('unavailable');
     return this.files(async signal => {
@@ -141,6 +142,10 @@ export class RcloneCloudProvider implements CloudProvider {
   async continueInterrupted(mirror: Mirror, report?: ProgressReporter) {
     if (!this.continueRun || !mirror.initialized || mirror.blocker !== 'rebuild' || mirror.phase !== 'running') throw new CloudError('recovery_required');
     await this.bisync(mirror, false, report, this.continueRun);
+  }
+  async completeInitialRegistration(mirror: Mirror, report?: ProgressReporter) {
+    if (!this.completeInitialRun || mirror.initialized || mirror.enabled || mirror.phase !== 'failed' || mirror.blocker !== 'initialization' || mirror.failure !== 'source_changed' || !mirror.initialCompletionAttempted) throw new CloudError('recovery_required');
+    await this.bisync(mirror, false, report, (args, capture, stats) => this.completeInitialRun!(mirror, args, capture, stats));
   }
   async disconnect() {
     this.continuation = null;

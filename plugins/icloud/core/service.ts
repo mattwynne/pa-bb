@@ -17,6 +17,7 @@ export class ICloudSync {
   private attentionWrites: Promise<unknown> = Promise.resolve();
   private inlineWindows = new Map<string, number>();
   private stopped = false;
+  private completingInitial: string | null = null;
   private stopping: Promise<void> | null = null;
   private current: Promise<unknown> | null = null;
   private discovered = new Map<string, CloudFolder>();
@@ -60,7 +61,7 @@ export class ICloudSync {
       }).catch(error => this.diagnose('restore_connection', category(error), { evidence: evidence(error) }));
     });
   }
-  status() { return { connected: this.state.connected, challenge: this.state.challenge, connectionCheck: this.connectionCheck, lastSignInCompletedAt: verifiedDate(this.state.lastSignInCompletedAt, Date.parse(this.clock())), attention: this.attention(), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), retryPending: this.state.connected && mirror.enabled && mirror.initialized && mirror.phase === 'failed' && mirror.blocker === null, recovering: mirror.phase === 'running' && mirror.failure !== null, progress: mirror.phase === 'running' ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
+  status() { return { connected: this.state.connected, challenge: this.state.challenge, connectionCheck: this.connectionCheck, lastSignInCompletedAt: verifiedDate(this.state.lastSignInCompletedAt, Date.parse(this.clock())), attention: this.attention(), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), completingInitial: this.completingInitial === mirror.id, retryPending: this.state.connected && mirror.enabled && mirror.initialized && mirror.phase === 'failed' && mirror.blocker === null, recovering: mirror.phase === 'running' && mirror.failure !== null, progress: mirror.phase === 'running' || this.completingInitial === mirror.id ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
   diagnostics(query: HistoryInput = {}) { return this.history.snapshot(query); }
   private save() {
     const snapshot = structuredClone(this.state);
@@ -235,6 +236,42 @@ export class ICloudSync {
       await this.run(mirror, false, true);
       return this.status();
     }, true);
+  }
+  completeInitialRegistration(id: string) {
+    return this.exclusive(async () => {
+      if (!this.state.connected) throw new CloudError('authentication');
+      const mirror = this.folder(id);
+      if (mirror.initialized || mirror.enabled || mirror.phase !== 'failed' || mirror.failure !== 'source_changed' || mirror.blocker !== 'initialization' || mirror.initialCompletionAttempted || !this.provider.completeInitialRegistration) throw new CloudError('recovery_required');
+      // Consume this explicit request durably BEFORE any possibly-applied native
+      // work. A lost response/restart cannot blindly repeat it. Preserve the
+      // original failure and disabled state until every check and save succeeds.
+      mirror.initialCompletionAttempted = true;
+      try { await this.save(); }
+      catch (error) { this.diagnose('initial_completion/checking', category(error)); throw new CloudError('unavailable'); }
+      this.completingInitial = id; this.progress.set(id, activity('checking'));
+      let failure: Failure | null = null, proof: FailureEvidence | null = null;
+      try {
+        await this.history.begin('sync');
+        await this.provider.completeInitialRegistration(structuredClone(mirror), value => {
+          const safe = progressSnapshot(value);
+          if (safe) { this.progress.set(id, safe); this.history.update(safe); }
+        });
+        if (this.stopped || !this.state.connected) throw new CloudError('interrupted');
+        const previous = structuredClone(mirror);
+        Object.assign(mirror, { initialized: true, enabled: false, phase: 'paused', failure: null, blocker: null, lastSuccess: this.clock() });
+        try { await this.save(); }
+        catch (error) { Object.assign(mirror, previous); throw error; }
+      } catch (error) {
+        failure = category(error); proof = evidence(error);
+        this.diagnose(`initial_completion/${this.progress.get(id)?.stage ?? 'checking'}`, failure, this.history.context(proof));
+        // Do not turn a possibly-applied command into an automatic retry or
+        // replace the incident's original failure. History records this attempt.
+      } finally {
+        await this.history.finish(failure ? 'failed' : 'succeeded', failure, proof, failure ? this.progress.get(id)?.stage ?? 'checking' : null);
+        this.progress.delete(id); this.completingInitial = null;
+      }
+      return this.status();
+    });
   }
   pause(id: string) {
     return this.control(async () => {
