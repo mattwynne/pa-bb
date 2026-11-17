@@ -1,6 +1,6 @@
 # 027 — Google Workspace through upstream MCP
 
-Status: connector implemented with synthetic verification; live Google and rendered BB integration are awaiting owner testing. No live installation, source switch or account mutation has been performed.
+Status: installed for owner testing through stock BB's local-path lifecycle. Linux tests/build/types, real backend startup/auth refusal and rendered settings review passed. No Google account was connected and no Google content operation was performed.
 
 Architecture decision: [ADR 0004 — Workspace MCP](../adrs/0004-google-workspace-mcp.md).
 
@@ -41,11 +41,17 @@ Current automated checks:
 
 The small fixture server used by adapter tests is stubbed HTTP, not a running Google Workspace MCP server. Synthetic passes do not establish real Google calls, process execution, refresh after a real token expires, or rendered UI quality.
 
-The owner will manually test integration. In particular: combined consent with the existing app, one harmless read in each service, selected disposable edits if wanted, restart/refresh/reconnect and desktop/narrow/keyboard settings review. No sending, sharing or other real mutation is required as an automated gate. File workflows use upstream's stateless inline/upload-URL paths; automatic BB thread-file handling is not implemented.
+The owner will manually test Google integration. In particular: combined consent with the existing app, one harmless read in each service, selected disposable edits if wanted and real restart/refresh/reconnect. Rendered settings review has now passed as described below. No sending, sharing or other real mutation is required as an automated gate. File workflows use upstream's stateless inline/upload-URL paths; automatic BB thread-file handling is not implemented.
 
 ## Delivery boundary
 
-The plugin is available as a local-path package, not yet a marketplace entry. No live plugin was installed/reloaded/switched; no Google account was connected or read. Rendered BB and live-provider verification remain **unverified** until the owner performs them. Do not silently apply or publish this work or unrelated local commits while preparing that handoff.
+The owner authorized deployment for a trial. The new plugin is installed and running from its source checkout, not yet a marketplace entry. Both original Google plugins received only their caller-checked Web-client export handlers through targeted native reloads. Their configuration and all 49 existing plugins' IDs, source/version, enabled state and running status were retained; BB itself was not restarted. The existing Web client was copied into Workspace without exporting user tokens or creating an account grant.
+
+The real Linux startup check found that upstream requires `FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY` even in external-token mode. A regression assertion was observed failing, then the adapter was changed to generate a per-launch throwaway key. It does not receive the Google client secret. The real upstream process now starts on loopback and rejects anonymous initialization with HTTP 401. This is also retained as the opt-in `npm run test:runtime` check, separate from the fast suite and requiring no Google login. Runtime installation is declared in private infrastructure provisioning and an immediate repeat made zero changes.
+
+Eight rendered BB state/width combinations passed: setup, configured-empty, connected-fixture and error at desktop/narrow widths, plus keyboard focus, callback Copy, error recovery and cancelled account removal. Only the browser's fixture responses supplied the connected account; no Google account was connected. A controlled invalid-state callback produced a bounded live diagnostic without echoing synthetic code/state values.
+
+The user must register the displayed Workspace callback on the existing Google OAuth app, enable the required APIs/scopes and consent in BB. Live Google operations and real refresh/reconnect remain **unverified**. Only Workspace changes are being published from the server's current main; the separate local checkout's unrelated unpublished commits remain untouched.
 
 ## Earlier research
 

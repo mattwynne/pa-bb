@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
+import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fail } from '../diagnostic.mjs';
 
@@ -17,6 +18,9 @@ export function runtimeEnvironment(port, parent = process.env) {
   return { ...env, WORKSPACE_MCP_HOST: '127.0.0.1', WORKSPACE_MCP_PORT: String(port),
     MCP_ENABLE_OAUTH21: 'true', EXTERNAL_OAUTH21_PROVIDER: 'true',
     GOOGLE_OAUTH_CLIENT_ID: 'bb-google-workspace', WORKSPACE_MCP_STATELESS_MODE: 'true',
+    // Upstream initializes its proxy base class even in external-token mode.
+    // A throwaway local key satisfies that bootstrap without sharing our Google client secret.
+    FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY: randomBytes(32).toString('base64url'),
     WORKSPACE_MCP_DISABLE_LOCAL_FILES: 'true', WORKSPACE_MCP_LOG_LEVEL: 'CRITICAL',
   };
 }

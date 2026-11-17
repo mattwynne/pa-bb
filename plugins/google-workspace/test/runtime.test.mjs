@@ -29,11 +29,13 @@ test('starts the pinned five-service backend once on loopback and closes it', as
   assert.deepEqual(w.signals, ['SIGTERM']);
 });
 test('runtime receives no parent Google credentials or arbitrary upstream configuration', () => {
-  const env = runtimeEnvironment(8765, { PATH: '/bin', HOME: '/synthetic-home', GOOGLE_OAUTH_CLIENT_SECRET: 'SECRET', GOOGLE_WORKSPACE_CLI_TOKEN: 'SECRET', WORKSPACE_MCP_HOST: '0.0.0.0', WORKSPACE_MCP_LOG_LEVEL: 'DEBUG' });
+  const env = runtimeEnvironment(8765, { PATH: '/bin', HOME: '/synthetic-home', GOOGLE_OAUTH_CLIENT_SECRET: 'SECRET', GOOGLE_WORKSPACE_CLI_TOKEN: 'SECRET', WORKSPACE_MCP_HOST: '0.0.0.0', WORKSPACE_MCP_LOG_LEVEL: 'DEBUG', FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY: 'PARENT_SIGNING_KEY' });
   assert.equal(env.PATH, '/bin');
   assert.equal(env.WORKSPACE_MCP_HOST, '127.0.0.1');
   assert.equal(env.WORKSPACE_MCP_LOG_LEVEL, 'CRITICAL');
   assert.equal(env.WORKSPACE_MCP_STATELESS_MODE, 'true');
+  assert.ok(env.FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY?.length >= 32, 'upstream requires a bootstrap signing key even in external-token mode');
+  assert.notEqual(env.FASTMCP_SERVER_AUTH_GOOGLE_JWT_SIGNING_KEY, 'PARENT_SIGNING_KEY');
   assert.doesNotMatch(JSON.stringify(env), /SECRET/);
 });
 test('missing uvx is a classified startup failure, not a raw child exception', async () => {

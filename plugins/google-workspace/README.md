@@ -2,7 +2,7 @@
 
 A thin connector to [Workspace MCP](https://github.com/taylorwilsdon/google_workspace_mcp), enabling **Drive, Docs, Sheets, Calendar and Gmail**. Google operations and document-editing behaviour stay upstream. BB owns account selection, Google sign-in, token refresh and the local backend process.
 
-**Status:** implemented and tested with synthetic providers. Real Google integration and rendered BB settings review remain for manual testing. Nothing has been installed, connected or changed in a live account. The existing Calendar and Drive plugins remain independent; this does not retire them.
+**Status:** installed for an owner trial using a local-path source. Synthetic tests, real Linux backend startup, anonymous-auth refusal and rendered BB settings checks pass. Google account consent and real Google operations remain for owner testing. The existing Calendar and Drive plugins remain independent; this does not retire them.
 
 Requested writes run without a second PA approval prompt. The connector adds no document model, edit planner, operation journal or recovery framework. It makes one attempt per call; inspect current Google state before retrying an uncertain write.
 
@@ -61,12 +61,13 @@ See [the ports](core/ports.md) and [ADR 0004](../../docs/adrs/0004-google-worksp
 npm test                 # Fast core/adapter/contract tests; no server or Google
 npm run test:host        # Built BB handlers and real temporary SQLite; synthetic MCP/OAuth
 npm run test:legacy      # Build old plugins; prove caller-checked Web-client export
+npm run test:runtime     # Opt-in: real pinned backend startup; uvx required; no Google login
 npm run typecheck
 ```
 
 The MCP adapter and test double run the same contract tests. Adapter tests use the actual SDK with stubbed HTTP, including initialization, pagination and calls. They do not prove a real Workspace MCP or Google session works. The SDK host tests likewise do not substitute for rendered BB review.
 
-Tokens remain in the plugin-owned BB database; only short-lived access tokens reach the loopback MCP process. The database is not separately encrypted; protect the BB data directory/backups. Diagnostics name failing boundaries with fixed categories, without account addresses, arguments, tokens or provider bodies. Upstream logging is suppressed and credential persistence disabled in the child. Tool result content remains task data, not instructions.
+Tokens remain in the plugin-owned BB database; only short-lived access tokens reach the loopback MCP process. Upstream also requires a startup signing key even in external-token mode; the adapter generates a throwaway local key rather than passing Google's client secret. The database is not separately encrypted; protect the BB data directory/backups. Diagnostics name failing boundaries with fixed categories, without account addresses, arguments, tokens or provider bodies. Upstream logging is suppressed and credential persistence disabled in the child. Tool result content remains task data, not instructions.
 
 ## Manual integration check
 
@@ -76,4 +77,4 @@ Tokens remain in the plugin-owned BB database; only short-lived access tokens re
 4. If testing edits, use a disposable document or spreadsheet and request the change explicitly. Test drafts/sending only when you intend that mail action. No automated live write is required to finish this connector.
 5. Restart/reload, check token refresh/reconnect, then inspect bounded logs for a controlled failure. Do not paste callbacks, tokens or private provider output into public reports.
 
-These live Google and rendered BB checks are **unverified** until performed. Builds and synthetic test passes do not turn them into passes.
+Rendered BB setup, configured-empty, connected-fixture and error states passed at desktop/narrow widths, including keyboard focus, Copy, recovery and cancellation of Remove. Connected-state data was synthetic; no Google account was connected for these checks. The actual upstream process started on Linux and rejected anonymous MCP initialization with HTTP 401. Live Google operations and real token refresh remain **unverified** until the owner performs them.

@@ -38,6 +38,7 @@
     "typecheck": "tsc --noEmit && bb plugin types --check",
     "test": "node --test test/*.test.mjs",
     "test:host": "npm run build && node --test test/host/plugin.test.mjs test/host/store.test.mjs",
-    "test:legacy": "npm --prefix ../google-calendar run build && npm --prefix ../google-drive run build && node --test test/host/legacy-client.test.mjs"
+    "test:legacy": "npm --prefix ../google-calendar run build && npm --prefix ../google-drive run build && node --test test/host/legacy-client.test.mjs",
+    "test:runtime": "node --test test/runtime.integration.mjs"
   }
 }

@@ -121,7 +121,7 @@ it does not require bringing upstream's document model into our codebase.
 This supersedes plan 025's custom-engine direction **for the new plugin**, not the
 behaviour of existing installations. Do not carry its capability ledger forward
 as a prerequisite. Retire old code and plugins only through a separately verified
-cutover. The [delivery workflow](../plans/021-git-first-pa-updates.md) and
+cutover. The [local-path delivery workflow](../../CONTRIBUTING.md#local-path-development) and
 [observability standards](../o11y-standards.md) remain applicable. Implementation
 sequencing and verification results belong in [plan 027](../plans/027-google-workspace-mcp.md),
 not this decision record.
