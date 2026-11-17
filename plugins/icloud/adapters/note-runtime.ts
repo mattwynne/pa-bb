@@ -15,13 +15,17 @@ import { NoteSearch } from './note-search.ts';
 import type { SearchRequest } from './note-search.ts';
 
 // The flock, not a JS timer/lease, owns the generation. All native commands,
-// RC/config calls and mirror mutations enter the same turn. Overlay publications
+// config calls and mirror mutations enter the same turn. Directory-only cloud
+// listings may share an active native command; they never access mirror files.
+// Overlay publications
 // have a separate admission fence and can proceed during this generation's child.
 export class NoteRuntime {
   readonly overlay: NoteOverlay;
   readonly search: NoteSearch;
   private readonly context = new AsyncLocalStorage<{ revision: number; mirrorId: string }>();
   private queue: Promise<void> = Promise.resolve();
+  private nativeRunning = false;
+  private directoryReads = new Set<Promise<unknown>>();
   private entered = new Set<Promise<unknown>>();
   private closed = false;
   private stopped: Promise<void> | null = null;
@@ -229,6 +233,16 @@ export class NoteRuntime {
     return task;
   }
   call(method: string, body: Record<string, unknown>) {
+    // The existing owned daemon can list remote directories while its CLI syncs.
+    // No config, cache mutation, local file read or arbitrary RC call bypasses
+    // the native turn. Drain listings before post-run filesystem reconciliation.
+    const opt = body.opt as Record<string, unknown> | undefined;
+    if (!this.closed && this.nativeRunning && method === 'operations/list' && body.fs === 'icloud:' && typeof body.remote === 'string' && Object.keys(body).length === 3 && opt && Object.keys(opt).length === 1 && opt.dirsOnly === true) {
+      if (this.directoryReads.size >= 32) return Promise.reject(new CloudError('busy'));
+      const task = this.worker.call(method, body);
+      this.directoryReads.add(task);
+      return task.finally(() => { this.directoryReads.delete(task); });
+    }
     return this.turn(async () => {
       if (method === 'config/create' && this.accountHash) {
         const params = body.parameters as Record<string, unknown> | undefined;
@@ -240,6 +254,14 @@ export class NoteRuntime {
     });
   }
   idleFiles<T>(action: () => Promise<T>) { return this.turn(() => this.worker.withFiles(action)); }
+  private async nativeCommand(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
+    this.nativeRunning = true;
+    try { return await this.worker.run(args, capture, report); }
+    finally {
+      this.nativeRunning = false;
+      await Promise.allSettled([...this.directoryReads]);
+    }
+  }
   run(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
     return this.turn(async () => {
       const id = args[0] === 'bisync' ? this.state().mirrors.find(m => m.initialized && this.localPath(m) === args[2])?.id : undefined;
@@ -251,7 +273,7 @@ export class NoteRuntime {
       const eligible = id && !args.includes('--resync') ? this.overlay.beforeRun(id) : [];
       let succeeded = false;
       let commandEvidence: ReturnType<typeof evidence> = null;
-      try { const output = await this.worker.run(args, capture, report); succeeded = true; return output; }
+      try { const output = await this.nativeCommand(args, capture, report); succeeded = true; return output; }
       catch (error) {
         commandEvidence = evidence(error);
         if (id && error instanceof CloudError && ['recovery_required', 'capacity', 'configuration', 'invalid_selection'].includes(error.category)) this.nativeBlocked.set(id, 'native_failure');
@@ -281,7 +303,7 @@ export class NoteRuntime {
       const root = await this.local(mirror, true);
       const held = await this.overlay.interruptedCopies(root, mirror.id).catch(() => { throw new CloudError('recovery_required'); });
       try {
-        const output = await this.worker.run(args, capture, report);
+        const output = await this.nativeCommand(args, capture, report);
         await this.local(mirror, true);
         // Validate EVERY held head before collision capture or retirement. In
         // particular canonical D alongside B/C is not a verified conflict.

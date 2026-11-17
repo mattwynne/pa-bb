@@ -10,6 +10,9 @@ export class ICloudSync {
   private connectionCheck: 'unknown' | 'verified' | 'unavailable' = 'unknown';
   private progress = new Map<string, SyncProgress>();
   private busy = false;
+  private syncing = false;
+  private controls: Promise<unknown> = Promise.resolve();
+  private controlsPending = 0;
   private saving: Promise<void> = Promise.resolve();
   private attentionWrites: Promise<unknown> = Promise.resolve();
   private inlineWindows = new Map<string, number>();
@@ -113,11 +116,22 @@ export class ICloudSync {
     if (!folder) throw new CloudError('invalid_selection');
     return folder;
   }
-  private exclusive<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.busy || this.stopped) return Promise.reject(new CloudError('busy'));
-    this.busy = true;
-    const task = operation().finally(() => { this.busy = false; this.current = null; });
+  private exclusive<T>(operation: () => Promise<T>, syncing = false): Promise<T> {
+    if (this.busy || this.controlsPending || this.stopped) return Promise.reject(new CloudError('busy'));
+    this.busy = true; this.syncing = syncing;
+    const task = operation().finally(() => { this.busy = false; this.syncing = false; this.current = null; });
     this.current = task; return task;
+  }
+  // Folder metadata and directory-only reads do not own a native sync turn.
+  // Account/config changes remain exclusive; state snapshots still save in order.
+  private control<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.stopped || (this.busy && !this.syncing) || this.controlsPending >= 32) return Promise.reject(new CloudError('busy'));
+    this.controlsPending++;
+    const task = this.controls.catch(() => {}).then(() => {
+      if (this.stopped) throw new CloudError('busy');
+      return operation();
+    }).finally(() => { this.controlsPending--; });
+    this.controls = task; return task;
   }
   async checkAvailability() { return this.provider.checkAvailability(); }
   private requireResume(failure: Failure = 'authentication') {
@@ -155,7 +169,7 @@ export class ICloudSync {
     await this.save(); return this.status();
   }
   browse(parent: string | null) {
-    return this.exclusive(async () => {
+    return this.control(async () => {
       if (!this.state.connected) throw new CloudError('authentication');
       if (parent !== null && !this.discovered.has(parent)) throw new CloudError('invalid_selection');
       try {
@@ -166,7 +180,7 @@ export class ICloudSync {
     });
   }
   select(folderId: string) {
-    return this.exclusive(async () => {
+    return this.control(async () => {
       if (!this.state.connected) throw new CloudError('authentication');
       const folder = this.discovered.get(folderId);
       if (!folder || this.state.mirrors.length >= 20 || this.state.mirrors.some(m => m.phase !== 'retained' && (m.folder.id === folder.id || m.folder.ancestors.includes(folder.id) || folder.ancestors.includes(m.folder.id)))) throw new CloudError('invalid_selection');
@@ -175,19 +189,28 @@ export class ICloudSync {
     });
   }
   enable(id: string) {
+    // Admit the user's intent now; the existing worker performs preparation or
+    // retry on its next turn, never a second concurrent native command.
+    if (this.busy && this.syncing) return this.control(async () => {
+      if (!this.state.connected) throw new CloudError('authentication');
+      const mirror = this.folder(id);
+      if (mirror.phase === 'retained' || this.progress.has(id) || (mirror.blocker !== null && mirror.blocker !== 'reconnect')) throw new CloudError('recovery_required');
+      mirror.enabled = true; mirror.blocker = null;
+      if (mirror.failure === null) mirror.phase = 'ready';
+      await this.save(); return this.status();
+    });
     return this.exclusive(async () => {
       if (!this.state.connected) throw new CloudError('authentication');
       const mirror = this.folder(id);
       if (mirror.phase === 'retained' || (mirror.blocker !== null && mirror.blocker !== 'reconnect')) throw new CloudError('recovery_required');
-      if (!mirror.initialized) await this.run(mirror, true);
+      if (!mirror.initialized) { mirror.enabled = true; await this.run(mirror, true); }
       else {
         mirror.enabled = true; mirror.blocker = null; await this.save();
         if (mirror.failure !== null) await this.run(mirror, false);
         else { mirror.phase = 'ready'; await this.save(); }
       }
-      if (mirror.initialized && mirror.failure === null && !mirror.enabled) { mirror.enabled = true; mirror.phase = 'ready'; mirror.blocker = null; await this.save(); }
       return this.status();
-    });
+    }, true);
   }
   retry(id: string) {
     return this.exclusive(async () => {
@@ -200,7 +223,7 @@ export class ICloudSync {
       mirror.enabled = true; mirror.blocker = null; await this.save();
       await this.run(mirror, false);
       return this.status();
-    });
+    }, true);
   }
   continueInterrupted(id: string) {
     return this.exclusive(async () => {
@@ -211,12 +234,12 @@ export class ICloudSync {
       // conflict resolution or permission to clear the durable recovery fence.
       await this.run(mirror, false, true);
       return this.status();
-    });
+    }, true);
   }
   pause(id: string) {
-    return this.exclusive(async () => {
+    return this.control(async () => {
       const mirror = this.folder(id); mirror.enabled = false;
-      if (mirror.phase !== 'failed' && mirror.phase !== 'retained') mirror.phase = 'paused';
+      if (!['running', 'failed', 'retained'].includes(mirror.phase)) mirror.phase = 'paused';
       await this.save(); return this.status();
     });
   }
@@ -227,20 +250,20 @@ export class ICloudSync {
       if (previous.phase !== 'failed' || this.state.mirrors.length >= 20) throw new CloudError('recovery_required');
       const next: Mirror = { ...structuredClone(previous), id: this.id(), initialized: false, enabled: false, phase: 'paused', failure: null, blocker: null, lastSuccess: null };
       previous.phase = 'retained'; previous.enabled = false;
+      next.enabled = true;
       this.state.mirrors.push(next); await this.save();
       await this.run(next, true);
-      if (next.initialized && next.failure === null) { next.enabled = true; next.phase = 'ready'; await this.save(); }
       return this.status();
-    });
+    }, true);
   }
   async tick() {
-    if (this.busy || this.stopped || !this.state.connected) return;
+    if (this.busy || this.controlsPending || this.stopped || !this.state.connected) return;
     return this.exclusive(async () => {
       for (const mirror of this.state.mirrors) {
         if (!this.state.connected || this.stopped) break;
-        if (mirror.enabled && mirror.initialized && mirror.blocker === null && (mirror.phase === 'ready' || mirror.phase === 'failed')) await this.run(mirror, false);
+        if (mirror.enabled && mirror.blocker === null && (mirror.phase === 'ready' || mirror.phase === 'failed')) await this.run(mirror, !mirror.initialized);
       }
-    });
+    }, true);
   }
   private blockerFor(failure: Failure | null, initial: boolean): Blocker | null {
     if (initial) return failure === null ? null : 'initialization';
@@ -266,8 +289,11 @@ export class ICloudSync {
         else if (initial) await this.provider.prepareMirror(structuredClone(mirror), report);
         else await this.provider.synchronize(structuredClone(mirror), report);
         if (this.stopped) throw new CloudError('interrupted');
+        // A concurrent directory read may have proved account authorization
+        // invalid. A finishing child cannot silently clear that stronger stop.
+        if (mirror.blocker === 'reconnect') throw new CloudError(mirror.failure ?? 'authentication');
         // Recorded after the provider operation returns, not proof of delivery to another device.
-        mirror.initialized = true; mirror.lastSuccess = this.clock(); mirror.failure = null; mirror.blocker = null; mirror.phase = interrupted && !mirror.enabled ? 'paused' : 'ready';
+        mirror.initialized = true; mirror.lastSuccess = this.clock(); mirror.failure = null; mirror.blocker = null; mirror.phase = mirror.enabled ? 'ready' : 'paused';
       } catch (error) {
         mirror.phase = 'failed'; mirror.failure = category(error); mirror.blocker = interrupted ? 'rebuild' : this.blockerFor(mirror.failure, initial); failure = mirror.failure; proof = evidence(error);
         if (initial) mirror.enabled = false;
@@ -298,6 +324,7 @@ export class ICloudSync {
     return this.stopping ??= (async () => {
       this.provider.requestStop?.();
       await this.current?.catch(() => {});
+      await this.controls.catch(() => {});
       await this.attentionWrites.catch(() => {});
       await this.saving.catch(() => {});
       await this.provider.stop();

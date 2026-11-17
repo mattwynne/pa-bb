@@ -104,7 +104,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     status() { return status(); },
     attentionAction({ generation, action }, context) { clientOnly(context); return sync.attentionAction(generation, action); },
     attentionPresence({ windowId, visible }, context) { clientOnly(context); sync.attentionPresence(windowId, visible); return null; },
-    async browse({ parent }, context) { clientOnly(context); try { return await sync.browse(parent); } catch { throw new Error('Could not browse iCloud folders. Reconnect Apple or try again after the current operation finishes.'); } },
+    async browse({ parent }, context) { clientOnly(context); try { return await sync.browse(parent); } catch { throw new Error('Could not browse iCloud folders. Try again or check the Apple connection.'); } },
     async select({ folderId }, context) { clientOnly(context); return action(() => sync.select(folderId)); },
     async enable(input, context) {
       if ('updateJob' in input) { updaterOnly(context); return pauseAction(() => updatePause.resume(input.updateJob)); }

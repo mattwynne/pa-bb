@@ -39,6 +39,7 @@ try {
     await page.route('**/api/v1/plugins/icloud/rpc/**', route => {
       const method = new URL(route.request().url()).pathname.split('/').at(-1);
       methods.push(method);
+      if (method === 'pause' && view === 'running') item.enabled = false;
       const result = method === 'browse' ? [{ id: 'review-folder', name: 'Test Vault', ancestors: [] }, { id: 'other', name: 'Other Vault', ancestors: [] }] : state;
       return route.fulfill({ json: view === 'error' ? { ok: false, error: { code: 'synthetic_failure', message: 'Controlled review failure' } } : { ok: true, result } });
     });
@@ -73,6 +74,21 @@ try {
       await page.keyboard.press('Tab'); await select.focus(); assert.equal(await select.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
       assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
     }
+    if (view === 'running') {
+      assert.equal(await section.getByText('Syncing…', { exact: true }).count(), 1);
+      await section.getByRole('button', { name: 'Choose a folder', exact: true }).click();
+      const select = section.getByRole('button', { name: 'Select Other Vault', exact: true }); await select.waitFor();
+      await page.keyboard.press('Tab'); await select.focus(); assert.equal(await select.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => [...document.querySelectorAll('.pa-icloud button')].some(button => button.textContent === 'Pause' && !button.disabled));
+      const pause = section.getByRole('button', { name: 'Pause Test Vault', exact: true });
+      await pause.focus(); assert.equal(await pause.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+      await page.keyboard.press('Enter');
+      await section.getByText('Pausing. This run will finish; no further syncs will start.', { exact: true }).waitFor();
+      assert.equal(methods.includes('browse'), true); assert.equal(methods.includes('select'), true); assert.equal(methods.includes('pause'), true);
+      assert.equal(await section.getByRole('button', { name: 'Choose a folder', exact: true }).isEnabled(), true);
+      assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
+    }
     if (view === 'paused') {
       const enable = section.getByRole('button', { name: 'Enable sync for Test Vault', exact: true }); await enable.waitFor();
       const dialogPromise = page.waitForEvent('dialog'); const click = enable.click(); const dialog = await dialogPromise;
@@ -90,7 +106,8 @@ try {
       await section.getByText('Retrying…', { exact: true }).waitFor();
       await section.getByRole('status').filter({ hasText: /Retrying with rclone’s normal checks/ }).waitFor();
       assert.equal(await section.getByRole('alert').count(), 0);
-      assert.equal(await section.getByRole('button', { name: /Pause|Retry|Create fresh mirror/ }).count(), 0);
+      assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).isEnabled(), true);
+      assert.equal(await section.getByRole('button', { name: /Retry|Create fresh mirror/ }).count(), 0);
     }
     if (view === 'reconnect-needed') {
       await section.getByText('Reconnect required', { exact: true }).waitFor();
@@ -156,7 +173,8 @@ try {
     if (view === 'continuing-interrupted') {
       await section.getByText('Continuing interrupted sync…', { exact: true }).waitFor();
       await section.getByText(/Local note access stays paused until all recovery checks pass/).waitFor();
-      assert.equal(await section.getByRole('button', { name: /Continue interrupted|Pause|Create fresh mirror/ }).count(), 0);
+      assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).isEnabled(), true);
+      assert.equal(await section.getByRole('button', { name: /Continue interrupted|Create fresh mirror/ }).count(), 0);
     }
     if (['critical', 'initial-block'].includes(view)) {
       if (view === 'initial-block') await section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true }).click();
@@ -274,8 +292,8 @@ try {
     assert.equal(await bar.getAttribute('aria-valuenow'), fixture.percent === null ? null : String(fixture.percent));
     assert.equal(await section.getByText(/local copy may be stale/i).count(), 0);
     assert.equal(await section.getByText('Last successful host sync finished:', { exact: false }).textContent(), `Last successful host sync finished: ${await page.evaluate(value => new Date(value).toLocaleString(undefined, { timeZoneName: 'short' }), mirror.lastSuccess)}`);
-    assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).count(), 0);
-    await section.getByText('Sync controls are available when this run finishes.', { exact: true }).waitFor();
+    assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).isEnabled(), true);
+    await section.getByText('Pause lets this run finish, then stops further syncs.', { exact: true }).waitFor();
     assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
     await page.keyboard.press('Tab'); const focus = section.getByRole('button', { name: 'Reconnect', exact: true }); await focus.focus();
     assert.equal(await focus.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
