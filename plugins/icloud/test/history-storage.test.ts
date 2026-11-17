@@ -104,3 +104,14 @@ test('many row summaries can exceed the KV size limit while each append and resp
     const page = await repo.read(query(), day(0)); assert.equal(page.runs.length, 20); assert.equal(page.retained.successes, 1600); assert.ok(Buffer.byteLength(JSON.stringify(page)) < 16 * 1024);
   } finally { f.db.close(); }
 });
+
+test('SQLite roundtrips compound reconciliation evidence alongside legacy command-only records', async () => {
+  const f = fixture(); const repo = f.make();
+  try {
+    await repo.load(); await append(repo, run(1, 'failed'));
+    const compound: RunSummary = { ...run(2, 'failed'), failure: 'recovery_required', evidence: { kind: 'post_run_reconcile', reason: 'uncertain', command: { kind: 'command_timeout' } } };
+    await append(repo, compound);
+    const reloaded = f.make(); await reloaded.load();
+    assert.deepEqual((await reloaded.read(query(), day(0))).runs.map(row => row.evidence), [run(1, 'failed').evidence, compound.evidence]);
+  } finally { f.db.close(); }
+});

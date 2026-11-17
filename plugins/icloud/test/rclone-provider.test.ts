@@ -31,7 +31,7 @@ test('Apple configuration maps to domain challenge and keeps secrets in private 
 });
 test('arbitrary provider error/help/defaults never escape the adapter', async () => {
   const f = fixture(); f.respond({ Error: 'sentinel-password', State: 'sentinel-state' });
-  await assert.rejects(f.provider.connect({ account: 'synthetic@example.test', password: 'sentinel' }), error => { assert.equal((error as Error).message, 'authentication'); return true; });
+  await assert.rejects(f.provider.connect({ account: 'synthetic@example.test', password: 'sentinel' }), error => { assert.equal((error as Error).message, 'sync_failed'); return true; });
   f.respond({ State: 'sentinel-state', Option: { Name: 'unexpected', Help: 'sentinel-password' } });
   await assert.rejects(f.provider.connect({ account: 'synthetic@example.test', password: 'sentinel' }), /unavailable/);
 });
@@ -49,6 +49,17 @@ test('normal bisync preserves conflicts and deletion checks while enabling nativ
   assert.equal(normal[normal.indexOf('--max-lock') + 1], '2m');
   for (const unsafe of ['--resync', '--force', '--inplace', '--backup-dir1', '--backup-dir2']) assert.ok(!normal.includes(unsafe));
   assert.ok(syncArguments('icloud:Test Vault', '/mirror', '/baseline', true).includes('--resync'));
+});
+test('initial preparation has a larger bounded transfer allowance without weakening ordinary sync limits', () => {
+  const initial = syncArguments('icloud:Generated', '/mirror', '/baseline', true);
+  const normal = syncArguments('icloud:Generated', '/mirror', '/baseline', false);
+  assert.equal(initial[initial.indexOf('--max-transfer') + 1], '2G');
+  assert.equal(normal[normal.indexOf('--max-transfer') + 1], '256M');
+  for (const args of [initial, normal]) {
+    assert.equal(args[args.indexOf('--cutoff-mode') + 1], 'hard');
+    assert.equal(args[args.indexOf('--max-delete') + 1], '50');
+    assert.ok(args.includes('--recover')); assert.ok(!args.includes('--force'));
+  }
 });
 test('fresh initialization and normal sync each run only bisync, never an extra listing or recovery capture', async () => {
   const root = await mkdtemp('/tmp/icloud-native-provider-'); const f = fixture(root);

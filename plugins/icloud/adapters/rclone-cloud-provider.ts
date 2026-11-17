@@ -13,7 +13,7 @@ function decode(id: string): string {
 export function syncArguments(remote: string, local: string, baseline: string, initial: boolean): string[] {
   return ['bisync', remote, local, '--workdir', baseline, '--conflict-resolve', 'none', '--conflict-loser', 'num',
     '--conflict-suffix', 'icloud-conflict,bb-conflict', '--compare', 'size,modtime', '--max-delete', '50',
-    '--check-sync=true', '--create-empty-src-dirs', '--max-transfer', '256M', '--cutoff-mode', 'hard',
+    '--check-sync=true', '--create-empty-src-dirs', '--max-transfer', initial ? '2G' : '256M', '--cutoff-mode', 'hard',
     '--resilient', '--recover', '--max-lock', '2m', ...(initial ? ['--resync'] : [])];
 }
 export class RcloneCloudProvider implements CloudProvider {
@@ -24,7 +24,10 @@ export class RcloneCloudProvider implements CloudProvider {
     private readonly files?: <T>(operation: (signal: AbortSignal) => Promise<T>) => Promise<T>,
     private readonly reconcileNotes?: (mirror: Mirror) => Promise<void>,
     private readonly registerNotes?: (mirror: Mirror) => Promise<void>,
-    private readonly idleFiles?: <T>(action: () => Promise<T>) => Promise<T>) {}
+    private readonly idleFiles?: <T>(action: () => Promise<T>) => Promise<T>,
+    private readonly interrupt?: () => void,
+    private readonly continueRun?: CommandRunner,
+    private readonly completeInitialRun?: (mirror: Mirror, args: string[], capture?: boolean, report?: Parameters<CommandRunner>[2]) => Promise<string>) {}
   async withMirrorFiles<T>(mirror: Mirror, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (!this.files) throw new CloudError('unavailable');
     return this.files(async signal => {
@@ -41,7 +44,7 @@ export class RcloneCloudProvider implements CloudProvider {
   }
   private async authResult(result: any): Promise<Connection> {
     // Provider help/error/defaults may contain secrets. Return fixed domain copy only.
-    if (result?.Error) throw new CloudError('authentication');
+    if (result?.Error) throw new CloudError('sync_failed');
     if (result?.State === '') {
       this.continuation = null;
       // A successful harmless read proves the session works before showing connected.
@@ -87,9 +90,9 @@ export class RcloneCloudProvider implements CloudProvider {
     return join(this.root, 'mirrors', mirror.id);
   }
   private remote(mirror: Mirror) { return `icloud:${decode(mirror.folder.id)}`; }
-  private async bisync(mirror: Mirror, initial: boolean, report?: ProgressReporter) {
+  private async bisync(mirror: Mirror, initial: boolean, report?: ProgressReporter, runner = this.run) {
     report?.(activity('checking'));
-    await this.run(syncArguments(this.remote(mirror), this.localFolder(mirror), join(this.root, 'baselines', mirror.id), initial), false, report ? stats => {
+    await runner(syncArguments(this.remote(mirror), this.localFolder(mirror), join(this.root, 'baselines', mirror.id), initial), false, report ? stats => {
       const complete = stats.totalFiles !== null && stats.files >= stats.totalFiles && (stats.totalBytes === null || stats.bytes >= stats.totalBytes);
       // Preserve measured completion counters for diagnostics before returning to finishing activity.
       report({ ...stats, stage: stats.bytes || stats.totalBytes || stats.totalFiles ? 'transferring' : 'checking' });
@@ -130,11 +133,19 @@ export class RcloneCloudProvider implements CloudProvider {
       if (error instanceof CloudError && error.category === 'sync_failed') {
         try { await this.verifyConnection(); }
         catch (check) {
-          if (check instanceof CloudError && check.category === 'authentication') throw new CloudError('authentication', error.evidence ?? undefined);
+          if (check instanceof CloudError && ['authentication', 'provider_rejected'].includes(check.category)) throw new CloudError(check.category, error.evidence ?? undefined);
         }
       }
       throw error;
     }
+  }
+  async continueInterrupted(mirror: Mirror, report?: ProgressReporter) {
+    if (!this.continueRun || !mirror.initialized || mirror.blocker !== 'rebuild' || mirror.phase !== 'running') throw new CloudError('recovery_required');
+    await this.bisync(mirror, false, report, this.continueRun);
+  }
+  async completeInitialRegistration(mirror: Mirror, report?: ProgressReporter) {
+    if (!this.completeInitialRun || mirror.initialized || mirror.enabled || mirror.phase !== 'failed' || mirror.blocker !== 'initialization' || mirror.failure !== 'source_changed' || !mirror.initialCompletionAttempted) throw new CloudError('recovery_required');
+    await this.bisync(mirror, false, report, (args, capture, stats) => this.completeInitialRun!(mirror, args, capture, stats));
   }
   async disconnect() {
     this.continuation = null;
@@ -142,5 +153,6 @@ export class RcloneCloudProvider implements CloudProvider {
     if (remotes?.includes('icloud')) await this.rc('config/unset', { name: 'icloud', keys: ['password', 'cookies', 'trust_token', '_auth_session'] });
     await this.rc('fscache/clear', {});
   }
+  requestStop() { this.interrupt?.(); }
   stop() { return this.shutdown(); }
 }

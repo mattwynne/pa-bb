@@ -1,5 +1,7 @@
 # Keep PA's server code and origin understandable
 
+> Historical: the PA updater and fork-dependent source-switching workflow below are retired. These are prior requirements, not active instructions or a description of live state. Use [local-path development](../../CONTRIBUTING.md#local-path-development) with stock BB and normal Git instead.
+
 Status: Git-first updater 0.3.0 delivered in [iteration 021](../plans/021-git-first-pa-updates.md). [Iteration 022](../plans/022-plugin-source-modes.md) added confirmed resetting switches. [Iteration 023](../plans/023-preserving-plugin-source-modes.md) replaces that path with capability-verified configuration-preserving switches.
 
 ## Problem

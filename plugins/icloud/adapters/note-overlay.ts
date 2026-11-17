@@ -622,13 +622,17 @@ export class NoteOverlay {
     let incomingCopyNumber: number | null = null;
     if (fresh.length) {
       const local = fresh.filter(copy => copy.side === 'bb');
-      if (remote.length !== 1 || local.length !== 1 || remote[0].number !== local[0].number || local[0].observation.hash !== expected?.hash) throw new NoteError('uncertain');
+      if (observed || remote.length !== 1 || local.length !== 1 || remote[0].number !== local[0].number || local[0].observation.hash !== expected?.hash) throw new NoteError('uncertain');
       incoming = remote[0].observation;
       incomingCopyNumber = remote[0].number;
     }
     // Hold the hash fence through durable content publication AND its DB ref.
     const publish = async () => {
       if (incoming) await this.blobLocked(incoming.text);
+      // Publishing the incoming blob can suspend. Never capture C while a new
+      // canonical D or a changed numbered copy has appeared in that interval.
+      if (!same(proof(await this.mirror.observe(root, path)), proof(observed)) ||
+        !sameCopies(copiesOf(await this.mirror.conflictCopies(root, path)), copiesOf(copies))) throw new NoteError('uncertain');
       const record: Conflict = { token: randomUUID(), incomingHash: incoming?.hash ?? null, incoming: proof(incoming), canonical: proof(observed), incomingCopyNumber };
       this.db.transaction(() => {
       if (incoming) {
@@ -703,6 +707,42 @@ export class NoteOverlay {
       UNION ALL SELECT operation_id, mirror_id, path, json_extract(receipt, '$.at'), json_extract(receipt, '$.outcome'), hash, json_extract(receipt, '$.previousHash') FROM icloud_note_overlay_legacy WHERE mirror_id = ? AND (? IS NULL OR operation_id = ?) AND (? IS NULL OR path = ?) AND (? IS NULL OR json_extract(receipt, '$.at') >= ?) ORDER BY at DESC, operation_id LIMIT ?`).all(query.mirrorId, query.operationId ?? null, query.operationId ?? null, query.path ?? null, query.path ?? null, query.since ?? null, query.since ?? null, query.mirrorId, query.operationId ?? null, query.operationId ?? null, query.path ?? null, query.path ?? null, query.since ?? null, query.since ?? null, query.limit) as Array<{ operation_id: string; mirror_id: string; path: string; at: string; outcome: NoteReceipt['outcome']; hash: string; previous_hash: string | null }>;
     const resolutions = this.db.prepare('SELECT operation_id, mirror_id, path, at, outcome, hash FROM icloud_note_overlay_resolutions WHERE mirror_id = ? AND (? IS NULL OR operation_id = ?) AND (? IS NULL OR path = ?) AND (? IS NULL OR at >= ?) ORDER BY at DESC, operation_id LIMIT ?').all(query.mirrorId, query.operationId ?? null, query.operationId ?? null, query.path ?? null, query.path ?? null, query.since ?? null, query.since ?? null, query.limit) as Array<{ operation_id: string; mirror_id: string; path: string; at: string; outcome: 'saved_locally_pending_sync' | 'adopted_content' | 'adopted_absence'; hash: string | null }>;
     return [...rows.map(row => ({ kind: 'save' as const, operationId: row.operation_id, mirrorId: row.mirror_id, path: row.path, at: row.at, outcome: row.outcome, hash: row.hash, previousHash: row.previous_hash })), ...resolutions.map(row => ({ kind: 'resolution' as const, operationId: row.operation_id, mirrorId: row.mirror_id, path: row.path, at: row.at, outcome: row.outcome, hash: row.hash }))].sort((a, b) => b.at.localeCompare(a.at) || a.operationId.localeCompare(b.operationId)).slice(0, query.limit);
+  }
+  // Explicit interrupted-copy continuation only. No pointer, history, receipt or
+  // filesystem mutation is permitted by this assessment. A missing canonical
+  // is never deletion evidence here.
+  async interruptedCopies(root: string, id: string, held?: Head[]) {
+    const rows = this.db.prepare('SELECT * FROM icloud_note_overlay_heads WHERE mirror_id = ? ORDER BY path').all(id) as Head[];
+    if (!rows.length || this.hasUnresolvedJournals(id) || (held && JSON.stringify(rows) !== JSON.stringify(held))) throw new NoteError('uncertain');
+    let conflicts = 0;
+    for (const row of rows) {
+      if (!row.applied || row.journal || row.conflict) throw new NoteError('uncertain');
+      const checkpoint = parse(row.applied, appliedSchema);
+      const generation = this.db.prepare('SELECT hash, applied, state FROM icloud_note_overlay_generations WHERE generation_id = ? AND mirror_id = ? AND path = ?').get(row.generation, id, row.path) as { hash: string; applied: string; state: string } | undefined;
+      if (checkpoint.generation !== row.generation || row.hash !== checkpoint.hash || !generation || generation.hash !== row.hash || generation.applied !== row.applied || generation.state !== 'applied') throw new NoteError('uncertain');
+      const observed = await this.mirror.observe(root, row.path);
+      const copies = copiesOf(await this.mirror.conflictCopies(root, row.path));
+      const history = parse(row.copies, copiesSchema);
+      for (const old of history) {
+        const found = copies.find(copy => copy.side === old.side && copy.number === old.number);
+        if (!found || !same(found.evidence, old.evidence)) throw new NoteError('uncertain');
+      }
+      const fresh = copies.filter(copy => !history.some(old => old.side === copy.side && old.number === copy.number));
+      if (same(proof(observed), checkpoint) && !fresh.length) continue;
+      // Native rename-both retains the checkpoint inode, size and mtime. Its
+      // rename explains ctime only; hashing still rejects restored-mtime edits.
+      const bb = fresh.filter(copy => copy.side === 'bb'), cloud = fresh.filter(copy => copy.side === 'icloud');
+      const local = bb[0]?.evidence;
+      if (observed || bb.length !== 1 || !local || local.hash !== checkpoint.hash ||
+        local.info.dev !== checkpoint.info.dev || local.info.ino !== checkpoint.info.ino ||
+        local.info.size !== checkpoint.info.size || local.info.mtimeMs !== checkpoint.info.mtimeMs ||
+        fresh.length !== bb.length + cloud.length || cloud.length > 1 ||
+        (cloud.length && (cloud[0].number !== bb[0].number || !cloud[0].evidence)) ||
+        (held && cloud.length !== 1)) throw new NoteError('uncertain');
+      conflicts++;
+    }
+    if (!conflicts) throw new NoteError('uncertain');
+    return rows;
   }
   beforeRun(id: string) {
     // Called by the arbiter immediately before native invocation. A successor

@@ -69,7 +69,7 @@ but existing test and review requirements remain until a migration is accepted.
 
 Feature scope, approval and permission checks, uncertain-write protections, old
 evidence and required rendered/runtime reviews remain unchanged. This decision
-authorizes no live actions. The [delivery workflow](../plans/021-git-first-pa-updates.md)
+authorizes no live actions. The [delivery workflow](../../.agents/skills/release-and-deploy/SKILL.md)
 and [observability standards](../o11y-standards.md) still apply.
 
 ## Consequences

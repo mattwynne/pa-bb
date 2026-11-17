@@ -7,15 +7,15 @@ const base = process.env.BB_REVIEW_BASE;
 if (!base) throw new Error('Set BB_REVIEW_BASE to an isolated BB instance.');
 const artifacts = process.env.BB_REVIEW_ARTIFACTS ?? '/tmp/icloud-rendered-review';
 await mkdir(artifacts, { recursive: true });
-const browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : {}) });
+const browser = await chromium.launch({ headless: true, args: ['--disable-gpu'], ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : {}) });
 const mirror = { id: 'review-mirror', folder: { id: 'review-folder', name: 'Test Vault', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-10-10T12:00:00.000Z', failure: null, blocker: null, retryPending: false, stale: false, recovering: false, progress: null };
 try {
-  const statusViews = ['first', 'prerequisite', 'pending', 'empty', 'connected', 'paused', 'running', 'retry-pending', 'repeated-stale', 'source-changed', 'recovering', 'reconnect-needed', 'reconnected-resume', 'multi-reconnected-resume', 'capacity', 'configuration', 'critical', 'legacy-retry', 'initial-block', 'retained', 'error'];
-  for (const view of statusViews) for (const width of [1280, 390]) {
+  const statusViews = ['first', 'prerequisite', 'pending', 'empty', 'connected', 'paused', 'running', 'retry-pending', 'repeated-stale', 'source-changed', 'recovering', 'reconnect-needed', 'reconnected-resume', 'multi-reconnected-resume', 'capacity', 'configuration', 'critical', 'critical-paused', 'continuing-interrupted', 'critical-disconnected', 'legacy-retry', 'initial-block', 'downloaded-setup', 'downloaded-setup-failure', 'setup-completing', 'setup-attempted', 'setup-disconnected', 'retained', 'error'];
+  for (const view of statusViews.filter(view => (!process.env.BB_REVIEW_INITIAL_COMPLETION_ONLY || ['initial-block', 'downloaded-setup', 'downloaded-setup-failure', 'setup-completing', 'setup-attempted', 'setup-disconnected', 'retained'].includes(view)) && (!process.env.BB_REVIEW_RECOVERY_ONLY || ['critical', 'critical-paused', 'continuing-interrupted', 'critical-disconnected', 'initial-block', 'retained', 'capacity', 'configuration', 'recovering'].includes(view)))) for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
     const methods = [];
     const state = { available: view !== 'prerequisite', prerequisite: view === 'prerequisite' ? 'The host needs stock rclone v1.75.2.' : null,
-      connected: !['first', 'prerequisite', 'pending', 'reconnect-needed'].includes(view), challenge: view === 'pending' ? 'verification_code' : null,
+      connected: !['first', 'prerequisite', 'pending', 'reconnect-needed', 'critical-disconnected', 'setup-disconnected'].includes(view), challenge: view === 'pending' ? 'verification_code' : null,
       mirrors: ['first', 'prerequisite', 'pending', 'empty', 'error'].includes(view) ? [] : [{ ...mirror }] };
     const item = state.mirrors[0];
     if (item) {
@@ -29,14 +29,22 @@ try {
       if (view === 'multi-reconnected-resume') state.mirrors.push({ ...item, id: 'review-second', folder: { ...item.folder, name: 'Other Vault' } });
       if (view === 'capacity') Object.assign(item, { phase: 'failed', failure: 'capacity', blocker: 'capacity', stale: true });
       if (view === 'configuration') Object.assign(item, { phase: 'failed', failure: 'configuration', blocker: 'configuration', stale: true });
-      if (view === 'critical') Object.assign(item, { phase: 'failed', failure: 'recovery_required', blocker: 'rebuild', stale: true });
+      if (['critical', 'critical-paused', 'critical-disconnected', 'continuing-interrupted'].includes(view)) Object.assign(item, { phase: 'failed', failure: 'recovery_required', blocker: 'rebuild', stale: true });
+      if (view === 'critical-paused') item.enabled = false;
+      if (view === 'continuing-interrupted') Object.assign(item, { phase: 'running', recovering: true });
       if (view === 'legacy-retry') Object.assign(item, { phase: 'failed', enabled: false, failure: 'sync_failed', stale: true });
       if (view === 'initial-block') Object.assign(item, { initialized: false, enabled: false, phase: 'failed', lastSuccess: null, failure: 'interrupted', blocker: 'initialization' });
+      if (['downloaded-setup', 'downloaded-setup-failure', 'setup-completing', 'setup-attempted', 'setup-disconnected'].includes(view)) Object.assign(item, { initialized: false, enabled: false, phase: 'failed', lastSuccess: null, failure: 'source_changed', blocker: 'initialization', initialCompletionAttempted: ['setup-completing', 'setup-attempted'].includes(view), completingInitial: view === 'setup-completing' });
       if (view === 'retained') Object.assign(item, { enabled: false, phase: 'retained', stale: true });
     }
     await page.route('**/api/v1/plugins/icloud/rpc/**', route => {
       const method = new URL(route.request().url()).pathname.split('/').at(-1);
       methods.push(method);
+      if (method === 'pause' && view === 'running') item.enabled = false;
+      if (method === 'completeInitialRegistration') {
+        Object.assign(item, { initialCompletionAttempted: true });
+        if (view === 'downloaded-setup') Object.assign(item, { initialized: true, phase: 'paused', failure: null, blocker: null, lastSuccess: '2026-10-10T12:05:00.000Z' });
+      }
       const result = method === 'browse' ? [{ id: 'review-folder', name: 'Test Vault', ancestors: [] }, { id: 'other', name: 'Other Vault', ancestors: [] }] : state;
       return route.fulfill({ json: view === 'error' ? { ok: false, error: { code: 'synthetic_failure', message: 'Controlled review failure' } } : { ok: true, result } });
     });
@@ -45,7 +53,7 @@ try {
     await page.waitForFunction(() => [...document.styleSheets].some(sheet => {
       try { return [...sheet.cssRules].some(rule => rule.selectorText === '.pa-icloud__form'); } catch { return false; }
     }));
-    await section.getByText(view === 'error' ? 'Connection status unavailable.' : view === 'pending' ? 'Finish connecting' : ['first', 'prerequisite', 'reconnect-needed'].includes(view) ? 'Get started' : 'Connected', { exact: true }).waitFor();
+    await section.getByText(view === 'error' ? 'Connection status unavailable.' : view === 'pending' ? 'Finish connecting' : ['first', 'prerequisite', 'reconnect-needed', 'critical-disconnected', 'setup-disconnected'].includes(view) ? 'Get started' : 'Connected', { exact: true }).waitFor();
     assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
     if (['first', 'prerequisite', 'pending'].includes(view)) {
       if (view !== 'pending') assert.equal(await section.locator('ol').evaluate(element => getComputedStyle(element).listStyleType), 'decimal');
@@ -71,6 +79,21 @@ try {
       await page.keyboard.press('Tab'); await select.focus(); assert.equal(await select.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
       assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
     }
+    if (view === 'running') {
+      assert.equal(await section.getByText('Syncing…', { exact: true }).count(), 1);
+      await section.getByRole('button', { name: 'Choose a folder', exact: true }).click();
+      const select = section.getByRole('button', { name: 'Select Other Vault', exact: true }); await select.waitFor();
+      await page.keyboard.press('Tab'); await select.focus(); assert.equal(await select.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => [...document.querySelectorAll('.pa-icloud button')].some(button => button.textContent === 'Pause' && !button.disabled));
+      const pause = section.getByRole('button', { name: 'Pause Test Vault', exact: true });
+      await pause.focus(); assert.equal(await pause.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+      await page.keyboard.press('Enter');
+      await section.getByText('Pausing. This run will finish; no further syncs will start.', { exact: true }).waitFor();
+      assert.equal(methods.includes('browse'), true); assert.equal(methods.includes('select'), true); assert.equal(methods.includes('pause'), true);
+      assert.equal(await section.getByRole('button', { name: 'Choose a folder', exact: true }).isEnabled(), true);
+      assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
+    }
     if (view === 'paused') {
       const enable = section.getByRole('button', { name: 'Enable sync for Test Vault', exact: true }); await enable.waitFor();
       const dialogPromise = page.waitForEvent('dialog'); const click = enable.click(); const dialog = await dialogPromise;
@@ -88,7 +111,8 @@ try {
       await section.getByText('Retrying…', { exact: true }).waitFor();
       await section.getByRole('status').filter({ hasText: /Retrying with rclone’s normal checks/ }).waitFor();
       assert.equal(await section.getByRole('alert').count(), 0);
-      assert.equal(await section.getByRole('button', { name: /Pause|Retry|Create fresh mirror/ }).count(), 0);
+      assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).isEnabled(), true);
+      assert.equal(await section.getByRole('button', { name: /Retry|Create fresh mirror/ }).count(), 0);
     }
     if (view === 'reconnect-needed') {
       await section.getByText('Reconnect required', { exact: true }).waitFor();
@@ -98,7 +122,7 @@ try {
       await section.getByText('Resume required', { exact: true }).waitFor();
       await section.getByText(/Apple is connected again/).waitFor();
       assert.equal(await section.getByText('Reconnect required', { exact: true }).count(), 0);
-      await section.getByText('Recovery steps', { exact: true }).click();
+      await section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true }).click();
       const resume = section.getByRole('button', { name: 'Resume Test Vault', exact: true }); await page.keyboard.press('Tab'); await resume.focus();
       assert.equal(await resume.evaluate(element => element === document.activeElement), true);
       assert.equal(await resume.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
@@ -106,17 +130,18 @@ try {
     }
     if (view === 'multi-reconnected-resume') {
       assert.equal(await section.getByText('Resume required', { exact: true }).count(), 2);
-      const steps = section.getByText('Recovery steps', { exact: true });
+      const steps = section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true });
       for (let i = 0; i < 2; i++) await steps.nth(i).click();
       for (const folder of ['Test Vault', 'Other Vault']) {
         const resume = section.getByRole('button', { name: `Resume ${folder}`, exact: true }); await page.keyboard.press('Tab'); await resume.focus();
         assert.equal(await resume.evaluate(element => element === document.activeElement), true);
         assert.equal(await resume.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
       }
-      assert.equal(await section.getByRole('button', { name: /Pause|Create fresh mirror/ }).count(), 0);
+      assert.equal(await section.getByRole('button', { name: /Create fresh mirror/ }).count(), 0);
+      assert.equal(await section.getByRole('button', { name: /Pause scheduling for/ }).count(), 2);
     }
     if (['capacity', 'configuration'].includes(view)) {
-      await section.getByText('Recovery steps', { exact: true }).click();
+      await section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true }).click();
       await section.getByText(/Fix .* first\. Ask the host operator if needed, then Retry\./).waitFor();
       const retry = section.getByRole('button', { name: 'Retry Test Vault', exact: true }); await page.keyboard.press('Tab'); await retry.focus();
       assert.equal(await retry.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
@@ -127,11 +152,37 @@ try {
       await page.keyboard.press('Tab'); await retry.focus();
     }
     if (view === 'critical') {
-      await section.getByRole('alert').getByText(/This mirror is stopped for recovery review/).waitFor();
+      await section.getByRole('alert').getByText(/Sync needs recovery checks. Local notes and unsent edits are kept/).waitFor();
       assert.equal(await section.getByText(/Rclone cannot safely continue/).count(), 0);
     }
+    if (['critical', 'critical-paused', 'critical-disconnected'].includes(view)) {
+      await section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true }).click();
+      const continuation = section.getByRole('button', { name: 'Continue interrupted sync for Test Vault', exact: true });
+      assert.equal(await continuation.isDisabled(), view === 'critical-disconnected');
+      if (view !== 'critical-disconnected') {
+        await page.keyboard.press('Tab'); await continuation.focus(); assert.equal(await continuation.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+        await page.keyboard.press('Enter');
+        await section.getByText('Recovery required', { exact: true }).waitFor();
+        assert.equal(methods.includes('continueInterrupted'), true);
+        assert.equal(await section.getByText(/Sync resumed|Initial preparation finished/).count(), 0);
+      }
+      if (view === 'critical-paused') {
+        await section.getByText('Scheduling is paused. The recovery reason and saved edits are unchanged.', { exact: true }).waitFor();
+        assert.equal(await section.getByRole('button', { name: /Pause scheduling/ }).count(), 0);
+      } else {
+        const pause = section.getByRole('button', { name: 'Pause scheduling for Test Vault', exact: true });
+        await page.keyboard.press('Tab'); await pause.focus(); assert.equal(await pause.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+        await pause.click(); assert.equal(methods.includes('pause'), true);
+      }
+    }
+    if (view === 'continuing-interrupted') {
+      await section.getByText('Continuing interrupted sync…', { exact: true }).waitFor();
+      await section.getByText(/Local note access stays paused until all recovery checks pass/).waitFor();
+      assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).isEnabled(), true);
+      assert.equal(await section.getByRole('button', { name: /Continue interrupted|Create fresh mirror/ }).count(), 0);
+    }
     if (['critical', 'initial-block'].includes(view)) {
-      await section.getByText('Recovery steps', { exact: true }).click();
+      if (view === 'initial-block') await section.getByText(['critical', 'critical-paused', 'critical-disconnected', 'initial-block'].includes(view) ? 'Recovery details and other options' : 'Recovery steps', { exact: true }).click();
       const fresh = section.getByRole('button', { name: 'Create fresh mirror' }); await page.keyboard.press('Tab'); await fresh.focus();
       assert.equal(await fresh.evaluate(element => element === document.activeElement), true);
       assert.equal(await fresh.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
@@ -147,12 +198,35 @@ try {
       assert.equal(await section.getByText(/Sync resumed|Initial preparation finished|Check the new mirror/).count(), 0);
       await page.keyboard.press('Tab'); await retry.focus();
     }
+    if (['downloaded-setup', 'downloaded-setup-failure', 'setup-disconnected'].includes(view)) {
+      const finish = section.getByRole('button', { name: 'Finish downloaded setup for Test Vault', exact: true });
+      await finish.waitFor();
+      await section.getByText(/No forced resync or fresh mirror/).waitFor();
+      assert.equal(await finish.isDisabled(), view === 'setup-disconnected');
+      await page.screenshot({ path: `${artifacts}/${view}-before-${width}.png` });
+      if (view !== 'setup-disconnected') {
+        await page.keyboard.press('Tab'); await finish.focus();
+        assert.equal(await finish.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
+        await page.keyboard.press('Enter');
+        await section.getByText(view === 'downloaded-setup' ? 'Downloaded setup finished. The folder is paused; choose Resume when ready.' : 'Setup completion did not pass. The folder remains stopped. Preserve its files and ask the host operator to inspect diagnostics before any further action.', { exact: true }).waitFor();
+        assert.equal(methods.filter(method => method === 'completeInitialRegistration').length, 1);
+        assert.equal(await section.getByRole('button', { name: /Finish downloaded setup/ }).count(), 0);
+        assert.equal(await section.getByRole('button', { name: 'Resume Test Vault', exact: true }).count(), view === 'downloaded-setup' ? 1 : 0);
+        assert.equal(methods.includes('enable'), false);
+      }
+    }
+    if (view === 'setup-completing') {
+      await section.getByText('Finishing downloaded setup…', { exact: true }).waitFor();
+      assert.equal(await section.getByRole('alert').count(), 0);
+    }
+    if (['setup-completing', 'setup-attempted', 'initial-block', 'retained'].includes(view)) assert.equal(await section.getByRole('button', { name: /Finish downloaded setup/ }).count(), 0);
+    assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
     if (view === 'retained') assert.equal(await section.getByRole('button', { name: 'Resume Test Vault' }).count(), 0);
     await page.screenshot({ path: `${artifacts}/${view}-${width}.png` });
     console.log(`${view} ${width}: rendered in BB, no section overflow, relevant controls checked`);
     await page.close();
   }
-  for (const view of ['nested', 'empty-folder', 'overlap', 'long-names', 'pending-browser', 'browse-error', 'late-close']) for (const width of [1280, 390]) {
+  if (!process.env.BB_REVIEW_RECOVERY_ONLY && !process.env.BB_REVIEW_INITIAL_COMPLETION_ONLY) for (const view of ['nested', 'empty-folder', 'overlap', 'long-names', 'pending-browser', 'browse-error', 'late-close']) for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
     const state = { available: true, prerequisite: null, connected: true, challenge: null, mirrors: view === 'overlap' ? [{ ...mirror, folder: { id: 'vault', name: 'Test Vault', ancestors: ['notes'] } }] : [] };
     const notes = { id: 'notes', name: view === 'long-names' ? 'Notes with a very long folder name that must stay readable on a narrow phone screen' : 'Notes', ancestors: [] };
@@ -234,7 +308,7 @@ try {
     { key: 'progress-success', stage: 'transferring', bytes: 1024, totalBytes: 4096, files: 1, totalFiles: 4, percent: 25 },
     { key: 'progress-failure', stage: 'transferring', bytes: 1024, totalBytes: 4096, files: 1, totalFiles: 4, percent: 25 },
   ];
-  for (const fixture of progressCases) for (const width of [1280, 390]) {
+  if (!process.env.BB_REVIEW_RECOVERY_ONLY && !process.env.BB_REVIEW_INITIAL_COMPLETION_ONLY) for (const fixture of progressCases) for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
     const progress = { stage: fixture.stage, bytes: fixture.bytes ?? 0, totalBytes: fixture.totalBytes ?? null, files: fixture.files ?? 0, totalFiles: fixture.totalFiles ?? null };
     const state = { available: true, prerequisite: null, connected: true, challenge: null, mirrors: [{ ...mirror, phase: 'running', progress }] };
@@ -246,8 +320,8 @@ try {
     assert.equal(await bar.getAttribute('aria-valuenow'), fixture.percent === null ? null : String(fixture.percent));
     assert.equal(await section.getByText(/local copy may be stale/i).count(), 0);
     assert.equal(await section.getByText('Last successful host sync finished:', { exact: false }).textContent(), `Last successful host sync finished: ${await page.evaluate(value => new Date(value).toLocaleString(undefined, { timeZoneName: 'short' }), mirror.lastSuccess)}`);
-    assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).count(), 0);
-    await section.getByText('Sync controls are available when this run finishes.', { exact: true }).waitFor();
+    assert.equal(await section.getByRole('button', { name: 'Pause Test Vault', exact: true }).isEnabled(), true);
+    await section.getByText('Pause lets this run finish, then stops further syncs.', { exact: true }).waitFor();
     assert.equal(await section.evaluate(element => element.scrollWidth > element.clientWidth), false);
     await page.keyboard.press('Tab'); const focus = section.getByRole('button', { name: 'Reconnect', exact: true }); await focus.focus();
     assert.equal(await focus.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');

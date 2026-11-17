@@ -1,5 +1,7 @@
 # 018 — Ordinary-update and baseline feasibility
 
+> Historical: the PA updater, source-switching controls and dependent release publisher are retired. This document records prior plans/evidence, not current instructions or live state. Referenced updater code and gate scripts are available in Git history. Use [local-path development](../../CONTRIBUTING.md#local-path-development) with stock BB.
+
 Status: implementation and bounded native/rendered acceptance have advanced beyond
 the original feasibility checkpoint. Historical evidence below remains labelled;
 current original-handler, runtime and builder results follow it. No production

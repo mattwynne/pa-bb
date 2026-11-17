@@ -15,7 +15,7 @@ export class RcloneTrace {
   private ready = false;
   private failed = false;
   private warned = false;
-  private queue: string[] = [];
+  private queue: { line: string; priority: number }[] = [];
   private draining: Promise<void> | null = null;
   private dropped = 0;
   constructor(private directory: string, private warn: () => void = () => {}, private limits: Limits = RCLONE_LOG_LIMITS) {
@@ -50,7 +50,11 @@ export class RcloneTrace {
     } catch { this.unavailable(); }
   }
   record(commandId: string, elapsedMs: number, record: unknown) {
-    this.append({ at: new Date().toISOString(), commandId, elapsedMs: Math.max(0, Math.round(elapsedMs)), ...projectRcloneRecord(record) });
+    const projected = projectRcloneRecord(record);
+    // Keep recognized activity/counters and failures, not one empty projection
+    // for every unchanged file. The native retry observer still sees all input.
+    if (projected.event === 'message' && !projected.category && !['warning', 'error', 'critical'].includes(projected.level ?? '')) return;
+    this.append({ at: new Date().toISOString(), commandId, elapsedMs: Math.max(0, Math.round(elapsedMs)), ...projected });
   }
   append(entry: TraceEntry) {
     if (!this.ready || this.failed) return;
@@ -58,8 +62,15 @@ export class RcloneTrace {
     const parsed = traceEntrySchema.safeParse(entry);
     if (!parsed.success) { this.dropped++; return; }
     const line = JSON.stringify(parsed.data) + '\n';
-    if (Buffer.byteLength(line) > this.limits.recordBytes || this.queue.length >= this.limits.queueRecords) { this.dropped++; return; }
-    this.queue.push(line);
+    if (Buffer.byteLength(line) > this.limits.recordBytes) { this.dropped++; return; }
+    const priority = ['command_end', 'command_timeout'].includes(entry.event) ? 2 : entry.category || ['warning', 'error', 'critical'].includes(entry.level ?? '') || entry.event === 'command_start' ? 1 : 0;
+    if (this.queue.length >= this.limits.queueRecords) {
+      const replace = this.queue.findIndex(queued => queued.priority < priority);
+      this.dropped++;
+      if (replace < 0) return;
+      this.queue.splice(replace, 1);
+    }
+    this.queue.push({ line, priority });
     this.pump();
   }
   private pump() {
@@ -77,7 +88,7 @@ export class RcloneTrace {
         let batch = '';
         // Batching bounds pending memory and avoids one filesystem write per
         // debug message. Full queues drop records rather than block rclone.
-        while (this.queue.length && Buffer.byteLength(batch + this.queue[0]) <= Math.min(64 * 1024, this.limits.fileBytes)) batch += this.queue.shift()!;
+        while (this.queue.length && Buffer.byteLength(batch + this.queue[0].line) <= Math.min(64 * 1024, this.limits.fileBytes)) batch += this.queue.shift()!.line;
         if (!batch) { this.queue.shift(); this.dropped++; continue; }
         await this.checkDirectory();
         const bytes = Buffer.byteLength(batch);

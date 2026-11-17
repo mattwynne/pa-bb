@@ -25,10 +25,19 @@ The **Last successful sync** time changes only after successful completion. “S
 - **Pause** stops future scheduled runs or a pending retry, preserving local files, the baseline and the last failed outcome. A running operation must finish before controls can change it.
 - **Resume** enables an intact paused mirror. For a failed mirror waiting after Reconnect, it runs the ordinary native bisync path; it never forces resync. Retained previous mirrors cannot resume.
 - **Retry sync** is available for an initialized failed mirror whose automatic retry is paused, including conservatively upgraded legacy records. It uses the ordinary path and does not clear the old outcome before the attempt.
-- **Reconnect** repeats Apple authorization and makes each enabled, recoverable folder wait for explicit **Resume**. Authorization succeeding does not restart any of those folders. Paused and retained folders stay stopped, and existing storage, configuration or critical blockers remain in place. Rclone's documented trust-token lifetime is about 30 days.
+- **Reconnect** repeats Apple authorization and makes each enabled, recoverable folder wait for explicit **Resume**. Authorization succeeding does not restart any of those folders. Paused and retained folders stay stopped, and existing storage, configuration or critical blockers remain in place. BB estimates a renewal reminder at 25 days after a verified completed sign-in, not a guaranteed expiry. Older installations with no recorded date honestly show Unknown; startup, sync and ordinary checks never seed that date.
 - **Disconnect** removes local password/session credentials and pauses sync. Local files and recovery copies remain. It does not revoke authorization at Apple. Remove/uninstall behaviour is governed by BB's host data policy; archive local data before asking BB to remove plugin data.
 
 ## Recovery
+
+A first download has a 2 GiB transfer allowance; ordinary later runs keep their 256 MiB change budget. The bandwidth, memory and twenty-minute initial setup limits remain unchanged. Earlier versions used the ordinary budget for first downloads too, so a larger folder could stop partway through setup. Such a partial mirror is not a completed download: after addressing the limit, use **Create fresh mirror** to download into a new empty local folder. The previous partial folder and its baseline stay separate and untouched; do not force resync over them. Folders exceeding the new allowance still require operator review.
+
+### Finish an already-downloaded setup
+
+For a failed initial setup with `source_changed`, **Finish downloaded setup** checks whether the existing download can safely complete registration. It requires a pre-existing verified account binding, the successful-download marker, private owned directories, matching account and folder/filesystem bindings, and a usable native baseline. It runs one ordinary two-way native sync with recovery checks; it never forces resync, replaces the mirror, or deletes its recovery state. Success makes local note access available and leaves syncing **paused**. Choose Resume separately when ready.
+
+This is a single explicit attempt, not a general repair. Missing or unsafe markers, mismatched bindings, other failure categories and native failures stay stopped. An attempted or uncertain completion cannot be repeated through the control, including after restart; preserve the files and ask the host operator to inspect diagnostics. The original failure history remains. Client-only RPC: `completeInitialRegistration` with `{ "id": "<mirror-id>" }`.
+
 
 Legacy recovery archives, including incomplete or ambiguous staging, are preserved without being inspected or changed by sync. They are no longer a precondition for an ordinary attempt. An already saved capacity or critical blocker is not cleared automatically; review its cause separately rather than assuming it came from the retired backup layer.
 
@@ -59,6 +68,12 @@ Schema-2 cloud filenames use the pinned rclone standard encoding, marked by `clo
 An operating-system flock at `/usr/bin/flock` prevents worker overlap. Command children inherit the lock, so it stays held across a parent crash until the last old child exits. Mounted procfs lets a replacement plugin generation identify and defer to a live same-parent daemon without signalling it or replacing its lock/socket paths. Never bypass the lock; confirm no child is alive before operator inspection. Preserve baseline, staging and recovery files and inspect possible partial mutations.
 
 After an abrupt native transfer termination, rclone may retain a non-empty bounded `<name>.<8-hex>.partial` file alongside the subsequently recovered full object. That partial can contain unique evidence. The plugin does not delete it automatically; inspect it separately before any operator cleanup.
+
+## In-app sign-in reminders
+
+On BB 0.49+, one persistent native toast opens iCloud Settings; the same attention is visible inline there. **Remind tomorrow** saves a 24-hour snooze. A newly proven authentication rejection can override an age reminder's snooze once. Unresolved reminders and connection warnings become eligible again at most once per 24 hours for the same stage, across windows and reloads; repeated failures, polls and calendar-day rollover do not create a notification storm. A stronger newly evidenced issue may notify once sooner. A crash after saving a delivery claim can lose that toast until the next eligible day; the inline attention remains visible. Legacy claims with no valid delivery time become eligible once rather than staying hidden forever. Clearing native notification history does not fix the connection. Reminders are in-app only: BB must be open, and no OS permission or push notification is used.
+
+An exact native trust-token rejection is different from HTTP 421: the latter holds ordinary cloud retries but only says the connection needs attention. Network/check failures do not prove expiry, and a sync timeout or recovery stop is not an authentication diagnosis. Age reminders never disconnect Apple or stop scheduling. Complete sign-in only in the protected Settings forms, never chat. Successful sign-in clears connection attention, not paused folders, recovery fences or preserved conflicts; no sync is started by sign-in.
 
 ## Diagnostics
 

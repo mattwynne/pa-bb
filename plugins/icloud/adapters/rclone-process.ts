@@ -1,3 +1,4 @@
+import { rcConnectionFailure } from './rclone-connection-failure.ts';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { request } from 'node:http';
@@ -11,7 +12,9 @@ import { RcloneStatsStream } from './rclone-stats.ts';
 import { RcloneBisyncObservation } from './rclone-bisync-observation.ts';
 import { RcloneTrace } from './rclone-trace.ts';
 
-export const COMMAND_TIMEOUTS = { listing: 5 * 60_000, transfer: 15 * 60_000, bisync: 20 * 60_000 } as const;
+// Ordinary bisync can legitimately list/compare without transfer counters.
+// Bound explicit interruption, not the total duration of that native work.
+export const COMMAND_TIMEOUTS = { listing: 5 * 60_000, transfer: 15 * 60_000, initialBisync: 20 * 60_000, bisync: null } as const;
 export const FLOCK_BINARY = '/usr/bin/flock';
 
 export function safeEnvironment(): NodeJS.ProcessEnv {
@@ -27,6 +30,9 @@ export class RcloneProcess {
   private fileWork: { controller: AbortController; task: Promise<unknown> } | null = null;
   private started: Promise<void> | null = null;
   private stopping = false;
+  private stopped: Promise<void> | null = null;
+  private released: Promise<void> | null = null;
+  private interruptions = new Map<ChildProcess, NodeJS.Timeout>();
   private lock: Awaited<ReturnType<typeof open>> | null = null;
   private ownsLock = false;
   private socket: string;
@@ -35,7 +41,8 @@ export class RcloneProcess {
   private key: string;
   readonly trace: RcloneTrace;
   // Constructor-only generated-fixture control. Never supplied by server/RPC/env.
-  constructor(readonly root: string, private explicitBinary?: string, private testBandwidth?: string, traceWarning?: () => void) {
+  constructor(readonly root: string, private explicitBinary?: string, private testBandwidth?: string, traceWarning?: () => void, private stopGraceMs = 95_000) {
+    if (!Number.isSafeInteger(stopGraceMs) || stopGraceMs < 1 || stopGraceMs > 95_000) throw new CloudError('configuration');
     this.trace = new RcloneTrace(join(root, 'rclone-logs'), traceWarning);
     if (testBandwidth && !/^[1-9][0-9]{0,6}[kM]$/.test(testBandwidth)) throw new CloudError('configuration');
     this.socket = join(root, 'control.sock'); this.config = join(root, 'state', 'rclone.conf');
@@ -71,9 +78,9 @@ export class RcloneProcess {
   }
   async ensure() {
     if (this.stopping) throw new CloudError('interrupted');
-    if (this.started) return this.started;
+    if (this.started) { await this.started; if (this.stopping) throw new CloudError('interrupted'); return; }
     const attempt = this.start(); this.started = attempt;
-    try { await attempt; }
+    try { await attempt; if (this.stopping) throw new CloudError('interrupted'); }
     catch (error) { if (this.started === attempt) this.started = null; throw error; }
   }
   private async hasLiveParentDaemon() {
@@ -143,15 +150,17 @@ export class RcloneProcess {
       // no old transfer child is still active. Retire it before rebinding.
       await this.rawCall('core/quit', {}).catch(() => {});
       await unlink(this.socket).catch(() => {});
+      if (this.stopping) throw new CloudError('interrupted');
       const child = spawn(this.binary!, ['rcd', '--rc-addr', `unix://${this.socket}`, '--rc-no-auth', ...this.flags()], { env: safeEnvironment(), stdio: 'ignore' });
       this.child = child;
       child.on('error', () => {});
       for (let attempt = 0; attempt < 100; attempt++) {
+        if (this.stopping) throw new CloudError('interrupted');
         if (child.exitCode !== null || child.signalCode !== null) throw new CloudError('unavailable');
         try { await this.rawCall('rc/noop', {}); await chmod(this.socket, 0o600); return; } catch { await new Promise(resolve => setTimeout(resolve, 50)); }
       }
       throw new CloudError('unavailable');
-    } catch (error) { await this.stop(); throw error instanceof CloudError ? error : new CloudError('unavailable'); }
+    } catch (error) { this.requestStop(); await this.release(); throw error instanceof CloudError ? error : new CloudError('unavailable'); }
   }
   private rawCall(method: string, body: Record<string, unknown>): Promise<any> {
     return new Promise((resolve, reject) => {
@@ -162,14 +171,7 @@ export class RcloneProcess {
         res.on('error', fail);
         res.on('end', () => {
           if (res.statusCode !== 200) {
-            // Stock v1.75.2 wraps backend errors in RC HTTP 500. Recognize
-            // only its exact native expiry marker, not Apple error prose,
-            // substrings, or HTTP 500 alone. Never retain the private envelope.
-            let expired = false;
-            if (res.statusCode === 500 && method === 'operations/list' && body.fs === 'icloud:') {
-              try { expired = JSON.parse(data)?.error === 'trust token expired, please reauth'; } catch { /* Unknown failure stays retryable. */ }
-            }
-            return reject(new CloudError(expired ? 'authentication' : 'sync_failed'));
+            return reject(new CloudError(rcConnectionFailure(method, body, res.statusCode, data)));
           }
           try { resolve(JSON.parse(data)); } catch { fail(); }
         });
@@ -178,7 +180,7 @@ export class RcloneProcess {
       req.end(JSON.stringify(body));
     });
   }
-  async call(method: string, body: Record<string, unknown>) { await this.ensure(); if (this.fileWork) throw new CloudError('busy'); return this.rawCall(method, body); }
+  async call(method: string, body: Record<string, unknown>) { await this.ensure(); if (this.stopping) throw new CloudError('interrupted'); if (this.fileWork) throw new CloudError('busy'); return this.rawCall(method, body); }
   // Same native generation and inherited flock as run(), not a second mutex
   // claiming to exclude rclone. No native command may start during this work.
   async withFiles<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -195,16 +197,17 @@ export class RcloneProcess {
     if (this.fileWork || this.stopping) throw new CloudError('busy');
     const command = args[0];
     const stats = report ? ['--use-json-log', '--stats', '1s', '--stats-log-level', 'NOTICE', '--log-level', command === 'bisync' ? 'DEBUG' : 'NOTICE'] : command === 'bisync' ? ['--use-json-log', '--log-level', 'DEBUG'] : [];
-    const timeout = command === 'bisync' ? COMMAND_TIMEOUTS.bisync : command === 'lsjson' ? COMMAND_TIMEOUTS.listing : COMMAND_TIMEOUTS.transfer;
+    const timeout = command === 'bisync' ? args.includes('--resync') ? COMMAND_TIMEOUTS.initialBisync : COMMAND_TIMEOUTS.bisync : command === 'lsjson' ? COMMAND_TIMEOUTS.listing : COMMAND_TIMEOUTS.transfer;
     return this.execute(this.binary!, [...args, ...this.flags(), ...stats], capture, timeout, report, command === 'bisync' ? 'bisync' : 'generic');
   }
-  private execute(binary: string, args: string[], capture: boolean, timeout: number, report?: (stats: TransferProgress) => void, context: 'bisync' | 'generic' = 'generic'): Promise<string> {
+  private execute(binary: string, args: string[], capture: boolean, timeout: number | null, report?: (stats: TransferProgress) => void, context: 'bisync' | 'generic' = 'generic'): Promise<string> {
+    if (this.stopping) return Promise.reject(new CloudError('interrupted', { kind: 'command_stopped' }));
     return new Promise((resolve, reject) => {
       const observer = context === 'bisync' ? new RcloneBisyncObservation() : null;
       const commandId = randomUUID(), started = performance.now();
       const elapsed = () => Math.max(0, Math.round(performance.now() - started));
       const trace = (entry: Parameters<RcloneTrace['append']>[0]) => { if (observer) this.trace.append(entry); };
-      trace({ at: new Date().toISOString(), commandId, elapsedMs: 0, event: 'command_start', timeoutMs: timeout });
+      trace({ at: new Date().toISOString(), commandId, elapsedMs: 0, event: 'command_start', ...(timeout === null ? {} : { timeoutMs: timeout }) });
       const stdio: any[] = ['ignore', capture ? 'pipe' : 'ignore', report || observer ? 'pipe' : 'ignore'];
       if (this.lock) stdio.push(this.lock.fd);
       const child = spawn(binary, args, { env: safeEnvironment(), stdio });
@@ -215,13 +218,17 @@ export class RcloneProcess {
       child.stderr?.on('data', chunk => stats?.write(chunk));
       this.children.add(child); let output = ''; let overflow = false; let timedOut = false;
       child.stdout?.on('data', chunk => { if (output.length + chunk.length > 4 * 1024 * 1024) { overflow = true; child.kill('SIGKILL'); } else output += chunk; });
-      const timer = setTimeout(() => {
+      const timer = timeout === null ? null : setTimeout(() => {
         timedOut = true;
         trace({ at: new Date().toISOString(), commandId, elapsedMs: elapsed(), event: 'command_timeout', timeoutMs: timeout });
-        child.kill('SIGINT');
-      }, timeout); timer.unref();
-      const hard = setTimeout(() => child.kill('SIGKILL'), timeout + 95_000); hard.unref();
-      const cleanup = () => { clearTimeout(timer); clearTimeout(hard); this.children.delete(child); };
+        this.interrupt(child);
+      }, timeout);
+      timer?.unref();
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        clearTimeout(this.interruptions.get(child)); this.interruptions.delete(child);
+        this.children.delete(child);
+      };
       let settled = false;
       child.on('error', () => {
         settled = true; cleanup();
@@ -253,19 +260,42 @@ export class RcloneProcess {
       });
     });
   }
-  async stop() {
+  private interrupt(child: ChildProcess) {
+    if (child.exitCode !== null || child.signalCode !== null || this.interruptions.has(child)) return;
+    // Do not send repeated SIGINTs: native bisync uses its grace period to
+    // finish critical cleanup. Escalate once if that bounded grace expires.
+    const timer = setTimeout(() => child.kill('SIGKILL'), this.stopGraceMs); timer.unref();
+    this.interruptions.set(child, timer); child.kill('SIGINT');
+  }
+  requestStop() {
     this.stopping = true;
     this.fileWork?.controller.abort();
-    await this.fileWork?.task.catch(() => {});
-    const children = [...this.children, ...(this.child ? [this.child] : [])];
-    await Promise.all(children.map(child => new Promise<void>(resolve => {
-      if (child.exitCode !== null || child.signalCode !== null) return resolve();
-      child.once('close', () => { clearTimeout(timer); resolve(); });
-      const timer = setTimeout(() => child.kill('SIGKILL'), 95_000); timer.unref(); child.kill('SIGINT');
-    })));
-    await this.trace.stop();
-    if (this.ownsLock) await unlink(this.socket).catch(() => {});
-    await this.lock?.close().catch(() => {}); this.lock = null;
-    this.ownsLock = false;
+    for (const child of this.children) this.interrupt(child);
+    // Keep the RC daemon and inherited flock alive for entered callbacks and
+    // the runtime's post-run reconciliation. stop() releases them after drain.
+  }
+  stop(): Promise<void> {
+    this.requestStop();
+    return this.stopped ??= (async () => {
+      await this.started?.catch(() => {});
+      await this.release();
+    })();
+  }
+  private release(): Promise<void> {
+    return this.released ??= (async () => {
+      await this.fileWork?.task.catch(() => {});
+      const children = [...this.children, ...(this.child ? [this.child] : [])];
+      await Promise.all(children.map(child => new Promise<void>(resolve => {
+        if (child.exitCode !== null || child.signalCode !== null) return resolve();
+        child.once('close', () => {
+          clearTimeout(this.interruptions.get(child)); this.interruptions.delete(child); resolve();
+        });
+        this.interrupt(child);
+      })));
+      await this.trace.stop();
+      if (this.ownsLock) await unlink(this.socket).catch(() => {});
+      await this.lock?.close().catch(() => {}); this.lock = null;
+      this.ownsLock = false;
+    })();
   }
 }

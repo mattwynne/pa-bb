@@ -1,5 +1,7 @@
 # 018 — Historical exact-target characterization (requirement superseded)
 
+> Historical: the PA updater, source-switching controls and dependent release publisher are retired. This document records prior plans/evidence, not current instructions or live state. Referenced updater code and gate scripts are available in Git history. Use [local-path development](../../CONTRIBUTING.md#local-path-development) with stock BB.
+
 **Not an active implementation gate.** The owner subsequently accepted BB's
 ordinary compatible channel update: a newer released candidate than the preview
 is allowed, and completion reports actual installed versions. Exact-target

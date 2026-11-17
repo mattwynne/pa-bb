@@ -22,3 +22,11 @@ test('diagnostic log fields whitelist stages, categories, sequences and exit evi
   const error = new CloudError('sentinel-category' as any, { kind: 'sentinel-evidence' } as any);
   assert.equal(category(error), 'unknown'); assert.equal(evidence(error), null);
 });
+
+test('post-run reconciliation evidence keeps only fixed reasons and validated native evidence', () => {
+  const error = new CloudError('recovery_required', { kind: 'post_run_reconcile', reason: 'uncertain', command: { kind: 'command_exit', exitCode: 7, native: 'retryable_abort', reason: 'listing_failure', message: 'PRIVATE_SENTINEL' }, cause: 'PRIVATE_SENTINEL' } as any);
+  assert.equal(diagnosticMessage('sync/checking', category(error), { evidence: evidence(error) }), 'iCloud sync/checking recovery_required evidence=post_run_reconcile reason=uncertain command=command_exit exit=7 native=retryable_abort reason=listing_failure');
+  const unsafe = new CloudError('recovery_required', { kind: 'post_run_reconcile', reason: 'PRIVATE_SENTINEL', command: { kind: 'PRIVATE_SENTINEL', message: 'PRIVATE_SENTINEL' } } as any);
+  assert.deepEqual(evidence(unsafe), { kind: 'post_run_reconcile', reason: 'unavailable', command: null });
+  assert.doesNotMatch(JSON.stringify(error) + JSON.stringify(unsafe), /PRIVATE_SENTINEL/);
+});

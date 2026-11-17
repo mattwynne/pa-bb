@@ -12,6 +12,11 @@ test('the Git marketplace catalog passes BB v2 schema and targets this plugin pa
   addFormats(ajv);
   const validate = ajv.compile(schema);
   assert.ok(validate(catalog), JSON.stringify(validate.errors));
+  assert.equal(catalog.plugins.some(plugin => plugin.id === 'pa-updates'), false);
+  for (const plugin of catalog.plugins) {
+    const pkg = await load(`../../../${plugin.source.git.subdir}/package.json`);
+    assert.equal(pkg.name, `bb-plugin-${plugin.id}`);
+  }
   const entry = catalog.plugins.find(plugin => plugin.id === 'google-calendar');
   const fastmail = catalog.plugins.find(plugin => plugin.id === 'fastmail');
   const drive = catalog.plugins.find(plugin => plugin.id === 'google-drive');

@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/mattwynne/pa-bb/releases/pa-release-v1.schema.json",
+  "$comment": "Historical schema retained for existing release records. The PA updater and dependent publisher are retired; this is not a development or publication workflow.",
   "title": "PA release metadata v1",
   "description": "Read-only release metadata. Identity and plugin commits must also match sourceCommit; engine ranges and versions require semantic validation.",
   "type": "object", "additionalProperties": false,

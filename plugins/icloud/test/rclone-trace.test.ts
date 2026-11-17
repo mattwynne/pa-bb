@@ -121,3 +121,21 @@ test('public defaults are four 1 MiB files and a bounded pending queue', () => {
   assert.equal(RCLONE_LOG_LIMITS.fileBytes * RCLONE_LOG_LIMITS.files, 4 * 1024 * 1024);
   assert.ok(RCLONE_LOG_LIMITS.queueRecords * RCLONE_LOG_LIMITS.recordBytes <= 1024 * 1024);
 });
+
+test('routine debug flood cannot starve errors or terminal command evidence', async () => {
+  const f = await fixture(); const logger = new RcloneTrace(f.directory, undefined, limits);
+  try {
+    await logger.start();
+    for (let i = 0; i < 10000; i++) logger.record(commandId, i, { level: 'debug', msg: 'PRIVATE_SENTINEL unchanged', object: 'PRIVATE_SENTINEL.md' });
+    logger.record(commandId, 10001, { level: 'error', msg: 'PRIVATE_SENTINEL HTTP error 503' });
+    // Fill with useful but lower-priority activity while storage is draining.
+    for (let i = 0; i < 10000; i++) logger.record(commandId, 10002 + i, { source: 'bisync/listing.go:10', msg: 'Reading current listings PRIVATE_SENTINEL' });
+    logger.append({ ...entry(20002), event: 'command_end', outcome: 'failed', evidence: 'command_stopped' });
+    await logger.flush();
+    const snapshot = await logger.snapshot(500);
+    assert.ok(snapshot.entries.some(e => e.level === 'error' && e.httpStatus === 503));
+    assert.equal(snapshot.entries.at(-1)?.event, 'command_end');
+    assert.ok(snapshot.droppedRecords > 0);
+    assert.doesNotMatch(JSON.stringify(snapshot), /PRIVATE_SENTINEL/);
+  } finally { await logger.stop(); await f.close(); }
+});
