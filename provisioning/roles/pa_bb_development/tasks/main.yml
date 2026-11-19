@@ -3,6 +3,10 @@
   ansible.builtin.set_fact:
     pa_bb_watch_plugins: "{{ pa_bb_inventory.plugins | selectattr('enabled') | list }}"
 
+- name: Name the desired watcher unit files
+  ansible.builtin.set_fact:
+    pa_bb_watch_unit_names: "{{ pa_bb_watch_plugins | map(attribute='id') | map('regex_replace', '^', 'pa-bb-dev-') | map('regex_replace', '$', '.service') | list }}"
+
 - name: Verify native watcher support without starting one
   become: true
   become_user: '{{ pa_bb_user }}'
@@ -57,7 +61,7 @@
   loop: '{{ pa_bb_watcher_files.files }}'
   loop_control:
     label: '{{ item.path | basename }}'
-  when: (item.path | basename | regex_replace('^pa-bb-dev-(.*)\.service$', '\1')) not in (pa_bb_watch_plugins | map(attribute='id') | list)
+  when: (item.path | basename) not in pa_bb_watch_unit_names
 
 - name: Remove obsolete or disabled watcher definitions
   become: true
@@ -67,7 +71,7 @@
   loop: '{{ pa_bb_watcher_files.files }}'
   loop_control:
     label: '{{ item.path | basename }}'
-  when: (item.path | basename | regex_replace('^pa-bb-dev-(.*)\.service$', '\1')) not in (pa_bb_watch_plugins | map(attribute='id') | list)
+  when: (item.path | basename) not in pa_bb_watch_unit_names
   register: pa_bb_old_watchers
 
 - name: Reload systemd only when watcher definitions changed

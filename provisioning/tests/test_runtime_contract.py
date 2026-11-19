@@ -1,5 +1,10 @@
 """Portable bootstrap and service safety contracts; no real package operations."""
 from pathlib import Path
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 import yaml
 from jinja2 import Environment
@@ -73,6 +78,30 @@ class RuntimeContractTests(unittest.TestCase):
         for unwanted in ['plugin enable', 'plugin disable', 'plugin install', 'pkill', 'killall', 'state: restarted']:
             self.assertNotIn(unwanted, tasks)
         self.assertFalse((role / 'handlers/main.yml').exists())
+
+    @unittest.skipUnless(shutil.which('ansible-playbook'), 'requires ansible-core')
+    def test_actual_ansible_cleanup_conditions_keep_desired_watchers(self):
+        source = yaml.safe_load((ROOT / 'roles/pa_bb_development/tasks/main.yml').read_text())
+        tasks = [t for t in source if 'ansible.builtin.set_fact' in t]
+        for task in source:
+            if task['name'] not in ['Stop obsolete or disabled plugin watchers', 'Remove obsolete or disabled watcher definitions']:
+                continue
+            for identity, obsolete in [('kept', False), ('disabled', True), ('retired', True)]:
+                condition = task['when'] if obsolete else 'not (' + task['when'] + ')'
+                tasks.append({'name': task['name'] + ': ' + identity,
+                              'ansible.builtin.assert': {'that': condition},
+                              'vars': {'item': {'path': '/etc/systemd/system/pa-bb-dev-' + identity + '.service'}}})
+        play = [{'hosts': 'all', 'connection': 'local', 'gather_facts': False,
+                 'vars': {'ansible_python_interpreter': sys.executable,
+                          'pa_bb_inventory': {'plugins': [{'id': 'kept', 'enabled': True}, {'id': 'disabled', 'enabled': False}]}},
+                 'tasks': tasks}]
+        with tempfile.TemporaryDirectory(prefix='pa-watcher-condition-') as directory:
+            path = Path(directory) / 'play.yml'
+            path.write_text(yaml.safe_dump(play))
+            result = subprocess.run(['ansible-playbook', '-i', 'localhost,', str(path)],
+                                    env=dict(os.environ, ANSIBLE_NOCOLOR='1'), text=True,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_read_only_manifest_script_never_fetches_or_mutates_git(self):
         source = (ROOT / 'roles/pa_bb_plugins/files/manifest.py').read_text()
