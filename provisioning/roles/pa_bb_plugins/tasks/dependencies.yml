@@ -1,0 +1,32 @@
+---
+- name: Inspect dependencies without changing the package tree
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: [npm, ls, --depth=0, --include=dev, --offline, --json]
+    chdir: '{{ pa_bb_plugin.path }}'
+  register: pa_bb_dependencies
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Refuse to replace dependencies underneath a running plugin
+  ansible.builtin.assert:
+    that: pa_bb_dependencies.rc == 0 or not (pa_bb_plugin.installed and pa_bb_plugin.enabled)
+    fail_msg: A running plugin needs dependency changes. Stop it through BB and drain work before provisioning; no npm ci or reload was attempted.
+
+- name: Install missing dependencies from the package lock
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: [npm, ci, --include=dev, --no-audit, --no-fund]
+    chdir: '{{ pa_bb_plugin.path }}'
+  when: pa_bb_dependencies.rc != 0
+  no_log: true

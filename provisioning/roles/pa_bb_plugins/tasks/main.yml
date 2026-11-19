@@ -1,0 +1,197 @@
+---
+- name: Inspect the writable application checkout
+  ansible.builtin.stat:
+    path: '{{ pa_bb_source_dir }}'
+  register: pa_bb_checkout
+
+- name: Create the source parent directory
+  become: true
+  ansible.builtin.file:
+    path: '{{ pa_bb_source_dir | dirname }}'
+    state: directory
+    owner: '{{ pa_bb_user }}'
+    group: '{{ pa_bb_group | default(pa_bb_user) }}'
+    mode: '0755'
+
+- name: Clone main only when the source checkout is absent
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: [git, clone, --branch, main, '{{ pa_bb_source_repo }}', '{{ pa_bb_source_dir }}']
+    creates: '{{ pa_bb_source_dir }}'
+  when: not pa_bb_checkout.stat.exists
+
+- name: Inspect main's tracked manifests and actual native registrations
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.script:
+    cmd: "{{ 'manifest.py' | quote }} {{ pa_bb_source_dir | quote }} main {{ pa_bb_cli_argv | map('quote') | join(' ') }}"
+    executable: /usr/bin/python3
+  register: pa_bb_inventory_read
+  check_mode: false
+  changed_when: false
+  no_log: true
+  when: pa_bb_checkout.stat.exists or not ansible_check_mode
+
+- name: Keep the bounded reconciliation plan
+  ansible.builtin.set_fact:
+    pa_bb_inventory: "{{ (pa_bb_inventory_read.stdout | from_json) if not (pa_bb_inventory_read.skipped | default(false)) else {'plugins': [], 'retired': [], 'preserved': []} }}"
+  no_log: true
+
+- name: Require a protected recovery backup before retiring plugin state
+  ansible.builtin.assert:
+    that: pa_bb_retirement_backup | default('') | length > 0
+    fail_msg: Retired PA plugins were found. BB removal deletes their settings, secrets and schedules. Review a protected backup and supply pa_bb_retirement_backup before applying; no removals were attempted.
+  when: pa_bb_inventory.retired | length > 0 and not ansible_check_mode
+
+- name: Verify the supplied retirement backup exists without reading it
+  ansible.builtin.stat:
+    path: '{{ pa_bb_retirement_backup }}'
+  register: pa_bb_retirement_archive
+  when: pa_bb_inventory.retired | length > 0 and not ansible_check_mode
+  no_log: true
+
+- name: Refuse an unprotected or missing recovery archive
+  ansible.builtin.assert:
+    that:
+      - pa_bb_retirement_archive.stat.isreg | default(false)
+      - pa_bb_retirement_archive.stat.mode in ['0600', '0400']
+    fail_msg: Plugin removal needs an existing private recovery archive. Inspect the backup before continuing.
+  when: pa_bb_inventory.retired | length > 0 and not ansible_check_mode
+
+- name: Inspect dependencies for each desired plugin
+  ansible.builtin.include_tasks: dependencies.yml
+  loop: '{{ pa_bb_inventory.plugins }}'
+  loop_control:
+    loop_var: pa_bb_plugin
+    label: '{{ pa_bb_plugin.id }}'
+
+- name: Report planned native registrations and removals
+  ansible.builtin.debug:
+    msg: "Register {{ pa_bb_inventory.plugins | rejectattr('installed') | map(attribute='id') | list }}; retire {{ pa_bb_inventory.retired | map(attribute='id') | list }}. Existing sources and enablement are preserved."
+  changed_when: true
+  when: ansible_check_mode and ((pa_bb_inventory.plugins | rejectattr('installed') | list | length > 0) or pa_bb_inventory.retired | length > 0)
+
+- name: Inspect retired watcher definitions
+  ansible.builtin.stat:
+    path: '/etc/systemd/system/pa-bb-dev-{{ item.id }}.service'
+  loop: '{{ pa_bb_inventory.retired }}'
+  loop_control:
+    label: '{{ item.id }}'
+  register: pa_bb_retired_watchers
+
+- name: Stop a retired plugin's watcher before native removal
+  become: true
+  ansible.builtin.systemd_service:
+    name: 'pa-bb-dev-{{ item.item.id }}.service'
+    enabled: false
+    state: stopped
+  loop: '{{ pa_bb_retired_watchers.results }}'
+  loop_control:
+    label: '{{ item.item.id }}'
+  when: item.stat.exists
+
+- name: Remove retired watcher definitions
+  become: true
+  ansible.builtin.file:
+    path: '/etc/systemd/system/pa-bb-dev-{{ item.id }}.service'
+    state: absent
+  loop: '{{ pa_bb_inventory.retired }}'
+  loop_control:
+    label: '{{ item.id }}'
+  register: pa_bb_retired_units_removed
+
+- name: Reload systemd after removing a retired watcher definition
+  become: true
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: pa_bb_retired_units_removed.changed
+
+- name: Remove only PA checkout registrations absent from main
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: "{{ pa_bb_cli_argv + ['plugin', 'remove', item.id, '--json'] }}"
+  loop: '{{ pa_bb_inventory.retired }}'
+  loop_control:
+    label: '{{ item.id }}'
+  no_log: true
+
+- name: Register only missing desired plugins through native local-path install
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: "{{ pa_bb_cli_argv + ['plugin', 'install', item.source, '--yes', '--json'] }}"
+  loop: '{{ pa_bb_inventory.plugins }}'
+  loop_control:
+    label: '{{ item.id }}'
+  when: not item.installed
+  no_log: true
+
+- name: Read actual native registrations after apply
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: "{{ pa_bb_cli_argv + ['plugin', 'list', '--json'] }}"
+  register: pa_bb_plugins_after_read
+  check_mode: false
+  changed_when: false
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Remember the actual installed state for watcher selection
+  ansible.builtin.set_fact:
+    pa_bb_plugins_after: "{{ (pa_bb_plugins_after_read.stdout | from_json).plugins if not ansible_check_mode else [] }}"
+  no_log: true
+
+- name: Verify every retained plugin kept its source and enablement
+  ansible.builtin.assert:
+    that:
+      - actual | length == 1
+      - actual[0].source == item.source
+      - actual[0].enabled == item.enabled
+    fail_msg: An existing plugin changed unexpectedly. Inspect it without reinstalling or retrying mutations.
+  vars:
+    actual: "{{ pa_bb_plugins_after | selectattr('id', 'equalto', item.id) | list }}"
+  loop: '{{ pa_bb_inventory.preserved }}'
+  loop_control:
+    label: '{{ item.id }}'
+  when: not ansible_check_mode
+
+- name: Verify every desired plugin has its exact source and expected enablement
+  ansible.builtin.assert:
+    that:
+      - actual | length == 1
+      - actual[0].source == item.source
+      - actual[0].enabled == item.enabled
+    fail_msg: Desired registration was not confirmed. Inspect through BB; never blindly replay an installation.
+  vars:
+    actual: "{{ pa_bb_plugins_after | selectattr('id', 'equalto', item.id) | list }}"
+  loop: '{{ pa_bb_inventory.plugins }}'
+  loop_control:
+    label: '{{ item.id }}'
+  when: not ansible_check_mode
+
+- name: Verify retired registrations are absent
+  ansible.builtin.assert:
+    that: item.id not in (pa_bb_plugins_after | map(attribute='id') | list)
+    fail_msg: A retirement was not confirmed. Inspect the outcome before retrying.
+  loop: '{{ pa_bb_inventory.retired }}'
+  loop_control:
+    label: '{{ item.id }}'
+  when: not ansible_check_mode

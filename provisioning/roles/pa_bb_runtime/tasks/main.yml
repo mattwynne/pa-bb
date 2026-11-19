@@ -1,0 +1,171 @@
+---
+- name: Require the existing application identity
+  ansible.builtin.assert:
+    that:
+      - pa_bb_user is defined
+      - pa_bb_user | default('root') != 'root'
+      - pa_bb_home | default('') is match('^/')
+    fail_msg: Supply the existing unprivileged user and persistent home in private inventory.
+
+- name: Inspect BB service state without restarting anything
+  ansible.builtin.command:
+    argv: [systemctl, is-active, '{{ pa_bb_service_name }}.service']
+  register: pa_bb_service_before
+  check_mode: false
+  changed_when: false
+  failed_when: pa_bb_service_before.rc not in [0, 3, 4]
+
+- name: Inspect the existing service unit
+  ansible.builtin.stat:
+    path: '/etc/systemd/system/{{ pa_bb_service_name }}.service'
+  register: pa_bb_unit_before
+
+- name: Read an already running BB's actual deployment
+  ansible.builtin.uri:
+    url: '{{ pa_bb_version_url }}'
+    return_content: true
+  register: pa_bb_running_before
+  check_mode: false
+  changed_when: false
+  when: pa_bb_service_before.stdout == 'active'
+
+- name: Refuse to replace a non-stock running installation
+  ansible.builtin.assert:
+    that: pa_bb_running_before.json.installKind == 'npm'
+    fail_msg: Inspect the running BB installation. This role only manages stock npm BB and never changes its source.
+  when: pa_bb_service_before.stdout == 'active'
+
+- name: Refuse implicit startup of a stopped existing installation
+  ansible.builtin.assert:
+    that: pa_bb_service_before.stdout == 'active' or not pa_bb_unit_before.stat.exists or pa_bb_allow_service_start | bool
+    fail_msg: BB is stopped. Inspect active work, local code and recovery state, then explicitly allow service start; provisioning will not silently apply local source.
+
+- name: Install application package prerequisites
+  become: true
+  ansible.builtin.apt:
+    name: [ca-certificates, curl, git, python3]
+    state: present
+    policy_rc_d: 101
+  environment:
+    NEEDRESTART_MODE: l
+
+- name: Provision Node without replacing an existing runtime
+  ansible.builtin.import_tasks: node.yml
+
+- name: Create private application directories
+  become: true
+  ansible.builtin.file:
+    path: '{{ item.path }}'
+    state: directory
+    owner: '{{ pa_bb_user }}'
+    group: '{{ pa_bb_group | default(pa_bb_user) }}'
+    mode: '{{ item.mode }}'
+  loop:
+    - { path: '{{ pa_bb_prefix }}', mode: '0755' }
+    - { path: '{{ pa_bb_prefix }}/bin', mode: '0755' }
+    - { path: '{{ pa_bb_home }}/.pi', mode: '0700' }
+    - { path: '{{ pa_bb_home }}/.pi/agent', mode: '0700' }
+    - { path: '{{ pa_bb_home }}/.bb', mode: '0700' }
+
+- name: Keep global npm tools user-owned
+  become: true
+  ansible.builtin.lineinfile:
+    dest: '{{ pa_bb_home }}/.npmrc'
+    regexp: '^\s*prefix\s*='
+    line: 'prefix={{ pa_bb_prefix }}'
+    create: true
+    owner: '{{ pa_bb_user }}'
+    group: '{{ pa_bb_group | default(pa_bb_user) }}'
+    mode: '0600'
+
+- name: Bootstrap absent runtime tools, preserving working installations
+  ansible.builtin.include_tasks: tool.yml
+  loop:
+    - { binary: pi, package: '@earendil-works/pi-coding-agent', version: '{{ pa_bb_pi_seed }}', flags: ['--ignore-scripts'] }
+    - { binary: bb-app, package: bb-app, version: '{{ pa_bb_bb_seed }}', flags: [], version_argv: "{{ pa_bb_cli_argv + ['--version'] }}" }
+  loop_control:
+    loop_var: pa_bb_tool
+    label: '{{ pa_bb_tool.binary }}'
+
+- name: Seed private Pi defaults only when there are no existing settings
+  become: true
+  ansible.builtin.copy:
+    content: '{{ pa_bb_pi_settings | to_nice_json }}\n'
+    dest: '{{ pa_bb_home }}/.pi/agent/settings.json'
+    force: false
+    owner: '{{ pa_bb_user }}'
+    group: '{{ pa_bb_group | default(pa_bb_user) }}'
+    mode: '0600'
+  no_log: true
+  diff: false
+  when: pa_bb_pi_settings is defined
+
+- name: Configure the Workspace launcher
+  ansible.builtin.import_tasks: uv.yml
+
+- name: Read the configured public URL without exposing other settings
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  ansible.builtin.command:
+    argv: [python3, -c, 'import json,sys; print(json.load(open(sys.argv[1])).get("config",{}).get("BB_APP_URL", ""))', '{{ pa_bb_home }}/.bb/config.json']
+  register: pa_bb_url_before
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: pa_bb_app_url is defined
+
+- name: Set the supplied private application URL
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: ['{{ pa_bb_node }}', '{{ pa_bb_prefix }}/lib/node_modules/bb-app/dist/bb-app.js', config, set, BB_APP_URL, '{{ pa_bb_app_url }}']
+  when: pa_bb_app_url is defined and (pa_bb_url_before.stdout | default('') | trim) != pa_bb_app_url
+  no_log: true
+
+- name: Install the stock BB service definition without restarting it
+  become: true
+  ansible.builtin.template:
+    src: bb.service.j2
+    dest: '/etc/systemd/system/{{ pa_bb_service_name }}.service'
+    mode: '0644'
+  register: pa_bb_unit_written
+
+- name: Enable and start stock BB without restarting an active service
+  become: true
+  ansible.builtin.systemd_service:
+    name: '{{ pa_bb_service_name }}.service'
+    enabled: true
+    daemon_reload: '{{ pa_bb_unit_written.changed }}'
+    state: started
+  when: pa_bb_unit_before.stat.exists or not ansible_check_mode
+
+- name: Wait for the running stock BB version endpoint
+  ansible.builtin.uri:
+    url: '{{ pa_bb_version_url }}'
+    return_content: true
+  register: pa_bb_running
+  retries: 20
+  delay: 3
+  until: pa_bb_running.status | default(0) == 200
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify the running installation, not just the launcher
+  ansible.builtin.assert:
+    that:
+      - pa_bb_running.json.installKind == 'npm'
+      - pa_bb_running.json.currentVersion is version('0.49.0', '>=')
+    fail_msg: Stock BB 0.49 or later must actually be serving. Use native updates for existing installations.
+  when: not ansible_check_mode
+
+- name: Provision Codex and inspect native voice readiness
+  ansible.builtin.import_tasks: codex.yml
+
+- name: Report a staged service-definition change
+  ansible.builtin.debug:
+    msg: The BB unit changed but the existing process was not restarted. Review and schedule an explicit stop/start if its effective startup configuration changed.
+  when: pa_bb_unit_written.changed and pa_bb_service_before.stdout == 'active'

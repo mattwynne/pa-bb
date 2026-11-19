@@ -1,0 +1,38 @@
+---
+- name: Inspect the existing tool path
+  ansible.builtin.stat:
+    path: '{{ pa_bb_prefix }}/bin/{{ pa_bb_tool.binary }}'
+    follow: false
+  register: pa_bb_tool_path
+
+- name: Check an existing runtime without updating it
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: "{{ pa_bb_tool.version_argv | default([pa_bb_prefix ~ '/bin/' ~ pa_bb_tool.binary, '--version']) }}"
+  register: pa_bb_tool_before
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: pa_bb_tool_path.stat.exists
+
+- name: Refuse to overwrite a broken installed runtime
+  ansible.builtin.assert:
+    that: not pa_bb_tool_path.stat.exists or pa_bb_tool_before.rc == 0
+    fail_msg: 'The existing {{ pa_bb_tool.binary }} check failed. Inspect it explicitly; provisioning will not overwrite it.'
+
+- name: Install only an absent runtime tool
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: "{{ ['npm', 'install', '-g', '--prefix', pa_bb_prefix] + pa_bb_tool.flags + [pa_bb_tool.package ~ '@' ~ pa_bb_tool.version] }}"
+    creates: '{{ pa_bb_prefix }}/bin/{{ pa_bb_tool.binary }}'
+  when: not pa_bb_tool_path.stat.exists
+  no_log: true

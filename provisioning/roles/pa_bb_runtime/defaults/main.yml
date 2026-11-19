@@ -1,0 +1,16 @@
+---
+# Identity, storage, access and any private settings come from inventory.
+pa_bb_prefix: '{{ pa_bb_home }}/.local'
+pa_bb_source_dir: '{{ pa_bb_home }}/src/pa-bb'
+pa_bb_source_repo: https://github.com/mattwynne/pa-bb.git
+pa_bb_service_name: bb
+pa_bb_require_home_mount: false
+pa_bb_allow_service_start: false
+pa_bb_node: /usr/bin/node
+pa_bb_cli_argv: ['{{ pa_bb_node }}', '{{ pa_bb_prefix }}/lib/node_modules/bb-app/host-daemon/dist/bb']
+pa_bb_user_path: '{{ pa_bb_prefix }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+# Bootstrap only: subsequent updates belong to the native runtime controls.
+pa_bb_pi_seed: '1.5.0'
+pa_bb_bb_seed: '0.49.0'
+pa_bb_codex_seed: '0.163.0'
+pa_bb_version_url: http://127.0.0.1:38886/api/v1/system/version

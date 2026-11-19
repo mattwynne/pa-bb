@@ -1,0 +1,21 @@
+[Unit]
+Description=PA BB agent IDE server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ pa_bb_user }}
+Group={{ pa_bb_group | default(pa_bb_user) }}
+Environment=HOME={{ pa_bb_home }}
+Environment="PATH={{ pa_bb_user_path }}"
+WorkingDirectory={{ pa_bb_home }}
+{% if pa_bb_require_home_mount | bool %}
+ExecStartPre=/usr/bin/mountpoint --quiet {{ pa_bb_home }}
+{% endif %}
+ExecStart={{ pa_bb_prefix }}/bin/bb-app --server-bind-host {{ pa_bb_bind_host | default('127.0.0.1') }} --in-app-updates
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

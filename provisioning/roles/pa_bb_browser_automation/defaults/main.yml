@@ -1,5 +1,5 @@
 ---
 # Supply pa_bb_user and pa_bb_home in private inventory. BB must already run.
 # argv supports installations whose CLI needs an explicit Node entrypoint.
-pa_bb_cli_argv: [bb]
-pa_bb_user_path: /usr/local/bin:/usr/bin:/bin
+pa_bb_cli_argv: ['{{ pa_bb_node | default("/usr/bin/node") }}', '{{ pa_bb_prefix | default(pa_bb_home ~ "/.local") }}/lib/node_modules/bb-app/host-daemon/dist/bb']
+pa_bb_user_path: '{{ pa_bb_prefix | default(pa_bb_home ~ "/.local") }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'

@@ -1,0 +1,96 @@
+---
+- name: Select only enabled PA checkout plugins for native watchers
+  ansible.builtin.set_fact:
+    pa_bb_watch_plugins: "{{ pa_bb_inventory.plugins | selectattr('enabled') | list }}"
+
+- name: Verify native watcher support without starting one
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: "{{ pa_bb_cli_argv + ['plugin', 'dev', '--help'] }}"
+  register: pa_bb_dev_help
+  check_mode: false
+  changed_when: false
+  failed_when: pa_bb_dev_help.rc != 0 or 'reload' not in pa_bb_dev_help.stdout
+  when: pa_bb_dev_mode | bool and (pa_bb_checkout.stat.exists or not ansible_check_mode)
+
+- name: Install the development-mode target
+  become: true
+  ansible.builtin.template:
+    src: dev.target.j2
+    dest: /etc/systemd/system/pa-bb-dev.target
+    mode: '0644'
+  register: pa_bb_dev_target
+
+- name: Install one native watcher definition per enabled PA plugin
+  become: true
+  ansible.builtin.template:
+    src: plugin.service.j2
+    dest: '/etc/systemd/system/pa-bb-dev-{{ item.id }}.service'
+    mode: '0644'
+  loop: '{{ pa_bb_watch_plugins }}'
+  loop_control:
+    label: '{{ item.id }}'
+  register: pa_bb_dev_units
+
+- name: Report watcher lifecycle changes in check mode
+  ansible.builtin.debug:
+    msg: "Native watchers would be {{ 'enabled and started' if pa_bb_dev_mode | bool else 'disabled and stopped' }} for {{ pa_bb_watch_plugins | map(attribute='id') | list }}. BB itself is not restarted."
+  when: ansible_check_mode
+
+- name: Inspect only PA-owned watcher unit files
+  ansible.builtin.find:
+    paths: /etc/systemd/system
+    patterns: 'pa-bb-dev-*.service'
+    file_type: file
+  register: pa_bb_watcher_files
+
+- name: Stop obsolete or disabled plugin watchers
+  become: true
+  ansible.builtin.systemd_service:
+    name: '{{ item.path | basename }}'
+    enabled: false
+    state: stopped
+  loop: '{{ pa_bb_watcher_files.files }}'
+  loop_control:
+    label: '{{ item.path | basename }}'
+  when: (item.path | basename | regex_replace('^pa-bb-dev-(.*)\.service$', '\1')) not in (pa_bb_watch_plugins | map(attribute='id') | list)
+
+- name: Remove obsolete or disabled watcher definitions
+  become: true
+  ansible.builtin.file:
+    path: '{{ item.path }}'
+    state: absent
+  loop: '{{ pa_bb_watcher_files.files }}'
+  loop_control:
+    label: '{{ item.path | basename }}'
+  when: (item.path | basename | regex_replace('^pa-bb-dev-(.*)\.service$', '\1')) not in (pa_bb_watch_plugins | map(attribute='id') | list)
+  register: pa_bb_old_watchers
+
+- name: Reload systemd only when watcher definitions changed
+  become: true
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: pa_bb_dev_target.changed or pa_bb_dev_units.changed or pa_bb_old_watchers.changed
+
+- name: Set native watcher enablement without reinstalling plugins
+  when: not ansible_check_mode
+  become: true
+  ansible.builtin.systemd_service:
+    name: 'pa-bb-dev-{{ item.id }}.service'
+    enabled: '{{ pa_bb_dev_mode | bool }}'
+    state: "{{ 'started' if pa_bb_dev_mode | bool else 'stopped' }}"
+  loop: '{{ pa_bb_watch_plugins }}'
+  loop_control:
+    label: '{{ item.id }}'
+
+- name: Persist the chosen development mode across reboots
+  when: not ansible_check_mode
+  become: true
+  ansible.builtin.systemd_service:
+    name: pa-bb-dev.target
+    enabled: '{{ pa_bb_dev_mode | bool }}'
+    state: "{{ 'started' if pa_bb_dev_mode | bool else 'stopped' }}"

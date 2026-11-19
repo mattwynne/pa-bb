@@ -97,10 +97,11 @@ else:
         self.assertIn('changed=0', self.run_role())
         self.assertEqual(len(self.mutations()), 1)
 
-    def test_disabled_plugin_is_enabled_without_reinstall(self):
+    def test_disabled_plugin_stays_disabled_without_reinstall(self):
         self.write_state(self.installed(enabled=False, status='disabled'))
-        self.run_role()
-        self.assertEqual(self.mutations(), [['plugin', 'enable', 'browser-automation', '--json']])
+        self.assertIn('changed=0', self.run_role())
+        self.assertEqual(self.mutations(), [])
+        self.assertFalse(json.loads(self.state.read_text())[0]['enabled'])
 
     def test_check_mode_does_not_install_or_enable(self):
         self.run_role('--check')

@@ -1,5 +1,5 @@
 ---
-# Optional standalone entry point. Callers supply inventory and transport.
+# Public application entrypoint. Infrastructure supplies inventory and private inputs.
 - name: Provision PA for BB host dependencies
   hosts: bb_hosts
   become: true
@@ -7,8 +7,15 @@
   roles:
     - role: pa_bb_host_dependencies
 
-- name: Provision the official browser plugin in an existing BB installation
+- name: Provision and run the PA application on stock BB
   hosts: bb_hosts
-  gather_facts: false
+  gather_facts: true
+  become: true
   roles:
+    - role: pa_bb_runtime
+    - role: pa_bb_plugins
+      when: not ansible_check_mode or pa_bb_service_before.stdout == 'active'
     - role: pa_bb_browser_automation
+      when: not ansible_check_mode or pa_bb_service_before.stdout == 'active'
+    - role: pa_bb_development
+      when: not ansible_check_mode or pa_bb_service_before.stdout == 'active'

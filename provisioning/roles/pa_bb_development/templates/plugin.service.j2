@@ -1,0 +1,21 @@
+[Unit]
+Description=PA development watcher for {{ item.id }}
+Requires={{ pa_bb_service_name }}.service
+After={{ pa_bb_service_name }}.service
+PartOf={{ pa_bb_service_name }}.service pa-bb-dev.target
+
+[Service]
+Type=simple
+User={{ pa_bb_user }}
+Group={{ pa_bb_group | default(pa_bb_user) }}
+Environment=HOME={{ pa_bb_home }}
+Environment="PATH={{ pa_bb_user_path }}"
+WorkingDirectory={{ item.path }}
+ExecStart={{ pa_bb_cli_argv | map('quote') | join(' ') }} plugin dev {{ item.path | quote }}
+KillSignal=SIGINT
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=pa-bb-dev.target

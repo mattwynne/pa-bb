@@ -1,0 +1,3 @@
+---
+# Dev mode keeps integrations usable. Native BB decides whether a reload is safe.
+pa_bb_dev_mode: true

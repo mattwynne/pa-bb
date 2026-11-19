@@ -1,0 +1,67 @@
+---
+- name: Inspect the existing Codex state directory without following links
+  ansible.builtin.stat:
+    path: '{{ pa_bb_home }}/.codex'
+    follow: false
+  register: pa_bb_codex_directory
+
+- name: Refuse to redirect credential storage
+  ansible.builtin.assert:
+    that: not pa_bb_codex_directory.stat.exists or (pa_bb_codex_directory.stat.isdir | default(false) and not pa_bb_codex_directory.stat.islnk)
+    fail_msg: Inspect the existing Codex state path. Provisioning will not follow a link or replace it.
+
+- name: Preserve private Codex state ownership without touching its contents
+  become: true
+  ansible.builtin.file:
+    path: '{{ pa_bb_home }}/.codex'
+    state: directory
+    owner: '{{ pa_bb_user }}'
+    group: '{{ pa_bb_group | default(pa_bb_user) }}'
+    mode: '0700'
+
+- name: Bootstrap the absent Codex executable without touching account grants
+  ansible.builtin.include_tasks: tool.yml
+  vars:
+    pa_bb_tool: { binary: codex, package: '@openai/codex', version: '{{ pa_bb_codex_seed }}', flags: [] }
+
+- name: Check Codex login without exposing account details
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    CODEX_HOME: '{{ pa_bb_home }}/.codex'
+  ansible.builtin.command:
+    argv: ['{{ pa_bb_prefix }}/bin/codex', login, status]
+  register: pa_bb_codex_login
+  check_mode: false
+  changed_when: false
+  failed_when: pa_bb_codex_login.rc != 0 and not (pa_bb_codex_login.rc == 1 and 'Not logged in' in (pa_bb_codex_login.stdout ~ pa_bb_codex_login.stderr))
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Read native BB voice readiness without changing its selection
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: "{{ pa_bb_cli_argv + ['settings', 'ai-services', 'show', '--json'] }}"
+  register: pa_bb_codex_services
+  check_mode: false
+  changed_when: false
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Report missing manual Codex sign-in
+  ansible.builtin.debug:
+    msg: Codex is installed but needs your one-time sign-in. Run codex login --device-auth as the application user. Provisioning does not create or renew account grants.
+  when: not ansible_check_mode and pa_bb_codex_login.rc != 0
+
+- name: Optionally require Codex voice readiness
+  ansible.builtin.assert:
+    that:
+      - pa_bb_codex_login.rc == 0
+      - "((pa_bb_codex_services.stdout | from_json).services | selectattr('pluginId', 'equalto', 'provider-codex') | selectattr('id', 'equalto', 'codex') | selectattr('tasks', 'contains', 'voice') | selectattr('status.ready', 'equalto', true) | list | length) == 1"
+    fail_msg: Codex voice is not ready. Inspect native AI services and sign-in; no voice request or automatic repair was attempted.
+  when: not ansible_check_mode and pa_bb_codex_require_voice_ready | default(false) | bool

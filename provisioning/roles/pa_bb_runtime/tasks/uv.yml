@@ -1,0 +1,85 @@
+---
+- name: Bootstrap the Workspace launcher without replacing existing tools
+  vars:
+    workspace_uv_version: "0.13.7"
+    workspace_uv_sha256: c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
+  block:
+    - name: Require the supported Linux architecture
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['system'] == 'Linux'
+          - ansible_facts['architecture'] == 'x86_64'
+
+    - name: Inspect existing launcher paths without following symlinks
+      ansible.builtin.stat:
+        path: '/usr/local/bin/{{ item }}'
+        follow: false
+      loop: [uv, uvx]
+      register: workspace_uv_paths
+
+    - name: Refuse a partial launcher installation
+      ansible.builtin.assert:
+        that: workspace_uv_paths.results[0].stat.exists == workspace_uv_paths.results[1].stat.exists
+        fail_msg: Inspect the existing uv/uvx paths before provisioning; both must be present or absent.
+
+    - name: Require existing launchers to be root-owned regular files
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - item.stat.uid == 0
+      loop: '{{ workspace_uv_paths.results }}'
+      when: item.stat.exists
+
+    - name: Report the absent launcher in check mode
+      ansible.builtin.debug:
+        msg: 'Would install uv and uvx {{ workspace_uv_version }} into /usr/local/bin. Existing executables are preserved.'
+      changed_when: true
+      when: not workspace_uv_paths.results[0].stat.exists and ansible_check_mode
+
+    - name: Install only an absent launcher from the verified official archive
+      when: not workspace_uv_paths.results[0].stat.exists and not ansible_check_mode
+      block:
+        - name: Create a temporary installer directory
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: pa-workspace-uv-
+          register: workspace_uv_temp
+
+        - name: Download the checksum-pinned uv archive
+          ansible.builtin.get_url:
+            url: 'https://github.com/astral-sh/uv/releases/download/{{ workspace_uv_version }}/uv-x86_64-unknown-linux-gnu.tar.gz'
+            dest: '{{ workspace_uv_temp.path }}/uv.tar.gz'
+            checksum: 'sha256:{{ workspace_uv_sha256 }}'
+            mode: '0600'
+            timeout: 90
+
+        - name: Extract the verified archive
+          ansible.builtin.unarchive:
+            src: '{{ workspace_uv_temp.path }}/uv.tar.gz'
+            dest: '{{ workspace_uv_temp.path }}'
+            remote_src: true
+
+        - name: Install the root-owned launchers atomically
+          ansible.builtin.copy:
+            src: '{{ workspace_uv_temp.path }}/uv-x86_64-unknown-linux-gnu/{{ item }}'
+            dest: '/usr/local/bin/{{ item }}'
+            remote_src: true
+            unsafe_writes: false
+            owner: root
+            group: root
+            mode: '0755'
+          loop: [uv, uvx]
+      always:
+        - name: Remove only temporary installer files
+          ansible.builtin.file:
+            path: '{{ workspace_uv_temp.path }}'
+            state: absent
+          when: workspace_uv_temp is defined and workspace_uv_temp.path is defined
+
+    - name: Verify both launcher executables
+      ansible.builtin.command:
+        argv: ['/usr/local/bin/{{ item }}', '--version']
+      loop: [uv, uvx]
+      changed_when: false
+      check_mode: false
+      when: workspace_uv_paths.results[0].stat.exists or not ansible_check_mode

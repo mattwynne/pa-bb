@@ -1,0 +1,8 @@
+[Unit]
+Description=PA plugin development mode
+Requires={{ pa_bb_service_name }}.service
+After={{ pa_bb_service_name }}.service
+PartOf={{ pa_bb_service_name }}.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,16 +1,24 @@
-# Host and browser provisioning
+# PA application provisioning
 
-This directory owns the **portable Ansible role for PA for BB's host
-requirements**. An infrastructure project consumes a pinned Git revision of
-this repository. It owns inventory, transport, VM/container creation, storage,
-service users, secrets, service lifecycle and scheduling.
+[`playbook.yml`](playbook.yml) is the application entrypoint. PA owns its
+application dependencies, stock BB setup, service definitions, Git-manifest
+plugin reconciliation and native development watchers. See
+[application setup and development mode](application.md) for inputs, ordinary
+and repeat provisioning, watcher start/stop/status, verification and rollback.
 
-The PA integration plugins never install packages or run sudo. The
-`pa_bb_host_dependencies` role owns root package tasks. The separate
-`pa_bb_browser_automation` role installs/enables BB's official
-`builtin:browser-automation` as the existing BB service user. Neither role
-installs BB, connects accounts, selects vaults, starts sync or changes note
-storage. BB must already be running before the browser plugin role runs.
+The infrastructure caller owns the machine, OS baseline, networking, mounted
+persistent storage, service account, access, backups, inventory, transport and
+private inputs. It consumes a reviewed Git revision of this repository rather
+than copying application tasks or maintaining a plugin list. Secrets and
+server identities must stay outside this public checkout.
+
+Integration plugins never install packages or run sudo. Reusable roles split
+root host packages (`pa_bb_host_dependencies`), application/runtime setup
+(`pa_bb_runtime`), plugin registration (`pa_bb_plugins`), the official browser
+plugin (`pa_bb_browser_automation`) and watchers (`pa_bb_development`). Setup
+does not connect accounts, select vaults or start sync. Existing plugin sources,
+enablement, settings and data are preserved, except for explicitly reviewed
+retirement of registrations absent from main. No release or BB fork is needed.
 
 ## Manifest and supported host
 
@@ -52,8 +60,9 @@ from rewriting the managed source or creating a second repository. Other
 source filenames are preserved; inspect any custom Chrome entries for
 duplicates. A signing-key rotation requires a reviewed manifest checksum change. Package
 service actions are suppressed for the transaction; Ubuntu's `needrestart` is
-restricted to listing, not restarting, affected services. The role leaves
-service restart decisions to the infrastructure project.
+restricted to listing, not restarting, affected services. The role never restarts
+application services. The application entrypoint stages service-definition
+changes without restarting an already active BB.
 
 Additional platforms need reviewed package/version/checksum entries and
 validation; do not substitute an untested architecture or silently use whatever
@@ -68,7 +77,7 @@ any other role paths needed by that project. Do not copy the role or repeat its
 version pins in the caller.
 
 ```yaml
-# In the consuming infrastructure playbook; inventory is supplied separately.
+# Dependency-only use; the full application entrypoint is documented above.
 - name: Install project host requirements
   hosts: bb_hosts
   become: true
@@ -100,9 +109,9 @@ startup action.
 
 ## Browser Automation installation and runtime
 
-The standalone playbook runs the host role as root, then the browser plugin
-role as the configured BB user. In a consuming playbook, add this second play
-**after BB installation and service startup**:
+The application entrypoint starts stock BB before running the browser plugin
+role as the configured BB user. For browser-only use in an existing installation,
+add this play **after BB installation and service startup**:
 
 ```yaml
 - name: Provision the official browser plugin
@@ -115,19 +124,20 @@ role as the configured BB user. In a consuming playbook, add this second play
 Private inventory must supply `pa_bb_user` (existing, non-root service user),
 `pa_bb_home` (its absolute home), and, if needed, `pa_bb_cli_argv` (a list,
 for example `["/usr/bin/node", "/opt/bb/cli.js"]`) and `pa_bb_user_path`.
-The defaults use `bb` and `/usr/local/bin:/usr/bin:/bin`. Include the existing
-Node/npm/BB bin directories in that PATH. The CLI must resolve to this user's
-existing server; keep connection configuration in that user's protected BB
+Defaults use Node with the user-local stock BB CLI entry and include the
+user-local bin directory in PATH. Override these for a different existing layout.
+The CLI must resolve to this user's existing server; keep connection configuration
+in that user's protected BB
 configuration. Run this role once per BB server, not once per enrolled worker.
 Apply the host role to each supported host where headless sessions will run.
 
 The role reads `bb plugin list --json`, installs
 `bb plugin install builtin:browser-automation --yes --json` only if absent,
-and enables an existing disabled official plugin. It refuses another source,
-checks for running status after apply, and never updates/reinstalls an already
-enabled plugin. Check mode reads state and reports planned changes without
-installing/enabling anything. Plugin output is suppressed to protect other
-installed-plugin metadata. A failed or uncertain install must be inspected
+and preserves an existing plugin's enabled or disabled state. It refuses another
+source, checks the expected running/disabled status after apply, and never
+updates/reinstalls an existing plugin. Check mode reads state and reports planned
+installations without changing enablement. Plugin output is suppressed to protect
+other installed-plugin metadata. A failed or uncertain install must be inspected
 with the supported CLI before rerunning provisioning.
 
 Requirements were checked against BB 0.46.1's installed Browser Automation
@@ -207,8 +217,10 @@ ANSIBLE_ROLES_PATH="$PWD/provisioning/roles" ansible-playbook \
 ```
 
 The suite includes local Ansible execution of the BB-user role with synthetic
-BB/npm/Chrome commands: fresh install, repeat with zero changes, enabling a
+BB/npm/Chrome commands: fresh install, repeat with zero changes, preserving a
 disabled plugin, check mode, configuration/source refusal and bounded failures.
+Application tests also cover Git-main discovery, retirement, independent sources,
+dependency refusal and private diagnostics.
 It does not connect to BB or run root package tasks. These execution tests are
 skipped if `ansible-playbook` is absent; a release validation needs them present.
 

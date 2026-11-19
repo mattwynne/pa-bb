@@ -1,0 +1,41 @@
+---
+- name: Inspect the Node runtime
+  ansible.builtin.stat:
+    path: '{{ pa_bb_node }}'
+  register: pa_bb_node_path
+
+- name: Bootstrap Node 24 only when absent
+  become: true
+  when: not pa_bb_node_path.stat.exists
+  block:
+    - name: Create the package keyring directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+    - name: Install the NodeSource public signing key
+      ansible.builtin.get_url:
+        url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+        dest: /etc/apt/keyrings/pa-bb-nodesource.asc
+        mode: '0644'
+    - name: Add the Node 24 package source
+      ansible.builtin.apt_repository:
+        repo: deb [signed-by=/etc/apt/keyrings/pa-bb-nodesource.asc] https://deb.nodesource.com/node_24.x nodistro main
+        filename: pa-bb-nodesource
+        update_cache: true
+    - name: Install Node and npm
+      ansible.builtin.apt:
+        name: nodejs
+        state: present
+        policy_rc_d: 101
+      environment:
+        NEEDRESTART_MODE: l
+
+- name: Check Node compatibility without upgrading it
+  ansible.builtin.command:
+    argv: ['{{ pa_bb_node }}', -p, 'Number(process.versions.node.split(".")[0]) >= 22']
+  register: pa_bb_node_compatible
+  check_mode: false
+  changed_when: false
+  failed_when: pa_bb_node_compatible.rc != 0 or pa_bb_node_compatible.stdout | trim != 'true'
+  when: pa_bb_node_path.stat.exists or not ansible_check_mode

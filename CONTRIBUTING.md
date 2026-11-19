@@ -27,7 +27,7 @@ Use stock BB with plugins permanently installed from a Git checkout through its 
 3. Try the applied code in BB with a harmless read, bounded logs and rendered review where appropriate. Reloading does not commit or push; reviewing unpublished work does not require publication.
 4. Commit only owned changes, then integrate and push through normal Git when authorized. For incoming changes, inspect local work, fetch and fast-forward only when safe, then verify/reload/try. Stop on divergence and resolve it explicitly; never silently reset, stash or overwrite work. Package versions and a checkout matching `origin` do not prove which code BB has loaded.
 
-Moving an existing managed installation to a local path is a separate, authorized deployment task. Verify a state-preserving route for that actual installation; never uninstall/reinstall a configured plugin or edit BB's private database. If safe application is unavailable, use a disposable BB preview and report the limit. Host provisioning, checkout paths, service lifecycle and private settings belong in the consuming infrastructure project, not a hardcoded plugin list here.
+Moving an existing managed installation to a local path is a separate, authorized deployment task. Verify a state-preserving route for that actual installation; never uninstall/reinstall a configured plugin or edit BB's private database. If safe application is unavailable, use a disposable BB preview and report the limit. Portable application provisioning, plugin discovery and service definitions live in `provisioning/`. The consuming infrastructure project supplies checkout paths and private settings; neither project maintains a separate plugin list.
 
 Use native BB/runtime update controls for the host and normal Git for plugin code. Versioned distribution releases are optional, not a development prerequisite. Follow the [delivery skill](.agents/skills/release-and-deploy/SKILL.md) and respect review, deployment and publication holds.
 
@@ -44,7 +44,7 @@ Follow the [shared UI guide](shared/connection-ui/README.md), [UX standards](doc
 
 ## Host provisioning
 
-The dependency manifest and reusable Ansible role live under `provisioning/`. See the [provisioning guide](provisioning/README.md) for supported platforms, version pins, safe upgrades and validation commands. Inventory, service lifecycle, storage and secrets stay outside this public repository.
+The application entrypoint and reusable Ansible roles live under `provisioning/`. See the [provisioning guide](provisioning/README.md) for supported platforms, safe setup, default-on native development watchers and validation commands. Infrastructure supplies inventory, identity, storage, access, backups and secrets. PA owns its application service definitions and plugin setup.
 
 Run its manifest and syntax checks when changing provisioning. Those checks do not prove an applied host or an idempotent repeat run; record private deployment verification in the infrastructure project.
 

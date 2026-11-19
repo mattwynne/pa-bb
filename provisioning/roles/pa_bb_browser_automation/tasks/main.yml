@@ -65,20 +65,13 @@
       changed_when: true
       no_log: true
 
-    - name: Enable the existing official plugin only when disabled
-      ansible.builtin.command:
-        argv: "{{ pa_bb_cli_argv + ['plugin', 'enable', 'browser-automation', '--json'] }}"
-      when: pa_bb_browser_installed | length > 0 and not pa_bb_browser_installed[0].enabled
-      changed_when: true
-      no_log: true
-
     - name: Report the planned plugin change
       ansible.builtin.debug:
-        msg: The official Browser Automation plugin would be installed or enabled as the BB service user.
+        msg: The absent official Browser Automation plugin would be installed as the BB service user.
       changed_when: true
-      when: ansible_check_mode and (pa_bb_browser_installed | length == 0 or not pa_bb_browser_installed[0].enabled)
+      when: ansible_check_mode and pa_bb_browser_installed | length == 0
 
-    - name: Verify the installed plugin is running
+    - name: Verify Browser Automation kept its expected enablement and status
       ansible.builtin.command:
         argv: "{{ pa_bb_cli_argv + ['plugin', 'list', '--json'] }}"
       register: pa_bb_browser_verified
@@ -90,5 +83,5 @@
         ((pa_bb_browser_verified.stdout | from_json).plugins |
         selectattr('id', 'equalto', 'browser-automation') |
         selectattr('source', 'equalto', 'builtin:browser-automation') |
-        selectattr('enabled', 'equalto', true) |
-        selectattr('status', 'equalto', 'running') | list | length) != 1
+        selectattr('enabled', 'equalto', (pa_bb_browser_installed | length == 0 or pa_bb_browser_installed[0].enabled)) |
+        selectattr('status', 'equalto', ('running' if pa_bb_browser_installed | length == 0 or pa_bb_browser_installed[0].enabled else 'disabled')) | list | length) != 1
