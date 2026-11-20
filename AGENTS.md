@@ -13,6 +13,7 @@
 
 ## Repository workflow
 
+- Use trunk-based development: deliver verified, task-owned changes to `main` and push `origin/main` by default, unless the user explicitly places a hold. Temporary thread worktrees provide isolation, not long-lived feature or release branches. Fast-forward only when safe; never force-push or include unrelated work. A separate versioned release still requires an explicit request.
 - Use one implementation thread at a time; do not fan work out to parallel implementation agents. Read-only research/review may run independently.
 - For any plugin UI planning, implementation, or review, load the project-local `bb-plugin-ux` skill at `.agents/skills/bb-plugin-ux/SKILL.md`. Its rendered-BB review is a delivery gate, not a passing-build substitute.
 - Public documentation must describe portable requirements, not private deployments. Keep hostnames, private addresses, machine IDs, usernames, home paths, and personal provisioning details out of briefs, ADRs, and public references. Keep deployment notes in private infrastructure documentation.
