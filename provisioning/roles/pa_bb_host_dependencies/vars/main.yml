@@ -9,6 +9,8 @@ pa_bb_host_manifest:
     distribution: Ubuntu
     distribution_version: '24.04'
   packages:
+    # npm ci rebuilds native development dependencies (for example better-sqlite3).
+    - build-essential
     - ca-certificates
     - unzip
     - util-linux

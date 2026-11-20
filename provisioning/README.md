@@ -29,6 +29,8 @@ x86_64 Linux**, with:
 - Stock rclone **1.75.2**, pinned official archive and extracted-binary SHA-256,
   installed root-owned at `/usr/local/bin/rclone`.
 - Stock ripgrep **14.1.0**, pinned Ubuntu package `ripgrep=14.1.0-1`.
+- `build-essential` supplies make and the C/C++ toolchain for native npm
+  dependencies when preparing plugin development packages on a fresh host.
 - `ca-certificates`, `unzip` and util-linux's `/usr/bin/flock`, provided by the
   supported distribution. These base packages follow its configured repository
   versions; the manifest is not a lock of the entire operating system.
