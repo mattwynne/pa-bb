@@ -1,0 +1,22 @@
+# PA Toolsmith
+
+Improve PA's BB plugins in response to needs encountered while using PA. This adapts [Jesse Vincent's Toolsmith](https://github.com/prime-radiant-inc/toolsmith): the durable tools here are BB plugins, and the specialist works in a visible BB thread.
+
+## Pilot workflow
+
+1. When a capability is missing or a recurring workaround is worth removing, check existing plugins and offer one specific improvement.
+2. Wait for the user to confirm. Open a visible child thread in a fresh worktree with a focused brief and a synthetic example. Link it from the original conversation.
+3. The child builds, tests, safely loads, and verifies the improvement under PA's normal development rules. The original chat can continue with other work. Publication, credential changes, and live account writes are separate.
+4. The child reports through BB's parent notifications. The original chat explains what's available, whether it needs a fresh session, or what's blocked. Nothing automatically replays a live account action.
+
+The confirmation is conversational. This pilot does not expose a privileged spawn API, fork the conversation, install upstream hooks, add a custom panel, or run background automation. Agents use BB's normal thread command and permission policy. There is no queue or atomic reservation; the status check is conservative and the worker must still check ownership before writing.
+
+## Configure and verify
+
+Use the normal PA local-path plugin workflow. Select the PA development project under Toolsmith settings, or use `bb plugin config toolsmith set project <project-id>`. A new agent session discovers the [pa-toolsmith skill](skills/pa-toolsmith/SKILL.md).
+
+`bb toolsmith status --json` is a read-only preflight. `ready` means it found a configured project with a checkout and saw no running work there. `busy`, `unconfigured`, `invalid_project`, `incomplete`, and command errors aren't permission to launch. The command checks hidden work too, but cannot detect plans or ownership outside BB's view.
+
+Run `npm ci`, `npm test`, `npm run typecheck`, and `npm run build` from this package. To pilot the conversation loop, try an existing supported capability (no offer), an actual narrow capability gap (offer only), then explicitly confirm one scoped request (one visible child with a sanitized brief and a report back). Do not use real account changes as test fixtures.
+
+See [UPSTREAM.md](UPSTREAM.md) for sources and how this differs from the upstream plugin.

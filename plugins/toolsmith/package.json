@@ -1,0 +1,27 @@
+{
+  "name": "bb-plugin-toolsmith",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bb": ">=0.49",
+    "bbPluginSdk": ">=0.6.132"
+  },
+  "bb": {
+    "name": "Toolsmith [Experimental]",
+    "description": "Turn a confirmed PA capability gap into a visible BB development thread.",
+    "branding": { "icon": "Wrench" },
+    "server": "./server.ts",
+    "skills": ["skills"]
+  },
+  "scripts": {
+    "test": "node --test server.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "bb plugin build"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.132",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
