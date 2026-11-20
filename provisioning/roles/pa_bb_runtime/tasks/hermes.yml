@@ -1,0 +1,99 @@
+---
+- name: Inspect the existing Hermes executable without following links
+  ansible.builtin.stat:
+    path: '{{ pa_bb_prefix }}/bin/hermes'
+    follow: false
+  register: pa_bb_hermes_path
+
+- name: Check existing Hermes without updating it
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    HERMES_HOME: '{{ pa_bb_home }}/.hermes'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: ['{{ pa_bb_prefix }}/bin/hermes', '--version']
+  register: pa_bb_hermes_before
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: pa_bb_hermes_path.stat.exists
+
+- name: Refuse to replace a broken existing Hermes installation
+  ansible.builtin.assert:
+    that: not pa_bb_hermes_path.stat.exists or pa_bb_hermes_before.rc == 0
+    fail_msg: Inspect the existing Hermes executable; provisioning will not overwrite it.
+
+- name: Bootstrap only absent Hermes in the persistent home
+  when: not pa_bb_hermes_path.stat.exists
+  block:
+    - name: Install the Hermes managed Node runtime system dependency without service restarts
+      become: true
+      ansible.builtin.apt:
+        name: [libatomic1]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        policy_rc_d: 101
+      environment:
+        NEEDRESTART_MODE: l
+
+    - name: Create private persistent Hermes directories
+      become: true
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        owner: '{{ pa_bb_user }}'
+        group: '{{ pa_bb_group | default(pa_bb_user) }}'
+        mode: '0700'
+      loop:
+        - '{{ pa_bb_home }}/.hermes'
+        - '{{ pa_bb_home }}/.cache/hermes-bootstrap'
+
+    - name: Fetch the reviewed tagged Hermes installer
+      become: true
+      ansible.builtin.get_url:
+        url: 'https://raw.githubusercontent.com/NousResearch/hermes-agent/v{{ pa_bb_hermes_seed }}/scripts/install.sh'
+        dest: '{{ pa_bb_home }}/.cache/hermes-bootstrap/install-{{ pa_bb_hermes_seed }}.sh'
+        checksum: 'sha256:{{ pa_bb_hermes_installer_sha256 }}'
+        owner: '{{ pa_bb_user }}'
+        group: '{{ pa_bb_group | default(pa_bb_user) }}'
+        mode: '0600'
+      # Check mode does not create the parent directory. Verify bytes on apply.
+      when: not ansible_check_mode
+
+    - name: Install Hermes without account setup or gateway services
+      become: true
+      become_user: '{{ pa_bb_user }}'
+      environment:
+        HOME: '{{ pa_bb_home }}'
+        HERMES_HOME: '{{ pa_bb_home }}/.hermes'
+        PATH: '{{ pa_bb_user_path }}'
+      ansible.builtin.command:
+        argv:
+          - /bin/bash
+          - '{{ pa_bb_home }}/.cache/hermes-bootstrap/install-{{ pa_bb_hermes_seed }}.sh'
+          - --branch
+          - 'v{{ pa_bb_hermes_seed }}'
+          - --dir
+          - '{{ pa_bb_home }}/.hermes/hermes-agent'
+          - --non-interactive
+          - --skip-browser
+          - --skip-computer-use
+      args:
+        chdir: '{{ pa_bb_home }}'
+
+- name: Verify the installed Hermes executable
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    HERMES_HOME: '{{ pa_bb_home }}/.hermes'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: ['{{ pa_bb_prefix }}/bin/hermes', '--version']
+  changed_when: false
+  no_log: true
+  when: not ansible_check_mode

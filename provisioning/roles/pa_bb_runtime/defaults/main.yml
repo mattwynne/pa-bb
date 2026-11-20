@@ -13,4 +13,8 @@ pa_bb_user_path: '{{ pa_bb_prefix }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbi
 pa_bb_pi_seed: '1.5.0'
 pa_bb_bb_seed: '0.49.0'
 pa_bb_codex_seed: '0.163.0'
+pa_bb_claude_seed: '2.1.319'
+pa_bb_hermes_seed: '0.23.3'
+# Review the tagged installer and its digest together when changing the seed.
+pa_bb_hermes_installer_sha256: c73dad4dcf7c9ecadb98578e28cc763d23d7be3fa1b513545319038795493214
 pa_bb_version_url: http://127.0.0.1:38886/api/v1/system/version

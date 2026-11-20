@@ -1,0 +1,9 @@
+---
+# Shared by full application setup and narrowly scoped infrastructure rollouts.
+- name: Bootstrap Claude Code without replacing an existing installation
+  ansible.builtin.import_tasks: claude.yml
+  tags: [coding-tools, claude]
+
+- name: Bootstrap Hermes Agent without replacing an existing installation
+  ansible.builtin.import_tasks: hermes.yml
+  tags: [coding-tools, hermes]

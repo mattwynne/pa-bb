@@ -1,0 +1,53 @@
+---
+- name: Inspect the existing Claude Code executable without following links
+  ansible.builtin.stat:
+    path: '{{ pa_bb_prefix }}/bin/claude'
+    follow: false
+  register: pa_bb_claude_path
+
+- name: Check existing Claude Code without updating it
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: ['{{ pa_bb_prefix }}/bin/claude', '--version']
+  register: pa_bb_claude_before
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: pa_bb_claude_path.stat.exists
+
+- name: Refuse to replace a broken existing Claude Code installation
+  ansible.builtin.assert:
+    that: not pa_bb_claude_path.stat.exists or pa_bb_claude_before.rc == 0
+    fail_msg: Inspect the existing Claude Code executable; provisioning will not overwrite it.
+
+- name: Bootstrap only absent native Claude Code in the persistent home
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -fsSL https://claude.ai/install.sh | bash -s "{{ pa_bb_claude_seed }}"
+  args:
+    executable: /bin/bash
+    chdir: '{{ pa_bb_home }}'
+    creates: '{{ pa_bb_prefix }}/bin/claude'
+  when: not pa_bb_claude_path.stat.exists
+
+- name: Verify the installed Claude Code executable
+  become: true
+  become_user: '{{ pa_bb_user }}'
+  environment:
+    HOME: '{{ pa_bb_home }}'
+    PATH: '{{ pa_bb_user_path }}'
+  ansible.builtin.command:
+    argv: ['{{ pa_bb_prefix }}/bin/claude', '--version']
+  changed_when: false
+  no_log: true
+  when: not ansible_check_mode

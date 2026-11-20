@@ -47,11 +47,19 @@ a server that does not yet exist. It never starts watchers or registers plugins.
 An infrastructure caller can import this playbook after creating the `bb_hosts`
 inventory group and supplying private inputs. Preserve other Ansible role paths.
 
-Node 24, Pi, stock BB and Codex are bootstrapped only when absent. A broken
+Node 24, Pi, stock BB, Codex, native Claude Code and Hermes Agent are bootstrapped only when absent. A broken
 existing executable is refused, not overwritten. Working versions, native BB
 updates, account grants and runtime configuration remain under their existing
 controls. The checksum-pinned Workspace launcher is also installed only when
 absent. No account sign-in is performed. Existing Pi settings are preserved.
+
+## Additional coding agents
+
+Claude Code uses its native installer with a pinned bootstrap version. Hermes uses the reviewed source install script from a pinned release tag, checked against `pa_bb_hermes_installer_sha256`; review and update that digest whenever changing `pa_bb_hermes_seed`. Both run as the application user with the persistent home as `HOME`. Claude's binaries live in `~/.local/share/claude`; Hermes keeps its checkout, managed tools and data under `~/.hermes`, with bootstrap Python and caches elsewhere in the same home. Their launchers are in `~/.local/bin` on the application PATH.
+
+Hermes provisioning declares its `libatomic1` system dependency, disables package-triggered service restarts, skips browser/computer-use downloads and never enables a gateway service. Account setup remains a separate user action. Existing working versions and credentials are preserved; a broken existing executable is refused rather than overwritten. Adding either CLI never restarts an active BB.
+
+Infrastructure can import `pa_bb_runtime` with `tasks_from: coding-tools` for an existing installation, supplying the same identity and persistent-home inputs. This invokes only the Claude Code and Hermes tasks, without plugin reconciliation, account setup, service changes or source updates. The `claude`, `hermes` and `coding-tools` tags are also available. Ensure the existing application user's persistent home and tool prefix are available first.
 
 ## What repeat provisioning does
 

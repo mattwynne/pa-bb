@@ -165,6 +165,9 @@
 - name: Provision Codex and inspect native voice readiness
   ansible.builtin.import_tasks: codex.yml
 
+- name: Bootstrap the optional coding agent CLIs without restarting BB
+  ansible.builtin.import_tasks: coding-tools.yml
+
 - name: Report a staged service-definition change
   ansible.builtin.debug:
     msg: The BB unit changed but the existing process was not restarted. Review and schedule an explicit stop/start if its effective startup configuration changed.
