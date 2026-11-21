@@ -1,0 +1,59 @@
+---
+# Build-time installation only. No server, accounts, services or watchers.
+- name: Build the PA container
+  hosts: all
+  vars:
+    pa_bb_user: bb
+    pa_bb_home: /home/bb
+  vars_files:
+    - ../provisioning/roles/pa_bb_runtime/defaults/main.yml
+  roles:
+    - pa_bb_host_dependencies
+  tasks:
+    - name: Install application prerequisites
+      ansible.builtin.apt:
+        name: [curl, git, python3]
+        state: present
+        policy_rc_d: 101
+
+    - name: Install Node
+      ansible.builtin.import_role:
+        name: pa_bb_runtime
+        tasks_from: node
+
+    - name: Create the user-local tool directory
+      ansible.builtin.file:
+        path: '{{ pa_bb_prefix }}/bin'
+        state: directory
+        owner: bb
+        group: bb
+        mode: '0755'
+
+    - name: Keep npm updates user-owned
+      ansible.builtin.copy:
+        content: "prefix={{ pa_bb_prefix }}\n"
+        dest: '{{ pa_bb_home }}/.npmrc'
+        owner: bb
+        group: bb
+        mode: '0600'
+
+    - name: Install stock BB, Pi and Codex
+      ansible.builtin.include_role:
+        name: pa_bb_runtime
+        tasks_from: tool
+      loop:
+        - { binary: pi, package: '@earendil-works/pi-coding-agent', version: '{{ pa_bb_pi_seed }}', flags: ['--ignore-scripts'] }
+        - { binary: bb-app, package: bb-app, version: '{{ pa_bb_bb_seed }}', flags: [] }
+        - { binary: codex, package: '@openai/codex', version: '{{ pa_bb_codex_seed }}', flags: [] }
+      loop_control:
+        loop_var: pa_bb_tool
+
+    - name: Install uv and uvx
+      ansible.builtin.import_role:
+        name: pa_bb_runtime
+        tasks_from: uv
+
+    - name: Install Claude Code and Hermes
+      ansible.builtin.import_role:
+        name: pa_bb_runtime
+        tasks_from: coding-tools

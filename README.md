@@ -31,6 +31,10 @@ The source checkout also includes a read-only [GTD plugin](plugins/gtd/README.md
 
 ### 1. Prepare the host
 
+**Docker alternative:** use the root [`Dockerfile`](Dockerfile) and follow the
+[container setup instructions](docker/README.md) for a single-user server with
+BB, the PA plugins and their runtime dependencies.
+
 Install [BB](https://getbb.app) **0.45 or later**, with Node.js **22 or later**, and configure an AI provider. The host is the computer running BB; it need not be the computer where you open its browser interface. Keep this installation private and for your own use.
 
 **For iCloud and Obsidian, provision the Linux dependencies before installing the plugins.** The included [Ansible role and setup instructions](provisioning/README.md) make that repeatable:

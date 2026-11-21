@@ -1,0 +1,23 @@
+# Allow only application source into the build context: never Git history or state.
+**
+!Dockerfile
+!docker/
+!docker/**
+!provisioning/
+!provisioning/**
+!plugins/
+!plugins/**
+!shared/
+!shared/**
+!AGENTS.md
+!CONTRIBUTING.md
+!README.md
+**/node_modules
+**/dist
+**/.git
+**/__pycache__
+**/.env
+**/.env.*
+**/*.log
+**/*.sqlite*
+**/*.db
