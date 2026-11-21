@@ -1,4 +1,5 @@
-.gtd-nav { padding: 8px; font-size: 13px; color: var(--foreground); }
+.gtd-nav { flex: 1; min-height: 0; overflow-y: auto; font-size: 13px; color: var(--foreground); }
+.gtd-content { box-sizing: border-box; max-width: 48rem; margin-inline: auto; padding: 16px; }
 .gtd-nav button, .gtd-nav select { font: inherit; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 4px 7px; min-height: 30px; }
 .gtd-nav select { max-width: 170px; }
 .gtd-nav button:hover, .gtd-thread a:hover { background: var(--accent); }
@@ -21,7 +22,6 @@
 .gtd-thread { display: flex; gap: 4px; align-items: center; }
 .gtd-thread a { display: flex; gap: 6px; align-items: center; flex: 1; min-width: 0; padding: 7px 4px; text-decoration: none; color: inherit; border-radius: 6px; overflow: hidden; }
 .gtd-thread a > :last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gtd-thread a[aria-current] { background: var(--accent); }
 .gtd-thread button { opacity: 0; }
 .gtd-thread:hover button, .gtd-thread:focus-within button { opacity: 1; }
 .gtd-muted { color: var(--muted-foreground); font-size: 12px; margin: 5px 0 8px; }

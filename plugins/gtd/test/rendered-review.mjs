@@ -45,19 +45,50 @@ try {
   assert.ok(unconfigured, 'Harmless GTD read must fail honestly before vault selection');
   assert.match(await cli('plugin', 'logs', 'gtd', '-n', '5'), /GTD list unconfigured/);
   console.log('Runtime checks: updated Obsidian status and title caller refusal, GTD unconfigured guard and bounded diagnostic verified.');
-  await cli('settings', 'ui', 'set', 'sidebar.threadListProvider', 'gtd/projects');
+  const setPreference = (key, value) => cli('settings', 'ui', 'set', key, value);
+  await setPreference('sidebar.chronologicalSort', 'updated');
+  await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
   for (const width of [1280, 390]) for (const mode of ['normal', 'empty', 'error', 'loading', 'missing', 'directory-gap', 'folder-complete', 'area-boundary']) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+    page.setDefaultTimeout(12000);
     const errors = []; const consoleErrors = []; page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     let title = 'Learn woodworking', area = 'Learning', creations = 0;
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
+    const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
+      ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1 }),
+      activity: { activeBackgroundAgentCount: 0, activeBackgroundCommandCount: 0, activePlanModeCount: 0, activeWorkflowCount: 0 },
+      queuedWork: 'none',
+      hasPendingInteraction: false,
+      pinSortKey: null,
+      environmentHostId: null,
+      environmentName: null,
+      environmentBranchName: null,
+      environmentPath: null,
+      environmentProviderId: null,
+      environmentIsWorktree: null,
+      environmentWorkspaceDisplayKind: 'other',
+    });
     await page.route('**/api/v1/sidebar-bootstrap', async route => {
       const response = await route.fetch(); const value = await response.json();
-      value.personalProject.threads = ['fixture1', 'fixture2'].map(id => ({ ...makeThreadResponse({ id, projectId: value.personalProject.id, title: id === 'fixture1' ? 'Choose tools' : 'Practice joints', environmentId: null }), activity: { activeBackgroundAgentCount: 0, activeBackgroundCommandCount: 0, activePlanModeCount: 0, activeWorkflowCount: 0 }, queuedWork: 'none', hasPendingInteraction: false, runtime: { displayStatus: 'idle' } }));
+      value.personalProject.threads = [
+        thread('fixture2', value.personalProject.id, 'Practice joints', 200),
+        thread('fixture1', value.personalProject.id, 'Choose tools', 100),
+      ];
       await route.fulfill({ response, json: value });
     });
+    await page.route(/\/api\/v1\/threads\?.*archived=true/, route =>
+      route.fulfill({ json: [thread('fixture3', 'proj_personal', 'Archived rehearsal', 300, 400)] }));
+    await page.route(/\/api\/v1\/threads\/fixture1(?:\?|$)/, route =>
+      route.fulfill({ json: thread('fixture1', 'proj_personal', 'Choose tools', 100) }));
+    await page.route(/\/api\/v1\/threads\/fixture1\/timeline(?:\?|$)/, route =>
+      route.fulfill({ json: {
+        rows: [], maxSeq: 0, contextBoundarySeq: null, completedTurnDisplay: 'collapse',
+        activePromptMode: null, activeThinking: null, activeWorkflows: [], activeBackgroundCommands: [],
+        pendingTodos: null, goal: null, providerCommands: null, sessionOptions: null, modelFallback: null,
+        timelinePage: { returnedSegmentCount: 0, olderCursor: null, historySnapshot: 'fixture', olderRowsSourceSeqEnd: null },
+      } }));
     await page.route('**/api/v1/threads/plugin-metadata', route => route.fulfill({ json: { threads: ['fixture1', 'fixture2'].map(threadId => ({ threadId, metadata: associations.has(threadId) ? { project: associations.get(threadId) } : {} })) } }));
     await page.route('**/api/v1/plugins/gtd/rpc/**', async route => {
       const method = new URL(route.request().url()).pathname.split('/').at(-1), input = route.request().postDataJSON();
@@ -77,12 +108,76 @@ try {
     });
     await page.goto(base);
     const skip = page.getByRole('button', { name: 'Skip setup', exact: true });
-    await Promise.race([skip.waitFor(), page.locator('.gtd-nav').waitFor()]);
-    if (await skip.isVisible()) await skip.click();
-    // Open the ordinary mobile sidebar using the host's own control.
-    if (width === 390) { const toggle = page.getByRole('button', { name: /Show sidebar|Open sidebar|Toggle sidebar/i }).first(); if (await toggle.count()) await toggle.click(); await page.waitForTimeout(400); }
+    const entry = page.getByRole('button', { name: /^Personal GTD projects(?: \(.*\))?$/ });
+    const toggle = page.getByRole('button', { name: /Show sidebar|Open sidebar|Toggle sidebar/i }).first();
+    const openSidebar = async () => {
+      if (width === 390) {
+        const open = page.locator('main[data-sidebar-shelf="open"]');
+        if (await open.count() === 0) await toggle.click();
+        await open.waitFor();
+      }
+      await entry.waitFor();
+    };
     const nav = page.locator('.gtd-nav');
-    try { await nav.waitFor({ state: 'visible' }); } catch (error) { await page.screenshot({ path: join(artifacts, 'host-failure.png') }); console.error('Host diagnostics:', errors, consoleErrors, await page.locator('body').innerText()); throw error; }
+    const olderRow = page.getByRole('button', { name: /^Open Choose tools/ });
+    const newerRow = page.getByRole('button', { name: /^Open Practice joints/ });
+    const archivedRow = page.getByText('Archived rehearsal', { exact: true });
+    const assertSavedSort = async () => {
+      await olderRow.waitFor();
+      await newerRow.waitFor();
+      const older = await olderRow.elementHandle();
+      assert.ok(await newerRow.evaluate((newer, earlier) =>
+        earlier.compareDocumentPosition(newer) & Node.DOCUMENT_POSITION_FOLLOWING, older));
+      await older.dispose();
+    };
+    try {
+      await Promise.race([skip.waitFor(), (width === 390 ? toggle : entry).waitFor()]);
+      if (await skip.isVisible()) await skip.click();
+      await openSidebar();
+      if (mode === 'normal') {
+        await assertSavedSort();
+        assert.equal(await archivedRow.count(), 0);
+        const actions = page.getByRole('button', { name: /^Threads actions/ });
+        if (width === 1280) await page.getByText('Threads', { exact: true }).hover();
+        assert.equal(await actions.evaluate(button => button.disabled), false);
+        // The fixed Threads section disables its drag handle via an ancestor.
+        await actions.click({ force: true });
+        await page.getByRole('menuitem', { name: 'Organize', exact: true }).waitFor();
+        const filter = page.getByRole('menuitem', { name: 'Filter', exact: true });
+        await filter.waitFor();
+        if (width === 390) await filter.click();
+        else await filter.hover();
+        const archivedFilter = page.getByRole('menuitemcheckbox', { name: 'Archived', exact: true });
+        await archivedFilter.click();
+        await archivedRow.waitFor();
+        await page.screenshot({ path: join(artifacts, `thread-list-${width}.png`) });
+        await archivedFilter.click();
+        await archivedRow.waitFor({ state: 'hidden' });
+        await page.keyboard.press('Escape');
+        if (width === 1280) await page.keyboard.press('Escape');
+        if (width === 1280) {
+          await setPreference('sidebar.threadListProvider', 'gtd/projects');
+          await page.reload();
+          await page.locator('[data-thread-list-placeholder="missing"]').waitFor();
+          await entry.waitFor();
+          await setPreference('sidebar.threadListProvider', 'thread-list/thread-list');
+          await page.reload();
+          await assertSavedSort();
+          await setPreference('sidebar.threadListProvider', '__automatic__');
+          await page.reload();
+          await assertSavedSort();
+          console.log('Retired explicit GTD provider leaves a placeholder; selecting the bundled provider restores the saved sort.');
+        }
+      }
+      await openSidebar();
+      await entry.click();
+      await page.waitForURL('**/plugins/gtd/projects');
+      await nav.waitFor();
+    } catch (error) {
+      await page.screenshot({ path: join(artifacts, `host-failure-${width}.png`) });
+      console.error('Host diagnostics:', errors, consoleErrors, await page.locator('body').innerText());
+      throw error;
+    }
     if (mode === 'normal') {
       await nav.getByRole('button', { name: 'Learn woodworking', exact: true }).waitFor();
       await nav.getByRole('link').filter({ hasText: 'Choose tools' }).waitFor();
@@ -111,10 +206,19 @@ try {
       await page.getByRole('menuitem', { name: /GTD project/ }).click();
       await page.getByRole('menuitem', { name: 'Woodwork', exact: true }).click();
       await nav.getByText('Unassigned threads (0)', { exact: true }).waitFor();
-      await page.reload(); if (width === 390) { const toggle = page.getByRole('button', { name: /Show sidebar|Open sidebar|Toggle sidebar/i }).first(); if (await toggle.count()) await toggle.click(); await page.waitForTimeout(400); }
+      await nav.getByRole('link', { name: 'Choose tools', exact: true }).click();
+      await page.waitForURL('**/threads/fixture1');
+      await page.getByTestId('app-page-header-content-row').getByText('Choose tools', { exact: true }).waitFor();
+      await nav.waitFor({ state: 'hidden' });
+      await openSidebar();
+      await assertSavedSort();
+      await entry.click();
+      await nav.getByRole('button', { name: 'Woodwork', exact: true }).waitFor();
+      await page.reload();
       await nav.getByRole('button', { name: 'Woodwork', exact: true }).waitFor();
       const create = nav.getByRole('button', { name: 'New thread for Woodwork' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
-      await page.waitForTimeout(500); assert.equal(creations, 1);
+      await page.waitForURL('**/threads/fixture1');
+      assert.equal(creations, 1);
     } else if (mode === 'area-boundary') {
       await nav.getByRole('button', { name: 'Learning', exact: true }).waitFor();
       await nav.getByRole('button', { name: 'Learn woodworking', exact: true }).waitFor();
@@ -145,7 +249,7 @@ try {
     await page.screenshot({ path: join(artifacts, `${mode}-${width}.png`) });
     console.log(`${mode} ${width}: rendered and checked`); await page.close();
   }
-  await writeFile(join(artifacts, 'result.json'), JSON.stringify({ rendered: true, runtimeReads: ['obsidian.status (empty vaults)', 'obsidian.renameTitle caller refusal before note access', 'gtd.projects (unconfigured)', 'bounded GTD read diagnostic'], accountWrites: false, providerRuns: false, fixture: 'Learning > Learn woodworking > two threads' }));
+  await writeFile(join(artifacts, 'result.json'), JSON.stringify({ rendered: true, runtimeReads: ['obsidian.status (empty vaults)', 'obsidian.renameTitle caller refusal before note access', 'gtd.projects (unconfigured)', 'bounded GTD read diagnostic'], accountWrites: false, providerRuns: false, fixture: 'Learning > Learn woodworking > two active threads and one archived BB thread', threadList: ['Automatic', 'saved updated-time sort', 'Organize', 'Filter and archived thread', 'retired explicit provider and recovery'] }));
   console.log(`Evidence: ${artifacts}`);
 } finally {
   await browser?.close(); server.kill('SIGTERM'); await Promise.race([new Promise(r => server.once('exit', r)), new Promise(r => setTimeout(r, 10000))]);

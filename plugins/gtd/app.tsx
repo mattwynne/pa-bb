@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { definePluginApp, useRpc, useSdk, useBbNavigate, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginThreadListProps, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
+import { definePluginApp, useRpc, useSdk, useBbNavigate, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
 import { rpcContract, reference } from './contract.ts';
 import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
@@ -48,21 +48,21 @@ function Group({ title, children, actions, initialOpen = true }: { title: string
   const [open, setOpen] = useState(initialOpen);
   return <div className="gtd-group"><div className="gtd-group-heading"><button className="gtd-collapse gtd-label" aria-expanded={open} onClick={() => setOpen(!open)}><Icon name={open ? 'ChevronDown' : 'ChevronRight'} aria-hidden="true" /> {title}</button>{actions}</div>{open && <div className="gtd-indent">{children}</div>}</div>;
 }
-function ThreadRow({ thread, active, onNavigate }: { thread: PluginSidebarThread; active: string | null; onNavigate: () => void }) {
+function ThreadRow({ thread }: { thread: PluginSidebarThread }) {
   const navigate = useBbNavigate(); const sdk = useSdk(); const split = useSplit(thread.id);
   const rename = () => { const title = window.prompt('Rename thread', thread.displayTitle); if (title?.trim()) void sdk.threads.update({ threadId: thread.id, title: title.trim() }); };
   const target = { ...thread, environment: thread.environment?.id ? { id: thread.environment.id, path: thread.environment.path } : null };
   return <ThreadContextMenu thread={target} requestRename={rename}><div className="gtd-thread">
-    <a href={thread.href} {...split.splitProps} data-sidebar-thread-shortcut-target="" data-sidebar-thread-id={thread.id} aria-current={active === thread.id ? 'page' : undefined} onClick={event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate.toThread(thread.id); onNavigate(); }}>
+    <a href={thread.href} {...split.splitProps} onClick={event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate.toThread(thread.id); }}>
       <StatusGlyph indicator={thread.indicator} /><ThreadTitle threadId={thread.id} />
     </a><ThreadMenu thread={target} requestRename={rename} trigger={props => <button {...props} aria-label={`Actions for ${thread.displayTitle}`}>…</button>} />
   </div></ThreadContextMenu>;
 }
-function GtdList(props: PluginThreadListProps) {
+function GtdPanel() {
   const inventory = useInventory(); const rpc = useRpc<typeof rpcContract>(); const navigate = useBbNavigate(); const sidebar = useThreads();
   const threads = sidebar.threads.filter(t => !t.isHidden && !t.isArchived);
   const { links, error: linkError, loading: linksLoading } = useLinks(threads.map(t => t.id));
-  const [status, setStatus] = useState('active'); const [view, setView] = useState('gtd');
+  const [status, setStatus] = useState('active');
   const [busy, setBusy] = useState(''); const busyRef = useRef(false); const [notice, setNotice] = useState('');
   // Retain a request ID for the life of this action, including uncertain failures.
   const requests = useRef(new Map<string, string>());
@@ -80,9 +80,9 @@ function GtdList(props: PluginThreadListProps) {
     if (!requestId) { requestId = crypto.randomUUID(); requests.current.set(k, requestId); sessionStorage.setItem(k, requestId); sessionStorage.removeItem(k + ':completed'); }
     const result = await rpc.call('newThread', { source: inventory.source, id: project.id, requestId });
     sessionStorage.setItem(k + ':completed', String(Date.now()));
-    navigate.toThread(result.threadId); props.onNavigate(); changed();
+    navigate.toThread(result.threadId); changed();
   });
-  const row = (t: PluginSidebarThread) => <ThreadRow key={t.id} thread={t} active={props.activeThreadId} onNavigate={props.onNavigate} />;
+  const row = (t: PluginSidebarThread) => <ThreadRow key={t.id} thread={t} />;
   const visible = inventory.projects.filter(p => status === 'all' || p.status === status);
   const inArea = (area: Area) => visible.filter(p => enclosingArea(inventory.areas, p.areaId)?.id === area.id);
   const shownAreas = inventory.areas.filter(area => status === 'all' || inArea(area).length > 0);
@@ -92,11 +92,13 @@ function GtdList(props: PluginThreadListProps) {
   const unassigned = threads.filter(t => !reference.safeParse(links[t.id]).success);
   const missing = threads.filter(t => { const r = reference.safeParse(links[t.id]); return r.success && !inventory.projects.some(p => key(inventory.source, p.id) === key(r.data.source, r.data.id)); });
   return <section className="gtd-nav" aria-label="Personal GTD projects">
-    <div className="gtd-controls"><label className="gtd-label">Browse <select aria-label="Thread navigation" value={view} onChange={e => setView(e.target.value)}><option value="gtd">Personal GTD</option><option value="threads">All BB threads</option></select></label><button aria-label="Refresh GTD" disabled={inventory.loading} onClick={() => { changed(); }}>Refresh</button></div>
-    {sidebar.status === 'loading' && <p role="status">Loading BB threads…</p>}
-    {sidebar.status === 'error' && <p role="alert">BB threads could not load. Reload BB to try again.</p>}
-    {view === 'threads' ? threads.map(row) : <>
-      <label className="gtd-controls">Projects <select aria-label="Project status" value={status} onChange={e => setStatus(e.target.value)}>{['active', 'all', 'deferred', 'someday', 'done'].map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></label>
+    <div className="gtd-content">
+      <div className="gtd-controls">
+        <label>Projects <select aria-label="Project status" value={status} onChange={e => setStatus(e.target.value)}>{['active', 'all', 'deferred', 'someday', 'done'].map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></label>
+        <button aria-label="Refresh GTD" disabled={inventory.loading} onClick={changed}>Refresh</button>
+      </div>
+      {sidebar.status === 'loading' && <p role="status">Loading BB threads…</p>}
+      {sidebar.status === 'error' && <p role="alert">BB threads could not load. Reload BB to try again.</p>}
       {(inventory.loading || linksLoading) && <p role="status">Loading GTD…</p>}
       {(inventory.error || linkError) && <p role="alert">{inventory.error || 'Thread associations could not load. Refresh before making changes.'}</p>}
       {inventory.partial && <p role="status">Partial inventory. {inventory.directoryGap ? 'Obsidian cannot enumerate directories: empty or attachment-only project/Area folders may be omitted. Inventory totals are unconfirmed.' : 'Some projects or areas may be unavailable.'}</p>}
@@ -108,12 +110,12 @@ function GtdList(props: PluginThreadListProps) {
         <Group title={`Unassigned threads (${unassigned.length})`} initialOpen={false}>{unassigned.map(row)}</Group>
         {!!missing.length && <Group title={`Unavailable project (${missing.length})`}><p className="gtd-muted">Missing, deleted, or from another source. Use the thread menu to reassign or unlink.</p>{missing.map(row)}</Group>}
       </>}
-    </>}
-    {notice && <p role="status">{notice}</p>}
+      {notice && <p role="status">{notice}</p>}
+    </div>
   </section>;
 }
 export default definePluginApp(app => {
-  app.slots.experimental_threadList({ id: 'projects', title: 'Personal GTD projects', description: 'Areas → projects → linked threads. BB coding projects and environments are unchanged.', component: GtdList });
+  app.slots.navPanel({ id: 'projects', path: 'projects', title: 'Personal GTD projects', icon: 'ListTodo', component: GtdPanel });
   app.slots.experimental_threadAction({ id: 'project', title: 'GTD project', icon: 'ListTodo', group: 'organize',
     useData: ({ threadIds }) => ({ inventory: useInventory(), ...useLinks([...threadIds]), rpc: useRpc<typeof rpcContract>() }),
     item: ({ thread, data }) => ({ label: 'GTD project', icon: 'ListTodo', detail: data.inventory.error || (data.inventory.loading ? 'Loading…' : 'Personal project only; coding environment stays unchanged'),

@@ -30,7 +30,7 @@ Setup is in GTD's native BB settings: choose the vault by name, then set Project
 
 ## Navigation, titles and linked threads
 
-- Choose **Personal GTD projects** under Settings → Appearance → Sidebar to use the supported Area → Project → Thread navigation. It defaults to active projects; the status selector includes other statuses. All BB threads remain reachable in its Browse selector and ordinary BB menus remain available.
+- Open **Personal GTD projects** from BB’s sidebar navigation. It defaults to active projects and the status selector includes other statuses. If the retired GTD thread-list provider was explicitly selected, choose **Thread list (built-in)** in **Settings → Appearance → Sidebar**.
 - Projects can carry an `areaId` property containing the area's exact backend ID (Obsidian: its relative Markdown path). Presentation first matches exact Area IDs, then rolls nested areaId paths up to their enclosing top-level Area entry folder. This does not rewrite persisted associations and never guesses from display names. Unmatched paths go under Unassigned area. Active shows only Areas with matching projects; Show all Areas exposes empty Areas collapsed.
 - For a user-requested rename use `gtd_rename_project` or `gtd_rename_area` with the exact `source` (listing source.id), `id`, and new `title`. Only the display title property changes. Paths, note bodies, unrelated properties, links and linked threads stay unchanged. This is not a physical note move.
 - A rename result is a local save receipt, not proof of cloud/device delivery. Never retry an uncertain result automatically: inspect Obsidian receipts first.

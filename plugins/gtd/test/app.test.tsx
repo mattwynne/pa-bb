@@ -7,7 +7,7 @@ const ref = { source: 'one', id: 'Projects/Woodworking.md' };
 const source = { backend: 'fake', id: 'one', name: 'Synthetic', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null };
 const project = { id: ref.id, title: 'Learn woodworking', status: 'active', areaId: 'Areas/Learning.md' };
 function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' })) {
-  const list = renderSlot(app.threadLists[0], { activeThreadId: null, activeProjectId: null, isCompactViewport: false, onNavigate: vi.fn(), searchQuery: '' }, {
+  const list = renderSlot(app.navPanels[0], { subPath: '' }, {
     rpc: {
       listProjects: async () => { if (mode === 'error') throw new Error('synthetic'); if (mode === 'loading') await new Promise(() => {}); return { source, projects: mode === 'empty' ? [] : [{ ...project, areaId: mode === 'nested' ? 'Areas/Learning/Committee/Meeting.md' : project.areaId }], coverage: 'complete', warnings: [], totalProjects: 1, matchedProjects: 1, counts: { active: 1, deferred: 0, someday: 0, done: 0 }, nextCursor: null, consistency: 'Per-project local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' }; },
       listAreas: async () => ({ source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }, ...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` }))], coverage: 'complete', warnings: [], totalAreas: 1, nextCursor: null, consistency: 'Per-area local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' }),
@@ -18,7 +18,9 @@ function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }
   }); return list;
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); sessionStorage.clear(); });
-test('supported sidebar slot renders area/project/thread hierarchy; keyboard collapse and rename keep references', async () => {
+test('GTD registers a navigation panel and keeps area, project and thread actions', async () => {
+  expect(app.threadLists).toHaveLength(0);
+  expect(app.navPanels).toMatchObject([{ id: 'projects', path: 'projects', title: 'Personal GTD projects' }]);
   const slot = setup(); await slot.findByRole('button', { name: 'Learn woodworking' });
   expect(slot.getAllByRole('link')).toHaveLength(2);
   const area = slot.getByRole('button', { name: /Learning/ }); fireEvent.click(area); expect(area.getAttribute('aria-expanded')).toBe('false'); fireEvent.click(area);
