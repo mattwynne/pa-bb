@@ -33,10 +33,10 @@ const propertyPage = z.object({
 const childrenPage = z.object({ entries: z.array(z.object({ name: z.string().min(1).max(1024).refine(value => !/[\\/\x00-\x1f\x7f]/.test(value) && value !== '.' && value !== '..'), kind: z.enum(['directory', 'markdown']) }).strict()).max(5000), incomplete: z.boolean() }).strict();
 const aliases: Record<string, ProjectStatus> = { active: 'active', deferred: 'deferred', someday: 'someday', done: 'done', completed: 'done' };
 const text = (value: unknown, max: number) => typeof value === 'string' && value.trim().length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/.test(value);
-function projectEntry(folder: string, path: string) {
+function projectEntry(folder: string, path: string, statusGroups = true) {
   if (!relativeFolder.safeParse(path).success || !path.startsWith(folder + '/') || !path.endsWith('.md')) return null;
   const parts = path.slice(folder.length + 1).split('/');
-  const grouped = parts.length > 1 && Object.hasOwn(aliases, parts[0].toLowerCase());
+  const grouped = statusGroups && parts.length > 1 && Object.hasOwn(aliases, parts[0].toLowerCase());
   const prefix = grouped ? parts.shift()! + '/' : '';
   const rootNote = parts.length === 1;
   return { key: `${folder}/${prefix}${rootNote ? parts[0].slice(0, -3) : parts[0]}`, rootNote };
@@ -56,12 +56,17 @@ export function projectFromNote(folder: string, path: string, properties: Record
   const title = properties.title === undefined ? parts.at(-1)!.slice(0, -3) : properties.title;
   if (!text(title, 240)) return 'invalid';
   const areaId = properties.areaId ?? undefined;
-  if (areaId !== undefined && !relativeFolder.safeParse(areaId).success) return 'invalid';
+  if (areaId !== undefined && !relativeFolder.safeParse(typeof areaId === 'string' ? areaId.replace(/\/$/, '') : areaId).success) return 'invalid';
   return { id: path, title: (title as string).trim(), status, ...(typeof areaId === 'string' ? { areaId } : {}) };
 }
 
 export function areaFromNote(folder: string, path: string, properties: Record<string, unknown>): Area | 'invalid' | null {
-  if (!path.startsWith(folder + '/') || !path.endsWith('.md') || /[\\\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..')) return 'invalid';
+  const entry = projectEntry(folder, path, false);
+  if (!entry) return 'invalid';
+  if (!entry.rootNote) {
+    const title = path.slice(folder.length + 1).split('/')[0];
+    return text(title, 240) ? { id: entry.key + '/', title } : 'invalid';
+  }
   const title = properties.title === undefined ? path.split('/').at(-1)!.slice(0, -3) : properties.title;
   if (!text(title, 240)) return 'invalid';
   return { id: path, title: (title as string).trim() };
@@ -108,8 +113,8 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     const items: (Project | Area)[] = [], warnings = new Set<Warning>();
     // The v1 consumer enumerates Markdown paths, not directories. Never claim
     // empty/attachment-only folders were enumerated, even after draining it.
-    if (kind === 'project' && state.childrenAccessVersion !== 1) warnings.add('directory_enumeration_unavailable');
-    const entries = new Map<string, Project>();
+    if (state.childrenAccessVersion !== 1) warnings.add('directory_enumeration_unavailable');
+    const entries = new Map<string, Project | Area>();
     const invalidRoots = new Set<string>(), seenRoots = new Set<string>();
     let cursor: string | undefined, pages = 0, notes = 0, observedAt = new Date().toISOString();
     try {
@@ -130,15 +135,13 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         for (const note of page.notes) {
           if (++notes > 5000) { warnings.add('scan_limit'); break; }
           const item = (kind === 'area' ? areaFromNote : projectFromNote)(this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, note.path, note.properties);
-          if (kind === 'area') {
-            if (item === 'invalid') warnings.add('invalid_area'); else if (item) items.push(item);
-          } else {
+          {
             // Pair by exact entry path, not display title; root notes win even
             // when their supporting-folder evidence arrives on a later page.
-            const entry = projectEntry(this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, note.path);
+            const entry = projectEntry(this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, note.path, kind === 'project');
             if (entry?.rootNote) { if (seenRoots.has(entry.key)) warnings.add('duplicate_id'); seenRoots.add(entry.key); }
-            if (!entry || item === 'invalid') { warnings.add('invalid_project'); if (entry?.rootNote) { entries.delete(entry.key); invalidRoots.add(entry.key); } }
-            else if (item && !invalidRoots.has(entry.key) && (!entries.has(entry.key) || entry.rootNote)) entries.set(entry.key, item as Project);
+            if (!entry || item === 'invalid') { warnings.add(kind === 'project' ? 'invalid_project' : 'invalid_area'); if (entry?.rootNote) { entries.delete(entry.key); invalidRoots.add(entry.key); } }
+            else if (item && !invalidRoots.has(entry.key) && (!entries.has(entry.key) || entry.rootNote)) entries.set(entry.key, item);
           }
         }
       } while (cursor);
@@ -150,7 +153,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
       }
     }
     if (signal.aborted) throw new GtdError('cancelled');
-    if (kind === 'project' && state.childrenAccessVersion === 1) {
+    if (state.childrenAccessVersion === 1) {
       const folder = this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder;
       let directories = 0, visited = 0;
       const enumerate = async (scope: string, status?: ProjectStatus) => {
@@ -162,14 +165,14 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         for (const child of page.entries) {
           if (++visited > 5000 || readSignal.aborted) { warnings.add('scan_limit'); break; }
           const path = `${scope}/${child.name}`;
-          if (!relativeFolder.safeParse(path).success) { warnings.add('invalid_project'); continue; }
-          if (child.kind === 'directory' && status === undefined && Object.hasOwn(aliases, child.name.toLowerCase())) {
+          if (!relativeFolder.safeParse(path).success) { warnings.add(kind === 'project' ? 'invalid_project' : 'invalid_area'); continue; }
+          if (kind === 'project' && child.kind === 'directory' && status === undefined && Object.hasOwn(aliases, child.name.toLowerCase())) {
             await enumerate(path, aliases[child.name.toLowerCase()]);
           } else if (child.kind === 'directory') {
             if (!entries.has(path) && !invalidRoots.has(path)) {
-              if (!text(child.name, 240)) warnings.add('invalid_project');
+              if (!text(child.name, 240)) warnings.add(kind === 'project' ? 'invalid_project' : 'invalid_area');
               else if (entries.size >= 5000) warnings.add('scan_limit');
-              else entries.set(path, { id: path + '/', title: child.name, status: status ?? 'active' });
+              else entries.set(path, kind === 'project' ? { id: path + '/', title: child.name, status: status ?? 'active' } : { id: path + '/', title: child.name });
             }
           } else if (child.kind === 'markdown' && !seenRoots.has(path.slice(0, -3))) {
             // An enumerated root note whose metadata was omitted is not a
@@ -182,7 +185,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
       await enumerate(folder);
     }
     if (signal.aborted) throw new GtdError('cancelled');
-    if (kind === 'project') items.push(...entries.values());
+    items.push(...entries.values());
     const source = vault.source;
     return { items, complete: warnings.size === 0, warnings: [...warnings], source: {
       backend: 'obsidian', id: vault.vaultId, name: this.config.root?.split('/').at(-1) ?? vault.name ?? 'Obsidian vault', scope: this.config.folder, observedAt,

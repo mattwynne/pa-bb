@@ -7,8 +7,8 @@ import type { AreaSnapshot } from '../core/model.ts';
 import { plugin } from '../server.ts';
 const signal = () => new AbortController().signal;
 const data = (): AreaSnapshot => ({ source: { backend: 'fake', id: 'one', name: 'Example', scope: 'Areas', observedAt: 'now', lastSuccessfulSync: null, sync: null }, areas: [{ id: 'Areas/Work.md', title: 'Work' }, { id: 'Areas/Family.md', title: 'Family' }], complete: true, warnings: [] });
-test('every area-folder note is an area, regardless of type, with safe title and exact scope', () => {
-  assert.deepEqual(areaFromNote('Areas', 'Areas/Work/Clients.md', {}), { id: 'Areas/Work/Clients.md', title: 'Clients' });
+test('top-level Area entries ignore supporting metadata and retain root title and exact scope', () => {
+  assert.deepEqual(areaFromNote('Areas', 'Areas/Work/Clients.md', {}), { id: 'Areas/Work/', title: 'Work' });
   assert.deepEqual(areaFromNote('Areas', 'Areas/Work.md', { type: 'reference', title: 'Profession' }), { id: 'Areas/Work.md', title: 'Profession' });
   for (const path of ['Areas-copy/Work.md', 'Areas/../Work.md', 'Areas/Work.txt', 'Areas\\Work.md']) assert.equal(areaFromNote('Areas', path, {}), 'invalid');
   assert.equal(areaFromNote('Areas', 'Areas/Work.md', { title: 'bad\nheading' }), 'invalid');
@@ -64,6 +64,6 @@ test('Obsidian area scan drains empty pages without bodies and retains local syn
     assert.equal(args.method, 'listProperties'); assert.equal(args.input.folder, 'Areas');
     return { notes: pages++ ? [{ path: 'Areas/Work.md', properties: {} }] : [], nextCursor: pages === 1 ? token : null, incomplete: false, warnings: [], observedAt: 'now' };
   } } } });
-  try { const result = await new ObsidianBackend(host.bb.sdk, { vaultId: 'one', folder: 'Areas' }).readAreas(signal()); assert.equal(result.areas.length, 1); assert.equal(result.complete, true); assert.equal(result.source.sync?.phase, 'paused'); assert.equal(pages, 2); }
+  try { const result = await new ObsidianBackend(host.bb.sdk, { vaultId: 'one', folder: 'Areas' }).readAreas(signal()); assert.equal(result.areas.length, 1); assert.equal(result.complete, false); assert.deepEqual(result.warnings, ['directory_enumeration_unavailable']); assert.equal(result.source.sync?.phase, 'paused'); assert.equal(pages, 2); }
   finally { await host.harness.lifecycle.dispose(); }
 });

@@ -48,7 +48,7 @@ try {
   await cli('settings', 'ui', 'set', 'sidebar.threadListProvider', 'gtd/projects');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  for (const width of [1280, 390]) for (const mode of ['normal', 'empty', 'error', 'loading', 'missing', 'directory-gap', 'folder-complete']) {
+  for (const width of [1280, 390]) for (const mode of ['normal', 'empty', 'error', 'loading', 'missing', 'directory-gap', 'folder-complete', 'area-boundary']) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
     const errors = []; const consoleErrors = []; page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     let title = 'Learn woodworking', area = 'Learning', creations = 0;
@@ -68,6 +68,8 @@ try {
       if (method === 'listProjects' && mode === 'directory-gap') result = { ...result, projects: [{ id: 'Projects/Folder/', title: 'Folder project', status: 'active' }], coverage: 'partial', warnings: ['directory_enumeration_unavailable'], totalProjects: null, matchedProjects: null, counts: null };
       if (method === 'listProjects' && mode === 'folder-complete') result = { ...result, projects: [{ id: 'Projects/Empty/', title: 'Empty project', status: 'active' }, { id: 'Projects/Attachments/', title: 'Attachment-only project', status: 'active' }], totalProjects: 2, matchedProjects: 2, counts: { active: 2, deferred: 0, someday: 0, done: 0 } };
       if (method === 'listAreas') result = { source, areas: [{ id: 'Areas/Learning.md', title: area }], coverage: 'complete', warnings: [], totalAreas: 1, nextCursor: null, consistency: 'Per-area local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' };
+      if (method === 'listProjects' && mode === 'area-boundary') result.projects[0].areaId = 'Areas/Learning/Example Committee/Meeting.md';
+      if (method === 'listAreas' && mode === 'area-boundary') result.areas.push(...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` })));
       if (method === 'renameProject' || method === 'renameArea') { if (method === 'renameProject') title = input.title; else area = input.title; result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' }; }
       if (method === 'newThread') { creations++; await new Promise(r => setTimeout(r, 250)); result = { threadId: 'fixture1' }; }
       if (method === 'associate') { if (input.project) associations.set(input.threadId, input.project); else associations.delete(input.threadId); result = null; }
@@ -113,6 +115,16 @@ try {
       await nav.getByRole('button', { name: 'Woodwork', exact: true }).waitFor();
       const create = nav.getByRole('button', { name: 'New thread for Woodwork' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
       await page.waitForTimeout(500); assert.equal(creations, 1);
+    } else if (mode === 'area-boundary') {
+      await nav.getByRole('button', { name: 'Learning', exact: true }).waitFor();
+      await nav.getByRole('button', { name: 'Learn woodworking', exact: true }).waitFor();
+      assert.equal(await nav.getByRole('button', { name: 'Empty Area 0', exact: true }).count(), 0);
+      assert.equal(await nav.getByText('No active projects', { exact: true }).count(), 0);
+      const all = nav.getByRole('button', { name: 'Show all Areas', exact: true }); await all.focus();
+      await page.screenshot({ path: join(artifacts, `areas-active-${width}.png`) });
+      await page.keyboard.press('Enter');
+      const empty = nav.getByRole('button', { name: 'Empty Area 0', exact: true }); await empty.waitFor();
+      assert.equal(await empty.getAttribute('aria-expanded'), 'false');
     } else if (mode === 'folder-complete') {
       await nav.getByRole('button', { name: 'Empty project', exact: true }).waitFor();
       await nav.getByRole('button', { name: 'Attachment-only project', exact: true }).waitFor();

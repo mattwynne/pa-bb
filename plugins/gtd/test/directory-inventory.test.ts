@@ -28,7 +28,7 @@ test('directory contract includes empty and attachment-only projects, pairs note
     assert.equal(deferred.matchedProjects, 1); assert.equal(deferred.projects[0].title, 'Travel');
   } finally { await host.harness.lifecycle.dispose(); }
 });
-test('failed, partial or omitted child metadata never establishes complete counts; Areas never asks for directories', async () => {
+test('failed, partial or omitted child metadata never establishes complete counts; Areas shares bounded directory enumeration', async () => {
   for (const mode of ['failure', 'partial', 'missing-metadata', 'areas']) {
     let reads = 0;
     const host = createFakePluginHost({ pluginId: 'gtd', sdk: { plugins: { callRpc: async (args: any) => {
@@ -39,7 +39,7 @@ test('failed, partial or omitted child metadata never establishes complete count
     } } } });
     try {
       const backend = new ObsidianBackend(host.bb.sdk, { vaultId: 'one', folder: 'Projects' });
-      if (mode === 'areas') { assert.equal((await backend.readAreas(new AbortController().signal)).complete, true); assert.equal(reads, 0); }
+      if (mode === 'areas') { assert.equal((await backend.readAreas(new AbortController().signal)).complete, true); assert.equal(reads, 1); }
       else { const snapshot = await backend.readProjects(new AbortController().signal); assert.equal(snapshot.complete, false); assert.deepEqual(snapshot.warnings, ['source_partial']); assert.doesNotMatch(JSON.stringify(snapshot), /sentinel/); }
     } finally { await host.harness.lifecycle.dispose(); }
   }

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { definePluginApp, useRpc, useSdk, useBbNavigate, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginThreadListProps, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
 import { rpcContract, reference } from './contract.ts';
 import type { Area, Project } from './core/model.ts';
+import { enclosingArea } from './core/area-presentation.ts';
 import './app.css';
 const key = (source: string, id: string) => JSON.stringify([source, id]);
 function matches(value: unknown, source: string, id: string) { const parsed = reference.safeParse(value); return parsed.success && parsed.data.source === source && parsed.data.id === id; }
@@ -83,6 +84,9 @@ function GtdList(props: PluginThreadListProps) {
   });
   const row = (t: PluginSidebarThread) => <ThreadRow key={t.id} thread={t} active={props.activeThreadId} onNavigate={props.onNavigate} />;
   const visible = inventory.projects.filter(p => status === 'all' || p.status === status);
+  const inArea = (area: Area) => visible.filter(p => enclosingArea(inventory.areas, p.areaId)?.id === area.id);
+  const shownAreas = inventory.areas.filter(area => status === 'all' || inArea(area).length > 0);
+  const unassignedProjects = visible.filter(p => !enclosingArea(inventory.areas, p.areaId));
   const projectRow = (p: Project) => <Group key={p.id} title={p.title} actions={<><button className="gtd-new" aria-label={`New thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p)}>+</button><RenameMenu label={`Actions for project ${p.title}`} disabled={!!busy || p.id.endsWith('/')} onRename={() => rename('project', p)} /></>}>
     {threads.filter(t => { const r = reference.safeParse(links[t.id]); return r.success && key(r.data.source, r.data.id) === key(inventory.source, p.id); }).map(row)}{!threads.some(t => { const r = reference.safeParse(links[t.id]); return r.success && key(r.data.source, r.data.id) === key(inventory.source, p.id); }) && <p className="gtd-muted">No linked threads</p>}</Group>;
   const unassigned = threads.filter(t => !reference.safeParse(links[t.id]).success);
@@ -95,10 +99,12 @@ function GtdList(props: PluginThreadListProps) {
       <label className="gtd-controls">Projects <select aria-label="Project status" value={status} onChange={e => setStatus(e.target.value)}>{['active', 'all', 'deferred', 'someday', 'done'].map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></label>
       {(inventory.loading || linksLoading) && <p role="status">Loading GTD…</p>}
       {(inventory.error || linkError) && <p role="alert">{inventory.error || 'Thread associations could not load. Refresh before making changes.'}</p>}
-      {inventory.partial && <p role="status">Partial inventory. {inventory.directoryGap ? 'Obsidian cannot enumerate directories: empty projects and folders with only attachments are not included. Project totals are unconfirmed.' : 'Some projects or areas may be unavailable.'}</p>}
+      {inventory.partial && <p role="status">Partial inventory. {inventory.directoryGap ? 'Obsidian cannot enumerate directories: empty or attachment-only project/Area folders may be omitted. Inventory totals are unconfirmed.' : 'Some projects or areas may be unavailable.'}</p>}
       {!inventory.error && !inventory.loading && !linksLoading && !linkError && <>
-        {inventory.areas.map(area => <Group key={area.id} title={area.title} actions={<RenameMenu label={`Actions for area ${area.title}`} disabled={!!busy} onRename={() => rename('area', area)} />} >{visible.filter(p => p.areaId === area.id).map(projectRow)}{!visible.some(p => p.areaId === area.id) && <p className="gtd-muted">No {status === 'all' ? '' : status + ' '}projects</p>}</Group>)}
-        {(visible.some(p => !inventory.areas.some(a => a.id === p.areaId)) || !visible.length) && <Group title="Unassigned area">{visible.filter(p => !inventory.areas.some(a => a.id === p.areaId)).map(projectRow)}{!visible.length && <p className="gtd-muted">No matching projects</p>}</Group>}
+        {shownAreas.map(area => <Group key={area.id} title={area.title} initialOpen={inArea(area).length > 0} actions={<RenameMenu label={`Actions for area ${area.title}`} disabled={!!busy || area.id.endsWith('/')} onRename={() => rename('area', area)} />} >{inArea(area).map(projectRow)}</Group>)}
+        {!!unassignedProjects.length && <Group title="Unassigned area">{unassignedProjects.map(projectRow)}</Group>}
+        {!visible.length && <p className="gtd-muted">No matching projects</p>}
+        {status !== 'all' && shownAreas.length < inventory.areas.length && <button onClick={() => setStatus('all')}>Show all Areas</button>}
         <Group title={`Unassigned threads (${unassigned.length})`} initialOpen={false}>{unassigned.map(row)}</Group>
         {!!missing.length && <Group title={`Unavailable project (${missing.length})`}><p className="gtd-muted">Missing, deleted, or from another source. Use the thread menu to reassign or unlink.</p>{missing.map(row)}</Group>}
       </>}
