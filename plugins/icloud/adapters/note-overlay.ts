@@ -693,6 +693,37 @@ export class NoteOverlay {
       return 'applied';
     });
   }
+  // Read-only proof, called only in the owner's native-idle turn. No journal
+  // recovery, collision capture, or content choice is permitted here.
+  async proveUnapplied(root: string, id: string) {
+    const heads = this.db.prepare('SELECT * FROM icloud_note_overlay_heads WHERE mirror_id = ?').all(id) as Head[];
+    if (!heads.length || heads.length > 128 || (await readdir(join(this.root, 'stages'))).length ||
+      this.db.prepare('SELECT 1 FROM icloud_note_overlay_legacy WHERE mirror_id = ? AND uncertain = 1').get(id) ||
+      this.db.prepare('SELECT 1 FROM icloud_note_overlay_reservations WHERE mirror_id = ?').get(id)) throw new NoteError('uncertain');
+    const pending: string[] = [];
+    for (const row of heads) {
+      if (row.journal || row.conflict) throw new NoteError('uncertain');
+      const checkpoint = row.applied ? parse(row.applied, appliedSchema) : null;
+      // A partially applied successor needs separate investigation.
+      if (checkpoint && (checkpoint.generation !== row.generation || checkpoint.hash !== row.hash)) throw new NoteError('uncertain');
+      const expected = checkpoint ? { hash: checkpoint.hash, info: checkpoint.info } : parse(row.base, proofSchema);
+      if (!same(proof(await this.mirror.observe(root, row.path)), expected) ||
+        !sameCopies(copiesOf(await this.mirror.conflictCopies(root, row.path)), parse(row.copies, copiesSchema))) throw new NoteError('uncertain');
+      if (Buffer.byteLength(await this.loadBlob(row.hash)) !== row.bytes) throw new NoteError('uncertain');
+      if (!checkpoint) {
+        const generation = this.db.prepare('SELECT operation_id, state FROM icloud_note_overlay_generations WHERE generation_id = ? AND mirror_id = ? AND path = ? AND hash = ?').get(row.generation, id, row.path, row.hash) as { operation_id: string; state: string } | undefined;
+        const receipt = generation && this.db.prepare('SELECT outcome, hash, previous_hash FROM icloud_note_overlay_receipts WHERE operation_id = ? AND mirror_id = ? AND path = ?').get(generation.operation_id, id, row.path) as { outcome: string; hash: string; previous_hash: string | null } | undefined;
+        if (generation?.state !== 'pending' || receipt?.outcome !== 'saved_locally_pending_sync' || receipt.hash !== row.hash || receipt.previous_hash !== (expected?.hash ?? null)) throw new NoteError('uncertain');
+        if (expected) {
+          const previous = this.db.prepare('SELECT hash, bytes FROM icloud_note_overlay_recovery WHERE operation_id = ?').get(generation.operation_id) as { hash: string; bytes: number } | undefined;
+          if (previous?.hash !== expected.hash || Buffer.byteLength(await this.loadBlob(expected.hash)) !== previous.bytes) throw new NoteError('uncertain');
+        }
+        pending.push(row.path);
+      }
+    }
+    if (!pending.length) throw new NoteError('uncertain');
+    return pending;
+  }
   pending(limit = 256): Array<{ mirrorId: string; path: string; queued: number }> {
     return (this.db.prepare('SELECT mirror_id, path, queue_order FROM icloud_note_overlay_heads WHERE conflict IS NULL AND (applied IS NULL OR json_extract(applied, \'$.generation\') != generation) ORDER BY queue_order, mirror_id, path LIMIT ?').all(limit) as Array<{ mirror_id: string; path: string; queue_order: number }>).map(row => ({ mirrorId: row.mirror_id, path: row.path, queued: row.queue_order }));
   }

@@ -78,6 +78,9 @@ export class NoteRuntime {
         try { await this.local(mirror); await this.overlay.indexLegacy(mirror.id, this.localPath(mirror)); }
         catch (error) { this.blocked.add(mirror.id); if (error instanceof NoteError && error.category === 'uncertain') throw error; }
       }
+      // A disabled interrupted mirror is an operator-held recovery, not an
+      // invitation to apply queued edits merely because the plugin restarted.
+      for (const mirror of this.state().mirrors) if (!mirror.enabled && mirror.failure === 'interrupted' && this.overlay.pending().some(p => p.mirrorId === mirror.id)) this.nativeBlocked.set(mirror.id, 'uncertain');
       this.ready = true;
       this.wake();
       this.scheduleMaintenance();
@@ -426,7 +429,7 @@ export class NoteRuntime {
         count++; this.lastMirror = mirror.id;
       } catch (error) {
         this.nativeBlocked.set(item.mirrorId, 'uncertain');
-        this.diagnose('note_apply', error instanceof NoteError ? error.category : 'unavailable');
+        this.diagnose('note_apply', error instanceof NoteError ? error.category : error instanceof CloudError ? error.category : 'unavailable');
       }
     }
     // Yield to an already queued native command. A fresh idle wake receives
@@ -452,6 +455,37 @@ export class NoteRuntime {
     if (this.wakeScheduled || !this.ready || this.closed) return;
     this.wakeScheduled = true;
     setImmediate(() => { this.wakeScheduled = false; if (!this.closed) void this.turn(async () => {}).catch(() => {}); });
+  }
+  // Existing client Retry invokes this before changing service enablement.
+  // Recheck under native exclusivity; never infer safety from a warning category.
+  async recoverUnapplied(id: string) {
+    if (this.nativeBlocked.get(id) !== 'uncertain') return;
+    return this.idleFiles(async () => {
+      const checkedMirror = () => {
+        const mirror = this.mirror(id);
+        if (!this.ready || this.closed || this.storageBlocked || this.blocked.has(id) || this.moving || this.moves.blocked(id) ||
+          !mirror || mirror.enabled || mirror.phase !== 'failed' || mirror.failure !== 'interrupted' || mirror.blocker !== null) throw new CloudError('recovery_required');
+        return mirror;
+      };
+      try {
+        const root = await this.local(checkedMirror());
+        const paths = await this.overlay.proveUnapplied(root, id);
+        for (const path of paths) {
+          if (this.closed) throw new CloudError('interrupted');
+          await this.local(checkedMirror());
+          // apply retains its own immediate identity/CAS and durable journal.
+          if (await this.overlay.apply(root, id, path) !== 'applied') throw new NoteError('uncertain');
+        }
+        await this.local(checkedMirror());
+        checkedMirror();
+        if (this.closed || this.overlay.hasUnresolvedJournals(id) || this.overlay.pending().some(p => p.mirrorId === id)) throw new NoteError('uncertain');
+        this.nativeBlocked.delete(id);
+      } catch (error) {
+        this.nativeBlocked.set(id, 'uncertain');
+        this.diagnose('note_application_recovery', error instanceof NoteError ? error.category : error instanceof CloudError ? error.category : 'unavailable');
+        throw new CloudError('recovery_required');
+      }
+    });
   }
   pendingAgeMs(id: string) { return this.overlay.pendingAgeMs(id); }
   applicationBlocker(id: string) { return this.mirror(id)?.blocker === 'rebuild' || this.nativeBlocked.get(id) === 'uncertain' ? 'application_uncertain' as const : this.nativeBlocked.has(id) ? 'native_recovery' as const : null; }

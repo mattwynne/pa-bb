@@ -114,7 +114,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       if ('updateJob' in input) { updaterOnly(context); return pauseAction(() => updatePause.resume(input.updateJob)); }
       clientOnly(context); return pauseAction(() => updatePause.userEnable(input.id));
     },
-    async retry({ id }, context) { clientOnly(context); return action(() => { updatePause.assertUserCanStartSync(); return sync.retry(id); }); },
+    async retry({ id }, context) { clientOnly(context); return action(async () => { updatePause.assertUserCanStartSync(); await runtime?.recoverUnapplied(id); return sync.retry(id); }); },
     async continueInterrupted({ id }, context) { clientOnly(context); return action(() => { updatePause.assertUserCanStartSync(); return sync.continueInterrupted(id); }); },
     async completeInitialRegistration({ id }, context) { clientOnly(context); return action(() => { updatePause.assertUserCanStartSync(); return sync.completeInitialRegistration(id); }); },
     async rebuild({ id }, context) { clientOnly(context); return action(() => { updatePause.assertUserCanStartSync(); return sync.rebuild(id); }); },
