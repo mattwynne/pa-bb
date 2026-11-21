@@ -14,7 +14,7 @@ test('even a stalled producer yielding endless empty pages is bounded, partial a
   } } } });
   try {
     const result = await new ObsidianBackend(host.bb.sdk, { vaultId: 'one', folder: 'Projects' }).readProjects(new AbortController().signal);
-    assert.equal(pages, 128); assert.equal(closed, true); assert.equal(result.complete, false); assert.deepEqual(result.warnings, ['scan_limit']);
+    assert.equal(pages, 128); assert.equal(closed, true); assert.equal(result.complete, false); assert.deepEqual(result.warnings, ['directory_enumeration_unavailable', 'scan_limit']);
   } finally { await host.harness.lifecycle.dispose(); }
 });
 test('invalid adapter models are refused at the core boundary, without publishing raw validation details', async () => {

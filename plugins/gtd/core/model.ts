@@ -17,7 +17,7 @@ export const sourceSchema = z.object({
   observedAt: z.string(), lastSuccessfulSync: z.string().nullable(),
   sync: z.object({ connected: z.boolean(), enabled: z.boolean(), phase: z.string().max(64), failure: z.string().max(128).nullable() }).strict().nullable(),
 }).strict();
-export const warnings = ['invalid_project', 'invalid_area', 'source_partial', 'scan_limit', 'duplicate_id'] as const;
+export const warnings = ['invalid_project', 'invalid_area', 'source_partial', 'scan_limit', 'duplicate_id', 'directory_enumeration_unavailable'] as const;
 export type Warning = typeof warnings[number];
 export const snapshotSchema = z.object({
   source: sourceSchema, projects: z.array(projectSchema).max(5000),

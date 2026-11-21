@@ -31,11 +31,23 @@ const propertyPage = z.object({
 }).strict();
 const aliases: Record<string, ProjectStatus> = { active: 'active', deferred: 'deferred', someday: 'someday', done: 'done', completed: 'done' };
 const text = (value: unknown, max: number) => typeof value === 'string' && value.trim().length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/.test(value);
+function projectEntry(folder: string, path: string) {
+  if (!relativeFolder.safeParse(path).success || !path.startsWith(folder + '/') || !path.endsWith('.md')) return null;
+  const parts = path.slice(folder.length + 1).split('/');
+  const grouped = parts.length > 1 && Object.hasOwn(aliases, parts[0].toLowerCase());
+  const prefix = grouped ? parts.shift()! + '/' : '';
+  const rootNote = parts.length === 1;
+  return { key: `${folder}/${prefix}${rootNote ? parts[0].slice(0, -3) : parts[0]}`, rootNote };
+}
 export function projectFromNote(folder: string, path: string, properties: Record<string, unknown>): Project | 'invalid' | null {
-  if (!path.startsWith(folder + '/') || !path.endsWith('.md') || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..')) return 'invalid';
+  const entry = projectEntry(folder, path);
+  if (!entry) return 'invalid';
   const parts = path.slice(folder.length + 1).split('/');
   // Folder membership defines projects; a status folder overrides old frontmatter.
-  const folderStatus = parts.slice(0, -1).map(part => part.toLowerCase()).find(part => Object.hasOwn(aliases, part));
+  const folderStatus = parts.length > 1 && Object.hasOwn(aliases, parts[0].toLowerCase()) ? parts.shift()!.toLowerCase() : undefined;
+  // Only the explicit root note owns metadata. Descendants establish a folder
+  // entry, but their title/type/status/area must never classify that project.
+  if (parts.length > 1) return text(parts[0], 240) ? { id: entry.key + '/', title: parts[0], status: folderStatus ? aliases[folderStatus] : 'active' } : 'invalid';
   const status = folderStatus ? aliases[folderStatus] : properties.status === undefined ? 'active'
     : typeof properties.status === 'string' && Object.hasOwn(aliases, properties.status) ? aliases[properties.status] : undefined;
   if (!status) return 'invalid';
@@ -92,6 +104,11 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     if (!vault?.source?.local.available) throw new GtdError('source_unavailable');
     const readSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
     const items: (Project | Area)[] = [], warnings = new Set<Warning>();
+    // The v1 consumer enumerates Markdown paths, not directories. Never claim
+    // empty/attachment-only folders were enumerated, even after draining it.
+    if (kind === 'project') warnings.add('directory_enumeration_unavailable');
+    const entries = new Map<string, Project>();
+    const invalidRoots = new Set<string>(), seenRoots = new Set<string>();
     let cursor: string | undefined, pages = 0, notes = 0, observedAt = new Date().toISOString();
     try {
       do {
@@ -111,7 +128,16 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         for (const note of page.notes) {
           if (++notes > 5000) { warnings.add('scan_limit'); break; }
           const item = (kind === 'area' ? areaFromNote : projectFromNote)(this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, note.path, note.properties);
-          if (item === 'invalid') warnings.add(kind === 'area' ? 'invalid_area' : 'invalid_project'); else if (item) items.push(item);
+          if (kind === 'area') {
+            if (item === 'invalid') warnings.add('invalid_area'); else if (item) items.push(item);
+          } else {
+            // Pair by exact entry path, not display title; root notes win even
+            // when their supporting-folder evidence arrives on a later page.
+            const entry = projectEntry(this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, note.path);
+            if (entry?.rootNote) { if (seenRoots.has(entry.key)) warnings.add('duplicate_id'); seenRoots.add(entry.key); }
+            if (!entry || item === 'invalid') { warnings.add('invalid_project'); if (entry?.rootNote) { entries.delete(entry.key); invalidRoots.add(entry.key); } }
+            else if (item && !invalidRoots.has(entry.key) && (!entries.has(entry.key) || entry.rootNote)) entries.set(entry.key, item as Project);
+          }
         }
       } while (cursor);
     } finally {
@@ -122,6 +148,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
       }
     }
     if (signal.aborted) throw new GtdError('cancelled');
+    if (kind === 'project') items.push(...entries.values());
     const source = vault.source;
     return { items, complete: warnings.size === 0, warnings: [...warnings], source: {
       backend: 'obsidian', id: vault.vaultId, name: this.config.root?.split('/').at(-1) ?? vault.name ?? 'Obsidian vault', scope: this.config.folder, observedAt,

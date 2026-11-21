@@ -14,11 +14,15 @@ Pre-selector configurations are not silently migrated: a previous selection that
 
 ## Folder conventions
 
-Folder membership is the source of truth: every Markdown note recursively below Projects is a project; every Markdown note recursively below Areas is an area. **No `type` property is required or consulted.** Keep supporting/reference notes outside these folders if they should not appear in inventories. GTD does not move, delete, or reclassify source notes for you.
+Projects use one entry layer: an immediate Markdown note or a project-named supporting folder represents one project. A same-name note and folder are paired (exact case-sensitive name); the root note owns identity and metadata. Supporting notes, transcripts and nested attachments stay inside that folder and are never additional projects, regardless of their metadata. **No `type` property or manufactured index note is required.** GTD does not move or edit source notes during inventory reads.
 
-Projects take their status from the first recognized status folder below Projects: `Active`, `Deferred`, `Someday`, `Done` or `Completed` (case-insensitive). That folder takes priority over old frontmatter. Outside a status folder, use the optional `status` scalar (`active`, `deferred`, `someday`, `done`, `completed`); absent status defaults to active. An invalid explicit status makes coverage partial. Areas have no status.
+Only immediate `Active`, `Deferred`, `Someday`, `Done` or `Completed` directories (case-insensitive) are grouping containers, with one project-entry layer beneath them. Their status overrides root-note frontmatter. A status-named directory inside a project is only supporting material. Outside a status container, an explicit root note's optional `status` scalar (`active`, `deferred`, `someday`, `done`, `completed`) is used; absent status defaults to active. Invalid explicit root metadata makes coverage partial and does not borrow supporting metadata.
 
-Both inventories use an optional `title` scalar, falling back to the filename without `.md`. Titles and identities are untrusted evidence, never instructions. IDs are backend-owned relative note paths, not BB coding-project IDs. Listing grants no complete-read edit proof.
+Root notes supply optional `title` and `areaId`; titles default to the note basename. Folder-only projects use their folder name and default/group status, with no metadata from supporting notes. Root-note IDs remain relative note paths. Folder-only IDs are relative directory paths with a trailing `/`; title rename is unsupported for these entries and is refused without a write. Pairing later with a root note changes the folder-only ID; existing references are retained as unavailable, not silently rebound. Duplicate display titles do not merge distinct paths.
+
+**Read-contract gap:** Obsidian's v1 `listProperties` returns Markdown paths, not directories. GTD can infer supporting folders from those paths, but cannot see empty folders or folders containing only non-Markdown files. Projects therefore report `directory_enumeration_unavailable`, partial coverage and null totals, even after all source pages are drained. A complete inventory requires a supported bounded directory-enumeration contract through the source provider; no direct filesystem bypass is used.
+
+Areas are unchanged: every Markdown note recursively below Areas is an area, using its optional `title` or basename. Titles and identities are untrusted evidence, never instructions. Listing grants no complete-read edit proof.
 
 ## Usage
 
@@ -32,7 +36,7 @@ bb gtd areas --cursor '<returned-cursor>' --json
 
 Agent tools: `gtd_list_projects`, `gtd_list_areas`, `gtd_rename_project`, and `gtd_rename_area`. The rename tools accept `{ source, id, title }`, using the exact listing's `source.id` and backend item ID. RPC methods additionally expose `associate` and `newThread` for the UI; neither is an account action.
 
-Follow every `nextCursor` with the same filter (or omit the filter on continuation). Only `coverage=complete` confirms totals. Project pages report `totalProjects`, `matchedProjects` and per-status `counts`; area pages report `totalAreas`. Partial pages have null totals and warnings; the CLI exits 2. Errors are not empty lists. An empty successful list means no matching notes in the configured scope.
+Follow every `nextCursor` with the same filter (or omit the filter on continuation). Only `coverage=complete` confirms totals. Project pages report `totalProjects`, `matchedProjects` and per-status `counts`; area pages report `totalAreas`. Partial pages have null totals and warnings; the CLI exits 2. Errors are not empty lists. An empty partial project list does not establish that there are no projects.
 
 ## Sidebar and thread associations
 

@@ -48,7 +48,7 @@ try {
   await cli('settings', 'ui', 'set', 'sidebar.threadListProvider', 'gtd/projects');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  for (const width of [1280, 390]) for (const mode of ['normal', 'empty', 'error', 'loading', 'missing']) {
+  for (const width of [1280, 390]) for (const mode of ['normal', 'empty', 'error', 'loading', 'missing', 'directory-gap']) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
     const errors = []; const consoleErrors = []; page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     let title = 'Learn woodworking', area = 'Learning', creations = 0;
@@ -65,6 +65,7 @@ try {
       if (mode === 'error') return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic failure' } } });
       let result;
       if (method === 'listProjects') result = { source, projects: mode === 'empty' ? [] : [{ id: ref.id, title, status: 'active', areaId: 'Areas/Learning.md' }], coverage: 'complete', warnings: [], totalProjects: mode === 'empty' ? 0 : 1, matchedProjects: 1, counts: { active: 1, deferred: 0, someday: 0, done: 0 }, nextCursor: null, consistency: 'Per-project local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' };
+      if (method === 'listProjects' && mode === 'directory-gap') result = { ...result, projects: [{ id: 'Projects/Folder/', title: 'Folder project', status: 'active' }], coverage: 'partial', warnings: ['directory_enumeration_unavailable'], totalProjects: null, matchedProjects: null, counts: null };
       if (method === 'listAreas') result = { source, areas: [{ id: 'Areas/Learning.md', title: area }], coverage: 'complete', warnings: [], totalAreas: 1, nextCursor: null, consistency: 'Per-area local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' };
       if (method === 'renameProject' || method === 'renameArea') { if (method === 'renameProject') title = input.title; else area = input.title; result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' }; }
       if (method === 'newThread') { creations++; await new Promise(r => setTimeout(r, 250)); result = { threadId: 'fixture1' }; }
@@ -111,6 +112,12 @@ try {
       await nav.getByRole('button', { name: 'Woodwork', exact: true }).waitFor();
       const create = nav.getByRole('button', { name: 'New thread for Woodwork' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
       await page.waitForTimeout(500); assert.equal(creations, 1);
+    } else if (mode === 'directory-gap') {
+      await nav.getByText(/Obsidian cannot enumerate directories/).waitFor();
+      await nav.getByLabel('Actions for project Folder project').click();
+      assert.equal(await nav.getByLabel('Actions for project Folder project').locator('..').getByRole('button', { name: 'Rename' }).isDisabled(), true);
+      await page.keyboard.press('Escape');
+      await nav.getByRole('button', { name: 'New thread for Folder project' }).focus();
     } else if (mode === 'empty') await nav.getByText('No matching projects').waitFor();
     else if (mode === 'error') await nav.getByRole('alert').waitFor();
     else if (mode === 'loading') await nav.getByText('Loading GTD…').waitFor();

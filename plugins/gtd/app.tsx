@@ -8,17 +8,17 @@ function matches(value: unknown, source: string, id: string) { const parsed = re
 function changed() { window.dispatchEvent(new Event('gtd:changed')); }
 function useInventory() {
   const rpc = useRpc<typeof rpcContract>();
-  const [state, set] = useState<{ projects: Project[]; areas: Area[]; source: string; loading: boolean; error: string; partial: boolean }>({ projects: [], areas: [], source: '', loading: true, error: '', partial: false });
+  const [state, set] = useState<{ projects: Project[]; areas: Area[]; source: string; loading: boolean; error: string; partial: boolean; directoryGap: boolean }>({ projects: [], areas: [], source: '', loading: true, error: '', partial: false, directoryGap: false });
   const [revision, revise] = useState(0);
   useEffect(() => { const fn = () => revise(x => x + 1); window.addEventListener('gtd:changed', fn); return () => window.removeEventListener('gtd:changed', fn); }, []);
   useEffect(() => {
     let alive = true;
     set(s => ({ ...s, loading: true, error: '' }));
     void (async () => {
-      const projects: Project[] = [], areas: Area[] = []; let partial = false, source = '', cursor: string | undefined;
-      do { const p = await rpc.call('listProjects', { status: 'all', ...(cursor ? { cursor } : {}) }); projects.push(...p.projects); source = p.source.id; partial ||= p.coverage === 'partial'; cursor = p.nextCursor ?? undefined; } while (cursor);
+      const projects: Project[] = [], areas: Area[] = []; let partial = false, directoryGap = false, source = '', cursor: string | undefined;
+      do { const p = await rpc.call('listProjects', { status: 'all', ...(cursor ? { cursor } : {}) }); projects.push(...p.projects); source = p.source.id; partial ||= p.coverage === 'partial'; directoryGap ||= p.warnings.includes('directory_enumeration_unavailable'); cursor = p.nextCursor ?? undefined; } while (cursor);
       do { const p = await rpc.call('listAreas', cursor ? { cursor } : {}); areas.push(...p.areas); partial ||= p.coverage === 'partial' || p.source.id !== source; cursor = p.nextCursor ?? undefined; } while (cursor);
-      if (alive) set({ projects, areas, source, loading: false, error: '', partial });
+      if (alive) set({ projects, areas, source, loading: false, error: '', partial, directoryGap });
     })().catch(() => { if (alive) set(s => ({ ...s, loading: false, error: 'GTD could not load. Check its vault settings, then refresh.' })); });
     return () => { alive = false; };
   }, [rpc, revision]);
@@ -83,7 +83,7 @@ function GtdList(props: PluginThreadListProps) {
   });
   const row = (t: PluginSidebarThread) => <ThreadRow key={t.id} thread={t} active={props.activeThreadId} onNavigate={props.onNavigate} />;
   const visible = inventory.projects.filter(p => status === 'all' || p.status === status);
-  const projectRow = (p: Project) => <Group key={p.id} title={p.title} actions={<><button className="gtd-new" aria-label={`New thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p)}>+</button><RenameMenu label={`Actions for project ${p.title}`} disabled={!!busy} onRename={() => rename('project', p)} /></>}>
+  const projectRow = (p: Project) => <Group key={p.id} title={p.title} actions={<><button className="gtd-new" aria-label={`New thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p)}>+</button><RenameMenu label={`Actions for project ${p.title}`} disabled={!!busy || p.id.endsWith('/')} onRename={() => rename('project', p)} /></>}>
     {threads.filter(t => { const r = reference.safeParse(links[t.id]); return r.success && key(r.data.source, r.data.id) === key(inventory.source, p.id); }).map(row)}{!threads.some(t => { const r = reference.safeParse(links[t.id]); return r.success && key(r.data.source, r.data.id) === key(inventory.source, p.id); }) && <p className="gtd-muted">No linked threads</p>}</Group>;
   const unassigned = threads.filter(t => !reference.safeParse(links[t.id]).success);
   const missing = threads.filter(t => { const r = reference.safeParse(links[t.id]); return r.success && !inventory.projects.some(p => key(inventory.source, p.id) === key(r.data.source, r.data.id)); });
@@ -95,7 +95,7 @@ function GtdList(props: PluginThreadListProps) {
       <label className="gtd-controls">Projects <select aria-label="Project status" value={status} onChange={e => setStatus(e.target.value)}>{['active', 'all', 'deferred', 'someday', 'done'].map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></label>
       {(inventory.loading || linksLoading) && <p role="status">Loading GTD…</p>}
       {(inventory.error || linkError) && <p role="alert">{inventory.error || 'Thread associations could not load. Refresh before making changes.'}</p>}
-      {inventory.partial && <p role="status">Partial inventory. Some projects or areas may be unavailable.</p>}
+      {inventory.partial && <p role="status">Partial inventory. {inventory.directoryGap ? 'Obsidian cannot enumerate directories: empty projects and folders with only attachments are not included. Project totals are unconfirmed.' : 'Some projects or areas may be unavailable.'}</p>}
       {!inventory.error && !inventory.loading && !linksLoading && !linkError && <>
         {inventory.areas.map(area => <Group key={area.id} title={area.title} actions={<RenameMenu label={`Actions for area ${area.title}`} disabled={!!busy} onRename={() => rename('area', area)} />} >{visible.filter(p => p.areaId === area.id).map(projectRow)}{!visible.some(p => p.areaId === area.id) && <p className="gtd-muted">No {status === 'all' ? '' : status + ' '}projects</p>}</Group>)}
         {(visible.some(p => !inventory.areas.some(a => a.id === p.areaId)) || !visible.length) && <Group title="Unassigned area">{visible.filter(p => !inventory.areas.some(a => a.id === p.areaId)).map(projectRow)}{!visible.length && <p className="gtd-muted">No matching projects</p>}</Group>}

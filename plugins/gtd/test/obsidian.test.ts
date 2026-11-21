@@ -7,10 +7,10 @@ const cursor = '12345678-1234-4123-8123-123456789abc';
 const state = () => ({ propertiesAccessVersion: 1, vaults: [{ vaultId: 'one', name: 'Example', source: { local: { available: true }, cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null } }] });
 const controller = () => new AbortController();
 test('folder membership defines projects; folder status wins and root defaults active', () => {
-  assert.deepEqual(projectFromNote('Projects', 'Projects/Deep/Plan.md', { type: 'project', title: 'New title', status: 'completed' }), { id: 'Projects/Deep/Plan.md', title: 'New title', status: 'done' });
+  assert.deepEqual(projectFromNote('Projects', 'Projects/Deep/Plan.md', { type: 'project', title: 'New title', status: 'completed' }), { id: 'Projects/Deep/', title: 'Deep', status: 'active' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Done/Plan.md', { status: 'active' }), { id: 'Projects/Done/Plan.md', title: 'Plan', status: 'done' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', { status: 'deferred' }), { id: 'Projects/Plan.md', title: 'Plan', status: 'deferred' });
-  assert.deepEqual(projectFromNote('Projects', 'Projects/Active/Plan/Minutes.md', { status: 'done' }), { id: 'Projects/Active/Plan/Minutes.md', title: 'Minutes', status: 'active' });
+  assert.deepEqual(projectFromNote('Projects', 'Projects/Active/Plan/Minutes.md', { status: 'done' }), { id: 'Projects/Active/Plan/', title: 'Plan', status: 'active' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Minutes.md', { type: 'meeting', status: 'done' }), { id: 'Projects/Minutes.md', title: 'Minutes', status: 'done' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', {}), { id: 'Projects/Plan.md', title: 'Plan', status: 'active' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', { areaId: 'Areas/Learning.md' }), { id: 'Projects/Plan.md', title: 'Plan', status: 'active', areaId: 'Areas/Learning.md' });
@@ -34,7 +34,7 @@ test('adapter drains empty continuation pages, scopes every RPC, excludes bodies
   try {
     const backend = new ObsidianBackend(host.bb.sdk, { vaultId: 'one', folder: 'Life/Projects' });
     const result = await backend.readProjects(controller().signal); await backend.checkAccess(controller().signal);
-    assert.equal(result.complete, true); assert.equal(result.projects.length, 1); assert.equal(result.source.sync?.phase, 'paused'); assert.equal(result.source.lastSuccessfulSync, null);
+    assert.equal(result.complete, false); assert.deepEqual(result.warnings, ['directory_enumeration_unavailable']); assert.equal(result.projects.length, 1); assert.equal(result.source.sync?.phase, 'paused'); assert.equal(result.source.lastSuccessfulSync, null);
     assert.deepEqual(calls.map(c => c.method), ['status', 'listProperties', 'listProperties', 'status']); assert.equal(calls[2].input.cursor, cursor);
   } finally { await host.harness.lifecycle.dispose(); }
 });
@@ -43,7 +43,7 @@ test('partial metadata, invalid projects, and unsupported API version cannot cla
   const host = createFakePluginHost({ pluginId: 'gtd', sdk: { plugins: { callRpc: async (args: any) => args.method === 'status' ? { ...state(), propertiesAccessVersion: version } : { notes: [{ path: 'Projects/Bad.md', properties: { type: 'project', status: 'nonsense' } }], nextCursor: null, incomplete: true, warnings: ['parser_limit'], observedAt: 'now' } } } });
   try {
     const backend = new ObsidianBackend(host.bb.sdk, { vaultId: 'one', folder: 'Projects' });
-    const result = await backend.readProjects(controller().signal); assert.equal(result.complete, false); assert.deepEqual(result.warnings, ['source_partial', 'invalid_project']);
+    const result = await backend.readProjects(controller().signal); assert.equal(result.complete, false); assert.deepEqual(result.warnings, ['directory_enumeration_unavailable', 'source_partial', 'invalid_project']);
     version = 0; await assert.rejects(backend.readProjects(controller().signal), /incompatible/);
   } finally { await host.harness.lifecycle.dispose(); }
 });

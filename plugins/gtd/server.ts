@@ -22,6 +22,7 @@ export function formatProjects(page: ProjectPage): string {
   }
   if (!page.projects.length) out.push('No matching projects in this page. Check the configured folder if unexpected.');
   if (page.warnings.length) out.push('', `Warnings: ${page.warnings.join(', ')}`);
+  if (page.warnings.includes('directory_enumeration_unavailable')) out.push('Obsidian exposes Markdown paths, not directories. Empty projects and folders with only attachments are omitted; project totals are unconfirmed.');
   if (page.nextCursor) out.push('', `More projects: bb gtd projects --cursor ${page.nextCursor}`);
   out.push('', page.consistency);
   return out.join('\n') + '\n';
@@ -43,7 +44,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     backend: { type: 'select', label: 'Backend', description: 'Project and area inventories with title edits that preserve note paths. First connect your vault in Obsidian settings.', options: ['obsidian'], experimental_optionLabels: { obsidian: 'Obsidian' }, default: 'obsidian' },
     vaultId: { type: 'select', label: 'Vault', description: choices.incomplete ? 'Vault discovery is unavailable or incomplete. Check Obsidian, then reload GTD to refresh this list. Existing settings are kept.' : 'Choose an Obsidian vault. After connecting another source, reload GTD to refresh this list.', options: ['__none__', ...choices.vaults.map(v => v.selection)], experimental_optionLabels: { '__none__': 'Choose a vault…', ...labels }, default: '__none__', experimental_schema: z.union([z.literal('__none__'), vaultSelectionSchema]) },
     areasFolder: { type: 'string', label: 'Areas folder', description: 'Relative to the vault, such as Areas. Every Markdown note below this folder is an area; keep reference material outside it.', default: 'Areas', experimental_schema: relativeFolder },
-    projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Every Markdown note below it is a project. Status folders (Active, Deferred, Someday, Done) take priority; otherwise status frontmatter or active is used.', default: 'Projects', experimental_schema: relativeFolder },
+    projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Top-level notes and supporting folders are projects; a matching note/folder pair is one project. Active, Deferred, Someday and Done containers add one grouping layer. Empty or attachment-only folders cannot yet be enumerated; totals stay unconfirmed.', default: 'Projects', experimental_schema: relativeFolder },
   });
   const selectAreas = dependencies?.selectAreas ?? (async () => {
     const config = await settings.get();
