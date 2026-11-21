@@ -1,9 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MarkdownNotes } from '../adapters/markdown-notes.ts';
-import { planMove, hashText } from '../core/move.ts';
+import { createMovePlanner, hashText } from '../core/move.ts';
 const parser=new MarkdownNotes();
 const note=(path:string,text:string)=>({path,text,hash:hashText(text)});
+function planMove(notes: ReturnType<typeof note>[], from: string, to: string, parser: MarkdownNotes) {
+  const planner = createMovePlanner(new Set(notes.map(note => note.path)), from, to, parser);
+  for (const note of notes) planner.visit(note, Buffer.byteLength(note.text));
+  return planner.repairs;
+}
 const source=note('Areas/Example.md','Text\n');
 test('wiki aliases, embeds, headings and blocks retain exact suffixes',()=>{
  const notes=[source,note('Index.md','A [[Areas/Example#Heading|alias]] ![[Example#^block]] B\n')];
@@ -24,4 +29,8 @@ for(const text of ['[x][ref]\n\n[ref]: Areas/Example.md','<a href="Areas/Example
 });
 test('ambiguous basename is refused rather than guessed',()=>{
  assert.throws(()=>planMove([source,note('Other/Example.md','x'),note('Index.md','[[Example]]')],source.path,'Reference/New.md',parser),/ambiguous_link/);
+});
+test('frontmatter is inspected even when link delimiters only appear after YAML decoding', () => {
+  const index = note('Index.md', '---\nrelated: "\\u005b\\u005bExample\\u005d\\u005d"\n---\n');
+  assert.throws(() => planMove([source, index], source.path, 'Reference/Example.md', parser), /unsupported_links/);
 });

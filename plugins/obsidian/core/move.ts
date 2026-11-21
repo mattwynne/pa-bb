@@ -5,17 +5,30 @@ import { MAX_NOTE_BYTES, VaultError, type NoteParser } from './ports.ts';
 export const moveRecordSchema = z.object({ operationId: z.string().uuid(), finished: z.boolean().optional(), vaultId: z.string(), path: z.string().max(1024), destination: z.string().max(1024), repairs: z.array(z.object({ path: z.string().max(1024), expectedHash: z.string(), hash: z.string(), operationId: z.string().uuid(), outcome: z.enum(['unstarted', 'submitted', 'saved', 'not_saved', 'uncertain']) }).strict()).max(64) }).strict();
 export type MoveRecord = z.infer<typeof moveRecordSchema>;
 export const hashText = (text: string) => createHash('sha256').update(text).digest('hex');
-export function planMove(notes: Array<{ path: string; text: string; hash: string }>, from: string, to: string, parser: NoteParser) {
-  const paths = notes.map(n => n.path);
-  if (!paths.includes(from) || paths.includes(to)) throw new VaultError('conflict');
+export const MOVE_SCAN_LIMITS = { notes: 10000, bytes: 128 * 1024 * 1024, milliseconds: 20000, batch: 8 } as const;
+const REPAIR_BYTES = 8 * 1024 * 1024;
+export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: string, parser: NoteParser) {
+  if (!paths.has(from) || paths.has(to)) throw new VaultError('conflict');
+  const basenames = new Map<string, string[]>();
+  for (const path of paths) {
+    const key = posix.basename(path, '.md').toLowerCase();
+    const matches = basenames.get(key);
+    if (matches) matches.push(path);
+    else basenames.set(key, [path]);
+  }
   const resolve = (name: string, source: string, wiki: boolean) => {
     if (!name) return [source];
-    if (wiki && !name.includes('/')) return paths.filter(p => posix.basename(p, '.md').toLowerCase() === name.replace(/\.md$/, '').toLowerCase());
+    if (wiki && !name.includes('/')) return basenames.get(name.replace(/\.md$/, '').toLowerCase()) ?? [];
     const path = posix.normalize(name.startsWith('/') ? name.slice(1) : wiki && !name.startsWith('.') ? name : posix.join(posix.dirname(source), name));
-    return paths.filter(p => p === path || p === path + '.md');
+    return [path, path + '.md'].filter(candidate => paths.has(candidate));
   };
-  let repairs = 0;
-  return notes.flatMap(note => {
+  const repairs: Array<{ path: string; text: string; expectedHash: string; hash: string }> = [];
+  let repairBytes = 0;
+  const visit = (note: { path: string; text: string; hash: string }, bytes: number) => {
+    // All supported links and the syntax the planner refuses start with '['
+    // or '<', or can be decoded from YAML frontmatter. Inspect the exact
+    // bytes of every note before taking this fast path.
+    if (!note.text.includes('[') && !note.text.includes('<') && !/^(?:\uFEFF)?---\r?\n/.test(note.text)) return;
     const metadata = parser.parse(note.text, 'move');
     // The parser exposes YAML link locations as whole-property spans and does
     // not expose Markdown reference destinations. Fail closed, never regex-edit
@@ -24,7 +37,6 @@ export function planMove(notes: Array<{ path: string; text: string; hash: string
     if (metadata.warnings.length || /^ {0,3}\[[^\]\n]+\]:/m.test(note.text) || (htmlStart !== -1 && note.text.includes('>', htmlStart + 1))) throw new VaultError('unsupported_links');
     const pieces: string[] = [];
     let offset = 0;
-    let bytes = Buffer.byteLength(note.text);
     for (const link of [...metadata.links].sort((a, b) => a.start - b.start)) {
       const raw = note.text.slice(link.start, link.end);
       const wiki = /^!?\[\[/.test(raw);
@@ -50,10 +62,13 @@ export function planMove(notes: Array<{ path: string; text: string; hash: string
       pieces.push(note.text.slice(offset, link.start), replacement);
       offset = link.end;
     }
-    if (!pieces.length) return [];
+    if (!pieces.length) return;
     if (bytes > MAX_NOTE_BYTES) throw new VaultError('capacity', 'A planned link repair would exceed the note store’s 1 MiB write limit.');
-    if (++repairs > 64) throw new VaultError('capacity', 'The move would require more than 64 link repairs.');
+    if (repairs.length >= 64) throw new VaultError('capacity', 'The move would require more than 64 link repairs.');
+    repairBytes += bytes;
+    if (repairBytes > REPAIR_BYTES) throw new VaultError('capacity', 'The planned link repairs exceed the 8 MiB total repair limit.');
     const text = pieces.join('') + note.text.slice(offset);
-    return [{ path: note.path === from ? to : note.path, text, expectedHash: note.hash, hash: hashText(text) }];
-  });
+    repairs.push({ path: note.path === from ? to : note.path, text, expectedHash: note.hash, hash: hashText(text) });
+  };
+  return { visit, repairs };
 }

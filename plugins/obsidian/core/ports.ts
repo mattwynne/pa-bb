@@ -27,6 +27,7 @@ export interface VaultFiles {
   vaultRoots(vaultId: string, revision: number): Promise<{ roots: string[]; incomplete: boolean }>;
   list(vaultId: string, revision: number): Promise<{ paths: string[]; incomplete: boolean; warnings: string[] }>;
   read(vaultId: string, revision: number, path: string): Promise<CompleteNote>;
+  readForMove?(vaultId: string, revision: number, path: string, signal: AbortSignal): Promise<CompleteNote>;
   readIncoming(vaultId: string, revision: number, path: string, token: string): Promise<IncomingRead>;
   inspect(vaultId: string, revision: number, path: string): Promise<ConflictInspection | null>;
   commit(input: { mirrorId: string; revision: number; operationId: string; path: string; kind: 'create' | 'replace'; expectedHash: string | null; text: string }): Promise<Omit<SaveReceipt, 'kind'>>;

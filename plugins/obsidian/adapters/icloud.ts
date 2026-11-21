@@ -38,13 +38,17 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     // even when a source is blocked. Content access obeys current local safety.
     const mirrorId = (input as { mirrorId?: string }).mirrorId;
     if (mirrorId && method !== 'noteReceipts' && !catalog.sources.find(s => s.id === mirrorId)?.local.available) throw new VaultError('source_unavailable', 'Local note access is unavailable. Check this source in iCloud settings.');
+    return this.request(method, input, uncertain);
+  }
+  private async request<K extends keyof typeof noteRpcContract>(method: K, input: unknown, uncertain: boolean, signal?: AbortSignal): Promise<any> {
     const contract = noteRpcContract[method];
     try {
-      const result = await this.sdk.plugins.callRpc({ pluginId: 'icloud', method, input: { version: 2, ...(input as object) }, outputSchema: contract.output as z.ZodType<any> });
+      const result = await this.sdk.plugins.callRpc({ pluginId: 'icloud', method, input: { version: 2, ...(input as object) }, outputSchema: contract.output as z.ZodType<any>, signal });
       if (!result.ok) { this.diagnose('rpc', result.category); throw new VaultError(result.category, result.nextAction, true); }
       return result.value;
     } catch (e) {
       if (e instanceof VaultError) throw e;
+      if (signal?.aborted) throw new VaultError('cancelled');
       this.diagnose('rpc', uncertain ? 'uncertain' : 'unavailable');
       throw new VaultError(uncertain ? 'uncertain' : 'unavailable', uncertain ? 'The mutation reply was lost. Inspect its scoped operation receipt; do not repeat the change.' : 'Check iCloud is updated and running, then choose Check again.', true);
     }
@@ -66,6 +70,11 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   children(mirrorId: string, revision: number, folder: string) { return this.call('noteChildren', { mirrorId, revision, folder }); }
   list(mirrorId: string, revision: number) { return this.call('noteList', { mirrorId, revision }); }
   read(mirrorId: string, revision: number, path: string) { return this.call('noteRead', { mirrorId, revision, path }); }
+  readForMove(mirrorId: string, revision: number, path: string, signal: AbortSignal) {
+    // Move preflight checks the catalog and complete listing first. noteRead
+    // independently checks mirror, admission revision and local availability.
+    return this.request('noteRead', { mirrorId, revision, path }, false, signal);
+  }
   readIncoming(mirrorId: string, revision: number, path: string, token: string) { return this.call('noteRead', { mirrorId, revision, path, selector: { version: 'incoming', token } }); }
   inspect(mirrorId: string, revision: number, path: string) { return this.call('noteInspectConflict', { mirrorId, revision, path }); }
   move(input: Parameters<NonNullable<VaultFiles['move']>>[0]) { return this.call('noteMove', input, true); }

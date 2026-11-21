@@ -4,7 +4,7 @@ import { provenance } from './provenance.js';
 import { MAX_NOTE_BYTES, VaultError } from './ports.ts';
 import { areaEvidence, areaCandidates, areaLinkPath } from './project-areas.ts';
 import { VaultSearch } from './search.ts';
-import { planMove, type MoveRecord } from './move.ts';
+import { createMovePlanner, MOVE_SCAN_LIMITS, type MoveRecord } from './move.ts';
 import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution } from './ports.ts';
 export const LIMITS = { output: 48000, scanNotes: 500, scanBytes: 16 * 1024 * 1024, scanMs: 3000, rows: 500, page: 50, cursors: 10, cursorMs: 60000, proofs: 256 } as const;
 export const READ_LIMITS = { sessions: 4, idleMs: 5 * 60000, lifetimeMs: 30 * 60000, bytes: MAX_NOTE_BYTES, serialized: 60000 } as const;
@@ -379,7 +379,7 @@ export class Obsidian {
     const physical = receipts[0]?.outcome ?? 'uncertain';
     return { ...record, repairs, physical, outcome: physical === 'uncertain' || repairs.some(r => r.outcome === 'uncertain') ? 'uncertain' : physical === 'not_moved' ? 'not_moved' : repairs.every(r => r.outcome === 'saved') ? 'moved_supported_links_updated' : 'moved_links_partial', message: 'Local evidence only; cloud delivery and concurrent or unsupported links are not verified. Never replay an uncertain move or repair.' };
   }
-  async move(input: { vaultId: string; path: string; destination: string; expectedHash: string }, signal?: AbortSignal, reader = '') {
+  async move(input: { vaultId: string; path: string; destination: string; expectedHash: string; dryRun?: boolean }, signal?: AbortSignal, reader = '') {
     validPath(input.path); validPath(input.destination);
     if (/[#|\[\]<>?%]/.test(input.path + input.destination)) throw new VaultError('unsupported_links');
     const { revision } = await this.source(input.vaultId);
@@ -390,19 +390,39 @@ export class Obsidian {
       this.diagnose('move_preflight', category);
       throw new VaultError(category, `Move stopped before writing. ${reason}`, true);
     };
-    const listed = await this.files.list(input.vaultId, revision);
-    if (listed.warnings.includes('scan_limit')) refuse('capacity', 'The vault listing reached its scan limit before link discovery could finish.');
-    if (listed.incomplete || listed.warnings.length) refuse('unavailable', 'The vault listing was incomplete or contained unsupported entries. Check vault access before attempting the move again.');
-    const noteLimit = 4096;
-    if (listed.paths.length > noteLimit) refuse('capacity', `Link discovery is limited to ${noteLimit} notes in the vault.`);
-    const notes: Array<{ path: string; text: string; hash: string }> = []; let bytes = 0;
-    const batchSize = 8;
-    for (let offset = 0; offset < listed.paths.length; offset += batchSize) {
-      this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
-      const paths = listed.paths.slice(offset, offset + batchSize);
-      const batch = await Promise.allSettled(paths.map(path => this.files.read(input.vaultId, revision, path)));
-      this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
+    const started = this.clock();
+    const deadline = AbortSignal.timeout(MOVE_SCAN_LIMITS.milliseconds);
+    const scanSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    const check = () => {
+      this.check(input.vaultId, revision);
+      if (signal?.aborted) throw new VaultError('cancelled', 'Move stopped before writing. Link discovery was cancelled.');
+      if (deadline.aborted || this.clock() - started >= MOVE_SCAN_LIMITS.milliseconds) {
+        refuse('capacity', 'Link discovery reached its 20-second time limit before checking the entire vault.');
+      }
+    };
+    const list = async () => {
+      check();
+      const listed = await this.files.list(input.vaultId, revision);
+      check();
+      if (listed.warnings.includes('scan_limit')) refuse('capacity', 'The vault listing reached its scan limit before link discovery could finish.');
+      if (listed.incomplete || listed.warnings.length) refuse('unavailable', 'The vault listing was incomplete or contained unsupported entries. Check vault access before attempting the move again.');
+      if (listed.paths.length > MOVE_SCAN_LIMITS.notes) refuse('capacity', `Link discovery is limited to ${MOVE_SCAN_LIMITS.notes} notes in the vault.`);
+      if (new Set(listed.paths).size !== listed.paths.length) refuse('unavailable', 'The vault listing contained duplicate paths.');
+      return listed.paths;
+    };
+    const listed = await list();
+    const inventory = new Set(listed);
+    const planner = createMovePlanner(inventory, input.path, input.destination, this.parser);
+    let bytes = 0;
+    for (let offset = 0; offset < listed.length; offset += MOVE_SCAN_LIMITS.batch) {
+      check();
+      const paths = listed.slice(offset, offset + MOVE_SCAN_LIMITS.batch);
+      const batch = await Promise.allSettled(paths.map(path => this.files.readForMove
+        ? this.files.readForMove(input.vaultId, revision, path, scanSignal)
+        : this.files.read(input.vaultId, revision, path)));
+      check();
       for (const [index, result] of batch.entries()) {
+        check();
         if (result.status === 'rejected') {
           const error = result.reason;
           if (error instanceof VaultError && error.category === 'unsupported') {
@@ -412,31 +432,44 @@ export class Obsidian {
           throw error;
         }
         const { text, hash } = result.value;
+        const path = paths[index];
+        if (path === input.path && hash !== input.expectedHash) throw new VaultError('conflict');
         const noteBytes = Buffer.byteLength(text);
         if (noteBytes > MAX_NOTE_BYTES) refuse('capacity', 'Link discovery found a note over the 1 MiB whole-note limit.');
         bytes += noteBytes;
-        if (bytes > 4 * 1024 * 1024) refuse('capacity', 'Link discovery reached its 4 MiB total text limit.');
-        notes.push({ path: paths[index], text, hash });
+        if (bytes > MOVE_SCAN_LIMITS.bytes) refuse('capacity', 'Link discovery reached its 128 MiB total text limit.');
+        try { planner.visit({ path, text, hash }, noteBytes); }
+        catch (error) {
+          if (error instanceof VaultError && error.category === 'parser_limit') {
+            refuse('capacity', 'A vault note exceeded the Markdown parser’s complexity limit during link discovery.');
+          }
+          if (error instanceof VaultError && error.category === 'capacity') refuse('capacity', error.nextAction);
+          throw error;
+        }
       }
     }
-    if (notes.find(n => n.path === input.path)?.hash !== input.expectedHash) throw new VaultError('conflict');
-    let plan: ReturnType<typeof planMove>;
-    try { plan = planMove(notes, input.path, input.destination, this.parser); }
-    catch (error) {
-      if (error instanceof VaultError && error.category === 'parser_limit') {
-        refuse('capacity', 'A vault note exceeded the Markdown parser’s complexity limit during link discovery.');
-      }
-      if (error instanceof VaultError && error.category === 'capacity') refuse('capacity', error.nextAction);
-      throw error;
+    const finalPaths = await list();
+    if (finalPaths.length !== inventory.size || finalPaths.some(path => !inventory.has(path))) {
+      throw new VaultError('conflict', 'Move stopped before writing. Vault paths changed during link discovery. Check the source and destination before preparing another move.');
     }
+    const plan = planner.repairs;
     const operationId = this.operationId();
     const record: MoveRecord = { vaultId: input.vaultId, path: input.path, destination: input.destination, operationId, repairs: plan.map(r => ({ path: r.path, expectedHash: r.expectedHash, hash: r.hash, operationId: this.operationId(), outcome: 'unstarted' })) };
     if (JSON.stringify(record).length > 32000) refuse('capacity', 'The link repair plan exceeds the move record size limit.');
     // Keep only bounded metadata; original/recovery bytes live with the producer.
-    await this.update(async () => {
-      this.check(input.vaultId, revision);
+    const checkLedger = () => {
       if ((this.state.moves?.length ?? 0) >= 20) refuse('capacity', 'The move ledger has reached its 20-record limit. Ask the operator to inspect move recovery records.');
       if (this.state.moves?.some(r => !r.finished && r.vaultId === input.vaultId && [r.path, r.destination].some(p => p === input.path || p === input.destination))) throw new VaultError('busy');
+    };
+    if (input.dryRun) {
+      check();
+      checkLedger();
+      return { outcome: 'link_plan_ready', notesChecked: listed.length, bytesChecked: bytes, plannedRepairs: plan.length,
+        message: 'Read-only link discovery completed. Moving reruns preflight and checks destination, conflicts and recovery state at write time.' };
+    }
+    await this.update(async () => {
+      check();
+      checkLedger();
       await this.save({ ...this.state, moves: [...(this.state.moves ?? []), record] });
     });
     try {

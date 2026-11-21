@@ -18,7 +18,7 @@ type Journal = {
   receipts(mirrorId: string, operationId: string): PhysicalReceipt[];
 };
 
-test('archive in a vault over 128 notes repairs a backlink beyond 64,000 characters and leaves a durable receipt', { skip: process.platform !== 'linux' }, async t => {
+test('archive scans a large vault, repairs late backlinks, and leaves a durable receipt', { skip: process.platform !== 'linux', timeout: 20000 }, async t => {
   // Load the real producer journal without requiring an iCloud npm install.
   const { NoteMoves }: { NoteMoves: new (db: Database.Database, store: NoteStore) => Journal } =
     await import(new URL('../../icloud/adapters/note-move.ts', import.meta.url).href);
@@ -30,13 +30,14 @@ test('archive in a vault over 128 notes repairs a backlink beyond 64,000 charact
   for (const folder of ['Projects/Active', 'Projects/Done', 'Reference']) {
     await mkdir(join(vault, folder), { recursive: true });
   }
-  for (let i = 0; i < 512; i++) {
-    await writeFile(join(vault, 'Reference', `Note ${i}.md`), 'A synthetic reference note.\n');
-  }
+  const filler = 'A synthetic reference note.\n'.repeat(1600);
+  for (let i = 0; i < 512; i++) await writeFile(join(vault, 'Reference', `Note ${i}.md`), filler);
   await writeFile(join(vault, path), original);
   const indexPrefix = 'Generated reference text. '.repeat(6000)
     + '\n\n```markdown\n[[Projects/Active/Service a heater|Example in code]]\n```\n\n';
-  await writeFile(join(vault, 'Reference/Index.md'), indexPrefix + '[[Projects/Active/Service a heater|Service]]\n');
+  const lateIndex = join(vault, 'Reference/Z Index.md');
+  const before = '[[Service a heater|Service]]\n[Service](../Projects/Active/Service%20a%20heater.md)\n';
+  await writeFile(lateIndex, indexPrefix + before);
 
   const databasePath = join(root, 'moves.sqlite');
   const db = new Database(databasePath);
@@ -83,7 +84,7 @@ test('archive in a vault over 128 notes repairs a backlink beyond 64,000 charact
   assert.equal(read.complete, true);
   assert.equal(read.editReady, true);
   const request = { ...target, destination, expectedHash: read.hash };
-  const extra = join(vault, 'Reference/Extra.md');
+  const extra = join(vault, 'Reference/ZZ Extra.md');
   await writeFile(extra, 'é'.repeat(512 * 1024 + 1));
   const refused = await call('obsidian_move_note', request);
   assert.equal(refused.isError, true);
@@ -92,14 +93,30 @@ test('archive in a vault over 128 notes repairs a backlink beyond 64,000 charact
   assert.equal((await readFile(join(vault, path), 'utf8')), original);
   await assert.rejects(readFile(join(vault, destination)), { code: 'ENOENT' });
   assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
+  await writeFile(extra, '[Service][ref]\n\n[ref]: ../Projects/Active/Service%20a%20heater.md\n');
+  const unsupported = await call('obsidian_move_note', request);
+  assert.equal(unsupported.isError, true);
+  assert.equal(unsupported.response.category, 'unsupported_links');
+  assert.equal(await readFile(join(vault, path), 'utf8'), original);
+  assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
   await rm(extra);
 
+  const started = performance.now();
+  const preview = await run('obsidian_move_note', { ...request, dryRun: true });
+  assert.equal(preview.outcome, 'link_plan_ready');
+  assert.equal(preview.notesChecked, 514);
+  assert.ok(preview.bytesChecked > 20 * 1024 * 1024);
+  assert.equal(preview.plannedRepairs, 1);
+  assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
+  assert.equal(await readFile(lateIndex, 'utf8'), indexPrefix + before);
+  t.diagnostic(`Read-only planning checked ${preview.bytesChecked} bytes in ${Math.round(performance.now() - started)} ms.`);
   const result = await run('obsidian_move_note', request);
   assert.equal(result.outcome, 'moved_supported_links_updated');
   assert.equal((await run('obsidian_move_status', { vaultId: 'one', operationId: result.operationId })).physical, 'moved_locally_pending_sync');
   assert.equal(await readFile(join(vault, destination), 'utf8'), original);
   await assert.rejects(readFile(join(vault, path)), { code: 'ENOENT' });
-  assert.equal(await readFile(join(vault, 'Reference/Index.md'), 'utf8'), indexPrefix + '[[Projects/Done/Service a heater|Service]]\n');
+  assert.equal(await readFile(lateIndex, 'utf8'), indexPrefix
+    + '[[Projects/Done/Service a heater|Service]]\n[Service](../Projects/Done/Service%20a%20heater.md)\n');
 
   db.close();
   const reopened = new Database(databasePath, { readonly: true, fileMustExist: true });

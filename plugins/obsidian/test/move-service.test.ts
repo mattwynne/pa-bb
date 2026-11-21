@@ -14,10 +14,10 @@ class MoveFiles extends FilesFake {
  }
  async moveReceipts(){return this.physical;}
 }
-async function fixture(){
+async function fixture(clock = Date.now){
  const files=new MoveFiles();files.notes.clear();files.notes.set('one/Areas/Example.md','body\n');files.notes.set('one/Index.md','[[Example#Heading|alias]]\n');
  const state=new MemoryState(), catalog=new CatalogFake(), logs:string[]=[];
- const make=()=>new Obsidian(catalog,files,new MarkdownNotes(),state,randomUUID,Date.now,(s,c)=>logs.push(s+':'+c));
+ const make=()=>new Obsidian(catalog,files,new MarkdownNotes(),state,randomUUID,clock,(s,c)=>logs.push(s+':'+c));
  const service=make();await service.start();await service.connect('one');
  const source=await service.read({vaultId:'one',path:'Areas/Example.md'},undefined,'reader');
  return{files,state,service,make,logs,input:{vaultId:'one',path:'Areas/Example.md',destination:'Reference/New example.md',expectedHash:source.hash!}};
@@ -28,6 +28,7 @@ test('whole-read move repairs links and metadata-only ledger survives restart',a
   assert.equal(f.files.notes.get('one/Index.md'),'[[Reference/New example#Heading|alias]]\n');
   assert.equal(JSON.stringify(f.state.value).includes('body'),false);
   await f.service.stop();const next=f.make();await next.start();
+  assert.ok(result.operationId);
   const status=await next.moveStatus({vaultId:'one',operationId:result.operationId});assert.equal(status.outcome,'moved_supported_links_updated');assert.equal(f.files.moves,1);await next.stop();
  }finally{await f.service.stop();}
 });
@@ -63,15 +64,51 @@ test('an incomplete listing or exhausted link discovery budget stops before a mo
     await assertRefused('unavailable', /vault listing was incomplete/);
     f.files.list = async (id, revision) => ({
       ...await list(id, revision),
-      paths: Array.from({ length: 4097 }, (_, i) => `Note ${i}.md`),
+      paths: Array.from({ length: 10001 }, (_, i) => `Note ${i}.md`),
     });
-    await assertRefused('capacity', /4096 notes/);
+    await assertRefused('capacity', /10000 notes/);
 
     f.files.list = list;
-    const text = 'a'.repeat(64000);
-    for (let i = 0; i < 66; i++) f.files.notes.set(`one/Long note ${i}.md`, text);
-    await assertRefused('capacity', /4 MiB total text/);
+    const text = 'a'.repeat(1024 * 1024);
+    for (let i = 0; i < 129; i++) f.files.notes.set(`one/Long note ${i}.md`, text);
+    await assertRefused('capacity', /128 MiB total text/);
     assert.equal(f.files.notes.get('one/Areas/Example.md'), 'body\n');
+  } finally {
+    await f.service.stop();
+  }
+});
+
+test('paths added during discovery stop the move before any record or write', async () => {
+  const f = await fixture();
+  const list = f.files.list.bind(f.files);
+  try {
+    let calls = 0;
+    f.files.list = async (id, revision) => {
+      if (++calls === 2) f.files.notes.set('one/Concurrent.md', '[[Example]]');
+      return list(id, revision);
+    };
+    await assert.rejects(f.service.move(f.input, undefined, 'reader'),
+      error => error instanceof VaultError && error.category === 'conflict' && /paths changed/.test(error.nextAction));
+    assert.equal(f.files.moves, 0);
+    assert.equal(f.state.value.moves, undefined);
+  } finally {
+    await f.service.stop();
+  }
+});
+
+test('the move stops before writing if preflight runs out of time', async () => {
+  let now = Date.now();
+  const f = await fixture(() => now);
+  const read = f.files.read.bind(f.files);
+  try {
+    f.files.read = async (...args) => {
+      now += 20000;
+      return read(...args);
+    };
+    await assert.rejects(f.service.move(f.input, undefined, 'reader'),
+      error => error instanceof VaultError && error.category === 'capacity' && /20-second time limit/.test(error.nextAction));
+    assert.equal(f.files.moves, 0);
+    assert.equal(f.state.value.moves, undefined);
   } finally {
     await f.service.stop();
   }

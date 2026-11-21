@@ -31,6 +31,13 @@ test('local safety blocks note RPCs despite ready cloud; historical receipt insp
   await assert.rejects(f.adapter.receipts({ mirrorId: 'one', revision: 1, limit: 1 }), (e: any) => e.category === 'busy');
   assert.equal(f.calls.at(-1)?.input.version, 2);
 });
+test('move discovery uses the versioned producer read directly and propagates its refusal', async () => {
+  const f = fixture();
+  await assert.rejects(f.adapter.readForMove('one', 3, 'Note.md', new AbortController().signal),
+    (error: any) => error.category === 'busy' && error.diagnosticReported === true);
+  assert.deepEqual(f.calls, [{ method: 'noteRead', input: { version: 2, mirrorId: 'one', revision: 3, path: 'Note.md' } }]);
+  assert.deepEqual(f.logs, ['Obsidian rpc busy']);
+});
 test('transport failures at receipt, guarded read, inspect and mutation boundaries never disclose synthetic sentinels', async () => {
   for (const [method, run, category] of [
     ['noteReceipts', (a: ICloud) => a.receipts({ mirrorId: 'one', revision: 1, limit: 1 }), 'unavailable'],
