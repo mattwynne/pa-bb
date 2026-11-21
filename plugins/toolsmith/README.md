@@ -9,13 +9,13 @@ Improve PA's BB plugins in response to needs encountered while using PA. This ad
 3. The child builds, tests, safely loads, and verifies the improvement under PA's normal development rules. The original chat can continue with other work. Publication, credential changes, and live account writes are separate.
 4. The child reports through BB's parent notifications. The original chat explains what's available, whether it needs a fresh session, or what's blocked. Nothing automatically replays a live account action.
 
-The confirmation is conversational. This pilot does not expose a privileged spawn API, fork the conversation, install upstream hooks, add a custom panel, or run background automation. Agents use BB's normal thread command and permission policy. There is no queue or atomic reservation; the status check is conservative and the worker must still check ownership before writing.
+The confirmation is conversational. This pilot does not expose a privileged spawn API, fork the conversation, install upstream hooks, add a custom panel, or run background automation. Agents use BB's normal thread command and permission policy. Multiple approved tasks may have visible threads at once. Research and planning can proceed independently, but source implementation remains one worker at a time under the repository rules. Workers coordinate explicit handoffs and serialize shared-checkout integration and plugin reloads. There is no automatic queue or atomic reservation; the worker must still resolve ownership before writing.
 
 ## Configure and verify
 
 Use the normal PA local-path plugin workflow. Select the PA development project under Toolsmith settings, or use `bb plugin config toolsmith set project <project-id>`. A new agent session discovers the [pa-toolsmith skill](skills/pa-toolsmith/SKILL.md).
 
-`bb toolsmith status --json` is a read-only preflight. `ready` means it found a configured project with a checkout and saw no running work there. `busy`, `unconfigured`, `invalid_project`, `incomplete`, and command errors aren't permission to launch. The command checks hidden work too, but cannot detect plans or ownership outside BB's view.
+`bb toolsmith status --json` is a read-only preflight. `ready` means it found a configured project with a checkout and completed its bounded scan. It permits a new handoff even when other work exists: `otherThreads` lists active, pending, or background workers for coordination. This is not permission to implement concurrently. `unconfigured`, `invalid_project`, `incomplete`, and command errors still block handoff. The command checks hidden work too, but cannot detect plans or ownership outside BB's view. It no longer returns `busy` merely because another task exists.
 
 Run `npm ci`, `npm test`, `npm run typecheck`, and `npm run build` from this package. To pilot the conversation loop, try an existing supported capability (no offer), an actual narrow capability gap (offer only), then explicitly confirm one scoped request (one visible child with a sanitized brief and a report back). Do not use real account changes as test fixtures.
 

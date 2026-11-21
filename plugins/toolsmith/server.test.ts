@@ -29,7 +29,7 @@ test("returns the selected project and checks hidden work", async () => {
   const { run, reads } = host();
   const result = await run();
   assert.equal(result.exitCode, 0);
-  assert.deepEqual(JSON.parse(result.stdout!), { status: "ready", projectId: "proj_test" });
+  assert.deepEqual(JSON.parse(result.stdout!), { status: "ready", projectId: "proj_test", otherThreads: [] });
   assert.equal(reads.length, 1);
   assert.deepEqual({ ...reads[0], signal: undefined }, { projectId: "proj_test", archived: false, includeHidden: true, limit: 50, offset: 0, signal: undefined });
 });
@@ -45,25 +45,31 @@ test("refuses unconfigured and non-source projects without checking threads", as
   }
 });
 
-test("blocks active, pending, and background work even on later pages", async () => {
+test("accepts handoffs with active, pending, and background work, reporting later-page owners", async () => {
   for (const blocker of [
     { ...idle, status: "active" },
     { ...idle, status: "pending" },
     { ...idle, activity: { activeBackgroundCommandCount: 1 } },
   ]) {
     const { run } = host({ list: ({ offset }) => offset === 0 ? fullPage : [blocker] });
-    assert.equal(JSON.parse((await run()).stdout!).status, "busy");
+    assert.deepEqual(JSON.parse((await run()).stdout!), { status: "ready", projectId: "proj_test", otherThreads: [blocker.id] });
   }
 });
 
 test("the asking thread itself does not count as another worker", async () => {
   const { run } = host({ callerId: idle.id, list: () => [{ ...idle, status: "active" }] });
-  assert.equal(JSON.parse((await run()).stdout!).status, "ready");
+  assert.deepEqual(JSON.parse((await run()).stdout!), { status: "ready", projectId: "proj_test", otherThreads: [] });
 });
 
 test("never reports ready if the scan is incomplete", async () => {
   const { run, reads } = host({ list: () => fullPage });
   assert.equal(JSON.parse((await run()).stdout!).status, "incomplete");
+  assert.equal(reads.length, 10);
+});
+
+test("running work does not short-circuit an incomplete scan", async () => {
+  const { run, reads } = host({ list: () => [{ ...idle, status: "active" }, ...fullPage.slice(1)] });
+  assert.deepEqual(JSON.parse((await run()).stdout!), { status: "incomplete", projectId: "proj_test", otherThreads: [idle.id] });
   assert.equal(reads.length, 10);
 });
 

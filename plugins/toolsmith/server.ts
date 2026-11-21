@@ -15,13 +15,13 @@ export default function toolsmith(bb: BbPluginApi) {
     summary: "Check where to hand off a confirmed PA plugin improvement",
     commands: {
       status: cliCommand({
-        summary: "Check the configured project and whether it has work in progress (read-only)",
+        summary: "Check the target project and report other work without blocking a new handoff (read-only)",
         options: { json: { type: "boolean", description: "Emit machine-readable status" } },
         async run(input, { signal, threadId: callerId }) {
           let stage = "settings";
           try {
             const { project: projectId } = await settings.get();
-            const output = (status: string, message: string, details: { projectId?: string; threadId?: string } = {}) => ({
+            const output = (status: string, message: string, details: { projectId?: string; otherThreads?: string[] } = {}) => ({
               exitCode: 0,
               stdout: input.options.json ? JSON.stringify({ status, ...details }) : message,
             });
@@ -34,18 +34,22 @@ export default function toolsmith(bb: BbPluginApi) {
             }
 
             stage = "thread-list";
+            const otherThreads = new Set<string>();
             for (let page = 0; page < maxPages; page++) {
               const threads = await bb.sdk.threads.list({
                 projectId, archived: false, includeHidden: true,
                 limit: pageSize, offset: page * pageSize, signal,
               });
-              const busy = threads.find(({ id, status, activity }) =>
-                id !== callerId && ((status !== "idle" && status !== "error") ||
-                Object.values(activity).some((count) => count > 0)));
-              if (busy) return output("busy", "A thread is working in the PA project. Do not start concurrent implementation.", { projectId, threadId: busy.id });
-              if (threads.length < pageSize) return output("ready", `No running work found in ${projectId}. This check is not a reservation.`, { projectId });
+              for (const { id, status, activity } of threads) {
+                if (id !== callerId && ((status !== "idle" && status !== "error") ||
+                  Object.values(activity).some((count) => count > 0))) otherThreads.add(id);
+              }
+              if (threads.length < pageSize) return output("ready", otherThreads.size
+                ? `Target is ready for another handoff. Other work is present: ${[...otherThreads].join(", ")}. Research and planning may proceed; coordinate implementation ownership before editing. This check is not a reservation.`
+                : `No running work found in ${projectId}. This check is not a reservation.`,
+                { projectId, otherThreads: [...otherThreads] });
             }
-            return output("incomplete", "Could not check every PA thread. Do not start toolsmithing from this result.", { projectId });
+            return output("incomplete", "Could not check every PA thread. Do not start toolsmithing from this result.", { projectId, otherThreads: [...otherThreads] });
           } catch {
             if (signal?.aborted) throw new PluginCliError("Toolsmith status check cancelled.", { code: "cancelled" });
             bb.log.warn(`status ${stage} failed`);
