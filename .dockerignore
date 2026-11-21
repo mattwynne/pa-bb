@@ -3,8 +3,6 @@
 !Dockerfile
 !docker/
 !docker/**
-!provisioning/
-!provisioning/**
 !plugins/
 !plugins/**
 !shared/

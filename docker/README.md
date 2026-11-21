@@ -25,11 +25,15 @@ docker exec -it pa-bb /home/bb/.local/bin/codex login --device-auth
 
 ## What it includes
 
-The image reuses Ansible's existing dependency and runtime installation tasks
-**at build time**, keeping their versions and checksums in one place. It includes
-Node, stock BB, Pi, Codex, native Claude Code, Hermes, uv/uvx, rclone, ripgrep,
-Chrome and the native build toolchain. Each PA plugin gets `npm ci` from its
-lockfile. Ansible and sudo are removed after installation.
+The image starts from `node:24-bookworm-slim` and installs dependencies directly
+in the Dockerfile—no Ansible or sudo. It includes stock BB, Pi, Codex, native
+Claude Code, Hermes, uv/uvx, rclone, ripgrep, Chrome and the native build toolchain.
+Each PA plugin gets `npm ci` from its lockfile.
+
+Application versions and download checksums match the Ansible provisioning;
+`test_dockerfile.py` flags drift. Debian packages, including ripgrep, follow
+Bookworm's repositories rather than Ubuntu's package-version pins. Chrome follows
+Google's stable APT channel. Node follows the image's Node 24 updates.
 
 At startup it runs BB as UID 1000 and registers all PA source plugins plus the
 official Browser Automation plugin through BB's CLI. Existing registrations and
@@ -67,8 +71,6 @@ resume failed/user-paused sync folders.
 
 ```sh
 python3 -m unittest discover -s docker -p 'test_*.py'
-ANSIBLE_ROLES_PATH="$PWD/provisioning/roles" ansible-playbook \
-  -i localhost, -c local docker/build.yml --syntax-check
 docker inspect --format '{{.State.Health.Status}}' pa-bb
 docker exec pa-bb node /home/bb/.local/lib/node_modules/bb-app/host-daemon/dist/bb plugin list --json
 ```
