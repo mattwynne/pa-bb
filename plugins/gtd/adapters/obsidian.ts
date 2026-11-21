@@ -19,6 +19,7 @@ export async function vaultOptions(sdk: BbPluginApi['sdk'], signal: AbortSignal 
 export const vaultIdSchema = z.string().regex(/^[A-Za-z0-9-]{1,64}$/);
 // Wire contracts are local to this adapter. No imports from another plugin's implementation.
 const statusSchema = z.object({
+  projectAreasVersion: z.number().int().optional(),
   propertiesAccessVersion: z.number().int().optional(),
   childrenAccessVersion: z.number().int().optional(),
   vaults: z.array(z.object({ vaultId: vaultIdSchema, name: z.string().nullable(), source: z.object({
@@ -56,8 +57,9 @@ export function projectFromNote(folder: string, path: string, properties: Record
   const title = properties.title === undefined ? parts.at(-1)!.slice(0, -3) : properties.title;
   if (!text(title, 240)) return 'invalid';
   const areaId = properties.areaId ?? undefined;
-  if (areaId !== undefined && !relativeFolder.safeParse(typeof areaId === 'string' ? areaId.replace(/\/$/, '') : areaId).success) return 'invalid';
-  return { id: path, title: (title as string).trim(), status, ...(typeof areaId === 'string' ? { areaId } : {}) };
+  const validAreaId = typeof areaId === 'string' && relativeFolder.safeParse(areaId.replace(/\/$/, '')).success;
+  // An invalid relationship does not erase an otherwise valid project entry.
+  return { id: path, title: (title as string).trim(), status, ...(validAreaId ? { areaId: areaId as string } : {}) };
 }
 
 export function areaFromNote(folder: string, path: string, properties: Record<string, unknown>): Area | 'invalid' | null {
@@ -73,7 +75,7 @@ export function areaFromNote(folder: string, path: string, properties: Record<st
 }
 
 export class ObsidianBackend implements ProjectBackend, AreaBackend {
-  constructor(private sdk: BbPluginApi['sdk'], private config: { vaultId: string; folder: string; root?: string }, private cleanupFailure: () => void = () => {}) {}
+  constructor(private sdk: BbPluginApi['sdk'], private config: { vaultId: string; folder: string; root?: string; areasFolder?: string }, private cleanupFailure: () => void = () => {}) {}
   async rename(id: string, title: string, signal: AbortSignal) {
     const folder = this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder;
     if (!relativeFolder.safeParse(id).success || !id.startsWith(folder + '/') || !id.endsWith('.md')) throw new GtdError('invalid_source');
@@ -183,6 +185,35 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         }
       };
       await enumerate(folder);
+    }
+    if (signal.aborted) throw new GtdError('cancelled');
+    if (kind === 'project' && this.config.areasFolder) {
+      if (state.projectAreasVersion !== 1) warnings.add('source_partial');
+      else {
+        const roots = [...entries.values()].filter(item => item.id.endsWith('.md'));
+        for (const item of roots) delete (item as Project).areaId;
+        const schema = z.object({ rows: z.array(z.object({ path: relativeFolder, status: z.enum(['none', 'resolved', 'unresolved']), areaId: z.string().max(1024).optional() }).strict()).max(50), incomplete: z.boolean() }).strict();
+        for (let start = 0; start < roots.length; start += 50) {
+          if (readSignal.aborted) { warnings.add('scan_limit'); break; }
+          const batch = roots.slice(start, start + 50);
+          // Source projection reads only explicit root-note evidence; no note
+          // bodies or arbitrary supporting links cross this consumer boundary.
+          try {
+            const page = schema.parse(await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'projectAreas', input: { vaultId: this.config.vaultId, root: this.config.root ?? '', areaFolder: [this.config.root, this.config.areasFolder].filter(Boolean).join('/'), paths: batch.map(p => p.id) }, outputSchema: z.unknown(), signal: readSignal }));
+            if (page.incomplete) warnings.add('source_partial');
+            for (const item of batch) {
+              delete (item as Project).areaId;
+              const matches = page.rows.filter(row => row.path === item.id);
+              if (matches.length !== 1) { warnings.add('source_partial'); continue; }
+              const row = matches[0];
+              if (row.status === 'resolved') {
+                if (!row.areaId || !relativeFolder.safeParse(row.areaId.replace(/\/$/, '')).success) warnings.add('source_partial');
+                else (item as Project).areaId = row.areaId;
+              }
+            }
+          } catch { if (signal.aborted) throw new GtdError('cancelled'); warnings.add(readSignal.aborted ? 'scan_limit' : 'source_partial'); for (const item of batch) delete (item as Project).areaId; }
+        }
+      }
     }
     if (signal.aborted) throw new GtdError('cancelled');
     items.push(...entries.values());

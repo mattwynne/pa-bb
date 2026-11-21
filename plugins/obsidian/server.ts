@@ -16,6 +16,11 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
   await service.start(); bb.onDispose(async () => { await admission.stop(); await service.stop(); });
   const clientOnly = (context: { experimental_caller: { kind: string } }) => { if (context.experimental_caller.kind !== 'client') throw new Error('Use Obsidian client settings for connection or conflict recovery.'); };
   bb.rpc.register(rpcContract, {
+    async projectAreas(input, context) {
+      if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the GTD consumer can request project Area evidence.' });
+      try { return await admission.run(() => service.projectAreas(input, context.experimental_signal)); }
+      catch { diagnose('rpc', context.experimental_signal.aborted ? 'cancelled' : 'unavailable'); throw new Error('Project Area evidence did not complete. Check compatible source access.'); }
+    },
     async renameTitle(input, context) {
       if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the GTD consumer can request a title edit.' });
       return admission.run(async () => { try {

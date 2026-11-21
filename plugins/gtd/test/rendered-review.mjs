@@ -50,7 +50,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  for (const width of [1280, 390]) for (const mode of ['normal', 'empty', 'error', 'loading', 'missing', 'directory-gap', 'folder-complete', 'area-boundary']) {
+  for (const width of [1280, 390]) for (const mode of ['normal', 'empty', 'error', 'loading', 'missing', 'directory-gap', 'folder-complete', 'area-boundary', 'relationships']) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
     page.setDefaultTimeout(12000);
     const errors = []; const consoleErrors = []; page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
@@ -101,6 +101,7 @@ try {
       if (method === 'listAreas') result = { source, areas: [{ id: 'Areas/Learning.md', title: area }], coverage: 'complete', warnings: [], totalAreas: 1, nextCursor: null, consistency: 'Per-area local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' };
       if (method === 'listProjects' && mode === 'area-boundary') result.projects[0].areaId = 'Areas/Learning/Example Committee/Meeting.md';
       if (method === 'listAreas' && mode === 'area-boundary') result.areas.push(...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` })));
+      if (method === 'listProjects' && mode === 'relationships') { result.projects[0].areaId = 'Areas/Learning/Consulting.md'; result.projects.push({ id: 'Projects/Unresolved.md', title: 'Unresolved project', status: 'active' }); }
       if (method === 'renameProject' || method === 'renameArea') { if (method === 'renameProject') title = input.title; else area = input.title; result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' }; }
       if (method === 'newThread') { creations++; await new Promise(r => setTimeout(r, 250)); result = { threadId: 'fixture1' }; }
       if (method === 'associate') { if (input.project) associations.set(input.threadId, input.project); else associations.delete(input.threadId); result = null; }
@@ -219,6 +220,12 @@ try {
       const create = nav.getByRole('button', { name: 'New thread for Woodwork' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
       await page.waitForURL('**/threads/fixture1');
       assert.equal(creations, 1);
+    } else if (mode === 'relationships') {
+      await nav.getByRole('button', { name: 'Learning', exact: true }).waitFor();
+      await nav.getByRole('button', { name: 'Learn woodworking', exact: true }).waitFor();
+      await nav.getByRole('button', { name: 'Unassigned area', exact: true }).waitFor();
+      await nav.getByRole('button', { name: 'Unresolved project', exact: true }).waitFor();
+      await nav.getByRole('button', { name: 'New thread for Learn woodworking' }).focus();
     } else if (mode === 'area-boundary') {
       await nav.getByRole('button', { name: 'Learning', exact: true }).waitFor();
       await nav.getByRole('button', { name: 'Learn woodworking', exact: true }).waitFor();

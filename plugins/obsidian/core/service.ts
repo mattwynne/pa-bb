@@ -2,6 +2,7 @@ import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
 import { VaultError } from './ports.ts';
+import { areaEvidence, areaCandidates, areaLinkPath } from './project-areas.ts';
 import { VaultSearch } from './search.ts';
 import { planMove, type MoveRecord } from './move.ts';
 import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution } from './ports.ts';
@@ -138,7 +139,7 @@ export class Obsidian {
     this.checkRevision(revision);
     const uncertain = (this.state.pending ?? []).filter(matchesPending);
     const uncertainOperations = uncertain.slice(0, Math.min(input.limit ?? 20, 100));
-    return { propertiesAccessVersion: 1 as const, ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
+    return { projectAreasVersion: 1 as const, propertiesAccessVersion: 1 as const, ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
   }
   async vaultLocations() {
     const vaults: Array<{ id: string; root: string; name: string }> = []; let incomplete = false;
@@ -154,6 +155,54 @@ export class Obsidian {
       } catch { this.diagnose('rpc', 'unavailable'); incomplete = true; }
     }
     return { vaults, incomplete };
+  }
+  async projectAreas(input: { vaultId: string; root: string; areaFolder: string; paths: string[] }, signal?: AbortSignal) {
+    if (signal?.aborted) throw new VaultError('cancelled');
+    const { revision } = await this.source(input.vaultId);
+    const listed = await this.files.list(input.vaultId, revision); this.check(input.vaultId, revision);
+    if (signal?.aborted) throw new VaultError('cancelled');
+    const children = this.files.children ? await this.files.children(input.vaultId, revision, input.areaFolder) : { entries: [], incomplete: true };
+    this.check(input.vaultId, revision);
+    let incomplete = listed.incomplete || children.incomplete, bytes = 0;
+    const started = this.clock();
+    const candidates = [...listed.paths, ...children.entries.filter(e => e.kind === 'directory' && !listed.paths.includes(`${input.areaFolder}/${e.name}.md`)).map(e => `${input.areaFolder}/${e.name}/`)];
+    const rows: Array<{ path: string; status: 'none' | 'resolved' | 'unresolved'; areaId?: string }> = [];
+    const directoryCache = new Map<string, Awaited<ReturnType<NonNullable<VaultFiles['children']>>>>();
+    for (const path of input.paths) {
+      if (signal?.aborted) throw new VaultError('cancelled');
+      if (bytes >= 2 * 1024 * 1024 || this.clock() - started > 10000) { incomplete = true; break; }
+      validPath(path);
+      if (input.root && !path.startsWith(input.root + '/')) throw new VaultError('invalid_path');
+      try {
+        const note = await this.files.read(input.vaultId, revision, path); this.check(input.vaultId, revision);
+        if (signal?.aborted) throw new VaultError('cancelled');
+        bytes += Buffer.byteLength(note.text);
+        if (bytes > 2 * 1024 * 1024) { incomplete = true; break; }
+        const evidence = areaEvidence(note.text, this.parser);
+        for (const link of evidence ?? []) {
+          if (areaCandidates(link, path, input.root, candidates).length) continue;
+          const target = areaLinkPath(link, path, input.root);
+          if (!target || target.endsWith('.md') || !target.startsWith(input.areaFolder + '/') || !this.files.children) continue;
+          const parent = posix.dirname(target);
+          if (!directoryCache.has(parent)) {
+            if (directoryCache.size >= 50 || this.clock() - started > 10000 || signal?.aborted) { incomplete = true; break; }
+            directoryCache.set(parent, await this.files.children(input.vaultId, revision, parent));
+            this.check(input.vaultId, revision);
+          }
+          const directory = directoryCache.get(parent)!;
+          incomplete ||= directory.incomplete;
+          if (directory.entries.some(entry => entry.kind === 'directory' && entry.name === posix.basename(target))) candidates.push(target + '/');
+        }
+        const targets = evidence?.map(link => incomplete ? [] : areaCandidates(link, path, input.root, candidates));
+        const ids = new Set(targets?.flat());
+        if (!evidence) rows.push({ path, status: 'unresolved' });
+        else if (!evidence.length) rows.push({ path, status: 'none' });
+        else if (targets!.every(matches => matches.length === 1) && ids.size === 1 && [...ids][0].startsWith(input.areaFolder + '/')) rows.push({ path, status: 'resolved', areaId: [...ids][0] });
+        else rows.push({ path, status: 'unresolved' });
+      } catch (error) { this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled'); incomplete = true; this.diagnose('rpc', 'unavailable'); rows.push({ path, status: 'unresolved' }); }
+    }
+    this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
+    return { rows, incomplete };
   }
   async listChildren(input: { vaultId: string; folder: string }, signal?: AbortSignal) {
     if (signal?.aborted) throw new VaultError('cancelled');

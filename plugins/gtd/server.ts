@@ -60,7 +60,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     const config = await settings.get();
     if (!config.vaultId || config.vaultId === '__none__') throw new GtdError('unconfigured');
     if (config.backend !== 'obsidian' || !vaultSelectionSchema.safeParse(config.vaultId).success || !relativeFolder.safeParse(config.projectsFolder).success) throw new GtdError('invalid_configuration');
-    return { key: JSON.stringify(config), backend: new ObsidianBackend(bb.sdk, { vaultId: config.vaultId.split('/')[0], root: config.vaultId.split('/').slice(1).join('/'), folder: config.projectsFolder }, () => diagnose('cleanup', 'source_unavailable')) };
+    return { key: JSON.stringify(config), backend: new ObsidianBackend(bb.sdk, { vaultId: config.vaultId.split('/')[0], root: config.vaultId.split('/').slice(1).join('/'), folder: config.projectsFolder, areasFolder: config.areasFolder }, () => diagnose('cleanup', 'source_unavailable')) };
   });
   const projects = new Projects(select);
   const areas = new Areas(selectAreas);

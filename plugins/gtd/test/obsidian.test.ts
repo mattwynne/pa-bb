@@ -15,7 +15,7 @@ test('folder membership defines projects; folder status wins and root defaults a
   assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', {}), { id: 'Projects/Plan.md', title: 'Plan', status: 'active' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', { areaId: 'Areas/Learning.md' }), { id: 'Projects/Plan.md', title: 'Plan', status: 'active', areaId: 'Areas/Learning.md' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', { areaId: null }), { id: 'Projects/Plan.md', title: 'Plan', status: 'active' });
-  assert.equal(projectFromNote('Projects', 'Projects/Plan.md', { areaId: '../Areas/Learning.md' }), 'invalid');
+  assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', { areaId: '../Areas/Learning.md' }), { id: 'Projects/Plan.md', title: 'Plan', status: 'active' });
   assert.equal(projectFromNote('Projects', 'Projects/Plan.md', { type: 'project', status: 'blocked' }), 'invalid');
   assert.equal(projectFromNote('Projects', 'Projects/Plan.md', { type: 'project', status: 'active', title: 'bad\nheading' }), 'invalid');
 });
