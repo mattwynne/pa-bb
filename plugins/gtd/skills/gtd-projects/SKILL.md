@@ -1,6 +1,6 @@
 ---
 name: gtd-projects
-description: Browse personal GTD projects and areas, or rename their display titles by stable backend ID. Not for BB coding-project inventories.
+description: Create, clarify, review, browse or maintain personal GTD projects and areas of focus. Includes outcome and success criteria, area standards, and stable-ID title edits. For personal GTD. BB coding-project inventories use separate tooling.
 ---
 
 # GTD projects
@@ -27,6 +27,15 @@ bb gtd sources --json
 ```
 
 Setup is in GTD's native BB settings: choose the vault by name, then set Projects and Areas relative to that actual vault (defaults `Projects` and `Areas`). Do not prepend an enclosing synced-folder or vault-name prefix. Reload GTD to refresh the discovered vault choices after connecting another source. Inventory calls remain read-only. Requested title renames and thread associations are separate operations; nothing migrates or resumes sources automatically.
+
+## Creating, reviewing and maintaining entries
+
+Read [project and area practice](references/project-and-area-practice.md) when the user wants to define, create, review or improve a personal GTD project or area. It covers project outcomes, completion criteria, next actions, and standards for ongoing responsibilities.
+
+- Use GTD inventory to find existing entries and stable IDs. Read the relevant root notes when the review needs their content. A listing alone is enough for inventory and title-only review.
+- GTD tools cover inventory and display-title changes. For a requested content edit or new entry in Obsidian, use the ordinary Obsidian tools. Verify the configured vault and folder before creating a root note. Use an existing project status container only when appropriate for the requested status. Area entries sit immediately under the configured Areas folder.
+- Use an existing matching entry where possible. For note edits, complete the Obsidian read and use its verified hash. For a new entry, check the intended path and use non-overwriting note creation. Use the exact area ID when a project association is requested and the area is known.
+- Preserve existing note conventions. Put outcome and completion criteria, or the area's ongoing standard, in the note body without requiring new frontmatter fields. Follow the existing status mechanism for requested status changes. Moving a note can change its backend ID and affect linked threads, so account for that before making a move.
 
 ## Navigation, titles and linked threads
 
