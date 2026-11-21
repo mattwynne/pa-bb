@@ -187,6 +187,12 @@ remain enforced by the existing parser before saving.
   lost configuration reply stays unconfirmed and must be checked again. A local
   save accepted before revocation is not undone. Removal does not delete notes, pause sync or disconnect Apple.
 
+## Immediate-child consumer
+
+Sources implementing `VaultFiles.children` advertise `childrenAccessVersion: 1` in status. `listChildren({vaultId, folder})` returns bounded immediate `{name, kind: 'directory' | 'markdown'}` entries and `incomplete`; no note bytes, paths outside the connected source, edit proofs or GTD policy. The iCloud adapter forwards to owner-checked `noteChildren` under revision-bound local-source admission. Each call is capped at 5,000 visited entries, 512 KiB of serialized entry data and two seconds. Limits, symlinks, inaccessible directories and unsupported names make coverage incomplete, never confirmed empty. There are no retained directory cursors; callers retain their own bounded inventory paging and must combine coverage with metadata reads. Existing property pages, including empty continuations, still must be drained.
+
+Native BB disable/reload closes dispatch. Obsidian's disposal hook closes operation admission and waits for entered title/tool work before stopping service state; it does not cancel a producer save after admission. Title caller cancellation is checked before save submission. Durable source receipts remain authoritative after uncertain delivery. This is a shutdown boundary, not a new pause/settings workflow.
+
 ## GTD title consumer
 
 The `renameTitle` RPC accepts `{ vaultId, path, title }` only from the host-verified `gtd` plugin caller. It changes a display-title property, not a physical path. GTD validates inventory membership before calling it. Obsidian performs a unique-reader complete read (including every continuation acknowledgement), then invokes its existing version-checked property editor. Paths, links and unrelated bytes remain intact; existing parser, connection, conflict and uncertainty guards still apply. The bounded result is `{ operationId, outcome }`, not note content or a cloud-delivery claim. Failed or uncertain writes are never retried automatically. Ordinary clients and other plugins are refused before reading a note.

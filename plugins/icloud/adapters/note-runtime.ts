@@ -233,6 +233,13 @@ export class NoteRuntime {
     if (this.blocked.has(id) || this.nativeBlocked.get(id) === 'uncertain' || this.mirror(id)?.blocker === 'rebuild') throw new CloudError('recovery_required');
     if (this.closed || this.revision !== revision || !this.members.has(id)) throw new CloudError('invalid_selection');
   }
+  async children(input: { mirrorId: string; revision: number; folder: string }, signal?: AbortSignal) {
+    return this.access(input.mirrorId, input.revision, async root => {
+      const { noteChildren } = await import('./note-children.ts');
+      const result = await noteChildren(root, input.folder, signal);
+      this.guard(input.mirrorId); return result;
+    });
+  }
   async searchNotes(input: SearchRequest) {
     return this.access(input.mirrorId, input.revision, async root => {
       const result = await this.search.next(input, root, () => this.guard(input.mirrorId));

@@ -16,6 +16,7 @@ export type ResolutionReceipt = { kind: 'resolution'; operationId: string; mirro
 export type Receipt = SaveReceipt | ResolutionReceipt;
 export type Resolution = { mirrorId: string; revision: number; path: string; operationId: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: 'keep_local' | 'accept_incoming' | 'replace'; text?: string };
 export interface VaultFiles {
+  children?(vaultId: string, revision: number, folder: string): Promise<{ entries: Array<{ name: string; kind: 'directory' | 'markdown' }>; incomplete: boolean }>;
   move?(input: { mirrorId: string; revision: number; path: string; destination: string; expectedHash: string; operationId: string }): Promise<{ outcome: 'moved_locally_pending_sync' | 'not_moved' | 'uncertain' }>;
   moveReceipts?(input: { mirrorId: string; revision: number; operationId: string }): Promise<Array<{ outcome: 'moved_locally_pending_sync' | 'not_moved' | 'uncertain' }>>;
   configure(configuration: Configuration): Promise<void>;

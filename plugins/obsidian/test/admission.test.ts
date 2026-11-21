@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
+import { Admission } from '../core/admission.ts';
+import { plugin } from '../server.ts';
+import { CatalogFake, FilesFake, MemoryState } from './fakes.ts';
+test('closing admission rejects new work and waits for owned work, including rejected tasks', async () => {
+  const gate = new Admission(); let release!: () => void;
+  const task = gate.run(() => new Promise<void>(resolve => { release = resolve; }));
+  await Promise.resolve(); let stopped = false;
+  const stop = gate.stop().then(() => { stopped = true; });
+  await assert.rejects(gate.run(async () => {}), /unavailable/); assert.equal(stopped, false);
+  release(); await task; await stop; assert.equal(stopped, true);
+});
+test('native disposal waits for an entered title save before invalidating service/receipt state', async () => {
+  const host = createFakePluginHost({ pluginId: 'obsidian' }); const files = new FilesFake(); const repository = new MemoryState();
+  await plugin(host.bb, { catalog: new CatalogFake(), files, repository });
+  await host.harness.behavior.callRpc('connect', { vaultId: 'one' });
+  files.notes.set('one/Projects/Plan.md', '---\ntitle: Old\n---\nSynthetic body');
+  let release!: () => void, entered!: () => void;
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  const commit = files.commit.bind(files);
+  files.commit = async input => { entered(); await new Promise<void>(resolve => { release = resolve; }); return commit(input); };
+  const task = host.harness.behavior.callRpc('renameTitle', { vaultId: 'one', path: 'Projects/Plan.md', title: 'New' }, { experimental_caller: { kind: 'plugin', pluginId: 'gtd' } });
+  await ready; let stopped = false;
+  const disposal = host.harness.lifecycle.dispose().then(() => { stopped = true; });
+  await new Promise(resolve => setTimeout(resolve, 20)); assert.equal(stopped, false);
+  release(); const result = await task as any; await disposal;
+  assert.equal(result.outcome, 'saved_locally_pending_sync'); assert.equal(files.saved.length, 1);
+});

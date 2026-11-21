@@ -20,6 +20,7 @@ export const vaultIdSchema = z.string().regex(/^[A-Za-z0-9-]{1,64}$/);
 // Wire contracts are local to this adapter. No imports from another plugin's implementation.
 const statusSchema = z.object({
   propertiesAccessVersion: z.number().int().optional(),
+  childrenAccessVersion: z.number().int().optional(),
   vaults: z.array(z.object({ vaultId: vaultIdSchema, name: z.string().nullable(), source: z.object({
     local: z.object({ available: z.boolean() }), cloudConnected: z.boolean(), enabled: z.boolean(),
     phase: z.string().max(64), lastSuccess: z.string().nullable(), failure: z.string().max(128).nullable(),
@@ -29,6 +30,7 @@ const propertyPage = z.object({
   notes: z.array(z.object({ path: z.string().min(1).max(1024), properties: z.record(z.string(), z.unknown()) }).strict()).max(200),
   nextCursor: z.string().uuid().nullable(), incomplete: z.boolean(), warnings: z.array(z.string()).max(32), observedAt: z.string(),
 }).strict();
+const childrenPage = z.object({ entries: z.array(z.object({ name: z.string().min(1).max(1024).refine(value => !/[\\/\x00-\x1f\x7f]/.test(value) && value !== '.' && value !== '..'), kind: z.enum(['directory', 'markdown']) }).strict()).max(5000), incomplete: z.boolean() }).strict();
 const aliases: Record<string, ProjectStatus> = { active: 'active', deferred: 'deferred', someday: 'someday', done: 'done', completed: 'done' };
 const text = (value: unknown, max: number) => typeof value === 'string' && value.trim().length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/.test(value);
 function projectEntry(folder: string, path: string) {
@@ -106,7 +108,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     const items: (Project | Area)[] = [], warnings = new Set<Warning>();
     // The v1 consumer enumerates Markdown paths, not directories. Never claim
     // empty/attachment-only folders were enumerated, even after draining it.
-    if (kind === 'project') warnings.add('directory_enumeration_unavailable');
+    if (kind === 'project' && state.childrenAccessVersion !== 1) warnings.add('directory_enumeration_unavailable');
     const entries = new Map<string, Project>();
     const invalidRoots = new Set<string>(), seenRoots = new Set<string>();
     let cursor: string | undefined, pages = 0, notes = 0, observedAt = new Date().toISOString();
@@ -146,6 +148,38 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         try { await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'closeProperties', input: { cursor }, outputSchema: z.unknown(), signal: AbortSignal.timeout(3000) }); }
         catch { this.cleanupFailure(); /* Read-only handle expires upstream; no retry. */ }
       }
+    }
+    if (signal.aborted) throw new GtdError('cancelled');
+    if (kind === 'project' && state.childrenAccessVersion === 1) {
+      const folder = this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder;
+      let directories = 0, visited = 0;
+      const enumerate = async (scope: string, status?: ProjectStatus) => {
+        if (++directories > 128 || visited >= 5000 || readSignal.aborted) { warnings.add('scan_limit'); return; }
+        let page: z.infer<typeof childrenPage>;
+        try { page = childrenPage.parse(await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'listChildren', input: { vaultId: this.config.vaultId, folder: scope }, outputSchema: z.unknown(), signal: readSignal })); }
+        catch { if (signal.aborted) throw new GtdError('cancelled'); warnings.add(readSignal.aborted ? 'scan_limit' : 'source_partial'); return; }
+        if (page.incomplete) warnings.add('source_partial');
+        for (const child of page.entries) {
+          if (++visited > 5000 || readSignal.aborted) { warnings.add('scan_limit'); break; }
+          const path = `${scope}/${child.name}`;
+          if (!relativeFolder.safeParse(path).success) { warnings.add('invalid_project'); continue; }
+          if (child.kind === 'directory' && status === undefined && Object.hasOwn(aliases, child.name.toLowerCase())) {
+            await enumerate(path, aliases[child.name.toLowerCase()]);
+          } else if (child.kind === 'directory') {
+            if (!entries.has(path) && !invalidRoots.has(path)) {
+              if (!text(child.name, 240)) warnings.add('invalid_project');
+              else if (entries.size >= 5000) warnings.add('scan_limit');
+              else entries.set(path, { id: path + '/', title: child.name, status: status ?? 'active' });
+            }
+          } else if (child.kind === 'markdown' && !seenRoots.has(path.slice(0, -3))) {
+            // An enumerated root note whose metadata was omitted is not a
+            // confirmed folder-only/default-metadata project.
+            warnings.add('source_partial');
+            const key = path.slice(0, -3); invalidRoots.add(key); entries.delete(key);
+          }
+        }
+      };
+      await enumerate(folder);
     }
     if (signal.aborted) throw new GtdError('cancelled');
     if (kind === 'project') items.push(...entries.values());

@@ -44,7 +44,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     backend: { type: 'select', label: 'Backend', description: 'Project and area inventories with title edits that preserve note paths. First connect your vault in Obsidian settings.', options: ['obsidian'], experimental_optionLabels: { obsidian: 'Obsidian' }, default: 'obsidian' },
     vaultId: { type: 'select', label: 'Vault', description: choices.incomplete ? 'Vault discovery is unavailable or incomplete. Check Obsidian, then reload GTD to refresh this list. Existing settings are kept.' : 'Choose an Obsidian vault. After connecting another source, reload GTD to refresh this list.', options: ['__none__', ...choices.vaults.map(v => v.selection)], experimental_optionLabels: { '__none__': 'Choose a vault…', ...labels }, default: '__none__', experimental_schema: z.union([z.literal('__none__'), vaultSelectionSchema]) },
     areasFolder: { type: 'string', label: 'Areas folder', description: 'Relative to the vault, such as Areas. Every Markdown note below this folder is an area; keep reference material outside it.', default: 'Areas', experimental_schema: relativeFolder },
-    projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Top-level notes and supporting folders are projects; a matching note/folder pair is one project. Active, Deferred, Someday and Done containers add one grouping layer. Empty or attachment-only folders cannot yet be enumerated; totals stay unconfirmed.', default: 'Projects', experimental_schema: relativeFolder },
+    projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Top-level notes and supporting folders are projects; a matching note/folder pair is one project. Active, Deferred, Someday and Done containers add one grouping layer. Empty and attachment-only project folders are included when the source supports directory enumeration; otherwise coverage is explicitly partial.', default: 'Projects', experimental_schema: relativeFolder },
   });
   const selectAreas = dependencies?.selectAreas ?? (async () => {
     const config = await settings.get();
@@ -64,7 +64,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
   });
   const projects = new Projects(select);
   const areas = new Areas(selectAreas);
-  bb.onDispose(() => { projects.stop(); areas.stop(); });
+  const enteredRenames = new Set<Promise<unknown>>(); let closing = false;
+  bb.onDispose(async () => { closing = true; await Promise.allSettled([...enteredRenames]); projects.stop(); areas.stop(); });
   const listAreas = async (input: z.infer<typeof areaListInput>, signal: AbortSignal, owner: string) => {
     try {
       const result = areaPageSchema.parse(await areas.list(input, signal, owner));
@@ -80,14 +81,18 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     } catch (error) { const safe = safeError(error, signal); diagnose('list', safe.code); throw safe; }
   };
   const rename = async (kind: 'project' | 'area', input: z.infer<typeof renameInput>, signal: AbortSignal) => {
-    try {
+    if (closing || signal.aborted) throw new GtdError('cancelled');
+    const task = (async () => { try {
       const selection = kind === 'project' ? await select() : await selectAreas();
       const snapshot = kind === 'project' ? await (selection.backend as import('./core/model.ts').ProjectBackend).readProjects(signal) : await (selection.backend as import('./core/model.ts').AreaBackend).readAreas(signal);
       const items = 'projects' in snapshot ? snapshot.projects : snapshot.areas;
       if (snapshot.source.id !== input.source || !items.some(item => item.id === input.id)) throw new GtdError('invalid_source');
       if (!selection.backend.rename) throw new GtdError('incompatible');
+      if (closing || signal.aborted) throw new GtdError('cancelled');
       return await selection.backend.rename(input.id, input.title, signal);
-    } catch { bb.log.warn('GTD rename unconfirmed'); throw new Error('Rename was not confirmed. Inspect Obsidian receipts before another edit; do not retry automatically.'); }
+    } catch { bb.log.warn('GTD rename unconfirmed'); throw new Error('Rename was not confirmed. Inspect Obsidian receipts before another edit; do not retry automatically.'); } })();
+    enteredRenames.add(task);
+    try { return await task; } finally { enteredRenames.delete(task); }
   };
   const threads = threadActions(bb, select);
   bb.rpc.register(rpcContract, {

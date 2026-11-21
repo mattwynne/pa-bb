@@ -8,6 +8,10 @@ bb plugin install icloud@pa-for-bb
 
 Follow the [setup and recovery guide](docs/setup.md). No folder syncs until **Enable sync** is confirmed. Use a disposable folder for the first live test. Photos and whole-Drive selection are not offered.
 
+## Read-only child enumeration
+
+`noteChildren` is restricted to the host-verified Obsidian caller and negotiated source revision. It enumerates only immediate directories and Markdown files in one exact relative folder through `NoteRuntime.access`; configuration/removal is checked again before publication. Directory handles are pinned and every traversed component is opened no-follow. It includes empty and attachment-only directories without reading note bytes. Each call visits at most 5,000 entries, returns at most 512 KiB of entry data, and has a two-second scan budget. Access failures, symlinks, cancellation and limits return incomplete coverage, not a confirmed zero. No filesystem root, sync change, note write or retained cursor is exposed.
+
 ## Architecture
 
 `core/ports.ts` defines `CloudProvider` and `StateRepository`. `core/service.ts` owns consent, connection/challenge state, selected folders, pause/resume, failure state, overlap prevention, restart handling and explicit fresh-mirror recovery. It knows no rclone flags, config fields, remote syntax or exit codes.

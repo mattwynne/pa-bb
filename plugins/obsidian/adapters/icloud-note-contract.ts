@@ -19,6 +19,7 @@ export type SearchBatch = z.infer<typeof searchBatchSchema>;
 export type SearchCapability = z.infer<typeof searchCapabilitySchema>;
 // Copied into the independent consumer package, never imported across plugin roots.
 export const noteRpcContract = {
+  noteChildren: { input: z.object({ version, mirrorId: id, revision, folder: prefix }).strict(), output: result(z.object({ entries: z.array(z.object({ name: z.string().min(1).max(1024), kind: z.enum(['directory', 'markdown']) }).strict()).max(5000), incomplete: z.boolean() }).strict()) },
   noteSearch: { input: searchInputSchema, output: result(searchBatchSchema) },
   noteSearchClose: { input: z.object({ version, revision, cursor: z.string().uuid() }).strict(), output: result(z.null()) },
   noteConfigure: { input: z.object({ version, revision, mirrorIds: z.array(id).max(20) }).strict(), output: result(z.object({ revision }).strict()) },

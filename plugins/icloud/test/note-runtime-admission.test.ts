@@ -40,6 +40,21 @@ async function fixture(count = 2) {
       async close() { await runtime?.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
   } catch (error) { await runtime?.stop(); await preparer?.stop(); db.close(); await rm(root, { recursive: true, force: true }); throw error; }
 }
+test('child enumeration uses actual source ownership and revision admission without reading or changing notes', { skip: !enabled, timeout: 25000 }, async () => {
+  const f = await fixture(1);
+  try {
+    const base = join(f.workerRoot, 'mirrors/mirror-0');
+    await mkdir(join(base, 'Projects', 'Empty'), { recursive: true });
+    await mkdir(join(base, 'Projects', 'Attachments'));
+    await writeFile(join(base, 'Projects', 'Attachments', 'image.bin'), 'private-sentinel');
+    const input = { mirrorId: 'mirror-0', revision: 1, folder: 'Projects' };
+    assert.deepEqual(await f.runtime.children(input), { entries: [{ name: 'Attachments', kind: 'directory' }, { name: 'Empty', kind: 'directory' }], incomplete: false });
+    assert.equal((await f.runtime.children(input, AbortSignal.abort())).incomplete, true);
+    f.runtime.configure(2, []);
+    await assert.rejects(f.runtime.children(input), (e: any) => e.category === 'invalid_selection');
+    assert.equal(await readFile(join(base, 'Projects', 'Attachments', 'image.bin'), 'utf8'), 'private-sentinel');
+  } finally { await f.close(); }
+});
 test('durable admission revokes a save inside its pointer transaction after fsync; restart keeps revision', { skip: !enabled, timeout: 25000 }, async () => {
   const f = await fixture(2); let release = () => {};
   try {

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { rpcContract, tools } from './contract.ts';
 import { Obsidian } from './core/service.ts';
 import { VaultError } from './core/ports.ts';
+import { Admission } from './core/admission.ts';
 import type { MirrorCatalog, VaultFiles, NoteParser, StateRepository } from './core/ports.ts';
 import { ICloud } from './adapters/icloud.ts';
 import { MarkdownNotes } from './adapters/markdown-notes.ts';
@@ -11,12 +12,13 @@ import { diagnosticLogger } from './adapters/diagnostic-log.ts';
 export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository }) {
   const diagnose = diagnosticLogger(message => bb.log.warn(message)); const icloud = new ICloud(bb.sdk, diagnose);
   const service = new Obsidian(dependencies?.catalog ?? icloud, dependencies?.files ?? icloud, dependencies?.parser ?? new MarkdownNotes(), dependencies?.repository ?? bbState(bb, diagnose), randomUUID, Date.now, diagnose);
-  await service.start(); bb.onDispose(() => service.stop());
+  const admission = new Admission();
+  await service.start(); bb.onDispose(async () => { await admission.stop(); await service.stop(); });
   const clientOnly = (context: { experimental_caller: { kind: string } }) => { if (context.experimental_caller.kind !== 'client') throw new Error('Use Obsidian client settings for connection or conflict recovery.'); };
   bb.rpc.register(rpcContract, {
     async renameTitle(input, context) {
       if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the GTD consumer can request a title edit.' });
-      try {
+      return admission.run(async () => { try {
         // A unique reader keeps this internal whole-note proof isolated from agent reads.
         const reader = `gtd-title:${randomUUID()}`;
         let page = await service.read({ vaultId: input.vaultId, path: input.path }, context.experimental_signal, reader);
@@ -32,9 +34,14 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
         if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable');
         throw new Error('Title save was not confirmed. Inspect Obsidian receipts before another edit; do not retry blindly.');
       }
+      });
     },
     status() { return service.status(); },
     vaultLocations() { return service.vaultLocations(); },
+    async listChildren(input, context) {
+      try { return await service.listChildren(input, context.experimental_signal); }
+      catch { diagnose('rpc', 'unavailable'); throw new Error('Directory listing did not complete. Check source access and compatible plugin builds.'); }
+    },
     async listProperties(input, context) {
       try { return await service.listProperties(input, context.experimental_signal); }
       catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Property listing did not complete. Check Obsidian source access and update both plugins if necessary.'); }
@@ -43,16 +50,16 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       try { await service.closeProperties(cursor); return null; }
       catch { diagnose('rpc', 'unavailable'); throw new Error('Property listing cleanup was not confirmed. Its read-only cursor will expire.'); }
     },
-    async connect({ vaultId }, context) { clientOnly(context); try { await service.connect(vaultId); return await service.status(); } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('The vault connection was not confirmed. Keep your settings and choose Check again.'); } },
-    async remove({ vaultId }, context) { clientOnly(context); try { await service.remove(vaultId); return await service.status(); } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Removal was not confirmed. Check again after the current operation finishes. Notes and iCloud settings were not deleted.'); } },
-    async recovery(input, context) { clientOnly(context); try { const result = await service.recover(input); return { operationId: result.operationId, receipt: result.receipt, message: result.message }; } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Resolution was not confirmed. Inspect the exact operation receipt and conflict again; do not repeat it blindly.'); } },
+    async connect({ vaultId }, context) { clientOnly(context); try { await admission.run(() => service.connect(vaultId)); return await service.status(); } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('The vault connection was not confirmed. Keep your settings and choose Check again.'); } },
+    async remove({ vaultId }, context) { clientOnly(context); try { await admission.run(() => service.remove(vaultId)); return await service.status(); } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Removal was not confirmed. Check again after the current operation finishes. Notes and iCloud settings were not deleted.'); } },
+    async recovery(input, context) { clientOnly(context); try { const result = await admission.run(() => service.recover(input)); return { operationId: result.operationId, receipt: result.receipt, message: result.message }; } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Resolution was not confirmed. Inspect the exact operation receipt and conflict again; do not repeat it blindly.'); } },
   });
   const handlers = { obsidian_move_note: service.move.bind(service), obsidian_move_status: service.moveStatus.bind(service), obsidian_status: service.status.bind(service), obsidian_search_notes: service.search.bind(service), obsidian_read_note: service.read.bind(service), obsidian_get_note_metadata: service.metadata.bind(service), obsidian_resolve_link: service.resolve.bind(service), obsidian_list_tasks: service.tasks.bind(service), obsidian_create_note: service.create.bind(service), obsidian_edit_note: service.edit.bind(service), obsidian_update_properties: service.properties.bind(service) };
   for (const [name, definition] of Object.entries(tools)) bb.agents.registerTool({ name, description: definition.description, parameters: definition.parameters as any,
     async execute(input: any, context) {
       try {
         if (context.signal.aborted) throw new VaultError('cancelled');
-        const result = await (handlers[name as keyof typeof handlers] as (input: any, signal: AbortSignal, reader: string) => Promise<unknown>)(input, context.signal, context.threadId);
+        const result = await admission.run(() => (handlers[name as keyof typeof handlers] as (input: any, signal: AbortSignal, reader: string) => Promise<unknown>)(input, context.signal, context.threadId));
         const text = JSON.stringify(result);
         if (text.length > 64000) throw new VaultError('output_limit', 'Use a smaller page or read a specific section. This result exceeded the output limit.');
         return { content: [{ type: 'text' as const, text }] };

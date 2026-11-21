@@ -138,7 +138,7 @@ export class Obsidian {
     this.checkRevision(revision);
     const uncertain = (this.state.pending ?? []).filter(matchesPending);
     const uncertainOperations = uncertain.slice(0, Math.min(input.limit ?? 20, 100));
-    return { propertiesAccessVersion: 1 as const, search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
+    return { propertiesAccessVersion: 1 as const, ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
   }
   async vaultLocations() {
     const vaults: Array<{ id: string; root: string; name: string }> = []; let incomplete = false;
@@ -154,6 +154,15 @@ export class Obsidian {
       } catch { this.diagnose('rpc', 'unavailable'); incomplete = true; }
     }
     return { vaults, incomplete };
+  }
+  async listChildren(input: { vaultId: string; folder: string }, signal?: AbortSignal) {
+    if (signal?.aborted) throw new VaultError('cancelled');
+    if (!this.files.children) throw new VaultError('incompatible');
+    const { revision } = await this.source(input.vaultId);
+    const result = await this.files.children(input.vaultId, revision, input.folder);
+    this.check(input.vaultId, revision);
+    if (signal?.aborted) throw new VaultError('cancelled');
+    return result;
   }
   /** Read-only consumer projection: no bodies, snippets, edit proofs, or GTD policy. */
   async listProperties(input: { vaultId: string; folder: string; fields: string[]; cursor?: string }, signal?: AbortSignal) {
