@@ -76,6 +76,12 @@ reads, saves, sync and vault choices remain intact. There is no fallback to the
 old terminal bounded scanner. Task listing and ambiguous-link discovery retain
 their existing separate bounds.
 
+## Consumer metadata API
+
+Updated source builds advertise `propertiesAccessVersion: 1` in status. Other BB plugins can call `listProperties` with an exact connected `vaultId`, one relative `folder`, 1–8 selected top-level `fields`, and an optional returned `cursor`. It returns up to 200 compact `{path, properties}` rows, `nextCursor`, `incomplete`, `warnings`, and `observedAt`; no bodies, snippets, or edit proofs. Continue every cursor with the same vault/folder/fields, including empty pages. A terminal page with no warnings and `incomplete: false` establishes traversal coverage, not an atomic vault snapshot. Stop abandoned producer work with `closeProperties({cursor})`.
+
+This generic API shares the existing bounded search engine and connected-vault safety checks. It reads frontmatter only for semantic projection, without parsing entire note bodies. Selected property data is bounded to 4,096 serialized characters per note; unsupported metadata makes coverage partial. It has no GTD classification policy: the [GTD adapter](../gtd/README.md) owns project conventions and counts. Existing agent-tool signatures are unchanged. SDK declarations and Zod are aligned with BB SDK 0.6.132 for these consumer calls.
+
 ## Complete reads and long notes
 
 A short whole-note read returns `complete: true` in one bounded response. Longer

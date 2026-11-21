@@ -3,7 +3,7 @@ import { provenance } from './provenance.js';
 import type { Catalog, Diagnose, NoteParser, SearchQuery, SearchRequest, Source, VaultFiles } from './ports.ts';
 type Context = { revision: number; ids: string[]; catalog: Catalog };
 type Session = { query: SearchQuery; signature: string; revision: number; ids: string[]; fingerprint: string; index: number; producer?: string; rows: any[]; matched: number; visited: number; warnings: Set<string>; failures: Array<{vaultId:string;category:string}>; created: number; at: number; busy: boolean };
-const normalized = (q:SearchQuery) => ({ vaultId:q.vaultId,text:q.text,tag:q.tag?.replace(/^#/,'').toLocaleLowerCase('und'),folders:q.folders?[...new Set(q.folders)].sort():undefined,excludeFolders:q.excludeFolders?[...new Set(q.excludeFolders)].sort():undefined,properties:q.properties?[...q.properties].sort((a,b)=>a.key.localeCompare(b.key)||JSON.stringify(a.equals).localeCompare(JSON.stringify(b.equals))):undefined,mode:q.mode??'results' });
+const normalized = (q:SearchQuery) => ({ vaultId:q.vaultId,text:q.text,tag:q.tag?.replace(/^#/,'').toLocaleLowerCase('und'),folders:q.folders?[...new Set(q.folders)].sort():undefined,excludeFolders:q.excludeFolders?[...new Set(q.excludeFolders)].sort():undefined,properties:q.properties?[...q.properties].sort((a,b)=>a.key.localeCompare(b.key)||JSON.stringify(a.equals).localeCompare(JSON.stringify(b.equals))):undefined,mode:q.mode??'results',selectProperties:q.selectProperties?[...new Set(q.selectProperties)].sort():undefined });
 const fingerprint = (c:Catalog,ids:string[]) => JSON.stringify(ids.map(id=>{const s=c.sources.find(s=>s.id===id);return[id,s?.local.available,s?.local.reason];}));
 const prefix=(value:string)=>!!value&&value.length<=1024&&!/[\\\x00-\x1f\x7f]/.test(value)&&value.split('/').every(p=>!!p&&p!=='.'&&p!=='..');
 export class VaultSearch {
@@ -12,6 +12,7 @@ export class VaultSearch {
   constructor(private files:VaultFiles,private parser:NoteParser,private id:()=>string,private clock:()=>number,private diagnose:Diagnose,private authorize:(vaultId?:string)=>Promise<Context>,private check:(revision:number)=>void){}
   private async close(s:Session){if(s.producer)await this.files.closeSearch(s.revision,s.producer).catch(()=>{});}
   invalidate(){const old=[...this.sessions.values()];this.sessions.clear();for(const s of old)void this.close(s);}
+  async cancel(cursor:string){const session=this.sessions.get(cursor);if(session){this.sessions.delete(cursor);if(session.producer)await this.files.closeSearch(session.revision,session.producer);}}
   async stop(){this.stopped=true;const old=[...this.sessions.values()];this.sessions.clear();await Promise.all(old.map(s=>this.close(s)));}
   async next(input:SearchQuery,signal?:AbortSignal){
     const key=input.cursor??this.id();if(this.calls.has(key))throw new VaultError('busy');this.calls.add(key);
@@ -22,11 +23,12 @@ export class VaultSearch {
     if(JSON.stringify(input).length>16384)throw new VaultError('invalid_query');
     for(const values of [input.folders,input.excludeFolders])if(values&&(values.length>16||values.some(v=>!prefix(v))))throw new VaultError('invalid_path');
     if(input.folders?.length===0)throw new VaultError('invalid_query');
+    if(input.selectProperties && (input.selectProperties.length < 1 || input.selectProperties.length > 8 || input.selectProperties.some(key => !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(key))))throw new VaultError('invalid_query');
     if(!input.cursor&&!input.text&&!input.tag&&!input.properties?.length&&!input.folders?.length&&input.mode!=='count')throw new VaultError('invalid_query');
     let token=input.cursor,s=token?this.sessions.get(token):undefined;
     if(token&&(!s||this.clock()-s.at>300000||this.clock()-s.created>1800000)){if(s){await this.close(s);this.sessions.delete(token);}throw new VaultError('cursor_expired','The search expired. Start a new search; its earlier matches are not a total.');}
     if(s?.busy)throw new VaultError('busy');
-    if(s){for(const key of ['vaultId','text','tag','folders','excludeFolders','properties','mode'] as const)if(input[key]!==undefined&&JSON.stringify(normalized({...s.query,[key]:input[key]})[key])!==JSON.stringify(normalized(s.query)[key]))throw new VaultError('invalid_query','Continue the original query, or omit the cursor to start another search.');}
+    if(s){for(const key of ['vaultId','text','tag','folders','excludeFolders','properties','mode','selectProperties'] as const)if(input[key]!==undefined&&JSON.stringify(normalized({...s.query,[key]:input[key]})[key])!==JSON.stringify(normalized(s.query)[key]))throw new VaultError('invalid_query','Continue the original query, or omit the cursor to start another search.');}
     const query=s?.query??normalized(input),context=await this.authorize(query.vaultId);
     if(!context.catalog.search?.available)throw new VaultError('unsupported','Vault search is unavailable. Update both plugins if needed and ask the host operator to check the ripgrep requirements.');
     if(s&&(s.revision!==context.revision||s.fingerprint!==fingerprint(context.catalog,s.ids))){await this.close(s);this.sessions.delete(token!);throw new VaultError('cursor_expired','Local source access changed. Start a new search.');}
@@ -39,12 +41,12 @@ export class VaultSearch {
     const cancel=()=>{void this.close(state);};signal?.addEventListener('abort',cancel,{once:true});
     try{
       if(signal?.aborted)throw new VaultError('cancelled');
-      const mode=state.query.mode??'results',limit=Math.max(1,Math.min(input.limit??20,50)),sliceStarted=this.clock();let batches=0;
+      const mode=state.query.mode??'results',limit=Math.max(1,Math.min(input.limit??20,state.query.selectProperties?200:50)),sliceStarted=this.clock();let batches=0;
       while((mode==='count'||state.rows.length<limit)&&state.index<state.ids.length&&batches++<32&&this.clock()-sliceStarted<2000){
         const id=state.ids[state.index],source=context.catalog.sources.find(v=>v.id===id);
         if(!source?.local.available){state.failures.push({vaultId:id,category:'source_unavailable'});state.index++;}
         else{
-          const request:SearchRequest={mirrorId:id,revision:state.revision,text:state.query.text,projection:state.query.tag?'markdown':state.query.properties?.length?'frontmatter':'hits',folders:state.query.folders,excludeFolders:state.query.excludeFolders,cursor:state.producer};
+          const request:SearchRequest={mirrorId:id,revision:state.revision,text:state.query.text,projection:state.query.tag?'markdown':state.query.properties?.length||state.query.selectProperties?'frontmatter':'hits',folders:state.query.folders,excludeFolders:state.query.excludeFolders,cursor:state.producer};
           try{
             if(!state.producer){
               // Acquire the opaque handle before executing rg, so cancellation
@@ -60,10 +62,19 @@ export class VaultSearch {
               try{
                 if(candidate.limited)throw new VaultError('parser_limit');
                 let line=candidate.line,snippet=candidate.snippet;
+                let selectedProperties: Record<string, unknown> | undefined;
+                if(state.query.selectProperties){
+                  const parsed=this.parser.frontmatter(candidate.content??'');
+                  if(parsed.warnings.length)throw new VaultError('properties_unsupported');
+                  selectedProperties=Object.fromEntries(state.query.selectProperties.filter(key=>Object.hasOwn(parsed.properties,key)).map(key=>[key,parsed.properties[key]]));
+                  if(JSON.stringify(selectedProperties).length>4096)throw new VaultError('parser_limit');
+                }
                 if(state.query.properties?.length){const parsed=this.parser.frontmatter(candidate.content??'');if(parsed.warnings.length)throw new VaultError('properties_unsupported');if(!state.query.properties.every(p=>Object.hasOwn(parsed.properties,p.key)&&parsed.properties[p.key]===p.equals))continue;}
                 if(state.query.tag){const tag=state.query.tag;const meta=this.parser.parse(candidate.content??'');if(meta.warnings.includes('properties_unsupported'))throw new VaultError('properties_unsupported');const match=meta.tags.find(t=>t.tag===tag||t.tag.startsWith(tag+'/'));if(!match)continue;if(!state.query.text){line=match.line;snippet=(candidate.content??'').split('\n')[line-1]?.replace(/\r$/,'').slice(0,240)??'';}}
                 state.matched++;
-                if(mode!=='count')state.rows.push({...this.provenance(source,candidate.readAt),path:candidate.path,lineStart:line,lineEnd:line+(state.query.text?.match(/\n/g)?.length??0),snippet,hash:candidate.hash});
+                if(mode!=='count')state.rows.push(selectedProperties
+                  ? {path:candidate.path,properties:selectedProperties}
+                  : {...this.provenance(source,candidate.readAt),path:candidate.path,lineStart:line,lineEnd:line+(state.query.text?.match(/\n/g)?.length??0),snippet,hash:candidate.hash});
               }catch(error){state.warnings.add(error instanceof VaultError&&error.category==='properties_unsupported'?'properties_unsupported':'parser_limit');this.diagnose('parse',error instanceof VaultError&&error.category==='properties_unsupported'?'unsupported':'limit');}
             }
             if(!state.producer)state.index++;

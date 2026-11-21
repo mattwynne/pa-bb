@@ -6,7 +6,7 @@
   "engines": {
     "node": ">=22",
     "bb": ">=0.45.0",
-    "bbPluginSdk": ">=0.6.15 <1"
+    "bbPluginSdk": ">=0.6.132 <1"
   },
   "bb": {
     "name": "Obsidian",
@@ -20,11 +20,11 @@
   "dependencies": {
     "mdast-util-from-markdown": "2.1.0",
     "yaml": "2.9.1",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.1",
-    "@get-bb/plugin-sdk": "0.6.80",
+    "@get-bb/plugin-sdk": "0.6.132",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "^22.0.0",
     "@types/react": "19.2.7",

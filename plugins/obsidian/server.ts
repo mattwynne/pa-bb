@@ -15,6 +15,14 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
   const clientOnly = (context: { experimental_caller: { kind: string } }) => { if (context.experimental_caller.kind !== 'client') throw new Error('Use Obsidian client settings for connection or conflict recovery.'); };
   bb.rpc.register(rpcContract, {
     status() { return service.status(); },
+    async listProperties(input, context) {
+      try { return await service.listProperties(input, context.experimental_signal); }
+      catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Property listing did not complete. Check Obsidian source access and update both plugins if necessary.'); }
+    },
+    async closeProperties({ cursor }) {
+      try { await service.closeProperties(cursor); return null; }
+      catch { diagnose('rpc', 'unavailable'); throw new Error('Property listing cleanup was not confirmed. Its read-only cursor will expire.'); }
+    },
     async connect({ vaultId }, context) { clientOnly(context); try { await service.connect(vaultId); return await service.status(); } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('The vault connection was not confirmed. Keep your settings and choose Check again.'); } },
     async remove({ vaultId }, context) { clientOnly(context); try { await service.remove(vaultId); return await service.status(); } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Removal was not confirmed. Check again after the current operation finishes. Notes and iCloud settings were not deleted.'); } },
     async recovery(input, context) { clientOnly(context); try { const result = await service.recover(input); return { operationId: result.operationId, receipt: result.receipt, message: result.message }; } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Resolution was not confirmed. Inspect the exact operation receipt and conflict again; do not repeat it blindly.'); } },
