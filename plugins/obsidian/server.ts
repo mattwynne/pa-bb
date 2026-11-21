@@ -1,4 +1,4 @@
-import type { BbPluginApi } from '@get-bb/plugin-sdk';
+import { experimental_PluginRpcRefusal, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { randomUUID } from 'node:crypto';
 import { rpcContract, tools } from './contract.ts';
 import { Obsidian } from './core/service.ts';
@@ -14,6 +14,25 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
   await service.start(); bb.onDispose(() => service.stop());
   const clientOnly = (context: { experimental_caller: { kind: string } }) => { if (context.experimental_caller.kind !== 'client') throw new Error('Use Obsidian client settings for connection or conflict recovery.'); };
   bb.rpc.register(rpcContract, {
+    async renameTitle(input, context) {
+      if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the GTD consumer can request a title edit.' });
+      try {
+        // A unique reader keeps this internal whole-note proof isolated from agent reads.
+        const reader = `gtd-title:${randomUUID()}`;
+        let page = await service.read({ vaultId: input.vaultId, path: input.path }, context.experimental_signal, reader);
+        let pages = 0;
+        while (page.nextCursor) {
+          if (++pages > 128) throw new VaultError('output_limit');
+          page = await service.read({ vaultId: input.vaultId, path: input.path, cursor: page.nextCursor }, context.experimental_signal, reader);
+        }
+        if (!page.complete || !page.editReady || !page.hash) throw new VaultError('complete_read_required');
+        const result = await service.properties({ vaultId: input.vaultId, path: input.path, expectedHash: page.hash, set: { title: input.title } }, context.experimental_signal, reader);
+        return { operationId: result.operationId, outcome: result.receipt.outcome };
+      } catch (error) {
+        if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable');
+        throw new Error('Title save was not confirmed. Inspect Obsidian receipts before another edit; do not retry blindly.');
+      }
+    },
     status() { return service.status(); },
     vaultLocations() { return service.vaultLocations(); },
     async listProperties(input, context) {

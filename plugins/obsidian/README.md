@@ -175,6 +175,12 @@ remain enforced by the existing parser before saving.
   lost configuration reply stays unconfirmed and must be checked again. A local
   save accepted before revocation is not undone. Removal does not delete notes, pause sync or disconnect Apple.
 
+## GTD title consumer
+
+The `renameTitle` RPC accepts `{ vaultId, path, title }` only from the host-verified `gtd` plugin caller. It changes a display-title property, not a physical path. GTD validates inventory membership before calling it. Obsidian performs a unique-reader complete read (including every continuation acknowledgement), then invokes its existing version-checked property editor. Paths, links and unrelated bytes remain intact; existing parser, connection, conflict and uncertainty guards still apply. The bounded result is `{ operationId, outcome }`, not note content or a cloud-delivery claim. Failed or uncertain writes are never retried automatically. Ordinary clients and other plugins are refused before reading a note.
+
+Reloading this file-writing integration requires a supported maintenance boundary that prevents new writes and drains accepted operations. A reload abort signal or empty receipt list is not such a guarantee; use a disposable preview when that boundary is unavailable.
+
 ## Supported Markdown subset
 
 The [pinned official references](docs/reference/README.md) guide behavior;

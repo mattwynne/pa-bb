@@ -13,6 +13,8 @@ const vault = z.object({ vaultId: z.string().regex(/^[A-Za-z0-9-]{1,64}$/) }).st
 const consumerFolder = z.string().min(1).max(1024).refine(value => !/[\\\x00-\x1f\x7f]/.test(value) && value.split('/').every(part => !!part && part !== '.' && part !== '..'));
 const scalarProperty = z.union([z.string(), z.number().finite(), z.boolean(), z.null()]);
 export const rpcContract = defineRpcContract({
+  // Consumer title edits deliberately do not move paths or rewrite links.
+  renameTitle: { input: z.object({ vaultId: vault.shape.vaultId, path: consumerFolder, title: z.string().trim().min(1).max(240).regex(/^[^\x00-\x1f\x7f]+$/) }).strict(), output: z.object({ operationId: z.string().uuid(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict() },
   vaultLocations: { input: z.null(), output: z.object({ vaults: z.array(z.object({ id: vault.shape.vaultId, root: z.string().max(1024), name: z.string().max(240) }).strict()).max(2000), incomplete: z.boolean() }).strict() },
   listProperties: {
     input: z.object({ vaultId: vault.shape.vaultId, folder: consumerFolder, fields: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/)).min(1).max(8), cursor: z.string().uuid().optional() }).strict(),

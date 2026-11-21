@@ -10,32 +10,41 @@
   },
   "bb": {
     "name": "GTD [Experimental]",
-    "description": "List GTD projects and areas of focus through a backend-independent model, starting with connected Obsidian vaults.",
+    "description": "Browse personal GTD areas, projects and linked threads; rename display titles without changing note paths.",
     "branding": {
       "icon": "ListTodo"
     },
     "server": "./server.ts",
+    "app": "./app.tsx",
     "skills": [
       "skills"
     ]
   },
   "dependencies": {
+    "@get-bb/plugin-sdk": "0.6.132",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@get-bb/plugin-sdk": "0.6.132",
+    "@testing-library/react": "^16.3.3",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.3.0",
     "better-sqlite3": "^12.0.0",
     "cron-parser": "^5.10.2",
     "hono": "^4.13.13",
+    "jsdom": "^26.1.0",
+    "playwright": "^1.60.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "tsx": "^4.20.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^3.2.7"
   },
   "scripts": {
     "build": "bb plugin build",
     "typecheck": "tsc --noEmit && bb plugin types --check",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:ui": "vitest run test/app.test.tsx"
   }
 }

@@ -1,5 +1,6 @@
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
+import { renameResult } from '../contract.ts';
 import { GtdError } from '../core/model.ts';
 import type { Area, AreaBackend, AreaSnapshot, Project, ProjectBackend, ProjectSnapshot, ProjectStatus, Warning } from '../core/model.ts';
 
@@ -40,7 +41,9 @@ export function projectFromNote(folder: string, path: string, properties: Record
   if (!status) return 'invalid';
   const title = properties.title === undefined ? parts.at(-1)!.slice(0, -3) : properties.title;
   if (!text(title, 240)) return 'invalid';
-  return { id: path, title: (title as string).trim(), status };
+  const areaId = properties.areaId ?? undefined;
+  if (areaId !== undefined && !relativeFolder.safeParse(areaId).success) return 'invalid';
+  return { id: path, title: (title as string).trim(), status, ...(typeof areaId === 'string' ? { areaId } : {}) };
 }
 
 export function areaFromNote(folder: string, path: string, properties: Record<string, unknown>): Area | 'invalid' | null {
@@ -52,6 +55,13 @@ export function areaFromNote(folder: string, path: string, properties: Record<st
 
 export class ObsidianBackend implements ProjectBackend, AreaBackend {
   constructor(private sdk: BbPluginApi['sdk'], private config: { vaultId: string; folder: string; root?: string }, private cleanupFailure: () => void = () => {}) {}
+  async rename(id: string, title: string, signal: AbortSignal) {
+    const folder = this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder;
+    if (!relativeFolder.safeParse(id).success || !id.startsWith(folder + '/') || !id.endsWith('.md')) throw new GtdError('invalid_source');
+    await this.checkAccess(signal);
+    // Renaming the display property keeps backend path identity and all links unchanged.
+    return renameResult.parse(await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'renameTitle', input: { vaultId: this.config.vaultId, path: id, title }, outputSchema: z.unknown(), signal }));
+  }
   private async status(signal: AbortSignal) {
     let state: z.infer<typeof statusSchema>;
     try { state = statusSchema.parse(await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'status', input: null, outputSchema: z.unknown(), signal })); }
@@ -88,7 +98,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         if (pages++ >= 128 || notes >= 5000 || readSignal.aborted) { warnings.add('scan_limit'); break; }
         let page: z.infer<typeof propertyPage>;
         try { page = propertyPage.parse(await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'listProperties', input: {
-          vaultId: this.config.vaultId, folder: this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, fields: ['type', 'status', 'title'], ...(cursor ? { cursor } : {}),
+          vaultId: this.config.vaultId, folder: this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, fields: ['type', 'status', 'title', 'areaId'], ...(cursor ? { cursor } : {}),
         }, outputSchema: z.unknown(), signal: readSignal })); }
         catch (error) {
           if (signal.aborted) throw new GtdError('cancelled');

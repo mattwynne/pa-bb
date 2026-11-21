@@ -8,6 +8,7 @@ export const projectSchema = z.object({
   id: z.string().min(1).max(1024),
   title: z.string().min(1).max(240),
   status: statusSchema,
+  areaId: z.string().min(1).max(1024).optional(),
 }).strict();
 export type Project = z.infer<typeof projectSchema>;
 export const sourceSchema = z.object({
@@ -26,6 +27,7 @@ export type ProjectSnapshot = z.infer<typeof snapshotSchema>;
 
 /** Only this port is needed to add another backend. Core never sees vaults or YAML. */
 export interface ProjectBackend {
+  rename?(id: string, title: string, signal: AbortSignal): Promise<{ operationId: string; outcome: 'saved_locally_pending_sync' | 'not_saved' | 'uncertain' }>;
   readProjects(signal: AbortSignal): Promise<ProjectSnapshot>;
   checkAccess(signal: AbortSignal): Promise<void>;
 }
@@ -62,11 +64,12 @@ export const pageSchema = z.object({
 }).strict();
 export type ProjectPage = z.infer<typeof pageSchema>;
 
-export const areaSchema = projectSchema.omit({ status: true });
+export const areaSchema = projectSchema.omit({ status: true, areaId: true });
 export type Area = z.infer<typeof areaSchema>;
 export const areaSnapshotSchema = snapshotSchema.omit({ projects: true }).extend({ areas: z.array(areaSchema).max(5000) });
 export type AreaSnapshot = z.infer<typeof areaSnapshotSchema>;
 export interface AreaBackend {
+  rename?(id: string, title: string, signal: AbortSignal): Promise<{ operationId: string; outcome: 'saved_locally_pending_sync' | 'not_saved' | 'uncertain' }>;
   readAreas(signal: AbortSignal): Promise<AreaSnapshot>;
   checkAccess(signal: AbortSignal): Promise<void>;
 }

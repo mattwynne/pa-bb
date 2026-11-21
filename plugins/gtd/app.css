@@ -1,0 +1,28 @@
+.gtd-nav { padding: 8px; font-size: 13px; color: var(--foreground); }
+.gtd-nav button, .gtd-nav select { font: inherit; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 4px 7px; min-height: 30px; }
+.gtd-nav select { max-width: 170px; }
+.gtd-nav button:hover, .gtd-thread a:hover { background: var(--accent); }
+.gtd-nav button:disabled { opacity: .5; }
+.gtd-nav :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.gtd-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.gtd-nav summary { cursor: pointer; padding: 5px 0; }
+.gtd-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.gtd-indent { margin-left: 12px; border-left: 1px solid var(--border); padding-left: 6px; }
+.gtd-menu { display: inline-block; margin-left: 5px; position: relative; }
+.gtd-menu > summary { display: inline-block; padding: 4px 8px; border-radius: 6px; }
+.gtd-menu > button { display: block; background: var(--popover); position: absolute; right: 0; z-index: 10; box-shadow: 0 2px 8px #0003; }
+.gtd-new { margin-left: 6px; opacity: 0; }
+.gtd-group-heading:hover .gtd-new, .gtd-group-heading:focus-within .gtd-new { opacity: 1; }
+.gtd-group-heading { display: flex; align-items: center; gap: 4px; }
+.gtd-nav svg { width: 14px; height: 14px; flex-shrink: 0; }
+.gtd-nav .gtd-collapse { display: flex; align-items: center; gap: 4px; }
+.gtd-nav .gtd-collapse { text-align: left; border: 0; padding: 7px 3px; }
+.gtd-group { margin-bottom: 4px; }
+.gtd-thread { display: flex; gap: 4px; align-items: center; }
+.gtd-thread a { display: flex; gap: 6px; align-items: center; flex: 1; min-width: 0; padding: 7px 4px; text-decoration: none; color: inherit; border-radius: 6px; overflow: hidden; }
+.gtd-thread a > :last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gtd-thread a[aria-current] { background: var(--accent); }
+.gtd-thread button { opacity: 0; }
+.gtd-thread:hover button, .gtd-thread:focus-within button { opacity: 1; }
+.gtd-muted { color: var(--muted-foreground); font-size: 12px; margin: 5px 0 8px; }
+@media (hover: none), (pointer: coarse) { .gtd-new, .gtd-thread button { opacity: 1; } .gtd-nav button, .gtd-menu > summary { min-height: 44px; min-width: 44px; } }
