@@ -330,7 +330,7 @@ export class NoteOverlay {
     const already = this.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE class = 'recovery' AND hash = ? LIMIT 1").get(conflict.incomingHash);
     const total = this.db.prepare('SELECT recovery_bytes FROM icloud_note_overlay_totals WHERE id = 1').get() as { recovery_bytes: number };
     const count = this.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_incoming_archive').get() as { count: number };
-    if (count.count >= INCOMING_ARCHIVE_LIMIT || (!already && total.recovery_bytes + bytes > NOTE_LIMITS.recoveryBytes)) throw new NoteError('capacity');
+    if (count.count >= INCOMING_ARCHIVE_LIMIT || (!already && total.recovery_bytes + this.moveRecoveryBytes() + bytes > NOTE_LIMITS.recoveryBytes)) throw new NoteError('capacity');
     this.db.prepare('INSERT INTO icloud_note_overlay_incoming_archive(token, mirror_id, path, hash, bytes, captured_at, resolution_operation_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(conflict.token, id, path, conflict.incomingHash, bytes, this.clock(), resolutionId);
     this.ref('recovery', 'incoming-archive', conflict.token, id, conflict.incomingHash, bytes, true);
   }
@@ -344,7 +344,7 @@ export class NoteOverlay {
       const recoveryAdded = new Map<string, number>();
       if (recoveryHash && !has('recovery', recoveryHash)) recoveryAdded.set(recoveryHash, recovery);
       if (receiptHash && !has('recovery', receiptHash)) recoveryAdded.set(receiptHash, receiptContentBytes);
-      if (global.paths + global.staged_paths + paths > 256 || vault.paths + vault.staged_paths + paths > 128 || global.bytes + (hash && !has('pending', hash) ? bytes : 0) > 64 * 1024 * 1024 || vault.bytes + (hash && !has('pending', hash, mirrorId) ? bytes : 0) > 16 * 1024 * 1024 || totals.receipts + totals.staged_receipts >= 32768 || totals.receipt_bytes + totals.staged_receipt_bytes + receiptBytes > 64 * 1024 * 1024 || totals.recovery_bytes + [...recoveryAdded.values()].reduce((a, b) => a + b, 0) > 64 * 1024 * 1024) throw new NoteError('capacity');
+      if (global.paths + global.staged_paths + paths > 256 || vault.paths + vault.staged_paths + paths > 128 || global.bytes + (hash && !has('pending', hash) ? bytes : 0) > 64 * 1024 * 1024 || vault.bytes + (hash && !has('pending', hash, mirrorId) ? bytes : 0) > 16 * 1024 * 1024 || totals.receipts + totals.staged_receipts >= 32768 || totals.receipt_bytes + totals.staged_receipt_bytes + receiptBytes > 64 * 1024 * 1024 || totals.recovery_bytes + this.moveRecoveryBytes() + [...recoveryAdded.values()].reduce((a, b) => a + b, 0) > 64 * 1024 * 1024) throw new NoteError('capacity');
       this.db.prepare('INSERT INTO icloud_note_overlay_reservations(operation_id, mirror_id, hash, bytes, paths, receipt_bytes, recovery_hash, recovery_bytes, receipt_hash, receipt_content_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, mirrorId, hash, bytes, paths, receiptBytes, recoveryHash, recovery, receiptHash, receiptContentBytes);
       if (hash) this.ref('pending', 'reservation', id, mirrorId, hash, bytes, true);
       if (recoveryHash) this.ref('recovery', 'reservation-previous', id, mirrorId, recoveryHash, recovery, true);
@@ -450,6 +450,10 @@ export class NoteOverlay {
       });
     }
     return { examined, generations, receipts, blobs };
+  }
+  private moveRecoveryBytes() {
+    if (!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='icloud_note_moves'").get()) return 0;
+    return (this.db.prepare('SELECT coalesce(sum(length(cast(original AS BLOB))),0) AS bytes FROM icloud_note_moves').get() as { bytes: number }).bytes;
   }
   private expiry(id: string) {
     if (this.clock() - issuedAt(id) > NOTE_LIMITS.retentionMs || issuedAt(id) > this.clock() + 300000) throw new NoteError('operation_expired');

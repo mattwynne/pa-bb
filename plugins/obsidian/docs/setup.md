@@ -117,4 +117,4 @@ connected explicitly, even if its name is unchanged.
 
 The [README](../README.md#resource-and-recovery-limits) records concrete format,
 scan, output and retention limits and operator-assisted restoration. No browser,
-editor, graph, history dashboard, approval queue or rename/delete tool is supplied.
+editor, graph, history dashboard, approval queue or delete tool is supplied. The bounded move/rename tool and its independent link-repair limits are described in the [README](../README.md#bounded-path-move-and-rename).

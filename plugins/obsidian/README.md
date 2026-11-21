@@ -32,11 +32,23 @@ not a per-user security boundary.
 | `obsidian_edit_note` | Append, uniquely replace exact text, update one task marker, or explicitly resolve an inspected conflict. |
 | `obsidian_update_properties` | Explicit top-level property set/remove; add aliases without dropping existing aliases. |
 
+### Bounded path move and rename
+
+`obsidian_move_note({vaultId, path, destination, expectedHash})` requires a complete source read in the same thread. For example, move `Areas/Example.md` to `Reference/New example.md`. No type property is required. Destination folders must exist; occupied destinations, pending overlay paths, conflict copies and failed/blocked sources are refused. No files or folders are overwritten or cleaned up.
+
+Preflight reads at most 128 notes / 4 MiB, with 64,000 characters per note, and plans at most 64 repairs / 32,000 serialized metadata characters. Incomplete listings, ambiguous or missing internal targets, YAML links, reference-style Markdown links, HTML, unsupported inline syntax and special path syntax are refused before moving. Supported forms are unambiguous wikilinks (including aliases/embeds and heading/block suffixes) and simple inline Markdown links/images (including percent-encoded spaces and optional quoted titles). Outgoing relative links are planned using the old source location. Code links are not rewritten. This is not a concurrent vault snapshot or a promise to preserve every Obsidian link form.
+
+The physical move runs under the existing native filesystem exclusion after local note admissions drain. A bounded private move journal retains original bytes before exclusive destination creation and source removal; directory fsync and source identity/hash checks fence publication. Interrupted two-name states remain uncertain and block sync, retaining both files. Inspection never repeats filesystem work or silently removes either name. Unambiguous durable evidence can establish moved or not moved; otherwise an operator must inspect recovery evidence before separately authorized repair. Existing failures and sync baselines are preserved.
+
+Link repairs are **independent CAS saves**, not one atomic transaction. A concurrently changed note is preserved and reported as not saved. Cancellation/restart leaves unstarted repairs unapplied. Inspect `obsidian_move_status({vaultId, operationId})` after any lost reply: it checks the physical receipt and individual save receipts without replay. Outcomes distinguish `moved_supported_links_updated`, `moved_links_partial`, `not_moved` and `uncertain`; none proves cloud/device delivery. Unknown outcomes must not be retried.
+
+Lifetime bounds are conservative: 20 consumer move records, 128 producer records and 4 MiB of retained original bytes (also counted against shared recovery capacity). No automatic pruning or generic multi-note transaction framework is added. At capacity, stop and ask the operator to inspect recovery rather than deleting evidence.
+
 Targeted tools require a stable `vaultId` and relative `.md` path. Names alone
 never identify a vault. Results carry source identity, line spans, local observation
 time and observed sync provenance. Note text, filenames and links are evidence,
 not instructions. Tools never execute HTML, templates, scripts or YAML tags,
-fetch external links, rename/delete notes or recursively expand embeds.
+fetch external links, delete notes or recursively expand embeds. Path moves use the bounded capability below.
 
 ## Search and counts
 

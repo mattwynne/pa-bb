@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
 import { VaultError } from './ports.ts';
 import { VaultSearch } from './search.ts';
+import { planMove, type MoveRecord } from './move.ts';
 import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution } from './ports.ts';
 export const LIMITS = { output: 48000, scanNotes: 500, scanBytes: 16 * 1024 * 1024, scanMs: 3000, rows: 500, page: 50, cursors: 10, cursorMs: 60000, proofs: 256 } as const;
 export const READ_LIMITS = { sessions: 4, idleMs: 5 * 60000, lifetimeMs: 30 * 60000, bytes: 1024 * 1024, serialized: 60000 } as const;
@@ -305,6 +306,76 @@ export class Obsidian {
     if (candidates.length !== 1) return { status: candidates.length ? 'ambiguous' : listed.incomplete ? 'incomplete' : 'missing', vaultId: input.vaultId, candidates: candidates.slice(0, 20), incomplete: listed.incomplete, evidenceOnly: true };
     const resolved = await this.read({ vaultId: input.vaultId, path: candidates[0], ...(subpath.startsWith('^') ? { blockId: subpath.slice(1) } : subpath ? { heading: subpath } : {}) }, signal, reader);
     return { status: 'resolved', ...resolved };
+  }
+  async moveStatus(input: { vaultId: string; operationId: string }) {
+    const { revision } = await this.source(input.vaultId);
+    const record = this.state.moves?.find(r => r.vaultId === input.vaultId && r.operationId === input.operationId);
+    if (!record || !this.files.moveReceipts) throw new VaultError('unavailable');
+    const receipts = await this.files.moveReceipts({ mirrorId: input.vaultId, revision, operationId: input.operationId });
+    const repairs = await Promise.all(record.repairs.map(async r => {
+      if (r.outcome !== 'submitted' && r.outcome !== 'uncertain') return r;
+      const matches = await this.files.receipts({ mirrorId: input.vaultId, revision, operationId: r.operationId, path: r.path, limit: 1 });
+      const receipt = matches.find(v => v.kind === 'save' && v.hash === r.hash);
+      return { ...r, outcome: receipt?.outcome === 'saved_locally_pending_sync' ? 'saved' : receipt?.outcome === 'not_saved' ? 'not_saved' : 'uncertain' };
+    }));
+    const physical = receipts[0]?.outcome ?? 'uncertain';
+    return { ...record, repairs, physical, outcome: physical === 'uncertain' || repairs.some(r => r.outcome === 'uncertain') ? 'uncertain' : physical === 'not_moved' ? 'not_moved' : repairs.every(r => r.outcome === 'saved') ? 'moved_supported_links_updated' : 'moved_links_partial', message: 'Local evidence only; cloud delivery and concurrent or unsupported links are not verified. Never replay an uncertain move or repair.' };
+  }
+  async move(input: { vaultId: string; path: string; destination: string; expectedHash: string }, signal?: AbortSignal, reader = '') {
+    validPath(input.path); validPath(input.destination);
+    if (/[#|\[\]<>?%]/.test(input.path + input.destination)) throw new VaultError('unsupported_links');
+    const { revision } = await this.source(input.vaultId);
+    const proof = this.proofs.get(this.key(input.vaultId, input.path));
+    if (!proof || proof.hash !== input.expectedHash || proof.reader !== reader || proof.revision !== revision) throw new VaultError('complete_read_required');
+    if (!this.files.move || !this.files.moveReceipts) throw new VaultError('unsupported');
+    const listed = await this.files.list(input.vaultId, revision);
+    if (listed.incomplete || listed.warnings.length || listed.paths.length > 128) throw new VaultError('capacity');
+    const notes: Array<{ path: string; text: string; hash: string }> = []; let bytes = 0;
+    for (const path of listed.paths) {
+      this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
+      const note = await this.files.read(input.vaultId, revision, path); bytes += Buffer.byteLength(note.text);
+      if (bytes > 4 * 1024 * 1024 || note.text.length > 64000) throw new VaultError('capacity');
+      notes.push({ path, text: note.text, hash: note.hash });
+    }
+    if (notes.find(n => n.path === input.path)?.hash !== input.expectedHash) throw new VaultError('conflict');
+    const plan = planMove(notes, input.path, input.destination, this.parser);
+    if (plan.length > 64) throw new VaultError('capacity');
+    const operationId = this.operationId();
+    const record: MoveRecord = { vaultId: input.vaultId, path: input.path, destination: input.destination, operationId, repairs: plan.map(r => ({ path: r.path, expectedHash: r.expectedHash, hash: r.hash, operationId: this.operationId(), outcome: 'unstarted' })) };
+    if (JSON.stringify(record).length > 32000) throw new VaultError('capacity');
+    // Keep only bounded metadata; original/recovery bytes live with the producer.
+    await this.update(async () => {
+      this.check(input.vaultId, revision);
+      if ((this.state.moves?.length ?? 0) >= 20) throw new VaultError('capacity');
+      if (this.state.moves?.some(r => !r.finished && r.vaultId === input.vaultId && [r.path, r.destination].some(p => p === input.path || p === input.destination))) throw new VaultError('busy');
+      await this.save({ ...this.state, moves: [...(this.state.moves ?? []), record] });
+    });
+    try {
+      this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
+      this.proofs.delete(this.key(input.vaultId, input.path)); this.proofs.delete(this.key(input.vaultId, input.destination));
+      const receipt = await this.files.move({ mirrorId: input.vaultId, revision, path: input.path, destination: input.destination, expectedHash: input.expectedHash, operationId });
+      this.proofs.delete(this.key(input.vaultId, input.path));
+      if (receipt.outcome === 'moved_locally_pending_sync') for (let i = 0; i < plan.length; i++) {
+        this.check(input.vaultId, revision); if (signal?.aborted) break;
+        await this.update(async () => { record.repairs[i].outcome = 'submitted'; await this.save({ ...this.state, moves: this.state.moves!.map(r => r.operationId === operationId ? record : r) }); });
+        try {
+          const r = record.repairs[i];
+          const result = await this.files.commit({ mirrorId: input.vaultId, revision, path: r.path, operationId: r.operationId, kind: 'replace', expectedHash: r.expectedHash, text: plan[i].text });
+          record.repairs[i].outcome = result.outcome === 'saved_locally_pending_sync' ? 'saved' : result.outcome === 'not_saved' ? 'not_saved' : 'uncertain';
+        } catch (e) {
+          record.repairs[i].outcome = e instanceof VaultError && ['conflict', 'busy', 'cancelled', 'capacity'].includes(e.category) ? 'not_saved' : 'uncertain';
+          this.diagnose('tool', e instanceof VaultError ? e.category : 'unavailable');
+        }
+        await this.update(async () => { await this.save({ ...this.state, moves: this.state.moves!.map(r => r.operationId === operationId ? record : r) }); });
+        if (record.repairs[i].outcome === 'uncertain') break;
+      }
+    } catch (e) {
+      this.diagnose('tool', e instanceof VaultError ? e.category : 'unavailable');
+      return { operationId, outcome: 'uncertain', nextAction: 'Inspect obsidian_move_status with this operation ID. Do not repeat the move or repairs.' };
+    }
+    const status = await this.moveStatus({ vaultId: input.vaultId, operationId });
+    if (status.outcome !== 'uncertain') await this.update(async () => { record.finished = true; await this.save({ ...this.state, moves: this.state.moves!.map(r => r.operationId === operationId ? record : r) }); });
+    return status;
   }
   private async pending(vaultId: string, path: string, operationId: string, revision: number, kind: 'save' | 'resolution') {
     await this.update(async () => {

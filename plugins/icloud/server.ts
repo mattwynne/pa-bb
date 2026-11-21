@@ -99,6 +99,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     noteVaultRoots(input, context) { obsidianOnly(context); return noteAction('note_list', async () => { const result = await runtime!.access(input.mirrorId, input.revision, vaultRoots); if (result.incomplete) diagnose('note_list', 'unavailable'); return result; }); },
     noteList(input, context) { obsidianOnly(context); return noteAction('note_list', () => runtime!.access(input.mirrorId, input.revision, root => runtime!.overlay.list(root, input.mirrorId))); },
     noteRead(input, context) { obsidianOnly(context); return noteAction('note_read', () => runtime!.read(input.mirrorId, input.revision, input.path, input.selector?.token)); },
+    noteMove(input, context) { obsidianOnly(context); return noteAction('note_move', async () => { const result = await runtime!.move(input.revision, input, context.experimental_signal); if (result.outcome === 'uncertain') diagnose('note_move', 'uncertain'); return result; }); },
+    noteMoveReceipts(input, context) { obsidianOnly(context); return noteAction('note_move', () => runtime!.moveReceipts(input.mirrorId, input.revision, input.operationId)); },
     noteCommit(input, context) { obsidianOnly(context); return noteAction('note_commit', () => runtime!.commit(input.revision, input)); },
     noteReceipts(input, context) { obsidianOnly(context); return noteAction('note_receipts', () => runtime!.receipts(input.mirrorId, input.revision, input)); },
     noteInspectConflict(input, context) { obsidianOnly(context); return noteAction('note_inspect_conflict', () => runtime!.access(input.mirrorId, input.revision, root => runtime!.overlay.inspect(input.mirrorId, input.path, root))); },

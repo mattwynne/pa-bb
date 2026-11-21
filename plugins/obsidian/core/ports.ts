@@ -1,5 +1,5 @@
 export type PendingOperation = { operationId: string; vaultId: string; path: string; at: string; kind?: 'save' | 'resolution' };
-export type Configuration = { revision: number; vaultIds: string[]; names?: Record<string, string>; pending?: PendingOperation[]; unconfirmedRevision?: number };
+export type Configuration = { moves?: import('./move.ts').MoveRecord[]; revision: number; vaultIds: string[]; names?: Record<string, string>; pending?: PendingOperation[]; unconfirmedRevision?: number };
 export type LocalCapability = { available: boolean; reason: 'ownership' | 'recovery_required' | 'source_changed' | null; pendingAgeMs: number | null; applicationBlocker: 'application_uncertain' | 'native_recovery' | null };
 export type Source = { id: string; name: string; initialized: boolean; enabled: boolean; cloudConnected: boolean; phase: string; lastSuccess: string | null; failure: string | null; local: LocalCapability };
 export type SearchCapability = { version: 1; available: boolean; reason: 'missing_executable' | 'unsupported_version' | 'unavailable' | null };
@@ -16,6 +16,8 @@ export type ResolutionReceipt = { kind: 'resolution'; operationId: string; mirro
 export type Receipt = SaveReceipt | ResolutionReceipt;
 export type Resolution = { mirrorId: string; revision: number; path: string; operationId: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: 'keep_local' | 'accept_incoming' | 'replace'; text?: string };
 export interface VaultFiles {
+  move?(input: { mirrorId: string; revision: number; path: string; destination: string; expectedHash: string; operationId: string }): Promise<{ outcome: 'moved_locally_pending_sync' | 'not_moved' | 'uncertain' }>;
+  moveReceipts?(input: { mirrorId: string; revision: number; operationId: string }): Promise<Array<{ outcome: 'moved_locally_pending_sync' | 'not_moved' | 'uncertain' }>>;
   configure(configuration: Configuration): Promise<void>;
   search(input: SearchRequest, signal?: AbortSignal): Promise<SearchBatch>;
   closeSearch(revision: number, cursor: string): Promise<void>;

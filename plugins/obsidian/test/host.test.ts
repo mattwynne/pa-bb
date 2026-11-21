@@ -5,9 +5,9 @@ import { plugin } from '../server.ts';
 import { CatalogFake, FilesFake, MemoryState } from './fakes.ts';
 import { settingsSchema } from '../contract.ts';
 import { VaultError } from '../core/ports.ts';
-const names = ['obsidian_status', 'obsidian_search_notes', 'obsidian_read_note', 'obsidian_get_note_metadata', 'obsidian_resolve_link', 'obsidian_list_tasks', 'obsidian_create_note', 'obsidian_edit_note', 'obsidian_update_properties'];
+const names = ['obsidian_status', 'obsidian_search_notes', 'obsidian_read_note', 'obsidian_get_note_metadata', 'obsidian_resolve_link', 'obsidian_list_tasks', 'obsidian_move_note', 'obsidian_move_status', 'obsidian_create_note', 'obsidian_edit_note', 'obsidian_update_properties'];
 async function setup() { const host = createFakePluginHost({ pluginId: 'obsidian' }); const catalog = new CatalogFake(); const files = new FilesFake(); const repository = new MemoryState(); await plugin(host.bb, { catalog, files, repository }); return { ...host, catalog, files, repository }; }
-test('exactly nine ordinary tools, no approval registration, and no default connected vault', async () => {
+test('exactly eleven ordinary tools, no approval registration, and no default connected vault', async () => {
   const { harness } = await setup();
   try { const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), names); assert.equal(settingsSchema.parse(await harness.behavior.callRpc('status', null)).vaults.length, 0); assert.match(config.instructions ?? '', /untrusted evidence/); }
   finally { await harness.lifecycle.dispose(); }

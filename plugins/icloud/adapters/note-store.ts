@@ -143,6 +143,33 @@ export class NoteStore {
     } catch (e) { throw e instanceof NoteError ? e : new NoteError((e as NodeJS.ErrnoException)?.code === 'ENOSPC' ? 'capacity' : 'uncertain'); }
     finally { await parent.close(); }
   }
+  async moveExclusive(root: string, path: string, destination: string, expected: NonNullable<Awaited<ReturnType<NoteStore['observe']>>>, signal?: AbortSignal, admission: () => void = () => {}) {
+    const source = await this.parent(root, path);
+    let target: Awaited<ReturnType<NoteStore['parent']>> | undefined;
+    try {
+      target = await this.parent(root, destination);
+      if (!equivalent(await this.observe(root, path), expected)) throw new NoteError('conflict');
+      if (signal?.aborted) throw new NoteError('cancelled');
+      await this.fault('before_move_link');
+      admission();
+      await link(source.path, target.path); // EEXIST is never replaced
+      await this.fault('after_move_link');
+      await target.folder.sync();
+      await this.fault('after_move_destination_sync');
+      const a = await this.observe(root, path), b = await this.observe(root, destination);
+      // link changes ctime, so verify content and identity rather than old ctime.
+      if (!a || !b || a.hash !== expected.hash || b.hash !== expected.hash || !identity(a.info, expected.info) || !identity(b.info, expected.info)) throw new NoteError('uncertain');
+      if (signal?.aborted) throw new NoteError('uncertain');
+      admission();
+      await unlink(source.path);
+      await this.fault('after_move_unlink');
+      await source.folder.sync();
+      await this.fault('after_move_source_sync');
+    } finally { await source.close(); await target?.close(); }
+  }
+  async syncMoveDirectories(root: string, path: string, destination: string) {
+    for (const name of [path, destination]) { const p = await this.parent(root, name); try { await p.folder.sync(); } finally { await p.close(); } }
+  }
   async provePublishedStage(root: string, path: string, expected: { hash: string; info: { dev: number; ino: number } }) {
     const parent = await this.parent(root, path);
     try {

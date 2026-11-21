@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rename, rm } from 'node:fs/promises';
@@ -36,6 +36,49 @@ async function fixture(native = false, initialized = true) {
   await runtime.start();
   return { root, state, runtime, worker, async close() { await runtime.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
 }
+
+test('move uses native exclusion, refuses outstanding overlays, and blocks sync after uncertainty', async () => {
+  const f = await fixture();
+  try {
+    f.runtime.configure(1, ['one']);
+    const root = join(f.root, 'mirrors/one'); await mkdir(join(root, 'Reference'));
+    await writeFile(join(root, 'Example.md'), 'A');
+    const input = { mirrorId: 'one', path: 'Example.md', destination: 'Reference/New.md', expectedHash: createHash('sha256').update('A').digest('hex'), operationId: randomUUID() };
+    const gate = deferred(), entered = deferred(); const files = f.worker.withFiles.bind(f.worker);
+    f.worker.withFiles = async action => files(async signal => { entered.resolve(); await gate.promise; return action(signal); });
+    const moving = f.runtime.move(1, input); await entered.promise;
+    await assert.rejects(f.runtime.read('one', 1, 'Example.md'), /busy/);
+    gate.resolve(); assert.equal((await moving).outcome, 'moved_locally_pending_sync');
+    await assert.rejects(f.runtime.commit(1, { ...input, kind: 'create', expectedHash: null, text: 'B' }), /operation_reused/);
+    // New pending head may never be bypassed by a physical move.
+    const time = Date.now().toString(16).padStart(12, '0'); const operationId = `${time.slice(0,8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
+    await f.runtime.commit(1, { ...input, path: 'Pending.md', operationId, kind: 'create', expectedHash: null, text: 'B' });
+    await assert.rejects(f.runtime.move(1, { ...input, path: 'Pending.md', operationId: randomUUID(), destination: 'Reference/Pending.md' }), /busy/);
+    // A synthetic interruption after exclusive destination creation leaves both
+    // names; neither ordinary saves nor bisync can proceed through uncertainty.
+    await writeFile(join(root, 'Second.md'), 'A');
+    (f.runtime.moves as any).files.options.fault = async (s: string) => { if (s === 'after_move_link') throw new Error('PRIVATE_SENTINEL'); };
+    const second = { ...input, path: 'Second.md', destination: 'Reference/Second.md', operationId: randomUUID() };
+    assert.equal((await f.runtime.move(1, second)).outcome, 'uncertain');
+    await assert.rejects(f.runtime.read('one', 1, 'Second.md'), /uncertain/);
+    await assert.rejects(f.runtime.run(['bisync', 'generated:', root]), /uncertain/);
+    assert.equal((await f.runtime.moveReceipts('one', 1, second.operationId))[0].outcome, 'uncertain');
+  } finally { await f.close(); }
+});
+
+for (const stage of ['before_move_link', 'after_move_link']) test('native move drain retains flock at '+stage, { skip: !process.env.RCLONE_TEST_BINARY, timeout: 15000 }, async () => {
+  const f = await fixture(true); const gate = deferred(), entered = deferred();
+  try {
+    f.runtime.configure(1, ['one']); const root = join(f.root, 'mirrors/one');
+    await writeFile(join(root, 'Example.md'), 'A');
+    (f.runtime.moves as any).files.options.fault = async (s: string) => { if (s === stage) { entered.resolve(); await gate.promise; } };
+    const moving = f.runtime.move(1, { mirrorId: 'one', path: 'Example.md', destination: 'New.md', expectedHash: createHash('sha256').update('A').digest('hex'), operationId: randomUUID() });
+    await entered.promise; let stopped = false; const stopping = f.runtime.stop().then(() => { stopped = true; });
+    const contender = new RcloneProcess(f.root, process.env.RCLONE_TEST_BINARY);
+    await assert.rejects(contender.ensure(), /busy/); await contender.stop(); assert.equal(stopped, false);
+    gate.resolve(); assert.equal((await moving).outcome, stage === 'before_move_link' ? 'not_moved' : 'uncertain'); await stopping;
+  } finally { gate.resolve(); await f.close(); }
+});
 
 test('registration verifies account outside filesystem exclusion but in the same serialized turn', async () => {
   const f = await fixture(false, false);

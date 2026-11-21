@@ -12,6 +12,7 @@ import { NoteOverlay } from './note-overlay.ts';
 import type { Resolution } from './note-overlay.ts';
 import { RcloneProcess } from './rclone-process.ts';
 import { NoteSearch } from './note-search.ts';
+import { NoteMoves, type MoveInput } from './note-move.ts';
 import type { SearchRequest } from './note-search.ts';
 
 // The flock, not a JS timer/lease, owns the generation. All native commands,
@@ -20,6 +21,8 @@ import type { SearchRequest } from './note-search.ts';
 // Overlay publications
 // have a separate admission fence and can proceed during this generation's child.
 export class NoteRuntime {
+  readonly moves: NoteMoves;
+  private moving = false;
   readonly overlay: NoteOverlay;
   readonly search: NoteSearch;
   private readonly context = new AsyncLocalStorage<{ revision: number; mirrorId: string }>();
@@ -43,6 +46,7 @@ export class NoteRuntime {
   constructor(readonly root: string, private db: Database.Database, readonly worker: RcloneProcess,
     private legacy: NoteStore, private state: () => State, private clock = () => Date.now(),
     private diagnose: (stage: string, category: string) => void = () => {}) {
+    this.moves = new NoteMoves(db, legacy, id => this.guard(id));
     this.overlay = new NoteOverlay(join(root, 'overlay'), db, legacy, clock, undefined, id => this.guard(id));
     this.search = new NoteSearch(legacy, { paths: id => this.overlay.searchPaths(id), reader: (id, path) => this.overlay.searchReader(this.localPath(this.mirror(id)!), id, path) });
   }
@@ -61,6 +65,7 @@ export class NoteRuntime {
         CREATE TABLE IF NOT EXISTS icloud_note_bindings (mirror_id TEXT PRIMARY KEY, folder_id TEXT NOT NULL, root_dev INTEGER NOT NULL, root_ino INTEGER NOT NULL, baseline_dev INTEGER NOT NULL, baseline_ino INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS icloud_note_account (id INTEGER PRIMARY KEY CHECK(id=1), fingerprint TEXT NOT NULL);`);
       if (this.state().mirrors.some(m => m.initialized)) await this.bindAccount();
+      this.moves.start();
       await this.overlay.start();
       const config = this.db.prepare('SELECT revision, members FROM icloud_note_admission WHERE id=1').get() as { revision: number; members: string } | undefined;
       if (config) {
@@ -210,9 +215,12 @@ export class NoteRuntime {
   async access<T>(id: string, revision: number, action: (root: string) => Promise<T>): Promise<T> {
     if (this.storageBlocked) throw new CloudError('recovery_required');
     if (!this.ready || this.closed || this.revision !== revision || !this.members.has(id)) throw new CloudError('invalid_selection');
+    if (this.moving) throw new NoteError('busy');
+    if (this.moves.blocked(id)) throw new NoteError('uncertain');
     const availability = await this.availability(id);
     if (!availability.available) throw new CloudError('source_changed');
     this.guardWithin(id, revision);
+    if (this.moving) throw new NoteError('busy');
     const task = this.context.run({ revision, mirrorId: id }, () => action(this.localPath(this.mirror(id)!)));
     this.entered.add(task);
     try { return await task; } finally { this.entered.delete(task); }
@@ -247,7 +255,42 @@ export class NoteRuntime {
     // mirror. Revocation still fences them and the scope is always mandatory.
     return this.overlay.receipts(query);
   }
+  async moveReceipts(id: string, revision: number, operationId: string) {
+    if (this.closed || revision !== this.revision || !this.members.has(id)) throw new CloudError('invalid_selection');
+    if (this.moving) throw new NoteError('busy');
+    if (!this.moves.blocked(id)) return this.moves.receipts(id, operationId);
+    // Inspect exact filesystem evidence under the existing native lock; no
+    // link/unlink is replayed. Ambiguous two-name states remain blocked.
+    return this.idleFiles(async () => {
+      this.guardWithin(id, revision);
+      const root = await this.local(this.mirror(id)!);
+      await this.moves.inspect(root, id);
+      return this.moves.receipts(id, operationId);
+    });
+  }
+  async move(revision: number, input: MoveInput, signal?: AbortSignal) {
+    // Do not queue a second move behind the first or let ordinary overlay
+    // publications race canonical unlink. Existing entered saves finish first.
+    if (this.moving || this.moves.blocked(input.mirrorId)) throw new NoteError('busy');
+    await this.access(input.mirrorId, revision, async () => {});
+    if (this.moving) throw new NoteError('busy');
+    this.moving = true;
+    try {
+      await Promise.allSettled([...this.entered]);
+      return await this.idleFiles(nativeSignal => this.context.run({ mirrorId: input.mirrorId, revision }, async () => {
+        this.guard(input.mirrorId);
+        for (const table of ['icloud_note_overlay_receipts', 'icloud_note_overlay_resolutions', 'icloud_note_overlay_legacy']) if (this.db.prepare(`SELECT 1 FROM ${table} WHERE operation_id=?`).get(input.operationId)) throw new NoteError('operation_reused');
+        const m = this.mirror(input.mirrorId)!;
+        if (m.failure || m.blocker || this.nativeBlocked.has(m.id)) throw new NoteError('busy');
+        for (const path of [input.path, input.destination]) {
+          if (this.db.prepare('SELECT 1 FROM icloud_note_overlay_heads WHERE mirror_id=? AND path=?').get(m.id, path) || this.db.prepare('SELECT 1 FROM icloud_note_overlay_legacy WHERE mirror_id=? AND path=? AND uncertain=1').get(m.id, path)) throw new NoteError('busy');
+        }
+        return this.moves.move(this.localPath(m), input, signal ? AbortSignal.any([signal, nativeSignal]) : nativeSignal);
+      }));
+    } finally { this.moving = false; }
+  }
   async commit(revision: number, input: CommitInput) {
+    if (this.moves.has(input.operationId)) throw new NoteError('operation_reused');
     const result = await this.access(input.mirrorId, revision, root => this.overlay.commit(root, input));
     this.wake(); return result;
   }
@@ -292,8 +335,9 @@ export class NoteRuntime {
       return this.worker.call(method, body);
     });
   }
-  idleFiles<T>(action: () => Promise<T>) { return this.turn(() => this.worker.withFiles(action)); }
+  idleFiles<T>(action: (signal: AbortSignal) => Promise<T>) { return this.turn(() => this.worker.withFiles(action)); }
   private async nativeCommand(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
+    for (const mirror of this.state().mirrors) if (mirror.initialized && args.includes(this.localPath(mirror)) && this.moves.blocked(mirror.id)) throw new NoteError('uncertain');
     this.nativeRunning = true;
     try { return await this.worker.run(args, capture, report); }
     finally {
@@ -304,6 +348,7 @@ export class NoteRuntime {
   run(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
     return this.turn(async () => {
       const id = args[0] === 'bisync' ? this.state().mirrors.find(m => m.initialized && this.localPath(m) === args[2])?.id : undefined;
+      if (id && this.moves.blocked(id)) throw new NoteError('uncertain');
       if (id && !args.includes('--resync')) {
         if (this.nativeBlocked.get(id) === 'native_failure' && this.mirror(id)?.blocker === null) this.nativeBlocked.delete(id); // explicit Retry cleared the prior blocker
         await this.quantum();

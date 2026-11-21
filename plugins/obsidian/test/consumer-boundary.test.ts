@@ -19,11 +19,11 @@ async function setup(count = 2) {
   return { ...host, files, repository, pending, run };
 }
 
-test('all nine published tool parameter schemas have an object root for provider function calls', async () => {
+test('all eleven published tool parameter schemas have an object root for provider function calls', async () => {
   const f = await setup();
   try {
     const config = await f.harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
-    assert.equal(config.tools.length, 9);
+    assert.equal(config.tools.length, 11);
     for (const tool of config.tools) assert.equal((tool.inputSchema as { type?: unknown }).type, 'object', tool.name);
   } finally { await f.harness.lifecycle.dispose(); }
 });

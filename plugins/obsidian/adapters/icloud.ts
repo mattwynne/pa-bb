@@ -67,6 +67,8 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   read(mirrorId: string, revision: number, path: string) { return this.call('noteRead', { mirrorId, revision, path }); }
   readIncoming(mirrorId: string, revision: number, path: string, token: string) { return this.call('noteRead', { mirrorId, revision, path, selector: { version: 'incoming', token } }); }
   inspect(mirrorId: string, revision: number, path: string) { return this.call('noteInspectConflict', { mirrorId, revision, path }); }
+  move(input: Parameters<NonNullable<VaultFiles['move']>>[0]) { return this.call('noteMove', input, true); }
+  moveReceipts(input: Parameters<NonNullable<VaultFiles['moveReceipts']>>[0]) { return this.call('noteMoveReceipts', input); }
   commit(input: Parameters<VaultFiles['commit']>[0]) { return this.call('noteCommit', input, true); }
   resolve(input: Parameters<VaultFiles['resolve']>[0]) { return this.call('noteResolveConflict', input, true); }
   receipts(input: Parameters<VaultFiles['receipts']>[0]) { return this.call('noteReceipts', input); }
