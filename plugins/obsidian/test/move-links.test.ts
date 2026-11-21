@@ -34,3 +34,52 @@ test('frontmatter is inspected even when link delimiters only appear after YAML 
   const index = note('Index.md', '---\nrelated: "\\u005b\\u005bExample\\u005d\\u005d"\n---\n');
   assert.throws(() => planMove([source, index], source.path, 'Reference/Example.md', parser), /unsupported_links/);
 });
+
+const projectPath = 'Example/Projects/Active/Service a heater.md';
+const donePath = 'Example/Projects/Done/Service a heater.md';
+test('sibling move preserves a stable short path and ignores unrelated missing and ambiguous links', () => {
+  const project = note(projectPath, '[[Areas/Equipment]]\n[Equipment](../../Areas/Equipment.md)\n[[#Checklist]]\n');
+  const index = note('Example/Index.md', '[[Example/Projects/Active/Service a heater]]\n[[Missing]]\n[[Equipment]]\n');
+  const notes = [project, index, note('Example/Areas/Equipment.md', ''), note('Copy/Reference/Equipment.md', '')];
+  assert.deepEqual(planMove(notes, projectPath, donePath, parser), [{
+    path: index.path, expectedHash: index.hash,
+    text: '[[Example/Projects/Done/Service a heater]]\n[[Missing]]\n[[Equipment]]\n',
+    hash: hashText('[[Example/Projects/Done/Service a heater]]\n[[Missing]]\n[[Equipment]]\n'),
+  }]);
+});
+
+for (const [title, backlink, extra] of [
+  ['duplicate source basename', '[[Service a heater]]', 'Copy/Service a heater.md'],
+  ['unresolved short path that could be a backlink', '[[Projects/Active/Service a heater]]'],
+  ['missing destination link that would acquire a target', '[[Example/Projects/Done/Service a heater]]'],
+  ['contextual link that could acquire the destination', '[[Projects/Done/Service a heater]]'],
+  ['Markdown link that would acquire the destination', '[project](Projects/Done/Service%20a%20heater.md)'],
+] as const) {
+  test(`${title} blocks the move`, () => {
+    const notes = [note(projectPath, ''), note('Example/Index.md', backlink)];
+    if (extra) notes.push(note(extra, ''));
+    assert.throws(() => planMove(notes, projectPath, donePath, parser), /ambiguous_link/);
+  });
+}
+
+test('a short outgoing path with a possible target under the destination sibling blocks the move', () => {
+  const notes = [
+    note(projectPath, '[[Areas/Equipment]]\n'),
+    note('Example/Projects/Done/Areas/Equipment.md', ''),
+  ];
+  assert.throws(() => planMove(notes, projectPath, donePath, parser), /ambiguous_link/);
+});
+
+test('a relative link that would rebase from a missing target fails closed', () => {
+  const notes = [note(projectPath, '[Equipment](Areas/Equipment.md)\n')];
+  assert.throws(() => planMove(notes, projectPath, donePath, parser), /ambiguous_link/);
+});
+
+test('a repair that would introduce an ambiguous wiki path fails closed', () => {
+  const notes = [
+    note(projectPath, ''),
+    note('Example/Index.md', '[[Example/Projects/Active/Service a heater]]'),
+    note('Copy/Example/Projects/Done/Service a heater.md', ''),
+  ];
+  assert.throws(() => planMove(notes, projectPath, donePath, parser), /ambiguous_link/);
+});

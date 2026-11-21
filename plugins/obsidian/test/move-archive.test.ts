@@ -24,19 +24,22 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
     await import(new URL('../../icloud/adapters/note-move.ts', import.meta.url).href);
   const root = await mkdtemp(join(tmpdir(), 'obsidian-archive-'));
   const vault = join(root, 'vault');
-  const path = 'Projects/Active/Service a heater.md';
-  const destination = 'Projects/Done/Service a heater.md';
-  const original = '---\nstatus: active\n---\n# Service a heater\n- [x] Service\n';
-  for (const folder of ['Projects/Active', 'Projects/Done', 'Reference']) {
+  const path = 'Example/Projects/Active/Service a heater.md';
+  const destination = 'Example/Projects/Done/Service a heater.md';
+  const original = '---\nstatus: active\n---\n# Service a heater\n- [x] Service\n[[Areas/Equipment]]\n';
+  for (const folder of ['Example/Projects/Active', 'Example/Projects/Done', 'Example/Areas', 'Copy/Reference', 'Reference']) {
     await mkdir(join(vault, folder), { recursive: true });
   }
   const filler = 'A synthetic reference note.\n'.repeat(1600);
   for (let i = 0; i < 512; i++) await writeFile(join(vault, 'Reference', `Note ${i}.md`), filler);
   await writeFile(join(vault, path), original);
+  await writeFile(join(vault, 'Example/Areas/Equipment.md'), '');
+  await writeFile(join(vault, 'Copy/Reference/Equipment.md'), '');
   const indexPrefix = 'Generated reference text. '.repeat(6000)
     + '\n\n```markdown\n[[Projects/Active/Service a heater|Example in code]]\n```\n\n';
   const lateIndex = join(vault, 'Reference/Z Index.md');
-  const before = '[[Service a heater|Service]]\n[Service](../Projects/Active/Service%20a%20heater.md)\n';
+  const unrelated = '[[Missing]]\n[[Equipment]]\n';
+  const before = '[[Service a heater|Service]]\n[Service](../Example/Projects/Active/Service%20a%20heater.md)\n' + unrelated;
   await writeFile(lateIndex, indexPrefix + before);
 
   const databasePath = join(root, 'moves.sqlite');
@@ -78,7 +81,7 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
     return response;
   };
 
-  assert.equal((await store.list(vault)).paths.length, 514);
+  assert.equal((await store.list(vault)).paths.length, 516);
   const target = { vaultId: 'one', path };
   const read = await run('obsidian_read_note', target);
   assert.equal(read.complete, true);
@@ -99,12 +102,19 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
   assert.equal(unsupported.response.category, 'unsupported_links');
   assert.equal(await readFile(join(vault, path), 'utf8'), original);
   assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
+  await writeFile(extra, '[[Projects/Active/Service a heater]]\n');
+  const ambiguous = await call('obsidian_move_note', request);
+  assert.equal(ambiguous.isError, true);
+  assert.equal(ambiguous.response.category, 'ambiguous_link');
+  assert.equal(await readFile(join(vault, path), 'utf8'), original);
+  await assert.rejects(readFile(join(vault, destination)), { code: 'ENOENT' });
+  assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
   await rm(extra);
 
   const started = performance.now();
   const preview = await run('obsidian_move_note', { ...request, dryRun: true });
   assert.equal(preview.outcome, 'link_plan_ready');
-  assert.equal(preview.notesChecked, 514);
+  assert.equal(preview.notesChecked, 516);
   assert.ok(preview.bytesChecked > 20 * 1024 * 1024);
   assert.equal(preview.plannedRepairs, 1);
   assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
@@ -116,7 +126,7 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
   assert.equal(await readFile(join(vault, destination), 'utf8'), original);
   await assert.rejects(readFile(join(vault, path)), { code: 'ENOENT' });
   assert.equal(await readFile(lateIndex, 'utf8'), indexPrefix
-    + '[[Projects/Done/Service a heater|Service]]\n[Service](../Projects/Done/Service%20a%20heater.md)\n');
+    + '[[Example/Projects/Done/Service a heater|Service]]\n[Service](../Example/Projects/Done/Service%20a%20heater.md)\n' + unrelated);
 
   db.close();
   const reopened = new Database(databasePath, { readonly: true, fileMustExist: true });

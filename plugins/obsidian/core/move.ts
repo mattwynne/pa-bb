@@ -7,21 +7,33 @@ export type MoveRecord = z.infer<typeof moveRecordSchema>;
 export const hashText = (text: string) => createHash('sha256').update(text).digest('hex');
 export const MOVE_SCAN_LIMITS = { notes: 10000, bytes: 128 * 1024 * 1024, milliseconds: 20000, batch: 8 } as const;
 const REPAIR_BYTES = 8 * 1024 * 1024;
+const basenameKey = (path: string) => posix.basename(path).toLowerCase().replace(/\.md$/, '');
+const below = (path: string, folder: string) => path.startsWith(folder + '/');
 export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: string, parser: NoteParser) {
   if (!paths.has(from) || paths.has(to)) throw new VaultError('conflict');
+  const oldFolder = posix.dirname(from), newFolder = posix.dirname(to);
+  const siblings = posix.dirname(oldFolder) === posix.dirname(newFolder);
+  const endpoints = [from, to].map(path => path.toLowerCase());
+  const endpointNames = [from, to].map(basenameKey);
   const basenames = new Map<string, string[]>();
   for (const path of paths) {
-    const key = posix.basename(path, '.md').toLowerCase();
+    const key = basenameKey(path);
     const matches = basenames.get(key);
     if (matches) matches.push(path);
     else basenames.set(key, [path]);
   }
-  const resolve = (name: string, source: string, wiki: boolean) => {
-    if (!name) return [source];
-    if (wiki && !name.includes('/')) return basenames.get(name.replace(/\.md$/, '').toLowerCase()) ?? [];
-    const path = posix.normalize(name.startsWith('/') ? name.slice(1) : wiki && !name.startsWith('.') ? name : posix.join(posix.dirname(source), name));
-    return [path, path + '.md'].filter(candidate => paths.has(candidate));
+  const pathForms = (name: string, folder: string, wiki: boolean) => {
+    const path = posix.normalize(name.startsWith('/') ? name.slice(1) : wiki && !name.startsWith('.') ? name : posix.join(folder, name));
+    return [path, path + '.md'];
   };
+  // A short wikilink may name a path suffix inside a workspace. Use suffix
+  // matches to rule out changes or detect uncertainty, never to pick a target.
+  const suffixForms = (name: string) => pathForms(name, '', true).map(path => path.toLowerCase().replace(/^(?:\.\.\/)+/, ''));
+  const matchesSuffix = (forms: string[], path: string) => forms.some(form => path === form || path.endsWith('/' + form));
+  const suffixCandidates = (forms: string[]) =>
+    [...new Set(forms.flatMap(form => basenames.get(basenameKey(form)) ?? []))].filter(path => matchesSuffix(forms, path.toLowerCase()));
+  const existsAfter = (path: string) => path === to || (path !== from && paths.has(path));
+  const ambiguous = (reason: string) => new VaultError('ambiguous_link', `Move stopped before writing. ${reason}`);
   const repairs: Array<{ path: string; text: string; expectedHash: string; hash: string }> = [];
   let repairBytes = 0;
   const visit = (note: { path: string; text: string; hash: string }, bytes: number) => {
@@ -47,14 +59,61 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
       if (/%(?!20)/i.test(match[2])) throw new VaultError('unsupported_links');
       if (target.includes('\\') || target.includes('?')) throw new VaultError('unsupported_links');
       const split = target.indexOf('#'), name = split < 0 ? target : target.slice(0,split), fragment = split < 0 ? '' : target.slice(split);
-      const candidates = resolve(name, note.path, wiki);
-      if (candidates.length !== 1) throw new VaultError('ambiguous_link');
-      const resolved = candidates[0], movedSource = note.path === from ? to : note.path;
-      // A newly introduced basename must not silently steal unrelated links.
-      if (wiki && !name.includes('/') && name && resolved !== from && posix.basename(to, '.md').toLowerCase() === name.replace(/\.md$/, '').toLowerCase()) throw new VaultError('ambiguous_link');
-      if (!name || (resolved !== from && movedSource === note.path)) continue;
+      if (!name) continue; // Local heading or block references follow their note.
+      const moved = note.path === from;
+      const movedSource = moved ? to : note.path;
+      const basename = wiki && !name.includes('/');
+      const shortPath = wiki && !basename && !name.startsWith('/') && !name.startsWith('.');
+      const before = basename ? [] : pathForms(name, posix.dirname(note.path), wiki);
+      const after = moved && !basename ? pathForms(name, newFolder, wiki) : before;
+      const suffixes = shortPath ? suffixForms(name) : [];
+      const touchesEndpoint = basename
+        ? endpointNames.includes(basenameKey(name))
+        : [...before, ...after].some(path => endpoints.includes(path.toLowerCase())) || endpoints.some(path => matchesSuffix(suffixes, path));
+      if (!touchesEndpoint) {
+        if (!moved || oldFolder === newFolder) continue;
+        if (basename) {
+          if ((basenames.get(basenameKey(name))?.length ?? 0) <= 1) continue;
+          throw ambiguous('An outgoing basename link in the moved note could change targets.');
+        }
+        if (shortPath) {
+          const possible = suffixCandidates(suffixes);
+          // Only the two sibling directories change context. A unique match
+          // outside them stays in the same ancestor scopes and remains the
+          // same candidate. Preserve the original spelling.
+          if (possible.length === 1 && !below(possible[0].toLowerCase(), oldFolder.toLowerCase())
+            && !below(possible[0].toLowerCase(), newFolder.toLowerCase())
+            && (siblings || before.includes(possible[0]))) continue;
+          throw ambiguous('An outgoing short-path link could change meaning in the destination folder.');
+        }
+        if (before[0] === after[0]) continue;
+      }
+      const candidates = basename
+        ? basenames.get(basenameKey(name)) ?? []
+        : before.filter(path => paths.has(path));
+      if (candidates.length !== 1 || (shortPath && suffixCandidates(suffixes).length !== 1)) {
+        throw ambiguous('A link that could change with this move did not have a uniquely established target.');
+      }
+      const resolved = candidates[0];
+      if (touchesEndpoint && resolved !== from && (basename || shortPath || !moved)) {
+        throw ambiguous('A link could acquire a different target at the destination.');
+      }
       const destination = resolved === from ? to : resolved;
       const next = wiki ? destination.replace(/\.md$/, '') : encodeURI(posix.relative(posix.dirname(movedSource), destination)).replace(/#/g, '%23');
+      const spelling = wiki ? next : decodeURIComponent(next);
+      const possibleAfter = wiki && !spelling.includes('/')
+        ? (basenames.get(basenameKey(spelling)) ?? []).filter(existsAfter).concat(basenameKey(spelling) === basenameKey(to) ? [to] : [])
+        : pathForms(spelling, posix.dirname(movedSource), wiki).filter(existsAfter);
+      if (possibleAfter.length !== 1 || possibleAfter[0] !== destination) {
+        throw ambiguous('A rewritten link would not uniquely identify its intended target.');
+      }
+      if (wiki && spelling.includes('/')) {
+        const forms = suffixForms(spelling);
+        if (suffixCandidates(forms).some(path => existsAfter(path) && path !== destination)
+          || (to !== destination && matchesSuffix(forms, to.toLowerCase()))) {
+          throw ambiguous('A rewritten wikilink would have a competing path match.');
+        }
+      }
       const replacement = wiki ? match[1] + next + (match[3] || '') : match[1] + next + fragment + (match[3] || '') + ')';
       if (replacement === raw) continue;
       if (link.start < offset) throw new VaultError('unsupported_links');
