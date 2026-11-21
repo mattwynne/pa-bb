@@ -76,3 +76,17 @@ test('an incomplete listing or exhausted link discovery budget stops before a mo
     await f.service.stop();
   }
 });
+
+test('a repair that would grow a note past the store write limit stops before the physical move', async () => {
+  const f = await fixture();
+  try {
+    const backlink = '[[Example]]\n';
+    f.files.notes.set('one/Index.md', 'a'.repeat(1024 * 1024 - backlink.length - 2) + '\n\n' + backlink);
+    await assert.rejects(f.service.move(f.input, undefined, 'reader'),
+      error => error instanceof VaultError && error.category === 'capacity' && /1 MiB write limit/.test(error.nextAction));
+    assert.equal(f.files.moves, 0);
+    assert.equal(f.state.value.moves, undefined);
+  } finally {
+    await f.service.stop();
+  }
+});

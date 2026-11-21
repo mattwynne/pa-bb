@@ -1,7 +1,7 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { parseDocument, isMap, isScalar, isSeq } from 'yaml';
 import type { Document } from 'yaml';
-import { VaultError } from '../core/ports.ts';
+import { MAX_NOTE_BYTES, VaultError } from '../core/ports.ts';
 import type { Metadata, NoteParser } from '../core/ports.ts';
 const MAX_BYTES = 64 * 1024; const MAX_NODES = 20000;
 const lineAt = (text: string, offset: number) => text.slice(0, offset).split('\n').length;
@@ -49,13 +49,32 @@ export class MarkdownNotes implements NoteParser {
     const value = header(text);
     return { properties: value.doc?.toJS({ maxAliasCount: 0 }) ?? {}, warnings: value.valid ? [] : ['properties_unsupported'] };
   }
-  parse(text: string): Metadata {
-    if (Buffer.byteLength(text) > MAX_BYTES) throw new VaultError('parser_limit');
+  parse(text: string, purpose?: 'move'): Metadata {
+    const linksOnly = purpose === 'move';
+    if (Buffer.byteLength(text) > (linksOnly ? MAX_NOTE_BYTES : MAX_BYTES)) throw new VaultError('parser_limit');
     const meta: Metadata = { properties: {}, aliases: [], tags: [], headings: [], blocks: [], links: [], tasks: [], warnings: [] };
     const h = header(text); let masked = blank(text.slice(0, h.closeEnd)) + text.slice(h.closeEnd);
     if (!h.valid) meta.warnings.push('properties_unsupported');
     if (h.doc) { meta.properties = h.doc.toJS({ maxAliasCount: 0 }) ?? {}; meta.aliases = (meta.properties.aliases as string[] | undefined) ?? []; }
-    const location = (start: number, end: number) => ({ start, end, line: lineAt(text, start), endLine: lineAt(text, Math.max(start, end - 1)) });
+    // Large move candidates can have many links. Index line breaks once so
+    // locating every span does not repeatedly scan the same prefix.
+    const lineBreaks: number[] = [];
+    if (linksOnly) for (let index = text.indexOf('\n'); index !== -1; index = text.indexOf('\n', index + 1)) lineBreaks.push(index);
+    const lineNumber = (offset: number) => {
+      if (!linksOnly) return lineAt(text, offset);
+      let low = 0, high = lineBreaks.length;
+      while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (lineBreaks[mid] < offset) low = mid + 1;
+        else high = mid;
+      }
+      return low + 1;
+    };
+    const location = (start: number, end: number) => ({ start, end, line: lineNumber(start), endLine: lineNumber(Math.max(start, end - 1)) });
+    const addLink = (start: number, end: number, target: string, embed: boolean) => {
+      if (linksOnly && meta.links.length >= MAX_NODES) throw new VaultError('parser_limit');
+      meta.links.push({ ...location(start, end), target, embed });
+    };
     const forbidden: Array<[number, number]> = []; let nodes = 0;
     const html: Array<{ start: number; end: number; value: string }> = [];
     walk(fromMarkdown(masked), node => { if (++nodes > MAX_NODES) throw new VaultError('parser_limit'); if (['code', 'inlineCode', 'html'].includes(node.type)) forbidden.push([node.position.start.offset, node.position.end.offset]); if (node.type === 'html') html.push({ start: node.position.start.offset, end: node.position.end.offset, value: node.value }); });
@@ -93,11 +112,19 @@ export class MarkdownNotes implements NoteParser {
       if (++nodes > MAX_NODES) throw new VaultError('parser_limit');
       if (!node.position) return;
       const start = node.position.start.offset; const end = node.position.end.offset;
-      if (node.type === 'heading') meta.headings.push({ ...location(start, end), title: textOf(node), depth: node.depth });
-      if (node.type === 'link' || node.type === 'image') meta.links.push({ ...location(start, end), target: node.url, embed: node.type === 'image' });
+      if (!linksOnly && node.type === 'heading') meta.headings.push({ ...location(start, end), title: textOf(node), depth: node.depth });
+      if (node.type === 'link' || node.type === 'image') addLink(start, end, node.url, node.type === 'image');
       if (node.type === 'text') {
         const source = masked.slice(start, end);
-        for (const match of source.matchAll(/!?\[\[([^\]\r\n]+)\]\]/g)) if (source[(match.index ?? 0) - 1] !== '\\') meta.links.push({ ...location(start + match.index!, start + match.index! + match[0].length), target: match[1].split('|')[0], embed: match[0].startsWith('!') });
+        // Consume through the first delimiter even for an unclosed wikilink.
+        // This avoids rescanning a long line at every unmatched opener.
+        for (const match of source.matchAll(/!?\[\[([^\]\r\n]*)(\]|\r|\n|$)/g)) {
+          const end = match.index + match[0].length;
+          if (match[1] && match[2] === ']' && source[end] === ']' && source[match.index - 1] !== '\\') {
+            addLink(start + match.index, start + end + 1, match[1].split('|')[0], match[0].startsWith('!'));
+          }
+        }
+        if (linksOnly) return;
         for (const match of source.matchAll(/(^|[\s(])#([^\s#.,;:!?()[\]{}<>"'`]+)/gu)) {
           const tag = match[2]; if (validTag(tag)) { const at = start + match.index! + match[1].length; meta.tags.push({ ...location(at, at + tag.length + 1), tag: tag.toLocaleLowerCase('und') }); }
         }
@@ -108,7 +135,7 @@ export class MarkdownNotes implements NoteParser {
           meta.blocks.push({ ...location(blockStart, end), id: match[1] });
         }
       }
-      if (node.type === 'listItem' && node.children?.[0]?.type === 'paragraph') {
+      if (!linksOnly && node.type === 'listItem' && node.children?.[0]?.type === 'paragraph') {
         const paragraph = node.children[0]; const offset = paragraph.position.start.offset; const content = masked.slice(offset, paragraph.position.end.offset);
         const match = /^\[([^\]\r\n])\][ \t]+([^\r\n]*)/u.exec(content);
         if (match) meta.tasks.push({ ...location(offset, offset + match[0].length), marker: match[1], markerOffset: offset + 1, complete: match[1].trim() !== '', text: text.slice(offset + match[0].length - match[2].length, offset + match[0].length) });
@@ -116,9 +143,9 @@ export class MarkdownNotes implements NoteParser {
     });
     if (h.doc && isMap(h.doc.contents)) for (const pair of h.doc.contents.items) {
       const value = pair.value; const start = h.start + ((value as any)?.range?.[0] ?? 0); const end = h.start + ((value as any)?.range?.[1] ?? 0);
-      if ((pair.key as any).value === 'tags') for (const tag of meta.properties.tags as string[]) meta.tags.push({ ...location(start, end), tag: tag.replace(/^#/, '').toLocaleLowerCase('und') });
+      if (!linksOnly && (pair.key as any).value === 'tags') for (const tag of meta.properties.tags as string[]) meta.tags.push({ ...location(start, end), tag: tag.replace(/^#/, '').toLocaleLowerCase('und') });
       const strings = isSeq(value) ? value.items.map(v => (v as any)?.value) : [(value as any)?.value];
-      for (const value of strings) if (typeof value === 'string') for (const match of value.matchAll(/!?\[\[([^\]]+)\]\]/g)) meta.links.push({ ...location(start, end), target: match[1].split('|')[0], embed: match[0].startsWith('!') });
+      for (const value of strings) if (typeof value === 'string') for (const match of value.matchAll(/!?\[\[([^\]]+)\]\]/g)) addLink(start, end, match[1].split('|')[0], match[0].startsWith('!'));
     }
     return meta;
   }

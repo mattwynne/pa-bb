@@ -1,13 +1,13 @@
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
-import { VaultError } from './ports.ts';
+import { MAX_NOTE_BYTES, VaultError } from './ports.ts';
 import { areaEvidence, areaCandidates, areaLinkPath } from './project-areas.ts';
 import { VaultSearch } from './search.ts';
 import { planMove, type MoveRecord } from './move.ts';
 import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution } from './ports.ts';
 export const LIMITS = { output: 48000, scanNotes: 500, scanBytes: 16 * 1024 * 1024, scanMs: 3000, rows: 500, page: 50, cursors: 10, cursorMs: 60000, proofs: 256 } as const;
-export const READ_LIMITS = { sessions: 4, idleMs: 5 * 60000, lifetimeMs: 30 * 60000, bytes: 1024 * 1024, serialized: 60000 } as const;
+export const READ_LIMITS = { sessions: 4, idleMs: 5 * 60000, lifetimeMs: 30 * 60000, bytes: MAX_NOTE_BYTES, serialized: 60000 } as const;
 type ReadInput = { vaultId: string; path: string; heading?: string; blockId?: string; selector?: { version: 'incoming'; token: string }; cursor?: string };
 type ReadSession = { vaultId: string; path: string; selector?: ReadInput['selector']; reader: string; hash: string; revision: number; source: string; offset: number; warnings: string[]; started: number; touched: number };
 const validPath = (path: string) => { if (!path || !path.endsWith('.md') || path.length > 1024 || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new VaultError('invalid_path'); return path; };
@@ -403,17 +403,32 @@ export class Obsidian {
       const batch = await Promise.allSettled(paths.map(path => this.files.read(input.vaultId, revision, path)));
       this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
       for (const [index, result] of batch.entries()) {
-        if (result.status === 'rejected') throw result.reason;
+        if (result.status === 'rejected') {
+          const error = result.reason;
+          if (error instanceof VaultError && error.category === 'unsupported') {
+            if (!error.diagnosticReported) this.diagnose('move_preflight', 'unsupported');
+            throw new VaultError('unsupported', 'Move stopped before writing. A vault note could not be fully read for link discovery. The store requires supported UTF-8 notes up to 1 MiB.', true);
+          }
+          throw error;
+        }
         const { text, hash } = result.value;
-        bytes += Buffer.byteLength(text);
-        if (text.length > 64000) refuse('capacity', 'Link discovery found a note over its 64,000-character limit.');
+        const noteBytes = Buffer.byteLength(text);
+        if (noteBytes > MAX_NOTE_BYTES) refuse('capacity', 'Link discovery found a note over the 1 MiB whole-note limit.');
+        bytes += noteBytes;
         if (bytes > 4 * 1024 * 1024) refuse('capacity', 'Link discovery reached its 4 MiB total text limit.');
         notes.push({ path: paths[index], text, hash });
       }
     }
     if (notes.find(n => n.path === input.path)?.hash !== input.expectedHash) throw new VaultError('conflict');
-    const plan = planMove(notes, input.path, input.destination, this.parser);
-    if (plan.length > 64) refuse('capacity', 'The move would require more than 64 link repairs.');
+    let plan: ReturnType<typeof planMove>;
+    try { plan = planMove(notes, input.path, input.destination, this.parser); }
+    catch (error) {
+      if (error instanceof VaultError && error.category === 'parser_limit') {
+        refuse('capacity', 'A vault note exceeded the Markdown parser’s complexity limit during link discovery.');
+      }
+      if (error instanceof VaultError && error.category === 'capacity') refuse('capacity', error.nextAction);
+      throw error;
+    }
     const operationId = this.operationId();
     const record: MoveRecord = { vaultId: input.vaultId, path: input.path, destination: input.destination, operationId, repairs: plan.map(r => ({ path: r.path, expectedHash: r.expectedHash, hash: r.hash, operationId: this.operationId(), outcome: 'unstarted' })) };
     if (JSON.stringify(record).length > 32000) refuse('capacity', 'The link repair plan exceeds the move record size limit.');

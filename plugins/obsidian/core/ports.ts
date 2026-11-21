@@ -9,6 +9,8 @@ export type SearchBatch = { candidates: Array<{ path: string; hash: string; read
 export type Catalog = { search?: SearchCapability; setup: string; nextAction: string | null; sources: Source[]; connected: boolean; compatible: boolean };
 export interface MirrorCatalog { snapshot(): Promise<Catalog> }
 export type CompleteNote = { text: string; hash: string; readAt: string; complete: true };
+// The iCloud note store applies this UTF-8 byte limit to whole reads and saves.
+export const MAX_NOTE_BYTES = 1024 * 1024;
 export type IncomingRead = { absent: true } | (CompleteNote & { absent: false });
 export type ConflictInspection = { token: string; logicalHash: string; incomingHash: string | null; incomingAbsent: boolean };
 export type SaveReceipt = { kind: 'save'; operationId: string; mirrorId: string; path: string; at: string; outcome: 'saved_locally_pending_sync' | 'not_saved' | 'uncertain'; hash: string; previousHash: string | null };
@@ -36,7 +38,7 @@ export type Location = { line: number; endLine: number; start: number; end: numb
 export type Metadata = { properties: Record<string, unknown>; aliases: string[]; tags: Array<Location & { tag: string }>; headings: Array<Location & { title: string; depth: number }>; blocks: Array<Location & { id: string }>; links: Array<Location & { target: string; embed: boolean }>; tasks: Array<Location & { text: string; marker: string; markerOffset: number; complete: boolean }>; warnings: string[] };
 export interface NoteParser {
   frontmatter(text: string): { properties: Record<string, unknown>; warnings: string[] };
-  parse(text: string): Metadata;
+  parse(text: string, purpose?: 'move'): Metadata;
   edit(text: string, replacements: Array<{ oldText: string; newText: string }>): string;
   properties(text: string, input: { set: Record<string, unknown>; remove: string[] }): string;
 }
