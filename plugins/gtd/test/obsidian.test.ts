@@ -1,18 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
-import { ObsidianBackend, projectFromNote, relativeFolder } from '../adapters/obsidian.ts';
+import { ObsidianBackend, areaFromNote, projectFromNote, relativeFolder } from '../adapters/obsidian.ts';
 import { GtdError } from '../core/model.ts';
 const cursor = '12345678-1234-4123-8123-123456789abc';
 const state = () => ({ propertiesAccessVersion: 1, vaults: [{ vaultId: 'one', name: 'Example', source: { local: { available: true }, cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null } }] });
 const controller = () => new AbortController();
-test('standard frontmatter, legacy root/status folders, aliases, and title fallback', () => {
+test('folder membership defines projects; folder status wins and root defaults active', () => {
   assert.deepEqual(projectFromNote('Projects', 'Projects/Deep/Plan.md', { type: 'project', title: 'New title', status: 'completed' }), { id: 'Projects/Deep/Plan.md', title: 'New title', status: 'done' });
-  assert.deepEqual(projectFromNote('Projects', 'Projects/Done/Plan.md', { status: 'active' }), { id: 'Projects/Done/Plan.md', title: 'Plan', status: 'active' });
+  assert.deepEqual(projectFromNote('Projects', 'Projects/Done/Plan.md', { status: 'active' }), { id: 'Projects/Done/Plan.md', title: 'Plan', status: 'done' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', { status: 'deferred' }), { id: 'Projects/Plan.md', title: 'Plan', status: 'deferred' });
-  assert.equal(projectFromNote('Projects', 'Projects/Active/Plan/Minutes.md', { status: 'done' }), null);
-  assert.equal(projectFromNote('Projects', 'Projects/Minutes.md', { type: 'meeting', status: 'done' }), null);
-  assert.equal(projectFromNote('Projects', 'Projects/Plan.md', { type: 'project' }), 'invalid');
+  assert.deepEqual(projectFromNote('Projects', 'Projects/Active/Plan/Minutes.md', { status: 'done' }), { id: 'Projects/Active/Plan/Minutes.md', title: 'Minutes', status: 'active' });
+  assert.deepEqual(projectFromNote('Projects', 'Projects/Minutes.md', { type: 'meeting', status: 'done' }), { id: 'Projects/Minutes.md', title: 'Minutes', status: 'done' });
+  assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', {}), { id: 'Projects/Plan.md', title: 'Plan', status: 'active' });
   assert.equal(projectFromNote('Projects', 'Projects/Plan.md', { type: 'project', status: 'blocked' }), 'invalid');
   assert.equal(projectFromNote('Projects', 'Projects/Plan.md', { type: 'project', status: 'active', title: 'bad\nheading' }), 'invalid');
 });

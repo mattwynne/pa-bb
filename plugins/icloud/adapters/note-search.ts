@@ -100,7 +100,9 @@ export class NoteSearch {
       const matched=new Map<number,number>();
       if(readers.length){
         const paths=readers.map((_,i)=>`/proc/self/fd/${i+3}`);
-        const pattern=q.text??(q.projection==='frontmatter'?'^(?:\\x{FEFF})?---\\r?$':'^');
+        // Projection limits returned content, not which notes exist. Metadata-free
+        // notes must remain candidates for folder-based consumers.
+        const pattern=q.text??'^';
         await command(this.binary,['--no-config','--null','--line-number','--with-filename','--no-heading','--color','never','--ignore-case','--no-mmap','--threads','1','--max-count','1',...(q.text?['--fixed-strings',...(q.text.includes('\n')?['--multiline']:[])]:[]),'-e',pattern,'--',...paths],readers.map(r=>r.reader),s.abort.signal,raw=>{
           // NUL-delimited generated fd name + numeric line prefix. Unlike rg
           // JSON, this cannot amplify a repeated literal into a submatch array.
@@ -111,7 +113,7 @@ export class NoteSearch {
       for(let i=0;i<readers.length;i++){
         const {reader,path}=readers[i];guard();
         try{await reader.verify();}catch{s.warnings.add('note_unavailable');continue;}
-        const line=matched.get(i)??(!q.text&&q.projection==='hits'&&reader.text.length===0?1:undefined);if(line===undefined)continue;
+        const line=matched.get(i)??(!q.text&&reader.text.length===0?1:undefined);if(line===undefined)continue;
         const candidate:Candidate={path,hash:reader.hash,readAt:reader.readAt,line,snippet:reader.text.split('\n')[line-1]?.replace(/\r$/,'').slice(0,240)??''};
         if(q.projection!=='hits'){
           let content=reader.text;

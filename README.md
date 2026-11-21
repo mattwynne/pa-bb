@@ -23,9 +23,9 @@ For a new installation, start with [host setup](#1-prepare-the-host). This repos
 
 These plugins are early-stage and intended for **single-user BB installations**, not shared servers. Listed capabilities are implemented, but not every action has been verified against a live account. Google Workspace replaces the retired standalone Calendar and Drive plugins. Each plugin guide records verification limits; an available tool catalog is not proof of every provider operation. PA core and other [planned integrations](docs/roadmap.md) are not available yet.
 
-### Experimental GTD project lists
+### Experimental GTD inventories
 
-The source checkout also includes a read-only [GTD plugin](plugins/gtd/README.md) with `bb gtd projects` and an agent tool. Its backend-independent model starts with an Obsidian adapter for a configured Projects folder and documented frontmatter conventions. It is not yet listed in the marketplace; see its guide for local installation and verification limits.
+The source checkout also includes a read-only [GTD plugin](plugins/gtd/README.md) with `bb gtd projects`, `bb gtd areas`, and corresponding agent tools. Its backend-independent model starts with an Obsidian adapter for configured Projects and Areas folders. Folder membership defines entries; no type property is required. It is not yet listed in the marketplace; see its guide for local installation and verification limits.
 
 ## Get started
 

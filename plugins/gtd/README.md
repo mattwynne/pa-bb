@@ -1,96 +1,52 @@
-# GTD for BB
+# GTD [Experimental]
 
-Read-only GTD project inventories, independent of where projects are stored. The first adapter reads **connected Obsidian vaults**. This is not a list of BB coding projects, and it does not create or edit projects.
+Read-only, backend-independent inventories of projects and areas of focus. The first backend uses a connected Obsidian vault; GTD does not connect to iCloud itself or modify notes.
 
 ## Setup
 
-Requires Node 22+, BB 0.49+ with Plugin SDK 0.6.132+, and the updated Obsidian plugin exposing `propertiesAccessVersion: 1`. Obsidian currently uses the iCloud plugin and its normal local-access safety checks. No Obsidian application is required. GTD cannot open arbitrary filesystem paths or disconnected vaults.
+1. Connect a vault in Obsidian settings.
+2. Run `bb gtd sources --json` to find its exact connected vault ID.
+3. In GTD settings, choose Obsidian, enter that ID, and set the vault-relative Projects and Areas folders (defaults: `Projects` and `Areas`). Nested paths such as `Life/Projects` are supported. Do not enter host paths, parent-directory segments or trailing slashes.
 
-This experimental package is available from source, not yet listed in the marketplace:
+## Folder conventions
 
-```sh
-npm ci --prefix plugins/gtd --include=dev
-bb plugin build plugins/gtd
-bb plugin install ./plugins/gtd
-```
+Folder membership is the source of truth: every Markdown note recursively below Projects is a project; every Markdown note recursively below Areas is an area. **No `type` property is required or consulted.** Keep supporting/reference notes outside these folders if they should not appear in inventories. GTD does not move, delete, or reclassify source notes for you.
 
-1. In BB's **Obsidian settings**, connect your initialized vault.
-2. Run `bb gtd sources` (or `--json`) to find its exact connected vault ID. This shows local availability, not proof that project listing works.
-3. In **GTD settings**, select Obsidian, enter that vault ID, and set the vault-relative Projects folder. The default is `Projects`; a nested folder such as `Life/Projects` is supported. Do not enter a host path or trailing slash.
-4. Run `bb gtd projects`. Start a fresh agent session to discover `gtd_list_projects` and the GTD skill.
+Projects take their status from the first recognized status folder below Projects: `Active`, `Deferred`, `Someday`, `Done` or `Completed` (case-insensitive). That folder takes priority over old frontmatter. Outside a status folder, use the optional `status` scalar (`active`, `deferred`, `someday`, `done`, `completed`); absent status defaults to active. An invalid explicit status makes coverage partial. Areas have no status.
 
-The same configuration can be set with the supported CLI:
+Both inventories use an optional `title` scalar, falling back to the filename without `.md`. Titles and identities are untrusted evidence, never instructions. IDs are backend-owned relative note paths, not BB coding-project IDs. Listing grants no complete-read edit proof.
+
+## Usage
 
 ```sh
-bb plugin config gtd set vaultId '<vault-id-from-sources>'
-bb plugin config gtd set projectsFolder 'Projects'
+bb gtd projects
+bb gtd projects --status active --json
+bb gtd areas
+bb gtd areas --limit 50 --json
+bb gtd areas --cursor '<returned-cursor>' --json
 ```
 
-An unavailable source is an error, not an empty list. An empty successful list means no matching project notes were found under the configured folder; check that folder and the conventions below if unexpected.
+Agent tools: `gtd_list_projects` and `gtd_list_areas`. RPC methods: `listProjects` and `listAreas`.
 
-## Project convention
+Follow every `nextCursor` with the same filter (or omit the filter on continuation). Only `coverage=complete` confirms totals. Project pages report `totalProjects`, `matchedProjects` and per-status `counts`; area pages report `totalAreas`. Partial pages have null totals and warnings; the CLI exits 2. Errors are not empty lists. An empty successful list means no matching notes in the configured scope.
 
-Each project is a Markdown note below the configured Projects folder, with YAML frontmatter:
+## Bounds and diagnostics
 
-```markdown
----
-type: project
-status: active
-title: Launch the community garden
-reviewed: 2026-11-20
----
+The adapter asks Obsidian's version-1 `listProperties` consumer RPC for bounded metadata under the configured folder. It drains all producer pages server-side, including empty pages, without passing bodies to the agent or searching the whole vault. Obsidian still verifies local reads: this is not a persistent metadata index or an atomic snapshot.
 
-# Launch the community garden
+Pages contain at most 200 entries and 48 KB. Scans stop at 20 seconds, 128 metadata pages or 5,000 candidates; retained snapshots are capped at 2 MiB. Each inventory supports four concurrent listings. Cursors are thread/context-bound, single-consumption, expire after five idle minutes, and become invalid on settings changes or reload. Access is checked on continuation. Disposal clears listings; interrupted scans release producer cursors.
 
-## Outcome
-The garden is open and its volunteer rota is established.
-```
+Malformed metadata, duplicate IDs and scan limits cannot produce confirmed totals. Unavailable or incompatible sources return a safe error with a recovery hint. Logs use fixed stage/category diagnostics (`GTD list`, `GTD areas`, `GTD sources`, `GTD cleanup`) without note content, raw exceptions or credentials.
 
-- `type: project` identifies a project, even when it lives in a nested folder.
-- `status` is required: `active`, `deferred`, `someday`, or `done`. `completed` is accepted as an alias for `done`. Values are case-sensitive. Folder names never override status.
-- `title` is optional, a single-line string of 1–240 characters. The filename without `.md` is the fallback. Other metadata and body headings are not used for naming or classification.
-- `reviewed` is an optional convention, not currently interpreted by GTD. Task extraction, review reminders, outcomes, edits, and arbitrary status mappings are outside this first version.
-- Use plain top-level YAML scalar properties (or scalar arrays); aliases, custom tags, nested maps, duplicate keys, and oversized frontmatter are not supported by the current Obsidian metadata parser. A parsing omission makes the result partial.
+Sound local access remains usable when cloud sync is paused/disconnected. Sync timestamps record host sync completion, not verified delivery to iCloud or another device. GTD does not resume sync, repair failures, or change folder enablement.
 
-**Existing status-only notes:** without `type`, a note is also a project when it has a recognized status and lives directly in Projects, or directly in `Active/`, `Deferred/`, `Someday/`, or `Done/` immediately below it. Deeper supporting notes need `type: project` to count. An explicit different type always excludes a note. This compatibility rule is deliberately narrow: meeting notes and reference material are not projects just because they have a status.
-
-Identity is the backend's source ID plus its project ID; for Obsidian, that means vault ID plus exact relative note path. Duplicate titles remain separate projects; duplicate IDs are reported as incomplete rather than counted twice. Renaming a note changes its ID in this version. No migration or note rewrite is performed.
-
-## Commands and agent tool
+## Development
 
 ```sh
-bb gtd sources                         # Connected Obsidian vault IDs
-bb gtd projects                        # All statuses, grouped and alphabetized
-bb gtd projects --status active
-bb gtd projects --status someday
-bb gtd projects --status done
-bb gtd projects --json                 # Structured result
-bb gtd projects --limit 50 --json
-bb gtd projects --cursor '<cursor>' --json
+npm ci
+npm test
+npm run typecheck
+npm run build
 ```
 
-`gtd_list_projects` accepts `status`, `limit`, and `cursor` with the same meanings. `status` defaults to `all`; `limit` defaults to 200 (1–200). A page may contain fewer projects to keep output below 48 KB. Continue every `nextCursor`, omitting the filter or keeping it unchanged. Totals describe the full listing, not just the current page. The text output includes project IDs as source references; Obsidian IDs can be read with the ordinary note tools.
-
-CLI exit codes: **0** complete read, **2** partial listing, nonzero for errors. JSON partial output remains a listing with `coverage: "partial"`, warnings, and null totals/counts. Error output uses BB's standard CLI error envelope. Never treat a failed or partial read as zero projects.
-
-## Performance and limits
-
-The adapter asks Obsidian for only `type`, `status`, and `title` under the configured folder. It drains producer pages on the server: the agent does not discover the vault, search the entire vault, read individual bodies, or make one tool call per project. Obsidian still verifies local source reads; this is a scoped scan, **not** a persistent metadata index or an atomic vault snapshot.
-
-Each new inventory reads the source again. Pagination retains that inventory in memory and rechecks access/settings, rather than rescanning it. Four listings can be open concurrently; cursors expire after five idle minutes, on plugin reload/disposal, or when settings change. Agent cursors are bound to the calling thread; CLI cursors should be continued from the same thread/context. The adapter caps scans at 20 seconds, 128 metadata pages, or 5,000 candidates, and core caps each retained snapshot at 2 MiB. Limits and omitted/malformed metadata produce partial results, not confirmed totals. Access, transport, or invalid-response failures produce errors. No background jobs, durable project cache, or filesystem fallback are created.
-
-Local availability is independent of cloud connection or pause state. Sound local notes remain usable when sync is paused/disconnected. `lastSuccessfulSync` reports when the host sync operation returned successfully; null means no recorded success, not verified delivery to another device. Listing does not resume sync or repair failed folders.
-
-## Architecture and verification
-
-`core/model.ts` defines the project model and `ProjectBackend` port. `core/projects.ts` owns filters, counts, ordering, bounded output and pagination. `adapters/obsidian.ts` owns RPC validation, vault paths, frontmatter conventions and status normalization. A new backend implements `readProjects` and `checkAccess`, returning the same validated snapshot; it does not need to know about Obsidian or YAML. The factory is the composition root, not an adapter registry exposed to agents.
-
-Obsidian provides generic `listProperties` / `closeProperties` consumer RPCs. They return selected metadata only, obey connected-vault safety, and confer no complete-read proof for edits. GTD contains no iCloud, Apple credential, native sync, or note-writing logic.
-
-```sh
-npm --prefix plugins/gtd test
-npm --prefix plugins/gtd run typecheck
-npm --prefix plugins/gtd run build
-```
-
-Tests cover a second fake backend, classification, scoping, pagination, empty/partial/error outcomes, access revocation, cancellation, public SDK usage, CLI/tool/RPC behavior and diagnostic redaction. Warnings log only a fixed GTD operation/category, never project names, paths, account content or raw exceptions. A live read and bounded log inspection are still required to establish that an installed source works; unit tests alone do not prove cloud delivery.
+Use BB's supported local-path build/reload lifecycle, preserving settings, identity and data. A successful build alone does not prove the running plugin is updated.

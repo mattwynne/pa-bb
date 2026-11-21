@@ -1,7 +1,7 @@
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { GtdError } from '../core/model.ts';
-import type { Project, ProjectBackend, ProjectSnapshot, ProjectStatus, Warning } from '../core/model.ts';
+import type { Area, AreaBackend, AreaSnapshot, Project, ProjectBackend, ProjectSnapshot, ProjectStatus, Warning } from '../core/model.ts';
 
 export const relativeFolder = z.string().min(1).max(1024).refine(value =>
   !/[\\\x00-\x1f\x7f]/.test(value) && value.split('/').every(part => !!part && part !== '.' && part !== '..'),
@@ -24,16 +24,24 @@ const text = (value: unknown, max: number) => typeof value === 'string' && value
 export function projectFromNote(folder: string, path: string, properties: Record<string, unknown>): Project | 'invalid' | null {
   if (!path.startsWith(folder + '/') || !path.endsWith('.md') || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..')) return 'invalid';
   const parts = path.slice(folder.length + 1).split('/');
-  const legacy = properties.type === undefined && (parts.length === 1 || (parts.length === 2 && ['Active', 'Someday', 'Done', 'Deferred'].includes(parts[0])));
-  if (properties.type !== 'project' && !legacy) return null;
-  const status = typeof properties.status === 'string' && Object.hasOwn(aliases, properties.status) ? aliases[properties.status] : undefined;
-  if (!status) return properties.type === 'project' || properties.status !== undefined ? 'invalid' : null;
+  // Folder membership defines projects; a status folder overrides old frontmatter.
+  const folderStatus = parts.slice(0, -1).map(part => part.toLowerCase()).find(part => Object.hasOwn(aliases, part));
+  const status = folderStatus ? aliases[folderStatus] : properties.status === undefined ? 'active'
+    : typeof properties.status === 'string' && Object.hasOwn(aliases, properties.status) ? aliases[properties.status] : undefined;
+  if (!status) return 'invalid';
   const title = properties.title === undefined ? parts.at(-1)!.slice(0, -3) : properties.title;
   if (!text(title, 240)) return 'invalid';
   return { id: path, title: (title as string).trim(), status };
 }
 
-export class ObsidianBackend implements ProjectBackend {
+export function areaFromNote(folder: string, path: string, properties: Record<string, unknown>): Area | 'invalid' | null {
+  if (!path.startsWith(folder + '/') || !path.endsWith('.md') || /[\\\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..')) return 'invalid';
+  const title = properties.title === undefined ? path.split('/').at(-1)!.slice(0, -3) : properties.title;
+  if (!text(title, 240)) return 'invalid';
+  return { id: path, title: (title as string).trim() };
+}
+
+export class ObsidianBackend implements ProjectBackend, AreaBackend {
   constructor(private sdk: BbPluginApi['sdk'], private config: { vaultId: string; folder: string }, private cleanupFailure: () => void = () => {}) {}
   private async status(signal: AbortSignal) {
     let state: z.infer<typeof statusSchema>;
@@ -47,11 +55,19 @@ export class ObsidianBackend implements ProjectBackend {
     if (!state.vaults.find(vault => vault.vaultId === this.config.vaultId)?.source?.local.available) throw new GtdError('source_unavailable');
   }
   async readProjects(signal: AbortSignal): Promise<ProjectSnapshot> {
+    const { items, ...snapshot } = await this.readInventory(signal, 'project');
+    return { ...snapshot, projects: items as Project[] };
+  }
+  async readAreas(signal: AbortSignal): Promise<AreaSnapshot> {
+    const { items, ...snapshot } = await this.readInventory(signal, 'area');
+    return { ...snapshot, areas: items as Area[] };
+  }
+  private async readInventory(signal: AbortSignal, kind: 'project' | 'area') {
     const state = await this.status(signal);
     const vault = state.vaults.find(vault => vault.vaultId === this.config.vaultId);
     if (!vault?.source?.local.available) throw new GtdError('source_unavailable');
     const readSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
-    const projects: Project[] = [], warnings = new Set<Warning>();
+    const items: (Project | Area)[] = [], warnings = new Set<Warning>();
     let cursor: string | undefined, pages = 0, notes = 0, observedAt = new Date().toISOString();
     try {
       do {
@@ -70,8 +86,8 @@ export class ObsidianBackend implements ProjectBackend {
         if (page.incomplete || page.warnings.length) warnings.add('source_partial');
         for (const note of page.notes) {
           if (++notes > 5000) { warnings.add('scan_limit'); break; }
-          const project = projectFromNote(this.config.folder, note.path, note.properties);
-          if (project === 'invalid') warnings.add('invalid_project'); else if (project) projects.push(project);
+          const item = (kind === 'area' ? areaFromNote : projectFromNote)(this.config.folder, note.path, note.properties);
+          if (item === 'invalid') warnings.add(kind === 'area' ? 'invalid_area' : 'invalid_project'); else if (item) items.push(item);
         }
       } while (cursor);
     } finally {
@@ -83,7 +99,7 @@ export class ObsidianBackend implements ProjectBackend {
     }
     if (signal.aborted) throw new GtdError('cancelled');
     const source = vault.source;
-    return { projects, complete: warnings.size === 0, warnings: [...warnings], source: {
+    return { items, complete: warnings.size === 0, warnings: [...warnings], source: {
       backend: 'obsidian', id: vault.vaultId, name: vault.name ?? 'Obsidian vault', scope: this.config.folder, observedAt,
       lastSuccessfulSync: source.lastSuccess,
       sync: { connected: source.cloudConnected, enabled: source.enabled, phase: source.phase, failure: source.failure },

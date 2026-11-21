@@ -11,7 +11,7 @@ async function setup(backend?: ProjectBackend) {
 test('host registers one read-only tool, CLI help/validation/JSON and RPC share the same listing', async () => {
   const { harness } = await setup({ async readProjects() { return data(); }, async checkAccess() {} });
   try {
-    const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), ['gtd_list_projects']); assert.match(config.instructions!, /untrusted evidence/);
+    const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), ['gtd_list_projects', 'gtd_list_areas']); assert.match(config.instructions!, /untrusted evidence/);
     const help = await harness.behavior.runCli(['projects', '--help']); assert.equal(help.exitCode, 0); assert.match(help.stdout!, /--status/);
     for (const args of [['projects', '--status', 'bogus', '--json'], ['projects', '--limit', '201', '--json'], ['projects', '--limti', '1', '--json']]) assert.notEqual((await harness.behavior.runCli(args)).exitCode, 0);
     const cli = await harness.behavior.runCli(['projects', '--json']); assert.equal(cli.exitCode, 0); assert.equal(JSON.parse(cli.stdout!).totalProjects, 1);

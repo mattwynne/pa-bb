@@ -16,7 +16,7 @@ export const sourceSchema = z.object({
   observedAt: z.string(), lastSuccessfulSync: z.string().nullable(),
   sync: z.object({ connected: z.boolean(), enabled: z.boolean(), phase: z.string().max(64), failure: z.string().max(128).nullable() }).strict().nullable(),
 }).strict();
-export const warnings = ['invalid_project', 'source_partial', 'scan_limit', 'duplicate_id'] as const;
+export const warnings = ['invalid_project', 'invalid_area', 'source_partial', 'scan_limit', 'duplicate_id'] as const;
 export type Warning = typeof warnings[number];
 export const snapshotSchema = z.object({
   source: sourceSchema, projects: z.array(projectSchema).max(5000),
@@ -33,11 +33,11 @@ export type BackendSelection = { key: string; backend: ProjectBackend };
 export const errorCodes = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity'] as const;
 export type ErrorCode = typeof errorCodes[number];
 const hints: Record<ErrorCode, string> = {
-  unconfigured: 'Choose a backend, connected vault ID, and Projects folder in GTD settings. Use bb gtd sources to find connected vault IDs.',
+  unconfigured: 'Choose a backend, connected vault ID, and inventory folders in GTD settings. Use bb gtd sources to find connected vault IDs.',
   source_unavailable: 'Check the selected source in Obsidian settings. Keep its configuration; no project data was changed.',
   incompatible: 'Update Obsidian to a version supporting the listProperties consumer RPC, then try again.',
-  invalid_configuration: 'Use a connected vault ID and a relative Projects folder without parent-directory segments in GTD settings.',
-  invalid_source: 'The backend returned invalid project metadata. Check its integration and GTD plugin logs.',
+  invalid_configuration: 'Use a connected vault ID and a relative inventory folder without parent-directory segments in GTD settings.',
+  invalid_source: 'The backend returned invalid inventory metadata. Check its integration and GTD plugin logs.',
   cancelled: 'The listing was cancelled. Start a new listing when ready.',
   cursor_expired: 'The listing expired or the source/settings/filter changed. Start a new listing without a cursor.',
   capacity: 'Too many listings are open. Finish a listing or wait five minutes before starting another.',
@@ -61,3 +61,20 @@ export const pageSchema = z.object({
   consistency: z.literal('Per-project local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.'),
 }).strict();
 export type ProjectPage = z.infer<typeof pageSchema>;
+
+export const areaSchema = projectSchema.omit({ status: true });
+export type Area = z.infer<typeof areaSchema>;
+export const areaSnapshotSchema = snapshotSchema.omit({ projects: true }).extend({ areas: z.array(areaSchema).max(5000) });
+export type AreaSnapshot = z.infer<typeof areaSnapshotSchema>;
+export interface AreaBackend {
+  readAreas(signal: AbortSignal): Promise<AreaSnapshot>;
+  checkAccess(signal: AbortSignal): Promise<void>;
+}
+export type AreaBackendSelection = { key: string; backend: AreaBackend };
+export const areaListInput = listInput.omit({ status: true });
+export type AreaListInput = z.infer<typeof areaListInput>;
+export const areaPageSchema = pageSchema.omit({ projects: true, totalProjects: true, matchedProjects: true, counts: true, consistency: true }).extend({
+  areas: z.array(areaSchema).max(200), totalAreas: z.number().int().nonnegative().nullable(),
+  consistency: z.literal('Per-area local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.'),
+});
+export type AreaPage = z.infer<typeof areaPageSchema>;

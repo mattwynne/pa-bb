@@ -10,7 +10,7 @@
   },
   "bb": {
     "name": "GTD [Experimental]",
-    "description": "List GTD projects through a backend-independent model, starting with connected Obsidian vaults.",
+    "description": "List GTD projects and areas of focus through a backend-independent model, starting with connected Obsidian vaults.",
     "branding": {
       "icon": "ListTodo"
     },

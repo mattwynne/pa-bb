@@ -42,6 +42,21 @@ test('literal, multiline, option-like input, explicit folder boundaries and empt
     assert.equal((await run('-n')).candidates.length,1); assert.equal((await run('absent')).candidates.length,0); assert.equal((await run()).candidates.length,2);
   } finally { await f.close(); }
 });
+test('frontmatter projection inventories notes without metadata, including empty files, without bodies', { skip: !enabled }, async () => {
+  const f = await fixture();
+  try {
+    await writeFile(join(f.vault, 'Area.md'), '# Work\nprivate-body-sentinel');
+    await writeFile(join(f.vault, 'Empty.md'), '');
+    await writeFile(join(f.vault, 'Typed.md'), '---\ntitle: Family\n---\nprivate-body-sentinel');
+    const page = await f.engine.next({ mirrorId: 'one', revision: 1, projection: 'frontmatter' }, f.vault, () => {});
+    assert.equal(page.nextCursor, null); assert.deepEqual(page.warnings, []);
+    assert.deepEqual(page.candidates.map(c => c.path).sort(), ['Area.md', 'Empty.md', 'Typed.md']);
+    assert.equal(page.candidates.find(c => c.path === 'Area.md')!.content, '');
+    assert.equal(page.candidates.find(c => c.path === 'Empty.md')!.content, '');
+    assert.equal(page.candidates.find(c => c.path === 'Typed.md')!.content, '---\ntitle: Family\n---\n');
+    assert.ok(page.candidates.every(c => !c.content?.includes('private-body-sentinel')));
+  } finally { await f.close(); }
+});
 test('reader is pinned, verifies publication changes, refuses symlinks, and cursor guards run before delivery', { skip: !enabled }, async () => {
   const f=await fixture(); try {
     await writeFile(join(f.vault,'A.md'),'needle'); const reader=await f.store.searchReader(f.vault,'A.md');
