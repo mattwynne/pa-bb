@@ -46,3 +46,33 @@ test('cancellation after physical move leaves repair unstarted and is not replay
 test('a different reader and stale source are refused before physical writes',async()=>{
  const f=await fixture();try{await assert.rejects(f.service.move(f.input,undefined,'other'),/complete_read_required/);f.files.notes.set('one/Areas/Example.md','changed');await assert.rejects(f.service.move(f.input,undefined,'reader'),/conflict/);assert.equal(f.files.moves,0);}finally{await f.service.stop();}
 });
+
+test('an incomplete listing or exhausted link discovery budget stops before a move is recorded', async () => {
+  const f = await fixture();
+  const list = f.files.list.bind(f.files);
+  const assertRefused = async (category: string, message: RegExp) => {
+    await assert.rejects(f.service.move(f.input, undefined, 'reader'),
+      error => error instanceof VaultError && error.category === category && message.test(error.nextAction)
+        && !error.nextAction.includes('PRIVATE_SENTINEL'));
+    assert.equal(f.files.moves, 0);
+    assert.equal(f.state.value.moves, undefined);
+    assert.equal(f.logs.at(-1), 'move_preflight:' + category);
+  };
+  try {
+    f.files.list = async (id, revision) => ({ ...await list(id, revision), incomplete: true, paths: ['PRIVATE_SENTINEL.md'] });
+    await assertRefused('unavailable', /vault listing was incomplete/);
+    f.files.list = async (id, revision) => ({
+      ...await list(id, revision),
+      paths: Array.from({ length: 4097 }, (_, i) => `Note ${i}.md`),
+    });
+    await assertRefused('capacity', /4096 notes/);
+
+    f.files.list = list;
+    const text = 'a'.repeat(64000);
+    for (let i = 0; i < 66; i++) f.files.notes.set(`one/Long note ${i}.md`, text);
+    await assertRefused('capacity', /4 MiB total text/);
+    assert.equal(f.files.notes.get('one/Areas/Example.md'), 'body\n');
+  } finally {
+    await f.service.stop();
+  }
+});

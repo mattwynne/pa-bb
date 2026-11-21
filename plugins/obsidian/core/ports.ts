@@ -41,4 +41,4 @@ export interface NoteParser {
   properties(text: string, input: { set: Record<string, unknown>; remove: string[] }): string;
 }
 export class VaultError extends Error { constructor(readonly category: string, readonly nextAction = 'Check source status and reread the note before preparing a change.', readonly diagnosticReported = false) { super(category); this.name = 'VaultError'; } }
-export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool', category: string) => void;
+export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight', category: string) => void;

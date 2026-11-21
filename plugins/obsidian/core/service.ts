@@ -386,25 +386,41 @@ export class Obsidian {
     const proof = this.proofs.get(this.key(input.vaultId, input.path));
     if (!proof || proof.hash !== input.expectedHash || proof.reader !== reader || proof.revision !== revision) throw new VaultError('complete_read_required');
     if (!this.files.move || !this.files.moveReceipts) throw new VaultError('unsupported');
+    const refuse = (category: 'capacity' | 'unavailable', reason: string): never => {
+      this.diagnose('move_preflight', category);
+      throw new VaultError(category, `Move stopped before writing. ${reason}`, true);
+    };
     const listed = await this.files.list(input.vaultId, revision);
-    if (listed.incomplete || listed.warnings.length || listed.paths.length > 128) throw new VaultError('capacity');
+    if (listed.warnings.includes('scan_limit')) refuse('capacity', 'The vault listing reached its scan limit before link discovery could finish.');
+    if (listed.incomplete || listed.warnings.length) refuse('unavailable', 'The vault listing was incomplete or contained unsupported entries. Check vault access before attempting the move again.');
+    const noteLimit = 4096;
+    if (listed.paths.length > noteLimit) refuse('capacity', `Link discovery is limited to ${noteLimit} notes in the vault.`);
     const notes: Array<{ path: string; text: string; hash: string }> = []; let bytes = 0;
-    for (const path of listed.paths) {
+    const batchSize = 8;
+    for (let offset = 0; offset < listed.paths.length; offset += batchSize) {
       this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
-      const note = await this.files.read(input.vaultId, revision, path); bytes += Buffer.byteLength(note.text);
-      if (bytes > 4 * 1024 * 1024 || note.text.length > 64000) throw new VaultError('capacity');
-      notes.push({ path, text: note.text, hash: note.hash });
+      const paths = listed.paths.slice(offset, offset + batchSize);
+      const batch = await Promise.allSettled(paths.map(path => this.files.read(input.vaultId, revision, path)));
+      this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
+      for (const [index, result] of batch.entries()) {
+        if (result.status === 'rejected') throw result.reason;
+        const { text, hash } = result.value;
+        bytes += Buffer.byteLength(text);
+        if (text.length > 64000) refuse('capacity', 'Link discovery found a note over its 64,000-character limit.');
+        if (bytes > 4 * 1024 * 1024) refuse('capacity', 'Link discovery reached its 4 MiB total text limit.');
+        notes.push({ path: paths[index], text, hash });
+      }
     }
     if (notes.find(n => n.path === input.path)?.hash !== input.expectedHash) throw new VaultError('conflict');
     const plan = planMove(notes, input.path, input.destination, this.parser);
-    if (plan.length > 64) throw new VaultError('capacity');
+    if (plan.length > 64) refuse('capacity', 'The move would require more than 64 link repairs.');
     const operationId = this.operationId();
     const record: MoveRecord = { vaultId: input.vaultId, path: input.path, destination: input.destination, operationId, repairs: plan.map(r => ({ path: r.path, expectedHash: r.expectedHash, hash: r.hash, operationId: this.operationId(), outcome: 'unstarted' })) };
-    if (JSON.stringify(record).length > 32000) throw new VaultError('capacity');
+    if (JSON.stringify(record).length > 32000) refuse('capacity', 'The link repair plan exceeds the move record size limit.');
     // Keep only bounded metadata; original/recovery bytes live with the producer.
     await this.update(async () => {
       this.check(input.vaultId, revision);
-      if ((this.state.moves?.length ?? 0) >= 20) throw new VaultError('capacity');
+      if ((this.state.moves?.length ?? 0) >= 20) refuse('capacity', 'The move ledger has reached its 20-record limit. Ask the operator to inspect move recovery records.');
       if (this.state.moves?.some(r => !r.finished && r.vaultId === input.vaultId && [r.path, r.destination].some(p => p === input.path || p === input.destination))) throw new VaultError('busy');
       await this.save({ ...this.state, moves: [...(this.state.moves ?? []), record] });
     });
