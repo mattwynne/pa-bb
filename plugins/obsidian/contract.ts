@@ -13,6 +13,7 @@ const vault = z.object({ vaultId: z.string().regex(/^[A-Za-z0-9-]{1,64}$/) }).st
 const consumerFolder = z.string().min(1).max(1024).refine(value => !/[\\\x00-\x1f\x7f]/.test(value) && value.split('/').every(part => !!part && part !== '.' && part !== '..'));
 const scalarProperty = z.union([z.string(), z.number().finite(), z.boolean(), z.null()]);
 export const rpcContract = defineRpcContract({
+  vaultLocations: { input: z.null(), output: z.object({ vaults: z.array(z.object({ id: vault.shape.vaultId, root: z.string().max(1024), name: z.string().max(240) }).strict()).max(2000), incomplete: z.boolean() }).strict() },
   listProperties: {
     input: z.object({ vaultId: vault.shape.vaultId, folder: consumerFolder, fields: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/)).min(1).max(8), cursor: z.string().uuid().optional() }).strict(),
     output: z.object({ notes: z.array(z.object({ path: z.string().min(1).max(1024), properties: z.record(z.string(), z.union([scalarProperty, z.array(scalarProperty)])) }).strict()).max(200), nextCursor: z.string().uuid().nullable(), incomplete: z.boolean(), warnings: z.array(z.string()).max(32), observedAt: z.string() }).strict(),

@@ -13,6 +13,7 @@ import { bbState, bbRunHistory } from './adapters/bb-state.ts';
 import { diagnosticLogger } from './adapters/diagnostic-log.ts';
 import { RcloneProcess } from './adapters/rclone-process.ts';
 import { RcloneCloudProvider } from './adapters/rclone-cloud-provider.ts';
+import { vaultRoots } from './adapters/vault-roots.ts';
 import { NoteStore, NoteError } from './adapters/note-store.ts';
 import { NoteRuntime } from './adapters/note-runtime.ts';
 import type Database from 'better-sqlite3';
@@ -95,6 +96,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     noteConfigure(input, context) { obsidianOnly(context); return noteAction('note_configure', async () => { if (!runtime) throw new NoteError('unavailable'); return runtime.configure(input.revision, input.mirrorIds); }); },
     noteSearch(input, context) { obsidianOnly(context); return noteAction('note_search', () => runtime!.searchNotes(input)); },
     noteSearchClose(input, context) { obsidianOnly(context); return noteAction('note_search', () => runtime!.closeSearch(input.revision, input.cursor)); },
+    noteVaultRoots(input, context) { obsidianOnly(context); return noteAction('note_list', async () => { const result = await runtime!.access(input.mirrorId, input.revision, vaultRoots); if (result.incomplete) diagnose('note_list', 'unavailable'); return result; }); },
     noteList(input, context) { obsidianOnly(context); return noteAction('note_list', () => runtime!.access(input.mirrorId, input.revision, root => runtime!.overlay.list(root, input.mirrorId))); },
     noteRead(input, context) { obsidianOnly(context); return noteAction('note_read', () => runtime!.read(input.mirrorId, input.revision, input.path, input.selector?.token)); },
     noteCommit(input, context) { obsidianOnly(context); return noteAction('note_commit', () => runtime!.commit(input.revision, input)); },

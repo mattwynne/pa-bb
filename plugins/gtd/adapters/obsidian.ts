@@ -6,6 +6,15 @@ import type { Area, AreaBackend, AreaSnapshot, Project, ProjectBackend, ProjectS
 export const relativeFolder = z.string().min(1).max(1024).refine(value =>
   !/[\\\x00-\x1f\x7f]/.test(value) && value.split('/').every(part => !!part && part !== '.' && part !== '..'),
   'Use a relative folder such as Projects or Life/Projects, without a trailing slash.');
+export const vaultSelectionSchema = z.string().min(1).max(1100).refine(value => {
+  const [id, ...parts] = value.split('/');
+  return vaultIdSchema.safeParse(id).success && (!parts.length || relativeFolder.safeParse(parts.join('/')).success);
+});
+export async function vaultOptions(sdk: BbPluginApi['sdk'], signal: AbortSignal = AbortSignal.timeout(10000)) {
+  const schema = z.object({ vaults: z.array(z.object({ id: vaultIdSchema, root: z.string().max(1024), name: z.string().max(240) })), incomplete: z.boolean() });
+  const value = schema.parse(await sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'vaultLocations', input: null, outputSchema: z.unknown(), signal }));
+  return { ...value, vaults: value.vaults.map(v => ({ ...v, selection: v.root ? `${v.id}/${v.root}` : v.id })) };
+}
 export const vaultIdSchema = z.string().regex(/^[A-Za-z0-9-]{1,64}$/);
 // Wire contracts are local to this adapter. No imports from another plugin's implementation.
 const statusSchema = z.object({
@@ -42,12 +51,17 @@ export function areaFromNote(folder: string, path: string, properties: Record<st
 }
 
 export class ObsidianBackend implements ProjectBackend, AreaBackend {
-  constructor(private sdk: BbPluginApi['sdk'], private config: { vaultId: string; folder: string }, private cleanupFailure: () => void = () => {}) {}
+  constructor(private sdk: BbPluginApi['sdk'], private config: { vaultId: string; folder: string; root?: string }, private cleanupFailure: () => void = () => {}) {}
   private async status(signal: AbortSignal) {
     let state: z.infer<typeof statusSchema>;
     try { state = statusSchema.parse(await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'status', input: null, outputSchema: z.unknown(), signal })); }
     catch { throw new GtdError(signal.aborted ? 'cancelled' : 'source_unavailable'); }
     if (state.propertiesAccessVersion !== 1) throw new GtdError('incompatible');
+    if (this.config.root) {
+      let options: Awaited<ReturnType<typeof vaultOptions>>;
+      try { options = await vaultOptions(this.sdk, signal); } catch { throw new GtdError('source_unavailable'); }
+      if (!options.vaults.some(v => v.id === this.config.vaultId && v.root === this.config.root)) throw new GtdError('source_unavailable');
+    }
     return state;
   }
   async checkAccess(signal: AbortSignal) {
@@ -74,7 +88,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         if (pages++ >= 128 || notes >= 5000 || readSignal.aborted) { warnings.add('scan_limit'); break; }
         let page: z.infer<typeof propertyPage>;
         try { page = propertyPage.parse(await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'listProperties', input: {
-          vaultId: this.config.vaultId, folder: this.config.folder, fields: ['type', 'status', 'title'], ...(cursor ? { cursor } : {}),
+          vaultId: this.config.vaultId, folder: this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, fields: ['type', 'status', 'title'], ...(cursor ? { cursor } : {}),
         }, outputSchema: z.unknown(), signal: readSignal })); }
         catch (error) {
           if (signal.aborted) throw new GtdError('cancelled');
@@ -86,7 +100,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         if (page.incomplete || page.warnings.length) warnings.add('source_partial');
         for (const note of page.notes) {
           if (++notes > 5000) { warnings.add('scan_limit'); break; }
-          const item = (kind === 'area' ? areaFromNote : projectFromNote)(this.config.folder, note.path, note.properties);
+          const item = (kind === 'area' ? areaFromNote : projectFromNote)(this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, note.path, note.properties);
           if (item === 'invalid') warnings.add(kind === 'area' ? 'invalid_area' : 'invalid_project'); else if (item) items.push(item);
         }
       } while (cursor);
@@ -100,7 +114,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     if (signal.aborted) throw new GtdError('cancelled');
     const source = vault.source;
     return { items, complete: warnings.size === 0, warnings: [...warnings], source: {
-      backend: 'obsidian', id: vault.vaultId, name: vault.name ?? 'Obsidian vault', scope: this.config.folder, observedAt,
+      backend: 'obsidian', id: vault.vaultId, name: this.config.root?.split('/').at(-1) ?? vault.name ?? 'Obsidian vault', scope: this.config.folder, observedAt,
       lastSuccessfulSync: source.lastSuccess,
       sync: { connected: source.cloudConnected, enabled: source.enabled, phase: source.phase, failure: source.failure },
     } };
@@ -108,7 +122,8 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
 }
 export async function connectedVaults(sdk: BbPluginApi['sdk'], signal: AbortSignal) {
   try {
-    const state = statusSchema.parse(await sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'status', input: null, outputSchema: z.unknown(), signal }));
-    return state.vaults.map(vault => ({ id: vault.vaultId, name: vault.name, available: vault.source?.local.available ?? false }));
+    const state = await vaultOptions(sdk, signal);
+    if (state.incomplete) throw new GtdError('source_unavailable');
+    return state.vaults.map(vault => ({ id: vault.selection, name: vault.name, available: true }));
   } catch { throw new GtdError(signal.aborted ? 'cancelled' : 'source_unavailable'); }
 }

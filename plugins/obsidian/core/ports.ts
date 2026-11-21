@@ -19,6 +19,7 @@ export interface VaultFiles {
   configure(configuration: Configuration): Promise<void>;
   search(input: SearchRequest, signal?: AbortSignal): Promise<SearchBatch>;
   closeSearch(revision: number, cursor: string): Promise<void>;
+  vaultRoots(vaultId: string, revision: number): Promise<{ roots: string[]; incomplete: boolean }>;
   list(vaultId: string, revision: number): Promise<{ paths: string[]; incomplete: boolean; warnings: string[] }>;
   read(vaultId: string, revision: number, path: string): Promise<CompleteNote>;
   readIncoming(vaultId: string, revision: number, path: string, token: string): Promise<IncomingRead>;

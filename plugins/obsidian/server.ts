@@ -15,6 +15,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
   const clientOnly = (context: { experimental_caller: { kind: string } }) => { if (context.experimental_caller.kind !== 'client') throw new Error('Use Obsidian client settings for connection or conflict recovery.'); };
   bb.rpc.register(rpcContract, {
     status() { return service.status(); },
+    vaultLocations() { return service.vaultLocations(); },
     async listProperties(input, context) {
       try { return await service.listProperties(input, context.experimental_signal); }
       catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Property listing did not complete. Check Obsidian source access and update both plugins if necessary.'); }

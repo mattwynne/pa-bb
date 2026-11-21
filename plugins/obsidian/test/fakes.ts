@@ -27,6 +27,7 @@ export class FilesFake implements VaultFiles {
     state.offset+=visited;const nextCursor=state.offset<state.paths.length?token!:null;if(!nextCursor)this.searches.delete(token!);return{candidates,nextCursor,visited,warnings};
   }
   private admit(id: string, revision: number) { if (this.configuration.revision !== revision || !this.configuration.vaultIds.includes(id)) throw new VaultError('not_connected'); }
+  async vaultRoots(id: string, revision: number) { this.admit(id, revision); return { roots: [''], incomplete: false }; }
   async list(id: string, revision: number) { this.admit(id, revision); return { paths: [...this.notes.keys()].filter(k => k.startsWith(id + '/')).map(k => k.slice(id.length + 1)), incomplete: false, warnings: [] }; }
   async read(id: string, revision: number, path: string) { this.admit(id, revision); const text = this.notes.get(`${id}/${path}`); if (text === undefined) throw new VaultError('unavailable'); return { text, hash: hash(text), readAt: '2026-01-01T00:00:01Z', complete: true as const }; }
   async inspect(id: string, revision: number, path: string) { this.admit(id, revision); return this.conflicts.get(`${id}/${path}`)?.inspection ?? null; }

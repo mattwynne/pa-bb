@@ -139,6 +139,21 @@ export class Obsidian {
     const uncertainOperations = uncertain.slice(0, Math.min(input.limit ?? 20, 100));
     return { propertiesAccessVersion: 1 as const, search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
   }
+  async vaultLocations() {
+    const vaults: Array<{ id: string; root: string; name: string }> = []; let incomplete = false;
+    for (const id of this.state.vaultIds) {
+      try {
+        const { source, revision } = await this.source(id);
+        const result = await this.files.vaultRoots(id, revision); this.check(id, revision);
+        incomplete ||= result.incomplete;
+        for (const root of result.roots) {
+          if (root && (/[\\\\\x00-\x1f\x7f]/.test(root) || root.split('/').some(p => !p || p === '.' || p === '..'))) throw new VaultError('invalid_path');
+          vaults.push({ id, root, name: root ? root.split('/').at(-1)! : source.name });
+        }
+      } catch { this.diagnose('rpc', 'unavailable'); incomplete = true; }
+    }
+    return { vaults, incomplete };
+  }
   /** Read-only consumer projection: no bodies, snippets, edit proofs, or GTD policy. */
   async listProperties(input: { vaultId: string; folder: string; fields: string[]; cursor?: string }, signal?: AbortSignal) {
     const page = await this.searcher.next({ vaultId: input.vaultId, folders: [input.folder], selectProperties: input.fields, cursor: input.cursor, limit: 200 }, signal);

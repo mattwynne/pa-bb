@@ -5,7 +5,10 @@ import { plugin } from '../server.ts';
 import type { ProjectBackend, ProjectSnapshot } from '../core/model.ts';
 const data = (): ProjectSnapshot => ({ source: { backend: 'fake', id: 'one', name: 'Synthetic source', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null }, projects: [{ id: 'one', title: 'Test project', status: 'active' }], complete: true, warnings: [] });
 async function setup(backend?: ProjectBackend) {
-  const host = createFakePluginHost({ pluginId: 'gtd', agentSkillIds: ['gtd-projects'] });
+  const host = createFakePluginHost({ pluginId: 'gtd', agentSkillIds: ['gtd-projects'], sdk: { plugins: { callRpc: async (args: any) => {
+    if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: '', name: 'Test vault' }], incomplete: false };
+    throw new Error('source unavailable');
+  } } } });
   await plugin(host.bb, backend ? { select: async () => ({ key: 'test', backend }) } : undefined); return host;
 }
 test('host registers one read-only tool, CLI help/validation/JSON and RPC share the same listing', async () => {

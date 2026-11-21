@@ -62,6 +62,7 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     const result = await this.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'noteSearchClose', input: { version: 2, revision, cursor }, outputSchema: noteRpcContract.noteSearchClose.output });
     if (!result.ok) throw new VaultError(result.category, result.nextAction);
   }
+  vaultRoots(mirrorId: string, revision: number) { return this.call('noteVaultRoots', { mirrorId, revision }); }
   list(mirrorId: string, revision: number) { return this.call('noteList', { mirrorId, revision }); }
   read(mirrorId: string, revision: number, path: string) { return this.call('noteRead', { mirrorId, revision, path }); }
   readIncoming(mirrorId: string, revision: number, path: string, token: string) { return this.call('noteRead', { mirrorId, revision, path, selector: { version: 'incoming', token } }); }

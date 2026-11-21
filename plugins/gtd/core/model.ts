@@ -33,10 +33,10 @@ export type BackendSelection = { key: string; backend: ProjectBackend };
 export const errorCodes = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity'] as const;
 export type ErrorCode = typeof errorCodes[number];
 const hints: Record<ErrorCode, string> = {
-  unconfigured: 'Choose a backend, connected vault ID, and inventory folders in GTD settings. Use bb gtd sources to find connected vault IDs.',
+  unconfigured: 'Choose your vault by name and set the inventory folders in GTD settings. Reload GTD after connecting another Obsidian source.',
   source_unavailable: 'Check the selected source in Obsidian settings. Keep its configuration; no project data was changed.',
   incompatible: 'Update Obsidian to a version supporting the listProperties consumer RPC, then try again.',
-  invalid_configuration: 'Use a connected vault ID and a relative inventory folder without parent-directory segments in GTD settings.',
+  invalid_configuration: 'Choose an offered vault and use inventory folders relative to it, without parent-directory segments, in GTD settings.',
   invalid_source: 'The backend returned invalid inventory metadata. Check its integration and GTD plugin logs.',
   cancelled: 'The listing was cancelled. Start a new listing when ready.',
   cursor_expired: 'The listing expired or the source/settings/filter changed. Start a new listing without a cursor.',

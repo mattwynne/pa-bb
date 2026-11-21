@@ -1,6 +1,6 @@
 import { cliCommand, defineCli, defineRpcContract, PluginCliError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { ObsidianBackend, connectedVaults, relativeFolder, vaultIdSchema } from './adapters/obsidian.ts';
+import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions } from './adapters/obsidian.ts';
 import { Areas } from './core/areas.ts';
 import { areaListInput, areaPageSchema } from './core/model.ts';
 import type { AreaBackendSelection, AreaPage } from './core/model.ts';
@@ -34,17 +34,20 @@ export function formatAreas(page: AreaPage): string {
   return out.join('\n') + '\n';
 }
 export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Promise<BackendSelection>; selectAreas?: () => Promise<AreaBackendSelection> }) {
+  let choices: Awaited<ReturnType<typeof vaultOptions>> = { vaults: [], incomplete: true };
+  try { choices = await vaultOptions(bb.sdk); } catch { bb.log.warn('GTD sources source_unavailable'); }
+  const labels = Object.fromEntries(choices.vaults.map(v => [v.selection, choices.vaults.filter(other => other.name === v.name).length > 1 ? `${v.name} — ${v.id}/${v.root}` : v.name]));
   const settings = bb.settings.define({
     backend: { type: 'select', label: 'Backend', description: 'Read-only project and area listings. First connect your vault in Obsidian settings.', options: ['obsidian'], experimental_optionLabels: { obsidian: 'Obsidian' }, default: 'obsidian' },
-    vaultId: { type: 'string', label: 'Obsidian vault ID', description: 'Run bb gtd sources to find the exact connected vault ID, then enter it here.', default: '', experimental_schema: z.union([z.literal(''), vaultIdSchema]) },
-    areasFolder: { type: 'string', label: 'Areas folder', description: 'Relative to the vault, such as Areas or Life/Areas. Every Markdown note below this folder is an area; keep reference material outside it.', default: 'Areas', experimental_schema: relativeFolder },
-    projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects or Life/Projects. Every Markdown note below it is a project. Status folders (Active, Deferred, Someday, Done) take priority; otherwise status frontmatter or active is used.', default: 'Projects', experimental_schema: relativeFolder },
+    vaultId: { type: 'select', label: 'Vault', description: choices.incomplete ? 'Vault discovery is unavailable or incomplete. Check Obsidian, then reload GTD to refresh this list. Existing settings are kept.' : 'Choose an Obsidian vault. After connecting another source, reload GTD to refresh this list.', options: ['__none__', ...choices.vaults.map(v => v.selection)], experimental_optionLabels: { '__none__': 'Choose a vault…', ...labels }, default: '__none__', experimental_schema: z.union([z.literal('__none__'), vaultSelectionSchema]) },
+    areasFolder: { type: 'string', label: 'Areas folder', description: 'Relative to the vault, such as Areas. Every Markdown note below this folder is an area; keep reference material outside it.', default: 'Areas', experimental_schema: relativeFolder },
+    projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Every Markdown note below it is a project. Status folders (Active, Deferred, Someday, Done) take priority; otherwise status frontmatter or active is used.', default: 'Projects', experimental_schema: relativeFolder },
   });
   const selectAreas = dependencies?.selectAreas ?? (async () => {
     const config = await settings.get();
-    if (!config.vaultId) throw new GtdError('unconfigured');
-    if (config.backend !== 'obsidian' || !vaultIdSchema.safeParse(config.vaultId).success || !relativeFolder.safeParse(config.areasFolder).success) throw new GtdError('invalid_configuration');
-    return { key: JSON.stringify(config), backend: new ObsidianBackend(bb.sdk, { vaultId: config.vaultId, folder: config.areasFolder }, () => diagnose('cleanup', 'source_unavailable')) };
+    if (!config.vaultId || config.vaultId === '__none__') throw new GtdError('unconfigured');
+    if (config.backend !== 'obsidian' || !vaultSelectionSchema.safeParse(config.vaultId).success || !relativeFolder.safeParse(config.areasFolder).success) throw new GtdError('invalid_configuration');
+    return { key: JSON.stringify(config), backend: new ObsidianBackend(bb.sdk, { vaultId: config.vaultId.split('/')[0], root: config.vaultId.split('/').slice(1).join('/'), folder: config.areasFolder }, () => diagnose('cleanup', 'source_unavailable')) };
   });
   const diagnose = (stage: 'list' | 'areas' | 'sources' | 'cleanup', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial'].includes(code) ? code : 'unknown';
@@ -52,9 +55,9 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
   };
   const select = dependencies?.select ?? (async () => {
     const config = await settings.get();
-    if (!config.vaultId) throw new GtdError('unconfigured');
-    if (config.backend !== 'obsidian' || !vaultIdSchema.safeParse(config.vaultId).success || !relativeFolder.safeParse(config.projectsFolder).success) throw new GtdError('invalid_configuration');
-    return { key: JSON.stringify(config), backend: new ObsidianBackend(bb.sdk, { vaultId: config.vaultId, folder: config.projectsFolder }, () => diagnose('cleanup', 'source_unavailable')) };
+    if (!config.vaultId || config.vaultId === '__none__') throw new GtdError('unconfigured');
+    if (config.backend !== 'obsidian' || !vaultSelectionSchema.safeParse(config.vaultId).success || !relativeFolder.safeParse(config.projectsFolder).success) throw new GtdError('invalid_configuration');
+    return { key: JSON.stringify(config), backend: new ObsidianBackend(bb.sdk, { vaultId: config.vaultId.split('/')[0], root: config.vaultId.split('/').slice(1).join('/'), folder: config.projectsFolder }, () => diagnose('cleanup', 'source_unavailable')) };
   });
   const projects = new Projects(select);
   const areas = new Areas(selectAreas);

@@ -25,4 +25,4 @@ bb gtd projects --cursor '<returned-cursor>' --json
 bb gtd sources --json
 ```
 
-Setup is in GTD's native BB settings: Obsidian backend, exact connected vault ID, and relative Projects and Areas folders (defaults `Projects` and `Areas`). This version reads only; it does not create, edit, migrate or resume anything.
+Setup is in GTD's native BB settings: choose the vault by name, then set Projects and Areas relative to that actual vault (defaults `Projects` and `Areas`). Do not prepend an enclosing synced-folder or vault-name prefix. Reload GTD to refresh the discovered vault choices after connecting another source. This version reads only; it does not create, edit, migrate or resume anything.

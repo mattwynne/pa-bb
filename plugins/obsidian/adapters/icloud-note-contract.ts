@@ -22,6 +22,7 @@ export const noteRpcContract = {
   noteSearch: { input: searchInputSchema, output: result(searchBatchSchema) },
   noteSearchClose: { input: z.object({ version, revision, cursor: z.string().uuid() }).strict(), output: result(z.null()) },
   noteConfigure: { input: z.object({ version, revision, mirrorIds: z.array(id).max(20) }).strict(), output: result(z.object({ revision }).strict()) },
+  noteVaultRoots: { input: z.object({ version, mirrorId: id, revision }).strict(), output: result(z.object({ roots: z.array(z.string().max(1024)).max(100), incomplete: z.boolean() }).strict()) },
   noteList: { input: z.object({ version, mirrorId: id, revision }).strict(), output: result(z.object({ paths: z.array(path).max(10000), incomplete: z.boolean(), warnings: z.array(z.string().max(64)).max(10) }).strict()) },
   noteRead: { input: z.object({ ...target, selector: z.object({ version: z.literal('incoming'), token: z.string().uuid() }).strict().optional() }).strict(), output: result(z.union([bytes, z.object({ absent: z.literal(true) }).strict(), bytes.extend({ absent: z.literal(false) })])) },
   noteCommit: { input: z.object({ ...target, operationId: z.string().uuid(), kind: z.enum(['create', 'replace']), expectedHash: hash.nullable(), text: z.string().max(1024 * 1024) }).strict(), output: result(save.omit({ kind: true })) },

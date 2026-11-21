@@ -5,8 +5,12 @@ Read-only, backend-independent inventories of projects and areas of focus. The f
 ## Setup
 
 1. Connect a vault in Obsidian settings.
-2. Run `bb gtd sources --json` to find its exact connected vault ID.
-3. In GTD settings, choose Obsidian, enter that ID, and set the vault-relative Projects and Areas folders (defaults: `Projects` and `Areas`). Nested paths such as `Life/Projects` are supported. Do not enter host paths, parent-directory segments or trailing slashes.
+2. Open GTD settings and choose your vault by name from the **Vault** dropdown. No ID needs to be copied. Vaults are discovered inside connected sources by their actual `.obsidian` configuration directories, not inferred from folder names.
+3. Set Projects and Areas relative to that vault (defaults: `Projects` and `Areas`). If the vault itself is nested in a synced container, its enclosing prefix is applied by the adapter, not entered again here. Do not enter host paths, parent-directory segments or trailing slashes.
+
+The native dropdown is populated when GTD loads. After connecting another source or creating a vault, reload GTD to refresh its choices. A failed/incomplete discovery is shown explicitly; it does not clear existing configuration. Duplicate vault names include their source/path for disambiguation. `bb gtd sources --json` remains available for diagnostics and scripted configuration; its IDs are opaque selection values.
+
+Pre-selector configurations are not silently migrated: a previous selection that is not offered as a verified vault requires choosing a vault again. Existing folder values and source notes are unchanged. After selecting a nested vault, remove the old vault prefix from folder settings. Listings retain the connected-source ID and full mirror-relative note IDs for compatibility with Obsidian read tools.
 
 ## Folder conventions
 
