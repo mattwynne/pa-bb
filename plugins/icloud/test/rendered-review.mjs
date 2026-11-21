@@ -10,8 +10,8 @@ await mkdir(artifacts, { recursive: true });
 const browser = await chromium.launch({ headless: true, args: ['--disable-gpu'], ...(process.env.BB_REVIEW_CHROME ? { executablePath: process.env.BB_REVIEW_CHROME } : {}) });
 const mirror = { id: 'review-mirror', folder: { id: 'review-folder', name: 'Test Vault', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', lastSuccess: '2026-10-10T12:00:00.000Z', failure: null, blocker: null, retryPending: false, stale: false, recovering: false, progress: null };
 try {
-  const statusViews = ['first', 'prerequisite', 'pending', 'empty', 'connected', 'paused', 'running', 'retry-pending', 'repeated-stale', 'source-changed', 'recovering', 'reconnect-needed', 'reconnected-resume', 'multi-reconnected-resume', 'capacity', 'configuration', 'critical', 'critical-paused', 'continuing-interrupted', 'critical-disconnected', 'legacy-retry', 'initial-block', 'downloaded-setup', 'downloaded-setup-failure', 'setup-completing', 'setup-attempted', 'setup-disconnected', 'retained', 'error'];
-  for (const view of statusViews.filter(view => (!process.env.BB_REVIEW_INITIAL_COMPLETION_ONLY || ['initial-block', 'downloaded-setup', 'downloaded-setup-failure', 'setup-completing', 'setup-attempted', 'setup-disconnected', 'retained'].includes(view)) && (!process.env.BB_REVIEW_RECOVERY_ONLY || ['critical', 'critical-paused', 'continuing-interrupted', 'critical-disconnected', 'initial-block', 'retained', 'capacity', 'configuration', 'recovering'].includes(view)))) for (const width of [1280, 390]) {
+  const statusViews = ['draining', 'drained', 'first', 'prerequisite', 'pending', 'empty', 'connected', 'paused', 'running', 'retry-pending', 'repeated-stale', 'source-changed', 'recovering', 'reconnect-needed', 'reconnected-resume', 'multi-reconnected-resume', 'capacity', 'configuration', 'critical', 'critical-paused', 'continuing-interrupted', 'critical-disconnected', 'legacy-retry', 'initial-block', 'downloaded-setup', 'downloaded-setup-failure', 'setup-completing', 'setup-attempted', 'setup-disconnected', 'retained', 'error'];
+  for (const view of statusViews.filter(view => (!process.env.BB_REVIEW_LIFECYCLE_ONLY || ['draining', 'drained', 'error', 'first', 'empty'].includes(view)) && (!process.env.BB_REVIEW_INITIAL_COMPLETION_ONLY || ['initial-block', 'downloaded-setup', 'downloaded-setup-failure', 'setup-completing', 'setup-attempted', 'setup-disconnected', 'retained'].includes(view)) && (!process.env.BB_REVIEW_RECOVERY_ONLY || ['critical', 'critical-paused', 'continuing-interrupted', 'critical-disconnected', 'initial-block', 'retained', 'capacity', 'configuration', 'recovering'].includes(view)))) for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
     const methods = [];
     const state = { available: view !== 'prerequisite', prerequisite: view === 'prerequisite' ? 'The host needs stock rclone v1.75.2.' : null,
@@ -19,6 +19,10 @@ try {
       mirrors: ['first', 'prerequisite', 'pending', 'empty', 'error'].includes(view) ? [] : [{ ...mirror }] };
     const item = state.mirrors[0];
     if (item) {
+      if (['draining', 'drained'].includes(view)) {
+        Object.assign(item, { enabled: false, phase: view === 'draining' ? 'running' : 'paused' });
+        state.maintenance = { admissionPaused: true, active: view === 'draining', ready: view === 'drained' };
+      }
       if (view === 'paused') Object.assign(item, { initialized: false, enabled: false, phase: 'paused', lastSuccess: null });
       if (view === 'running') Object.assign(item, { phase: 'running' });
       if (view === 'retry-pending') Object.assign(item, { phase: 'failed', failure: 'sync_failed', retryPending: true, stale: true });
@@ -62,6 +66,12 @@ try {
       await secret.focus(); assert.equal(await secret.evaluate(element => element === document.activeElement), true);
       await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => document.activeElement !== document.body), true);
       if (view === 'prerequisite') assert.equal(await section.getByRole('button', { name: 'Connect account', exact: true }).isDisabled(), true);
+    }
+    if (['draining', 'drained'].includes(view)) {
+      await section.getByText(view === 'draining' ? 'Scheduling is paused. Work is still draining; wait before maintenance.' : 'Scheduling is paused and local work is idle. This is a status snapshot, not a maintenance reservation.', { exact: true }).waitFor();
+      const button = section.getByRole('button', { name: 'Choose a folder', exact: true });
+      await button.focus(); assert.equal(await button.evaluate(e => e === document.activeElement && getComputedStyle(e).outlineStyle === 'solid'), true);
+      await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => document.activeElement !== document.body), true);
     }
     if (view === 'connected') {
       await section.getByText('Sync and file safety', { exact: true }).click();

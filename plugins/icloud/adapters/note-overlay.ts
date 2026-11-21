@@ -9,6 +9,10 @@ import { z } from 'zod';
 import { NoteStore, NoteError, NOTE_LIMITS, validateNotePath, pinSearchFile } from './note-store.ts';
 import { CloudError } from '../core/ports.ts';
 import type { CommitInput, NoteReceipt } from './note-store.ts';
+// Safe boundary facts only; never retain the original exception or its cause.
+export class NoteApplicationError extends NoteError {
+  constructor(category: ConstructorParameters<typeof NoteError>[0], readonly stage: string, readonly outcome: 'unapplied' | 'applied' | 'conflict' | 'uncertain') { super(category); }
+}
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
 const INCOMING_ARCHIVE_LIMIT = 32768; // separate metadata bound; shared/empty bytes cannot exhaust the byte quota
 const validId = (value: string) => /^[a-zA-Z0-9-]{1,64}$/.test(value);
@@ -657,27 +661,34 @@ export class NoteOverlay {
   }
   // Called exclusively from the native-idle application turn, never by a note RPC.
   async apply(root: string, id: string, path: string): Promise<'applied' | 'conflict' | 'idle'> {
+    let stage = 'reconcile';
+    let outcome: 'unapplied' | 'applied' | 'conflict' | 'uncertain' = 'uncertain';
     return this.locked(id, path, async () => {
       const original = this.head(id, path); if (!original) return 'idle';
       const row = await this.recover(root, id, path, original);
       if (row.conflict) return 'conflict';
       const checkpoint = row.applied ? parse(row.applied, appliedSchema) : null;
+      stage = 'observe'; outcome = checkpoint?.generation === row.generation ? 'applied' : 'unapplied';
       const expected: Proof = checkpoint ? { hash: checkpoint.hash, info: checkpoint.info } : parse(row.base, proofSchema);
       let observed = await this.mirror.observe(root, path);
       if (!same(proof(observed), expected) || !sameCopies(copiesOf(await this.mirror.conflictCopies(root, path)), parse(row.copies, copiesSchema))) {
         // Capture bytes before publishing the token. A disappearing or unstable
         // incoming file is an error rather than fabricated absence.
+        stage = 'conflict_capture'; outcome = 'conflict';
         await this.collision(root, id, path, row, observed, expected);
         return 'conflict';
       }
       if (checkpoint?.generation === row.generation) return 'idle';
-      const stage = randomUUID(); const content = await this.loadBlob(row.hash);
-      const stagePath = join(this.root, 'stages', stage);
+      stage = 'stage_write';
+      const stagingId = randomUUID(); const content = await this.loadBlob(row.hash);
+      const stagePath = join(this.root, 'stages', stagingId);
       await this.write(stagePath, content, 'apply_stage'); await this.syncDir(join(this.root, 'stages'));
       const info = await lstat(stagePath);
-      const journal: Journal = { generation: row.generation, hash: row.hash, stage, stageDev: info.dev, stageIno: info.ino, expected };
+      const journal: Journal = { generation: row.generation, hash: row.hash, stage: stagingId, stageDev: info.dev, stageIno: info.ino, expected };
+      stage = 'journal_write';
       this.db.prepare('UPDATE icloud_note_overlay_heads SET journal = ? WHERE mirror_id = ? AND path = ? AND generation = ?').run(JSON.stringify(journal), id, path, row.generation);
       await this.fault?.('after_apply_journal');
+      stage = 'publish'; outcome = 'uncertain';
       try { await this.mirror.publishStage(root, path, stagePath, expected); await this.fault?.('after_mirror_publish'); }
       catch (error) {
         // A genuine observed collision gets captured on a later turn; an
@@ -688,9 +699,14 @@ export class NoteOverlay {
           if (!applied) throw new NoteError('uncertain');
         } else throw translate(error);
       }
+      stage = 'checkpoint';
       await this.recover(root, id, path, this.head(id, path)!);
+      stage = 'checkpoint_complete'; outcome = 'applied';
       await this.fault?.('after_apply_checkpoint');
       return 'applied';
+    }).catch(error => {
+      const safe = translate(error);
+      throw new NoteApplicationError(safe.category === 'uncertain' ? 'uncertain' : safe instanceof NoteError ? safe.category : 'unavailable', stage, outcome);
     });
   }
   // Read-only proof, called only in the owner's native-idle turn. No journal

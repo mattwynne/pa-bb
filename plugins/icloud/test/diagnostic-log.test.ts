@@ -23,6 +23,10 @@ test('diagnostic log fields whitelist stages, categories, sequences and exit evi
   assert.equal(category(error), 'unknown'); assert.equal(evidence(error), null);
 });
 
+test('application fields reject private data and keep recovery stage attribution', () => {
+  assert.equal(diagnosticMessage('note_application_recovery', 'unavailable', { evidence: null, application: { stage: 'PRIVATE_SENTINEL', outcome: 'PRIVATE_SENTINEL' } }), 'iCloud note_application_recovery unavailable application_stage=unknown outcome=uncertain');
+});
+
 test('post-run reconciliation evidence keeps only fixed reasons and validated native evidence', () => {
   const error = new CloudError('recovery_required', { kind: 'post_run_reconcile', reason: 'uncertain', command: { kind: 'command_exit', exitCode: 7, native: 'retryable_abort', reason: 'listing_failure', message: 'PRIVATE_SENTINEL' }, cause: 'PRIVATE_SENTINEL' } as any);
   assert.equal(diagnosticMessage('sync/checking', category(error), { evidence: evidence(error) }), 'iCloud sync/checking recovery_required evidence=post_run_reconcile reason=uncertain command=command_exit exit=7 native=retryable_abort reason=listing_failure');

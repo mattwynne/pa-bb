@@ -58,7 +58,7 @@ function ICloudSettings() {
     try { setState(await rpc.call('status', null)); setLoadError(''); if (!quiet) setError(''); }
     catch { setLoadError('Status unavailable. Showing last-known status, not a new connection check. Check BB and refresh.'); }
   }
-  const pollMs = busy || state?.mirrors.some(mirror => mirror.phase === 'running' || mirror.completingInitial) ? 1_000 : 15_000;
+  const pollMs = busy || state?.maintenance?.active || state?.mirrors.some(mirror => mirror.phase === 'running' || mirror.completingInitial) ? 1_000 : 15_000;
   useEffect(() => { void refresh(); }, []);
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -150,6 +150,7 @@ function ICloudSettings() {
         {folders && <FolderBrowser folders={folders} trail={trail} selected={state.mirrors} busy={busy} loading={browsing}
           onBrowse={next => void browse(next)} onSelect={folder => void act(() => rpc.call('select', { folderId: folder.id }), 'Folder selected. Enable sync when you are ready.')} onClose={closeBrowser} />}
       </>}
+      {state.maintenance?.admissionPaused && state.mirrors.length > 0 && <p role="status">{state.maintenance.active ? 'Scheduling is paused. Work is still draining; wait before maintenance.' : 'Scheduling is paused and local work is idle. This is a status snapshot, not a maintenance reservation.'}</p>}
       <ul className="pa-icloud__mirrors">{state.mirrors.map(mirror => <li key={mirror.id}>
         <div className="pa-icloud__mirror-head"><strong className="pa-icloud__mirror-name"><Icon name="Folder" className="pa-icloud__icon" aria-hidden />{mirror.folder.name}</strong><span role="status">{mirrorStatus(mirror, state.connected)}</span></div>
         {(mirror.phase === 'running' || mirror.completingInitial) && <SyncProgressView progress={mirror.progress} folderName={mirror.folder.name} />}

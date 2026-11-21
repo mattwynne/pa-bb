@@ -140,6 +140,7 @@ export class NoteSearch {
   }
   private remainders=new Map<string,{rows:Candidate[];done:boolean}>();
   async close(id:string){const s=this.sessions.get(id);if(!s)return;s.abort.abort();await s.task?.catch(()=>{});await s.paths.return(undefined).catch(()=>{});this.sessions.delete(id);this.remainders.delete(id);}
+  get active(){return this.running>0||this.probes.size>0;}
   async stop(){this.closed=true;clearInterval(this.sweep);for(const abort of this.probes.keys())abort.abort();await Promise.allSettled([...this.probes.values()]);await Promise.all([...this.sessions.keys()].map(id=>this.close(id)));}
   invalidate(revision:number){for(const[id,s]of this.sessions)if(s.revision!==revision)void this.close(id);}
 }

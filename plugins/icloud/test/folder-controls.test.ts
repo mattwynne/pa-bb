@@ -25,10 +25,19 @@ test('browse, select and Pause work while a scheduled native sync is held open',
     assert.equal(f.sync.status().mirrors[0].enabled, false);
     assert.equal(f.sync.status().mirrors[0].phase, 'running');
     assert.equal(f.repository.value.mirrors[0].enabled, false);
+    assert.deepEqual(f.sync.activity(), { admissionPaused: true, busy: true }); // Pause is not drain completion.
     await assert.rejects(f.sync.disconnect(), /busy/);
     f.release.resolve(); await f.running;
     assert.equal(f.sync.status().mirrors[0].phase, 'paused');
+    assert.deepEqual(f.sync.activity(), { admissionPaused: true, busy: false });
     await f.sync.tick(); assert.equal(f.provider.synced, 1);
+    await f.sync.stop();
+    const restarted = new ICloudSync(f.provider, f.repository, () => '2026-11-16T12:00:00Z', () => 'unused', () => {});
+    await restarted.start();
+    assert.equal(restarted.status().mirrors[0].phase, 'paused');
+    assert.equal(restarted.status().mirrors[0].failure, null);
+    assert.equal(restarted.status().mirrors[0].enabled, false);
+    await restarted.stop();
   } finally { f.release.resolve(); await f.running; await f.sync.stop(); }
 });
 test('enabling a selected folder during sync schedules preparation without a second native run', async () => {

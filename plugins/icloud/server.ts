@@ -62,7 +62,13 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
   const local = async (id: string) => ({ ...(runtime ? await runtime.availability(id) : { available: false, reason: 'ownership' as const }), pendingAgeMs: runtime?.pendingAgeMs(id) ?? null, applicationBlocker: runtime?.applicationBlocker(id) ?? null });
   const status = async () => {
     const snapshot = sync.status();
-    return { ...snapshot, updatePause: updatePause.status(), mirrors: await Promise.all(snapshot.mirrors.map(async mirror => ({ ...mirror, local: await local(mirror.id) }))), noteAccessVersion: runtime ? 2 as const : null, search: runtime ? await runtime.search.capability() : { version: 1 as const, available: false, reason: 'unavailable' as const }, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
+    const mirrors = await Promise.all(snapshot.mirrors.map(async mirror => ({ ...mirror, local: await local(mirror.id) })));
+    const search = runtime ? await runtime.search.capability() : { version: 1 as const, available: false, reason: 'unavailable' as const };
+    const serviceActivity = sync.activity();
+    const noteActivity = runtime?.activity();
+    const active = serviceActivity.busy || (noteActivity?.busy ?? true);
+    const maintenance = { admissionPaused: serviceActivity.admissionPaused, active, ready: serviceActivity.admissionPaused && !active };
+    return { ...snapshot, maintenance, updatePause: updatePause.status(), mirrors, noteAccessVersion: runtime ? 2 as const : null, search, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
   };
   const inventory = async () => Promise.all(sync.inventory().map(async item => ({ ...item, local: await local(item.id) })));
   const clientOnly = (context: { experimental_caller: { kind: string } }) => {

@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { CloudError, evidence } from '../core/ports.ts';
-import type { Mirror, State } from '../core/ports.ts';
+import type { Diagnose, Mirror, State } from '../core/ports.ts';
 import { NoteError, NoteStore } from './note-store.ts';
 import type { CommitInput } from './note-store.ts';
-import { NoteOverlay } from './note-overlay.ts';
+import { NoteApplicationError, NoteOverlay } from './note-overlay.ts';
 import type { Resolution } from './note-overlay.ts';
 import { RcloneProcess } from './rclone-process.ts';
 import { NoteSearch } from './note-search.ts';
@@ -27,6 +27,7 @@ export class NoteRuntime {
   readonly search: NoteSearch;
   private readonly context = new AsyncLocalStorage<{ revision: number; mirrorId: string }>();
   private queue: Promise<void> = Promise.resolve();
+  private turnsPending = 0;
   private nativeRunning = false;
   private directoryReads = new Set<Promise<unknown>>();
   private entered = new Set<Promise<unknown>>();
@@ -45,7 +46,7 @@ export class NoteRuntime {
   private accountHash: string | null = null;
   constructor(readonly root: string, private db: Database.Database, readonly worker: RcloneProcess,
     private legacy: NoteStore, private state: () => State, private clock = () => Date.now(),
-    private diagnose: (stage: string, category: string) => void = () => {}) {
+    private diagnose: Diagnose = () => {}) {
     this.moves = new NoteMoves(db, legacy, id => this.guard(id));
     this.overlay = new NoteOverlay(join(root, 'overlay'), db, legacy, clock, undefined, id => this.guard(id));
     this.search = new NoteSearch(legacy, { paths: id => this.overlay.searchPaths(id), reader: (id, path) => this.overlay.searchReader(this.localPath(this.mirror(id)!), id, path) });
@@ -309,11 +310,12 @@ export class NoteRuntime {
   // The bounded application quantum follows every command, even failed commands.
   private turn<T>(action: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new CloudError('interrupted'));
+    this.turnsPending++;
     const task = this.queue.then(async () => {
       if (this.closed) throw new CloudError('interrupted');
       try { return await action(); }
       finally { await this.quantum(); this.scheduleMaintenance(); }
-    });
+    }).finally(() => { this.turnsPending--; });
     this.queue = task.then(() => {}, () => {});
     return task;
   }
@@ -429,7 +431,7 @@ export class NoteRuntime {
         count++; this.lastMirror = mirror.id;
       } catch (error) {
         this.nativeBlocked.set(item.mirrorId, 'uncertain');
-        this.diagnose('note_apply', error instanceof NoteError ? error.category : error instanceof CloudError ? error.category : 'unavailable');
+        this.diagnose('note_apply', error instanceof NoteError ? error.category : error instanceof CloudError ? error.category : 'unavailable', { evidence: null, ...(error instanceof NoteApplicationError ? { application: { stage: error.stage, outcome: error.outcome } } : { application: { stage: 'native_lock', outcome: 'uncertain' } }) });
       }
     }
     // Yield to an already queued native command. A fresh idle wake receives
@@ -482,10 +484,14 @@ export class NoteRuntime {
         this.nativeBlocked.delete(id);
       } catch (error) {
         this.nativeBlocked.set(id, 'uncertain');
-        this.diagnose('note_application_recovery', error instanceof NoteError ? error.category : error instanceof CloudError ? error.category : 'unavailable');
+        this.diagnose('note_application_recovery', error instanceof NoteError ? error.category : error instanceof CloudError ? error.category : 'unavailable', { evidence: null, application: error instanceof NoteApplicationError ? { stage: error.stage, outcome: error.outcome } : { stage: 'reconcile', outcome: 'uncertain' } });
         throw new CloudError('recovery_required');
       }
     });
+  }
+  activity() {
+    return { nativeRunning: this.nativeRunning, localOperations: this.entered.size, turnsPending: this.turnsPending,
+      busy: this.closed || !this.ready || this.search.active || this.nativeRunning || this.entered.size > 0 || this.turnsPending > 0 || this.directoryReads.size > 0 || this.moving || this.wakeScheduled || this.maintenanceScheduled || this.maintenance !== null };
   }
   pendingAgeMs(id: string) { return this.overlay.pendingAgeMs(id); }
   applicationBlocker(id: string) { return this.mirror(id)?.blocker === 'rebuild' || this.nativeBlocked.get(id) === 'uncertain' ? 'application_uncertain' as const : this.nativeBlocked.has(id) ? 'native_recovery' as const : null; }

@@ -4,6 +4,8 @@ import { randomUUID, createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile, rm, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
+import { diagnosticMessage } from '../adapters/diagnostic-log.ts';
+import { NoteApplicationError } from '../adapters/note-overlay.ts';
 import { NoteRuntime } from '../adapters/note-runtime.ts';
 import { NoteStore } from '../adapters/note-store.ts';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
@@ -30,6 +32,41 @@ async function fixture() {
   assert.equal(runtime.applicationBlocker('one'), 'application_uncertain');
   return { root, db, state, worker, runtime, file, diagnostics, async close() { await runtime.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
 }
+
+for (const [fault, stage, outcome] of [
+  ['before_apply_stage_fsync', 'stage_write', 'unapplied'],
+  ['after_apply_journal', 'journal_write', 'unapplied'],
+  ['after_apply_stage_cleanup', 'checkpoint', 'uncertain'],
+  ['after_apply_checkpoint', 'checkpoint_complete', 'applied'],
+]) test('application diagnostic boundary '+stage, async () => {
+  const f = await fixture();
+  try {
+    (f.runtime.overlay as any).fault = async (at: string) => { if (at === fault) throw new Error('PRIVATE_SENTINEL', { cause: 'PRIVATE_SENTINEL' }); };
+    await assert.rejects(f.runtime.overlay.apply(join(f.root, 'mirrors/one'), 'one', 'Example.md'), error => {
+      assert(error instanceof NoteApplicationError);
+      assert.equal(error.stage, stage); assert.equal(error.outcome, outcome);
+      const message = diagnosticMessage('note_apply', error.category, { evidence: null, application: { stage: error.stage, outcome: error.outcome } });
+      assert(message.includes('application_stage='+stage+' outcome='+outcome));
+      assert(!message.includes('PRIVATE_SENTINEL')); assert.equal(error.cause, undefined);
+      return true;
+    });
+    assert.equal((f.db.prepare('SELECT count(*) AS n FROM icloud_note_overlay_receipts').get() as any).n, 1);
+  } finally { await f.close(); }
+});
+
+test('runtime activity covers a queued native turn until it finishes', async () => {
+  const f = await fixture(); let release!: () => void; let entered!: () => void;
+  const started = new Promise<void>(r => { entered = r; });
+  const held = new Promise<void>(r => { release = r; });
+  try {
+    f.worker.run = async () => { entered(); await held; return ''; };
+    const running = f.runtime.run(['synthetic']); await started;
+    assert.equal(f.runtime.activity().busy, true); assert.equal(f.runtime.activity().nativeRunning, true);
+    release(); await running;
+    await new Promise(r => setImmediate(r));
+    assert.equal(f.runtime.activity().busy, false);
+  } finally { release(); await f.close(); }
+});
 
 test('explicit recovery proves and applies intact save, preserving receipt and service state', async () => {
   const f = await fixture();

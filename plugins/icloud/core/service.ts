@@ -62,6 +62,7 @@ export class ICloudSync {
     });
   }
   status() { return { connected: this.state.connected, challenge: this.state.challenge, connectionCheck: this.connectionCheck, lastSignInCompletedAt: verifiedDate(this.state.lastSignInCompletedAt, Date.parse(this.clock())), attention: this.attention(), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), completingInitial: this.completingInitial === mirror.id, retryPending: this.state.connected && mirror.enabled && mirror.initialized && mirror.phase === 'failed' && mirror.blocker === null, recovering: mirror.phase === 'running' && mirror.failure !== null, progress: mirror.phase === 'running' || this.completingInitial === mirror.id ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
+  activity() { return { busy: this.stopped || this.busy || this.controlsPending > 0, admissionPaused: this.state.mirrors.every(m => !m.enabled || m.phase === 'retained') }; }
   diagnostics(query: HistoryInput = {}) { return this.history.snapshot(query); }
   private save() {
     const snapshot = structuredClone(this.state);

@@ -64,5 +64,5 @@ export interface StateRepository { load(): Promise<State | undefined>; save(stat
 export const emptyState = (): State => ({ connected: false, challenge: null, mirrors: [] });
 export function category(error: unknown): Failure { return error instanceof CloudError && FAILURES.includes(error.category) ? error.category : 'unknown'; }
 export function evidence(error: unknown): FailureEvidence | null { return error instanceof CloudError ? failureEvidence(error.evidence) : null; }
-export type DiagnosticContext = { run?: number; evidence: FailureEvidence | null };
+export type DiagnosticContext = { run?: number; evidence: FailureEvidence | null; application?: { stage: string; outcome: string } };
 export type Diagnose = (stage: string, failure: string, details?: DiagnosticContext) => void;
