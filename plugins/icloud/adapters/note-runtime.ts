@@ -210,15 +210,20 @@ export class NoteRuntime {
     this.revision = revision; this.members = new Set(ids); this.search.invalidate(revision);
     return { revision };
   }
-  private guard(id: string) {
+  private guard(id: string, exactIdentity = false) {
     const active = this.context.getStore();
     if (this.storageBlocked || this.blocked.has(id) || this.nativeBlocked.get(id) === 'uncertain' || ['rebuild', 'initialization', 'configuration'].includes(this.mirror(id)?.blocker ?? '')) throw new CloudError('recovery_required');
     if (!this.ready || this.closed || !active || active.mirrorId !== id || active.revision !== this.revision || !this.members.has(id)) throw new CloudError('invalid_selection');
     const mirror = this.mirror(id);
-    const bound = this.db.prepare('SELECT * FROM icloud_note_bindings WHERE mirror_id=?').get(id) as { folder_id: string; root_dev: number; root_ino: number; baseline_dev: number; baseline_ino: number } | undefined;
+    const binding = this.db.prepare('SELECT * FROM icloud_note_bindings WHERE mirror_id=?');
+    // Only the new grant requires lossless identity. Reading SQLite INTEGERs
+    // and directory stats as bigint also rejects legacy REALs and bindings
+    // rounded at registration if they no longer match the exact filesystem IDs.
+    const bound = (exactIdentity ? binding.safeIntegers() : binding).get(id) as { folder_id: string; root_dev: number | bigint; root_ino: number | bigint; baseline_dev: number | bigint; baseline_ino: number | bigint } | undefined;
     if (!mirror || !bound || bound.folder_id !== mirror.folder.id || mirror.phase === 'retained') throw new CloudError('source_changed');
     try {
-      const root = lstatSync(this.localPath(mirror)), baseline = lstatSync(join(this.root, 'baselines', id));
+      const stat = (path: string) => exactIdentity ? lstatSync(path, { bigint: true }) : lstatSync(path);
+      const root = stat(this.localPath(mirror)), baseline = stat(join(this.root, 'baselines', id));
       const marker = openSync(join(this.root, 'baselines', id, 'initialized'), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       let valid = false;
       try {
@@ -227,6 +232,7 @@ export class NoteRuntime {
       } finally { closeSync(marker); }
       if (!valid || !root.isDirectory() || !baseline.isDirectory() || root.isSymbolicLink() || baseline.isSymbolicLink() || root.dev !== bound.root_dev || root.ino !== bound.root_ino || baseline.dev !== bound.baseline_dev || baseline.ino !== bound.baseline_ino) throw new Error();
     } catch { throw new CloudError('source_changed'); }
+    return bound;
   }
   async access<T>(id: string, revision: number, action: (root: string) => Promise<T>): Promise<T> {
     if (this.storageBlocked) throw new CloudError('recovery_required');
@@ -250,8 +256,21 @@ export class NoteRuntime {
     return this.overlay.filesystemGate(id);
   }
   async mirrorDirectory(id: string, revision: number) {
-    return this.access(id, revision, async directory => {
+    return this.handoffDirectory(id, revision, directory => {
       this.guard(id);
+      return { directory };
+    });
+  }
+  async mirrorDirectoryGrant(id: string, revision: number) {
+    return this.handoffDirectory(id, revision, directory => {
+      const { root_dev, root_ino } = this.guard(id, true);
+      if (typeof root_dev !== 'bigint' || typeof root_ino !== 'bigint' || root_dev < 0n || root_ino < 0n) throw new CloudError('source_changed');
+      return { directory, rootDev: root_dev.toString(), rootIno: root_ino.toString() };
+    });
+  }
+  private async handoffDirectory<T>(id: string, revision: number, authorize: (directory: string) => T) {
+    return this.access(id, revision, async directory => {
+      const authorized = authorize(directory);
       // No await separates the checks and durable fence. A legacy writer
       // either entered first or sees the fence.
       if (this.overlay.filesystemGate(id) !== 'ready') throw new NoteError('conflict');
@@ -262,7 +281,7 @@ export class NoteRuntime {
         this.direct.add(id);
       }
       if (this.nativeMirror !== id) this.mirrorWakeups?.observe(id, directory);
-      return { directory };
+      return authorized;
     });
   }
   private async legacyWrite<T>(id: string, action: () => Promise<T>): Promise<T> {

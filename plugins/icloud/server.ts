@@ -74,7 +74,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     const noteActivity = runtime?.activity();
     const active = serviceActivity.busy || (noteActivity?.busy ?? true);
     const maintenance = { admissionPaused: serviceActivity.admissionPaused, active, ready: serviceActivity.admissionPaused && !active };
-    return { ...snapshot, maintenance, updatePause: updatePause.status(), mirrors, noteAccessVersion: runtime ? 2 as const : null, mirrorAccessVersion: runtime ? 3 as const : null, search, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
+    return { ...snapshot, maintenance, updatePause: updatePause.status(), mirrors, noteAccessVersion: runtime ? 2 as const : null, mirrorAccessVersion: runtime ? 3 as const : null, ...(runtime ? { mirrorDirectoryGrantVersion: 1 as const } : {}), search, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
   };
   const inventory = async () => Promise.all(sync.inventory().map(async item => ({ ...item, local: await local(item.id) })));
   const clientOnly = (context: { experimental_caller: { kind: string } }) => {
@@ -104,20 +104,23 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       return { ok: false, category: failure, nextAction } as const;
     }
   };
+  const mirrorAccess = async <T>(stage: 'mirror_directory' | 'mirror_directory_grant', context: { experimental_caller: { kind: string; pluginId?: string } }, operation: (owner: NoteRuntime) => Promise<T>) => {
+    const caller = context.experimental_caller;
+    if (caller.kind !== 'plugin' || caller.pluginId !== 'obsidian')
+      throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the host-verified Obsidian plugin can use mirror access.' });
+    try {
+      if (!runtime) throw new CloudError('unavailable');
+      return await operation(runtime);
+    } catch (error) {
+      const failure = error instanceof NoteError ? error.category : category(error);
+      diagnose(stage, failure);
+      if (failure === 'invalid_selection') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Check the current connected vault selection.' });
+      throw new experimental_PluginRpcRefusal({ code: 'conflict', message: 'The mirror directory is unavailable. Check iCloud local access and legacy recovery status.' });
+    }
+  };
   bb.rpc.register(rpcContract, {
-    async mirrorDirectory({ mirrorId, revision }, context) {
-      if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'obsidian')
-        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the host-verified Obsidian plugin can use mirror access.' });
-      try {
-        if (!runtime) throw new CloudError('unavailable');
-        return await runtime.mirrorDirectory(mirrorId, revision);
-      } catch (error) {
-        const failure = error instanceof NoteError ? error.category : category(error);
-        diagnose('mirror_directory', failure);
-        if (failure === 'invalid_selection') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Check the current connected vault selection.' });
-        throw new experimental_PluginRpcRefusal({ code: 'conflict', message: 'The mirror directory is unavailable. Check iCloud local access and legacy recovery status.' });
-      }
-    },
+    mirrorDirectory({ mirrorId, revision }, context) { return mirrorAccess('mirror_directory', context, owner => owner.mirrorDirectory(mirrorId, revision)); },
+    mirrorDirectoryGrant({ mirrorId, revision }, context) { return mirrorAccess('mirror_directory_grant', context, owner => owner.mirrorDirectoryGrant(mirrorId, revision)); },
     noteConfigure(input, context) { obsidianOnly(context); return noteAction('note_configure', async () => { if (!runtime) throw new NoteError('unavailable'); return runtime.configure(input.revision, input.mirrorIds); }); },
     noteSearch(input, context) { obsidianOnly(context); return noteAction('note_search', () => runtime!.searchNotes(input)); },
     noteSearchClose(input, context) { obsidianOnly(context); return noteAction('note_search', () => runtime!.closeSearch(input.revision, input.cursor)); },

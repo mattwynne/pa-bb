@@ -53,6 +53,18 @@ The RPC verifies the local binding and returns the directory only to that
 caller. Inventory and diagnostics omit the directory. Paused or disconnected
 mirrors can still serve local data when their binding and recovery state are sound.
 
+For index authorization, an upgraded producer additionally advertises the optional
+`mirrorDirectoryGrantVersion: 1`. Only host-verified Obsidian can call
+`mirrorDirectoryGrant({ mirrorId, revision })`, with the same numeric revision and
+ready-state and durable handoff checks as `mirrorDirectory`. The grant returns
+exactly `{ directory, rootDev, rootIno }`; the identity fields are canonical
+unsigned decimal strings from the exact stored root binding checked against the
+filesystem. A binding that cannot be matched losslessly is refused, not repaired
+or replaced. The index consumer must compare the grant with the identity of the
+same opened root handle it traverses. An absent capability or a refused grant
+must not authorize a path-only index. `mirrorAccessVersion: 3`, the old path-only
+RPC, and the existing storage format are unchanged.
+
 1. Apply the producer and consumer as a coordinated update. Pause and drain
    current work before reload and verify source selections with both versions.
 2. Keep legacy access on mirrors marked `legacy_pending` or `legacy_conflict`.

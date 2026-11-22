@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { plugin } from '../server.ts';
 import { FakeCloudProvider, MemoryState } from './fakes.ts';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
 import { syncArguments } from '../adapters/rclone-cloud-provider.ts';
+import { noteRpcContract } from '../core/note-contract.ts';
+import { statusSchema } from '../contract.ts';
 const caller = { experimental_caller: { kind: 'plugin' as const, pluginId: 'obsidian' } };
 async function setup() {
   const host = createFakePluginHost({ pluginId: 'icloud' });
@@ -47,18 +49,91 @@ test('missing native owner returns bounded failure without reflecting raw conten
   } finally { await harness.lifecycle.dispose(); }
 });
 
-test('mirrorDirectory requires host identity and discloses no path on refusal', async () => {
+test('directory RPCs require host identity and disclose no path on refusal', async () => {
   const harness = await setup();
   try {
+    const status = statusSchema.parse(await harness.behavior.callRpc('status', null));
+    assert.equal(status.mirrorAccessVersion, null);
+    assert.ok(!Object.hasOwn(status, 'mirrorDirectoryGrantVersion'));
     const request = { mirrorId: 'private-mirror', revision: 1 };
-    await assert.rejects(harness.behavior.callRpc('mirrorDirectory', request), /host-verified Obsidian/);
-    await assert.rejects(harness.behavior.callRpc('mirrorDirectory', request, { experimental_caller: { kind: 'plugin', pluginId: 'fastmail' } }), /host-verified Obsidian/);
-    await assert.rejects(harness.behavior.callRpc('mirrorDirectory', { ...request, directory: '/tmp/sentinel' }, caller), /input validation/);
-    await assert.rejects(harness.behavior.callRpc('mirrorDirectory', request, caller), /mirror directory is unavailable/);
-    const logs = JSON.stringify(harness.inspection.logEntries);
-    assert.match(logs, /iCloud mirror_directory unavailable/);
-    assert.doesNotMatch(logs, /private-mirror|\/tmp\/sentinel/);
+    for (const [method, stage] of [['mirrorDirectory', 'mirror_directory'], ['mirrorDirectoryGrant', 'mirror_directory_grant']]) {
+      await assert.rejects(harness.behavior.callRpc(method, request), /host-verified Obsidian/);
+      await assert.rejects(harness.behavior.callRpc(method, request, { experimental_caller: { kind: 'plugin', pluginId: 'fastmail' } }), /host-verified Obsidian/);
+      for (const input of [{ ...request, directory: '/tmp/sentinel' }, { ...request, pluginId: 'obsidian' }, { ...request, revision: '1' }]) {
+        await assert.rejects(harness.behavior.callRpc(method, input, caller), /input validation/);
+      }
+      await assert.rejects(harness.behavior.callRpc(method, request, caller), /mirror directory is unavailable/);
+      assert.match(JSON.stringify(harness.inspection.logEntries), new RegExp(`iCloud ${stage} unavailable`));
+    }
+    assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /private-mirror|\/tmp\/sentinel/);
   } finally { await harness.lifecycle.dispose(); }
+});
+
+test('grant output is strict and carries only canonical unsigned decimal strings', () => {
+  const grant = { directory: '/generated', rootDev: '0', rootIno: '9007199254740993' };
+  const schema = noteRpcContract.mirrorDirectoryGrant.output;
+  assert.deepEqual(schema.parse(grant), grant);
+  for (const malformed of ['', '00', '01', '-1', '+1', '1.0', '1e3', ' 1', '1\n', 1, null, undefined]) {
+    assert.equal(schema.safeParse({ ...grant, rootDev: malformed }).success, false);
+    assert.equal(schema.safeParse({ ...grant, rootIno: malformed }).success, false);
+  }
+  assert.equal(schema.safeParse({ ...grant, extra: true }).success, false);
+  assert.equal(noteRpcContract.mirrorDirectory.output.safeParse(grant).success, false);
+});
+
+test('fake-host grant stays additive and authorizes only the current validated binding', async () => {
+  const host = createFakePluginHost({ pluginId: 'icloud' });
+  const db = host.bb.storage.database();
+  const root = join(dirname(db.name), 'sync');
+  const mirrorId = 'private-mirror';
+  const directory = join(root, 'mirrors', mirrorId);
+  const baseline = join(root, 'baselines', mirrorId);
+  const repository = new MemoryState();
+  repository.value.mirrors.push({ id: mirrorId, folder: { id: 'generated', name: 'Generated', ancestors: [] }, initialized: true, enabled: false, phase: 'paused', failure: null, blocker: null, lastSuccess: null });
+  const worker = new RcloneProcess(root);
+  worker.ensure = async () => {};
+  worker.checkAvailability = async () => {};
+  worker.call = async method => { assert.equal(method, 'config/get'); return { type: 'alias', remote: 'generated' }; };
+  try {
+    await mkdir(directory, { recursive: true });
+    await mkdir(baseline, { recursive: true });
+    await writeFile(join(baseline, 'initialized'), '1', { mode: 0o600 });
+    await plugin(host.bb, { repository, worker });
+    const { behavior } = host.harness;
+    const status = statusSchema.parse(await behavior.callRpc('status', null));
+    assert.equal(status.mirrorAccessVersion, 3);
+    assert.equal(status.mirrorDirectoryGrantVersion, 1);
+    const oldStatusSchema = statusSchema.omit({ mirrorDirectoryGrantVersion: true });
+    const oldStatus = oldStatusSchema.parse(status);
+    assert.deepEqual(statusSchema.parse(oldStatus), oldStatus);
+    assert.equal(status.mirrors[0].filesystem, 'ready');
+    const target = { mirrorId, revision: 1 };
+    const requestGrant = () => behavior.callRpc('mirrorDirectoryGrant', target, caller);
+    const fence = () => db.prepare('SELECT mirror_id FROM icloud_note_direct').all();
+    await assert.rejects(requestGrant(), /connected vault selection/);
+    await behavior.callRpc('noteConfigure', { version: 2, revision: 1, mirrorIds: [mirrorId] }, caller);
+    await assert.rejects(behavior.callRpc('mirrorDirectoryGrant', { ...target, revision: 0 }, caller), /connected vault selection/);
+    await assert.rejects(behavior.callRpc('mirrorDirectoryGrant', { ...target, mirrorId: 'other' }, caller), /connected vault selection/);
+    assert.deepEqual(fence(), []);
+    const { dev, ino } = await lstat(directory, { bigint: true });
+    assert.deepEqual(await requestGrant(), { directory, rootDev: dev.toString(), rootIno: ino.toString() });
+    assert.deepEqual(fence(), [{ mirror_id: mirrorId }]);
+    assert.deepEqual(await behavior.callRpc('mirrorDirectory', target, caller), { directory });
+    await rename(directory, `${directory}-original`);
+    await mkdir(directory);
+    await assert.rejects(requestGrant(), error => {
+      assert.match(String(error), /mirror directory is unavailable/);
+      assert.ok(!String(error).includes(directory));
+      return true;
+    });
+    const publicData = JSON.stringify([status, await behavior.callRpc('inventory', null), await behavior.callRpc('diagnostics', null)]);
+    assert.ok(!publicData.includes(directory));
+    assert.doesNotMatch(publicData, /rootDev|rootIno/);
+    const logs = JSON.stringify(host.harness.inspection.logEntries);
+    assert.match(logs, /iCloud mirror_directory_grant source_changed/);
+    assert.ok(!logs.includes(directory));
+    assert.doesNotMatch(logs, /private-mirror|rootDev|rootIno/);
+  } finally { await host.harness.lifecycle.dispose(); }
 });
 
 const binary = process.env.RCLONE_TEST_BINARY;

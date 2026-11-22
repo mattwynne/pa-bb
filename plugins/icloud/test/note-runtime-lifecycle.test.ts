@@ -2,6 +2,9 @@ import test from 'node:test';
 import { randomUUID, createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { mkdtemp, mkdir, writeFile, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -37,7 +40,7 @@ async function fixture(native = false, initialized = true, wakeups?: MirrorWakeu
   const newRuntime = () => new NoteRuntime(root, db, worker, new NoteStore(join(root, 'legacy')), () => state, undefined, undefined, wakeups);
   const runtime = newRuntime();
   await runtime.start();
-  return { root, state, runtime, worker, newRuntime, async close() { await runtime.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
+  return { root, db, state, runtime, worker, newRuntime, async close() { await runtime.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
 }
 
 test('filesystem handoff waits for acknowledged legacy bytes and conflict recovery, and persists the write fence', async () => {
@@ -59,6 +62,7 @@ test('filesystem handoff waits for acknowledged legacy bytes and conflict recove
     const receipt = await f.runtime.commit(1, input);
     assert.equal(f.runtime.filesystemStatus('one', true), 'legacy_pending');
     await assert.rejects(f.runtime.mirrorDirectory('one', 1), /conflict/);
+    await assert.rejects(f.runtime.mirrorDirectoryGrant('one', 1), /conflict/);
     assert.equal((await f.runtime.read('one', 1, path) as { text: string }).text, 'B');
 
     f.worker.run = async () => { await writeFile(join(directory, path), 'C'); return ''; };
@@ -66,6 +70,7 @@ test('filesystem handoff waits for acknowledged legacy bytes and conflict recove
     await f.runtime.run(args);
     assert.equal(f.runtime.filesystemStatus('one', true), 'legacy_conflict');
     await assert.rejects(f.runtime.mirrorDirectory('one', 1), /conflict/);
+    await assert.rejects(f.runtime.mirrorDirectoryGrant('one', 1), /conflict/);
     const conflict = await f.runtime.overlay.inspect('one', path, directory);
     assert.ok(conflict);
     assert.equal((await f.runtime.read('one', 1, path, conflict.token) as { text: string }).text, 'C');
@@ -76,7 +81,7 @@ test('filesystem handoff waits for acknowledged legacy bytes and conflict recove
     f.state.connected = false;
     f.state.mirrors[0].enabled = false;
     f.state.mirrors[0].phase = 'paused';
-    assert.deepEqual(await f.runtime.mirrorDirectory('one', 1), { directory });
+    assert.equal((await f.runtime.mirrorDirectoryGrant('one', 1)).directory, directory);
     assert.equal((await f.runtime.receipts('one', 1, { mirrorId: 'one', operationId: input.operationId, limit: 1 }))[0].hash, receipt.hash);
     await assert.rejects(f.runtime.commit(1, { ...input, operationId: operationId() }), /unsupported/);
     await f.runtime.stop();
@@ -91,6 +96,41 @@ test('filesystem handoff waits for acknowledged legacy bytes and conflict recove
       await assert.rejects(restarted.mirrorDirectory('one', 1), /source_changed/);
     } finally { await restarted.stop(); }
   } finally { await f.close(); }
+});
+
+test('grant compares exact SQLite and filesystem IDs before the handoff, not their equal rounded numbers', async t => {
+  const f = await fixture();
+  const directory = join(f.root, 'mirrors/one');
+  const actual = 9007199254740993n, rounded = 9007199254740992n;
+  assert.equal(Number(actual), Number(rounded));
+  const stat = fs.lstatSync, statAsync = fsPromises.lstat;
+  try {
+    f.runtime.configure(1, ['one']);
+    const setInode = f.db.prepare('UPDATE icloud_note_bindings SET root_ino=? WHERE mirror_id=?');
+    setInode.run(rounded, 'one');
+    // Use the real generated directories for type, owner, device and marker;
+    // substitute only the inode on this one path to model a high inode.
+    t.mock.method(fsPromises, 'lstat', async (path: string) => {
+      const info = await statAsync(path);
+      return path === directory ? Object.assign(info, { ino: Number(actual) }) : info;
+    });
+    t.mock.method(fs, 'lstatSync', (path: string, options?: { bigint: boolean }) => {
+      const info = options?.bigint ? stat(path, { bigint: true }) : stat(path);
+      return path === directory ? Object.assign(info, { ino: options?.bigint ? actual : Number(actual) }) : info;
+    });
+    syncBuiltinESMExports();
+    assert.equal((await f.runtime.availability('one')).available, true);
+    await assert.rejects(f.runtime.mirrorDirectoryGrant('one', 1), /source_changed/);
+    assert.deepEqual(f.db.prepare('SELECT mirror_id FROM icloud_note_direct').all(), []);
+    assert.equal(f.db.prepare('SELECT root_ino FROM icloud_note_bindings WHERE mirror_id=?').safeIntegers().pluck().get('one'), rounded);
+    setInode.run(actual, 'one');
+    assert.deepEqual(await f.runtime.mirrorDirectoryGrant('one', 1), { directory, rootDev: stat(directory, { bigint: true }).dev.toString(), rootIno: actual.toString() });
+    assert.deepEqual(await f.runtime.mirrorDirectory('one', 1), { directory });
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    await f.close();
+  }
 });
 
 test('direct mirror batches nested writes, filters staging and ignores native changes even during directory lookup', { timeout: 6000 }, async () => {
