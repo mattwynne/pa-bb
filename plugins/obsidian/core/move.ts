@@ -22,10 +22,14 @@ const unsupportedReasons = {
   target_characters: 'The link target contains characters the planner cannot handle safely.',
   overlapping_links: 'The planner found overlapping link spans.',
 } as const;
-export class UnsupportedMoveLink extends VaultError {
-  additionalLocations?: UnsupportedMoveLink['location'][];
-  constructor(readonly location: { reason: keyof typeof unsupportedReasons; path: string; line?: number; column?: number }) {
-    super('unsupported_links', `Move stopped before writing. ${unsupportedReasons[location.reason]} Inspect the location in Obsidian.`);
+export class MoveLinkError extends VaultError {
+  additionalLocations?: MoveLinkError['location'][];
+  constructor(
+    readonly location: { reason: keyof typeof unsupportedReasons | 'ambiguous_target'; path: string; line?: number; column?: number },
+    ambiguity?: string,
+  ) {
+    super(location.reason === 'ambiguous_target' ? 'ambiguous_link' : 'unsupported_links',
+      `Move stopped before writing. ${location.reason === 'ambiguous_target' ? ambiguity : unsupportedReasons[location.reason]} Inspect the location in Obsidian.`);
   }
 }
 export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: string, parser: NoteParser) {
@@ -52,7 +56,6 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
   const suffixCandidates = (forms: string[]) =>
     [...new Set(forms.flatMap(form => basenames.get(basenameKey(form)) ?? []))].filter(path => matchesSuffix(forms, path.toLowerCase()));
   const existsAfter = (path: string) => path === to || (path !== from && paths.has(path));
-  const ambiguous = (reason: string) => new VaultError('ambiguous_link', `Move stopped before writing. ${reason}`);
   const repairs: Array<{ path: string; text: string; expectedHash: string; hash: string }> = [];
   let repairBytes = 0;
   const visit = (note: { path: string; text: string; hash: string }, bytes: number) => {
@@ -60,12 +63,13 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
     // or '<', or can be decoded from YAML frontmatter. Inspect the exact
     // bytes of every note before taking this fast path.
     if (!note.text.includes('[') && !note.text.includes('<') && !/^(?:\uFEFF)?---\r?\n/.test(note.text)) return;
-    const unsupported = (reason: keyof typeof unsupportedReasons, offset?: number): never => {
-      if (offset === undefined) throw new UnsupportedMoveLink({ reason, path: note.path });
+    const location = (offset?: number) => {
+      if (offset === undefined) return { path: note.path };
       const prefix = note.text.slice(0, offset);
-      throw new UnsupportedMoveLink({
-        reason, path: note.path, line: prefix.split('\n').length, column: offset - prefix.lastIndexOf('\n'),
-      });
+      return { path: note.path, line: prefix.split('\n').length, column: offset - prefix.lastIndexOf('\n') };
+    };
+    const unsupported = (reason: keyof typeof unsupportedReasons, offset?: number): never => {
+      throw new MoveLinkError({ reason, ...location(offset) });
     };
     const metadata = parser.parse(note.text, 'move');
     // The parser exposes YAML link locations as whole-property spans and does
@@ -80,6 +84,7 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
     const pieces: string[] = [];
     let offset = 0;
     for (const link of [...metadata.links].sort((a, b) => a.start - b.start)) {
+      const ambiguous = (reason: string) => new MoveLinkError({ reason: 'ambiguous_target', ...location(link.start) }, reason);
       const raw = note.text.slice(link.start, link.end);
       // Use the Markdown parser's destination for external links. The inline
       // rewrite grammar need not understand their labels or parentheses.

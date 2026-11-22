@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MarkdownNotes } from '../adapters/markdown-notes.ts';
-import { createMovePlanner, hashText, UnsupportedMoveLink } from '../core/move.ts';
+import { createMovePlanner, hashText, MoveLinkError } from '../core/move.ts';
 const parser=new MarkdownNotes();
 const note=(path:string,text:string)=>({path,text,hash:hashText(text)});
 function planMove(notes: ReturnType<typeof note>[], from: string, to: string, parser: MarkdownNotes) {
@@ -41,7 +41,7 @@ test('unrelated YAML wikilinks stay unchanged and affected YAML wikilinks still 
   const [repair] = planMove([source, index], source.path, 'Reference/Example.md', parser);
   assert.equal(repair.text, unrelated + '[[Reference/Example]]\n');
   assert.throws(() => planMove([source, note('Index.md', '---\nrelated: "[[Reference/Example]]"\n---\n')], source.path, 'Reference/Example.md', parser),
-    error => error instanceof UnsupportedMoveLink && error.location.reason === 'frontmatter_link');
+    error => error instanceof MoveLinkError && error.location.reason === 'frontmatter_link');
 });
 
 test('move refusals give the location of the suspect markup without quoting it', () => {
@@ -53,7 +53,7 @@ test('move refusals give the location of the suspect markup without quoting it',
   ] as const) {
     const index = note('Index.md', text);
     assert.throws(() => planMove([source, index], source.path, 'Reference/Example.md', parser), error => {
-      assert.ok(error instanceof UnsupportedMoveLink);
+      assert.ok(error instanceof MoveLinkError);
       assert.equal(error.category, 'unsupported_links');
       assert.deepEqual(error.location, { reason, path: index.path, line, column });
       assert.doesNotMatch(JSON.stringify(error), /PRIVATE_MARKER/);
@@ -72,7 +72,7 @@ test('email autolinks and HTML examples leave verified backlinks repairable', ()
 test('live HTML embeds still block a move', () => {
   const index = note('Index.md', 'Contact <team@example.test>.\n\n<img srcset="Example.md 1x">\n');
   assert.throws(() => planMove([source, index], source.path, 'Reference/Example.md', parser),
-    error => error instanceof UnsupportedMoveLink && error.location.reason === 'html_link_attribute');
+    error => error instanceof MoveLinkError && error.location.reason === 'html_link_attribute');
 });
 
 test('parser-confirmed PDF and web links with parentheses stay unchanged', () => {
@@ -80,7 +80,7 @@ test('parser-confirmed PDF and web links with parentheses stay unchanged', () =>
   const [repair] = planMove([source, note('Index.md', other + '[[Example]]')], source.path, 'Reference/Example.md', parser);
   assert.equal(repair.text, other + '[[Reference/Example]]');
   assert.throws(() => planMove([source, note('Index.md', '[note](file:///example/Example(2026).md)')], source.path, 'Reference/Example.md', parser),
-    error => error instanceof UnsupportedMoveLink && error.location.reason === 'link_syntax');
+    error => error instanceof MoveLinkError && error.location.reason === 'link_syntax');
 });
 
 const projectPath = 'Example/Projects/Active/Service a heater.md';
