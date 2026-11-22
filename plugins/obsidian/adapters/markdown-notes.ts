@@ -108,6 +108,13 @@ export class MarkdownNotes implements NoteParser {
       if (linksOnly) meta.unclosedHtmlOffset = stack[0].start;
       for (const item of stack) ranges.push({ start: item.start, end: masked.length });
     }
+    if (linksOnly) for (const region of html) {
+      const attribute = /\s((?:xlink:)?href|src|srcset)\s*=/i.exec(region.value);
+      if (attribute) {
+        meta.htmlLinkOffset = region.start + attribute.index + 1;
+        break;
+      }
+    }
     for (const region of ranges) for (let at = region.start; at < region.end; at++) if (chars[at] !== '\r' && chars[at] !== '\n') chars[at] = ' ';
     masked = chars.join(''); nodes = 0;
     const root = fromMarkdown(masked);

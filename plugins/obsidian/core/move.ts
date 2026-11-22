@@ -14,7 +14,7 @@ const unsupportedReasons = {
   frontmatter: 'The YAML frontmatter could not be checked for links.',
   parser_warning: 'The Markdown parser reported a warning while checking this note.',
   reference_definition: 'The planner cannot check Markdown reference definitions.',
-  possible_html: 'The planner found text that looks like HTML.',
+  html_link_attribute: 'The planner found an HTML link or embed attribute it cannot check safely.',
   unclosed_html: 'The Markdown parser found an HTML element without a closing tag.',
   link_syntax: 'The planner cannot check this link syntax.',
   target_encoding: 'The link target uses unsupported percent encoding.',
@@ -74,12 +74,13 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
     if (metadata.warnings.length) unsupported('parser_warning');
     const reference = /^ {0,3}\[[^\]\n]+\]:/m.exec(note.text);
     if (reference) unsupported('reference_definition', reference.index + reference[0].indexOf('['));
-    const htmlStart = note.text.search(/<\/?[A-Za-z]/);
-    if (htmlStart !== -1 && note.text.includes('>', htmlStart + 1)) unsupported('possible_html', htmlStart);
+    if (metadata.htmlLinkOffset !== undefined) unsupported('html_link_attribute', metadata.htmlLinkOffset);
     const pieces: string[] = [];
     let offset = 0;
     for (const link of [...metadata.links].sort((a, b) => a.start - b.start)) {
       const raw = note.text.slice(link.start, link.end);
+      // CommonMark recognizes this as an external email link.
+      if (raw.startsWith('<') && raw.endsWith('>') && link.target === 'mailto:' + raw.slice(1, -1)) continue;
       const wiki = /^!?\[\[/.test(raw);
       const match = wiki ? raw.match(/^(!?\[\[)([^|\]#]*)([^\]]*\]\])$/) : raw.match(/^(!?\[[^\]\n]*\]\()([^\s()]+)(\s+"[^"\n]*")?\)$/);
       if (!match) return unsupported('link_syntax', link.start);

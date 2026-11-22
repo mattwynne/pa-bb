@@ -38,7 +38,7 @@ test('frontmatter is inspected even when link delimiters only appear after YAML 
 test('move refusals give the location of the suspect markup without quoting it', () => {
   for (const [text, reason, line, column] of [
     ['---\nnested:\n  value: PRIVATE_MARKER\n---\n', 'frontmatter', 1, 1],
-    ['Example\n\n```html\n  <span>PRIVATE_MARKER</span>\n```\n', 'possible_html', 4, 3],
+    ['Example\n\nText <a href="PRIVATE_MARKER.md">link</a>\n', 'html_link_attribute', 3, 9],
     ['Example\n\nText <span>PRIVATE_MARKER\n', 'unclosed_html', 3, 6],
     ['Example\n\nText [label](Bad%XXPRIVATE_MARKER.md)\n', 'target_encoding', 3, 6],
   ] as const) {
@@ -51,6 +51,19 @@ test('move refusals give the location of the suspect markup without quoting it',
       return true;
     });
   }
+});
+
+test('email autolinks and HTML examples leave verified backlinks repairable', () => {
+  const retained = 'Contact <team@example.test>.\n\n<span>Label</span>\n\n```html\n<a href="Example.md">Example</a>\n```\n\n';
+  const index = note('Index.md', retained + '[[Example]]\n');
+  const [repair] = planMove([source, index], source.path, 'Reference/Example.md', parser);
+  assert.equal(repair.text, retained + '[[Reference/Example]]\n');
+});
+
+test('live HTML embeds still block a move', () => {
+  const index = note('Index.md', 'Contact <team@example.test>.\n\n<img srcset="Example.md 1x">\n');
+  assert.throws(() => planMove([source, index], source.path, 'Reference/Example.md', parser),
+    error => error instanceof UnsupportedMoveLink && error.location.reason === 'html_link_attribute');
 });
 
 const projectPath = 'Example/Projects/Active/Service a heater.md';
