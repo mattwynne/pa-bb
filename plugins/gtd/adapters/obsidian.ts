@@ -20,6 +20,7 @@ export const vaultIdSchema = z.string().regex(/^[A-Za-z0-9-]{1,64}$/);
 // Wire contracts are local to this adapter. No imports from another plugin's implementation.
 const projectAreasDeclarationKey = 'area';
 const statusSchema = z.object({
+  inventoryEvidenceVersion: z.number().int().optional(),
   projectAreasVersion: z.number().int().optional(),
   projectAreasFrontmatterOnly: z.unknown().optional(),
   projectAreasDeclarationKey: z.unknown().optional(),
@@ -113,10 +114,133 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     const { items, ...snapshot } = await this.readInventory(signal, 'area');
     return { ...snapshot, areas: items as Area[] };
   }
+  private async readImmediateInventory(signal: AbortSignal, kind: 'project' | 'area', vault: z.infer<typeof statusSchema>['vaults'][number]) {
+    const readSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
+    const root = this.config.root ?? '', folder = [root, this.config.folder].filter(Boolean).join('/');
+    const warnings = new Set<Warning>();
+    const items: (Project | Area)[] = [];
+    const owners = new Map<Project, { path: string; area: unknown }>();
+    const envelope = z.object({ authority: relationshipAuthority, publication: z.string().uuid().nullable() });
+    let authority: z.infer<typeof relationshipAuthority> | undefined, publication: string | undefined, calls = 0, visited = 0, directoriesRead = 0;
+    let childrenPartial = false;
+    const each = async <T>(values: T[], action: (value: T) => Promise<void>) => {
+      let next = 0, failed = false;
+      const results = await Promise.allSettled(Array.from({ length: Math.min(4, values.length) }, async () => {
+        while (!failed && next < values.length) {
+          try { await action(values[next++]); } catch (error) { failed = true; throw error; }
+        }
+      }));
+      if (results.some(result => result.status === 'rejected')) throw new GtdError('source_unavailable');
+    };
+    const propertyCache = new Map<string, ReturnType<typeof loadProperties>>();
+    const call = async <T>(method: string, input: object, schema: z.ZodType<T>): Promise<T> => {
+      if (++calls > 50000 || readSignal.aborted) throw new GtdError('source_unavailable');
+      const value = await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method, input: { vaultId: this.config.vaultId, root, ...input, ...(authority ? { expectedAuthority: authority } : {}), ...(publication ? { publication } : {}) }, outputSchema: z.unknown(), signal: readSignal });
+      const proof = envelope.parse(value);
+      if (authority && JSON.stringify(authority) !== JSON.stringify(proof.authority)) throw new GtdError('source_unavailable');
+      if (publication && publication !== proof.publication) throw new GtdError('source_unavailable');
+      authority = proof.authority; publication = proof.publication ?? undefined;
+      return schema.parse(value);
+    };
+    const children = async (scope: string) => {
+      if (++directoriesRead > 128) { warnings.add('scan_limit'); childrenPartial = true; return []; }
+      const page = await call('inventoryChildren', { folder: scope }, envelope.extend(childrenPage.shape).strict());
+      childrenPartial = page.incomplete;
+      if (page.incomplete) warnings.add('source_partial');
+      return page.entries;
+    };
+    const loadProperties = async (path: string, fields: string[]) => {
+      const page = await call('inventoryProperties', { path, fields }, envelope.extend({ status: z.enum(['observed', 'missing', 'partial']), properties: z.record(z.string(), z.unknown()), unsupported: z.array(z.string()).max(8) }).strict());
+      if (page.status === 'partial' || page.unsupported.length) warnings.add('source_partial');
+      return page;
+    };
+    const properties = (path: string, fields: string[]) => {
+      if (!propertyCache.has(path)) propertyCache.set(path, loadProperties(path, fields));
+      return propertyCache.get(path)!;
+    };
+    const enumerate = async (scope: string, status?: ProjectStatus) => {
+      const entries = await children(scope);
+      const scopePartial = childrenPartial;
+      await each(entries.filter(e => e.kind === 'markdown'), async entry => {
+        if (visited + propertyCache.size >= 5000) return;
+        await properties(`${scope}/${entry.name}`, kind === 'project' ? ['title', 'status', 'area'] : ['title']);
+      });
+      const notes = new Set(entries.filter(e => e.kind === 'markdown').map(e => e.name));
+      for (const entry of entries) {
+        if (++visited > 5000) { warnings.add('scan_limit'); break; }
+        const path = `${scope}/${entry.name}`;
+        if (!relativeFolder.safeParse(path).success) { warnings.add('source_partial'); continue; }
+        if (kind === 'project' && entry.kind === 'directory' && status === undefined && Object.hasOwn(aliases, entry.name.toLowerCase())) { await enumerate(path, aliases[entry.name.toLowerCase()]); continue; }
+        // A clipped/omitted sibling cannot license README ownership or a
+        // folder-only default. Confirmed note owners remain independently usable.
+        if (entry.kind === 'directory' && (scopePartial || notes.has(entry.name + '.md'))) continue;
+        let owner: string | undefined = entry.kind === 'markdown' ? path : undefined;
+        if (kind === 'project' && entry.kind === 'directory') {
+          const inside = await children(path);
+          if (inside.some(e => e.kind === 'markdown' && e.name === 'README.md')) owner = path + '/README.md';
+          else if (childrenPartial) continue;
+        }
+        const page = owner ? await properties(owner, kind === 'project' ? ['title', 'status', 'area'] : ['title']) : undefined;
+        if (page && page.status !== 'observed') {
+          if (page.status === 'missing' && entry.kind === 'directory') owner = undefined;
+          else { warnings.add('source_partial'); continue; }
+        }
+        if (page?.unsupported.some(f => f === 'title' || (f === 'status' && !status))) { warnings.add(kind === 'project' ? 'invalid_project' : 'invalid_area'); continue; }
+        const props = page?.properties ?? {};
+        const item = kind === 'project'
+          ? owner ? projectFromNote(folder, owner, props) : { id: path + '/', title: entry.name, status: status ?? 'active' }
+          : entry.kind === 'markdown' ? areaFromNote(folder, path, props) : { id: path + '/', title: entry.name };
+        if (!item || item === 'invalid' || !text(item.title, 240)) { warnings.add(kind === 'project' ? 'invalid_project' : 'invalid_area'); continue; }
+        items.push(item);
+        if (kind === 'project' && owner && !page?.unsupported.includes('area')) owners.set(item as Project, { path: owner, area: props.area });
+      }
+    };
+    try {
+      await enumerate(folder);
+      if (kind === 'project' && this.config.areasFolder) {
+        const areaFolder = [root, this.config.areasFolder].filter(Boolean).join('/');
+        const areaChildren = await children(areaFolder);
+        const areaPartial = childrenPartial;
+        const areaNotes = new Set(areaChildren.filter(e => e.kind === 'markdown').map(e => e.name));
+        const directories = areaChildren.filter(e => e.kind === 'directory' && !areaNotes.has(e.name + '.md'));
+        await each([...owners], async ([item, owner]) => {
+          const raw = owner.area;
+          if (raw === undefined || raw === null || raw === '' || (Array.isArray(raw) && !raw.length)) return;
+          const values = Array.isArray(raw) ? raw : [raw];
+          if (values.length > 8 || !values.every(v => typeof v === 'string' && v.trim() && v.length <= 1024)) return;
+          const targets = new Set<string>(); let unresolved = false;
+          for (const reference of values as string[]) {
+            const page = await call('inventoryTarget', { path: owner.path, reference }, envelope.extend({ status: z.enum(['unsupported', 'incomplete', 'ambiguous', 'matched', 'missing']), matches: z.array(z.object({ path: relativeFolder, kind: z.enum(['markdown', 'directory']) }).strict()).max(3), basename: z.string().nullable(), fragment: z.boolean(), embed: z.boolean(), incomplete: z.boolean() }).strict());
+            if (page.incomplete) warnings.add('source_partial');
+            if (page.incomplete || page.fragment || page.embed || page.status === 'unsupported' || page.status === 'ambiguous') { unresolved = true; continue; }
+            const candidates = page.matches.filter(m => m.kind === 'markdown');
+            let target: string | undefined;
+            if (page.basename) {
+              const folders = directories.filter(e => e.name.toLocaleLowerCase('und') === page.basename);
+              if (candidates.length + folders.length === 1) target = candidates[0]?.path ?? `${areaFolder}/${folders[0].name}/`;
+            } else target = candidates[0]?.path ?? page.matches.find(m => m.kind === 'directory')?.path.concat('/');
+            if (!target?.startsWith(areaFolder + '/')) unresolved = true;
+            else targets.add(target);
+          }
+          if (!unresolved && targets.size === 1 && !warnings.has('scan_limit') && !areaPartial) item.areaId = [...targets][0];
+        });
+      }
+      // Reacquire after assembly: authority and publication drift discard all rows.
+      await call('inventoryChildren', { folder }, envelope.extend(childrenPage.shape).strict());
+    } catch {
+      throw new GtdError(signal.aborted ? 'cancelled' : 'source_unavailable');
+    }
+    const source = vault.source!;
+    return { items, complete: warnings.size === 0, warnings: [...warnings], source: {
+      backend: 'obsidian', id: vault.vaultId, name: root.split('/').at(-1) || vault.name || 'Obsidian vault', scope: this.config.folder, observedAt: new Date().toISOString(), lastSuccessfulSync: source.lastSuccess,
+      sync: { connected: source.cloudConnected, enabled: source.enabled, phase: source.phase, failure: source.failure },
+    } };
+  }
   private async readInventory(signal: AbortSignal, kind: 'project' | 'area') {
     const state = await this.status(signal);
     const vault = state.vaults.find(vault => vault.vaultId === this.config.vaultId);
     if (!vault?.source?.local.available) throw new GtdError('source_unavailable');
+    if (state.inventoryEvidenceVersion === 1) return this.readImmediateInventory(signal, kind, vault);
     const readSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
     const items: (Project | Area)[] = [], warnings = new Set<Warning>();
     // The v1 consumer enumerates Markdown paths, not directories. Never claim
@@ -261,7 +385,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     items.push(...entries.values());
     const source = vault.source;
     return { items, complete: warnings.size === 0, warnings: [...warnings], source: {
-      backend: 'obsidian', id: vault.vaultId, name: this.config.root?.split('/').at(-1) ?? vault.name ?? 'Obsidian vault', scope: this.config.folder, observedAt,
+      backend: 'obsidian', id: vault.vaultId, name: (this.config.root ? this.config.root.split('/').at(-1) : undefined) ?? vault.name ?? 'Obsidian vault', scope: this.config.folder, observedAt,
       lastSuccessfulSync: source.lastSuccess,
       sync: { connected: source.cloudConnected, enabled: source.enabled, phase: source.phase, failure: source.failure },
     } };

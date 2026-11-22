@@ -26,7 +26,18 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       throw new Error('Project Area evidence did not complete. Check compatible source access.');
     }
   };
+  const evidence = async <T>(read: () => Promise<T>, context: { experimental_caller: { kind: string; pluginId?: string } }): Promise<T> => {
+    if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the GTD consumer can request inventory evidence.' });
+    try { return await admission.run(read); }
+    catch (error) {
+      if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable');
+      throw new Error('Inventory evidence did not complete. Check compatible source access.');
+    }
+  };
   bb.rpc.register(rpcContract, {
+    async inventoryChildren(input, context) { return evidence(() => service.inventoryChildren(input, context.experimental_signal), context); },
+    async inventoryProperties(input, context) { return evidence(() => service.inventoryProperties(input, context.experimental_signal), context); },
+    async inventoryTarget(input, context) { return evidence(() => service.inventoryTarget(input, context.experimental_signal), context); },
     projectAreasFromFrontmatter: projectAreas,
     async projectAreas(input, context) {
       const { rows, incomplete } = await projectAreas(input, context);

@@ -1,4 +1,6 @@
 import { posix } from 'node:path';
+import { indexedChildren, projectFields, targetQuery, targetEvidence, within, hides, decodeReference, genericNoteCandidates } from './inventory-evidence.ts';
+import type { IndexView } from './vault-index.ts';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
 import { MAX_NOTE_BYTES, projectAreaRoute, projectAreaSourceRefusal, VaultError } from './ports.ts';
@@ -22,6 +24,7 @@ export class Obsidian {
   private readReservations = 0;
   private cursors = new Map<string, { rows: any[]; offset: number; at: number; revision: number; source: string; incomplete: boolean; failures: any[]; warnings: string[] }>();
   private stopped = false;
+  private publications = new WeakMap<IndexView, string>();
   private readonly searcher: VaultSearch;
   private stateQueue: Promise<void> = Promise.resolve();
   private configurationQueue: Promise<void> = Promise.resolve();
@@ -155,7 +158,7 @@ export class Obsidian {
     this.checkRevision(revision);
     const uncertain = (this.state.pending ?? []).filter(matchesPending);
     const uncertainOperations = uncertain.slice(0, Math.min(input.limit ?? 20, 100));
-    return { ...projectAreaCapabilities, propertiesAccessVersion: 1 as const, ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
+    return { inventoryEvidenceVersion: 1 as const, ...projectAreaCapabilities, propertiesAccessVersion: 1 as const, ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
   }
   async vaultLocations() {
     const vaults: Array<{ id: string; root: string; name: string }> = []; let incomplete = false;
@@ -284,14 +287,86 @@ export class Obsidian {
     incomplete ||= incompleteCatalog;
     return { rows, incomplete };
   }
+  private async inventoryRead<T>(input: { vaultId: string; root: string; expectedAuthority?: ProjectAreaAuthority; publication?: string }, signal: AbortSignal | undefined, read: (view: IndexView | undefined, revision: number, access: LiveProjectAreaAccess | undefined) => Promise<T>) {
+    const { authority } = await this.source(input.vaultId, { signal, expected: input.expectedAuthority });
+    const lease = authority.route === 'index' ? await this.files.index?.(input.vaultId, authority.revision, signal) : undefined;
+    try {
+      if (authority.route === 'index' && !lease) throw new VaultError('source_unavailable');
+      let publication: string | null = null;
+      if (lease) {
+        publication = this.publications.get(lease.view) ?? this.id();
+        this.publications.set(lease.view, publication);
+      }
+      if (input.publication && input.publication !== publication) throw new VaultError('source_unavailable');
+      if (signal?.aborted) throw new VaultError('cancelled');
+      const access = authority.route === 'index' ? undefined : { route: authority.route, epoch: authority.epoch, signal };
+      const result = await read(lease?.view, authority.revision, access);
+      await this.source(input.vaultId, { signal, expected: authority });
+      if (lease) { await lease.check(signal); lease.assertValid(); }
+      else if (access) await this.files.checkLiveProjectAreaAccess?.(input.vaultId, authority.revision, access);
+      if (signal?.aborted) throw new VaultError('cancelled');
+      return { ...result, authority, publication };
+    } finally { lease?.close(); }
+  }
+  async inventoryChildren(input: { vaultId: string; root: string; folder: string; expectedAuthority?: ProjectAreaAuthority; publication?: string }, signal?: AbortSignal) {
+    if (!within(input.folder, input.root)) throw new VaultError('invalid_path');
+    return this.inventoryRead(input, signal, async (view, revision, access) => {
+      if (view) return indexedChildren(view, input.folder);
+      if (!this.files.children) throw new VaultError('incompatible');
+      return this.files.children(input.vaultId, revision, input.folder, access);
+    });
+  }
+  async inventoryProperties(input: { vaultId: string; root: string; path: string; fields: string[]; expectedAuthority?: ProjectAreaAuthority; publication?: string }, signal?: AbortSignal) {
+    validPath(input.path);
+    if (!within(input.path, input.root)) throw new VaultError('invalid_path');
+    return this.inventoryRead(input, signal, async (view, revision, access) => {
+      if (view) {
+        const note = view.notes.find(n => n.path === input.path);
+        const partial = view.omissions.some(o => hides(o, input.path)) || !!note?.propertyWarning;
+        return { status: partial ? 'partial' as const : note ? 'observed' as const : 'missing' as const, ...projectFields(note?.properties ?? {}, input.fields) };
+      }
+      if (this.files.children) {
+        const parent = posix.dirname(input.path);
+        const children = await this.files.children(input.vaultId, revision, parent === '.' ? '' : parent, access);
+        if (!children.entries.some(e => e.kind === 'markdown' && e.name === posix.basename(input.path))) return { status: children.incomplete ? 'partial' as const : 'missing' as const, properties: {}, unsupported: [] };
+      }
+      try {
+        const note = await this.files.read(input.vaultId, revision, input.path, access);
+        const parsed = this.parser.frontmatter(note.text);
+        return { status: parsed.warnings.length ? 'partial' as const : 'observed' as const, ...projectFields(parsed.properties, input.fields) };
+      } catch (e) {
+        const category = e instanceof VaultError ? e.category : 'unavailable';
+        if (projectAreaSourceRefusal(category) || category === 'cancelled') throw e;
+        if (!(e instanceof VaultError && e.diagnosticReported)) this.diagnose('rpc', category);
+        return { status: 'partial' as const, properties: {}, unsupported: [] };
+      }
+    });
+  }
+  async inventoryTarget(input: { vaultId: string; root: string; path: string; reference: string; expectedAuthority?: ProjectAreaAuthority; publication?: string }, signal?: AbortSignal) {
+    validPath(input.path);
+    if (!within(input.path, input.root)) throw new VaultError('invalid_path');
+    return this.inventoryRead(input, signal, async (view, revision, access) => {
+      const query = targetQuery(input.reference, input.path, input.root);
+      if (view) return targetEvidence(query, input.root, view.notes.map(n => n.path), !!query.path && view.directories.includes(query.path), view.omissions.some(o => within(o.path, input.root) || (o.kind === 'tree' && hides(o, input.root))));
+      const listed = await this.files.list(input.vaultId, revision, access);
+      let directory = false, incomplete = listed.incomplete;
+      if (query.path) {
+        if (!this.files.children) incomplete = true;
+        else {
+          const parent = posix.dirname(query.path);
+          const children = await this.files.children(input.vaultId, revision, parent === '.' ? '' : parent, access);
+          incomplete ||= children.incomplete;
+          directory = children.entries.some(e => e.kind === 'directory' && e.name === posix.basename(query.path!));
+        }
+      }
+      return targetEvidence(query, input.root, listed.paths, directory, incomplete);
+    });
+  }
   async listChildren(input: { vaultId: string; folder: string }, signal?: AbortSignal) {
     if (signal?.aborted) throw new VaultError('cancelled');
     if (!this.files.children) throw new VaultError('incompatible');
-    const { revision } = await this.source(input.vaultId);
-    const result = await this.files.children(input.vaultId, revision, input.folder);
-    this.check(input.vaultId, revision);
-    if (signal?.aborted) throw new VaultError('cancelled');
-    return result;
+    const { entries, incomplete } = await this.inventoryChildren({ ...input, root: '' }, signal);
+    return { entries, incomplete };
   }
   /** Read-only consumer projection: no bodies, snippets, edit proofs, or GTD policy. */
   async listProperties(input: { vaultId: string; folder: string; fields: string[]; cursor?: string }, signal?: AbortSignal) {
@@ -430,16 +505,12 @@ export class Obsidian {
     }));
   }
   async resolve(input: { vaultId: string; path: string; link: string }, signal?: AbortSignal, reader = '') {
-    await this.note(input.vaultId, input.path); let reference = input.link.replace(/^!?\[\[/, '').replace(/\]\]$/, '').split('|')[0];
-    try { reference = decodeURIComponent(reference); } catch { throw new VaultError('invalid_link'); }
+    await this.note(input.vaultId, input.path); let decoded: ReturnType<typeof decodeReference>;
+    try { decoded = decodeReference(input.link); } catch { throw new VaultError('invalid_link'); }
+    const { reference, target, subpath } = decoded;
     if (/^[A-Za-z][\w+.-]*:/.test(reference) || reference.startsWith('//') || reference.includes('\\') || reference.includes('\0')) throw new VaultError('external_link', 'External URLs and cross-vault references are not fetched.');
-    const separator = reference.indexOf('#'); const target = separator < 0 ? reference : reference.slice(0, separator); const subpath = separator < 0 ? '' : reference.slice(separator + 1);
-    const { revision } = await this.source(input.vaultId); const listed = await this.files.list(input.vaultId, revision); let candidates: string[];
-    if (!target) candidates = [input.path];
-    else if (target.includes('/')) {
-      const relative = target.startsWith('./') || target.startsWith('../'); const normalized = posix.normalize(relative ? posix.join(posix.dirname(input.path), target) : target.replace(/^\//, '')); validPath(normalized.endsWith('.md') ? normalized : normalized + '.md');
-      const path = normalized.endsWith('.md') ? normalized : normalized + '.md'; candidates = listed.paths.includes(path) ? [path] : [];
-    } else { const name = target.replace(/\.md$/, '').toLocaleLowerCase('und'); candidates = listed.paths.filter(path => posix.basename(path, '.md').toLocaleLowerCase('und') === name); }
+    const { revision } = await this.source(input.vaultId); const listed = await this.files.list(input.vaultId, revision);
+    const candidates = genericNoteCandidates(target, input.path, listed.paths);
     this.check(input.vaultId, revision);
     if (candidates.length !== 1) return { status: candidates.length ? 'ambiguous' : listed.incomplete ? 'incomplete' : 'missing', vaultId: input.vaultId, candidates: candidates.slice(0, 20), incomplete: listed.incomplete, evidenceOnly: true };
     const resolved = await this.read({ vaultId: input.vaultId, path: candidates[0], ...(subpath.startsWith('^') ? { blockId: subpath.slice(1) } : subpath ? { heading: subpath } : {}) }, signal, reader);

@@ -11,6 +11,8 @@ import { experimental_PluginRpcCallError, type BbPluginApi } from '@get-bb/plugi
 import { plugin } from '../server.ts';
 import { LocalNotes } from '../adapters/local-notes.ts';
 import { hash } from './fakes.ts';
+import { plugin as gtdPlugin } from '../../gtd/server.ts';
+import { ObsidianBackend } from '../../gtd/adapters/obsidian.ts';
 
 async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: string) => Promise<void>, indexLookup?: (signal: AbortSignal) => Promise<void>, grantVersion: 1 | null = 1) {
   const owner = await mkdtemp(join(tmpdir(), 'sentinel-private-mirror-'));
@@ -97,6 +99,162 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
   return { ...host, tool, calls, controls, state, owner, directory, legacyReceipts };
 }
 const target = { vaultId: 'one', path: 'Notes/Agenda: July.md' };
+
+test('public GTD lists use only owner evidence on a warm nested-root index and fail closed on rollback', async t => {
+  const f = await fixture(t, 'ready', async root => {
+    for (const path of ['Life/.obsidian', 'Life/Projects/Pilot', 'Life/Projects/Empty', 'Life/Projects/Attachments', 'Life/Projects/Pair', 'Life/Projects/Done', 'Life/Areas/Empty', 'Other']) await mkdir(join(root, path), { recursive: true });
+    for (const [path, text] of Object.entries({
+      'Life/Projects/Plan.md': '---\narea: ' + JSON.stringify(Array.from({ length: 8 }, () => '[[Areas/Finance|' + 'x'.repeat(980) + ']]')) + '\n---\n',
+      'Life/Projects/Pilot/README.md': '---\ntitle: Pilot title\narea: Areas/Empty\n---\n',
+      'Life/Projects/Pilot/Notes.md': '---\ntitle: PRIVATE_SENTINEL\narea: Other/Wrong\n---',
+      'Life/Projects/Pair.md': '---\narea: Areas/Finance\n---',
+      'Life/Projects/Pair/README.md': '---\ntitle: Wrong\n---',
+      'Life/Projects/Done/Finished.md': '---\nstatus: active\n---',
+      'Life/Projects/Attachments/image.bin': 'attachment',
+      'Life/Areas/Finance.md': '# Budget\nTarget section', 'Other/Finance.md': 'foreign collision',
+    })) await writeFile(join(root, path), text);
+  });
+  await f.harness.behavior.callRpc('inventoryChildren', { vaultId: 'one', root: 'Life', folder: 'Life/Projects' }, gtdCaller);
+  const forbidden = ['read', 'list', 'children', 'indexDirectory', 'searchReader'] as const;
+  const spies = forbidden.map(method => t.mock.method(LocalNotes.prototype, method, () => { throw new Error('PRIVATE_SENTINEL unexpected live I/O'); }));
+  const requests: Array<{ method: string; input: any }> = []; let rollback = false;
+  const gtd = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one/Life' }, sdk: { plugins: { callRpc: async (args: any) => {
+    requests.push({ method: args.method, input: args.input });
+    // Nested-root discovery is setup work, not an inventory data operation.
+    if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Life' }], incomplete: false };
+    if (rollback && args.method === 'inventoryProperties') throw new Error('PRIVATE_SENTINEL rolled back');
+    return f.harness.behavior.callRpc(args.method, args.input, gtdCaller);
+  } } } });
+  t.after(() => gtd.harness.lifecycle.dispose());
+  // The two packages pin independent SDK/Hono installs; the fake host implements
+  // the same runtime API, while Hono's private request symbols are nominal.
+  await gtdPlugin(gtd.bb as unknown as Parameters<typeof gtdPlugin>[0]);
+  const page: any = await gtd.harness.behavior.callRpc('listProjects', {});
+  assert.equal(page.coverage, 'complete');
+  const rows = page.projects;
+  assert.equal(rows.length, 6);
+  assert.equal(rows.find((p: any) => p.id.endsWith('/Plan.md')).areaId, 'Life/Areas/Finance.md');
+  assert.equal(rows.find((p: any) => p.id.endsWith('/Pilot/')).areaId, 'Life/Areas/Empty/');
+  assert.equal(rows.find((p: any) => p.id.endsWith('/Pilot/')).notePath, 'Life/Projects/Pilot/README.md');
+  assert.equal(rows.find((p: any) => p.id.endsWith('/Finished.md')).status, 'done');
+  assert.ok(rows.some((p: any) => p.id.endsWith('/Attachments/')));
+  assert.ok(requests.filter(r => r.method === 'inventoryProperties').every(r => !r.input.path.endsWith('/Notes.md') && r.input.path !== 'Life/Projects/Pair/README.md'));
+  assert.ok(!requests.some(r => ['listProperties', 'projectAreasFromFrontmatter'].includes(r.method)));
+  const areas: any = await gtd.harness.behavior.callRpc('listAreas', {});
+  assert.equal(areas.coverage, 'complete'); assert.equal(areas.areas.length, 2);
+  for (const spy of spies) assert.equal(spy.mock.callCount(), 0);
+  rollback = true;
+  await assert.rejects(gtd.harness.behavior.callRpc('listProjects', {}));
+  assert.doesNotMatch(JSON.stringify(gtd.harness.inspection.logEntries), /PRIVATE_SENTINEL/);
+});
+
+test('declaration trace and candidate-policy parity across both adapter boundaries', async t => {
+  for (const grant of [1, null] as const) await t.test(String(grant), async t => {
+    const declarations: Record<string, unknown> = {
+      Bare: 'Finance', Missing: 'Areas/Missing', Empty: 'Areas/Empty', Alias: '[[Areas/Finance|X]]', Fragment: '[[Life/Areas/Finance#Budget]]',
+      Relative: '../Areas/Finance', Nested: 'Areas/Work/Nested', Pair: 'Areas/Pair/', Foreign: 'Shared',
+      Duplicate: ['Areas/Finance', '[[Areas/Finance|Again]]'], Disagree: ['Areas/Empty', 'Areas/Finance'], Embed: '![[Areas/Finance]]',
+    };
+    const f = await fixture(t, 'ready', async root => {
+      for (const path of ['Life/Projects', 'Life/Other', 'Life/Areas/Empty', 'Life/Areas/Work/Nested', 'Life/Areas/Pair', 'Life/Areas/Shared', 'Other']) await mkdir(join(root, path), { recursive: true });
+      for (const path of ['Life/Areas/Finance.md', 'Life/Other/Finance.md', 'Other/Finance.md', 'Life/Other/Shared.md', 'Life/Areas/Pair.md']) await writeFile(join(root, path), '# Budget\nTarget');
+      for (const [name, area] of Object.entries(declarations)) await writeFile(join(root, `Life/Projects/${name}.md`), '---\narea: ' + JSON.stringify(area) + '\n---');
+    }, undefined, grant);
+    const snapshots = [];
+    for (const modern of [false, true]) {
+      const host = createFakePluginHost({ pluginId: 'gtd', sdk: { plugins: { callRpc: async (args: any) => {
+        if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Synthetic' }], incomplete: false };
+        const value: any = await f.harness.behavior.callRpc(args.method, args.input, gtdCaller);
+        if (args.method === 'status' && !modern) delete value.inventoryEvidenceVersion;
+        return value;
+      } } } });
+      try {
+        const snapshot = await new ObsidianBackend(host.bb.sdk as unknown as ConstructorParameters<typeof ObsidianBackend>[0], { vaultId: 'one', root: 'Life', folder: 'Projects', areasFolder: 'Areas' }).readProjects(new AbortController().signal);
+        assert.equal(snapshot.complete, true);
+        const assignments = Object.fromEntries(snapshot.projects.map(p => [p.id.split('/').at(-1)!.replace('.md', ''), p.areaId]));
+        assert.deepEqual(assignments, { Bare: undefined, Missing: undefined, Empty: 'Life/Areas/Empty/', Alias: 'Life/Areas/Finance.md', Fragment: undefined, Relative: 'Life/Areas/Finance.md', Nested: 'Life/Areas/Work/Nested/', Pair: 'Life/Areas/Pair.md', Foreign: undefined, Duplicate: 'Life/Areas/Finance.md', Disagree: undefined, Embed: undefined });
+        snapshots.push(snapshot.projects.sort((a, b) => a.id.localeCompare(b.id)));
+      } finally { await host.harness.lifecycle.dispose(); }
+    }
+    assert.deepEqual(snapshots[0], snapshots[1]);
+    const followed = await f.tool('resolve_link', { vaultId: 'one', path: 'Life/Projects/Alias.md', link: '[[Life/Areas/Finance#Budget]]' });
+    assert.match(followed.text, /Target/); assert.equal(followed.editReady, false);
+  });
+});
+
+test('indexed target uniqueness is compromised only by intersecting omitted trees', async t => {
+  for (const omitted of ['Life/Hidden', 'Life', 'Other/Hidden']) await t.test(omitted, async t => {
+    const f = await fixture(t, 'ready', async root => {
+      await mkdir(join(root, 'Life/Projects'), { recursive: true });
+      await mkdir(join(root, 'Life/Areas')); await mkdir(join(root, 'Other'));
+      await writeFile(join(root, 'Life/Projects/Plan.md'), '---\narea: Areas/Target\n---');
+      await writeFile(join(root, 'Life/Areas/Target.md'), 'target');
+      // A symlink at Life itself omits the selected root rather than traversing it.
+      if (omitted === 'Life') { await rename(join(root, 'Life'), join(root, 'Saved')); await symlink('Saved', join(root, 'Life')); }
+      else await symlink('.', join(root, omitted));
+    });
+    const result: any = await f.harness.behavior.callRpc('inventoryTarget', { vaultId: 'one', root: 'Life', path: 'Life/Projects/Plan.md', reference: 'Areas/Target' }, gtdCaller);
+    assert.equal(result.incomplete, omitted !== 'Other/Hidden');
+  });
+});
+
+test('51-owner sparse/dense inventories match the previous consumer on indexed and direct routes', async t => {
+  for (const grant of [1, null] as const) for (const dense of [false, true]) await t.test(`${grant ? 'indexed' : 'direct'} ${dense ? 'dense' : 'sparse'}`, async t => {
+    const f = await fixture(t, 'ready', async root => {
+      await mkdir(join(root, 'Projects')); await mkdir(join(root, 'Areas'));
+      await writeFile(join(root, 'Areas/Target.md'), 'target');
+      for (let i = 0; i < 51; i++) await writeFile(join(root, `Projects/P${i}.md`), dense || i === 0 ? '---\narea: Areas/Target\n---' : 'plain');
+    }, undefined, grant);
+    const snapshots: any[] = [];
+    for (const modern of [false, true]) {
+      const counts = new Map<string, number>();
+      const gtd = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one' }, sdk: { plugins: { callRpc: async (args: any) => {
+        counts.set(args.method, (counts.get(args.method) ?? 0) + 1);
+        if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: '', name: 'Synthetic' }], incomplete: false };
+        const result: any = await f.harness.behavior.callRpc(args.method, args.input, gtdCaller);
+        if (args.method === 'status' && !modern) delete result.inventoryEvidenceVersion;
+        return result;
+      } } } });
+      try {
+        await gtdPlugin(gtd.bb as unknown as Parameters<typeof gtdPlugin>[0]);
+        const start = performance.now();
+        const page: any = await gtd.harness.behavior.callRpc('listProjects', {});
+        snapshots.push(page.projects); assert.equal(page.coverage, 'complete');
+        if (modern) {
+          assert.equal(counts.get('inventoryProperties'), 51);
+          assert.equal(counts.get('inventoryTarget'), dense ? 51 : 1);
+          assert.equal(counts.has('listProperties'), false);
+        }
+        t.diagnostic(JSON.stringify({ modern, calls: Object.fromEntries(counts), elapsedMs: Math.round(performance.now() - start) }));
+      } finally { await gtd.harness.lifecycle.dispose(); }
+    }
+    assert.deepEqual(snapshots[1], snapshots[0]);
+  });
+});
+
+test('new evidence has indexed/direct parity and revalidates authority before release', async t => {
+  for (const grant of [1, null] as const) await t.test(String(grant), async t => {
+    const f = await fixture(t, 'ready', async root => {
+      await mkdir(join(root, 'Projects')); await mkdir(join(root, 'Areas/Empty'), { recursive: true });
+      await writeFile(join(root, 'Projects/Plan.md'), '---\ntitle: Plan\narea: Areas/Empty\n---');
+    }, undefined, grant);
+    const call = (method: string, input: object) => f.harness.behavior.callRpc(method, { vaultId: 'one', root: '', ...input }, gtdCaller) as Promise<any>;
+    const first = await call('inventoryChildren', { folder: 'Projects' });
+    assert.equal(first.authority.route, grant ? 'index' : 'direct');
+    const continuity = { expectedAuthority: first.authority, ...(first.publication ? { publication: first.publication } : {}) };
+    const props = await call('inventoryProperties', { path: 'Projects/Plan.md', fields: ['title', 'area'], ...continuity });
+    assert.deepEqual(props.properties, { title: 'Plan', area: 'Areas/Empty' });
+    assert.equal(props.status, 'observed');
+    assert.equal((await call('inventoryProperties', { path: 'Projects/Missing.md', fields: ['area'], ...continuity })).status, 'missing');
+    const target = await call('inventoryTarget', { path: 'Projects/Plan.md', reference: 'Areas/Empty', ...continuity });
+    assert.deepEqual(target.matches, [{ path: 'Areas/Empty', kind: 'directory' }]); assert.equal(target.incomplete, false);
+    await assert.rejects(call('inventoryTarget', { path: 'Projects/Plan.md', reference: 'Areas/Empty', expectedAuthority: { ...first.authority, epoch: randomUUID() } }));
+    await assert.rejects(f.harness.behavior.callRpc('inventoryProperties', { vaultId: 'one', root: '', path: 'Projects/Plan.md', fields: ['area'] }));
+    f.controls.afterAreaConfigure = () => { f.state.mirrors[0].local.available = false; };
+    await assert.rejects(call('inventoryProperties', { path: 'Projects/Plan.md', fields: ['area'], ...continuity }));
+    assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
+  });
+});
 
 test('keeps selections and finds current disk notes while cloud sync is paused and disconnected', async t => {
   const f = await fixture(t);
