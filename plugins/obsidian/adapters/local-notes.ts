@@ -25,9 +25,10 @@ type Observation = { text: string; hash: string; info: Stats };
 export const equivalent = (a: Observation | null, b: Observation | null) => a === null || b === null ? a === b : a.hash === b.hash && same(a.info, b.info);
 export type SearchPath = { path: string } | { progress: true } | { warning: 'note_unavailable' | 'unsupported' | 'capacity' };
 export type SearchReader = { file: FileHandle; info: Stats; text: string; hash: string; readAt: string; verify(): Promise<void>; close(): Promise<void> };
+export type DirectoryGrant = { directory: string; rootDev: string; rootIno: string };
 // Positional reads never advance a descriptor inherited by ripgrep. Recheck the
 // same pinned inode and exact bytes, not a replacement opened by its pathname.
-export async function pinSearchFile(file: FileHandle, named: (info: Stats) => Promise<void>): Promise<SearchReader> {
+export async function pinSearchFile(file: FileHandle, named: (info: Stats) => Promise<void>, index = false): Promise<SearchReader> {
   try {
     const before = await file.stat(), stamp = await file.stat({ bigint: true });
     if (!before.isFile() || before.size > NOTE_LIMITS.bytes) throw new VaultError('unsupported');
@@ -38,7 +39,9 @@ export async function pinSearchFile(file: FileHandle, named: (info: Stats) => Pr
       return bytes.subarray(0, count);
     };
     const bytes = await read(), hash = digest(bytes);
-    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    let text: string;
+    try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+    catch (error) { if (index) throw new VaultError('unsupported'); throw error; }
     if (text.includes('\0')) throw new VaultError('unsupported');
     const verify = async () => {
       const bytes = await read(), after = await file.stat({ bigint: true });
@@ -52,14 +55,24 @@ export async function pinSearchFile(file: FileHandle, named: (info: Stats) => Pr
   } catch (error) { await file.close().catch(() => {}); throw error instanceof VaultError ? error : new VaultError('unavailable'); }
 }
 export class LocalNotes {
-  private async parent(root: string, path: string, validatedFolder = false) {
+  private async parent(root: string | FileHandle, path: string, validatedFolder = false, allowAbsent = false) {
     if (!validatedFolder) validateRelativePath(path);
     const handles: FileHandle[] = [];
     try {
-      handles.push(await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW));
-      for (const part of path.split('/').slice(0, -1)) handles.push(await open(join(fdPath(handles.at(-1)!.fd), part), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW));
-      return { handles, folder: handles.at(-1)!, path: join(fdPath(handles.at(-1)!.fd), path.split('/').at(-1)!), close: async () => { await Promise.all(handles.map(h => h.close())); } };
-    } catch { await Promise.all(handles.map(h => h.close().catch(() => {}))); throw new VaultError('invalid_path'); }
+      let folder: FileHandle;
+      if (typeof root === 'string') { folder = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); handles.push(folder); }
+      else folder = root; // borrow the verified index root; never reopen its pathname
+      for (const part of path.split('/').slice(0, -1)) {
+        folder = await open(join(fdPath(folder.fd), part), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+        handles.push(folder);
+      }
+      return { handles, folder, path: join(fdPath(folder.fd), path.split('/').at(-1)!), close: async () => { await Promise.all(handles.map(h => h.close())); } };
+    } catch (error) {
+      const absent = allowAbsent && typeof root !== 'string' && missing(error);
+      await Promise.all(handles.map(h => h.close().catch(() => {})));
+      if (absent || error instanceof VaultError) throw error;
+      throw new VaultError('invalid_path');
+    }
   }
   private async readAt(path: string) {
     const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -144,7 +157,7 @@ export class LocalNotes {
     catch { throw new VaultError('unavailable'); } finally { await folder?.close(); }
     return { paths: paths.sort(), incomplete, warnings: [...warnings] };
   }
-  async searchReader(root: string, path: string): Promise<SearchReader> {
+  async searchReader(root: string | FileHandle, path: string): Promise<SearchReader> {
     const parent = await this.parent(root, path); let file: FileHandle | undefined;
     try {
       file = await open(parent.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -155,8 +168,51 @@ export class LocalNotes {
         const fresh = await this.parent(root, path);
         try { if (!identity(await parent.folder.stat(), await fresh.folder.stat()) || !same(info, await lstat(fresh.path))) throw new VaultError('conflict'); }
         finally { await fresh.close(); }
-      }).then(reader => { let closed = false; return { ...reader, async close() { if (closed) return; closed = true; try { await reader.close(); } finally { await parent.close(); } } }; });
+      }, typeof root !== 'string').then(reader => { let closed = false; return { ...reader, async close() { if (closed) return; closed = true; try { await reader.close(); } finally { await parent.close(); } } }; });
     } catch (error) { await file?.close().catch(() => {}); await parent.close(); throw error instanceof VaultError ? error : new VaultError('unavailable'); }
+  }
+  // Separate strict index walk: only ENOENT beneath an authorized, pinned
+  // root can remove a scoped directory. Other open/read errors abort a build.
+  async openIndexRoot(grant: DirectoryGrant) {
+    const root = await open(grant.directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    try {
+      const info = await root.stat({ bigint: true });
+      if (info.dev.toString() !== grant.rootDev || info.ino.toString() !== grant.rootIno) throw new VaultError('source_unavailable');
+      return root;
+    } catch (error) { await root.close(); throw error; }
+  }
+  async *indexDirectory(root: FileHandle, path: string, allowAbsent: boolean, opened: (pinnedPath: string, info: Stats) => void) {
+    if (path) validateRelativePath(path);
+    const marker = path ? `${path}/.md` : '.md';
+    let parent;
+    try { parent = await this.parent(root, marker, true, allowAbsent); }
+    catch (error) { if (allowAbsent && missing(error)) return; throw error; }
+    let directory;
+    try {
+      await Promise.all(parent.handles.splice(0, parent.handles.length - 1).map(handle => handle.close()));
+      const info = await parent.folder.stat();
+      const pinned = fdPath(parent.folder.fd);
+      directory = await opendir(pinned, { bufferSize: 32, encoding: 'buffer' as BufferEncoding });
+      opened(pinned, info);
+      yield { kind: 'directory' as const, path };
+      for await (const entry of directory) {
+        const bytes = entry.name as unknown as Buffer;
+        let name: string;
+        try { name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+        catch { yield { kind: 'unsupported' as const, path, scope: 'tree' as const }; continue; }
+        const relative = path ? `${path}/${name}` : name;
+        if (entry.isSymbolicLink()) { yield { kind: 'unsupported' as const, path: relative, scope: 'tree' as const }; continue; }
+        if (entry.isDirectory() || relative.endsWith('.md')) {
+          const scope = entry.isDirectory() ? 'tree' as const : 'note' as const;
+          try { validateRelativePath(relative); } catch { yield { kind: 'unsupported' as const, path: relative, scope }; continue; }
+          yield entry.isDirectory() ? { kind: 'child' as const, path: relative } :
+            entry.isFile() ? { kind: 'note' as const, path: relative } : { kind: 'unsupported' as const, path: relative, scope };
+        } else yield { kind: 'other' as const };
+      }
+      const fresh = await this.parent(root, marker, true);
+      try { if (!identity(info, await fresh.folder.stat())) throw new VaultError('conflict'); }
+      finally { await fresh.close(); }
+    } finally { await directory?.close().catch(() => {}); await parent.close(); }
   }
   // Streaming discovery for search. Unlike list(), a yield is a continuation,
   // never a terminal alphabetical prefix. Every directory is opened no-follow.

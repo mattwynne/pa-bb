@@ -1,33 +1,14 @@
 import { posix } from 'node:path';
-import type { NoteParser } from './ports.ts';
 
-export function areaEvidence(text: string, parser: NoteParser): string[] | null {
-  const metadata = parser.parse(text);
-  if (metadata.warnings.length) return null;
-  const values: string[] = [];
-  for (const key of ['areaId', 'area']) {
-    if (!Object.hasOwn(metadata.properties, key)) continue;
-    const property = metadata.properties[key];
-    if (property === null || property === undefined || (typeof property === 'string' && !property.trim())) continue;
-    const items = Array.isArray(property) ? property : [property];
-    if (!items.length) continue;
-    if (items.length > 8 || items.some(v => typeof v !== 'string' || !v.trim() || v.length > 1024)) return null;
-    values.push(...items as string[]);
-  }
-  if (values.length) return values;
-  const headings = metadata.headings.filter(h => h.title.trim().toLowerCase() === 'area');
-  if (!headings.length) return [];
-  if (headings.length !== 1) return null;
-  const heading = headings[0];
-  const end = metadata.headings.find(h => h.start > heading.start && h.depth <= heading.depth)?.start ?? text.length;
-  const lines = text.slice(heading.end, end).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  if (!lines.length || lines.length > 8) return null;
-  for (const line of lines) {
-    const match = /^(?:[-*+]\s+)?\[\[([^\]\n]+)\]\]\s*$/.exec(line);
-    if (!match) return null;
-    values.push('[[' + match[1] + ']]');
-  }
-  return values;
+// The YAML input is not the resolved areaId returned by the projection.
+export const projectAreasDeclarationKey = 'area';
+export function areaEvidence(properties: Readonly<Record<string, unknown>>): string[] | null {
+  if (!Object.hasOwn(properties, projectAreasDeclarationKey)) return [];
+  const property = properties[projectAreasDeclarationKey];
+  if (property === null || property === undefined || (typeof property === 'string' && !property.trim())) return [];
+  const items = Array.isArray(property) ? property : [property];
+  if (items.length > 8 || items.some(v => typeof v !== 'string' || !v.trim() || v.length > 1024)) return null;
+  return [...items] as string[];
 }
 
 /** Metadata-only counterpart of Obsidian's existing local link matching.
@@ -44,7 +25,30 @@ export function areaLinkPath(link: string, source: string, root: string): string
   if (path === '..' || path.startsWith('../') || (root && !path.startsWith(root + '/'))) return;
   return path;
 }
-export function areaCandidates(link: string, source: string, root: string, candidates: string[]) {
+const basenameKey = (path: string) => posix.basename(path.replace(/\/$/, ''), path.endsWith('/') ? undefined : '.md').toLocaleLowerCase('und');
+
+export function areaLookup(root: string, areaFolder: string, notePaths: Iterable<string>, directories: Iterable<string>) {
+  const paths = new Set<string>();
+  const basenames = new Map<string, string[]>();
+  const add = (path: string, byName: boolean) => {
+    if (paths.has(path)) return;
+    paths.add(path);
+    if (!byName) return;
+    const name = basenameKey(path), matches = basenames.get(name);
+    // Only uniqueness matters; never retain an unbounded collision list.
+    if (!matches) basenames.set(name, [path]);
+    else if (matches.length < 2) matches.push(path);
+  };
+  for (const path of notePaths) if (!root || path.startsWith(root + '/')) add(path, true);
+  for (const path of directories) if (path.startsWith(areaFolder + '/')) {
+    // As on the legacy route, unqualified folder names are Area entries;
+    // nested folders require explicit paths. A sibling note wins a pair.
+    add(path + '/', posix.dirname(path) === areaFolder && !paths.has(path + '.md'));
+  }
+  return (link: string, source: string) => areaCandidates(link, source, root, paths, basenames);
+}
+
+function areaCandidates(link: string, source: string, root: string, paths: Set<string>, basenames: Map<string, string[]>) {
   let target = link.trim().replace(/^\[\[/, '').replace(/\]\]$/, '').split('|')[0];
   try { target = decodeURIComponent(target); } catch { return []; }
   if (!target || target.includes('#') || /[\\\x00-\x1f\x7f]/.test(target) || /^[A-Za-z][\w+.-]*:/.test(target) || target.startsWith('//')) return [];
@@ -53,9 +57,21 @@ export function areaCandidates(link: string, source: string, root: string, candi
     const path = areaLinkPath(link, source, root);
     if (!path) return [];
     const note = path.endsWith('.md') ? path : path + '.md';
-    if (candidates.includes(note)) return [note];
-    return candidates.includes(path + '/') ? [path + '/'] : [];
+    if (paths.has(note)) return [note];
+    return paths.has(path + '/') ? [path + '/'] : [];
   }
-  const name = target.replace(/\.md$/, '').toLocaleLowerCase('und');
-  return candidates.filter(path => (!root || path.startsWith(root + '/')) && posix.basename(path.replace(/\/$/, ''), path.endsWith('/') ? undefined : '.md').toLocaleLowerCase('und') === name);
+  return basenames.get(target.replace(/\.md$/, '').toLocaleLowerCase('und')) ?? [];
+}
+
+export type AreaRow = { path: string; status: 'none' | 'resolved' | 'unresolved'; areaId?: string };
+export function areaRow(path: string, areaFolder: string, evidence: string[] | null, lookup: (link: string, path: string) => string[], incomplete: boolean): AreaRow {
+  if (!evidence) return { path, status: 'unresolved' };
+  if (!evidence.length) return { path, status: 'none' };
+  if (!incomplete) {
+    const targets = evidence.map(link => lookup(link, path));
+    const target = targets[0][0];
+    if (target?.startsWith(areaFolder + '/') && targets.every(matches => matches.length === 1 && matches[0] === target))
+      return { path, status: 'resolved', areaId: target };
+  }
+  return { path, status: 'unresolved' };
 }

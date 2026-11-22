@@ -3,11 +3,23 @@ export type Configuration = { moves?: import('./move.ts').MoveRecord[]; revision
 export type LocalCapability = { available: boolean; reason: 'ownership' | 'recovery_required' | 'source_changed' | null; pendingAgeMs: number | null; applicationBlocker: 'application_uncertain' | 'native_recovery' | null };
 export type Source = { id: string; name: string; initialized: boolean; enabled: boolean; cloudConnected: boolean; phase: string; lastSuccess: string | null; failure: string | null; local: LocalCapability };
 export type SearchCapability = { version: 1; available: boolean; reason: 'missing_executable' | 'unsupported_version' | 'unavailable' | null };
-export type SearchQuery = { vaultId?: string; text?: string; tag?: string; folders?: string[]; excludeFolders?: string[]; properties?: Array<{ key: string; equals: string | number | boolean | null }>; mode?: 'results' | 'count'; selectProperties?: string[]; cursor?: string; limit?: number };
+export type SearchQuery = { vaultId?: string; text?: string; tag?: string; pathGlob?: string; folders?: string[]; excludeFolders?: string[]; properties?: Array<{ key: string; equals: string | number | boolean | null }>; mode?: 'results' | 'count'; selectProperties?: string[]; cursor?: string; limit?: number };
 export type SearchRequest = { mirrorId: string; revision: number; text?: string; projection: 'hits' | 'frontmatter' | 'markdown'; folders?: string[]; excludeFolders?: string[]; cursor?: string; startOnly?: boolean };
 export type SearchBatch = { candidates: Array<{ path: string; hash: string; readAt: string; line: number; snippet: string; content?: string; limited?: boolean }>; nextCursor: string | null; visited: number; warnings: Array<'note_unavailable' | 'unsupported' | 'source_changed' | 'capacity'> };
-export type Catalog = { filesystem?: Record<string, 'ready' | 'legacy_pending' | 'legacy_conflict' | 'unavailable'>; search?: SearchCapability; setup: string; nextAction: string | null; sources: Source[]; connected: boolean; compatible: boolean };
+export type Catalog = { mirrorDirectoryGrantVersion?: 1; mirrorDirectoryGrantUnconfirmed?: true; filesystem?: Record<string, 'ready' | 'legacy_pending' | 'legacy_conflict' | 'unavailable'>; search?: SearchCapability; setup: string; nextAction: string | null; sources: Source[]; connected: boolean; compatible: boolean };
 export interface MirrorCatalog { snapshot(): Promise<Catalog> }
+export const projectAreaRoutes = ['index', 'direct', 'legacy_pending', 'legacy_conflict', 'legacy'] as const;
+export type ProjectAreaRoute = typeof projectAreaRoutes[number];
+export type ProjectAreaAuthority = { revision: number; route: ProjectAreaRoute; epoch: string };
+export type ProjectAreaSelection = ProjectAreaAuthority & { vaultId: string; signal?: AbortSignal };
+export type LiveProjectAreaAccess = { route: Exclude<ProjectAreaRoute, 'index'>; epoch: string; signal?: AbortSignal };
+export const projectAreaSourceRefusal = (category: string) => ['source_unavailable', 'not_connected', 'incompatible', 'busy', 'uncertain'].includes(category);
+export function projectAreaRoute(catalog: Catalog, id: string): ProjectAreaRoute {
+  if (!catalog.compatible || !catalog.sources.some(source => source.id === id && source.local.available)) throw new VaultError('source_unavailable');
+  const filesystem = catalog.filesystem?.[id];
+  if (filesystem === 'unavailable' || (filesystem === 'ready' && catalog.mirrorDirectoryGrantUnconfirmed)) throw new VaultError('source_unavailable');
+  return filesystem === 'ready' ? catalog.mirrorDirectoryGrantVersion === 1 ? 'index' : 'direct' : filesystem ?? 'legacy';
+}
 export type CompleteNote = { text: string; hash: string; readAt: string; complete: true };
 // The iCloud note store applies this UTF-8 byte limit to whole reads and saves.
 export const MAX_NOTE_BYTES = 1024 * 1024;
@@ -18,15 +30,21 @@ export type ResolutionReceipt = { kind: 'resolution'; operationId: string; mirro
 export type Receipt = SaveReceipt | ResolutionReceipt;
 export type Resolution = { mirrorId: string; revision: number; path: string; operationId: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: 'keep_local' | 'accept_incoming' | 'replace'; text?: string };
 export interface VaultFiles {
-  children?(vaultId: string, revision: number, folder: string): Promise<{ entries: Array<{ name: string; kind: 'directory' | 'markdown' }>; incomplete: boolean }>;
+  children?(vaultId: string, revision: number, folder: string, access?: LiveProjectAreaAccess): Promise<{ entries: Array<{ name: string; kind: 'directory' | 'markdown' }>; incomplete: boolean }>;
   move?(input: { mirrorId: string; revision: number; path: string; destination: string; expectedHash: string; operationId: string }): Promise<{ outcome: 'moved_locally_pending_sync' | 'not_moved' | 'uncertain' }>;
   moveReceipts?(input: { mirrorId: string; revision: number; operationId: string }): Promise<Array<{ outcome: 'moved_locally_pending_sync' | 'not_moved' | 'uncertain' }>>;
-  configure(configuration: Configuration): Promise<void>;
+  configure(configuration: Configuration, projectAreas?: ProjectAreaSelection): Promise<void>;
+  // Optional native read model; legacy logical vaults still use search().
+  index?(vaultId: string, revision: number, signal?: AbortSignal): Promise<import('./vault-index.ts').IndexLease>;
+  indexConfiguration?(configuration: Configuration): void;
   search(input: SearchRequest, signal?: AbortSignal): Promise<SearchBatch>;
   closeSearch(revision: number, cursor: string): Promise<void>;
   vaultRoots(vaultId: string, revision: number): Promise<{ roots: string[]; incomplete: boolean }>;
-  list(vaultId: string, revision: number): Promise<{ paths: string[]; incomplete: boolean; warnings: string[] }>;
-  read(vaultId: string, revision: number, path: string): Promise<CompleteNote>;
+  list(vaultId: string, revision: number, access?: LiveProjectAreaAccess): Promise<{ paths: string[]; incomplete: boolean; warnings: string[] }>;
+  read(vaultId: string, revision: number, path: string, access?: LiveProjectAreaAccess): Promise<CompleteNote>;
+  checkLiveProjectAreaAccess?(vaultId: string, revision: number, access: LiveProjectAreaAccess): Promise<void>;
+  /** Adapter-owned identity of uninterrupted observed access, not of note contents. */
+  projectAreaEpoch(vaultId: string, revision: number, route: ProjectAreaRoute): string;
   readForMove?(vaultId: string, revision: number, path: string, signal: AbortSignal): Promise<CompleteNote>;
   readIncoming(vaultId: string, revision: number, path: string, token: string): Promise<IncomingRead>;
   inspect(vaultId: string, revision: number, path: string): Promise<ConflictInspection | null>;
@@ -44,4 +62,4 @@ export interface NoteParser {
   properties(text: string, input: { set: Record<string, unknown>; remove: string[] }): string;
 }
 export class VaultError extends Error { constructor(readonly category: string, readonly nextAction = 'Check source status and reread the note before preparing a change.', readonly diagnosticReported = false) { super(category); this.name = 'VaultError'; } }
-export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight' | 'filesystem', category: string) => void;
+export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight' | 'filesystem' | 'index_refresh' | 'index_watch' | 'index_access', category: string) => void;

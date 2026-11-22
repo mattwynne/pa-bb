@@ -1,45 +1,63 @@
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
-import type { BbPluginApi } from '@get-bb/plugin-sdk';
+import { experimental_PluginRpcCallError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { plugin } from '../server.ts';
+import { LocalNotes } from '../adapters/local-notes.ts';
 import { hash } from './fakes.ts';
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: string) => Promise<void>, indexLookup?: (signal: AbortSignal) => Promise<void>, grantVersion: 1 | null = 1) {
   const owner = await mkdtemp(join(tmpdir(), 'sentinel-private-mirror-'));
   const directory = join(owner, 'vault');
   await mkdir(directory);
+  await prepare?.(directory);
   const host = createFakePluginHost({ pluginId: 'obsidian' });
   const { bb, harness } = host;
   const state = {
     noteAccessVersion: 2, mirrorAccessVersion: 3, available: true, connected: false, challenge: null,
     mirrors: [{ id: 'one', folder: { name: 'Selected vault' }, initialized: true, enabled: false, phase: 'paused',
-      lastSuccess: '2026-01-01T00:00:00Z', failure: null, filesystem: 'ready',
+      lastSuccess: '2026-01-01T00:00:00Z', failure: null, filesystem: initialMode,
       local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null } }],
   };
   const calls: Array<{ method: string; input: unknown }> = [];
-  const controls: { fallbackDirectory?: string; onLookup?: () => Promise<void>; deny?: boolean; failFinish?: boolean } = {};
+  const controls: { fallbackDirectory?: string; onLookup?: () => Promise<void>; deny?: boolean; denyGrant?: boolean; malformedGrant?: boolean; capabilityError?: unknown; capabilityReply?: unknown; afterAreaConfigure?: () => void; failFinish?: boolean } = {};
   const legacyReceipts = [{
     kind: 'save', path: 'Old.md', mirrorId: 'one', operationId: randomUUID(), at: '2026-01-01T00:00:00Z',
     hash: hash('saved previously'), previousHash: null, outcome: 'saved_locally_pending_sync',
   }];
   const sdk = { ...bb.sdk, plugins: {
     async list() { return { plugins: [{ id: 'icloud', enabled: true, status: 'running' }] }; },
-    async callRpc({ method, input, outputSchema }: { method: string; input: any; outputSchema: { parse(value: unknown): unknown } }) {
+    async callRpc({ method, input, outputSchema, signal }: { method: string; input: any; outputSchema: { parse(value: unknown): unknown }; signal?: AbortSignal }) {
       calls.push({ method, input });
       switch (method) {
         case 'status': return outputSchema.parse({ ...state, localFolder: directory });
-        case 'noteConfigure': return outputSchema.parse({ ok: true, value: { revision: input.revision } });
+        case 'noteConfigure':
+          if (signal) controls.afterAreaConfigure?.();
+          return outputSchema.parse({ ok: true, value: { revision: input.revision } });
+        case 'mirrorDirectoryCapabilities':
+          assert.equal(input, null);
+          if (controls.capabilityError) throw controls.capabilityError;
+          if (controls.capabilityReply !== undefined) return outputSchema.parse(controls.capabilityReply);
+          if (grantVersion === null) throw new experimental_PluginRpcCallError({ code: 'unknown_method', message: 'Synthetic older producer' });
+          return outputSchema.parse({ mirrorDirectoryGrantVersion: grantVersion });
         case 'mirrorDirectory':
           assert.deepEqual(input, { mirrorId: 'one', revision: 7 });
           if (controls.deny) throw new Error(`sentinel-private-failure ${directory}`);
-          await controls.onLookup?.();
+          if (!signal) await controls.onLookup?.();
           return outputSchema.parse({ directory: controls.fallbackDirectory ?? directory });
+        case 'mirrorDirectoryGrant': {
+          assert.deepEqual(input, { mirrorId: 'one', revision: 7 });
+          if (controls.deny || controls.denyGrant) throw new Error(`sentinel-private-grant ${directory}`);
+          const info = await stat(directory, { bigint: true });
+          if (signal) await indexLookup?.(signal);
+          return outputSchema.parse({ directory, rootDev: controls.malformedGrant ? '01' : info.dev.toString(), rootIno: info.ino.toString() });
+        }
         case 'noteReceipts': return outputSchema.parse({
           ok: true, value: legacyReceipts.filter(row => (!input.path || row.path === input.path) && (!input.operationId || row.operationId === input.operationId)),
         });
@@ -104,11 +122,11 @@ test('keeps selections and finds current disk notes while cloud sync is paused a
   assert.equal(status.vaults[0].vaultId, 'one');
   assert.deepEqual(status.receipts.map((r: { operationId: string }) => r.operationId), [edit.operationId, f.legacyReceipts[0].operationId]);
   assert.doesNotMatch(JSON.stringify(status), /sentinel-private|localFolder|directory/);
-  assert.ok(f.calls.every(c => ['status', 'noteConfigure', 'mirrorDirectory', 'noteReceipts'].includes(c.method)));
+  assert.ok(f.calls.every(c => ['status', 'noteConfigure', 'mirrorDirectoryCapabilities', 'mirrorDirectory', 'mirrorDirectoryGrant', 'noteReceipts'].includes(c.method)));
 });
 
 test('routes pending/conflicted mirrors to legacy and never falls back after a direct lookup refusal', async t => {
-  const f = await fixture(t);
+  const f = await fixture(t, 'legacy_pending');
   for (const mode of ['legacy_pending', 'legacy_conflict']) {
     f.state.mirrors[0].filesystem = mode;
     assert.equal((await f.tool('read_note', target)).text, 'legacy');
@@ -118,14 +136,17 @@ test('routes pending/conflicted mirrors to legacy and never falls back after a d
   f.controls.deny = true;
   await f.tool('read_note', target, 'source_unavailable');
   assert.equal(f.calls.filter(c => c.method === 'noteRead').length, 2);
-  assert.equal(f.calls.filter(c => c.method === 'mirrorDirectory').length, 1);
+  const lookups = f.calls.filter(c => c.method === 'mirrorDirectory').length;
+  assert.ok(lookups >= 1); // startup indexing may also attempt the ready lane
   f.controls.deny = false;
   f.controls.fallbackDirectory = 'relative/sentinel-private';
   await f.tool('read_note', target, 'source_unavailable');
+  const refused = f.calls.filter(c => c.method === 'mirrorDirectory').length;
+  assert.ok(refused > lookups);
   f.state.mirrors[0].filesystem = 'unavailable';
   await f.tool('read_note', target, 'source_unavailable');
   assert.equal(f.calls.filter(c => c.method === 'noteRead').length, 2);
-  assert.equal(f.calls.filter(c => c.method === 'mirrorDirectory').length, 2);
+  assert.equal(f.calls.filter(c => c.method === 'mirrorDirectory').length, refused);
   assert.match(JSON.stringify(f.harness.inspection.logEntries), /Obsidian rpc source_unavailable/);
   assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
 });
@@ -230,4 +251,356 @@ test('a mirror replaced during a search cursor is not a complete traversal', asy
   await rename(f.directory, join(f.owner, 'old-vault'));
   await mkdir(f.directory);
   await f.tool('search_notes', { cursor: started.nextCursor }, 'cursor_expired');
+});
+
+async function waitFor<T>(poll: () => Promise<T | undefined>) {
+  const deadline = Date.now() + 4000;
+  while (Date.now() < deadline) {
+    const value = await poll(); if (value !== undefined) return value;
+    await delay(20);
+  }
+  throw new Error('Synthetic vaulted observation did not arrive');
+}
+
+test('native agent tool and GTD share the index; a GTD cursor keeps old properties and closes explicitly', async t => {
+  const folder = 'Projects';
+  const f = await fixture(t, 'ready', async root => {
+    await mkdir(join(root, folder, '.hidden'), { recursive: true });
+    await mkdir(join(root, 'Other'));
+    for (let i = 0; i < 205; i++) await writeFile(join(root, folder, `P${String(i).padStart(3, '0')}.md`), '---\nstatus: active\nrank: 2\n---\n# Synthetic body\n');
+    await writeFile(join(root, folder, '.hidden/Note.md'), '---\nstatus: active\nrank: "2"\n---\n');
+    await writeFile(join(root, 'Other/Malformed.md'), '---\nx: [\n---\n');
+  });
+  const counted = await f.tool('search_notes', { pathGlob: 'Projects/**/*.md', properties: [{ key: 'rank', equals: 2 }], mode: 'count' });
+  assert.equal(counted.totalMatches, 205); assert.match(counted.coverage.consistency, /pinned local index/);
+  const first = await f.tool('search_notes', { pathGlob: 'Projects/P000.md' });
+  assert.equal(first.results[0].snippet, '');
+  await f.tool('edit_note', { vaultId: 'one', path: 'Projects/P000.md', expectedHash: first.results[0].hash, append: 'refuse' }, 'complete_read_required');
+  const params = { vaultId: 'one', folder, fields: ['status', 'rank'] };
+  const list = (cursor?: string) => f.harness.behavior.callRpc('listProperties', { ...params, ...(cursor ? { cursor } : {}) }) as Promise<{ notes: { path: string; properties: Record<string, unknown> }[]; nextCursor: string | null; incomplete: boolean }>;
+  const page = await list(); assert.equal(page.notes.length, 200); assert.ok(page.nextCursor);
+  assert.doesNotMatch(JSON.stringify(page), /Synthetic body|snippet|editReady/);
+  await writeFile(join(f.directory, folder, 'P204.md'), '---\nstatus: changed\n---\nCurrent disk');
+  await waitFor(async () => {
+    const updated = await f.tool('search_notes', { pathGlob: 'Projects/P204.md', properties: [{ key: 'status', equals: 'changed' }], mode: 'count' });
+    if (updated.totalMatches === 1) return true;
+  });
+  const tail = await list(page.nextCursor);
+  assert.equal(tail.incomplete, false); assert.equal(tail.nextCursor, null);
+  assert.equal(tail.notes.find(row => row.path === 'Projects/P204.md')?.properties.status, 'active');
+  const abandoned = await list(); assert.ok(abandoned.nextCursor);
+  assert.equal(await f.harness.behavior.callRpc('closeProperties', { cursor: abandoned.nextCursor }), null);
+  await assert.rejects(list(abandoned.nextCursor), /Property listing did not complete/);
+});
+
+const gtdCaller = { experimental_caller: { kind: 'plugin' as const, pluginId: 'gtd' } };
+
+test('warm indexed project relationships read neither notes nor directories, across batches', async t => {
+  let revokeAtFinalCheck = false, grantChecks = 0;
+  const f = await fixture(t, 'ready', async root => {
+    for (const path of ['Life/Projects/Pilot', 'Life/Areas/Work/Nested', 'Life/Areas/Finance', 'Other/Areas'])
+      await mkdir(join(root, path), { recursive: true });
+    await writeFile(join(root, 'Life/Areas/Finance.md'), 'target');
+    await writeFile(join(root, 'Other/Areas/Finance.md'), 'different vault');
+    await symlink('.', join(root, 'Other/Areas/Skipped'));
+    await writeFile(join(root, 'Life/Projects/Plan.md'), '---\nareaId: Areas/Stale.md\narea: "[[Areas/Finance|Budget]]"\n---\n' + 'x'.repeat(70000));
+    await writeFile(join(root, 'Life/Projects/Body.md'), '## Area\n- [[Areas/Finance]]');
+    await writeFile(join(root, 'Life/Projects/OldOnly.md'), '---\nareaId: Areas/Finance.md\n---\n');
+    await writeFile(join(root, 'Life/Projects/Pilot/README.md'), '---\narea: "[[Areas/Work/Nested]]"\n---\n');
+    await writeFile(join(root, 'Life/Projects/Invalid.md'), '---\narea: [\n---\n## Area\n- [[Areas/Finance]]');
+  }, async () => {
+    if (revokeAtFinalCheck && ++grantChecks === 2) throw new Error('sentinel-private-revoked-final-grant');
+  });
+  const warmed = await f.harness.behavior.callRpc('listProperties', { vaultId: 'one', folder: 'Life/Projects', fields: ['title'] });
+  assert.match(JSON.stringify(warmed), /Plan\.md/);
+  const status = await f.harness.behavior.callRpc('status', null) as { projectAreasFrontmatterOnly?: boolean; projectAreasDeclarationKey?: string };
+  assert.equal(status.projectAreasFrontmatterOnly, true);
+  assert.equal(status.projectAreasDeclarationKey, 'area');
+  const forbidden = ['read', 'list', 'children', 'indexDirectory', 'searchReader'] as const;
+  const spies = forbidden.map(method => t.mock.method(LocalNotes.prototype, method, () => { throw new Error(`Unexpected warm ${method}`); }));
+  const start = f.calls.length;
+  const lookup = (paths: string[], areaFolder = 'Life/Areas', expectedAuthority?: { route: string; revision: number; epoch: string }) => f.harness.behavior.callRpc('projectAreasFromFrontmatter', { vaultId: 'one', root: 'Life', areaFolder, paths, declarationKey: 'area', ...(expectedAuthority ? { expectedAuthority } : {}) }, gtdCaller);
+  const first = await lookup(['Life/Projects/Plan.md', 'Life/Projects/Body.md', 'Life/Projects/OldOnly.md']) as { authority: { route: string; revision: number; epoch: string } };
+  const { authority } = first;
+  assert.equal(authority.route, 'index'); assert.equal(authority.revision, 7);
+  assert.match(authority.epoch, /^[0-9a-f-]{36}$/);
+  assert.deepEqual(first, { rows: [
+    { path: 'Life/Projects/Plan.md', status: 'resolved', areaId: 'Life/Areas/Finance.md' },
+    { path: 'Life/Projects/Body.md', status: 'none' },
+    { path: 'Life/Projects/OldOnly.md', status: 'none' },
+  ], incomplete: false, authority });
+  assert.deepEqual(await lookup(['Life/Projects/Pilot/README.md'], 'Life/Areas', authority), { rows: [
+    { path: 'Life/Projects/Pilot/README.md', status: 'resolved', areaId: 'Life/Areas/Work/Nested/' },
+  ], incomplete: false, authority });
+  assert.deepEqual(await lookup(['Life/Projects/Invalid.md', 'Life/Projects/Absent.md']), { rows: [
+    { path: 'Life/Projects/Invalid.md', status: 'unresolved' },
+    { path: 'Life/Projects/Absent.md', status: 'unresolved' },
+  ], incomplete: true, authority });
+  await assert.rejects(lookup(['Life/Projects/Plan.md'], 'Life/Areas', { ...authority, revision: 6 }), /Project Area evidence did not complete/);
+  await assert.rejects(lookup(['Life/Projects/Plan.md'], 'Other/Areas'), /Project Area evidence did not complete/);
+  revokeAtFinalCheck = true;
+  await assert.rejects(lookup(['Life/Projects/Plan.md']), /Project Area evidence did not complete/);
+  assert.equal(grantChecks, 2);
+  revokeAtFinalCheck = false;
+  f.controls.capabilityReply = { mirrorDirectoryGrantVersion: 2 };
+  await assert.rejects(lookup(['Life/Projects/Plan.md']), /Project Area evidence did not complete/);
+  assert.ok(f.calls.slice(start).every(call => ['status', 'noteConfigure', 'mirrorDirectoryCapabilities', 'mirrorDirectoryGrant'].includes(call.method)));
+  for (const spy of spies) assert.equal(spy.mock.callCount(), 0);
+  assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
+});
+
+test('same-revision route restoration cannot reuse an indexed Area batch authority', async t => {
+  for (const revoke of ['catalog', 'grant']) await t.test(revoke, async t => {
+    const paths = Array.from({ length: 51 }, (_, i) => `Projects/P${i}.md`);
+    const f = await fixture(t, 'ready', async root => {
+      await mkdir(join(root, 'Projects')); await mkdir(join(root, 'Areas'));
+      await writeFile(join(root, 'Areas/Old.md'), 'old target');
+      await writeFile(join(root, 'Areas/New.md'), 'new target');
+      for (const path of paths) await writeFile(join(root, path), '---\narea: Areas/Old.md\n---');
+    });
+    type Authority = { revision: number; route: string; epoch: string };
+    type Page = { rows: Array<{ areaId?: string }>; authority: Authority; incomplete: boolean };
+    const lookup = (paths: string[], expectedAuthority?: Authority) => f.harness.behavior.callRpc('projectAreasFromFrontmatter', {
+      vaultId: 'one', root: '', areaFolder: 'Areas', paths, ...(expectedAuthority ? { expectedAuthority } : {}),
+    }, gtdCaller) as Promise<Page>;
+    const first = await lookup(paths.slice(0, 50));
+    assert.equal(first.incomplete, false);
+    assert.equal(first.rows.length, 50);
+    assert.ok(first.rows.every(row => row.areaId === 'Areas/Old.md'));
+
+    // A content-only refresh does not interrupt authorization.
+    const last = paths.slice(50);
+    await writeFile(join(f.directory, last[0]), '---\narea: Areas/New.md\n---');
+    const refreshed = await waitFor(async () => {
+      const page = await lookup(last, first.authority);
+      return page.rows[0]?.areaId === 'Areas/New.md' ? page : undefined;
+    });
+    assert.deepEqual(refreshed.authority, first.authority);
+
+    // Another operation observes the loss. Restore the same route/revision
+    // before the waiting consumer dispatches its second relationship batch.
+    if (revoke === 'catalog') f.state.mirrors[0].local.available = false;
+    else f.controls.denyGrant = true;
+    const lost = await f.tool('search_notes', { pathGlob: '*.md', mode: 'count' });
+    assert.deepEqual(lost.failures, [{ vaultId: 'one', category: 'source_unavailable' }]);
+    assert.equal(lost.totalMatches, null);
+    f.state.mirrors[0].local.available = true;
+    f.controls.denyGrant = false;
+    const restored = await lookup(last);
+    assert.equal(restored.incomplete, false);
+    assert.equal(restored.rows[0]?.areaId, 'Areas/New.md');
+    assert.equal(restored.authority.revision, first.authority.revision);
+    assert.equal(restored.authority.route, first.authority.route);
+    assert.notEqual(restored.authority.epoch, first.authority.epoch);
+    await assert.rejects(lookup(last, first.authority), /Project Area evidence did not complete/);
+    assert.ok(!f.calls.some(call => ['mirrorDirectory', 'noteList', 'noteChildren', 'noteRead'].includes(call.method)));
+  });
+});
+
+test('a direct Area batch refuses an unconfirmed or changed route before live dispatch', async t => {
+  for (const change of ['unconfirmed', 'legacy', 'indexed']) await t.test(change, async t => {
+    const f = await fixture(t, 'ready', undefined, undefined, null);
+    const start = f.calls.length;
+    let changed = false;
+    f.controls.afterAreaConfigure = () => {
+      changed = true;
+      if (change === 'unconfirmed') f.controls.capabilityReply = { mirrorDirectoryGrantVersion: 2 };
+      if (change === 'legacy') f.state.mirrors[0].filesystem = 'legacy_pending';
+      if (change === 'indexed') f.controls.capabilityReply = { mirrorDirectoryGrantVersion: 1 };
+    };
+    await assert.rejects(f.harness.behavior.callRpc('projectAreasFromFrontmatter', { vaultId: 'one', root: '', areaFolder: 'Areas', paths: ['Projects/Plan.md'] }, gtdCaller), /Project Area evidence did not complete/);
+    assert.equal(changed, true);
+    assert.ok(!f.calls.slice(start).some(call => ['mirrorDirectory', 'noteList', 'noteChildren', 'noteRead'].includes(call.method)));
+  });
+});
+
+test('a live Area batch reauthorizes after its last read and withholds buffered rows on revocation', async t => {
+  for (const change of ['local-status', 'route', 'direct-handoff']) await t.test(change, async t => {
+    const f = await fixture(t, 'ready', async root => {
+      await mkdir(join(root, 'Projects')); await mkdir(join(root, 'Areas'));
+      await writeFile(join(root, 'Areas/Example.md'), 'area');
+      for (const name of ['First', 'Last']) await writeFile(join(root, `Projects/${name}.md`), '---\narea: Areas/Example.md\n---');
+    }, undefined, null);
+    const read = LocalNotes.prototype.read;
+    const observed: string[] = [];
+    t.mock.method(LocalNotes.prototype, 'read', async function (this: LocalNotes, root: string, path: string) {
+      const value = await read.call(this, root, path);
+      observed.push(path);
+      if (path.endsWith('/Last.md')) {
+        if (change === 'local-status') f.state.mirrors[0].local.available = false;
+        if (change === 'route') f.state.mirrors[0].filesystem = 'legacy_pending';
+        if (change === 'direct-handoff') f.controls.deny = true;
+      }
+      return value;
+    });
+    const paths = ['Projects/First.md', 'Projects/Last.md'];
+    await assert.rejects(f.harness.behavior.callRpc('projectAreasFromFrontmatter', { vaultId: 'one', root: '', areaFolder: 'Areas', paths }, gtdCaller), /Project Area evidence did not complete/);
+    assert.deepEqual(observed, paths);
+    assert.ok(!f.calls.some(call => ['noteList', 'noteChildren', 'noteRead'].includes(call.method)));
+  });
+});
+
+test('an indexed omission within the selected root makes relationship resolution partial', async t => {
+  const f = await fixture(t, 'ready', async root => {
+    await mkdir(join(root, 'Life/Projects'), { recursive: true });
+    await mkdir(join(root, 'Life/Areas'));
+    await writeFile(join(root, 'Life/Projects/Plan.md'), '---\narea: Finance\n---');
+    await writeFile(join(root, 'Life/Areas/Finance.md'), 'target');
+    await symlink('.', join(root, 'Life/Skipped'));
+  });
+  const path = 'Life/Projects/Plan.md';
+  assert.deepEqual(await f.harness.behavior.callRpc('projectAreas', { vaultId: 'one', root: 'Life', areaFolder: 'Life/Areas', paths: [path] }, gtdCaller), {
+    rows: [{ path, status: 'unresolved' }], incomplete: true,
+  });
+  assert.ok(!f.calls.some(call => call.method === 'mirrorDirectory' || call.method === 'noteRead' || call.method === 'noteList'));
+});
+
+test('denied native root cannot leak buffered snapshot rows or fall back to the legacy route', async t => {
+  const f = await fixture(t, 'ready', async root => {
+    await writeFile(join(root, 'A.md'), 'sample'); await writeFile(join(root, 'B.md'), 'sample');
+  });
+  const page = await f.tool('search_notes', { pathGlob: '*.md', limit: 1 }); assert.ok(page.nextCursor);
+  f.controls.deny = true;
+  await f.tool('search_notes', { cursor: page.nextCursor }, 'source_unavailable');
+  await f.tool('search_notes', { cursor: page.nextCursor }, 'cursor_expired');
+  assert.ok(!f.calls.some(c => c.method === 'noteSearch' || c.method === 'noteRead'));
+  assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
+});
+
+test('five-minute timer publishes new observations without a watcher flush', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const f = await fixture(t, 'ready', root => writeFile(join(root, 'Start.md'), 'initial'));
+  const count = () => f.tool('search_notes', { pathGlob: '*.md', mode: 'count' });
+  assert.equal((await count()).totalMatches, 1);
+  t.mock.timers.tick(299_999);
+  await writeFile(join(f.directory, 'Missed.md'), 'not in published view');
+  assert.equal((await count()).totalMatches, 1);
+  // Do not advance the watcher debounce; only the five-minute timer is due.
+  t.mock.timers.tick(1);
+  await waitFor(async () => (await count()).totalMatches === 2 ? true : undefined);
+});
+
+test('plugin startup does not wait for the first scan; disposal aborts the grant and drains a cold query', async t => {
+  let entered = false, cancelled = false;
+  const f = await fixture(t, 'ready', undefined, signal => new Promise((_, reject) => {
+    entered = true;
+    const abort = () => { cancelled = true; reject(new Error('synthetic cancellation')); };
+    if (signal.aborted) abort(); else signal.addEventListener('abort', abort, { once: true });
+  }));
+  await waitFor(async () => entered || undefined);
+  const hanging = f.harness.behavior.callRpc('listProperties', { vaultId: 'one', folder: 'Projects', fields: ['status'] });
+  const expected = assert.rejects(hanging, /Property listing did not complete/);
+  await f.harness.lifecycle.dispose();
+  await expected; assert.equal(cancelled, true);
+});
+
+test('unsupported notes and symlinks affect only intersecting folder/glob scopes, not GTD in another folder', async t => {
+  const f = await fixture(t, 'ready', async root => {
+    await mkdir(join(root, 'Archive')); await mkdir(join(root, 'Projects'));
+    await writeFile(join(root, 'Projects/Good.md'), '---\nstatus: active\n---\n');
+    await writeFile(join(root, 'Archive/Oversized.md'), Buffer.alloc(1024 * 1024 + 1, 65));
+    await writeFile(join(root, 'Archive/Invalid.md'), Buffer.from([0xff, 0xfe]));
+    await symlink('Archive', join(root, 'Unrelated.pdf'));
+    await symlink('.', join(root, 'Archive/Link'));
+  });
+  const params = { vaultId: 'one', folder: 'Projects', fields: ['status'] };
+  const gtd = await f.harness.behavior.callRpc('listProperties', params) as { notes: unknown[]; incomplete: boolean; warnings: string[] };
+  assert.deepEqual(gtd.notes, [{ path: 'Projects/Good.md', properties: { status: 'active' } }]);
+  assert.equal(gtd.incomplete, false); assert.deepEqual(gtd.warnings, []);
+  const count = (query: { pathGlob?: string; folders?: string[]; excludeFolders?: string[] }) => f.tool('search_notes', { mode: 'count', ...query });
+  assert.equal((await count({ pathGlob: 'Projects/**/*.md' })).totalMatches, 1);
+  assert.equal((await count({ pathGlob: 'Archive/Nomatch*.md' })).totalMatches, 0);
+  assert.equal((await count({ pathGlob: '*.md' })).totalMatches, 0);
+  assert.equal((await count({ excludeFolders: ['Archive', 'Unrelated.pdf'], pathGlob: '**/*.md' })).totalMatches, 1);
+  for (const glob of ['Archive/Oversized.md', 'Archive/Invalid.md', 'Unrelated.pdf/**/*.md', 'Archive/Link/**/*.md']) {
+    const overlap = await count({ pathGlob: glob });
+    assert.equal(overlap.totalMatches, null, glob); assert.deepEqual(overlap.warnings, ['unsupported']);
+  }
+  const scope = { folders: ['Unrelated.pdf'], excludeFolders: ['Unrelated.pdf/X'] };
+  const excluded = await count({ ...scope, pathGlob: 'Unrelated.pdf/X/**/*.md' });
+  assert.equal(excluded.totalMatches, 0); assert.deepEqual(excluded.warnings, []);
+  const sibling = await count({ ...scope, pathGlob: 'Unrelated.pdf/Y/**/*.md' });
+  assert.equal(sibling.totalMatches, null); assert.deepEqual(sibling.warnings, ['unsupported']);
+  const undecidable = await count({ ...scope, pathGlob: 'Unrelated.pdf/*/**/*.md' });
+  assert.equal(undecidable.totalMatches, null);
+  const legacyEvidence = await f.harness.behavior.callRpc('listProperties', { ...params, folder: 'Archive' }) as { incomplete: boolean };
+  assert.equal(legacyEvidence.incomplete, true);
+});
+
+test('older iCloud producer has no index grant, but the direct live routes remain available', async t => {
+  const f = await fixture(t, 'ready', async root => {
+    await mkdir(join(root, 'Projects')); await writeFile(join(root, 'Projects/One.md'), '---\nstatus: active\nareaId: Areas/Stale.md\narea: Areas/Example.md\n---\nneedle');
+    await mkdir(join(root, 'Areas')); await writeFile(join(root, 'Areas/Example.md'), 'synthetic target');
+    await writeFile(join(root, 'Projects/Body.md'), '---\nareaId: Areas/Example.md\n---\n## Area\n- [[Areas/Example]]');
+  }, undefined, null);
+  assert.equal((await f.tool('search_notes', { mode: 'count', properties: [{ key: 'status', equals: 'active' }] })).totalMatches, 1);
+  assert.equal((await f.tool('search_notes', { mode: 'count', text: 'needle' })).totalMatches, 1);
+  const rpc = await f.harness.behavior.callRpc('listProperties', { vaultId: 'one', folder: 'Projects', fields: ['status'] }) as { notes: unknown[] };
+  assert.deepEqual(rpc.notes, [{ path: 'Projects/Body.md', properties: {} }, { path: 'Projects/One.md', properties: { status: 'active' } }]);
+  const { authority, ...relationships } = await f.harness.behavior.callRpc('projectAreasFromFrontmatter', {
+    vaultId: 'one', root: '', areaFolder: 'Areas', paths: ['Projects/One.md', 'Projects/Body.md'], declarationKey: 'area',
+  }, gtdCaller) as { authority: { route: string }; rows: unknown[]; incomplete: boolean };
+  assert.equal(authority.route, 'direct');
+  assert.deepEqual(relationships, {
+    rows: [{ path: 'Projects/One.md', status: 'resolved', areaId: 'Areas/Example.md' }, { path: 'Projects/Body.md', status: 'none' }], incomplete: false,
+  });
+  const glob = await f.tool('search_notes', { pathGlob: '**/*.md' });
+  assert.deepEqual(glob.failures, [{ vaultId: 'one', category: 'unsupported' }]);
+  assert.ok(f.calls.some(c => c.method === 'mirrorDirectoryCapabilities'));
+  assert.ok(!f.calls.some(c => c.method === 'mirrorDirectoryGrant'));
+  assert.ok(f.calls.some(c => c.method === 'mirrorDirectory'));
+});
+
+test('advertised grant denial and malformed identity never downgrade an indexed query to a path-only lookup', async t => {
+  const f = await fixture(t, 'ready', root => writeFile(join(root, 'Only.md'), 'synthetic'));
+  assert.equal((await f.tool('search_notes', { pathGlob: '*.md' })).totalMatches, 1);
+  const expectUnavailable = async () => {
+    const page = await f.tool('search_notes', { pathGlob: '*.md' });
+    assert.deepEqual(page.failures, [{ vaultId: 'one', category: 'source_unavailable' }]);
+    assert.deepEqual(page.results, []); assert.equal(page.totalMatches, null);
+  };
+  f.controls.denyGrant = true; await expectUnavailable();
+  f.controls.denyGrant = false; f.controls.malformedGrant = true; await expectUnavailable();
+  assert.ok(!f.calls.some(c => c.method === 'mirrorDirectory' || c.method === 'noteSearch'));
+  assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
+});
+
+test('capability refusal, malformed response and untyped missing-method errors do not downgrade metadata queries', async t => {
+  const f = await fixture(t, 'ready', async root => {
+    await mkdir(join(root, 'Projects'));
+    for (const name of ['One', 'Two']) await writeFile(join(root, `Projects/${name}.md`), '---\nstatus: active\n---\nneedle');
+  });
+  const query = { properties: [{ key: 'status', equals: 'active' }] };
+  const first = await f.tool('search_notes', { ...query, limit: 1 });
+  assert.ok(first.nextCursor);
+  const expectUnavailable = async () => {
+    const page = await f.tool('search_notes', query);
+    assert.deepEqual(page.results, []);
+    assert.equal(page.totalMatches, null);
+    assert.deepEqual(page.failures, [{ vaultId: 'one', category: 'source_unavailable' }]);
+    const projection = await f.harness.behavior.callRpc('listProperties', { vaultId: 'one', folder: 'Projects', fields: ['status'] });
+    assert.deepEqual(projection, { notes: [], nextCursor: null, incomplete: true, warnings: ['source_unavailable'], observedAt: (projection as { observedAt: string }).observedAt });
+  };
+  for (const code of ['forbidden', 'not_found', 'transport_error', 'invalid_output'] as const) {
+    f.controls.capabilityError = new experimental_PluginRpcCallError({ code, message: 'sentinel-private-capability-error' });
+    await expectUnavailable();
+  }
+  await f.tool('search_notes', { cursor: first.nextCursor }, 'cursor_expired');
+  f.controls.capabilityError = { code: 'unknown_method', message: 'sentinel-private-untyped' };
+  await expectUnavailable();
+  f.controls.capabilityError = undefined;
+  for (const reply of [{ mirrorDirectoryGrantVersion: 2 }, { secret: 'sentinel-private-malformed' }]) {
+    f.controls.capabilityReply = reply; await expectUnavailable();
+  }
+  assert.ok(!f.calls.some(c => c.method === 'mirrorDirectory' || c.method === 'noteSearch'));
+  assert.equal((await f.tool('search_notes', { text: 'needle', mode: 'count' })).totalMatches, 2);
+  assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
+});
+
+test('a valid empty capability reply keeps live properties without touching the index grant', async t => {
+  const f = await fixture(t, 'ready', root => writeFile(join(root, 'One.md'), '---\nstatus: active\n---\n'), undefined, null);
+  f.controls.capabilityReply = {};
+  assert.equal((await f.tool('search_notes', { mode: 'count', properties: [{ key: 'status', equals: 'active' }] })).totalMatches, 1);
+  assert.ok(f.calls.some(c => c.method === 'mirrorDirectory'));
+  assert.ok(!f.calls.some(c => c.method === 'mirrorDirectoryGrant'));
 });

@@ -1,13 +1,16 @@
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
-import { MAX_NOTE_BYTES, VaultError } from './ports.ts';
-import { areaEvidence, areaCandidates, areaLinkPath } from './project-areas.ts';
+import { MAX_NOTE_BYTES, projectAreaRoute, projectAreaSourceRefusal, VaultError } from './ports.ts';
+import { areaEvidence, areaLookup, areaLinkPath, areaRow, projectAreasDeclarationKey, type AreaRow } from './project-areas.ts';
 import { VaultSearch } from './search.ts';
 import { createMovePlanner, MOVE_SCAN_LIMITS, MoveLinkError, type MoveRecord } from './move.ts';
-import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution } from './ports.ts';
+import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution, LiveProjectAreaAccess, ProjectAreaAuthority, ProjectAreaSelection } from './ports.ts';
 export const LIMITS = { output: 48000, scanNotes: 500, scanBytes: 16 * 1024 * 1024, scanMs: 3000, rows: 500, page: 50, cursors: 10, cursorMs: 60000, proofs: 256 } as const;
 export const READ_LIMITS = { sessions: 4, idleMs: 5 * 60000, lifetimeMs: 30 * 60000, bytes: MAX_NOTE_BYTES, serialized: 60000 } as const;
+type SourceContext = { source: Source; revision: number; catalog: Catalog };
+type ProjectAreaRequest = { signal?: AbortSignal; expected?: ProjectAreaAuthority };
+const projectAreaCapabilities = { projectAreasVersion: 1, projectAreasFrontmatterOnly: true, projectAreasDeclarationKey } as const;
 type ReadInput = { vaultId: string; path: string; heading?: string; blockId?: string; selector?: { version: 'incoming'; token: string }; cursor?: string };
 type ReadSession = { vaultId: string; path: string; selector?: ReadInput['selector']; reader: string; hash: string; revision: number; source: string; offset: number; warnings: string[]; started: number; touched: number };
 const validPath = (path: string) => { if (!path || !path.endsWith('.md') || path.length > 1024 || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new VaultError('invalid_path'); return path; };
@@ -32,10 +35,13 @@ export class Obsidian {
       return { revision, ids, catalog };
     }, revision => this.checkRevision(revision));
   }
-  async start() { this.state = await this.repository.load() ?? this.state; }
+  async start() {
+    this.state = await this.repository.load() ?? this.state;
+    this.files.indexConfiguration?.(this.state);
+  }
   stop() { this.stopped = true; this.proofs.clear(); this.reads.clear(); this.cursors.clear(); return this.searcher.stop(); }
   private key(vaultId: string, path: string) { return `${vaultId}/${path}`; }
-  private invalidate() { this.proofs.clear(); this.reads.clear(); this.cursors.clear(); this.searcher.invalidate(); }
+  private invalidate() { this.proofs.clear(); this.reads.clear(); this.cursors.clear(); this.searcher.invalidate(); this.files.indexConfiguration?.(this.state); }
   // Only durable state transitions enter this queue. Never await a note RPC in it.
   private update<T>(action: () => Promise<T>): Promise<T> {
     const task = this.stateQueue.then(async () => { if (this.stopped) throw new VaultError('unavailable'); return action(); });
@@ -46,8 +52,8 @@ export class Obsidian {
     const task = this.configurationQueue.then(action);
     this.configurationQueue = task.then(() => {}, () => {}); return task;
   }
-  private async confirm(state: Configuration) {
-    await this.files.configure(state);
+  private async confirm(state: Configuration, projectAreas?: ProjectAreaSelection) {
+    await this.files.configure(state, projectAreas);
     await this.update(async () => { if (this.state.revision === state.revision && this.state.unconfirmedRevision === state.revision) await this.save({ ...this.state, unconfirmedRevision: undefined }); });
   }
   private async remember(catalog: Catalog) {
@@ -86,15 +92,25 @@ export class Obsidian {
     });
   }
   private fingerprint(catalog: Catalog) { return JSON.stringify({ compatible: catalog.compatible, sources: catalog.sources.map(s => [s.id, s.local.available, s.local.reason, catalog.filesystem?.[s.id]]) }); }
-  private async source(vaultId: string) {
+  private source(vaultId: string): Promise<SourceContext>;
+  private source(vaultId: string, projectAreas: ProjectAreaRequest): Promise<SourceContext & { authority: ProjectAreaAuthority }>;
+  private async source(vaultId: string, projectAreas?: ProjectAreaRequest) {
     if (this.stopped || !this.state.vaultIds.includes(vaultId)) throw new VaultError('not_connected', 'Connect this vault in Obsidian settings.');
     const revision = this.state.revision; const catalog = await this.catalog.snapshot();
     if (!catalog.compatible) throw new VaultError('incompatible', catalog.nextAction ?? 'Update both plugins for note access v2.');
     const source = catalog.sources.find(s => s.id === vaultId);
     if (!source?.local.available) throw new VaultError('source_unavailable', 'Local note access is unavailable. Check this source in iCloud settings.');
-    this.check(vaultId, revision); await this.confirm(this.state); this.check(vaultId, revision);
+    this.check(vaultId, revision);
+    let authority: ProjectAreaAuthority | undefined;
+    if (projectAreas) {
+      const route = projectAreaRoute(catalog, vaultId);
+      authority = { revision, route, epoch: this.files.projectAreaEpoch(vaultId, revision, route) };
+      if (projectAreas.expected && (projectAreas.expected.revision !== revision || projectAreas.expected.route !== route || projectAreas.expected.epoch !== authority.epoch))
+        throw new VaultError('source_unavailable');
+    }
+    await this.confirm(this.state, authority && { ...authority, vaultId, signal: projectAreas?.signal }); this.check(vaultId, revision);
     await this.remember(catalog); this.check(vaultId, revision);
-    return { source, revision, catalog };
+    return { source, revision, catalog, authority };
   }
   private check(vaultId: string, revision: number) { if (this.stopped || this.state.revision !== revision || !this.state.vaultIds.includes(vaultId)) throw new VaultError('not_connected', 'The connected vaults changed. Check Obsidian settings.'); }
   private provenance = provenance;
@@ -139,7 +155,7 @@ export class Obsidian {
     this.checkRevision(revision);
     const uncertain = (this.state.pending ?? []).filter(matchesPending);
     const uncertainOperations = uncertain.slice(0, Math.min(input.limit ?? 20, 100));
-    return { projectAreasVersion: 1 as const, propertiesAccessVersion: 1 as const, ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
+    return { ...projectAreaCapabilities, propertiesAccessVersion: 1 as const, ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
   }
   async vaultLocations() {
     const vaults: Array<{ id: string; root: string; name: string }> = []; let incomplete = false;
@@ -156,52 +172,116 @@ export class Obsidian {
     }
     return { vaults, incomplete };
   }
-  async projectAreas(input: { vaultId: string; root: string; areaFolder: string; paths: string[] }, signal?: AbortSignal) {
+  async projectAreas(input: { vaultId: string; root: string; areaFolder: string; paths: string[]; expectedAuthority?: ProjectAreaAuthority }, signal?: AbortSignal) {
     if (signal?.aborted) throw new VaultError('cancelled');
-    const { revision } = await this.source(input.vaultId);
-    const listed = await this.files.list(input.vaultId, revision); this.check(input.vaultId, revision);
-    if (signal?.aborted) throw new VaultError('cancelled');
-    const children = this.files.children ? await this.files.children(input.vaultId, revision, input.areaFolder) : { entries: [], incomplete: true };
-    this.check(input.vaultId, revision);
-    let incomplete = listed.incomplete || children.incomplete, bytes = 0;
-    const started = this.clock();
-    const candidates = [...listed.paths, ...children.entries.filter(e => e.kind === 'directory' && !listed.paths.includes(`${input.areaFolder}/${e.name}.md`)).map(e => `${input.areaFolder}/${e.name}/`)];
-    const rows: Array<{ path: string; status: 'none' | 'resolved' | 'unresolved'; areaId?: string }> = [];
-    const directoryCache = new Map<string, Awaited<ReturnType<NonNullable<VaultFiles['children']>>>>();
-    for (const path of input.paths) {
-      if (signal?.aborted) throw new VaultError('cancelled');
-      if (bytes >= 2 * 1024 * 1024 || this.clock() - started > 10000) { incomplete = true; break; }
+    const { vaultId, root, areaFolder, paths } = input;
+    if (root && !areaFolder.startsWith(root + '/')) throw new VaultError('invalid_path');
+    for (const path of paths) {
       validPath(path);
-      if (input.root && !path.startsWith(input.root + '/')) throw new VaultError('invalid_path');
+      if (root && !path.startsWith(root + '/')) throw new VaultError('invalid_path');
+    }
+    const { authority } = await this.source(vaultId, { signal, expected: input.expectedAuthority });
+    const { revision, route, epoch } = authority;
+    const check = () => {
+      this.check(vaultId, revision);
+      if (signal?.aborted) throw new VaultError('cancelled');
+      if (this.files.projectAreaEpoch(vaultId, revision, route) !== epoch) throw new VaultError('source_unavailable');
+    };
+    check();
+    if (route === 'index') {
+      if (!this.files.index) throw new VaultError('source_unavailable');
+      const lease = await this.files.index(vaultId, revision, signal);
       try {
-        const note = await this.files.read(input.vaultId, revision, path); this.check(input.vaultId, revision);
-        if (signal?.aborted) throw new VaultError('cancelled');
+        check();
+        const view = lease.view;
+        const requested = new Set(paths);
+        const projects = new Map(view.notes.filter(note => requested.has(note.path)).map(note => [note.path, note]));
+        // Basenames can collide anywhere inside the selected vault. An
+        // omitted path there (or an omitted ancestor tree) makes negative
+        // and uniqueness evidence unsafe; never resolve from a live mix.
+        const incompleteCatalog = !view.directories.includes(areaFolder) || view.omissions.some(({ path, kind }) =>
+          !root || path.startsWith(root + '/') || (kind === 'tree' && (!path || path === root || root.startsWith(path + '/'))));
+        let incomplete = incompleteCatalog;
+        let lookup: ReturnType<typeof areaLookup> | undefined;
+        const resolve = (link: string, source: string) => {
+          lookup ??= areaLookup(root, areaFolder, view.notes.map(note => note.path), view.directories);
+          return lookup(link, source);
+        };
+        const rows = paths.map((path): AreaRow => {
+          const project = projects.get(path);
+          if (!project || project.propertyWarning) {
+            incomplete = true;
+            return { path, status: 'unresolved' };
+          }
+          return areaRow(path, areaFolder, areaEvidence(project.properties), resolve, incompleteCatalog);
+        });
+        const latest = await this.catalog.snapshot(); check();
+        if (projectAreaRoute(latest, vaultId) !== route) throw new VaultError('source_unavailable');
+        await lease.check(signal); check(); lease.assertValid();
+        return { rows, incomplete, authority };
+      } finally { lease.close(); }
+    }
+    const access = { route, epoch, signal };
+    const result = await this.liveProjectAreas(input, revision, access, check);
+    // Do not release any buffered row until the original revision and route
+    // have been accepted again. This includes the direct producer's handoff.
+    await this.source(vaultId, { signal, expected: authority }); check();
+    await this.files.checkLiveProjectAreaAccess?.(vaultId, revision, access); check();
+    return { ...result, authority };
+  }
+  private async liveProjectAreas(input: { vaultId: string; root: string; areaFolder: string; paths: string[] }, revision: number, access: LiveProjectAreaAccess, check: () => void) {
+    const listed = await this.files.list(input.vaultId, revision, access); check();
+    const children = this.files.children ? await this.files.children(input.vaultId, revision, input.areaFolder, access) : { entries: [], incomplete: true };
+    check();
+    let incompleteCatalog = listed.incomplete || children.incomplete, incomplete = false, bytes = 0;
+    const started = this.clock();
+    const lookup = areaLookup(input.root, input.areaFolder, listed.paths,
+      children.entries.filter(e => e.kind === 'directory').map(e => `${input.areaFolder}/${e.name}`));
+    const rows: AreaRow[] = [];
+    const directoryCache = new Map([[input.areaFolder, children]]);
+    for (const path of input.paths) {
+      check();
+      if (bytes >= 2 * 1024 * 1024 || this.clock() - started > 10000) { incomplete = true; break; }
+      try {
+        const note = await this.files.read(input.vaultId, revision, path, access); check();
         bytes += Buffer.byteLength(note.text);
         if (bytes > 2 * 1024 * 1024) { incomplete = true; break; }
-        const evidence = areaEvidence(note.text, this.parser);
+        const parsed = this.parser.frontmatter(note.text);
+        if (parsed.warnings.length) {
+          incomplete = true;
+          this.diagnose('parse', 'unsupported');
+          rows.push({ path, status: 'unresolved' });
+          continue;
+        }
+        const evidence = areaEvidence(parsed.properties);
+        const nested = new Map<string, string[]>();
         for (const link of evidence ?? []) {
-          if (areaCandidates(link, path, input.root, candidates).length) continue;
+          if (incompleteCatalog || lookup(link, path).length) continue;
           const target = areaLinkPath(link, path, input.root);
-          if (!target || target.endsWith('.md') || !target.startsWith(input.areaFolder + '/') || !this.files.children) continue;
+          if (!target || !target.startsWith(input.areaFolder + '/') || !this.files.children) continue;
           const parent = posix.dirname(target);
           if (!directoryCache.has(parent)) {
-            if (directoryCache.size >= 50 || this.clock() - started > 10000 || signal?.aborted) { incomplete = true; break; }
-            directoryCache.set(parent, await this.files.children(input.vaultId, revision, parent));
-            this.check(input.vaultId, revision);
+            check();
+            if (directoryCache.size >= 50 || this.clock() - started > 10000) { incompleteCatalog = true; break; }
+            directoryCache.set(parent, await this.files.children(input.vaultId, revision, parent, access)); check();
           }
           const directory = directoryCache.get(parent)!;
-          incomplete ||= directory.incomplete;
-          if (directory.entries.some(entry => entry.kind === 'directory' && entry.name === posix.basename(target))) candidates.push(target + '/');
+          incompleteCatalog ||= directory.incomplete;
+          if (directory.entries.some(entry => entry.kind === 'directory' && entry.name === posix.basename(target))) nested.set(link, [target + '/']);
         }
-        const targets = evidence?.map(link => incomplete ? [] : areaCandidates(link, path, input.root, candidates));
-        const ids = new Set(targets?.flat());
-        if (!evidence) rows.push({ path, status: 'unresolved' });
-        else if (!evidence.length) rows.push({ path, status: 'none' });
-        else if (targets!.every(matches => matches.length === 1) && ids.size === 1 && [...ids][0].startsWith(input.areaFolder + '/')) rows.push({ path, status: 'resolved', areaId: [...ids][0] });
-        else rows.push({ path, status: 'unresolved' });
-      } catch (error) { this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled'); incomplete = true; this.diagnose('rpc', 'unavailable'); rows.push({ path, status: 'unresolved' }); }
+        rows.push(areaRow(path, input.areaFolder, evidence, link => nested.get(link) ?? lookup(link, path), incompleteCatalog));
+      } catch (error) {
+        check();
+        const category = error instanceof VaultError ? error.category : 'unavailable';
+        // These refusals apply to the source/revision, not just this note.
+        if (category === 'cancelled' || projectAreaSourceRefusal(category)) throw error;
+        incomplete = true;
+        if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose('rpc', category);
+        rows.push({ path, status: 'unresolved' });
+      }
     }
-    this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
+    check();
+    incomplete ||= incompleteCatalog;
     return { rows, incomplete };
   }
   async listChildren(input: { vaultId: string; folder: string }, signal?: AbortSignal) {
@@ -215,10 +295,10 @@ export class Obsidian {
   }
   /** Read-only consumer projection: no bodies, snippets, edit proofs, or GTD policy. */
   async listProperties(input: { vaultId: string; folder: string; fields: string[]; cursor?: string }, signal?: AbortSignal) {
-    const page = await this.searcher.next({ vaultId: input.vaultId, folders: [input.folder], selectProperties: input.fields, cursor: input.cursor, limit: 200 }, signal);
+    const page = await this.searcher.listProperties({ vaultId: input.vaultId, folders: [input.folder], selectProperties: input.fields, cursor: input.cursor, limit: 200 }, signal);
     return { notes: page.results, nextCursor: page.nextCursor, incomplete: page.coverage.state === 'partial', warnings: [...page.warnings, ...page.failures.map(() => 'source_unavailable')], observedAt: page.coverage.observedAt };
   }
-  closeProperties(cursor: string) { return this.searcher.cancel(cursor); }
+  closeProperties(cursor: string) { return this.searcher.cancel(cursor, true); }
   private checkRevision(revision: number) { if (this.stopped || this.state.revision !== revision) throw new VaultError('not_connected'); }
   async read(input: ReadInput, signal?: AbortSignal, reader = '') {
     if ((input.selector || input.cursor) && (input.heading || input.blockId)) throw new VaultError('invalid_query', 'Read a section separately from incoming versions or continuations.');
@@ -341,7 +421,7 @@ export class Obsidian {
     if (!nextCursor) this.cursors.delete(cursor!);
     return { results, nextCursor, incomplete: state.incomplete, failures: state.failures, warnings: state.warnings, evidenceOnly: true };
   }
-  search(input: import('./ports.ts').SearchQuery, signal?: AbortSignal) { return this.searcher.next(input, signal); }
+  search(input: import('./ports.ts').SearchQuery, signal?: AbortSignal) { return this.searcher.search(input, signal); }
   tasks(input: { vaultId?: string; path?: string; folder?: string; complete?: boolean; cursor?: string; limit?: number }) {
     if (input.path) validPath(input.path); if (input.folder && (input.folder.startsWith('/') || input.folder.split('/').some(p => p === '..' || p === '.') || /[\\\x00-\x1f]/.test(input.folder))) throw new VaultError('invalid_path');
     return this.page(input, () => this.scan(input.vaultId, (source, path, text, hash, at) => {

@@ -11,17 +11,26 @@ import { MarkdownNotes } from './adapters/markdown-notes.ts';
 import { bbState } from './adapters/bb-state.ts';
 import { diagnosticLogger } from './adapters/diagnostic-log.ts';
 export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository }) {
-  const diagnose = diagnosticLogger(message => bb.log.warn(message)); const icloud = new ICloud(bb.sdk, diagnose, dependencies?.files ? undefined : bb.storage.kv);
-  const service = new Obsidian(dependencies?.catalog ?? icloud, dependencies?.files ?? icloud, dependencies?.parser ?? new MarkdownNotes(), dependencies?.repository ?? bbState(bb, diagnose), randomUUID, Date.now, diagnose);
+  const diagnose = diagnosticLogger(message => bb.log.warn(message)); const parser = dependencies?.parser ?? new MarkdownNotes();
+  const icloud = new ICloud(bb.sdk, diagnose, dependencies?.files ? undefined : bb.storage.kv, parser);
+  const service = new Obsidian(dependencies?.catalog ?? icloud, dependencies?.files ?? icloud, parser, dependencies?.repository ?? bbState(bb, diagnose), randomUUID, Date.now, diagnose);
   const admission = new Admission();
-  bb.onDispose(async () => { await admission.stop(); await service.stop(); await icloud.stop(); });
+  bb.onDispose(async () => { await Promise.all([admission.stop(), icloud.stopIndexing()]); await service.stop(); await icloud.stop(); });
   await service.start();
   const clientOnly = (context: { experimental_caller: { kind: string } }) => { if (context.experimental_caller.kind !== 'client') throw new Error('Use Obsidian client settings for connection or conflict recovery.'); };
+  const projectAreas = async (input: Parameters<Obsidian['projectAreas']>[0], context: { experimental_caller: { kind: string; pluginId?: string }; experimental_signal: AbortSignal }) => {
+    if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the GTD consumer can request project Area evidence.' });
+    try { return await admission.run(() => service.projectAreas(input, context.experimental_signal)); }
+    catch (error) {
+      if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable');
+      throw new Error('Project Area evidence did not complete. Check compatible source access.');
+    }
+  };
   bb.rpc.register(rpcContract, {
+    projectAreasFromFrontmatter: projectAreas,
     async projectAreas(input, context) {
-      if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the GTD consumer can request project Area evidence.' });
-      try { return await admission.run(() => service.projectAreas(input, context.experimental_signal)); }
-      catch { diagnose('rpc', context.experimental_signal.aborted ? 'cancelled' : 'unavailable'); throw new Error('Project Area evidence did not complete. Check compatible source access.'); }
+      const { rows, incomplete } = await projectAreas(input, context);
+      return { rows, incomplete };
     },
     async renameTitle(input, context) {
       if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the GTD consumer can request a title edit.' });
@@ -50,7 +59,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       catch { diagnose('rpc', 'unavailable'); throw new Error('Directory listing did not complete. Check source access and compatible plugin builds.'); }
     },
     async listProperties(input, context) {
-      try { return await service.listProperties(input, context.experimental_signal); }
+      try { return await admission.run(() => service.listProperties(input, context.experimental_signal)); }
       catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Property listing did not complete. Check Obsidian source access and update both plugins if necessary.'); }
     },
     async closeProperties({ cursor }) {

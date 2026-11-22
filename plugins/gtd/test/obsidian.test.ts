@@ -13,7 +13,7 @@ test('folder membership defines projects; folder status wins and root defaults a
   assert.deepEqual(projectFromNote('Projects', 'Projects/Active/Plan/Minutes.md', { status: 'done' }), { id: 'Projects/Active/Plan/', title: 'Plan', status: 'active' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Minutes.md', { type: 'meeting', status: 'done' }), { id: 'Projects/Minutes.md', title: 'Minutes', status: 'done' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', {}), { id: 'Projects/Plan.md', title: 'Plan', status: 'active' });
-  assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', { areaId: 'Areas/Learning.md' }), { id: 'Projects/Plan.md', title: 'Plan', status: 'active', areaId: 'Areas/Learning.md' });
+  assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', { areaId: 'Areas/Learning.md' }), { id: 'Projects/Plan.md', title: 'Plan', status: 'active' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', { areaId: null }), { id: 'Projects/Plan.md', title: 'Plan', status: 'active' });
   assert.deepEqual(projectFromNote('Projects', 'Projects/Plan.md', { areaId: '../Areas/Learning.md' }), { id: 'Projects/Plan.md', title: 'Plan', status: 'active' });
   assert.equal(projectFromNote('Projects', 'Projects/Plan.md', { type: 'project', status: 'blocked' }), 'invalid');
@@ -28,7 +28,7 @@ test('adapter drains empty continuation pages, scopes every RPC, excludes bodies
   const calls: Array<{ method: string; input: any }> = []; let pages = 0;
   const host = createFakePluginHost({ pluginId: 'gtd', sdk: { plugins: { callRpc: async (args: any) => {
     calls.push(args); if (args.method === 'status') return state();
-    assert.equal(args.method, 'listProperties'); assert.deepEqual(args.input.fields, ['type', 'status', 'title', 'areaId']); assert.equal(args.input.folder, 'Life/Projects'); assert.equal(args.input.vaultId, 'one');
+    assert.equal(args.method, 'listProperties'); assert.deepEqual(args.input.fields, ['type', 'status', 'title']); assert.equal(args.input.folder, 'Life/Projects'); assert.equal(args.input.vaultId, 'one');
     return ++pages === 1 ? { notes: [], nextCursor: cursor, incomplete: false, warnings: [], observedAt: 'now' } : { notes: [{ path: 'Life/Projects/Active/Ship.md', properties: { status: 'active' } }], nextCursor: null, incomplete: false, warnings: [], observedAt: 'later' };
   } } } });
   try {

@@ -23,7 +23,7 @@ not a per-user security boundary.
 | Tool | Purpose |
 | --- | --- |
 | `obsidian_status` | Connected sources, setup guidance, recent/exact save and resolution receipts plus exact-path conflict metadata and unresolved operations. Filter by vault, note, operation ID or time. |
-| `obsidian_search_notes` | Ripgrep literal text, semantic tags, exact scalar YAML properties, explicit folder scopes and count-only queries over one or all connected vaults. |
+| `obsidian_search_notes` | Vault-relative path globs, literal text, semantic tags, exact scalar YAML properties, folder scopes and counts over one or all connected vaults. |
 | `obsidian_read_note` | Whole note, guarded incoming version or explicit legacy absence, exact heading or block, original source lines and whole-note hash. |
 | `obsidian_get_note_metadata` | Properties, aliases, tags, headings, blocks, references and task markers. |
 | `obsidian_resolve_link` | A reference in its source vault; missing/ambiguous results rather than guessed targets. |
@@ -62,13 +62,34 @@ fetch external links, delete notes or recursively expand embeds. Path moves use 
 
 ## Search and counts
 
-Search uses host-provisioned stock ripgrep over the authorized mirror. It opens
-the current files as it traverses, including hidden notes. Legacy mirrors search
-their logical notes, including pending edits and creates.
+`pathGlob` matches the entire vault-relative Markdown path, case-sensitively.
+For example, count notes with an exact property in `Projects` or its subfolders:
 
 ```json
-{"mode":"count","properties":[{"key":"status","equals":"active"}]}
+{"pathGlob":"Projects/**/*.md","mode":"count","properties":[{"key":"status","equals":"active"}]}
 ```
+
+`*` and `?` match within one segment; a standalone `**` matches zero or more
+segments. Character classes and brace choices within a segment are supported
+(e.g. `{Projects,Areas}/**/[A-Z]*.md`). Use one positive pattern, up to 256
+characters. Absolute paths, dot/traversal segments, backslashes, controls,
+malformed classes/braces, and regex or extglob groups are not supported.
+A segment may contain at most two runs of `*`, two brace groups, and twelve
+commas. Like stock Picomatch, `?` matches one UTF-16 code unit, so a character
+outside the BMP such as `😀` matches `??`, not `?`. Literal characters still
+match literally. Globs are filters, never filesystem paths.
+
+Direct filesystem vaults use the local index for glob and property queries that
+don't include text or tags. The index requires iCloud's identity-bound directory
+grant v1, negotiated through `mirrorDirectoryCapabilities(null)` without
+changing the legacy `status` reply. A valid empty capability reply or the SDK's
+typed missing-method response keeps existing property queries live, with
+metadata-only globs unavailable. A denied or malformed capability check does
+not enable that fallback. Text and tag queries still traverse live
+files with host-provisioned ripgrep; a glob can restrict their hits on direct
+vaults. Legacy mirrors keep searching their logical notes (including pending
+edits and creates), but do not support globs. A multi-vault glob reports
+unsupported sources as omitted rather than counting them as zero.
 
 Property predicates are ANDed, exact and typed: `7` is not `"7"`; missing keys
 are not `null`. Text in the body is not a YAML property. Tags retain Markdown
@@ -89,22 +110,52 @@ to receive all results. `coverage.state` is `running`, `complete` or `partial`;
 `matchedNotesSoFar` is progress, not a total. `totalMatches` is available only
 after complete traversal/filtering without omissions. Count mode returns no
 rows. Unsupported, changing or inaccessible notes make a dependent query
-partial, with no reliable total. These are per-note local observations, not an
-atomic snapshot during concurrent editing. Search never grants edit proof.
+partial, with no reliable total. Each indexed cursor pins a published generation
+per vault when it reaches that vault. Indexed rows carry a path, hash and note
+observation time but no body excerpt. Live search uses per-note observations;
+neither route provides an atomic filesystem view or a common time across vaults.
+Search never grants edit proof.
 
 The [host manifest](../../provisioning/README.md) pins Linux-validated ripgrep
 14.1.0. Missing or incompatible search requirements show a quiet settings warning;
-reads, saves, sync and vault choices remain intact. There is no fallback to the
-old terminal bounded scanner. Task listing and ambiguous-link discovery retain
-their existing separate bounds.
+indexed queries, reads, saves, sync and vault choices remain intact. There is no
+fallback to the old terminal bounded scanner. Task listing and ambiguous-link
+discovery retain their existing separate bounds.
+
+### What the index can tell you
+
+An in-memory index starts in the background after local access is confirmed.
+Before scanning or watching, Obsidian checks the opened root descriptor against
+the device and inode in iCloud's grant, then traverses from that descriptor. A
+refused, invalid or mismatched grant never falls back to path-only access. The
+first indexed query waits for initial publication; later queries can read the
+last published snapshot during a refresh. Nonrecursive directory watches ask the
+index to rescan changed subtrees. A full scan every five minutes reconciles missed
+notifications. This is not a visibility deadline: indexed results may lag a
+confirmed save, and a rename whose notifications arrive separately can appear in
+separate refreshes. Use an exact read for current bytes or edit proof.
+
+A required I/O or capacity failure does not publish a partial replacement. New
+queries report the affected vault as incomplete until a successful refresh;
+existing pages may continue a pinned generation only while access remains valid.
+Root changes, revoked access and plugin disposal invalidate those generations.
+Known unsupported files (for example, oversized or invalid UTF-8 notes) and
+skipped paths affect only potentially overlapping folder/glob scopes. A fixed
+glob prefix entirely inside an excluded folder is disjoint; less specific
+wildcard intersections are treated conservatively. Required I/O failures
+still prevent publication. Derived metadata (including headings, tags, blocks, links and tasks) is bounded
+separately; a derived parse limit does not discard valid frontmatter. The index
+retains no note bodies and writes nothing to disk. Operator logs report bounded
+`index_refresh`, `index_access` and `index_watch` categories, not paths, note contents or raw
+errors. Watch degradation leaves periodic reconciliation working.
 
 ## Consumer metadata API
 
 `vaultLocations(null)` discovers actual Obsidian vaults inside connected sources by `.obsidian` directory markers. It returns `{vaults: [{id, root, name}], incomplete}`: `id` remains the connected-source identity, `root` is the relative vault prefix (empty for a source that is itself a vault), and `name` is a display label. Discovery runs under coordinated local-source admission with pinned no-follow directory handles, excludes symlinks, and is bounded to 2 seconds / 10,000 entries / depth 32 / 100 roots per source. Missing markers are not guessed from folder names; access failures or limits make discovery incomplete. Existing whole-source connections, note paths, receipts and writes are unchanged. Consumers such as GTD apply the selected prefix internally rather than asking the user to include it in every inventory folder.
 
-Updated source builds advertise `propertiesAccessVersion: 1` in status. Other BB plugins can call `listProperties` with an exact connected `vaultId`, one relative `folder`, 1–8 selected top-level `fields`, and an optional returned `cursor`. It returns up to 200 compact `{path, properties}` rows, `nextCursor`, `incomplete`, `warnings`, and `observedAt`; no bodies, snippets, or edit proofs. Continue every cursor with the same vault/folder/fields, including empty pages. A terminal page with no warnings and `incomplete: false` establishes traversal coverage, not an atomic vault snapshot. Stop abandoned producer work with `closeProperties({cursor})`.
+Updated source builds advertise `propertiesAccessVersion: 1` in status. Other BB plugins can call `listProperties` with an exact connected `vaultId`, one relative `folder`, 1–8 selected top-level `fields`, and an optional returned `cursor`. It returns up to 200 compact `{path, properties}` rows, `nextCursor`, `incomplete`, `warnings`, and `observedAt`; no bodies, snippets, or edit proofs. Continue every cursor with the same vault/folder/fields, including empty pages. A terminal page with no warnings and `incomplete: false` establishes coverage for the observations used by that listing, not an atomic filesystem snapshot. Stop abandoned producer work or release a pinned generation with `closeProperties({cursor})`.
 
-This generic API shares the existing bounded search engine and connected-vault safety checks. It reads frontmatter only for semantic projection, without parsing entire note bodies. Selected property data is bounded to 4,096 serialized characters per note; unsupported metadata makes coverage partial. It has no GTD classification policy: the [GTD adapter](../gtd/README.md) owns project conventions and counts. Existing agent-tool signatures are unchanged. SDK declarations and Zod are aligned with BB SDK 0.6.132 for these consumer calls.
+This generic API uses the pinned local index on direct vaults with identity grants. Legacy vaults and older iCloud producers keep the existing live frontmatter projection. Its v1 shape is unchanged. Selected property data is bounded to 4,096 serialized characters per note; unsupported frontmatter makes coverage partial. It has no GTD classification policy: the [GTD adapter](../gtd/README.md) owns project conventions and counts.
 
 ## Complete reads and long notes
 
@@ -174,7 +225,7 @@ remain enforced by the existing parser before saving.
   and replacement installs a staged file atomically. Concurrent changes from
   the sync process or another writer can still occur between filesystem
   operations.
-- Filesystem reads and searches observe current files. Exact-path conflict
+- Exact filesystem reads observe current files; indexed queries may lag. Exact-path conflict
   inspection finds native conflict copies on disk. An unambiguous pair can be
   resolved with the existing guarded choice. The resolution writes the chosen
   text to the canonical path and removes the inspected copies. An ambiguous
@@ -200,9 +251,13 @@ Native BB disable/reload closes dispatch. Obsidian's disposal hook closes operat
 
 ## GTD relationship projection
 
-`projectAreasVersion: 1` advertises the GTD-only `projectAreas` read-only RPC. It accepts at most 50 explicit project root-note paths, the selected vault prefix and exact Areas folder. Internally it projects `areaId`/`area` metadata, or a dedicated `Area` section only when both are absent. Populated metadata must resolve consistently; section evidence is limited to eight standalone/bullet wikilinks. It returns only per-path `none`, `resolved` with canonical `areaId`, or `unresolved`, plus source incompleteness. No bodies, snippets, hashes, edit proofs or writes cross this boundary.
+`projectAreasFrontmatterOnly: true` advertises the GTD-only `projectAreasFromFrontmatter` read-only RPC; `projectAreasDeclarationKey: 'area'` confirms the YAML input contract. Updated GTD checks both and sends `declarationKey: 'area'` on every batch. A rolled-back producer either lacks the method or rejects the extra request field before invoking its resolver. Unmarked requests and the historical `projectAreas` method remain available for older GTD builds, with unchanged response shapes and the same current backend.
 
-Local reference matching uses selected-vault-relative or mirror-prefixed paths, optional `.md`, display aliases and unique basenames; no external URL, title/topic inference or alias-property index is involved. Targets must be within the configured Areas folder. Directory targets are verified through existing bounded child reads, including nested directories, without manufactured notes. Incomplete target catalogs never establish a unique relationship. Each batch is bounded to 2 MiB of root-note bytes, ten seconds of projection work and 50 additional directory probes; omitted/failed rows are incomplete, not confirmed missing relationships. Native disposal tracks the admitted projection and underlying source operations retain their existing revision guards.
+Both methods accept at most 50 selected project root-note paths (including a project `README.md` when it supplies the metadata), the selected vault prefix and the exact Areas folder. Only the top-level YAML `area` key declares a relationship; a YAML `areaId` is ignored. `area` accepts a local path/wikilink string or a flat list of up to eight strings. Every declared target must resolve to the same path. The response contains per-path `none`, `resolved` with the backend path in `areaId`, or `unresolved`, plus source incompleteness. No bodies, snippets, hashes, edit proofs or writes cross this boundary.
+
+Local matching uses selected-vault-relative or mirror-prefixed paths, optional `.md`, display aliases and unique basenames; explicit paths can address nested Area notes and directories. No external URL, title/topic inference or alias-property index is involved. Targets must be within the configured Areas folder. For an indexed direct vault, each batch uses a single authorized generation for project properties, candidate note paths and directories. A warm batch neither opens note files nor enumerates directories. It still checks current source access and the revision-bound directory identity; a denied or unconfirmed index grant does not fall back to live access. Omitted target catalogs within the selected scope cannot establish a unique relationship. Missing indexed project rows and unreadable frontmatter mark coverage partial, while an unresolved declaration by itself does not.
+
+Legacy sources and direct sources that do not advertise the index grant still use bounded live paths, directory probes and root-note reads, extracting only frontmatter. A live batch stays on its originally authorized route and rechecks access before returning any rows. The live scan is bounded to 2 MiB of root-note bytes, ten seconds of projection work and at most 50 child-directory listings. Isolated omissions leave a partial page; source-wide refusal or route change withholds the entire page. `projectAreasFromFrontmatter` returns an authority stamp (connection revision, route and an opaque per-source authorization epoch, not a grant). Updated GTD sends it back on later batches. An observed access loss or retired index lane changes the epoch, so restored access cannot reuse earlier assignments even on the same route and revision. Ordinary index updates do not change it. Native disposal tracks the admitted projection and underlying source operations retain their existing revision guards.
 
 ## GTD title consumer
 
@@ -249,7 +304,8 @@ property tags are named in the change result. This does not infer vault-wide typ
 | Task/link scan (not search) | 500 notes, 16 MiB plus at most the final 1 MiB note, or 3 seconds checked between file operations; at most 500 rows |
 | Output | At most 48,000 UTF-16 units per read chunk, reduced to fit a 60,000-character serialized read envelope (including JSON escaping); final tool result capped at 64,000 characters; metadata collections capped at 100 items |
 | Whole-note read continuation | Four in-memory sequences including in-flight continuation reservations (all busy refuses new sequences), five-minute idle / thirty-minute absolute lifetime; single-use thread/target/selector-bound cursors, with final empty acknowledgement; no section pagination |
-| Search resources | Four sessions, two child/work reservations; up to 64 read-only note descriptors per batch, one directory stream per session, bounded discovery/dedup and subprocess buffers; no mmap or unbounded threads |
+| Search resources | Four sessions; on the live route, two child/work reservations, up to 64 read-only note descriptors per batch and one directory stream per session, with bounded discovery/dedup and subprocess buffers |
+| Local index | Two concurrent builds; 100,000 entries or 120 seconds per build checked between operations; 16 MiB estimated per generation; separate budgets of 96 MiB current, 32 MiB building and 32 MiB cursor-retained so pinned or current views cannot consume rebuild headroom; at most 4,096 verified directory watches per vault, 16,384 total; up to 1,024 distinct pending directory hints before a full scan |
 | Search continuation | Five-minute idle / thirty-minute absolute lifetime; up to 32 batches or a two-second cooperative slice before yielding, never a terminal total-note cutoff; configuration/local safety changes and restart revoke cursors, ordinary cloud progress does not |
 | Search semantics | Properties inspect at most a 64 KiB header independently of the body; tags retain the 64 KiB semantic-parser bound and disclose omitted notes |
 | Search result pages | Default 20, maximum 50 rows; a complete traversal can still have buffered rows behind nextCursor |

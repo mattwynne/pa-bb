@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { VaultError } from '../core/ports.ts';
-import type { Diagnose, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
+import type { Diagnose, NoteParser, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
 import { digest, equivalent, identity, LocalNotes, validateNotePath } from './local-notes.ts';
 import { LocalSearch } from './local-search.ts';
+import { FilesystemIndex, INDEX_LIMITS, type DirectoryGrantLookup } from './filesystem-index.ts';
+import { MarkdownNotes } from './markdown-notes.ts';
 import { fileIdentity, LocalReceipts } from './local-receipts.ts';
 import type { FileIdentity, LocalReceipt } from './local-receipts.ts';
 
@@ -18,16 +20,25 @@ export class FilesystemVault {
   readonly searcher = new LocalSearch(this.files);
   private tokens = new Map<string, Token>();
 
-  constructor(private directory: DirectoryLookup, private ledger: LocalReceipts, private diagnose: Diagnose) {}
+  readonly index: FilesystemIndex;
+  constructor(private directory: DirectoryLookup, grant: DirectoryGrantLookup, private ledger: LocalReceipts, private diagnose: Diagnose,
+    parser: NoteParser = new MarkdownNotes(), private revoked: (id: string) => void = () => {}) {
+    this.index = new FilesystemIndex(this.files, grant, parser, diagnose, INDEX_LIMITS, undefined, revoked);
+  }
 
   private async access<T>(mirrorId: string, revision: number, action: (root: string) => Promise<T>, signal?: AbortSignal) {
     const root = await this.directory(mirrorId, revision, signal);
     try {
       if (signal?.aborted) throw new VaultError('cancelled');
-      const rootIdentity = await this.files.rootIdentity(root);
-      const value = await action(root);
-      if (!identity(rootIdentity, await this.files.rootIdentity(root))) throw new VaultError('source_unavailable');
-      return value;
+      const rootIdentity = async () => {
+        try { return await this.files.rootIdentity(root); }
+        catch { this.revoked(mirrorId); throw new VaultError('source_unavailable'); }
+      };
+      const before = await rootIdentity();
+      try { return await action(root); }
+      finally {
+        if (!identity(before, await rootIdentity())) { this.revoked(mirrorId); throw new VaultError('source_unavailable'); }
+      }
     } catch (error) { throw this.report(error); }
   }
 
@@ -41,20 +52,24 @@ export class FilesystemVault {
       error instanceof VaultError ? error.nextAction : 'Check the local vault and reread before preparing a change.', true);
   }
 
-  list(id: string, revision: number) {
+  checkAccess(id: string, revision: number, signal?: AbortSignal) {
+    return this.access(id, revision, async () => {}, signal);
+  }
+
+  list(id: string, revision: number, signal?: AbortSignal) {
     return this.access(id, revision, async root => {
       const result = await this.files.list(root);
       if (result.incomplete) this.diagnose('filesystem', result.warnings.includes('scan_limit') ? 'capacity' : 'unavailable');
       return result;
-    });
+    }, signal);
   }
 
-  children(id: string, revision: number, folder: string) {
+  children(id: string, revision: number, folder: string, signal?: AbortSignal) {
     return this.access(id, revision, async root => {
       const result = await this.files.children(root, folder);
       if (result.incomplete) this.diagnose('filesystem', 'unavailable');
       return result;
-    });
+    }, signal);
   }
 
   vaultRoots(id: string, revision: number) {

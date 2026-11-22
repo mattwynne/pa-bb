@@ -11,6 +11,8 @@ export class FilesFake implements VaultFiles {
   configuration: Configuration = { revision: -1, vaultIds: [] }; notes = new Map<string, string>(); saved: Receipt[] = []; conflicts = new Map<string, { inspection: ConflictInspection; incoming: string | null }>();
   constructor() { for (const id of ['one', 'two']) this.notes.set(`${id}/Launch.md`, '# Launch\r\n- [ ] Ship\r\n[[Other]]\r\n'); this.notes.set('one/Other.md', '# Other\nSource evidence\n'); }
   private searches = new Map<string, { paths: string[]; offset: number }>();
+  private readonly epoch = randomUUID(); // Synthetic source without a revocable adapter lane.
+  projectAreaEpoch(id: string, revision: number) { this.admit(id, revision); return this.epoch; }
   async configure(value: Configuration) { if (value.revision !== this.configuration.revision) this.searches.clear(); this.configuration = structuredClone(value); }
   async closeSearch(_revision: number, cursor: string) { this.searches.delete(cursor); }
   async search(input: import('../core/ports.ts').SearchRequest, _signal?: AbortSignal): Promise<import('../core/ports.ts').SearchBatch> {

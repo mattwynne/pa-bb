@@ -18,8 +18,11 @@ export async function vaultOptions(sdk: BbPluginApi['sdk'], signal: AbortSignal 
 }
 export const vaultIdSchema = z.string().regex(/^[A-Za-z0-9-]{1,64}$/);
 // Wire contracts are local to this adapter. No imports from another plugin's implementation.
+const projectAreasDeclarationKey = 'area';
 const statusSchema = z.object({
   projectAreasVersion: z.number().int().optional(),
+  projectAreasFrontmatterOnly: z.unknown().optional(),
+  projectAreasDeclarationKey: z.unknown().optional(),
   propertiesAccessVersion: z.number().int().optional(),
   childrenAccessVersion: z.number().int().optional(),
   vaults: z.array(z.object({ vaultId: vaultIdSchema, name: z.string().nullable(), source: z.object({
@@ -31,6 +34,8 @@ const propertyPage = z.object({
   notes: z.array(z.object({ path: z.string().min(1).max(1024), properties: z.record(z.string(), z.unknown()) }).strict()).max(200),
   nextCursor: z.string().uuid().nullable(), incomplete: z.boolean(), warnings: z.array(z.string()).max(32), observedAt: z.string(),
 }).strict();
+const relationshipAuthority = z.object({ revision: z.number().int().nonnegative(), route: z.enum(['index', 'direct', 'legacy_pending', 'legacy_conflict', 'legacy']), epoch: z.string().uuid() }).strict();
+const relationshipPage = z.object({ rows: z.array(z.object({ path: relativeFolder, status: z.enum(['none', 'resolved', 'unresolved']), areaId: z.string().max(1024).optional() }).strict()).max(50), incomplete: z.boolean(), authority: relationshipAuthority }).strict();
 const childrenPage = z.object({ entries: z.array(z.object({ name: z.string().min(1).max(1024).refine(value => !/[\\/\x00-\x1f\x7f]/.test(value) && value !== '.' && value !== '..'), kind: z.enum(['directory', 'markdown']) }).strict()).max(5000), incomplete: z.boolean() }).strict();
 const aliases: Record<string, ProjectStatus> = { active: 'active', deferred: 'deferred', someday: 'someday', done: 'done', completed: 'done' };
 const text = (value: unknown, max: number) => typeof value === 'string' && value.trim().length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/.test(value);
@@ -55,15 +60,11 @@ export function projectFromNote(folder: string, path: string, properties: Record
   if (!status) return 'invalid';
   const title = properties.title === undefined ? (entry.readme ? parts[0] : parts[0].slice(0, -3)) : properties.title;
   if (!text(title, 240)) return 'invalid';
-  const areaId = properties.areaId ?? undefined;
-  const validAreaId = typeof areaId === 'string' && relativeFolder.safeParse(areaId.replace(/\/$/, '')).success;
-  // An invalid relationship does not erase an otherwise valid project entry.
   return {
     id: entry.readme ? entry.key + '/' : path,
     ...(entry.readme ? { notePath: path } : {}),
     title: (title as string).trim(),
     status,
-    ...(validAreaId ? { areaId: areaId as string } : {}),
   };
 }
 
@@ -130,7 +131,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         if (pages++ >= 128 || notes >= 5000 || readSignal.aborted) { warnings.add('scan_limit'); break; }
         let page: z.infer<typeof propertyPage>;
         try { page = propertyPage.parse(await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'listProperties', input: {
-          vaultId: this.config.vaultId, folder: this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, fields: ['type', 'status', 'title', 'areaId'], ...(cursor ? { cursor } : {}),
+          vaultId: this.config.vaultId, folder: this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder, fields: ['type', 'status', 'title'], ...(cursor ? { cursor } : {}),
         }, outputSchema: z.unknown(), signal: readSignal })); }
         catch (error) {
           if (signal.aborted) throw new GtdError('cancelled');
@@ -212,33 +213,48 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
       }
     }
     if (kind === 'project' && this.config.areasFolder) {
-      if (state.projectAreasVersion !== 1) warnings.add('source_partial');
+      // Older producers can consult bodies or interpret the old YAML key.
+      // Do not call them or treat a raw property as a resolved Area ID.
+      if (state.projectAreasVersion !== 1 || state.projectAreasFrontmatterOnly !== true || state.projectAreasDeclarationKey !== projectAreasDeclarationKey) warnings.add('source_partial');
       else {
+        const areaFolder = [this.config.root, this.config.areasFolder].filter(Boolean).join('/');
         const roots = [...entries.values()].flatMap(item => {
           const notePath = 'notePath' in item ? item.notePath : undefined;
           return notePath || item.id.endsWith('.md') ? [{ item: item as Project, path: notePath ?? item.id }] : [];
         });
-        for (const { item } of roots) delete item.areaId;
-        const schema = z.object({ rows: z.array(z.object({ path: relativeFolder, status: z.enum(['none', 'resolved', 'unresolved']), areaId: z.string().max(1024).optional() }).strict()).max(50), incomplete: z.boolean() }).strict();
+        const assignments = new Map<Project, string>();
+        let authority: z.infer<typeof relationshipAuthority> | undefined;
         for (let start = 0; start < roots.length; start += 50) {
           if (readSignal.aborted) { warnings.add('scan_limit'); break; }
           const batch = roots.slice(start, start + 50);
-          // Source projection reads only explicit root-note evidence; no note
-          // bodies or arbitrary supporting links cross this consumer boundary.
           try {
-            const page = schema.parse(await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'projectAreas', input: { vaultId: this.config.vaultId, root: this.config.root ?? '', areaFolder: [this.config.root, this.config.areasFolder].filter(Boolean).join('/'), paths: batch.map(root => root.path) }, outputSchema: z.unknown(), signal: readSignal }));
+            // A producer rolled back after status either lacks this method
+            // or rejects declarationKey before the older resolver can run.
+            const page = relationshipPage.parse(await this.sdk.plugins.callRpc<unknown>({ pluginId: 'obsidian', method: 'projectAreasFromFrontmatter', input: {
+              vaultId: this.config.vaultId, root: this.config.root ?? '', areaFolder, paths: batch.map(root => root.path), declarationKey: projectAreasDeclarationKey, ...(authority ? { expectedAuthority: authority } : {}),
+            }, outputSchema: z.unknown(), signal: readSignal }));
+            if (authority && (page.authority.revision !== authority.revision || page.authority.route !== authority.route || page.authority.epoch !== authority.epoch)) throw new GtdError('source_unavailable');
+            authority = page.authority;
             if (page.incomplete) warnings.add('source_partial');
             for (const { item, path } of batch) {
               const matches = page.rows.filter(row => row.path === path);
               if (matches.length !== 1) { warnings.add('source_partial'); continue; }
               const row = matches[0];
               if (row.status === 'resolved') {
-                if (!row.areaId || !relativeFolder.safeParse(row.areaId.replace(/\/$/, '')).success) warnings.add('source_partial');
-                else item.areaId = row.areaId;
+                if (!row.areaId?.startsWith(areaFolder + '/') || !relativeFolder.safeParse(row.areaId.replace(/\/$/, '')).success) warnings.add('source_partial');
+                else assignments.set(item, row.areaId);
               }
             }
-          } catch { if (signal.aborted) throw new GtdError('cancelled'); warnings.add(readSignal.aborted ? 'scan_limit' : 'source_partial'); for (const { item } of batch) delete item.areaId; }
+          } catch {
+            if (signal.aborted) throw new GtdError('cancelled');
+            warnings.add(readSignal.aborted ? 'scan_limit' : 'source_partial');
+            // Isolated omissions are successful, partial pages. A failed RPC
+            // cannot confirm source authority for the rows staged so far.
+            assignments.clear();
+            break;
+          }
         }
+        for (const [item, areaId] of assignments) item.areaId = areaId;
       }
     }
     if (signal.aborted) throw new GtdError('cancelled');
