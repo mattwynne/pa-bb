@@ -1,32 +1,93 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { fireEvent, cleanup } from '@testing-library/react';
 import { loadPluginApp, renderSlot } from '@get-bb/plugin-sdk/testing/app';
 const app = await loadPluginApp(() => import('../app.tsx'));
 const ref = { source: 'one', id: 'Projects/Woodworking.md' };
 const source = { backend: 'fake', id: 'one', name: 'Synthetic', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null };
 const project = { id: ref.id, title: 'Learn woodworking', status: 'active', areaId: 'Areas/Learning.md' };
-function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' })) {
+const saved = async () => ({ operationId: crypto.randomUUID(), outcome: 'saved_locally_pending_sync' });
+function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }), rename = saved) {
   const list = renderSlot(app.navPanels[0], { subPath: '' }, {
     rpc: {
       listProjects: async () => { if (mode === 'error') throw new Error('synthetic'); if (mode === 'loading') await new Promise(() => {}); return { source, projects: mode === 'empty' ? [] : [{ ...project, areaId: mode === 'nested' ? 'Areas/Learning/Committee/Meeting.md' : project.areaId }], coverage: 'complete', warnings: [], totalProjects: 1, matchedProjects: 1, counts: { active: 1, deferred: 0, someday: 0, done: 0 }, nextCursor: null, consistency: 'Per-project local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' }; },
       listAreas: async () => ({ source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }, ...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` }))], coverage: 'complete', warnings: [], totalAreas: 1, nextCursor: null, consistency: 'Per-area local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' }),
-      newThread, renameProject: async () => ({ operationId: crypto.randomUUID(), outcome: 'saved_locally_pending_sync' }), renameArea: async () => ({ operationId: crypto.randomUUID(), outcome: 'saved_locally_pending_sync' }),
+      newThread, renameProject: rename, renameArea: rename,
     },
     sdk: { threads: { experimental_listPluginMetadata: async () => ({ threads: [{ threadId: 't1', metadata: { project: ref } }, { threadId: 't2', metadata: { project: ref } }] }) } },
     sidebarThreads: { status: 'ready', threads: ['t1', 't2'].map((id, i) => ({ id, projectId: 'personal', href: '/threads/' + id, displayTitle: 'Woodwork thread ' + i, title: 'Woodwork thread ' + i, titleFallback: '', indicator: 'idle', indicatorLabel: 'Idle', environment: null, isHidden: false, isArchived: false, isUnread: false, activity: {}, status: 'idle' })) as any },
   }); return list;
 }
-afterEach(() => { cleanup(); vi.restoreAllMocks(); sessionStorage.clear(); });
+beforeEach(() => {
+  // jsdom has the element but does not implement the native modal methods.
+  Object.defineProperties(HTMLDialogElement.prototype, {
+    showModal: { configurable: true, value() { this.open = true; } },
+    close: { configurable: true, value() { this.open = false; } },
+  });
+});
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(HTMLDialogElement.prototype, 'showModal');
+  Reflect.deleteProperty(HTMLDialogElement.prototype, 'close');
+  vi.restoreAllMocks();
+  sessionStorage.clear();
+});
+function openRename(slot: ReturnType<typeof setup>, kind: 'area' | 'project', name: string) {
+  const trigger = slot.getByLabelText(`Actions for ${kind} ${name}`);
+  fireEvent.click(trigger);
+  fireEvent.click(trigger.parentElement!.querySelector('button')!);
+  const dialog = slot.getByRole('dialog', { name: `Rename ${kind}` });
+  return { trigger, input: slot.getByRole('textbox', { name: 'Title' }) as HTMLInputElement, dialog };
+}
 test('GTD registers a navigation panel and keeps area, project and thread actions', async () => {
   expect(app.threadLists).toHaveLength(0);
   expect(app.navPanels).toMatchObject([{ id: 'projects', path: 'projects', title: 'Personal GTD projects' }]);
   const slot = setup(); await slot.findByRole('button', { name: 'Learn woodworking' });
   expect(slot.getAllByRole('link')).toHaveLength(2);
   const area = slot.getByRole('button', { name: /Learning/ }); fireEvent.click(area); expect(area.getAttribute('aria-expanded')).toBe('false'); fireEvent.click(area);
-  vi.spyOn(window, 'prompt').mockReturnValue('Woodwork'); fireEvent.click(slot.getByLabelText('Actions for project Learn woodworking')); fireEvent.click(slot.getByLabelText('Actions for project Learn woodworking').parentElement!.querySelector('button')!);
-  await vi.waitFor(() => expect(slot.inspection.rpcCalls.some(c => c.method === 'renameProject')).toBe(true));
+  const { input } = openRename(slot, 'project', project.title);
+  expect(document.activeElement).toBe(input);
+  expect([input.selectionStart, input.selectionEnd]).toEqual([0, project.title.length]);
+  fireEvent.change(input, { target: { value: ' Woodwork ' } });
+  fireEvent.click(slot.getByRole('button', { name: 'Save' }));
+  await slot.findByText('Title saved locally; cloud delivery is not verified.');
   expect(slot.inspection.rpcCalls.find(c => c.method === 'renameProject')?.input).toEqual({ ...ref, title: 'Woodwork' });
+  await vi.waitFor(() => expect(document.activeElement).toBe(slot.getByLabelText('Actions for project Learn woodworking')));
+  slot.lifecycle.unmount();
+});
+test('rename cancellation and unchanged or blank submissions leave the title alone', async () => {
+  const slot = setup();
+  await slot.findByRole('button', { name: 'Learning' });
+  for (const action of ['escape', 'cancel', 'unchanged', 'blank']) {
+    const { trigger, input, dialog } = openRename(slot, 'area', 'Learning');
+    if (action === 'escape') fireEvent.keyDown(input, { key: 'Escape' });
+    else if (action === 'cancel') fireEvent.click(slot.getByRole('button', { name: 'Cancel' }));
+    else {
+      fireEvent.change(input, { target: { value: action === 'blank' ? '  ' : ' Learning ' } });
+      const save = slot.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+      if (action === 'blank') {
+        expect(save.disabled).toBe(true);
+        fireEvent.submit(dialog.querySelector('form')!);
+        expect(dialog).toBe(slot.getByRole('dialog', { name: 'Rename area' }));
+        fireEvent.keyDown(input, { key: 'Escape' });
+      } else fireEvent.click(save);
+    }
+    expect(slot.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  }
+  expect(slot.inspection.rpcCalls.some(call => call.method === 'renameArea')).toBe(false);
+  slot.lifecycle.unmount();
+});
+test('an uncertain rename sends one write and shows the Obsidian receipt guidance', async () => {
+  const slot = setup('normal', undefined, async () => ({ operationId: crypto.randomUUID(), outcome: 'uncertain' }));
+  await slot.findByRole('button', { name: 'Learning' });
+  const { input, dialog } = openRename(slot, 'area', 'Learning');
+  fireEvent.change(input, { target: { value: 'Skills' } });
+  fireEvent.submit(dialog.querySelector('form')!);
+  await slot.findByText('Save unconfirmed. Inspect Obsidian receipts before another edit.');
+  expect(slot.inspection.rpcCalls.filter(call => call.method === 'renameArea')).toMatchObject([
+    { input: { source: ref.source, id: 'Areas/Learning.md', title: 'Skills' } },
+  ]);
   slot.lifecycle.unmount();
 });
 test('double activation while pending creates once and navigates through BB', async () => {

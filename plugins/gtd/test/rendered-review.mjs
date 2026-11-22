@@ -55,6 +55,7 @@ try {
     page.setDefaultTimeout(12000);
     const errors = []; const consoleErrors = []; page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     let title = 'Learn woodworking', area = 'Learning', creations = 0;
+    const renames = [];
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
     const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
       ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1 }),
@@ -102,7 +103,7 @@ try {
       if (method === 'listProjects' && mode === 'area-boundary') result.projects[0].areaId = 'Areas/Learning/Example Committee/Meeting.md';
       if (method === 'listAreas' && mode === 'area-boundary') result.areas.push(...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` })));
       if (method === 'listProjects' && mode === 'relationships') { result.projects[0].areaId = 'Areas/Learning/Consulting.md'; result.projects.push({ id: 'Projects/Unresolved.md', title: 'Unresolved project', status: 'active' }); }
-      if (method === 'renameProject' || method === 'renameArea') { if (method === 'renameProject') {
+      if (method === 'renameProject' || method === 'renameArea') { renames.push(input); if (method === 'renameProject') {
         if (mode === 'folder-complete') assert.equal(input.id, 'Projects/Pilot/');
         title = input.title;
       } else area = input.title; result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' }; }
@@ -191,12 +192,54 @@ try {
       assert.notEqual(await plus.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
       if (width === 390) assert.ok(await plus.evaluate(el => el.getBoundingClientRect().height >= 44));
       await page.screenshot({ path: join(artifacts, `hierarchy-${width}.png`) });
-      page.on('dialog', dialog => dialog.accept(dialog.message().includes('area') ? 'Skills' : 'Woodwork'));
-      for (const [kind, name] of [['area', 'Learning'], ['project', 'Learn woodworking']]) {
-        await nav.getByLabel(`Actions for ${kind} ${name}`).click();
-        const menu = nav.getByLabel(`Actions for ${kind} ${name}`).locator('..'); await menu.getByRole('button', { name: 'Rename' }).click();
-        await nav.getByRole('button', { name: kind === 'area' ? 'Skills' : 'Woodwork', exact: true }).waitFor();
+      await nav.getByRole('button', { name: 'Actions for Choose tools' }).focus();
+      await page.keyboard.press('Enter');
+      await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
+      const nativeInput = page.getByRole('textbox', { name: 'Thread name' });
+      await nativeInput.waitFor();
+      await page.screenshot({ path: join(artifacts, `host-rename-${width}.png`) });
+      await page.keyboard.press('Escape');
+      await nativeInput.waitFor({ state: 'hidden' });
+      for (const [kind, name, replacement] of [['area', 'Learning', 'Skills'], ['project', 'Learn woodworking', 'Woodwork']]) {
+        const trigger = nav.getByLabel(`Actions for ${kind} ${name}`);
+        const dialog = nav.getByRole('dialog', { name: `Rename ${kind}` });
+        const input = dialog.getByRole('textbox', { name: 'Title' });
+        const openEditor = async () => {
+          await trigger.focus();
+          await page.keyboard.press('Enter');
+          const rename = trigger.locator('..').getByRole('button', { name: 'Rename' });
+          await rename.focus();
+          await page.keyboard.press('Enter');
+          await input.waitFor();
+          assert.equal(await input.evaluate(el => el.matches(':focus')), true);
+          assert.deepEqual(await input.evaluate(el => [el.value, el.selectionStart, el.selectionEnd]), [name, 0, name.length]);
+          assert.notEqual(await input.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
+        };
+        await openEditor();
+        const bounds = await dialog.boundingBox();
+        assert.ok(bounds.x >= 12 && bounds.x + bounds.width <= width - 12);
+        if (width === 390) {
+          for (const control of [input, dialog.getByRole('button', { name: 'Save' }), dialog.getByRole('button', { name: 'Cancel' })]) {
+            assert.ok((await control.boundingBox()).height >= 44);
+          }
+        }
+        await page.screenshot({ path: join(artifacts, `rename-${kind}-${width}.png`) });
+        await page.keyboard.press('Escape');
+        await dialog.waitFor({ state: 'hidden' });
+        assert.equal(await trigger.evaluate(el => el.matches(':focus')), true);
+        await openEditor();
+        await page.keyboard.press('Enter');
+        await dialog.waitFor({ state: 'hidden' });
+        assert.equal(renames.length, kind === 'area' ? 0 : 1);
+        await openEditor();
+        await page.keyboard.insertText(replacement);
+        await page.keyboard.press('Enter');
+        await nav.getByRole('button', { name: replacement, exact: true }).waitFor();
+        const updatedTrigger = nav.getByLabel(`Actions for ${kind} ${replacement}`);
+        await updatedTrigger.waitFor();
+        assert.equal(await updatedTrigger.evaluate(el => el.matches(':focus')), true);
       }
+      assert.deepEqual(renames, [{ source: ref.source, id: 'Areas/Learning.md', title: 'Skills' }, { ...ref, title: 'Woodwork' }]);
       assert.equal(await nav.getByRole('link').count(), 2);
       // Native thread action submenu is the association/reassignment/unlink surface.
       await nav.getByRole('button', { name: 'Actions for Choose tools' }).click();
@@ -244,12 +287,13 @@ try {
       await nav.getByRole('button', { name: 'Attachment-only project', exact: true }).waitFor();
       assert.equal(await nav.getByText(/Partial inventory/).count(), 0);
       await nav.getByRole('button', { name: 'New thread for Empty project' }).focus();
-      page.on('dialog', dialog => dialog.accept('README title'));
       const actions = nav.getByLabel('Actions for project Learn woodworking');
       await actions.click();
       const rename = actions.locator('..').getByRole('button', { name: 'Rename' });
       await rename.focus();
       await page.keyboard.press('Enter');
+      await nav.getByRole('textbox', { name: 'Title' }).fill('README title');
+      await nav.getByRole('button', { name: 'Save', exact: true }).click();
       await nav.getByRole('button', { name: 'README title', exact: true }).waitFor();
     } else if (mode === 'directory-gap') {
       await nav.getByText(/Obsidian cannot enumerate directories/).waitFor();

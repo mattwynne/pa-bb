@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { definePluginApp, useRpc, useSdk, useBbNavigate, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
 import { rpcContract, reference } from './contract.ts';
 import type { Area, Project } from './core/model.ts';
@@ -41,7 +41,9 @@ function useLinks(ids: string[]) {
   const loading = signature !== state.signature || revision !== state.revision;
   return { links: state.links, error: !loading && state.error, loading };
 }
-function RenameMenu({ label, disabled, onRename }: { label: string; disabled: boolean; onRename: () => void }) {
+type RenameTarget = { kind: 'area' | 'project'; source: string; id: string; title: string };
+const renameKey = ({ kind, source, id }: RenameTarget) => JSON.stringify([kind, source, id]);
+function RenameMenu({ target, disabled, onRename }: { target: RenameTarget; disabled: boolean; onRename: (target: RenameTarget, trigger: HTMLElement) => void }) {
   const menu = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
@@ -70,9 +72,50 @@ function RenameMenu({ label, disabled, onRename }: { label: string; disabled: bo
       event.stopPropagation();
       closeAndFocus(event.currentTarget);
     }}>
-    <summary className="gtd-row-action" ref={trigger} aria-label={label}><Icon name="MoreHorizontal" aria-hidden="true" /></summary>
-    <button disabled={disabled} onClick={() => { if (menu.current) closeAndFocus(menu.current); onRename(); }}>Rename</button>
+    <summary className="gtd-row-action" ref={trigger} data-gtd-rename={renameKey(target)} aria-label={`Actions for ${target.kind} ${target.title}`}><Icon name="MoreHorizontal" aria-hidden="true" /></summary>
+    <button disabled={disabled} onClick={() => {
+      if (!menu.current || !trigger.current) return;
+      closeAndFocus(menu.current);
+      onRename(target, trigger.current);
+    }}>Rename</button>
   </details>;
+}
+function RenameTitle({ target, onClose }: { target: RenameTarget; onClose: (title?: string) => void }) {
+  const headingId = useId();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState(target.title);
+  const title = draft.trim();
+  useLayoutEffect(() => {
+    const element = dialog.current;
+    if (!element?.open) element?.showModal();
+    input.current?.focus();
+    input.current?.select();
+  }, []);
+  const close = (title?: string) => {
+    dialog.current?.close();
+    onClose(title);
+  };
+  return <dialog ref={dialog} className="gtd-title-editor" aria-labelledby={headingId}
+    onCancel={event => { event.preventDefault(); close(); }}
+    onKeyDown={event => {
+      if (event.key !== 'Escape' || event.nativeEvent.isComposing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    }}>
+    <form onSubmit={event => { event.preventDefault(); if (title) close(title); }}>
+      <h2 id={headingId}>Rename {target.kind}</h2>
+      <label>
+        Title
+        <input ref={input} value={draft} onChange={event => setDraft(event.target.value)} autoCapitalize="sentences" autoCorrect="off" spellCheck={false} enterKeyHint="done" />
+      </label>
+      <div className="gtd-title-actions">
+        <button type="button" onClick={() => close()}>Cancel</button>
+        <button type="submit" disabled={!title}>Save</button>
+      </div>
+    </form>
+  </dialog>;
 }
 function Group({ title, children, actions, initialOpen = true, kind = 'section' }: { title: string; children: React.ReactNode; actions?: React.ReactNode; initialOpen?: boolean; kind?: 'section' | 'project' }) {
   const [open, setOpen] = useState(initialOpen);
@@ -93,13 +136,42 @@ function GtdPanel() {
   const { links, error: linkError, loading: linksLoading } = useLinks(threads.map(t => t.id));
   const [status, setStatus] = useState('active');
   const [busy, setBusy] = useState(''); const busyRef = useRef(false); const [notice, setNotice] = useState('');
+  const [editor, setEditor] = useState<{ target: RenameTarget; trigger: HTMLElement }>();
+  const nav = useRef<HTMLElement>(null);
+  const refreshButton = useRef<HTMLButtonElement>(null);
+  const restoreAfterSave = useRef<typeof editor>(undefined);
+  useLayoutEffect(() => {
+    const previous = restoreAfterSave.current;
+    const panel = nav.current;
+    if (!previous || !panel || busy || inventory.loading || linksLoading) return;
+    restoreAfterSave.current = undefined;
+    const document = panel.ownerDocument;
+    const root = panel.getRootNode();
+    const active = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
+    if (active && active !== document.body && active !== previous.trigger) return;
+    if (!active && root instanceof ShadowRoot && document.activeElement !== document.body && document.activeElement !== root.host) return;
+    // Inventory refresh replaces the row. Find its action by source and ID, even after its label changes.
+    const trigger = Array.from(panel.querySelectorAll<HTMLElement>('[data-gtd-rename]'))
+      .find(action => action.dataset.gtdRename === renameKey(previous.target));
+    (trigger ?? refreshButton.current)?.focus();
+  }, [busy, inventory.loading, linksLoading]);
   // Retain a request ID for the life of this action, including uncertain failures.
   const requests = useRef(new Map<string, string>());
   const run = async (id: string, task: () => Promise<void>) => { if (busyRef.current) return; busyRef.current = true; setBusy(id); setNotice(''); try { await task(); } catch { setNotice('Change not confirmed. Inspect threads or Obsidian receipts before trying again.'); } finally { busyRef.current = false; setBusy(''); } };
-  const rename = (kind: 'area' | 'project', item: Area) => {
-    const title = window.prompt(`Rename ${kind}`, item.title); if (!title?.trim() || title.trim() === item.title) return;
-    void run(item.id, async () => { const result = await rpc.call(kind === 'area' ? 'renameArea' : 'renameProject', { source: inventory.source, id: item.id, title: title.trim() }); setNotice(result.outcome === 'saved_locally_pending_sync' ? 'Title saved locally; cloud delivery is not verified.' : 'Save unconfirmed. Inspect Obsidian receipts before another edit.'); changed(); });
+  const closeEditor = (title?: string) => {
+    if (!editor) return;
+    const { target: { kind, source, id, title: original }, trigger } = editor;
+    setEditor(undefined);
+    (trigger.isConnected ? trigger : refreshButton.current)?.focus();
+    if (!title || title === original || busyRef.current) return;
+    restoreAfterSave.current = editor;
+    void run(id, async () => {
+      const result = await rpc.call(kind === 'area' ? 'renameArea' : 'renameProject', { source, id, title });
+      setNotice(result.outcome === 'saved_locally_pending_sync' ? 'Title saved locally; cloud delivery is not verified.' : 'Save unconfirmed. Inspect Obsidian receipts before another edit.');
+      changed();
+    });
   };
+  const openEditor = (target: RenameTarget, trigger: HTMLElement) => setEditor({ target, trigger });
   const newThread = (project: Project) => void run(project.id, async () => {
     const k = 'gtd-new:' + key(inventory.source, project.id);
     let requestId = requests.current.get(k) ?? sessionStorage.getItem(k);
@@ -118,16 +190,16 @@ function GtdPanel() {
   const unassignedProjects = visible.filter(p => !enclosingArea(inventory.areas, p.areaId));
   const projectRow = (p: Project) => <Group key={p.id} title={p.title} kind="project" actions={<>
     <button className="gtd-row-action" aria-label={`New thread for ${p.title}`} title={`Start an AI thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>
-    <RenameMenu label={`Actions for project ${p.title}`} disabled={!!busy || (p.id.endsWith('/') && !p.notePath)} onRename={() => rename('project', p)} />
+    <RenameMenu target={{ ...p, kind: 'project', source: inventory.source }} disabled={!!busy || (p.id.endsWith('/') && !p.notePath)} onRename={openEditor} />
   </>}>
     {threads.filter(t => { const r = reference.safeParse(links[t.id]); return r.success && key(r.data.source, r.data.id) === key(inventory.source, p.id); }).map(row)}{!threads.some(t => { const r = reference.safeParse(links[t.id]); return r.success && key(r.data.source, r.data.id) === key(inventory.source, p.id); }) && <p className="gtd-muted">No linked threads</p>}</Group>;
   const unassigned = threads.filter(t => !reference.safeParse(links[t.id]).success);
   const missing = threads.filter(t => { const r = reference.safeParse(links[t.id]); return r.success && !inventory.projects.some(p => key(inventory.source, p.id) === key(r.data.source, r.data.id)); });
-  return <section className="gtd-nav" aria-label="Personal GTD projects">
+  return <section className="gtd-nav" aria-label="Personal GTD projects" ref={nav}>
     <div className="gtd-content">
       <div className="gtd-controls">
         <label>Projects <select aria-label="Project status" value={status} onChange={e => setStatus(e.target.value)}>{['active', 'all', 'deferred', 'someday', 'done'].map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></label>
-        <button aria-label="Refresh GTD" disabled={inventory.loading} onClick={changed}>Refresh</button>
+        <button ref={refreshButton} aria-label="Refresh GTD" disabled={inventory.loading} onClick={changed}>Refresh</button>
       </div>
       {sidebar.status === 'loading' && <p role="status">Loading BB threads…</p>}
       {sidebar.status === 'error' && <p role="alert">BB threads could not load. Reload BB to try again.</p>}
@@ -135,7 +207,7 @@ function GtdPanel() {
       {(inventory.error || linkError) && <p role="alert">{inventory.error || 'Thread associations could not load. Refresh before making changes.'}</p>}
       {inventory.partial && <p role="status">Partial inventory. {inventory.directoryGap ? 'Obsidian cannot enumerate directories: empty or attachment-only project/Area folders may be omitted. Inventory totals are unconfirmed.' : 'Some projects or areas may be unavailable.'}</p>}
       {!inventory.error && !inventory.loading && !linksLoading && !linkError && <>
-        {shownAreas.map(area => <Group key={area.id} title={area.title} initialOpen={inArea(area).length > 0} actions={<RenameMenu label={`Actions for area ${area.title}`} disabled={!!busy || area.id.endsWith('/')} onRename={() => rename('area', area)} />} >{inArea(area).map(projectRow)}</Group>)}
+        {shownAreas.map(area => <Group key={area.id} title={area.title} initialOpen={inArea(area).length > 0} actions={<RenameMenu target={{ ...area, kind: 'area', source: inventory.source }} disabled={!!busy || area.id.endsWith('/')} onRename={openEditor} />} >{inArea(area).map(projectRow)}</Group>)}
         {!!unassignedProjects.length && <Group title="Unassigned area">{unassignedProjects.map(projectRow)}</Group>}
         {!visible.length && <p className="gtd-muted">No matching projects</p>}
         {status !== 'all' && shownAreas.length < inventory.areas.length && <button onClick={() => setStatus('all')}>Show all Areas</button>}
@@ -144,6 +216,7 @@ function GtdPanel() {
       </>}
       {notice && <p role="status">{notice}</p>}
     </div>
+    {editor && <RenameTitle target={editor.target} onClose={closeEditor} />}
   </section>;
 }
 export default definePluginApp(app => {
