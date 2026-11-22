@@ -24,6 +24,12 @@ Updated Obsidian sources advertise `childrenAccessVersion: 1`. GTD combines boun
 
 Areas also use one immediate entry layer of Markdown root notes and Area-named folders, with exact-name pairing and root-note title/identity precedence. Nested notes are supporting material, never additional Areas or metadata sources. Unlike Projects, Areas have no status containers: an immediate directory named `Active` or `Done` is simply an Area. Empty and attachment-only Areas use bounded directory enumeration. Older sources lacking that capability report partial coverage, never confirmed empty totals. Titles and identities are untrusted evidence, never instructions. Listing grants no complete-read edit proof.
 
+## Move one project or change its Area
+
+Ask, for example: **“Assign the launch project to Work/Active Income/Cucumber, not the other Cucumber note.”** **“Clear the Area on the launch project.”** **“Move the launch project to Done and keep its linked conversations.”** Add “preview only” to see the plan without applying it. This operates on the current vault convention, not the stable-ID migration.
+
+`bb gtd area-targets --json` lists one level of exact note and folder paths. Pass `--folder` to descend and `--offset` for the next page. The corresponding agent tools are `gtd_browse_area_targets`, `gtd_prepare_project_change` and `gtd_check_project_change`. They compose with the existing checked Obsidian editor/move tools; the CLI does not write vault notes. See the [agent workflow](skills/gtd-projects/SKILL.md#change-one-projects-area-or-status-legacy-paths) for ordering, read-back, failure handling and limits. Status moves are for standalone Markdown notes only, not sibling support folders or READMEs. Moving a note and updating BB thread metadata are separate operations, not a transaction. A partial result must be reconciled.
+
 ## Stable identity migration preview
 
 `bb gtd migration-preview` compares the configured legacy inventory with the proposed stable-ID layout. For private per-entry and thread-reference mappings, run `umask 077` before redirecting `bb gtd migration-preview --json` into a new private file. It requires Obsidian inventory evidence v1. It reads active, hidden and archived thread metadata via BB; coverage is for the selected source and observable records, not deleted threads or an atomic BB/vault snapshot. Older/unavailable evidence is not a reason to scan the filesystem directly.

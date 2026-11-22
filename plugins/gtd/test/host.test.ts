@@ -14,7 +14,7 @@ async function setup(backend?: ProjectBackend) {
 test('host registers one read-only tool, CLI help/validation/JSON and RPC share the same listing', async () => {
   const { harness } = await setup({ async readProjects() { return data(); }, async checkAccess() {} });
   try {
-    const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), ['gtd_list_projects', 'gtd_list_areas', 'gtd_create_project_thread', 'gtd_rename_project', 'gtd_rename_area']); assert.match(config.instructions!, /untrusted evidence/);
+    const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), ['gtd_browse_area_targets', 'gtd_prepare_project_change', 'gtd_check_project_change', 'gtd_list_projects', 'gtd_list_areas', 'gtd_create_project_thread', 'gtd_rename_project', 'gtd_rename_area']); assert.match(config.instructions!, /untrusted evidence/);
     const help = await harness.behavior.runCli(['projects', '--help']); assert.equal(help.exitCode, 0); assert.match(help.stdout!, /--status/);
     for (const args of [['projects', '--status', 'bogus', '--json'], ['projects', '--limit', '201', '--json'], ['projects', '--limti', '1', '--json']]) assert.notEqual((await harness.behavior.runCli(args)).exitCode, 0);
     const cli = await harness.behavior.runCli(['projects', '--json']); assert.equal(cli.exitCode, 0); assert.equal(JSON.parse(cli.stdout!).totalProjects, 1);
@@ -45,5 +45,8 @@ test('settings validation rejects traversal and survives reload; plugin imports 
     assert.doesNotMatch(result.stdout!, /unconfigured/); assert.match(result.stdout!, /source_unavailable/);
   } finally { await host.harness.lifecycle.dispose(); }
   const scan = await experimental_scanPublicSdkOnly(new URL('../', import.meta.url).pathname, { allow: [/^react$/, /^@testing-library\/react$/, /^playwright$/, /^@get-bb\/plugin-sdk\/testing$/] });
-  assert.deepEqual(scan.violations, []); assert.deepEqual(scan.privateDependencies, []);
+  // This disposable contract fixture intentionally exercises both real plugin
+  // factories. No exception for production imports or any other test module.
+  assert.deepEqual(scan.violations.filter(v => !(v.file === 'test/project-changes.test.ts' && v.reason === 'outside-package' && ['../../obsidian/server.ts', '../../obsidian/test/fakes.ts'].includes(v.specifier))), []);
+  assert.deepEqual(scan.privateDependencies, []);
 });
