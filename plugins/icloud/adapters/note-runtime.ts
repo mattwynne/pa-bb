@@ -81,11 +81,12 @@ export class NoteRuntime {
         if (!Number.isSafeInteger(config.revision) || config.revision < 0 || !Array.isArray(members) || members.length > 20 || members.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(id)) || new Set(members).size !== members.length) throw new NoteError('uncertain');
         this.revision = config.revision; this.members = new Set(members);
       }
+      const watched = new Map<string, string>();
       for (const mirror of this.state().mirrors.filter(m => m.initialized && m.phase !== 'retained')) {
         try {
           const directory = await this.local(mirror);
           await this.overlay.indexLegacy(mirror.id, directory);
-          if (this.direct.has(mirror.id)) this.mirrorWakeups?.observe(mirror.id, directory);
+          if (this.direct.has(mirror.id)) watched.set(mirror.id, directory);
         }
         catch (error) { this.blocked.add(mirror.id); if (error instanceof NoteError && error.category === 'uncertain') throw error; }
       }
@@ -93,6 +94,7 @@ export class NoteRuntime {
       // invitation to apply queued edits merely because the plugin restarted.
       for (const mirror of this.state().mirrors) if (!mirror.enabled && mirror.failure === 'interrupted' && this.overlay.pending().some(p => p.mirrorId === mirror.id)) this.nativeBlocked.set(mirror.id, 'uncertain');
       this.ready = true;
+      for (const [id, directory] of watched) this.mirrorWakeups?.observe(id, directory);
       this.wake();
       this.scheduleMaintenance();
     } catch (error) {
