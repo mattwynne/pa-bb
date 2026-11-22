@@ -510,10 +510,15 @@ export class Obsidian {
     const { reference, target, subpath } = decoded;
     if (/^[A-Za-z][\w+.-]*:/.test(reference) || reference.startsWith('//') || reference.includes('\\') || reference.includes('\0')) throw new VaultError('external_link', 'External URLs and cross-vault references are not fetched.');
     const { revision } = await this.source(input.vaultId); const listed = await this.files.list(input.vaultId, revision);
-    const candidates = genericNoteCandidates(target, input.path, listed.paths);
+    const { matches, possible } = genericNoteCandidates(target, input.path, listed.paths);
     this.check(input.vaultId, revision);
-    if (candidates.length !== 1) return { status: candidates.length ? 'ambiguous' : listed.incomplete ? 'incomplete' : 'missing', vaultId: input.vaultId, candidates: candidates.slice(0, 20), incomplete: listed.incomplete, evidenceOnly: true };
-    const resolved = await this.read({ vaultId: input.vaultId, path: candidates[0], ...(subpath.startsWith('^') ? { blockId: subpath.slice(1) } : subpath ? { heading: subpath } : {}) }, signal, reader);
+    const candidates = [...matches, ...possible];
+    if (matches.length !== 1 || possible.length || listed.incomplete) {
+      const status = candidates.length > 1 ? 'ambiguous' : listed.incomplete ? 'incomplete' : 'missing';
+      return { status, vaultId: input.vaultId, candidates: status === 'ambiguous' ? candidates.slice(0, 20) : matches.slice(0, 20),
+        ...(possible.length ? { possibleCandidates: possible.slice(0, 20) } : {}), incomplete: listed.incomplete, evidenceOnly: true };
+    }
+    const resolved = await this.read({ vaultId: input.vaultId, path: matches[0], ...(subpath.startsWith('^') ? { blockId: subpath.slice(1) } : subpath ? { heading: subpath } : {}) }, signal, reader);
     return { status: 'resolved', ...resolved };
   }
   async moveStatus(input: { vaultId: string; operationId: string }) {
@@ -628,7 +633,7 @@ export class Obsidian {
     if (input.dryRun) {
       check();
       checkLedger();
-      return { outcome: 'link_plan_ready', notesChecked: listed.length, bytesChecked: bytes, plannedRepairs: plan.length,
+      return { outcome: 'link_plan_ready', notesChecked: listed.length, bytesChecked: bytes, plannedRepairs: plan.length, repairPaths: plan.map(repair => repair.path),
         message: 'Read-only link discovery completed. Moving reruns preflight and checks destination, conflicts and recovery state at write time.' };
     }
     await this.update(async () => {

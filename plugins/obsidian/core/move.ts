@@ -1,19 +1,32 @@
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { createLinkCandidates, isShortWikiPath, linkPathForms, matchesSuffix, noteNameKey, pathKey, suffixForms } from './link-candidates.ts';
 import { MAX_NOTE_BYTES, VaultError, type NoteParser } from './ports.ts';
 export const moveRecordSchema = z.object({ operationId: z.string().uuid(), finished: z.boolean().optional(), vaultId: z.string(), path: z.string().max(1024), destination: z.string().max(1024), repairs: z.array(z.object({ path: z.string().max(1024), expectedHash: z.string(), hash: z.string(), operationId: z.string().uuid(), outcome: z.enum(['unstarted', 'submitted', 'saved', 'not_saved', 'uncertain']) }).strict()).max(64) }).strict();
 export type MoveRecord = z.infer<typeof moveRecordSchema>;
 export const hashText = (text: string) => createHash('sha256').update(text).digest('hex');
 export const MOVE_SCAN_LIMITS = { notes: 10000, bytes: 128 * 1024 * 1024, milliseconds: 20000, batch: 8 } as const;
 const REPAIR_BYTES = 8 * 1024 * 1024;
-const basenameKey = (path: string) => posix.basename(path).toLowerCase().replace(/\.md$/, '');
+const encodePath = (path: string) => path.split('/').map(part => encodeURIComponent(part)
+  .replace(/[!'()*]/g, value => '%' + value.charCodeAt(0).toString(16).toUpperCase())).join('/');
+function absoluteFilePath(target: string) {
+  if (!/^file:\/\/\/(?!\/)/i.test(target) || /[\\\x00-\x1f\x7f]/.test(target)) return;
+  try {
+    const { pathname } = new URL(target);
+    if (/%(?:2f|5c)/i.test(pathname)) return;
+    const path = decodeURIComponent(pathname);
+    if (!/[\\\x00-\x1f\x7f]/.test(path)) return path;
+  } catch {
+    // A malformed file URL may still name a move endpoint.
+  }
+}
 const below = (path: string, folder: string) => path.startsWith(folder + '/');
 const unsupportedReasons = {
   path_characters: 'The path contains characters the move planner cannot handle safely.',
   frontmatter: 'The YAML frontmatter could not be checked for links.',
   parser_warning: 'The Markdown parser reported a warning while checking this note.',
-  reference_definition: 'The planner cannot check Markdown reference definitions.',
+  reference_definition: 'The planner cannot check this Markdown reference definition.',
   html_link_attribute: 'The planner found an HTML link or embed attribute it cannot check safely.',
   unclosed_html: 'The Markdown parser found an HTML element without a closing tag.',
   link_syntax: 'The planner cannot check this link syntax.',
@@ -36,26 +49,13 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
   if (!paths.has(from) || paths.has(to)) throw new VaultError('conflict');
   const oldFolder = posix.dirname(from), newFolder = posix.dirname(to);
   const siblings = posix.dirname(oldFolder) === posix.dirname(newFolder);
-  const endpoints = [from, to].map(path => path.toLowerCase());
-  const endpointNames = [from, to].map(basenameKey);
-  const basenames = new Map<string, string[]>();
-  for (const path of paths) {
-    const key = basenameKey(path);
-    const matches = basenames.get(key);
-    if (matches) matches.push(path);
-    else basenames.set(key, [path]);
-  }
-  const pathForms = (name: string, folder: string, wiki: boolean) => {
-    const path = posix.normalize(name.startsWith('/') ? name.slice(1) : wiki && !name.startsWith('.') ? name : posix.join(folder, name));
-    return [path, path + '.md'];
-  };
-  // A short wikilink may name a path suffix inside a workspace. Use suffix
-  // matches to rule out changes or detect uncertainty, never to pick a target.
-  const suffixForms = (name: string) => pathForms(name, '', true).map(path => path.toLowerCase().replace(/^(?:\.\.\/)+/, ''));
-  const matchesSuffix = (forms: string[], path: string) => forms.some(form => path === form || path.endsWith('/' + form));
-  const suffixCandidates = (forms: string[]) =>
-    [...new Set(forms.flatMap(form => basenames.get(basenameKey(form)) ?? []))].filter(path => matchesSuffix(forms, path.toLowerCase()));
-  const existsAfter = (path: string) => path === to || (path !== from && paths.has(path));
+  const endpoints = [from, to].map(pathKey);
+  const endpointNames = [from, to].map(noteNameKey);
+  const beforeMove = createLinkCandidates(paths);
+  const afterPaths = new Set(paths);
+  afterPaths.delete(from);
+  afterPaths.add(to);
+  const afterMove = createLinkCandidates(afterPaths);
   const repairs: Array<{ path: string; text: string; expectedHash: string; hash: string }> = [];
   let repairBytes = 0;
   const visit = (note: { path: string; text: string; hash: string }, bytes: number) => {
@@ -72,67 +72,87 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
       throw new MoveLinkError({ reason, ...location(offset) });
     };
     const metadata = parser.parse(note.text, 'move');
-    // The parser exposes YAML link locations as whole-property spans and does
-    // not expose Markdown reference destinations. Fail closed, never regex-edit
-    // code, HTML or a YAML scalar as though it were a supported inline link.
     if (metadata.warnings.includes('properties_unsupported')) unsupported('frontmatter', 0);
     if (metadata.warnings.includes('unclosed_html')) unsupported('unclosed_html', metadata.unclosedHtmlOffset);
     if (metadata.warnings.length) unsupported('parser_warning');
-    const reference = /^ {0,3}\[[^\]\n]+\]:/m.exec(note.text);
-    if (reference) unsupported('reference_definition', reference.index + reference[0].indexOf('['));
+    const parsedDefinitions = new Set(metadata.links.filter(link => link.syntax === 'definition').map(link => link.start));
+    for (const reference of note.text.matchAll(/^ {0,3}\[[^\]\n]+\]:/gm)) {
+      const start = reference.index + reference[0].indexOf('[');
+      if (!parsedDefinitions.has(start)) unsupported('reference_definition', start);
+    }
     if (metadata.htmlLinkOffset !== undefined) unsupported('html_link_attribute', metadata.htmlLinkOffset);
     const pieces: string[] = [];
     let offset = 0;
     for (const link of [...metadata.links].sort((a, b) => a.start - b.start)) {
       const ambiguous = (reason: string) => new MoveLinkError({ reason: 'ambiguous_target', ...location(link.start) }, reason);
-      const raw = note.text.slice(link.start, link.end);
-      // Use the Markdown parser's destination for external links. The inline
-      // rewrite grammar need not understand their labels or parentheses.
-      if (link.syntax === 'markdown' && /^(?:https?:\/\/|mailto:|file:\/\/\/[^?#]*\.pdf$)/i.test(link.target)) continue;
+      if (link.syntax === 'definition') {
+        if (/^data:image\/(?:png|gif|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/i.test(link.target)) continue;
+        return unsupported('reference_definition', link.start);
+      }
+      if (link.syntax === 'markdown' && /^(?:https?:\/\/|mailto:)/i.test(link.target)) continue;
+      if (link.syntax === 'markdown' && /^file:/i.test(link.target)) {
+        const filePath = absoluteFilePath(link.target);
+        // An absolute file destination has no dependency on the referring
+        // folder. Its mount prefix may differ across machines, so a matching
+        // final name is still a possible endpoint.
+        if (filePath === undefined) return unsupported('link_syntax', link.start);
+        if (!endpointNames.includes(noteNameKey(filePath))) continue;
+        throw ambiguous('An absolute file link could name the source or destination.');
+      }
       const frontmatter = link.syntax === 'frontmatter';
-      const wiki = frontmatter || /^!?\[\[/.test(raw);
-      const match = frontmatter ? null : wiki ? raw.match(/^(!?\[\[)([^|\]#]*)([^\]]*\]\])$/) : raw.match(/^(!?\[[^\]\n]*\]\()([^\s()]+)(\s+"[^"\n]*")?\)$/);
-      const spellingBefore = frontmatter ? link.target : match?.[2];
-      if (spellingBefore === undefined) return unsupported('link_syntax', link.start);
-      let target: string; try { target = decodeURIComponent(spellingBefore); } catch { return unsupported('target_encoding', link.start); }
-      if (/^[a-z][\w+.-]*:/i.test(target) || target.startsWith('//')) continue;
-      if (/%(?!20)/i.test(spellingBefore)) unsupported('target_encoding', link.start);
-      if (target.includes('\\') || target.includes('?')) unsupported('target_characters', link.start);
-      const split = target.indexOf('#'), name = split < 0 ? target : target.slice(0,split), fragment = split < 0 ? '' : target.slice(split);
-      if (!name) continue; // Local heading or block references follow their note.
+      const wiki = frontmatter || link.syntax === 'wiki';
+      const span = link.destination;
+      const raw = span && note.text.slice(span.start, span.end);
+      if (!wiki && raw !== undefined && raw !== link.target) return unsupported('link_syntax', link.start);
+      if (!wiki && raw === undefined && !link.target) continue;
+      const spellingBefore = raw ?? link.target;
+      const fragment = spellingBefore.indexOf('#');
+      const pathSpelling = fragment < 0 ? spellingBefore : spellingBefore.slice(0, fragment);
+      if (!pathSpelling) continue; // Local heading or block references follow their note.
+      if (/%(?:2f|5c)/i.test(pathSpelling)) return unsupported('target_encoding', link.start);
+      let name: string;
+      try { name = decodeURIComponent(pathSpelling); } catch { return unsupported('target_encoding', link.start); }
+      if (/^[a-z][\w+.-]*:/i.test(name) || name.startsWith('//')) return unsupported('link_syntax', link.start);
+      if (pathSpelling.includes('?') || /[\\\x00-\x1f\x7f]/.test(name)) return unsupported('target_characters', link.start);
+      if (wiki && (pathSpelling !== pathSpelling.trim() || (raw !== undefined && raw !== link.target))) {
+        return unsupported('target_characters', link.start);
+      }
       const moved = note.path === from;
       const movedSource = moved ? to : note.path;
       const basename = wiki && !name.includes('/');
-      const shortPath = wiki && !basename && !name.startsWith('/') && !name.startsWith('.');
-      const before = basename ? [] : pathForms(name, posix.dirname(note.path), wiki);
-      const after = moved && !basename ? pathForms(name, newFolder, wiki) : before;
+      const shortPath = wiki && isShortWikiPath(name);
+      const before = basename ? [] : linkPathForms(name, posix.dirname(note.path), wiki);
+      const after = moved && !basename ? linkPathForms(name, newFolder, wiki) : before;
       const suffixes = shortPath ? suffixForms(name) : [];
       const touchesEndpoint = basename
-        ? endpointNames.includes(basenameKey(name))
-        : [...before, ...after].some(path => endpoints.includes(path.toLowerCase())) || endpoints.some(path => matchesSuffix(suffixes, path));
+        ? endpointNames.includes(noteNameKey(name))
+        : [...before, ...after].some(path => endpoints.includes(pathKey(path))) || endpoints.some(path => matchesSuffix(suffixes, path));
       if (!touchesEndpoint) {
         if (!moved || oldFolder === newFolder) continue;
         if (basename) {
-          if ((basenames.get(basenameKey(name))?.length ?? 0) <= 1) continue;
+          if (beforeMove.byName(name).length <= 1) continue;
           throw ambiguous('An outgoing basename link in the moved note could change targets.');
         }
         if (shortPath) {
-          const possible = suffixCandidates(suffixes);
+          const possible = beforeMove.bySuffix(suffixes);
           // Only the two sibling directories change context. A unique match
           // outside them stays in the same ancestor scopes and remains the
           // same candidate. Preserve the original spelling.
-          if (possible.length === 1 && !below(possible[0].toLowerCase(), oldFolder.toLowerCase())
-            && !below(possible[0].toLowerCase(), newFolder.toLowerCase())
+          if (possible.length === 1 && !below(pathKey(possible[0]), pathKey(oldFolder))
+            && !below(pathKey(possible[0]), pathKey(newFolder))
             && (siblings || before.includes(possible[0]))) continue;
           throw ambiguous('An outgoing short-path link could change meaning in the destination folder.');
         }
         if (before[0] === after[0]) continue;
       }
-      if (!match) return unsupported('frontmatter_link', link.start);
+      // Native Obsidian can treat percent-encoded URL delimiters as literal
+      // spelling. They cannot establish a target for a needed rewrite.
+      if (/%(?:23|3f)/i.test(pathSpelling)) return unsupported('target_encoding', link.start);
+      if (!span) return unsupported(frontmatter ? 'frontmatter_link' : 'link_syntax', link.start);
       const candidates = basename
-        ? basenames.get(basenameKey(name)) ?? []
-        : before.filter(path => paths.has(path));
-      if (candidates.length !== 1 || (shortPath && suffixCandidates(suffixes).length !== 1)) {
+        ? beforeMove.byName(name)
+        : beforeMove.byPath(before);
+      if (candidates.length !== 1 || (shortPath && beforeMove.bySuffix(suffixes).length !== 1)) {
         throw ambiguous('A link that could change with this move did not have a uniquely established target.');
       }
       const resolved = candidates[0];
@@ -140,27 +160,23 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
         throw ambiguous('A link could acquire a different target at the destination.');
       }
       const destination = resolved === from ? to : resolved;
-      const next = wiki ? destination.replace(/\.md$/, '') : encodeURI(posix.relative(posix.dirname(movedSource), destination)).replace(/#/g, '%23');
+      if (wiki && /[#|\[\]<>?%]/.test(destination)) return unsupported('target_characters', link.start);
+      const next = wiki ? destination.replace(/\.md$/, '') : encodePath(posix.relative(posix.dirname(movedSource), destination));
       const spelling = wiki ? next : decodeURIComponent(next);
       const possibleAfter = wiki && !spelling.includes('/')
-        ? (basenames.get(basenameKey(spelling)) ?? []).filter(existsAfter).concat(basenameKey(spelling) === basenameKey(to) ? [to] : [])
-        : pathForms(spelling, posix.dirname(movedSource), wiki).filter(existsAfter);
+        ? afterMove.byName(spelling)
+        : afterMove.byPath(linkPathForms(spelling, posix.dirname(movedSource), wiki));
       if (possibleAfter.length !== 1 || possibleAfter[0] !== destination) {
         throw ambiguous('A rewritten link would not uniquely identify its intended target.');
       }
-      if (wiki && spelling.includes('/')) {
-        const forms = suffixForms(spelling);
-        if (suffixCandidates(forms).some(path => existsAfter(path) && path !== destination)
-          || (to !== destination && matchesSuffix(forms, to.toLowerCase()))) {
-          throw ambiguous('A rewritten wikilink would have a competing path match.');
-        }
+      if (wiki && isShortWikiPath(spelling) && afterMove.bySuffix(suffixForms(spelling)).some(path => path !== destination)) {
+        throw ambiguous('A rewritten wikilink would have a competing path match.');
       }
-      const replacement = wiki ? match[1] + next + (match[3] || '') : match[1] + next + fragment + (match[3] || '') + ')';
-      if (replacement === raw) continue;
-      if (link.start < offset) unsupported('overlapping_links', link.start);
-      bytes += Buffer.byteLength(replacement) - Buffer.byteLength(raw);
-      pieces.push(note.text.slice(offset, link.start), replacement);
-      offset = link.end;
+      if (next === pathSpelling) continue;
+      if (span.start < offset) unsupported('overlapping_links', link.start);
+      bytes += Buffer.byteLength(next) - Buffer.byteLength(pathSpelling);
+      pieces.push(note.text.slice(offset, span.start), next);
+      offset = span.start + pathSpelling.length;
     }
     if (!pieces.length) return;
     if (bytes > MAX_NOTE_BYTES) throw new VaultError('capacity', 'A planned link repair would exceed the note store’s 1 MiB write limit.');

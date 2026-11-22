@@ -762,3 +762,46 @@ test('a valid empty capability reply keeps live properties without touching the 
   assert.ok(f.calls.some(c => c.method === 'mirrorDirectory'));
   assert.ok(!f.calls.some(c => c.method === 'mirrorDirectoryGrant'));
 });
+
+test('an Obsidian archive appears in the connected GTD Done inventory', async t => {
+  const path = 'Life/Projects/Active/Service a heater.md';
+  const destination = 'Life/Projects/Done/Service a heater.md';
+  const f = await fixture(t, 'ready', async root => {
+    for (const folder of ['Life/.obsidian', 'Life/Areas', 'Life/Projects/Active', 'Life/Projects/Done']) {
+      await mkdir(join(root, folder), { recursive: true });
+    }
+    await writeFile(join(root, path), '---\nstatus: active\n---\n- [x] Service\n');
+  });
+  const gtd = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one/Life' }, sdk: { plugins: { callRpc: async (args: any) => {
+    if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Synthetic' }], incomplete: false };
+    return f.harness.behavior.callRpc(args.method, args.input, gtdCaller);
+  },
+  } } });
+  t.after(() => gtd.harness.lifecycle.dispose());
+  await gtdPlugin(gtd.bb as unknown as Parameters<typeof gtdPlugin>[0]);
+
+  const list = async (status: 'active' | 'done') => {
+    const page: any = await gtd.harness.behavior.callRpc('listProjects', { status });
+    return page.coverage === 'complete' ? page.projects.map((project: { id: string }) => project.id) as string[] : undefined;
+  };
+  assert.deepEqual(await list('active'), [path]);
+
+  const input = { vaultId: 'one', path };
+  const source = await f.tool('read_note', input);
+  const result = await f.tool('move_note', { ...input, destination, expectedHash: source.hash });
+  assert.equal(result.outcome, 'moved_supported_links_updated');
+  // The indexed client can see the previous generation or a transient
+  // unavailable response while processing both sides of the rename.
+  const after = await waitFor(async () => {
+    try {
+      const done = await list('done');
+      const active = await list('active');
+      return done?.includes(destination) && active && !active.includes(path) ? { done, active } : undefined;
+    } catch (error) {
+      if (!(error instanceof experimental_PluginRpcCallError) || error.code !== 'handler_error' || error.message !== 'GTD source unavailable.') throw error;
+      return undefined;
+    }
+  });
+  assert.deepEqual(after.done, [destination]);
+  assert.deepEqual(after.active, []);
+});

@@ -39,7 +39,14 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
     + '\n\n```markdown\n[[Projects/Active/Service a heater|Example in code]]\n```\n\n';
   const lateIndex = join(vault, 'Reference/Z Index.md');
   const unrelated = '[[Missing]]\n[[Equipment]]\n';
-  const before = '[[Service a heater|Service]]\n[Service](../Example/Projects/Active/Service%20a%20heater.md)\n' + unrelated;
+  const trailing = '\r\n![sample][image]\r\n\r\n[image]: data:image/png;base64,AAAA\r\n' + unrelated;
+  const indexLinks = (folder: string, wikiPath: string) => [
+    '| Project |',
+    '| ------- |',
+    '| [[' + wikiPath + '\\|Service]] |',
+    '😀 [Service](<../Example/Projects/' + folder + '/Service%20a%20heater.md#section> "title")',
+  ].join('\r\n') + trailing;
+  const before = indexLinks('Active', 'Service a heater');
   await writeFile(lateIndex, indexPrefix + before);
 
   const databasePath = join(root, 'moves.sqlite');
@@ -127,6 +134,7 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
   assert.equal(preview.notesChecked, 516);
   assert.ok(preview.bytesChecked > 20 * 1024 * 1024);
   assert.equal(preview.plannedRepairs, 1);
+  assert.deepEqual(preview.repairPaths, ['Reference/Z Index.md']);
   assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
   assert.equal(await readFile(lateIndex, 'utf8'), indexPrefix + before);
   t.diagnostic(`Read-only planning checked ${preview.bytesChecked} bytes in ${Math.round(performance.now() - started)} ms.`);
@@ -136,7 +144,7 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
   assert.equal(await readFile(join(vault, destination), 'utf8'), original);
   await assert.rejects(readFile(join(vault, path)), { code: 'ENOENT' });
   assert.equal(await readFile(lateIndex, 'utf8'), indexPrefix
-    + '[[Example/Projects/Done/Service a heater|Service]]\n[Service](../Example/Projects/Done/Service%20a%20heater.md)\n' + unrelated);
+    + indexLinks('Done', 'Example/Projects/Done/Service a heater'));
 
   db.close();
   const reopened = new Database(databasePath, { readonly: true, fileMustExist: true });

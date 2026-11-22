@@ -75,12 +75,22 @@ test('live HTML embeds still block a move', () => {
     error => error instanceof MoveLinkError && error.location.reason === 'html_link_attribute');
 });
 
-test('parser-confirmed PDF and web links with parentheses stay unchanged', () => {
-  const other = '[PDF](file:///example/Report(2026).pdf) and <https://example.test/page>\n';
+test('parser-confirmed unrelated absolute file and web links stay unchanged', () => {
+  const other = [
+    '[PDF](file:///example/Report(2026).pdf) and <https://example.test/page>',
+    '[Note](file:///external/Reference%20notes.md)',
+    '[Folder](<file:///external/Reference folder/>)',
+    '[Same stem but another extension](file:///external/Example.wav)',
+    '',
+  ].join('\n');
   const [repair] = planMove([source, note('Index.md', other + '[[Example]]')], source.path, 'Reference/Example.md', parser);
   assert.equal(repair.text, other + '[[Reference/Example]]');
-  assert.throws(() => planMove([source, note('Index.md', '[note](file:///example/Example(2026).md)')], source.path, 'Reference/Example.md', parser),
-    error => error instanceof MoveLinkError && error.location.reason === 'link_syntax');
+  for (const endpoint of ['Example.md', 'Ex%61mple.md', 'New.md', 'Example.md#heading']) {
+    const index = note('Index.md', '[note](file:///some/mount/' + endpoint + ')');
+    assert.throws(() => planMove([source, index], source.path, 'Reference/New.md', parser), /ambiguous_link/);
+  }
+  const encodedSeparator = note('Index.md', '[note](file:///some/mount/Areas%2FExample.md)');
+  assert.throws(() => planMove([source, encodedSeparator], source.path, 'Reference/New.md', parser), /unsupported_links/);
 });
 
 const projectPath = 'Example/Projects/Active/Service a heater.md';
@@ -130,4 +140,55 @@ test('a repair that would introduce an ambiguous wiki path fails closed', () => 
     note('Copy/Example/Projects/Done/Service a heater.md', ''),
   ];
   assert.throws(() => planMove(notes, projectPath, donePath, parser), /ambiguous_link/);
+});
+
+test('repairs angle and table destinations while preserving every surrounding byte', () => {
+  const from = 'Workspace/Active/Café (north) & south.md';
+  const to = 'Workspace/Done/Café (north) & south.md';
+  const section = '#Section%20%C3%A9';
+  const escapedAlias = '\\|display';
+  const before = [
+    '\uFEFF😀 [label with [brackets]](<Active/Café (north) & south.md' + section + '> \'quoted title\')',
+    '',
+    '| Wiki | Markdown |',
+    '| ---- | -------- |',
+    '| ![[Workspace/Active/Café (north) & south#Heading' + escapedAlias + ']] | [image](Files/A%26B%28v2%29.txt) |',
+    '',
+    '![screen][surface]',
+    '',
+    '[surface]: <data:image/png;base64,AAAA> "image title"',
+    '',
+  ].join('\r\n');
+  const expected = before
+    .replace('Active/Café (north) & south.md', 'Done/Caf%C3%A9%20%28north%29%20%26%20south.md')
+    .replace('Workspace/Active/', 'Workspace/Done/');
+  const repairs = planMove([note(from, ''), note('Workspace/Index.md', before)], from, to, parser);
+  assert.equal(repairs.length, 1);
+  assert.deepEqual(Buffer.from(repairs[0].text), Buffer.from(expected));
+  assert.equal(repairs[0].hash, hashText(expected));
+});
+
+test('encoded note destinations preserve literal fragments and distinguish encoded path characters', () => {
+  const index = note('Index.md', '[back](Areas/Example%2Emd#part%23one) [other](Areas/Example%23Other.md)\n');
+  const [repair] = planMove([source, index], source.path, 'Reference/Ex(ample).md', parser);
+  assert.equal(repair.text, '[back](Reference/Ex%28ample%29.md#part%23one) [other](Areas/Example%23Other.md)\n');
+  const uncertain = note('Index.md', '[back](Areas%2FExample.md)');
+  assert.throws(() => planMove([source, uncertain], source.path, 'Reference/Example.md', parser),
+    error => error instanceof MoveLinkError && error.location.reason === 'target_encoding');
+});
+
+test('still refuses destinations hidden in local and non-raster reference definitions', () => {
+  for (const link of ['<Areas/Example.md>', 'data:image/svg+xml;base64,AAAA']) {
+    const index = note('Index.md', '![image][ref]\n\n[ref]: ' + link);
+    assert.throws(() => planMove([source, index], source.path, 'Reference/Example.md', parser),
+      error => error instanceof MoveLinkError && error.location.reason === 'reference_definition');
+  }
+});
+
+test('an affected encoded fragment delimiter cannot establish an outgoing target', () => {
+  const from = 'Workspace/Active/Example.md';
+  const to = 'Workspace/Done/Example.md';
+  const notes = [note(from, '[Guide](./Guide%20%231.md)'), note('Workspace/Active/Guide #1.md', '')];
+  assert.throws(() => planMove(notes, from, to, parser),
+    error => error instanceof MoveLinkError && error.location.reason === 'target_encoding');
 });

@@ -1,3 +1,7 @@
+import { wikilinkFromMarkdown, wikilinkSyntax } from '@quartz-community/remark-obsidian';
+import { parse, postprocess, preprocess } from 'micromark';
+import { gfmTable } from 'micromark-extension-gfm-table';
+import { gfmTableFromMarkdown } from 'mdast-util-gfm-table';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { parseDocument, isMap, isScalar, isSeq } from 'yaml';
 import type { Document } from 'yaml';
@@ -42,6 +46,28 @@ function validateProperties(properties: Record<string, unknown>) {
   }
 }
 const validTag = (tag: string) => !!tag && /^[\p{L}\p{N}\p{M}\p{S}_\-/]+$/u.test(tag) && /[^\p{N}]/u.test(tag) && !tag.includes('//') && !tag.startsWith('/') && !tag.endsWith('/');
+const moveMarkdown = { extensions: [gfmTable(), wikilinkSyntax()], mdastExtensions: [gfmTableFromMarkdown(), wikilinkFromMarkdown()] };
+
+function moveDestinations(text: string) {
+  const spans = new Map<number, { start: number; end: number }>();
+  const containers: number[] = [];
+  const events = postprocess(parse(moveMarkdown).document().write(preprocess()(text, undefined, true)));
+  for (const [kind, token] of events) {
+    if (['link', 'image', 'wikilink', 'definition'].includes(token.type)) {
+      if (kind === 'enter') containers.push(token.start.offset);
+      else containers.pop();
+    }
+    if (kind !== 'enter' || !['resourceDestinationString', 'wikilinkPath'].includes(token.type)) continue;
+    const container = containers.at(-1);
+    if (container === undefined) throw new VaultError('parser_limit');
+    let end = token.end.offset;
+    // Quartz includes the table's backslash in the path token. Keep the
+    // escaped alias separator outside the replacement.
+    if (token.type === 'wikilinkPath' && text.slice(end - 1, end + 1) === '\\|') end--;
+    spans.set(container, { start: token.start.offset, end });
+  }
+  return spans;
+}
 export class MarkdownNotes implements NoteParser {
   edit = editText;
   properties = updateProperties;
@@ -71,10 +97,12 @@ export class MarkdownNotes implements NoteParser {
       return low + 1;
     };
     const location = (start: number, end: number) => ({ start, end, line: lineNumber(start), endLine: lineNumber(Math.max(start, end - 1)) });
-    const addLink = (start: number, end: number, target: string, embed: boolean, syntax?: 'frontmatter' | 'markdown') => {
+    const addLink = (start: number, end: number, target: string, embed: boolean, syntax?: Metadata['links'][number]['syntax'], destination?: Metadata['links'][number]['destination']) => {
       if (linksOnly && meta.links.length >= MAX_NODES) throw new VaultError('parser_limit');
-      meta.links.push({ ...location(start, end), target, embed, ...(linksOnly && syntax ? { syntax } : {}) });
+      meta.links.push({ ...location(start, end), target, embed, ...(linksOnly && syntax ? { syntax, ...(destination ? { destination } : {}) } : {}) });
     };
+    // micromark omits a leading BOM from offsets. Mask it for both move parses.
+    if (linksOnly && masked.startsWith('\uFEFF')) masked = ' ' + masked.slice(1);
     const forbidden: Array<[number, number]> = []; let nodes = 0;
     const html: Array<{ start: number; end: number; value: string }> = [];
     walk(fromMarkdown(masked), node => { if (++nodes > MAX_NODES) throw new VaultError('parser_limit'); if (['code', 'inlineCode', 'html'].includes(node.type)) forbidden.push([node.position.start.offset, node.position.end.offset]); if (node.type === 'html') html.push({ start: node.position.start.offset, end: node.position.end.offset, value: node.value }); });
@@ -117,14 +145,17 @@ export class MarkdownNotes implements NoteParser {
     }
     for (const region of ranges) for (let at = region.start; at < region.end; at++) if (chars[at] !== '\r' && chars[at] !== '\n') chars[at] = ' ';
     masked = chars.join(''); nodes = 0;
-    const root = fromMarkdown(masked);
+    const root = fromMarkdown(masked, linksOnly ? moveMarkdown : undefined);
+    const destinations = linksOnly ? moveDestinations(masked) : undefined;
     const textOf = (node: any): string => node.value ?? (node.children ?? []).map(textOf).join('');
     walk(root, node => {
       if (++nodes > MAX_NODES) throw new VaultError('parser_limit');
       if (!node.position) return;
       const start = node.position.start.offset; const end = node.position.end.offset;
       if (!linksOnly && node.type === 'heading') meta.headings.push({ ...location(start, end), title: textOf(node), depth: node.depth });
-      if (node.type === 'link' || node.type === 'image') addLink(start, end, node.url, node.type === 'image', 'markdown');
+      if (node.type === 'link' || node.type === 'image') addLink(start, end, node.url, node.type === 'image', 'markdown', destinations?.get(start));
+      if (linksOnly && node.type === 'definition') addLink(start, end, node.url, false, 'definition');
+      if (linksOnly && node.type === 'wikilink') addLink(start, end, node.path ?? '', node.embedded, 'wiki', destinations?.get(start));
       if (node.type === 'text') {
         const source = masked.slice(start, end);
         // Consume through the first delimiter even for an unclosed wikilink.
@@ -132,7 +163,7 @@ export class MarkdownNotes implements NoteParser {
         for (const match of source.matchAll(/!?\[\[([^\]\r\n]*)(\]|\r|\n|$)/g)) {
           const end = match.index + match[0].length;
           if (match[1] && match[2] === ']' && source[end] === ']' && source[match.index - 1] !== '\\') {
-            addLink(start + match.index, start + end + 1, match[1].split('|')[0], match[0].startsWith('!'));
+            addLink(start + match.index, start + end + 1, match[1].split('|')[0], match[0].startsWith('!'), 'wiki');
           }
         }
         if (linksOnly) return;
