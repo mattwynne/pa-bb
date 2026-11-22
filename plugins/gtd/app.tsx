@@ -42,11 +42,11 @@ function useLinks(ids: string[]) {
 function RenameMenu({ label, disabled, onRename }: { label: string; disabled: boolean; onRename: () => void }) {
   const menu = useRef<HTMLDetailsElement>(null);
   const close = () => { if (menu.current) { menu.current.open = false; menu.current.querySelector('summary')?.focus(); } };
-  return <details className="gtd-menu" ref={menu} onKeyDown={e => { if (e.key === 'Escape') { close(); e.stopPropagation(); } }}><summary aria-label={label}>…</summary><button disabled={disabled} onClick={() => { close(); onRename(); }}>Rename</button></details>;
+  return <details className="gtd-menu" ref={menu} onKeyDown={e => { if (e.key === 'Escape') { close(); e.stopPropagation(); } }}><summary className="gtd-row-action" aria-label={label}><Icon name="MoreHorizontal" aria-hidden="true" /></summary><button disabled={disabled} onClick={() => { close(); onRename(); }}>Rename</button></details>;
 }
-function Group({ title, children, actions, initialOpen = true }: { title: string; children: React.ReactNode; actions?: React.ReactNode; initialOpen?: boolean }) {
+function Group({ title, children, actions, initialOpen = true, kind = 'section' }: { title: string; children: React.ReactNode; actions?: React.ReactNode; initialOpen?: boolean; kind?: 'section' | 'project' }) {
   const [open, setOpen] = useState(initialOpen);
-  return <div className="gtd-group"><div className="gtd-group-heading"><button className="gtd-collapse gtd-label" aria-expanded={open} onClick={() => setOpen(!open)}><Icon name={open ? 'ChevronDown' : 'ChevronRight'} aria-hidden="true" /> {title}</button>{actions}</div>{open && <div className="gtd-indent">{children}</div>}</div>;
+  return <div className="gtd-group"><div className="gtd-group-heading"><button className={`gtd-collapse gtd-label gtd-label--${kind}`} aria-expanded={open} onClick={() => setOpen(!open)}><Icon name={open ? 'ChevronDown' : 'ChevronRight'} aria-hidden="true" /> {title}</button>{actions}</div>{open && <div className="gtd-indent">{children}</div>}</div>;
 }
 function ThreadRow({ thread }: { thread: PluginSidebarThread }) {
   const navigate = useBbNavigate(); const sdk = useSdk(); const split = useSplit(thread.id);
@@ -55,7 +55,7 @@ function ThreadRow({ thread }: { thread: PluginSidebarThread }) {
   return <ThreadContextMenu thread={target} requestRename={rename}><div className="gtd-thread">
     <a href={thread.href} {...split.splitProps} onClick={event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate.toThread(thread.id); }}>
       <StatusGlyph indicator={thread.indicator} /><ThreadTitle threadId={thread.id} />
-    </a><ThreadMenu thread={target} requestRename={rename} trigger={props => <button {...props} aria-label={`Actions for ${thread.displayTitle}`}>…</button>} />
+    </a><ThreadMenu thread={target} requestRename={rename} trigger={({ className, ...props }) => <button {...props} className={className ? `gtd-row-action ${className}` : 'gtd-row-action'} aria-label={`Actions for ${thread.displayTitle}`}><Icon name="MoreHorizontal" aria-hidden="true" /></button>} />
   </div></ThreadContextMenu>;
 }
 function GtdPanel() {
@@ -87,7 +87,10 @@ function GtdPanel() {
   const inArea = (area: Area) => visible.filter(p => enclosingArea(inventory.areas, p.areaId)?.id === area.id);
   const shownAreas = inventory.areas.filter(area => status === 'all' || inArea(area).length > 0);
   const unassignedProjects = visible.filter(p => !enclosingArea(inventory.areas, p.areaId));
-  const projectRow = (p: Project) => <Group key={p.id} title={p.title} actions={<><button className="gtd-new" aria-label={`New thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p)}>+</button><RenameMenu label={`Actions for project ${p.title}`} disabled={!!busy || (p.id.endsWith('/') && !p.notePath)} onRename={() => rename('project', p)} /></>}>
+  const projectRow = (p: Project) => <Group key={p.id} title={p.title} kind="project" actions={<>
+    <button className="gtd-row-action" aria-label={`New thread for ${p.title}`} title={`Start an AI thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>
+    <RenameMenu label={`Actions for project ${p.title}`} disabled={!!busy || (p.id.endsWith('/') && !p.notePath)} onRename={() => rename('project', p)} />
+  </>}>
     {threads.filter(t => { const r = reference.safeParse(links[t.id]); return r.success && key(r.data.source, r.data.id) === key(inventory.source, p.id); }).map(row)}{!threads.some(t => { const r = reference.safeParse(links[t.id]); return r.success && key(r.data.source, r.data.id) === key(inventory.source, p.id); }) && <p className="gtd-muted">No linked threads</p>}</Group>;
   const unassigned = threads.filter(t => !reference.safeParse(links[t.id]).success);
   const missing = threads.filter(t => { const r = reference.safeParse(links[t.id]); return r.success && !inventory.projects.some(p => key(inventory.source, p.id) === key(r.data.source, r.data.id)); });
