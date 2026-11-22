@@ -1,6 +1,7 @@
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { searchCapabilitySchema } from './adapters/icloud-note-contract.ts';
+import { INVENTORY_BATCH_MAX_REQUESTS } from './core/inventory-evidence.ts';
 import { projectAreaRoutes } from './core/ports.ts';
 import { projectAreasDeclarationKey } from './core/project-areas.ts';
 const source = z.object({ id: z.string(), name: z.string(), initialized: z.boolean(), enabled: z.boolean(), cloudConnected: z.boolean(), phase: z.string(), lastSuccess: z.string().nullable(), failure: z.string().nullable(), local: z.object({ available: z.boolean(), reason: z.enum(['ownership', 'recovery_required', 'source_changed']).nullable(), pendingAgeMs: z.number().int().nonnegative().nullable(), applicationBlocker: z.enum(['application_uncertain', 'native_recovery']).nullable() }).strict() }).strict();
@@ -10,7 +11,8 @@ const receipt = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('resolution'), operationId: z.string().uuid(), mirrorId: z.string(), path: z.string(), at: z.string(), outcome: z.enum(['saved_locally_pending_sync', 'adopted_content', 'adopted_absence']), hash: hash.nullable() }).strict(),
 ]);
 const conflict = z.object({ vaultId: z.string(), path: z.string(), inspection: z.object({ token: z.string().uuid(), logicalHash: hash, incomingHash: hash.nullable(), incomingAbsent: z.boolean() }).strict().nullable() }).strict().nullable();
-export const settingsSchema = z.object({ inventoryEvidenceVersion: z.literal(1).optional(), projectAreasVersion: z.literal(1).optional(), projectAreasFrontmatterOnly: z.literal(true).optional(), projectAreasDeclarationKey: z.literal(projectAreasDeclarationKey).optional(), propertiesAccessVersion: z.literal(1).optional(), childrenAccessVersion: z.literal(1).optional(), search: searchCapabilitySchema, revision: z.number(), conflict, conflictFailure: z.string().nullable(), configurationUnconfirmed: z.boolean(), setup: z.string(), nextAction: z.string().nullable(), vaults: z.array(z.object({ vaultId: z.string(), name: z.string().nullable(), source: source.nullable() }).strict()), eligible: z.array(source), receipts: z.array(receipt), receiptFailures: z.array(z.object({ vaultId: z.string().optional(), category: z.string() }).strict()), uncertainOperations: z.array(z.object({ operationId: z.string(), vaultId: z.string(), path: z.string(), at: z.string(), kind: z.enum(['save', 'resolution']).optional() }).strict()), uncertainOperationCount: z.number().int().nonnegative(), uncertainOperationsIncomplete: z.boolean(), evidenceOnly: z.literal(true) }).strict();
+const connectedVaults = z.array(z.object({ vaultId: z.string(), name: z.string().nullable(), source: source.nullable() }).strict());
+export const settingsSchema = z.object({ inventoryEvidenceVersion: z.literal(1).optional(), inventoryBatchVersion: z.literal(1).optional(), projectAreasVersion: z.literal(1).optional(), projectAreasFrontmatterOnly: z.literal(true).optional(), projectAreasDeclarationKey: z.literal(projectAreasDeclarationKey).optional(), propertiesAccessVersion: z.literal(1).optional(), childrenAccessVersion: z.literal(1).optional(), search: searchCapabilitySchema, revision: z.number(), conflict, conflictFailure: z.string().nullable(), configurationUnconfirmed: z.boolean(), setup: z.string(), nextAction: z.string().nullable(), vaults: connectedVaults, eligible: z.array(source), receipts: z.array(receipt), receiptFailures: z.array(z.object({ vaultId: z.string().optional(), category: z.string() }).strict()), uncertainOperations: z.array(z.object({ operationId: z.string(), vaultId: z.string(), path: z.string(), at: z.string(), kind: z.enum(['save', 'resolution']).optional() }).strict()), uncertainOperationCount: z.number().int().nonnegative(), uncertainOperationsIncomplete: z.boolean(), evidenceOnly: z.literal(true) }).strict();
 const vault = z.object({ vaultId: z.string().regex(/^[A-Za-z0-9-]{1,64}$/) }).strict();
 const consumerFolder = z.string().min(1).max(1024).refine(value => !/[\\\x00-\x1f\x7f]/.test(value) && value.split('/').every(part => !!part && part !== '.' && part !== '..'));
 const scalarProperty = z.union([z.string(), z.number().finite(), z.boolean(), z.null()]);
@@ -19,17 +21,46 @@ const areaOutput = z.object({ rows: z.array(z.object({ path: consumerFolder, sta
 const areaAuthority = z.object({ revision: z.number().int().nonnegative(), route: z.enum(projectAreaRoutes), epoch: z.string().uuid() }).strict();
 const evidenceInput = z.object({ vaultId: vault.shape.vaultId, root: z.union([z.literal(''), consumerFolder]), expectedAuthority: areaAuthority.optional(), publication: z.string().uuid().optional() }).strict();
 const evidenceOutput = z.object({ authority: areaAuthority, publication: z.string().uuid().nullable() }).strict();
+const childrenRequest = z.object({ folder: consumerFolder }).strict();
+const propertiesRequest = z.object({ path: consumerFolder, fields: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/)).min(1).max(8) }).strict();
+const targetRequest = z.object({ path: consumerFolder, reference: z.string().min(1).max(1024) }).strict();
+const childrenEvidence = z.object({ entries: z.array(z.object({ name: z.string().min(1).max(1024), kind: z.enum(['directory', 'markdown']) }).strict()).max(5000), incomplete: z.boolean() }).strict();
+const propertiesEvidence = z.object({ status: z.enum(['observed', 'missing', 'partial']), properties: z.record(z.string(), z.unknown()), unsupported: z.array(z.string()).max(8) }).strict();
+const linkEvidence = z.object({ status: z.enum(['unsupported', 'incomplete', 'ambiguous', 'matched', 'missing']), matches: z.array(z.object({ path: consumerFolder, kind: z.enum(['markdown', 'directory']) }).strict()).max(3), basename: z.string().nullable(), fragment: z.boolean(), embed: z.boolean(), incomplete: z.boolean() }).strict();
+const batchRequest = z.discriminatedUnion('kind', [
+  childrenRequest.extend({ kind: z.literal('children') }),
+  propertiesRequest.extend({ kind: z.literal('properties') }),
+  targetRequest.extend({ kind: z.literal('target') }),
+]);
+const batchRow = z.discriminatedUnion('kind', [
+  childrenEvidence.extend({ kind: z.literal('children') }),
+  propertiesEvidence.extend({ kind: z.literal('properties') }),
+  linkEvidence.extend({ kind: z.literal('target') }),
+]);
+export type InventoryBatchRequest = z.infer<typeof batchRequest>;
+export type InventoryBatchRow = z.infer<typeof batchRow>;
 export const rpcContract = defineRpcContract({
-  inventoryChildren: { input: evidenceInput.extend({ folder: consumerFolder }), output: evidenceOutput.extend({ entries: z.array(z.object({ name: z.string().min(1).max(1024), kind: z.enum(['directory', 'markdown']) }).strict()).max(5000), incomplete: z.boolean() }) },
-  inventoryProperties: { input: evidenceInput.extend({ path: consumerFolder, fields: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/)).min(1).max(8) }), output: evidenceOutput.extend({ status: z.enum(['observed', 'missing', 'partial']), properties: z.record(z.string(), z.unknown()), unsupported: z.array(z.string()).max(8) }) },
-  inventoryTarget: { input: evidenceInput.extend({ path: consumerFolder, reference: z.string().min(1).max(1024) }), output: evidenceOutput.extend({ status: z.enum(['unsupported', 'incomplete', 'ambiguous', 'matched', 'missing']), matches: z.array(z.object({ path: consumerFolder, kind: z.enum(['markdown', 'directory']) }).strict()).max(3), basename: z.string().nullable(), fragment: z.boolean(), embed: z.boolean(), incomplete: z.boolean() }) },
+  inventoryStatus: {
+    input: z.null(),
+    output: z.object({ inventoryBatchVersion: z.literal(1), inventoryEvidenceVersion: z.literal(1), propertiesAccessVersion: z.literal(1), vaults: connectedVaults }).strict(),
+  },
+  inventoryChildren: { input: evidenceInput.extend(childrenRequest.shape), output: evidenceOutput.extend(childrenEvidence.shape) },
+  inventoryProperties: { input: evidenceInput.extend(propertiesRequest.shape), output: evidenceOutput.extend(propertiesEvidence.shape) },
+  inventoryTarget: { input: evidenceInput.extend(targetRequest.shape), output: evidenceOutput.extend(linkEvidence.shape) },
+  inventoryBatch: {
+    input: evidenceInput.extend({ requests: z.array(batchRequest).max(INVENTORY_BATCH_MAX_REQUESTS) }),
+    output: evidenceOutput.extend({ rows: z.array(batchRow).max(INVENTORY_BATCH_MAX_REQUESTS) }).refine(
+      ({ authority, publication, rows }) => authority.route === 'index' ? publication !== null : publication === null && rows.length === 0,
+      'Inconsistent inventory batch authority.',
+    ),
+  },
   // Keep the old response shape for older GTD clients, but never use this
   // method from updated GTD: a rolled-back producer could inspect note bodies.
   projectAreas: { input: areaInput, output: areaOutput },
   // Keep unmarked requests compatible. Updated GTD sends the key on every
   // batch so the older strict schema rejects it even after a status check.
   projectAreasFromFrontmatter: { input: areaInput.extend({ declarationKey: z.literal(projectAreasDeclarationKey).optional(), expectedAuthority: areaAuthority.optional() }), output: areaOutput.extend({ authority: areaAuthority }) },
-  listChildren: { input: z.object({ vaultId: vault.shape.vaultId, folder: consumerFolder }).strict(), output: z.object({ entries: z.array(z.object({ name: z.string().min(1).max(1024), kind: z.enum(['directory', 'markdown']) }).strict()).max(5000), incomplete: z.boolean() }).strict() },
+  listChildren: { input: z.object({ vaultId: vault.shape.vaultId, folder: consumerFolder }).strict(), output: childrenEvidence },
   // Consumer title edits deliberately do not move paths or rewrite links.
   renameTitle: { input: z.object({ vaultId: vault.shape.vaultId, path: consumerFolder, title: z.string().trim().min(1).max(240).regex(/^[^\x00-\x1f\x7f]+$/) }).strict(), output: z.object({ operationId: z.string().uuid(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict() },
   vaultLocations: { input: z.null(), output: z.object({ vaults: z.array(z.object({ id: vault.shape.vaultId, root: z.string().max(1024), name: z.string().max(240) }).strict()).max(2000), incomplete: z.boolean() }).strict() },

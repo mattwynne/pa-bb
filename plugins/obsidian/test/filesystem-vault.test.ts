@@ -9,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { experimental_PluginRpcCallError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { plugin } from '../server.ts';
+import { rpcContract, type InventoryBatchRequest } from '../contract.ts';
 import { LocalNotes } from '../adapters/local-notes.ts';
 import { hash } from './fakes.ts';
 import { plugin as gtdPlugin } from '../../gtd/server.ts';
@@ -28,7 +29,7 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
       local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null } }],
   };
   const calls: Array<{ method: string; input: unknown }> = [];
-  const controls: { fallbackDirectory?: string; onLookup?: () => Promise<void>; deny?: boolean; denyGrant?: boolean; malformedGrant?: boolean; capabilityError?: unknown; capabilityReply?: unknown; afterAreaConfigure?: () => void; failFinish?: boolean } = {};
+  const controls: { fallbackDirectory?: string; onLookup?: () => Promise<void>; deny?: boolean; denyGrant?: boolean; malformedGrant?: boolean; capabilityError?: unknown; capabilityReply?: unknown; afterAreaConfigure?: () => void; beforeStatus?: () => Promise<void>; failFinish?: boolean } = {};
   const legacyReceipts = [{
     kind: 'save', path: 'Old.md', mirrorId: 'one', operationId: randomUUID(), at: '2026-01-01T00:00:00Z',
     hash: hash('saved previously'), previousHash: null, outcome: 'saved_locally_pending_sync',
@@ -38,7 +39,9 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
     async callRpc({ method, input, outputSchema, signal }: { method: string; input: any; outputSchema: { parse(value: unknown): unknown }; signal?: AbortSignal }) {
       calls.push({ method, input });
       switch (method) {
-        case 'status': return outputSchema.parse({ ...state, localFolder: directory });
+        case 'status':
+          await controls.beforeStatus?.();
+          return outputSchema.parse({ ...state, localFolder: directory });
         case 'noteConfigure':
           if (signal) controls.afterAreaConfigure?.();
           return outputSchema.parse({ ok: true, value: { revision: input.revision } });
@@ -100,6 +103,14 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
 }
 const target = { vaultId: 'one', path: 'Notes/Agenda: July.md' };
 
+// These scenarios exercise existing consumer generations independently of batch support.
+async function singleReadProducer(f: Awaited<ReturnType<typeof fixture>>, method: string, input: unknown) {
+  if (method === 'inventoryStatus') throw new experimental_PluginRpcCallError({ code: 'unknown_method', message: 'Synthetic pre-batch producer' });
+  const value: any = await f.harness.behavior.callRpc(method, input, gtdCaller);
+  if (method === 'status') delete value.inventoryBatchVersion;
+  return value;
+}
+
 test('public GTD lists use only owner evidence on a warm nested-root index and fail closed on rollback', async t => {
   const f = await fixture(t, 'ready', async root => {
     for (const path of ['Life/.obsidian', 'Life/Projects/Pilot', 'Life/Projects/Empty', 'Life/Projects/Attachments', 'Life/Projects/Pair', 'Life/Projects/Done', 'Life/Areas/Empty', 'Other']) await mkdir(join(root, path), { recursive: true });
@@ -123,7 +134,7 @@ test('public GTD lists use only owner evidence on a warm nested-root index and f
     // Nested-root discovery is setup work, not an inventory data operation.
     if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Life' }], incomplete: false };
     if (rollback && args.method === 'inventoryProperties') throw new Error('PRIVATE_SENTINEL rolled back');
-    return f.harness.behavior.callRpc(args.method, args.input, gtdCaller);
+    return singleReadProducer(f, args.method, args.input);
   } } } });
   t.after(() => gtd.harness.lifecycle.dispose());
   // The two packages pin independent SDK/Hono installs; the fake host implements
@@ -164,7 +175,7 @@ test('declaration trace and candidate-policy parity across both adapter boundari
     for (const modern of [false, true]) {
       const host = createFakePluginHost({ pluginId: 'gtd', sdk: { plugins: { callRpc: async (args: any) => {
         if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Synthetic' }], incomplete: false };
-        const value: any = await f.harness.behavior.callRpc(args.method, args.input, gtdCaller);
+        const value: any = await singleReadProducer(f, args.method, args.input);
         if (args.method === 'status' && !modern) delete value.inventoryEvidenceVersion;
         return value;
       } } } });
@@ -211,7 +222,7 @@ test('51-owner sparse/dense inventories match the previous consumer on indexed a
       const gtd = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one' }, sdk: { plugins: { callRpc: async (args: any) => {
         counts.set(args.method, (counts.get(args.method) ?? 0) + 1);
         if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: '', name: 'Synthetic' }], incomplete: false };
-        const result: any = await f.harness.behavior.callRpc(args.method, args.input, gtdCaller);
+        const result: any = await singleReadProducer(f, args.method, args.input);
         if (args.method === 'status' && !modern) delete result.inventoryEvidenceVersion;
         return result;
       } } } });
@@ -254,6 +265,242 @@ test('new evidence has indexed/direct parity and revalidates authority before re
     await assert.rejects(call('inventoryProperties', { path: 'Projects/Plan.md', fields: ['area'], ...continuity }));
     assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
   });
+});
+
+test('inventory batch returns the same mixed evidence in request order under one verified lease', async t => {
+  let grants = 0;
+  const f = await fixture(t, 'ready', async root => {
+    for (const path of ['Life/.obsidian', 'Life/Projects', 'Life/Areas/Pair', 'Life/Areas/Empty', 'Life/Other', 'Outside']) {
+      await mkdir(join(root, path), { recursive: true });
+    }
+    await writeFile(join(root, 'Life/Projects/Plan.md'), '---\ntitle: Plan\narea: Areas/Pair\nunsupported: { nested: true }\n---\n');
+    await writeFile(join(root, 'Life/Projects/Bad.md'), '---\ninvalid: [\n---\n');
+    for (const path of ['Life/Areas/Pair.md', 'Life/Other/Pair.md', 'Outside/Pair.md']) await writeFile(join(root, path), 'Target');
+    await symlink('.', join(root, 'Life/Projects/Omitted.md'));
+  }, async () => { grants++; });
+  const input = { vaultId: 'one', root: 'Life' };
+  const batch = async (requests: InventoryBatchRequest[], extra: object = {}) =>
+    rpcContract.inventoryBatch.output.parse(await f.harness.behavior.callRpc('inventoryBatch', { ...input, requests, ...extra }, gtdCaller));
+  const probe = await batch([]);
+  const continuity = { expectedAuthority: probe.authority, publication: probe.publication };
+  assert.equal(probe.authority.route, 'index');
+  assert.ok(probe.publication);
+  assert.deepEqual(probe.rows, []);
+  const path = 'Life/Projects/Plan.md';
+  const requests: InventoryBatchRequest[] = [
+    { kind: 'target', path, reference: 'Pair' },
+    { kind: 'children', folder: 'Life/Projects' },
+    { kind: 'properties', path, fields: ['title', 'missing', 'unsupported'] },
+    { kind: 'target', path, reference: '![[../Areas/Pair#Part]]' },
+    { kind: 'properties', path: 'Life/Projects/Bad.md', fields: ['title'] },
+    { kind: 'properties', path: 'Life/Projects/Missing.md', fields: ['title'] },
+    { kind: 'properties', path: 'Life/Projects/Omitted.md', fields: ['title'] },
+    { kind: 'children', folder: 'Life/Areas/Empty' },
+    { kind: 'children', folder: 'Life/Areas/Missing' },
+    { kind: 'target', path, reference: 'https://example.com' },
+    { kind: 'children', folder: 'Life/Projects' },
+  ];
+  const start = grants, startCalls = f.calls.length;
+  const response = await batch(requests, continuity);
+  const calls = f.calls.slice(startCalls).map(({ method }) => method);
+  const counts = Object.fromEntries([...new Set(calls)].map(method => [method, calls.filter(call => call === method).length]));
+  assert.deepEqual(counts, { status: 2, mirrorDirectoryCapabilities: 2, noteConfigure: 1, mirrorDirectoryGrant: 2 });
+  t.diagnostic(JSON.stringify({ warmBatchICloudCalls: counts }));
+  assert.equal(grants - start, 2, 'one lease acquisition and one final grant check');
+  const endpoints = { children: 'inventoryChildren', properties: 'inventoryProperties', target: 'inventoryTarget' };
+  const rows = [];
+  for (const { kind, ...request } of requests) {
+    const { authority, publication, ...evidence } = await f.harness.behavior.callRpc(endpoints[kind], { ...input, ...continuity, ...request }, gtdCaller) as Record<string, unknown>;
+    assert.deepEqual({ authority, publication }, { authority: probe.authority, publication: probe.publication });
+    rows.push({ kind, ...evidence });
+  }
+  assert.deepEqual(response.rows, rows);
+  assert.deepEqual(await batch([], continuity), probe);
+  await assert.rejects(batch([], { ...continuity, publication: randomUUID() }), { code: 'handler_error' });
+  await assert.rejects(batch([], { ...continuity, expectedAuthority: { ...probe.authority, epoch: randomUUID() } }), { code: 'handler_error' });
+  await assert.rejects(batch([{ kind: 'properties', path: 'Outside/Pair.md', fields: ['title'] }]), { code: 'handler_error' });
+  await assert.rejects(batch([{ kind: 'properties', path: 'Life/Projects/Plan.txt', fields: ['title'] }]), { code: 'handler_error' });
+  await assert.rejects(batch([{ kind: 'properties', path, fields: [] }]), { code: 'invalid_input' });
+  await assert.rejects(batch(Array.from({ length: 129 }, () => requests[0])), { code: 'invalid_input' });
+});
+
+test('inventory status is GTD-only and avoids receipt and grant operations', async t => {
+  const f = await fixture(t);
+  const call = f.harness.behavior.callRpc.bind(f.harness.behavior);
+  await assert.rejects(call('inventoryStatus', null), { code: 'forbidden' });
+  await assert.rejects(call('inventoryBatch', { vaultId: 'one', root: '', requests: [] }, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }), { code: 'forbidden' });
+  await call('inventoryBatch', { vaultId: 'one', root: '', requests: [] }, gtdCaller);
+  const start = f.calls.length;
+  const status = rpcContract.inventoryStatus.output.parse(await call('inventoryStatus', null, gtdCaller));
+  assert.deepEqual(Object.keys(status).sort(), ['inventoryBatchVersion', 'inventoryEvidenceVersion', 'propertiesAccessVersion', 'vaults']);
+  assert.equal(status.vaults[0]?.name, 'Selected vault');
+  assert.equal(status.vaults[0]?.source?.local.available, true);
+  assert.ok(f.calls.slice(start).every(call => ['status', 'mirrorDirectoryCapabilities'].includes(call.method)));
+  const full = rpcContract.status.output.parse(await call('status', null, gtdCaller));
+  assert.equal(full.inventoryBatchVersion, 1);
+});
+
+test('live batch probes prove the route and nonempty requests refuse without reading data', async t => {
+  for (const [mode, route] of [['ready', 'direct'], ['legacy_pending', 'legacy_pending'], ['legacy_conflict', 'legacy_conflict']]) await t.test(route, async t => {
+    const f = await fixture(t, mode, undefined, undefined, null);
+    const start = f.calls.length;
+    const input = { vaultId: 'one', root: 'Life', requests: [] };
+    const call = (extra: object = {}) => f.harness.behavior.callRpc('inventoryBatch', { ...input, ...extra }, gtdCaller);
+    const proof = rpcContract.inventoryBatch.output.parse(await call());
+    assert.equal(proof.authority.route, route);
+    assert.equal(proof.publication, null);
+    assert.deepEqual(proof.rows, []);
+    await assert.rejects(call({ expectedAuthority: proof.authority, requests: [{ kind: 'children', folder: 'Life/Projects' }] }), {
+      code: 'invalid', issues: [{ path: ['requests'], message: 'incompatible' }],
+    });
+    await assert.rejects(call({ publication: randomUUID() }), { code: 'handler_error' });
+    assert.ok(f.calls.slice(start).every(call => ['status', 'mirrorDirectoryCapabilities', 'noteConfigure', 'mirrorDirectory'].includes(call.method)));
+    f.state.mirrors[0].local.available = false;
+    await assert.rejects(call({ expectedAuthority: proof.authority }), { code: 'handler_error' });
+  });
+});
+
+test('an indexed batch withholds rows when its final grant is revoked', async t => {
+  let f: Awaited<ReturnType<typeof fixture>>;
+  let remaining = Infinity;
+  f = await fixture(t, 'ready', async root => {
+    await mkdir(join(root, 'Projects'));
+    await writeFile(join(root, 'Projects/Plan.md'), '---\ntitle: sentinel-private-title\n---\n');
+  }, async () => {
+    if (--remaining === 0) {
+      f.controls.denyGrant = true;
+      throw new Error('sentinel-private-final-grant', { cause: { token: 'PRIVATE_CREDENTIAL' } });
+    }
+  });
+  const input = { vaultId: 'one', root: '' };
+  const call = (extra: object) => f.harness.behavior.callRpc('inventoryBatch', { ...input, ...extra }, gtdCaller);
+  const probe = rpcContract.inventoryBatch.output.parse(await call({ requests: [] }));
+  remaining = 2;
+  const expectedAuthority = probe.authority, publication = probe.publication;
+  await assert.rejects(call({ expectedAuthority, publication, requests: [{ kind: 'properties', path: 'Projects/Plan.md', fields: ['title'] }] }), {
+    code: 'handler_error', message: /Inventory evidence did not complete/,
+  });
+  assert.equal(remaining, 0);
+  assert.match(JSON.stringify(f.harness.inspection.logEntries), /Obsidian index_access source_unavailable/);
+  assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private|PRIVATE_CREDENTIAL/);
+});
+
+test('indexed batch waits for a cold publication before returning its first children', async t => {
+  let release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  let entered = false, finished = false;
+  const f = await fixture(t, 'ready', async root => {
+    for (const path of ['Life/.obsidian', 'Life/Projects', 'Life/Areas']) await mkdir(join(root, path), { recursive: true });
+    await writeFile(join(root, 'Life/Projects/Plan.md'), 'Plan');
+  }, async () => { entered = true; await hold; });
+  const batch = f.harness.behavior.callRpc('inventoryBatch', {
+    vaultId: 'one', root: 'Life', requests: [
+      { kind: 'children', folder: 'Life/Projects' }, { kind: 'children', folder: 'Life/Areas' },
+    ],
+  }, gtdCaller).finally(() => { finished = true; });
+  try {
+    await waitFor(async () => entered || undefined);
+    assert.equal(finished, false);
+  } finally { release(); }
+  const result = rpcContract.inventoryBatch.output.parse(await batch);
+  assert.ok(result.publication);
+  assert.deepEqual(result.rows, [
+    { kind: 'children', entries: [{ kind: 'markdown', name: 'Plan.md' }], incomplete: false },
+    { kind: 'children', entries: [], incomplete: false },
+  ]);
+});
+
+test('indexed batch overlaps and drains final checks before refusing a catalog rollback', async t => {
+  let release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  let grants = 0, statuses = 0, aborted = false, finished = false, checking = false;
+  const f = await fixture(t, 'ready', root => writeFile(join(root, 'Plan.md'), 'Plan'), async signal => {
+    if (!checking || ++grants !== 2) return;
+    const markAborted = () => { aborted = true; };
+    if (signal.aborted) markAborted(); else signal.addEventListener('abort', markAborted, { once: true });
+    try { await hold; } finally { signal.removeEventListener('abort', markAborted); }
+  });
+  const call = (requests: InventoryBatchRequest[], extra: object = {}) =>
+    f.harness.behavior.callRpc('inventoryBatch', { vaultId: 'one', root: '', requests, ...extra }, gtdCaller);
+  const proof = rpcContract.inventoryBatch.output.parse(await call([]));
+  checking = true;
+  f.controls.beforeStatus = async () => {
+    if (++statuses === 2) {
+      // See the final grant enter before publishing the conflicting catalog.
+      await waitFor(async () => grants === 2 || undefined);
+      f.state.mirrors[0].filesystem = 'legacy_pending';
+    }
+  };
+  const attempt = call([{ kind: 'properties', path: 'Plan.md', fields: ['title'] }], {
+    expectedAuthority: proof.authority, publication: proof.publication,
+  }).finally(() => { finished = true; });
+  const refused = assert.rejects(attempt, { code: 'handler_error' });
+  try {
+    await waitFor(async () => aborted || undefined);
+    assert.equal(finished, false);
+  } finally { release(); }
+  await refused;
+  assert.equal(grants, 2);
+  assert.equal(statuses, 2);
+  assert.ok(!f.calls.some(call => call.method === 'mirrorDirectory' || call.method === 'noteRead'));
+});
+
+test('a cancelled final catalog check does not revoke other indexed inventory readers', async t => {
+  let release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  let statuses = 0;
+  const f = await fixture(t, 'ready', root => writeFile(join(root, 'Plan.md'), 'Plan'));
+  const call = (extra: object = {}, signal?: AbortSignal) => f.harness.behavior.callRpc('inventoryBatch', {
+    vaultId: 'one', root: '', requests: [], ...extra,
+  }, { ...gtdCaller, signal });
+  const proof = rpcContract.inventoryBatch.output.parse(await call());
+  const continuity = { expectedAuthority: proof.authority, publication: proof.publication };
+  f.controls.beforeStatus = async () => { if (++statuses === 2) await hold; };
+  const controller = new AbortController();
+  const cancelled = assert.rejects(call(continuity, controller.signal), { code: 'handler_error' });
+  try {
+    await waitFor(async () => statuses === 2 || undefined);
+    controller.abort();
+  } finally { release(); }
+  await cancelled;
+  assert.deepEqual(await call(continuity), proof);
+});
+
+test('batch capacity failure is structured and continuity-bound splits retain whole rows', async t => {
+  const value = Array.from({ length: 8 }, () => 'é'.repeat(4096));
+  const f = await fixture(t, 'ready', root => writeFile(join(root, 'Large.md'), '---\narea: ' + JSON.stringify(value) + '\n---\n'));
+  const input = { vaultId: 'one', root: '' };
+  const call = (requests: InventoryBatchRequest[], extra: object = {}) => f.harness.behavior.callRpc('inventoryBatch', { ...input, requests, ...extra }, gtdCaller);
+  const proof = rpcContract.inventoryBatch.output.parse(await call([]));
+  const continuity = { expectedAuthority: proof.authority, publication: proof.publication };
+  const requests = Array.from({ length: 100 }, (): InventoryBatchRequest => ({ kind: 'properties', path: 'Large.md', fields: ['area'] }));
+  await assert.rejects(call(requests, continuity), {
+    code: 'invalid', issues: [{ path: ['requests'], message: 'output_limit' }],
+  });
+  for (const part of [requests.slice(0, 50), requests.slice(50)]) {
+    const response = rpcContract.inventoryBatch.output.parse(await call(part, continuity));
+    assert.equal(response.publication, proof.publication);
+    assert.equal(response.rows.length, part.length);
+    assert.ok(response.rows.every(row => row.kind === 'properties'));
+    for (const row of response.rows) assert.deepEqual(row, { kind: 'properties', status: 'observed', properties: { area: value }, unsupported: [] });
+  }
+  assert.match(JSON.stringify(f.harness.inspection.logEntries), /Obsidian rpc output_limit/);
+  assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /Large\.md|é/);
+});
+
+test('reload-free index publication changes invalidate a nested selection and old continuity', async t => {
+  const f = await fixture(t, 'ready', async root => { await mkdir(join(root, 'Life/.obsidian'), { recursive: true }); });
+  const path = { vaultId: 'one', root: 'Life' };
+  const call = (extra: object = {}) => f.harness.behavior.callRpc('inventoryBatch', { ...path, requests: [], ...extra }, gtdCaller);
+  const proved = rpcContract.inventoryBatch.output.parse(await call());
+  await mkdir(join(f.directory, '.obsidian'));
+  const first = await waitFor(async () => {
+    const page = rpcContract.inventoryChildren.output.parse(await f.harness.behavior.callRpc('inventoryChildren', { ...path, folder: 'Life/Projects' }, gtdCaller));
+    return page.publication !== proved.publication ? page : undefined;
+  });
+  await assert.rejects(call({ expectedAuthority: proved.authority, publication: proved.publication }), { code: 'handler_error' });
+  await assert.rejects(call({ expectedAuthority: first.authority, publication: first.publication }), { code: 'handler_error' });
+  assert.equal(rpcContract.inventoryBatch.output.parse(await call({ root: '' })).authority.route, 'index');
 });
 
 test('keeps selections and finds current disk notes while cloud sync is paused and disconnected', async t => {

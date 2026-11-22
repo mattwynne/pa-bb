@@ -7,9 +7,11 @@ export function threadActions(bb: BbPluginApi, select: () => Promise<BackendSele
   const db = bb.storage.database();
   db.exec('CREATE TABLE IF NOT EXISTS thread_requests (id TEXT PRIMARY KEY, reference TEXT NOT NULL, thread_id TEXT)');
   const resolve = async (ref: ProjectReference, signal: AbortSignal) => {
-    const { backend } = await select();
+    const { backend, key } = await select();
     const snapshot = snapshotSchema.parse(await backend.readProjects(signal));
     const project = snapshot.projects.find(p => p.id === ref.id);
+    if ((await select()).key !== key) throw new Error('Project source changed. Refresh the GTD list before trying again.');
+    signal.throwIfAborted();
     if (snapshot.source.id !== ref.source || !project) throw new Error('Project unavailable. Refresh the GTD list before trying again.');
     return project;
   };

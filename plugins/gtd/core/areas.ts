@@ -2,6 +2,24 @@ import { randomUUID } from 'node:crypto';
 import { GtdError, areaListInput, areaSnapshotSchema } from './model.ts';
 import type { AreaBackendSelection, AreaListInput, Area, AreaPage, AreaSnapshot } from './model.ts';
 
+export const compareAreas = (a: Area, b: Area) =>
+  a.title.localeCompare(b.title, 'en') || a.id.localeCompare(b.id, 'en');
+
+export function normalizeAreaSnapshot(raw: unknown): AreaSnapshot {
+  const parsed = areaSnapshotSchema.safeParse(raw);
+  if (!parsed.success) throw new GtdError('invalid_source');
+  const snapshot = parsed.data;
+  if (Buffer.byteLength(JSON.stringify(snapshot)) > 2 * 1024 * 1024) throw new GtdError('invalid_source');
+  const seen = new Set<string>();
+  snapshot.areas = snapshot.areas.filter(area => {
+    if (!seen.has(area.id)) { seen.add(area.id); return true; }
+    snapshot.complete = false;
+    if (!snapshot.warnings.includes('duplicate_id')) snapshot.warnings.push('duplicate_id');
+    return false;
+  });
+  return snapshot;
+}
+
 type Listing = { key: string; owner: string; snapshot: AreaSnapshot; rows: Area[]; offset: number; at: number };
 export class Areas {
   private listings = new Map<string, Listing>();
@@ -23,18 +41,8 @@ export class Areas {
     this.reservations++;
     try {
       if (!listing) {
-        const parsed = areaSnapshotSchema.safeParse(await selected.backend.readAreas(signal));
-        if (!parsed.success) throw new GtdError('invalid_source');
-        const snapshot = parsed.data;
-        if (Buffer.byteLength(JSON.stringify(snapshot)) > 2 * 1024 * 1024) throw new GtdError('invalid_source');
-        const seen = new Set<string>();
-        snapshot.areas = snapshot.areas.filter(area => {
-          if (!seen.has(area.id)) { seen.add(area.id); return true; }
-          snapshot.complete = false;
-          if (!snapshot.warnings.includes('duplicate_id')) snapshot.warnings.push('duplicate_id');
-          return false;
-        });
-        const rows = [...snapshot.areas].sort((a, b) => a.title.localeCompare(b.title, 'en') || a.id.localeCompare(b.id, 'en'));
+        const snapshot = normalizeAreaSnapshot(await selected.backend.readAreas(signal));
+        const rows = [...snapshot.areas].sort(compareAreas);
         listing = { key: selected.key, owner, snapshot, rows, offset: 0, at: this.now() };
       }
       await selected.backend.checkAccess(signal);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { indexedChildren, projectFields, targetQuery, targetEvidence } from '../core/inventory-evidence.ts';
+import { checkIndexedInventoryRoot, indexedInventoryRows, indexedChildren, projectFields, targetQuery, targetEvidence } from '../core/inventory-evidence.ts';
 import type { IndexView } from '../core/vault-index.ts';
 const notes = ['Life/Areas/Finance.md', 'Life/Other/Finance.md', 'Other/Finance.md'];
 const directories = ['Life', 'Life/Areas', 'Life/Areas/Empty', 'Life/Projects'];
@@ -45,4 +45,40 @@ test('target evidence leaves ownership and Area policy to the consumer, preservi
   assert.deepEqual(resolve('../Areas/Finance').matches, resolve('Areas/Finance').matches);
   for (const reference of ['../../Other/Finance', '%bad', 'https://example.com', '//remote']) assert.equal(resolve(reference).status, 'unsupported');
   assert.equal(resolve('Areas/Finance', true).status, 'incomplete');
+});
+
+test('nested root proof matches marker precedence and fails closed on intersecting omissions', () => {
+  const marker = 'Life/Personal/.obsidian';
+  const indexed = { ...view, directories: [...view.directories, 'Life/Personal', marker] };
+  assert.doesNotThrow(() => checkIndexedInventoryRoot(indexed, 'Life/Personal'));
+  assert.doesNotThrow(() => checkIndexedInventoryRoot({ ...indexed, omissions: [{ path: 'Life/Shared', kind: 'tree' }] }, 'Life/Personal'));
+  assert.doesNotThrow(() => checkIndexedInventoryRoot(view, ''));
+  const refused = (candidate: IndexView, root: string) => assert.throws(() => checkIndexedInventoryRoot(candidate, root), { category: 'source_unavailable' });
+  refused(view, 'Life/Personal');
+  for (const ancestor of ['.obsidian', 'Life/.obsidian']) refused({ ...indexed, directories: [...indexed.directories, ancestor] }, 'Life/Personal');
+  for (const omitted of ['', 'Life', 'Life/Personal', marker, 'Life/.obsidian', '.obsidian']) {
+    refused({ ...indexed, omissions: [{ path: omitted, kind: 'tree' }] }, 'Life/Personal');
+  }
+  for (const root of ['Life/.git/Vault', 'Life/node_modules/Vault', 'Life/.obsidian/Vault', Array(33).fill('level').join('/')]) {
+    refused({ ...indexed, directories: [root + '/.obsidian'] }, root);
+  }
+});
+
+test('batch examines a 52-note catalog once for 51 mixed target lookups and skips scanning for a probe', t => {
+  const paths = ['Areas/Target.md', ...Array.from({ length: 51 }, (_, i) => `Projects/P${i}.md`)];
+  let examined = 0;
+  const entries = paths.map(path => ({
+    get path() { examined++; return path; }, hash: 'hash', readAt: 'now', properties: {},
+  }));
+  const index = { ...view, notes: entries };
+  assert.deepEqual([...indexedInventoryRows(index, '', [])], []);
+  assert.equal(examined, 0);
+  const references = paths.slice(1).map((path, index) => ({ kind: 'target' as const, path, reference: index % 2 ? 'Target' : 'Areas/Target' }));
+  const rows = [...indexedInventoryRows(index, '', references)];
+  for (const row of rows) {
+    assert.equal(row.kind, 'target');
+    assert.deepEqual(row.matches, [{ path: 'Areas/Target.md', kind: 'markdown' }]);
+  }
+  assert.equal(examined, 52);
+  t.diagnostic(JSON.stringify({ references: references.length, indexedCatalogEntries: paths.length, notePathAccesses: examined }));
 });

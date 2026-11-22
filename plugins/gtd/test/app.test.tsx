@@ -10,8 +10,15 @@ const saved = async () => ({ operationId: crypto.randomUUID(), outcome: 'saved_l
 function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }), rename = saved) {
   const list = renderSlot(app.navPanels[0], { subPath: '' }, {
     rpc: {
-      listProjects: async () => { if (mode === 'error') throw new Error('synthetic'); if (mode === 'loading') await new Promise(() => {}); return { source, projects: mode === 'empty' ? [] : [{ ...project, areaId: mode === 'nested' ? 'Areas/Learning/Committee/Meeting.md' : project.areaId }], coverage: 'complete', warnings: [], totalProjects: 1, matchedProjects: 1, counts: { active: 1, deferred: 0, someday: 0, done: 0 }, nextCursor: null, consistency: 'Per-project local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' }; },
-      listAreas: async () => ({ source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }, ...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` }))], coverage: 'complete', warnings: [], totalAreas: 1, nextCursor: null, consistency: 'Per-area local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' }),
+      browseInventory: async (input: unknown) => {
+        const { includeAreas } = input as { includeAreas: boolean };
+        if (mode === 'error') throw new Error('synthetic');
+        if (mode === 'loading') await new Promise(() => {});
+        return {
+          projects: { source, projects: mode === 'empty' ? [] : [{ ...project, areaId: mode === 'nested' ? 'Areas/Learning/Committee/Meeting.md' : project.areaId }], complete: true, warnings: [] },
+          areas: includeAreas ? { source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }, ...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` }))], complete: true, warnings: [] } : null,
+        };
+      },
       newThread, renameProject: rename, renameArea: rename,
     },
     sdk: { threads: { experimental_listPluginMetadata: async () => ({ threads: [{ threadId: 't1', metadata: { project: ref } }, { threadId: 't2', metadata: { project: ref } }] }) } },
@@ -208,7 +215,7 @@ test('Active shows only matching Areas; nested IDs roll up without any writes; A
   fireEvent.click(slot.getByRole('button', { name: 'Show all Areas' }));
   const empty = await slot.findByRole('button', { name: 'Empty Area 0' });
   expect(empty.getAttribute('aria-expanded')).toBe('false');
-  expect(slot.inspection.rpcCalls.every(c => ['listAreas', 'listProjects'].includes(c.method))).toBe(true);
+  expect(slot.inspection.rpcCalls.map(c => c.method)).toEqual(['browseInventory']);
   slot.lifecycle.unmount();
 });
 test('no matching projects produces one empty state while retaining all-Areas discovery', async () => {
@@ -224,5 +231,18 @@ for (const mode of ['empty', 'loading', 'error']) test(`${mode} is distinct and 
   if (mode === 'loading') expect(await slot.findByText('Loading GTD…')).toBeTruthy();
   if (mode === 'error') expect(await slot.findByRole('alert')).toBeTruthy();
   if (mode === 'empty') expect(await slot.findByText('No matching projects')).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test('manual Refresh starts one fresh combined request and hides previous rows until it returns', async () => {
+  const slot = setup();
+  await slot.findByRole('button', { name: 'Learning' });
+  fireEvent.click(slot.getByRole('button', { name: 'Refresh GTD' }));
+  expect(slot.queryByRole('button', { name: 'Learning' })).toBeNull();
+  await slot.findByRole('button', { name: 'Learning' });
+  expect(slot.inspection.rpcCalls.map(call => [call.method, call.input])).toEqual([
+    ['browseInventory', { includeAreas: true }],
+    ['browseInventory', { includeAreas: true, fresh: true }],
+  ]);
   slot.lifecycle.unmount();
 });

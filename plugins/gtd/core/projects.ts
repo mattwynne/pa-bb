@@ -2,6 +2,24 @@ import { randomUUID } from 'node:crypto';
 import { GtdError, listInput, snapshotSchema, statuses } from './model.ts';
 import type { BackendSelection, ListInput, Project, ProjectPage, ProjectSnapshot } from './model.ts';
 
+export const compareProjects = (a: Project, b: Project) =>
+  statuses.indexOf(a.status) - statuses.indexOf(b.status) || a.title.localeCompare(b.title, 'en') || a.id.localeCompare(b.id, 'en');
+
+export function normalizeProjectSnapshot(raw: unknown): ProjectSnapshot {
+  const parsed = snapshotSchema.safeParse(raw);
+  if (!parsed.success) throw new GtdError('invalid_source');
+  const snapshot = parsed.data;
+  if (Buffer.byteLength(JSON.stringify(snapshot)) > 2 * 1024 * 1024) throw new GtdError('invalid_source');
+  const seen = new Set<string>();
+  snapshot.projects = snapshot.projects.filter(project => {
+    if (!seen.has(project.id)) { seen.add(project.id); return true; }
+    snapshot.complete = false;
+    if (!snapshot.warnings.includes('duplicate_id')) snapshot.warnings.push('duplicate_id');
+    return false;
+  });
+  return snapshot;
+}
+
 type Listing = { key: string; owner: string; status: string; snapshot: ProjectSnapshot; rows: Project[]; offset: number; at: number };
 export class Projects {
   private listings = new Map<string, Listing>();
@@ -27,21 +45,9 @@ export class Projects {
     }
     try {
       if (!listing) {
-        const rawSnapshot = await selected.backend.readProjects(signal);
-        const parsed = snapshotSchema.safeParse(rawSnapshot);
-        if (!parsed.success) throw new GtdError('invalid_source');
-        const snapshot = parsed.data;
-        if (Buffer.byteLength(JSON.stringify(snapshot)) > 2 * 1024 * 1024) throw new GtdError('invalid_source');
-        const seen = new Set<string>();
-        snapshot.projects = snapshot.projects.filter(project => {
-          if (!seen.has(project.id)) { seen.add(project.id); return true; }
-          snapshot.complete = false;
-          if (!snapshot.warnings.includes('duplicate_id')) snapshot.warnings.push('duplicate_id');
-          return false;
-        });
+        const snapshot = normalizeProjectSnapshot(await selected.backend.readProjects(signal));
         const status = input.status ?? 'all';
-        const rows = snapshot.projects.filter(project => status === 'all' || project.status === status).sort((a, b) =>
-          statuses.indexOf(a.status) - statuses.indexOf(b.status) || a.title.localeCompare(b.title, 'en') || a.id.localeCompare(b.id, 'en'));
+        const rows = snapshot.projects.filter(project => status === 'all' || project.status === status).sort(compareProjects);
         listing = { key: selected.key, owner, status, snapshot, rows, offset: 0, at: this.now() };
       }
       await selected.backend.checkAccess(signal);

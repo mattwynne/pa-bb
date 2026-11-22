@@ -82,7 +82,7 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     let sequence = 0;
     const observed = () => { if (!sequence) sequence = ++this.observationSequence; };
     const catalog = await this.checkCatalog(observed, signal);
-    if (sequence > this.observedSequence && !this.indexAbort.signal.aborted) {
+    if (sequence > this.observedSequence && !this.indexAbort.signal.aborted && !signal?.aborted) {
       this.observedSequence = sequence; this.lastCatalog = catalog;
       this.observeAreaRoutes(catalog);
       this.syncIndexAccess(catalog);
@@ -101,7 +101,8 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     if (this.indexAbort.signal.aborted || this.indexState?.revision !== revision || current?.route !== route) throw new VaultError('source_unavailable');
     return current.epoch;
   }
-  snapshot(): Promise<Catalog> {
+  snapshot(options?: { fresh: true; signal?: AbortSignal }): Promise<Catalog> {
+    if (options?.fresh) return this.observeCatalog(options.signal);
     return this.checking ??= this.observeCatalog().finally(() => { this.checking = undefined; });
   }
 
@@ -242,8 +243,8 @@ export class ICloud implements MirrorCatalog, VaultFiles {
       throw new VaultError(uncertain ? 'uncertain' : 'unavailable', uncertain ? 'The mutation reply was lost. Inspect its scoped operation receipt; do not repeat the change.' : 'Check iCloud is updated and running, then choose Check again.', true);
     }
   }
-  async configure(value: Configuration, projectAreas?: ProjectAreaSelection) {
-    const catalog = await this.snapshot();
+  async configure(value: Configuration, projectAreas?: ProjectAreaSelection, observedCatalog?: Catalog) {
+    const catalog = observedCatalog ?? await this.snapshot();
     if (!catalog.compatible) throw new VaultError(catalog.setup === 'incompatible' ? 'incompatible' : 'source_unavailable', catalog.nextAction ?? 'Check iCloud status.');
     if (projectAreas) this.checkProjectAreaRoute(catalog, projectAreas.vaultId, value.revision, projectAreas);
     await this.confirmConfiguration(value, projectAreas?.signal);

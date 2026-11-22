@@ -67,3 +67,37 @@ Carry the current authority check through a multi-call inventory (e.g. expected 
 **Evidence and open decisions.** The working checkout’s focused synthetic suites passed 83 Obsidian and 29 GTD tests. The existing warm relationship test already forbids five local I/O methods across requests. The proposed end-to-end inventory gate extends that coverage. Before finalizing wire schemas, settle how unchanged strict child replies participate in authority continuity, whether valid large property lists need a different bound, and whether cross-call publication drift is acceptable when a note/folder pair changes between discovery and owner lookup. If coherent results require it, detect and report change or retry a bounded read before designing a shared snapshot session. Measure nested-root validation separately before promising a traversal-free *entire* inventory. No production latency or live-vault verification was part of this investigation.
 
 [Warm relationship, rollback and revocation tests](../../plugins/obsidian/test/filesystem-vault.test.ts) · [Child RPC](../../plugins/obsidian/test/children-rpc.test.ts) · [Property RPC](../../plugins/obsidian/test/properties-rpc.test.ts) · [GTD directory inventory](../../plugins/gtd/test/directory-inventory.test.ts) · [Project entries](../../plugins/gtd/test/project-entries.test.ts) · [Diagnostic standards](../o11y-standards.md)
+
+## Sidebar performance follow-up
+
+The browser benchmark starts at the Personal GTD projects click and ends when the active project groups and thread rows are usable and their loading indicators have cleared. It measures the first open in a fresh BB client, close and reopen in the same client, and explicit Refresh. The live fixture had 127 projects and eight Areas. Exact sorted project and Area records and rendered grouping were captured privately for comparison.
+
+| Operation | Baseline | Acceptance target |
+| --- | ---: | ---: |
+| First open | Median 15.665 s, four successful trials | At most 2 s after activation, at least 80% faster |
+| Subsequent fresh-client first open | Same baseline as first open | Median at most 500 ms |
+| Warm reopen | Median 13.376 s, max 13.746 s, three successful trials | Median at most 150 ms, max 250 ms |
+| Refresh | 14.193 s | At most 3 s |
+
+Three other baseline first opens timed out after completing inventory requests, including a client that returned to the home route. A separate attempt recorded handler errors. The timing medians use the successful trials.
+
+Baseline standalone reads used 176 Obsidian handlers for Projects and 14 for Areas. A quiet first open added five GTD handlers and 381 Obsidian handlers. Reopens added three or four GTD handlers and 191 or 192 Obsidian handlers. Refresh issued two browser requests each for Projects, Areas, and thread metadata. The sidebar and native thread action both mounted inventory readers, while clicks on the already-loaded native menu reused its options.
+
+The first batch build preserved exact records and grouping. The first post-activation open took 2.841 s and 15 Obsidian handlers. Warm reopen took 293 ms at the median and 302 ms at the maximum with one browser inventory request and two Obsidian handlers. Refresh took 2.189 s. A separate quiet warm inventory request took 206 ms and added 12 iCloud handlers. These measurements located the remaining latency in evidence staging and repeated authorization calls.
+
+The next build fetched the root catalogs with the initial proof, batched owner and reference evidence, and shared the final proof check across both inventories. A synthetic four-status inventory went from 16 to 10 Obsidian calls. The indexed batch's iCloud authorization went from 12 to seven calls in its isolated fixture. The provider still checked fresh catalog, route, revision, root identity and lease state before releasing evidence.
+
+| Live operation | After the staging and authorization changes |
+| --- | ---: |
+| First open after activation | 899 ms, 94.3% faster |
+| Later fresh-client open | 215 and 246 ms |
+| Warm reopen | 202 ms median, 216 ms max |
+| Refresh | 893 ms |
+
+The 150 ms warm median target remained open. The 250 ms warm maximum and all first-open and Refresh targets passed. Five direct warm inventory requests had a 156 ms median before browser rendering. The click-to-ready timing also includes BB navigation and rendering.
+
+The first-open host bracket included a pre-click load and added two GTD, 12 Obsidian and 81 iCloud handlers. A separate browser trace identified the pre-click load as projects-only and the timed sidebar request as combined Projects and Areas. Each subsequent timed open issued one combined inventory request and one metadata request, with no inventory request or route reset in the two seconds after readiness. Quiet warm brackets added one GTD, two Obsidian and nine or ten iCloud handlers. Refresh added nine Obsidian handlers and issued one combined inventory request. The two standalone listing calls took 701 ms and 671 ms with four Obsidian handlers each.
+
+The exact 127 project records, eight Area records, coverage and rendered project grouping matched the baseline. The active filter showed 41 projects, and the native thread action menu reused its loaded choices without further inventory calls. Keyboard navigation, Refresh, status selection and Area toggling passed at 1280 px and 390 px with visible focus.
+
+[Indexed batch evidence contract](../../plugins/obsidian/docs/inventory-evidence.md#indexed-batch-evidence)

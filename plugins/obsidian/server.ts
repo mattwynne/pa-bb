@@ -1,6 +1,7 @@
 import { experimental_PluginRpcRefusal, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { randomUUID } from 'node:crypto';
 import { rpcContract, tools } from './contract.ts';
+import { InventoryBatchRefusal } from './core/inventory-evidence.ts';
 import { Obsidian } from './core/service.ts';
 import { VaultError } from './core/ports.ts';
 import { MoveLinkError } from './core/move.ts';
@@ -31,10 +32,19 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     try { return await admission.run(read); }
     catch (error) {
       if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable');
+      if (error instanceof InventoryBatchRefusal) {
+        throw new experimental_PluginRpcRefusal({
+          code: 'invalid',
+          message: error.reason === 'output_limit' ? 'Inventory batch exceeded the response limit. Split the batch and keep its continuity fields.' : 'This source requires the single-read inventory RPCs.',
+          issues: [{ path: ['requests'], message: error.reason }],
+        });
+      }
       throw new Error('Inventory evidence did not complete. Check compatible source access.');
     }
   };
   bb.rpc.register(rpcContract, {
+    async inventoryStatus(_input, context) { return evidence(() => service.inventoryStatus(), context); },
+    async inventoryBatch(input, context) { return evidence(() => service.inventoryBatch(input, context.experimental_signal), context); },
     async inventoryChildren(input, context) { return evidence(() => service.inventoryChildren(input, context.experimental_signal), context); },
     async inventoryProperties(input, context) { return evidence(() => service.inventoryProperties(input, context.experimental_signal), context); },
     async inventoryTarget(input, context) { return evidence(() => service.inventoryTarget(input, context.experimental_signal), context); },

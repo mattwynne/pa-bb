@@ -7,7 +7,7 @@ export type SearchQuery = { vaultId?: string; text?: string; tag?: string; pathG
 export type SearchRequest = { mirrorId: string; revision: number; text?: string; projection: 'hits' | 'frontmatter' | 'markdown'; folders?: string[]; excludeFolders?: string[]; cursor?: string; startOnly?: boolean };
 export type SearchBatch = { candidates: Array<{ path: string; hash: string; readAt: string; line: number; snippet: string; content?: string; limited?: boolean }>; nextCursor: string | null; visited: number; warnings: Array<'note_unavailable' | 'unsupported' | 'source_changed' | 'capacity'> };
 export type Catalog = { mirrorDirectoryGrantVersion?: 1; mirrorDirectoryGrantUnconfirmed?: true; filesystem?: Record<string, 'ready' | 'legacy_pending' | 'legacy_conflict' | 'unavailable'>; search?: SearchCapability; setup: string; nextAction: string | null; sources: Source[]; connected: boolean; compatible: boolean };
-export interface MirrorCatalog { snapshot(): Promise<Catalog> }
+export interface MirrorCatalog { snapshot(options?: { fresh: true; signal?: AbortSignal }): Promise<Catalog> }
 export const projectAreaRoutes = ['index', 'direct', 'legacy_pending', 'legacy_conflict', 'legacy'] as const;
 export type ProjectAreaRoute = typeof projectAreaRoutes[number];
 export type ProjectAreaAuthority = { revision: number; route: ProjectAreaRoute; epoch: string };
@@ -33,7 +33,8 @@ export interface VaultFiles {
   children?(vaultId: string, revision: number, folder: string, access?: LiveProjectAreaAccess): Promise<{ entries: Array<{ name: string; kind: 'directory' | 'markdown' }>; incomplete: boolean }>;
   move?(input: { mirrorId: string; revision: number; path: string; destination: string; expectedHash: string; operationId: string }): Promise<{ outcome: 'moved_locally_pending_sync' | 'not_moved' | 'uncertain' }>;
   moveReceipts?(input: { mirrorId: string; revision: number; operationId: string }): Promise<Array<{ outcome: 'moved_locally_pending_sync' | 'not_moved' | 'uncertain' }>>;
-  configure(configuration: Configuration, projectAreas?: ProjectAreaSelection): Promise<void>;
+  // An indexed inventory can supply the catalog observation used to select its route.
+  configure(configuration: Configuration, projectAreas?: ProjectAreaSelection, observedCatalog?: Catalog): Promise<void>;
   // Optional native read model; legacy logical vaults still use search().
   index?(vaultId: string, revision: number, signal?: AbortSignal): Promise<import('./vault-index.ts').IndexLease>;
   indexConfiguration?(configuration: Configuration): void;

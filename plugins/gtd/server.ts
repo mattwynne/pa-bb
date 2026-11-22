@@ -1,14 +1,14 @@
 import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions } from './adapters/obsidian.ts';
-import { Areas } from './core/areas.ts';
+import { Areas, compareAreas, normalizeAreaSnapshot } from './core/areas.ts';
 import { browseInput, changeNames, checkInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
 import { migrationPreview } from './core/migration-preview.ts';
 import { rpcContract, renameInput, reference, newThreadInput } from './contract.ts';
 import { threadActions } from './core/threads.ts';
 import { areaListInput, areaPageSchema } from './core/model.ts';
 import type { AreaBackendSelection, AreaPage } from './core/model.ts';
-import { Projects } from './core/projects.ts';
+import { Projects, compareProjects, normalizeProjectSnapshot } from './core/projects.ts';
 import { GtdError, listInput, pageSchema, safeError, statuses } from './core/model.ts';
 import type { BackendSelection, ProjectPage } from './core/model.ts';
 
@@ -48,26 +48,52 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     areasFolder: { type: 'string', label: 'Areas folder', description: 'Relative to the vault, such as Areas. Immediate root notes and Area-named folders are Areas; matching note/folder pairs are one Area. Nested notes are supporting material. No status-container semantics apply.', default: 'Areas', experimental_schema: relativeFolder },
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Top-level notes and supporting folders are projects; a matching note/folder pair is one project. Active, Deferred, Someday and Done containers add one grouping layer. Empty and attachment-only project folders are included when the source supports directory enumeration; otherwise coverage is explicitly partial.', default: 'Projects', experimental_schema: relativeFolder },
   });
-  const selectAreas = dependencies?.selectAreas ?? (async () => {
-    const config = await settings.get();
-    if (!config.vaultId || config.vaultId === '__none__') throw new GtdError('unconfigured');
-    if (config.backend !== 'obsidian' || !vaultSelectionSchema.safeParse(config.vaultId).success || !relativeFolder.safeParse(config.areasFolder).success) throw new GtdError('invalid_configuration');
-    return { key: JSON.stringify(config), backend: new ObsidianBackend(bb.sdk, { vaultId: config.vaultId.split('/')[0], root: config.vaultId.split('/').slice(1).join('/'), folder: config.areasFolder }, () => diagnose('cleanup', 'source_unavailable')) };
-  });
   const diagnose = (stage: 'list' | 'areas' | 'sources' | 'cleanup', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial'].includes(code) ? code : 'unknown';
     bb.log.warn(`GTD ${stage} ${safe}`);
   };
-  const select = dependencies?.select ?? (async () => {
+  type Config = Awaited<ReturnType<typeof settings.get>>;
+  let current: { key: string; backend: ObsidianBackend } | undefined;
+  const configured = async (folder: 'projectsFolder' | 'areasFolder') => {
     const config = await settings.get();
+    const key = JSON.stringify(config);
+    if (current && current.key !== key) {
+      current.backend.invalidate();
+      current = undefined;
+    }
     if (!config.vaultId || config.vaultId === '__none__') throw new GtdError('unconfigured');
-    if (config.backend !== 'obsidian' || !vaultSelectionSchema.safeParse(config.vaultId).success || !relativeFolder.safeParse(config.projectsFolder).success) throw new GtdError('invalid_configuration');
-    return { key: JSON.stringify(config), backend: new ObsidianBackend(bb.sdk, { vaultId: config.vaultId.split('/')[0], root: config.vaultId.split('/').slice(1).join('/'), folder: config.projectsFolder, areasFolder: config.areasFolder }, () => diagnose('cleanup', 'source_unavailable')) };
+    if (config.backend !== 'obsidian' || !vaultSelectionSchema.safeParse(config.vaultId).success || !relativeFolder.safeParse(config[folder]).success) throw new GtdError('invalid_configuration');
+    return { config, key };
+  };
+  const makeBackend = (config: Config, folder = config.projectsFolder, areasFolder?: string) => {
+    const [vaultId, ...path] = config.vaultId.split('/');
+    return new ObsidianBackend(bb.sdk, { vaultId, root: path.join('/'), folder, areasFolder },
+      () => diagnose('cleanup', 'source_unavailable'));
+  };
+  const backendFor = (config: Config, key: string) => {
+    if (current?.key !== key) {
+      current?.backend.invalidate();
+      current = { key, backend: makeBackend(config, config.projectsFolder, config.areasFolder) };
+    }
+    return current.backend;
+  };
+  const select = dependencies?.select ?? (async () => {
+    const { config, key } = await configured('projectsFolder');
+    return { key, backend: backendFor(config, key) };
+  });
+  const selectAreas = dependencies?.selectAreas ?? (async () => {
+    const { config, key } = await configured('areasFolder');
+    const reader = backendFor(config, key);
+    return { key, backend: {
+      readAreas: reader.readAreas.bind(reader),
+      checkAccess: reader.checkAccess.bind(reader),
+      rename: (id: string, title: string, signal: AbortSignal) => makeBackend(config, config.areasFolder).rename(id, title, signal),
+    } };
   });
   const projects = new Projects(select);
   const areas = new Areas(selectAreas);
   const enteredRenames = new Set<Promise<unknown>>(); let closing = false;
-  bb.onDispose(async () => { closing = true; await Promise.allSettled([...enteredRenames]); projects.stop(); areas.stop(); });
+  bb.onDispose(async () => { closing = true; current?.backend.invalidate(); await Promise.allSettled([...enteredRenames]); projects.stop(); areas.stop(); });
   const listAreas = async (input: z.infer<typeof areaListInput>, signal: AbortSignal, owner: string) => {
     try {
       const result = areaPageSchema.parse(await areas.list(input, signal, owner));
@@ -94,7 +120,10 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       if (notePath && !snapshot.complete) throw new GtdError('invalid_source');
       if (!selection.backend.rename) throw new GtdError('incompatible');
       if (closing || signal.aborted) throw new GtdError('cancelled');
-      return await selection.backend.rename(notePath ?? item.id, input.title, signal);
+      const selectedBackend = current?.key === selection.key ? current.backend : undefined;
+      selectedBackend?.invalidate();
+      try { return await selection.backend.rename(notePath ?? item.id, input.title, signal); }
+      finally { selectedBackend?.invalidate(); }
     } catch { bb.log.warn('GTD rename unconfirmed'); throw new Error('Rename was not confirmed. Inspect Obsidian receipts before another edit; do not retry automatically.'); } })();
     enteredRenames.add(task);
     try { return await task; } finally { enteredRenames.delete(task); }
@@ -115,7 +144,29 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
   changeTool(changeNames[0],browseInput,'Browse the selected Areas folder one level at a time. Pass an exact returned folder path to discover nested Area note targets. Distinguish identical names by full path. Read only.',changes.browse);
   changeTool(changeNames[1],prepareInput,'Prepare one explicitly requested legacy project change. Use the exact source and project ID and the complete owner note read hash. Set areaPath to an exact Area note path (null clears), OR status to the destination status folder. Returns a private plan and the checked Obsidian operation; does not write notes. Follow the GTD skill for apply and read-back.',changes.prepare);
   changeTool(changeNames[2],checkInput,'Inspect an existing project change plan. Read-only by default. After checking the successful Obsidian move receipt for this exact source/destination, finishLinks:true with the successful receipt fields relinks only the captured existing conversations. On uncertainty inspect, do not replay.',changes.check);
+  const browseInventory = async (includeAreas: boolean, fresh: boolean, signal: AbortSignal) => {
+    try {
+      if (closing || signal.aborted) throw new GtdError('cancelled');
+      const projectSelection = await select();
+      const areaSelection = includeAreas ? await selectAreas() : undefined;
+      if (areaSelection && projectSelection.key !== areaSelection.key) throw new GtdError('cursor_expired');
+      const backend = projectSelection.backend;
+      const result = includeAreas && backend instanceof ObsidianBackend && !dependencies
+        ? await backend.readBoth(signal, fresh)
+        : { projects: await (backend instanceof ObsidianBackend ? backend.readProjects(signal, fresh) : backend.readProjects(signal)), areas: areaSelection ? await areaSelection.backend.readAreas(signal) : null };
+      if (closing || signal.aborted) throw new GtdError('cancelled');
+      if ((await select()).key !== projectSelection.key) throw new GtdError('cursor_expired');
+      const projects = normalizeProjectSnapshot(result.projects);
+      const areas = result.areas ? normalizeAreaSnapshot(result.areas) : null;
+      if (areas && areas.source.id !== projects.source.id) throw new GtdError('source_unavailable');
+      if (!projects.complete || (areas && !areas.complete)) diagnose('list', 'partial');
+      projects.projects.sort(compareProjects);
+      areas?.areas.sort(compareAreas);
+      return { projects, areas };
+    } catch (error) { const safe = safeError(error, signal); diagnose('list', safe.code); throw safe; }
+  };
   bb.rpc.register(rpcContract, {
+    browseInventory: (input, context) => browseInventory(input.includeAreas, input.fresh ?? false, context.experimental_signal),
     associate: (input, context) => threads.associate(input, context.experimental_signal),
     newThread: (input, context) => threads.newThread(input, context.experimental_signal),
     renameProject: (input, context) => rename('project', input, context.experimental_signal),

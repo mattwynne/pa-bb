@@ -96,13 +96,28 @@ try {
       if (mode === 'loading') { await new Promise(r => setTimeout(r, 15000)); if (page.isClosed()) return; }
       if (mode === 'error') return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic failure' } } });
       let result;
-      if (method === 'listProjects') result = { source, projects: mode === 'empty' ? [] : [{ id: ref.id, title, status: 'active', areaId: 'Areas/Learning.md' }], coverage: 'complete', warnings: [], totalProjects: mode === 'empty' ? 0 : 1, matchedProjects: 1, counts: { active: 1, deferred: 0, someday: 0, done: 0 }, nextCursor: null, consistency: 'Per-project local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' };
-      if (method === 'listProjects' && mode === 'directory-gap') result = { ...result, projects: [{ id: 'Projects/Folder/', title: 'Folder project', status: 'active' }], coverage: 'partial', warnings: ['directory_enumeration_unavailable'], totalProjects: null, matchedProjects: null, counts: null };
-      if (method === 'listProjects' && mode === 'folder-complete') result = { ...result, projects: [{ id: 'Projects/Empty/', title: 'Empty project', status: 'active' }, { id: 'Projects/Attachments/', title: 'Attachment-only project', status: 'active' }, { id: 'Projects/Pilot/', notePath: 'Projects/Pilot/README.md', title, status: 'active' }], totalProjects: 3, matchedProjects: 3, counts: { active: 3, deferred: 0, someday: 0, done: 0 } };
-      if (method === 'listAreas') result = { source, areas: [{ id: 'Areas/Learning.md', title: area }], coverage: 'complete', warnings: [], totalAreas: 1, nextCursor: null, consistency: 'Per-area local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' };
-      if (method === 'listProjects' && mode === 'area-boundary') result.projects[0].areaId = 'Areas/Learning/Example Committee/Meeting.md';
-      if (method === 'listAreas' && mode === 'area-boundary') result.areas.push(...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` })));
-      if (method === 'listProjects' && mode === 'relationships') { result.projects[0].areaId = 'Areas/Learning/Consulting.md'; result.projects.push({ id: 'Projects/Unresolved.md', title: 'Unresolved project', status: 'active' }); }
+      if (method === 'browseInventory') {
+        const projects = mode === 'empty' ? [] : [{ id: ref.id, title, status: 'active', areaId: 'Areas/Learning.md' }];
+        const areas = [{ id: 'Areas/Learning.md', title: area }];
+        if (mode === 'directory-gap') projects.splice(0, 1, { id: 'Projects/Folder/', title: 'Folder project', status: 'active' });
+        if (mode === 'folder-complete') projects.splice(0, 1,
+          { id: 'Projects/Empty/', title: 'Empty project', status: 'active' },
+          { id: 'Projects/Attachments/', title: 'Attachment-only project', status: 'active' },
+          { id: 'Projects/Pilot/', notePath: 'Projects/Pilot/README.md', title, status: 'active' });
+        if (mode === 'area-boundary') {
+          projects[0].areaId = 'Areas/Learning/Example Committee/Meeting.md';
+          areas.push(...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` })));
+        }
+        if (mode === 'relationships') {
+          projects[0].areaId = 'Areas/Learning/Consulting.md';
+          projects.push({ id: 'Projects/Unresolved.md', title: 'Unresolved project', status: 'active' });
+        }
+        const complete = mode !== 'directory-gap';
+        result = {
+          projects: { source, projects, complete, warnings: complete ? [] : ['directory_enumeration_unavailable'] },
+          areas: (input.input ?? input).includeAreas ? { source, areas, complete: true, warnings: [] } : null,
+        };
+      }
       if (method === 'renameProject' || method === 'renameArea') { renames.push(input); if (method === 'renameProject') {
         if (mode === 'folder-complete') assert.equal(input.id, 'Projects/Pilot/');
         title = input.title;

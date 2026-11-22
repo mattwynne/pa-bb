@@ -1,5 +1,6 @@
 import { posix } from 'node:path';
-import { indexedChildren, projectFields, targetQuery, targetEvidence, within, hides, decodeReference, genericNoteCandidates } from './inventory-evidence.ts';
+import { checkIndexedInventoryRoot, indexedChildren, indexedInventoryRows, indexedProperties, projectFields, targetQuery, targetEvidence, targetCoverageIncomplete, within, decodeReference, genericNoteCandidates, InventoryBatchRefusal, INVENTORY_BATCH_MAX_BYTES } from './inventory-evidence.ts';
+import type { InventoryBatchRequest, InventoryBatchRow } from '../contract.ts';
 import type { IndexView } from './vault-index.ts';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
@@ -11,7 +12,10 @@ import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, Sta
 export const LIMITS = { output: 48000, scanNotes: 500, scanBytes: 16 * 1024 * 1024, scanMs: 3000, rows: 500, page: 50, cursors: 10, cursorMs: 60000, proofs: 256 } as const;
 export const READ_LIMITS = { sessions: 4, idleMs: 5 * 60000, lifetimeMs: 30 * 60000, bytes: MAX_NOTE_BYTES, serialized: 60000 } as const;
 type SourceContext = { source: Source; revision: number; catalog: Catalog };
-type ProjectAreaRequest = { signal?: AbortSignal; expected?: ProjectAreaAuthority };
+type ProjectAreaRequest = { signal?: AbortSignal; expected?: ProjectAreaAuthority; inventoryBatch?: boolean };
+const inventoryCapabilities = { inventoryEvidenceVersion: 1, inventoryBatchVersion: 1, propertiesAccessVersion: 1 } as const;
+type InventoryInput = { vaultId: string; root: string; expectedAuthority?: ProjectAreaAuthority; publication?: string };
+type InventoryStamp = { authority: ProjectAreaAuthority; publication: string | null };
 const projectAreaCapabilities = { projectAreasVersion: 1, projectAreasFrontmatterOnly: true, projectAreasDeclarationKey } as const;
 type ReadInput = { vaultId: string; path: string; heading?: string; blockId?: string; selector?: { version: 'incoming'; token: string }; cursor?: string };
 type ReadSession = { vaultId: string; path: string; selector?: ReadInput['selector']; reader: string; hash: string; revision: number; source: string; offset: number; warnings: string[]; started: number; touched: number };
@@ -55,8 +59,8 @@ export class Obsidian {
     const task = this.configurationQueue.then(action);
     this.configurationQueue = task.then(() => {}, () => {}); return task;
   }
-  private async confirm(state: Configuration, projectAreas?: ProjectAreaSelection) {
-    await this.files.configure(state, projectAreas);
+  private async confirm(state: Configuration, projectAreas?: ProjectAreaSelection, observedCatalog?: Catalog) {
+    await this.files.configure(state, projectAreas, observedCatalog);
     await this.update(async () => { if (this.state.revision === state.revision && this.state.unconfirmedRevision === state.revision) await this.save({ ...this.state, unconfirmedRevision: undefined }); });
   }
   private async remember(catalog: Catalog) {
@@ -99,7 +103,9 @@ export class Obsidian {
   private source(vaultId: string, projectAreas: ProjectAreaRequest): Promise<SourceContext & { authority: ProjectAreaAuthority }>;
   private async source(vaultId: string, projectAreas?: ProjectAreaRequest) {
     if (this.stopped || !this.state.vaultIds.includes(vaultId)) throw new VaultError('not_connected', 'Connect this vault in Obsidian settings.');
-    const revision = this.state.revision; const catalog = await this.catalog.snapshot();
+    const revision = this.state.revision;
+    const catalog = await this.catalog.snapshot(projectAreas?.inventoryBatch ? { fresh: true, signal: projectAreas.signal } : undefined);
+    if (projectAreas?.inventoryBatch && projectAreas.signal?.aborted) throw new VaultError('cancelled');
     if (!catalog.compatible) throw new VaultError('incompatible', catalog.nextAction ?? 'Update both plugins for note access v2.');
     const source = catalog.sources.find(s => s.id === vaultId);
     if (!source?.local.available) throw new VaultError('source_unavailable', 'Local note access is unavailable. Check this source in iCloud settings.');
@@ -111,7 +117,8 @@ export class Obsidian {
       if (projectAreas.expected && (projectAreas.expected.revision !== revision || projectAreas.expected.route !== route || projectAreas.expected.epoch !== authority.epoch))
         throw new VaultError('source_unavailable');
     }
-    await this.confirm(this.state, authority && { ...authority, vaultId, signal: projectAreas?.signal }); this.check(vaultId, revision);
+    const observedCatalog = projectAreas?.inventoryBatch && authority?.route === 'index' ? catalog : undefined;
+    await this.confirm(this.state, authority && { ...authority, vaultId, signal: projectAreas?.signal }, observedCatalog); this.check(vaultId, revision);
     await this.remember(catalog); this.check(vaultId, revision);
     return { source, revision, catalog, authority };
   }
@@ -129,7 +136,7 @@ export class Obsidian {
       && (!input.operationId || pending.operationId === input.operationId);
     const catalog = await this.catalog.snapshot(); const revision = this.state.revision;
     if (catalog.compatible) await this.remember(catalog);
-    const vaults = this.state.vaultIds.map(id => ({ vaultId: id, name: this.state.names?.[id] ?? null, source: catalog.sources.find(s => s.id === id) ?? null }));
+    const vaults = this.inventoryVaults(catalog);
     let conflict: { vaultId: string; path: string; inspection: Awaited<ReturnType<VaultFiles['inspect']>> } | null = null;
     let conflictFailure: string | null = null;
     const receipts: Receipt[] = []; const receiptFailures: Array<{ vaultId?: string; category: string }> = [];
@@ -158,7 +165,19 @@ export class Obsidian {
     this.checkRevision(revision);
     const uncertain = (this.state.pending ?? []).filter(matchesPending);
     const uncertainOperations = uncertain.slice(0, Math.min(input.limit ?? 20, 100));
-    return { inventoryEvidenceVersion: 1 as const, ...projectAreaCapabilities, propertiesAccessVersion: 1 as const, ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
+    return { ...inventoryCapabilities, ...projectAreaCapabilities, ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
+  }
+  private inventoryVaults(catalog: Catalog) {
+    return this.state.vaultIds.map(vaultId => {
+      const source = catalog.sources.find(s => s.id === vaultId) ?? null;
+      return { vaultId, name: (catalog.compatible ? source?.name : undefined) ?? this.state.names?.[vaultId] ?? null, source };
+    });
+  }
+  async inventoryStatus() {
+    const revision = this.state.revision;
+    const catalog = await this.catalog.snapshot();
+    this.checkRevision(revision);
+    return { ...inventoryCapabilities, vaults: this.inventoryVaults(catalog) };
   }
   async vaultLocations() {
     const vaults: Array<{ id: string; root: string; name: string }> = []; let incomplete = false;
@@ -287,26 +306,74 @@ export class Obsidian {
     incomplete ||= incompleteCatalog;
     return { rows, incomplete };
   }
-  private async inventoryRead<T>(input: { vaultId: string; root: string; expectedAuthority?: ProjectAreaAuthority; publication?: string }, signal: AbortSignal | undefined, read: (view: IndexView | undefined, revision: number, access: LiveProjectAreaAccess | undefined) => Promise<T>) {
-    const { authority } = await this.source(input.vaultId, { signal, expected: input.expectedAuthority });
+  private checkInventoryAuthority(vaultId: string, authority: ProjectAreaAuthority, signal?: AbortSignal) {
+    if (signal?.aborted) throw new VaultError('cancelled');
+    this.check(vaultId, authority.revision);
+    if (this.files.projectAreaEpoch(vaultId, authority.revision, authority.route) !== authority.epoch) throw new VaultError('source_unavailable');
+  }
+  private async inventoryRead<T>(input: InventoryInput, signal: AbortSignal | undefined, read: (view: IndexView | undefined, revision: number, access: LiveProjectAreaAccess | undefined, stamp: InventoryStamp) => Promise<T>, policy: 'single' | 'batch' = 'single') {
+    const { vaultId } = input;
+    const { authority } = await this.source(vaultId, { signal, expected: input.expectedAuthority, inventoryBatch: policy === 'batch' });
     const lease = authority.route === 'index' ? await this.files.index?.(input.vaultId, authority.revision, signal) : undefined;
     try {
       if (authority.route === 'index' && !lease) throw new VaultError('source_unavailable');
+      if (policy === 'batch' && lease) this.checkInventoryAuthority(vaultId, authority, signal);
       let publication: string | null = null;
-      if (lease) {
-        publication = this.publications.get(lease.view) ?? this.id();
-        this.publications.set(lease.view, publication);
+      const view = lease?.view;
+      if (view) {
+        publication = this.publications.get(view) ?? this.id();
+        this.publications.set(view, publication);
       }
       if (input.publication && input.publication !== publication) throw new VaultError('source_unavailable');
       if (signal?.aborted) throw new VaultError('cancelled');
       const access = authority.route === 'index' ? undefined : { route: authority.route, epoch: authority.epoch, signal };
-      const result = await read(lease?.view, authority.revision, access);
-      await this.source(input.vaultId, { signal, expected: authority });
-      if (lease) { await lease.check(signal); lease.assertValid(); }
-      else if (access) await this.files.checkLiveProjectAreaAccess?.(input.vaultId, authority.revision, access);
-      if (signal?.aborted) throw new VaultError('cancelled');
-      return { ...result, authority, publication };
+      const stamp = { authority, publication };
+      const result = await read(view, authority.revision, access, stamp);
+      if (policy === 'batch' && lease) {
+        // The grant checks iCloud's current admission revision and pinned root.
+        // Drain both checks before closing the lease, even when one fails.
+        const [catalog, grant] = await Promise.allSettled([
+          Promise.resolve().then(() => this.catalog.snapshot({ fresh: true, signal })),
+          Promise.resolve().then(() => lease.check(signal)),
+        ]);
+        if (signal?.aborted) throw new VaultError('cancelled');
+        if (grant.status === 'rejected') throw grant.reason;
+        if (catalog.status === 'rejected') throw catalog.reason;
+        if (projectAreaRoute(catalog.value, vaultId) !== authority.route) throw new VaultError('source_unavailable');
+        this.checkInventoryAuthority(vaultId, authority, signal);
+        lease.assertValid();
+      } else {
+        await this.source(vaultId, { signal, expected: authority });
+        if (lease) { await lease.check(signal); lease.assertValid(); }
+        else if (access) await this.files.checkLiveProjectAreaAccess?.(vaultId, authority.revision, access);
+        if (signal?.aborted) throw new VaultError('cancelled');
+        this.check(vaultId, authority.revision);
+      }
+      return { ...result, ...stamp };
     } finally { lease?.close(); }
+  }
+  async inventoryBatch(input: InventoryInput & { requests: InventoryBatchRequest[] }, signal?: AbortSignal) {
+    for (const request of input.requests) {
+      const path = request.kind === 'children' ? request.folder : validPath(request.path);
+      if (!within(path, input.root)) throw new VaultError('invalid_path');
+    }
+    const { rows, authority, publication } = await this.inventoryRead(input, signal, async (view, _revision, _access, stamp) => {
+      const rows: InventoryBatchRow[] = [];
+      if (!view) return { rows };
+      checkIndexedInventoryRoot(view, input.root);
+      if (!input.requests.length) return { rows };
+      let bytes = Buffer.byteLength(JSON.stringify({ ...stamp, rows }));
+      for (const row of indexedInventoryRows(view, input.root, input.requests)) {
+        if (signal?.aborted) throw new VaultError('cancelled');
+        bytes += Buffer.byteLength(JSON.stringify(row)) + (rows.length ? 1 : 0);
+        if (bytes > INVENTORY_BATCH_MAX_BYTES) return { rows: null };
+        rows.push(row);
+      }
+      return { rows };
+    }, 'batch');
+    if (!rows) throw new InventoryBatchRefusal('output_limit');
+    if (authority.route !== 'index' && input.requests.length) throw new InventoryBatchRefusal('incompatible');
+    return { rows, authority, publication };
   }
   async inventoryChildren(input: { vaultId: string; root: string; folder: string; expectedAuthority?: ProjectAreaAuthority; publication?: string }, signal?: AbortSignal) {
     if (!within(input.folder, input.root)) throw new VaultError('invalid_path');
@@ -320,11 +387,7 @@ export class Obsidian {
     validPath(input.path);
     if (!within(input.path, input.root)) throw new VaultError('invalid_path');
     return this.inventoryRead(input, signal, async (view, revision, access) => {
-      if (view) {
-        const note = view.notes.find(n => n.path === input.path);
-        const partial = view.omissions.some(o => hides(o, input.path)) || !!note?.propertyWarning;
-        return { status: partial ? 'partial' as const : note ? 'observed' as const : 'missing' as const, ...projectFields(note?.properties ?? {}, input.fields) };
-      }
+      if (view) return indexedProperties(view, view.notes.find(n => n.path === input.path), input.path, input.fields);
       if (this.files.children) {
         const parent = posix.dirname(input.path);
         const children = await this.files.children(input.vaultId, revision, parent === '.' ? '' : parent, access);
@@ -347,7 +410,7 @@ export class Obsidian {
     if (!within(input.path, input.root)) throw new VaultError('invalid_path');
     return this.inventoryRead(input, signal, async (view, revision, access) => {
       const query = targetQuery(input.reference, input.path, input.root);
-      if (view) return targetEvidence(query, input.root, view.notes.map(n => n.path), !!query.path && view.directories.includes(query.path), view.omissions.some(o => within(o.path, input.root) || (o.kind === 'tree' && hides(o, input.root))));
+      if (view) return targetEvidence(query, input.root, view.notes.map(n => n.path), !!query.path && view.directories.includes(query.path), targetCoverageIncomplete(view, input.root));
       const listed = await this.files.list(input.vaultId, revision, access);
       let directory = false, incomplete = listed.incomplete;
       if (query.path) {
