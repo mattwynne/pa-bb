@@ -97,10 +97,14 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
   await assert.rejects(readFile(join(vault, destination)), { code: 'ENOENT' });
   assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
   await writeFile(extra, '[Service][ref]\n\n  [ref]: ../PRIVATE_TARGET.md\n');
+  const secondBlocker = join(vault, 'Reference/ZZZ Extra.md');
+  await writeFile(secondBlocker, '<img src="PRIVATE_TARGET.png">\n');
   const unsupported = await call('obsidian_move_note', { ...request, dryRun: true });
   assert.equal(unsupported.isError, true);
   assert.equal(unsupported.response.category, 'unsupported_links');
   assert.deepEqual(unsupported.response.location, { reason: 'reference_definition', path: 'Reference/ZZ Extra.md', line: 3, column: 3 });
+  assert.deepEqual(unsupported.response.additionalLocations, [{ reason: 'html_link_attribute', path: 'Reference/ZZZ Extra.md', line: 1, column: 6 }]);
+  await rm(secondBlocker);
   assert.doesNotMatch(JSON.stringify(unsupported.response), /PRIVATE_TARGET/);
   const logs = JSON.stringify(harness.inspection.logEntries);
   assert.match(logs, /Obsidian move_preflight unsupported_links/);

@@ -71,8 +71,9 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
         return { content: [{ type: 'text' as const, text }] };
       } catch (error) {
         const location = error instanceof UnsupportedMoveLink ? error.location : undefined;
+        const additionalLocations = error instanceof UnsupportedMoveLink ? error.additionalLocations : undefined;
         const known = error instanceof VaultError; if (!known || !error.diagnosticReported) diagnose(location ? 'move_preflight' : 'tool', known ? error.category : 'unavailable');
-        return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ category: known ? error.category : 'unavailable', nextAction: known ? error.nextAction : 'Check source status. If this was a save, inspect recent operation receipts before preparing another edit.', location }) }] };
+        return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ category: known ? error.category : 'unavailable', nextAction: known ? error.nextAction : 'Check source status. If this was a save, inspect recent operation receipts before preparing another edit.', location, additionalLocations }) }] };
       }
     },
   });

@@ -414,6 +414,12 @@ export class Obsidian {
     const listed = await list();
     const inventory = new Set(listed);
     const planner = createMovePlanner(inventory, input.path, input.destination, this.parser);
+    const unsupported: UnsupportedMoveLink[] = [];
+    const reportUnsupported = () => {
+      const first = unsupported[0];
+      first.additionalLocations = unsupported.slice(1).map(error => error.location);
+      throw first;
+    };
     let bytes = 0;
     for (let offset = 0; offset < listed.length; offset += MOVE_SCAN_LIMITS.batch) {
       check();
@@ -441,6 +447,11 @@ export class Obsidian {
         if (bytes > MOVE_SCAN_LIMITS.bytes) refuse('capacity', 'Link discovery reached its 128 MiB total text limit.');
         try { planner.visit({ path, text, hash }, noteBytes); }
         catch (error) {
+          if (input.dryRun && error instanceof UnsupportedMoveLink) {
+            unsupported.push(error);
+            if (unsupported.length >= 12) reportUnsupported();
+            continue;
+          }
           if (error instanceof VaultError && error.category === 'parser_limit') {
             refuse('capacity', 'A vault note exceeded the Markdown parser’s complexity limit during link discovery.');
           }
@@ -449,6 +460,7 @@ export class Obsidian {
         }
       }
     }
+    if (unsupported.length) reportUnsupported();
     const finalPaths = await list();
     if (finalPaths.length !== inventory.size || finalPaths.some(path => !inventory.has(path))) {
       throw new VaultError('conflict', 'Move stopped before writing. Vault paths changed during link discovery. Check the source and destination before preparing another move.');

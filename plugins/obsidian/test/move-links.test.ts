@@ -75,6 +75,14 @@ test('live HTML embeds still block a move', () => {
     error => error instanceof UnsupportedMoveLink && error.location.reason === 'html_link_attribute');
 });
 
+test('parser-confirmed PDF and web links with parentheses stay unchanged', () => {
+  const other = '[PDF](file:///example/Report(2026).pdf) and <https://example.test/page>\n';
+  const [repair] = planMove([source, note('Index.md', other + '[[Example]]')], source.path, 'Reference/Example.md', parser);
+  assert.equal(repair.text, other + '[[Reference/Example]]');
+  assert.throws(() => planMove([source, note('Index.md', '[note](file:///example/Example(2026).md)')], source.path, 'Reference/Example.md', parser),
+    error => error instanceof UnsupportedMoveLink && error.location.reason === 'link_syntax');
+});
+
 const projectPath = 'Example/Projects/Active/Service a heater.md';
 const donePath = 'Example/Projects/Done/Service a heater.md';
 test('sibling move preserves a stable short path and ignores unrelated missing and ambiguous links', () => {

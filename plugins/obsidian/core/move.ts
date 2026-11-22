@@ -23,6 +23,7 @@ const unsupportedReasons = {
   overlapping_links: 'The planner found overlapping link spans.',
 } as const;
 export class UnsupportedMoveLink extends VaultError {
+  additionalLocations?: UnsupportedMoveLink['location'][];
   constructor(readonly location: { reason: keyof typeof unsupportedReasons; path: string; line?: number; column?: number }) {
     super('unsupported_links', `Move stopped before writing. ${unsupportedReasons[location.reason]} Inspect the location in Obsidian.`);
   }
@@ -80,11 +81,13 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
     let offset = 0;
     for (const link of [...metadata.links].sort((a, b) => a.start - b.start)) {
       const raw = note.text.slice(link.start, link.end);
-      // CommonMark recognizes this as an external email link.
-      if (raw.startsWith('<') && raw.endsWith('>') && link.target === 'mailto:' + raw.slice(1, -1)) continue;
-      const wiki = link.frontmatter || /^!?\[\[/.test(raw);
-      const match = link.frontmatter ? null : wiki ? raw.match(/^(!?\[\[)([^|\]#]*)([^\]]*\]\])$/) : raw.match(/^(!?\[[^\]\n]*\]\()([^\s()]+)(\s+"[^"\n]*")?\)$/);
-      const spellingBefore = link.frontmatter ? link.target : match?.[2];
+      // Use the Markdown parser's destination for external links. The inline
+      // rewrite grammar need not understand their labels or parentheses.
+      if (link.syntax === 'markdown' && /^(?:https?:\/\/|mailto:|file:\/\/\/[^?#]*\.pdf$)/i.test(link.target)) continue;
+      const frontmatter = link.syntax === 'frontmatter';
+      const wiki = frontmatter || /^!?\[\[/.test(raw);
+      const match = frontmatter ? null : wiki ? raw.match(/^(!?\[\[)([^|\]#]*)([^\]]*\]\])$/) : raw.match(/^(!?\[[^\]\n]*\]\()([^\s()]+)(\s+"[^"\n]*")?\)$/);
+      const spellingBefore = frontmatter ? link.target : match?.[2];
       if (spellingBefore === undefined) return unsupported('link_syntax', link.start);
       let target: string; try { target = decodeURIComponent(spellingBefore); } catch { return unsupported('target_encoding', link.start); }
       if (/^[a-z][\w+.-]*:/i.test(target) || target.startsWith('//')) continue;

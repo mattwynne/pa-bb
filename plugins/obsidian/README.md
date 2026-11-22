@@ -42,7 +42,7 @@ Supported forms are unambiguous wikilinks (including aliases/embeds and heading/
 
 Pass `dryRun: true` with the same read proof to check link discovery and limits without recording a move or writing notes. A ready plan reports counts only. A move reruns discovery and the producer checks write-time access, conflicts and the destination.
 
-An `unsupported_links` result identifies the first refusal with a reason, vault-relative path and, when available, a one-based line and column. The result omits note text and link targets. Plugin logs record the stage and error category.
+An `unsupported_links` result identifies the first refusal with a reason, vault-relative path and, when available, a one-based line and column. A dry run can report up to 12 such locations. The result omits note text and link targets. Plugin logs record the stage and error category.
 
 The physical move runs under the existing native filesystem exclusion after local note admissions drain. A bounded private move journal retains original bytes before exclusive destination creation and source removal; directory fsync and source identity/hash checks fence publication. Interrupted two-name states remain uncertain and block sync, retaining both files. Inspection never repeats filesystem work or silently removes either name. Unambiguous durable evidence can establish moved or not moved; otherwise an operator must inspect recovery evidence before separately authorized repair. Existing failures and sync baselines are preserved.
 
