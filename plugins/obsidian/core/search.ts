@@ -4,7 +4,7 @@ import type { Catalog, Diagnose, NoteParser, SearchQuery, SearchRequest, Source,
 type Context = { revision: number; ids: string[]; catalog: Catalog };
 type Session = { query: SearchQuery; signature: string; revision: number; ids: string[]; fingerprint: string; index: number; producer?: string; rows: any[]; matched: number; visited: number; warnings: Set<string>; failures: Array<{vaultId:string;category:string}>; created: number; at: number; busy: boolean };
 const normalized = (q:SearchQuery) => ({ vaultId:q.vaultId,text:q.text,tag:q.tag?.replace(/^#/,'').toLocaleLowerCase('und'),folders:q.folders?[...new Set(q.folders)].sort():undefined,excludeFolders:q.excludeFolders?[...new Set(q.excludeFolders)].sort():undefined,properties:q.properties?[...q.properties].sort((a,b)=>a.key.localeCompare(b.key)||JSON.stringify(a.equals).localeCompare(JSON.stringify(b.equals))):undefined,mode:q.mode??'results',selectProperties:q.selectProperties?[...new Set(q.selectProperties)].sort():undefined });
-const fingerprint = (c:Catalog,ids:string[]) => JSON.stringify(ids.map(id=>{const s=c.sources.find(s=>s.id===id);return[id,s?.local.available,s?.local.reason];}));
+const fingerprint = (c:Catalog,ids:string[]) => JSON.stringify(ids.map(id=>{const s=c.sources.find(s=>s.id===id);return[id,s?.local.available,s?.local.reason,c.filesystem?.[id]];}));
 const prefix=(value:string)=>!!value&&value.length<=1024&&!/[\\\x00-\x1f\x7f]/.test(value)&&value.split('/').every(p=>!!p&&p!=='.'&&p!=='..');
 export class VaultSearch {
   private sessions=new Map<string,Session>(); private stopped=false;

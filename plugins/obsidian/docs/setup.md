@@ -8,8 +8,9 @@ are no folder permissions, read-only settings or per-edit confirmations.
 
 - A single-user BB installation with BB 0.45.0 or newer, Node.js 22 or newer and
   the iCloud and Obsidian plugins installed separately.
-- An iCloud plugin advertising coordinated note access v2.
-  Older versions need updating; Obsidian never substitutes raw filesystem writes.
+- An iCloud plugin advertising coordinated note access v2. A paired build with
+  mirror access v3 enables filesystem access after iCloud clears each mirror for
+  migration. Existing connections keep their vault IDs.
 - A supported Linux iCloud host with stock rclone v1.75.2, util-linux flock,
   mounted procfs and persistent writable plugin storage. The host operator handles
   provisioning; neither plugin installs system packages. See the
@@ -19,8 +20,7 @@ are no folder permissions, read-only settings or per-edit confirmations.
 
 ## Search requirements
 
-Ripgrep search needs iCloud and Obsidian **0.3.1** and stock ripgrep available to
-BB's service user. The [host manifest](../../../provisioning/README.md) pins the
+Ripgrep search needs stock ripgrep available to BB's service user. The [host manifest](../../../provisioning/README.md) pins the
 Linux-validated 14.1.0 release. The host operator provisions it; the plugins do
 not download or install executables.
 
@@ -99,7 +99,7 @@ connected explicitly, even if its name is unchanged.
 | --- | --- |
 | iCloud missing or disabled | Install/enable iCloud in Plugins. |
 | iCloud starting or in error | Open its configuration and inspect startup/prerequisite guidance. |
-| Incompatible iCloud | Update both plugins to matching v2; do not bypass coordinated note access. |
+| Incompatible iCloud | Update iCloud and Obsidian together. |
 | Host prerequisites missing | Ask the host operator to check supported rclone, flock, procfs and storage. |
 | Apple verification pending | Finish verification in iCloud's protected form, never chat. |
 | No selected folder | Choose the vault folder in iCloud settings. |
@@ -107,11 +107,11 @@ connected explicitly, even if its name is unchanged.
 | First sync failed | Inspect iCloud's failure and supported recovery steps; do not force resync just to connect Obsidian. |
 | Running sync | Sound local notes remain available; cloud delivery is still in progress. A local safety blocker is shown separately. |
 | Cloud paused or Apple disconnected | Sound local notes remain readable and writable. Cloud delivery is paused or stopped; report the last successful host sync time, not a stale/fresh judgment. Resume or reconnect when ready. |
-| Local safety unavailable, retained or missing source | Check the specific mirror in iCloud settings. Connect a replacement by its new ID; no raw-folder fallback is used. A cloud retry failure alone does not revoke sound local access. |
+| Local safety unavailable, retained or missing source | Check the specific mirror in iCloud settings. If it was replaced, connect the new mirror by its ID. A cloud retry failure alone does not revoke sound local access. |
 | Could not check iCloud | Keep the connections and choose Check again. This is not evidence that iCloud is missing. |
-| Concurrent note change | Reread the complete note and prepare the intended change again. The stale patch saved nothing. |
+| Concurrent note change | Reread the complete note and prepare the intended change again. |
 | Lost reply / uncertain save or resolution | Inspect the exact persisted operation ID with `obsidian_status`, scoped to vault and path, even after restart. Do not repeat the change. |
-| Note conflict | Inspect an exact vault/path with `obsidian_status`; read logical and token-guarded incoming content or explicit absence with `obsidian_read_note`. Choose keep local, accept incoming or replacement through `obsidian_edit_note` using the token and expected versions. A stale token needs new inspection. The client recovery RPC offers the same narrow choice, not a general editor or routine approval. |
+| Note conflict | Inspect an exact vault and path with `obsidian_status`. Use `obsidian_read_note` with the token to read the incoming version. Choose keep local, accept incoming or replacement through `obsidian_edit_note` using the token and expected versions. Inspect again if the token is stale. For an ambiguous set of native copies, inspect the files in the vault directory. |
 | Recovery capacity or expired operation | Ask the operator to inspect private note recovery and current bytes. Never delete journals or replay an expired request to force an append. |
 | Malformed/unsupported properties or large note | Read the reported limits/warnings. The plugin refuses unsupported edits rather than normalizing or truncating a note. |
 

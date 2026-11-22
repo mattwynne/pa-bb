@@ -1,0 +1,292 @@
+import { randomUUID } from 'node:crypto';
+import { VaultError } from '../core/ports.ts';
+import type { Diagnose, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
+import { digest, equivalent, identity, LocalNotes, validateNotePath } from './local-notes.ts';
+import { LocalSearch } from './local-search.ts';
+import { fileIdentity, LocalReceipts } from './local-receipts.ts';
+import type { FileIdentity, LocalReceipt } from './local-receipts.ts';
+
+type Target = { mirrorId: string; revision: number; path: string };
+type DirectoryLookup = (mirrorId: string, revision: number, signal?: AbortSignal) => Promise<string>;
+type Observed = Awaited<ReturnType<LocalNotes['observe']>>;
+type Copy = Awaited<ReturnType<LocalNotes['conflictCopies']>>[number];
+type Conflict = { canonical: Observed; copies: Copy[]; logical: NonNullable<Observed>; incoming: NonNullable<Observed> };
+type Token = { target: Target; root: string; identity: FileIdentity; version: string; expires: number };
+
+export class FilesystemVault {
+  private files = new LocalNotes();
+  readonly searcher = new LocalSearch(this.files);
+  private tokens = new Map<string, Token>();
+
+  constructor(private directory: DirectoryLookup, private ledger: LocalReceipts, private diagnose: Diagnose) {}
+
+  private async access<T>(mirrorId: string, revision: number, action: (root: string) => Promise<T>, signal?: AbortSignal) {
+    const root = await this.directory(mirrorId, revision, signal);
+    try {
+      if (signal?.aborted) throw new VaultError('cancelled');
+      const rootIdentity = await this.files.rootIdentity(root);
+      const value = await action(root);
+      if (!identity(rootIdentity, await this.files.rootIdentity(root))) throw new VaultError('source_unavailable');
+      return value;
+    } catch (error) { throw this.report(error); }
+  }
+
+  private report(error: unknown, committed = false): VaultError {
+    if (error instanceof VaultError && error.diagnosticReported && !committed) return error;
+    const code = (error as NodeJS.ErrnoException)?.code;
+    const category = committed ? 'uncertain' : error instanceof VaultError ? error.category :
+      code === 'ENOSPC' || code === 'EDQUOT' ? 'capacity' : code === 'ELOOP' ? 'invalid_path' : 'unavailable';
+    this.diagnose('filesystem', category);
+    return new VaultError(category, committed ? 'Inspect the exact operation receipt before making another change.' :
+      error instanceof VaultError ? error.nextAction : 'Check the local vault and reread before preparing a change.', true);
+  }
+
+  list(id: string, revision: number) {
+    return this.access(id, revision, async root => {
+      const result = await this.files.list(root);
+      if (result.incomplete) this.diagnose('filesystem', result.warnings.includes('scan_limit') ? 'capacity' : 'unavailable');
+      return result;
+    });
+  }
+
+  children(id: string, revision: number, folder: string) {
+    return this.access(id, revision, async root => {
+      const result = await this.files.children(root, folder);
+      if (result.incomplete) this.diagnose('filesystem', 'unavailable');
+      return result;
+    });
+  }
+
+  vaultRoots(id: string, revision: number) {
+    return this.access(id, revision, async root => {
+      const result = await this.files.vaultRoots(root);
+      if (result.incomplete) this.diagnose('filesystem', 'unavailable');
+      return result;
+    });
+  }
+
+  read(id: string, revision: number, path: string, signal?: AbortSignal) {
+    return this.access(id, revision, root => this.files.read(root, path), signal);
+  }
+
+  search(input: Parameters<VaultFiles['search']>[0], signal?: AbortSignal) {
+    return this.access(input.mirrorId, input.revision, root => this.searcher.next(input, root, signal), signal);
+  }
+
+  private async conflict(root: string, path: string): Promise<Conflict | null> {
+    validateNotePath(path);
+    const copies = await this.files.conflictCopies(root, path);
+    if (!copies.length) return null;
+    const canonical = await this.files.observe(root, path);
+    const local = copies.filter(c => c.side === 'bb');
+    const remote = copies.filter(c => c.side === 'icloud');
+    const logical = canonical ?? local[0]?.observation;
+    if (!logical || remote.length !== 1 || local.length > 1 ||
+      (canonical && local.length && canonical.hash !== local[0].observation.hash)) {
+      throw new VaultError('conflict', 'Multiple or ambiguous conflict copies need inspection in the vault directory.');
+    }
+    return { canonical, copies, logical, incoming: remote[0].observation };
+  }
+
+  private conflictVersion(conflict: Conflict) {
+    const stamp = (value: Observed) => value && [value.hash, value.info.dev, value.info.ino, value.info.mtimeMs, value.info.ctimeMs];
+    return JSON.stringify([stamp(conflict.canonical), ...conflict.copies.map(c => [c.path, stamp(c.observation)]).sort()]);
+  }
+
+  private async guardedConflict(root: string, target: Target, token: string) {
+    const entry = this.tokens.get(token);
+    const conflict = await this.conflict(root, target.path);
+    if (!entry || entry.expires < Date.now() || entry.root !== root || entry.target.mirrorId !== target.mirrorId ||
+      entry.target.revision !== target.revision || entry.target.path !== target.path || !conflict ||
+      !identity(entry.identity, await this.files.rootIdentity(root)) || this.conflictVersion(conflict) !== entry.version) {
+      throw new VaultError('conflict', 'Inspect the exact conflict again before proceeding.');
+    }
+    return conflict;
+  }
+
+  inspect(mirrorId: string, revision: number, path: string) {
+    return this.access(mirrorId, revision, async root => {
+      const conflict = await this.conflict(root, path);
+      if (!conflict) return null;
+      const token = randomUUID();
+      if (this.tokens.size >= 128) this.tokens.delete(this.tokens.keys().next().value!);
+      this.tokens.set(token, { target: { mirrorId, revision, path }, root, identity: await this.files.rootIdentity(root),
+        version: this.conflictVersion(conflict), expires: Date.now() + 5 * 60_000 });
+      return { token, logicalHash: conflict.logical.hash, incomingHash: conflict.incoming.hash, incomingAbsent: false };
+    });
+  }
+
+  readIncoming(mirrorId: string, revision: number, path: string, token: string) {
+    return this.access(mirrorId, revision, async root => {
+      const { incoming } = await this.guardedConflict(root, { mirrorId, revision, path }, token);
+      return { absent: false as const, text: incoming.text, hash: incoming.hash, readAt: new Date().toISOString(), complete: true as const };
+    });
+  }
+
+  private mutate<T extends LocalReceipt>(target: Target, plan: (root: string, check: () => Promise<void>,
+    begin: (row: T) => Promise<void>, committed: () => void, rootIdentity: FileIdentity) => Promise<T>) {
+    return this.ledger.run(async () => {
+      const root = await this.directory(target.mirrorId, target.revision);
+      let intent: T | undefined, changed = false;
+      try {
+        validateNotePath(target.path);
+        const rootIdentity = fileIdentity(await this.files.rootIdentity(root));
+        const check = async () => {
+          const authorized = await this.directory(target.mirrorId, target.revision);
+          if (authorized !== root || !identity(rootIdentity, await this.files.rootIdentity(root))) throw new VaultError('source_unavailable');
+        };
+        const begin = async (row: T) => {
+          await this.ledger.begin(row, row.kind === 'move' ? [row.path, row.destination] : [row.path]);
+          intent = row;
+        };
+        const result = await plan(root, check, begin, () => { changed = true; }, rootIdentity);
+        await this.ledger.finish(result);
+        return result;
+      } catch (error) {
+        if (intent && !changed) {
+          const outcome = intent.kind === 'move' ? 'not_moved' : 'not_saved';
+          try { await this.ledger.finish({ ...intent, outcome } as LocalReceipt); }
+          catch (stateError) { throw this.report(stateError, true); }
+        }
+        // Before publication a filesystem failure cannot leave a partial edit.
+        const refusal = this.report(error, changed);
+        if (!changed && refusal.category === 'unavailable') throw new VaultError('source_unavailable', refusal.nextAction, true);
+        throw refusal;
+      }
+    });
+  }
+
+  private async clearPath(root: string, path: string) {
+    if ((await this.files.conflictCopies(root, path)).length) throw new VaultError('conflict', 'Inspect and resolve the conflict copies first.');
+  }
+
+  async commit(input: Parameters<VaultFiles['commit']>[0]) {
+    const { mirrorId, path, operationId, expectedHash, text } = input;
+    const row = await this.mutate<Extract<LocalReceipt, { kind: 'save' }>>(input, async (root, check, begin, changed, rootIdentity) => {
+      const current = await this.files.observe(root, path);
+      if (input.kind === 'create' ? current || expectedHash !== null : !current || current.hash !== expectedHash) throw new VaultError('conflict');
+      await this.clearPath(root, path);
+      const base = { kind: 'save' as const, mirrorId, path, operationId, previousHash: expectedHash, hash: digest(text),
+        root: rootIdentity, at: new Date().toISOString() };
+      let inode!: FileIdentity;
+      await this.files.publish(root, path, text, current, async stage => {
+        inode = fileIdentity(stage);
+        await begin({ ...base, inode, outcome: 'uncertain' });
+      }, async () => { await this.clearPath(root, path); await check(); }, changed);
+      return { ...base, inode, outcome: 'saved_locally_pending_sync' };
+    });
+    return this.saveReceipt(row);
+  }
+
+  async move(input: Parameters<NonNullable<VaultFiles['move']>>[0]) {
+    const { mirrorId, path, destination, operationId, expectedHash } = input;
+    return this.mutate<Extract<LocalReceipt, { kind: 'move' }>>(input, async (root, check, begin, changed, rootIdentity) => {
+      validateNotePath(destination);
+      if (destination === path) throw new VaultError('invalid_path');
+      const current = await this.files.observe(root, path);
+      if (!current || current.hash !== expectedHash || await this.files.observe(root, destination)) throw new VaultError('conflict');
+      await this.clearPath(root, path);
+      await this.clearPath(root, destination);
+      const base = { kind: 'move' as const, mirrorId, path, destination, operationId, hash: expectedHash,
+        inode: fileIdentity(current.info), root: rootIdentity, at: new Date().toISOString() };
+      await begin({ ...base, outcome: 'uncertain' });
+      await this.files.move(root, path, destination, current, async () => {
+        await this.clearPath(root, path);
+        await this.clearPath(root, destination);
+        await check();
+      }, changed);
+      return { ...base, outcome: 'moved_locally_pending_sync' };
+    }).then(({ outcome }) => ({ outcome }));
+  }
+
+  async resolve(input: Resolution) {
+    const { mirrorId, path, operationId, token } = input;
+    const row = await this.mutate<Extract<LocalReceipt, { kind: 'resolution' }>>(input, async (root, check, begin, changed, rootIdentity) => {
+      const conflict = await this.guardedConflict(root, input, token);
+      if (input.expectedLogicalHash !== conflict.logical.hash || input.expectedIncomingHash !== conflict.incoming.hash) throw new VaultError('conflict');
+      const text = input.choice === 'accept_incoming' ? conflict.incoming.text : input.choice === 'keep_local' ? conflict.logical.text : input.text;
+      if (text === undefined) throw new VaultError('invalid_query');
+      const base = { kind: 'resolution' as const, mirrorId, path, operationId, choice: input.choice, hash: digest(text), root: rootIdentity, at: new Date().toISOString() };
+      let inode!: FileIdentity;
+      await this.files.publish(root, path, text, conflict.canonical, async stage => {
+        inode = fileIdentity(stage);
+        await begin({ ...base, inode, outcome: 'uncertain' });
+      }, async () => { await this.guardedConflict(root, input, token); await check(); }, changed);
+      const canonical = await this.files.observe(root, path);
+      if (!canonical || !identity(inode, canonical.info) || canonical.hash !== base.hash) throw new VaultError('uncertain');
+      const copies = await this.files.conflictCopies(root, path);
+      if (copies.length !== conflict.copies.length || !copies.every(copy => {
+        const original = conflict.copies.find(c => c.path === copy.path);
+        return original && equivalent(original.observation, copy.observation);
+      })) throw new VaultError('uncertain');
+      for (const copy of copies) {
+        await check();
+        if (!equivalent(canonical, await this.files.observe(root, path))) throw new VaultError('uncertain');
+        await this.files.removeCopy(root, copy.path, copy.observation);
+      }
+      this.tokens.delete(token);
+      const outcome = input.choice === 'accept_incoming' ? 'adopted_content' : 'saved_locally_pending_sync';
+      return { ...base, inode, outcome };
+    });
+    return { hash: row.hash, outcome: row.outcome as 'adopted_content' | 'saved_locally_pending_sync' };
+  }
+
+  private saveReceipt({ mirrorId, path, operationId, at, outcome, hash, previousHash }: Extract<LocalReceipt, { kind: 'save' }>) {
+    return { mirrorId, path, operationId, at, outcome, hash, previousHash };
+  }
+
+  private async reconcile(row: LocalReceipt, revision: number): Promise<LocalReceipt> {
+    if (row.outcome !== 'uncertain') return row;
+    try {
+      const root = await this.directory(row.mirrorId, revision);
+      if (!identity(row.root, await this.files.rootIdentity(root))) return row;
+      const path = row.kind === 'move' ? row.destination : row.path;
+      const written = await this.files.observe(root, path);
+      if (!written || !identity(row.inode, written.info) || row.hash !== written.hash) return row;
+      await this.files.syncParent(root, path);
+      if (!equivalent(written, await this.files.observe(root, path))) return row;
+      if (row.kind === 'move') {
+        if (await this.files.observe(root, row.path)) return row;
+        await this.files.syncParent(root, row.path);
+        if (await this.files.observe(root, row.path)) return row;
+      }
+      if (row.kind === 'resolution' && (await this.files.conflictCopies(root, row.path)).length) return row;
+      if (!identity(row.root, await this.files.rootIdentity(root))) return row;
+      const result = row.kind === 'move' ? { ...row, outcome: 'moved_locally_pending_sync' as const } :
+        row.kind === 'resolution' && row.choice === 'accept_incoming' ? { ...row, outcome: 'adopted_content' as const } :
+        { ...row, outcome: 'saved_locally_pending_sync' as const };
+      await this.ledger.finish(result);
+      return result;
+    } catch (error) {
+      if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose('filesystem', 'uncertain');
+      return row;
+    }
+  }
+
+  async receipts(input: Parameters<VaultFiles['receipts']>[0]) {
+    return this.ledger.run(async () => {
+      const rows = (await this.ledger.load()).filter(r => r.kind !== 'move' && r.mirrorId === input.mirrorId &&
+        (!input.path || r.path === input.path) && (!input.operationId || r.operationId === input.operationId) &&
+        (!input.since || Date.parse(r.at) >= Date.parse(input.since)))
+        .sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit);
+      const receipts: Receipt[] = [];
+      for (const row of rows) {
+        const r = input.operationId ? await this.reconcile(row, input.revision) : row;
+        if (r.kind === 'save') receipts.push({ kind: 'save', ...this.saveReceipt(r) });
+        if (r.kind === 'resolution' && (r.outcome === 'adopted_content' || r.outcome === 'saved_locally_pending_sync')) {
+          receipts.push({ kind: 'resolution', mirrorId: r.mirrorId, path: r.path, operationId: r.operationId, at: r.at, outcome: r.outcome, hash: r.hash });
+        }
+      }
+      return { known: rows.length > 0, receipts };
+    });
+  }
+
+  async moveReceipts(input: Parameters<NonNullable<VaultFiles['moveReceipts']>>[0]) {
+    return this.ledger.run(async () => {
+      const row = (await this.ledger.load()).find(r => r.kind === 'move' && r.mirrorId === input.mirrorId && r.operationId === input.operationId);
+      if (!row) return [];
+      const result = await this.reconcile(row, input.revision);
+      return result.kind === 'move' ? [{ outcome: result.outcome }] : [];
+    });
+  }
+}

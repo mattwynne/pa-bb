@@ -85,7 +85,7 @@ export class Obsidian {
       await this.confirm(next);
     });
   }
-  private fingerprint(catalog: Catalog) { return JSON.stringify({ compatible: catalog.compatible, sources: catalog.sources.map(s => [s.id, s.local.available, s.local.reason]) }); }
+  private fingerprint(catalog: Catalog) { return JSON.stringify({ compatible: catalog.compatible, sources: catalog.sources.map(s => [s.id, s.local.available, s.local.reason, catalog.filesystem?.[s.id]]) }); }
   private async source(vaultId: string) {
     if (this.stopped || !this.state.vaultIds.includes(vaultId)) throw new VaultError('not_connected', 'Connect this vault in Obsidian settings.');
     const revision = this.state.revision; const catalog = await this.catalog.snapshot();
@@ -539,7 +539,7 @@ export class Obsidian {
     const operationId = this.operationId(); await this.pending(vaultId, path, operationId, revision, 'save');
     try {
       this.check(vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
-      // iCloud's final publication fence is authoritative if removal races after submission.
+      // The file adapter rechecks authorization immediately before local publication.
       const receipt = await this.files.commit({ mirrorId: vaultId, revision, path, operationId, expectedHash, text: next, kind: create ? 'create' : 'replace' });
       if (receipt.outcome !== 'uncertain') await this.clearPending(operationId);
       this.proofs.delete(this.key(vaultId, path)); this.check(vaultId, revision);

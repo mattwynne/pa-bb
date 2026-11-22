@@ -6,7 +6,7 @@ export type SearchCapability = { version: 1; available: boolean; reason: 'missin
 export type SearchQuery = { vaultId?: string; text?: string; tag?: string; folders?: string[]; excludeFolders?: string[]; properties?: Array<{ key: string; equals: string | number | boolean | null }>; mode?: 'results' | 'count'; selectProperties?: string[]; cursor?: string; limit?: number };
 export type SearchRequest = { mirrorId: string; revision: number; text?: string; projection: 'hits' | 'frontmatter' | 'markdown'; folders?: string[]; excludeFolders?: string[]; cursor?: string; startOnly?: boolean };
 export type SearchBatch = { candidates: Array<{ path: string; hash: string; readAt: string; line: number; snippet: string; content?: string; limited?: boolean }>; nextCursor: string | null; visited: number; warnings: Array<'note_unavailable' | 'unsupported' | 'source_changed' | 'capacity'> };
-export type Catalog = { search?: SearchCapability; setup: string; nextAction: string | null; sources: Source[]; connected: boolean; compatible: boolean };
+export type Catalog = { filesystem?: Record<string, 'ready' | 'legacy_pending' | 'legacy_conflict' | 'unavailable'>; search?: SearchCapability; setup: string; nextAction: string | null; sources: Source[]; connected: boolean; compatible: boolean };
 export interface MirrorCatalog { snapshot(): Promise<Catalog> }
 export type CompleteNote = { text: string; hash: string; readAt: string; complete: true };
 // The iCloud note store applies this UTF-8 byte limit to whole reads and saves.
@@ -44,4 +44,4 @@ export interface NoteParser {
   properties(text: string, input: { set: Record<string, unknown>; remove: string[] }): string;
 }
 export class VaultError extends Error { constructor(readonly category: string, readonly nextAction = 'Check source status and reread the note before preparing a change.', readonly diagnosticReported = false) { super(category); this.name = 'VaultError'; } }
-export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight', category: string) => void;
+export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight' | 'filesystem', category: string) => void;

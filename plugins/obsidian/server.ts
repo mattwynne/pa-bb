@@ -11,10 +11,11 @@ import { MarkdownNotes } from './adapters/markdown-notes.ts';
 import { bbState } from './adapters/bb-state.ts';
 import { diagnosticLogger } from './adapters/diagnostic-log.ts';
 export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository }) {
-  const diagnose = diagnosticLogger(message => bb.log.warn(message)); const icloud = new ICloud(bb.sdk, diagnose);
+  const diagnose = diagnosticLogger(message => bb.log.warn(message)); const icloud = new ICloud(bb.sdk, diagnose, dependencies?.files ? undefined : bb.storage.kv);
   const service = new Obsidian(dependencies?.catalog ?? icloud, dependencies?.files ?? icloud, dependencies?.parser ?? new MarkdownNotes(), dependencies?.repository ?? bbState(bb, diagnose), randomUUID, Date.now, diagnose);
   const admission = new Admission();
-  await service.start(); bb.onDispose(async () => { await admission.stop(); await service.stop(); });
+  bb.onDispose(async () => { await admission.stop(); await service.stop(); await icloud.stop(); });
+  await service.start();
   const clientOnly = (context: { experimental_caller: { kind: string } }) => { if (context.experimental_caller.kind !== 'client') throw new Error('Use Obsidian client settings for connection or conflict recovery.'); };
   bb.rpc.register(rpcContract, {
     async projectAreas(input, context) {
