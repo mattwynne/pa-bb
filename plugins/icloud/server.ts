@@ -74,7 +74,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     const noteActivity = runtime?.activity();
     const active = serviceActivity.busy || (noteActivity?.busy ?? true);
     const maintenance = { admissionPaused: serviceActivity.admissionPaused, active, ready: serviceActivity.admissionPaused && !active };
-    return { ...snapshot, maintenance, updatePause: updatePause.status(), mirrors, noteAccessVersion: runtime ? 2 as const : null, mirrorAccessVersion: runtime ? 3 as const : null, ...(runtime ? { mirrorDirectoryGrantVersion: 1 as const } : {}), search, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
+    return { ...snapshot, maintenance, updatePause: updatePause.status(), mirrors, noteAccessVersion: runtime ? 2 as const : null, mirrorAccessVersion: runtime ? 3 as const : null, search, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
   };
   const inventory = async () => Promise.all(sync.inventory().map(async item => ({ ...item, local: await local(item.id) })));
   const clientOnly = (context: { experimental_caller: { kind: string } }) => {
@@ -104,10 +104,13 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       return { ok: false, category: failure, nextAction } as const;
     }
   };
-  const mirrorAccess = async <T>(stage: 'mirror_directory' | 'mirror_directory_grant', context: { experimental_caller: { kind: string; pluginId?: string } }, operation: (owner: NoteRuntime) => Promise<T>) => {
-    const caller = context.experimental_caller;
+  type MirrorCaller = { experimental_caller: { kind: string; pluginId?: string } };
+  const assertMirrorCaller = ({ experimental_caller: caller }: MirrorCaller) => {
     if (caller.kind !== 'plugin' || caller.pluginId !== 'obsidian')
       throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the host-verified Obsidian plugin can use mirror access.' });
+  };
+  const mirrorAccess = async <T>(stage: 'mirror_directory' | 'mirror_directory_grant', context: MirrorCaller, operation: (owner: NoteRuntime) => Promise<T>) => {
+    assertMirrorCaller(context);
     try {
       if (!runtime) throw new CloudError('unavailable');
       return await operation(runtime);
@@ -119,6 +122,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     }
   };
   bb.rpc.register(rpcContract, {
+    mirrorDirectoryCapabilities(_input, context) { assertMirrorCaller(context); return runtime ? { mirrorDirectoryGrantVersion: 1 as const } : {}; },
     mirrorDirectory({ mirrorId, revision }, context) { return mirrorAccess('mirror_directory', context, owner => owner.mirrorDirectory(mirrorId, revision)); },
     mirrorDirectoryGrant({ mirrorId, revision }, context) { return mirrorAccess('mirror_directory_grant', context, owner => owner.mirrorDirectoryGrant(mirrorId, revision)); },
     noteConfigure(input, context) { obsidianOnly(context); return noteAction('note_configure', async () => { if (!runtime) throw new NoteError('unavailable'); return runtime.configure(input.revision, input.mirrorIds); }); },

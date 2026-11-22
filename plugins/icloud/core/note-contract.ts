@@ -20,6 +20,7 @@ export type SearchBatch = z.infer<typeof searchBatchSchema>;
 export type SearchCapability = z.infer<typeof searchCapabilitySchema>;
 // Copied into the independent consumer package, never imported across plugin roots.
 export const noteRpcContract = {
+  mirrorDirectoryCapabilities: { input: z.null(), output: z.object({ mirrorDirectoryGrantVersion: z.literal(1).optional() }).strict() },
   mirrorDirectory: { input: z.object({ mirrorId: id, revision }).strict(), output: z.object({ directory: z.string().min(1) }).strict() },
   mirrorDirectoryGrant: { input: z.object({ mirrorId: id, revision }).strict(), output: z.object({ directory: z.string().min(1), rootDev: filesystemIdentity, rootIno: filesystemIdentity }).strict() },
   noteChildren: { input: z.object({ version, mirrorId: id, revision, folder: prefix }).strict(), output: result(z.object({ entries: z.array(z.object({ name: z.string().min(1).max(1024), kind: z.enum(['directory', 'markdown']) }).strict()).max(5000), incomplete: z.boolean() }).strict()) },

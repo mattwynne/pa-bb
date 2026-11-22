@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { defineRpcContract, experimental_PluginRpcCallError } from '@get-bb/plugin-sdk';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -52,9 +53,13 @@ test('missing native owner returns bounded failure without reflecting raw conten
 test('directory RPCs require host identity and disclose no path on refusal', async () => {
   const harness = await setup();
   try {
-    const status = statusSchema.parse(await harness.behavior.callRpc('status', null));
+    const status = statusSchema.strict().parse(await harness.behavior.callRpc('status', null));
     assert.equal(status.mirrorAccessVersion, null);
     assert.ok(!Object.hasOwn(status, 'mirrorDirectoryGrantVersion'));
+    await assert.rejects(harness.behavior.callRpc('mirrorDirectoryCapabilities', null), { code: 'forbidden' });
+    await assert.rejects(harness.behavior.callRpc('mirrorDirectoryCapabilities', null, { experimental_caller: { kind: 'plugin', pluginId: 'fastmail' } }), { code: 'forbidden' });
+    await assert.rejects(harness.behavior.callRpc('mirrorDirectoryCapabilities', { pluginId: 'obsidian' }, caller), { code: 'invalid_input' });
+    assert.deepEqual(await harness.behavior.callRpc('mirrorDirectoryCapabilities', null, caller), {});
     const request = { mirrorId: 'private-mirror', revision: 1 };
     for (const [method, stage] of [['mirrorDirectory', 'mirror_directory'], ['mirrorDirectoryGrant', 'mirror_directory_grant']]) {
       await assert.rejects(harness.behavior.callRpc(method, request), /host-verified Obsidian/);
@@ -67,6 +72,17 @@ test('directory RPCs require host identity and disclose no path on refusal', asy
     }
     assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /private-mirror|\/tmp\/sentinel/);
   } finally { await harness.lifecycle.dispose(); }
+});
+
+test('an old producer has no capability method, which is distinct from an authorization refusal', async () => {
+  const old = createFakePluginHost({ pluginId: 'icloud' });
+  old.bb.rpc.register(defineRpcContract({ mirrorDirectory: noteRpcContract.mirrorDirectory }), { mirrorDirectory: () => ({ directory: '/generated' }) });
+  try {
+    assert.deepEqual(await old.harness.behavior.callRpc('mirrorDirectory', { mirrorId: 'one', revision: 1 }, caller), { directory: '/generated' });
+    await assert.rejects(old.harness.behavior.callRpc('mirrorDirectoryCapabilities', null, caller), (error: unknown) => {
+      return error instanceof experimental_PluginRpcCallError && error.code === 'unknown_method';
+    });
+  } finally { await old.harness.lifecycle.dispose(); }
 });
 
 test('grant output is strict and carries only canonical unsigned decimal strings', () => {
@@ -100,12 +116,12 @@ test('fake-host grant stays additive and authorizes only the current validated b
     await writeFile(join(baseline, 'initialized'), '1', { mode: 0o600 });
     await plugin(host.bb, { repository, worker });
     const { behavior } = host.harness;
-    const status = statusSchema.parse(await behavior.callRpc('status', null));
+    const status = statusSchema.strict().parse(await behavior.callRpc('status', null));
     assert.equal(status.mirrorAccessVersion, 3);
-    assert.equal(status.mirrorDirectoryGrantVersion, 1);
-    const oldStatusSchema = statusSchema.omit({ mirrorDirectoryGrantVersion: true });
-    const oldStatus = oldStatusSchema.parse(status);
-    assert.deepEqual(statusSchema.parse(oldStatus), oldStatus);
+    assert.ok(!Object.hasOwn(status, 'mirrorDirectoryGrantVersion'));
+    assert.deepEqual(await behavior.callRpc('mirrorDirectoryCapabilities', null, caller), { mirrorDirectoryGrantVersion: 1 });
+    assert.equal(noteRpcContract.mirrorDirectoryCapabilities.output.safeParse({ mirrorDirectoryGrantVersion: 2 }).success, false);
+    assert.equal(noteRpcContract.mirrorDirectoryCapabilities.output.safeParse({ directory }).success, false);
     assert.equal(status.mirrors[0].filesystem, 'ready');
     const target = { mirrorId, revision: 1 };
     const requestGrant = () => behavior.callRpc('mirrorDirectoryGrant', target, caller);
