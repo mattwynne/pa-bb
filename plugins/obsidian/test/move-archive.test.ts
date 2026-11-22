@@ -96,10 +96,15 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
   assert.equal((await readFile(join(vault, path), 'utf8')), original);
   await assert.rejects(readFile(join(vault, destination)), { code: 'ENOENT' });
   assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
-  await writeFile(extra, '[Service][ref]\n\n[ref]: ../Projects/Active/Service%20a%20heater.md\n');
-  const unsupported = await call('obsidian_move_note', request);
+  await writeFile(extra, '[Service][ref]\n\n  [ref]: ../PRIVATE_TARGET.md\n');
+  const unsupported = await call('obsidian_move_note', { ...request, dryRun: true });
   assert.equal(unsupported.isError, true);
   assert.equal(unsupported.response.category, 'unsupported_links');
+  assert.deepEqual(unsupported.response.location, { reason: 'reference_definition', path: 'Reference/ZZ Extra.md', line: 3, column: 3 });
+  assert.doesNotMatch(JSON.stringify(unsupported.response), /PRIVATE_TARGET/);
+  const logs = JSON.stringify(harness.inspection.logEntries);
+  assert.match(logs, /Obsidian move_preflight unsupported_links/);
+  assert.doesNotMatch(logs, /PRIVATE_TARGET|ZZ Extra/);
   assert.equal(await readFile(join(vault, path), 'utf8'), original);
   assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
   await writeFile(extra, '[[Projects/Active/Service a heater]]\n');

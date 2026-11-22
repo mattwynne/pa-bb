@@ -9,6 +9,23 @@ export const MOVE_SCAN_LIMITS = { notes: 10000, bytes: 128 * 1024 * 1024, millis
 const REPAIR_BYTES = 8 * 1024 * 1024;
 const basenameKey = (path: string) => posix.basename(path).toLowerCase().replace(/\.md$/, '');
 const below = (path: string, folder: string) => path.startsWith(folder + '/');
+const unsupportedReasons = {
+  path_characters: 'The path contains characters the move planner cannot handle safely.',
+  frontmatter: 'The YAML frontmatter could not be checked for links.',
+  parser_warning: 'The Markdown parser reported a warning while checking this note.',
+  reference_definition: 'The planner cannot check Markdown reference definitions.',
+  possible_html: 'The planner found text that looks like HTML.',
+  unclosed_html: 'The Markdown parser found an HTML element without a closing tag.',
+  link_syntax: 'The planner cannot check this link syntax.',
+  target_encoding: 'The link target uses unsupported percent encoding.',
+  target_characters: 'The link target contains characters the planner cannot handle safely.',
+  overlapping_links: 'The planner found overlapping link spans.',
+} as const;
+export class UnsupportedMoveLink extends VaultError {
+  constructor(readonly location: { reason: keyof typeof unsupportedReasons; path: string; line?: number; column?: number }) {
+    super('unsupported_links', `Move stopped before writing. ${unsupportedReasons[location.reason]} Inspect the location in Obsidian.`);
+  }
+}
 export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: string, parser: NoteParser) {
   if (!paths.has(from) || paths.has(to)) throw new VaultError('conflict');
   const oldFolder = posix.dirname(from), newFolder = posix.dirname(to);
@@ -41,23 +58,35 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
     // or '<', or can be decoded from YAML frontmatter. Inspect the exact
     // bytes of every note before taking this fast path.
     if (!note.text.includes('[') && !note.text.includes('<') && !/^(?:\uFEFF)?---\r?\n/.test(note.text)) return;
+    const unsupported = (reason: keyof typeof unsupportedReasons, offset?: number): never => {
+      if (offset === undefined) throw new UnsupportedMoveLink({ reason, path: note.path });
+      const prefix = note.text.slice(0, offset);
+      throw new UnsupportedMoveLink({
+        reason, path: note.path, line: prefix.split('\n').length, column: offset - prefix.lastIndexOf('\n'),
+      });
+    };
     const metadata = parser.parse(note.text, 'move');
     // The parser exposes YAML link locations as whole-property spans and does
     // not expose Markdown reference destinations. Fail closed, never regex-edit
     // code, HTML or a YAML scalar as though it were a supported inline link.
+    if (metadata.warnings.includes('properties_unsupported')) unsupported('frontmatter', 0);
+    if (metadata.warnings.includes('unclosed_html')) unsupported('unclosed_html', metadata.unclosedHtmlOffset);
+    if (metadata.warnings.length) unsupported('parser_warning');
+    const reference = /^ {0,3}\[[^\]\n]+\]:/m.exec(note.text);
+    if (reference) unsupported('reference_definition', reference.index + reference[0].indexOf('['));
     const htmlStart = note.text.search(/<\/?[A-Za-z]/);
-    if (metadata.warnings.length || /^ {0,3}\[[^\]\n]+\]:/m.test(note.text) || (htmlStart !== -1 && note.text.includes('>', htmlStart + 1))) throw new VaultError('unsupported_links');
+    if (htmlStart !== -1 && note.text.includes('>', htmlStart + 1)) unsupported('possible_html', htmlStart);
     const pieces: string[] = [];
     let offset = 0;
     for (const link of [...metadata.links].sort((a, b) => a.start - b.start)) {
       const raw = note.text.slice(link.start, link.end);
       const wiki = /^!?\[\[/.test(raw);
       const match = wiki ? raw.match(/^(!?\[\[)([^|\]#]*)([^\]]*\]\])$/) : raw.match(/^(!?\[[^\]\n]*\]\()([^\s()]+)(\s+"[^"\n]*")?\)$/);
-      if (!match) throw new VaultError('unsupported_links');
-      let target: string; try { target = decodeURIComponent(match[2]); } catch { throw new VaultError('unsupported_links'); }
+      if (!match) return unsupported('link_syntax', link.start);
+      let target: string; try { target = decodeURIComponent(match[2]); } catch { return unsupported('target_encoding', link.start); }
       if (/^[a-z][\w+.-]*:/i.test(target) || target.startsWith('//')) continue;
-      if (/%(?!20)/i.test(match[2])) throw new VaultError('unsupported_links');
-      if (target.includes('\\') || target.includes('?')) throw new VaultError('unsupported_links');
+      if (/%(?!20)/i.test(match[2])) unsupported('target_encoding', link.start);
+      if (target.includes('\\') || target.includes('?')) unsupported('target_characters', link.start);
       const split = target.indexOf('#'), name = split < 0 ? target : target.slice(0,split), fragment = split < 0 ? '' : target.slice(split);
       if (!name) continue; // Local heading or block references follow their note.
       const moved = note.path === from;
@@ -116,7 +145,7 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
       }
       const replacement = wiki ? match[1] + next + (match[3] || '') : match[1] + next + fragment + (match[3] || '') + ')';
       if (replacement === raw) continue;
-      if (link.start < offset) throw new VaultError('unsupported_links');
+      if (link.start < offset) unsupported('overlapping_links', link.start);
       bytes += Buffer.byteLength(replacement) - Buffer.byteLength(raw);
       pieces.push(note.text.slice(offset, link.start), replacement);
       offset = link.end;

@@ -4,7 +4,7 @@ import { provenance } from './provenance.js';
 import { MAX_NOTE_BYTES, VaultError } from './ports.ts';
 import { areaEvidence, areaCandidates, areaLinkPath } from './project-areas.ts';
 import { VaultSearch } from './search.ts';
-import { createMovePlanner, MOVE_SCAN_LIMITS, type MoveRecord } from './move.ts';
+import { createMovePlanner, MOVE_SCAN_LIMITS, UnsupportedMoveLink, type MoveRecord } from './move.ts';
 import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, StateRepository, Diagnose, Source, Metadata, Receipt, Resolution } from './ports.ts';
 export const LIMITS = { output: 48000, scanNotes: 500, scanBytes: 16 * 1024 * 1024, scanMs: 3000, rows: 500, page: 50, cursors: 10, cursorMs: 60000, proofs: 256 } as const;
 export const READ_LIMITS = { sessions: 4, idleMs: 5 * 60000, lifetimeMs: 30 * 60000, bytes: MAX_NOTE_BYTES, serialized: 60000 } as const;
@@ -381,7 +381,8 @@ export class Obsidian {
   }
   async move(input: { vaultId: string; path: string; destination: string; expectedHash: string; dryRun?: boolean }, signal?: AbortSignal, reader = '') {
     validPath(input.path); validPath(input.destination);
-    if (/[#|\[\]<>?%]/.test(input.path + input.destination)) throw new VaultError('unsupported_links');
+    const unsupportedPath = [input.path, input.destination].find(path => /[#|\[\]<>?%]/.test(path));
+    if (unsupportedPath) throw new UnsupportedMoveLink({ reason: 'path_characters', path: unsupportedPath });
     const { revision } = await this.source(input.vaultId);
     const proof = this.proofs.get(this.key(input.vaultId, input.path));
     if (!proof || proof.hash !== input.expectedHash || proof.reader !== reader || proof.revision !== revision) throw new VaultError('complete_read_required');

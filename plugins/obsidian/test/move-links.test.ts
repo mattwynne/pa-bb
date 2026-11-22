@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MarkdownNotes } from '../adapters/markdown-notes.ts';
-import { createMovePlanner, hashText } from '../core/move.ts';
+import { createMovePlanner, hashText, UnsupportedMoveLink } from '../core/move.ts';
 const parser=new MarkdownNotes();
 const note=(path:string,text:string)=>({path,text,hash:hashText(text)});
 function planMove(notes: ReturnType<typeof note>[], from: string, to: string, parser: MarkdownNotes) {
@@ -33,6 +33,24 @@ test('ambiguous basename is refused rather than guessed',()=>{
 test('frontmatter is inspected even when link delimiters only appear after YAML decoding', () => {
   const index = note('Index.md', '---\nrelated: "\\u005b\\u005bExample\\u005d\\u005d"\n---\n');
   assert.throws(() => planMove([source, index], source.path, 'Reference/Example.md', parser), /unsupported_links/);
+});
+
+test('move refusals give the location of the suspect markup without quoting it', () => {
+  for (const [text, reason, line, column] of [
+    ['---\nnested:\n  value: PRIVATE_MARKER\n---\n', 'frontmatter', 1, 1],
+    ['Example\n\n```html\n  <span>PRIVATE_MARKER</span>\n```\n', 'possible_html', 4, 3],
+    ['Example\n\nText <span>PRIVATE_MARKER\n', 'unclosed_html', 3, 6],
+    ['Example\n\nText [label](Bad%XXPRIVATE_MARKER.md)\n', 'target_encoding', 3, 6],
+  ] as const) {
+    const index = note('Index.md', text);
+    assert.throws(() => planMove([source, index], source.path, 'Reference/Example.md', parser), error => {
+      assert.ok(error instanceof UnsupportedMoveLink);
+      assert.equal(error.category, 'unsupported_links');
+      assert.deepEqual(error.location, { reason, path: index.path, line, column });
+      assert.doesNotMatch(JSON.stringify(error), /PRIVATE_MARKER/);
+      return true;
+    });
+  }
 });
 
 const projectPath = 'Example/Projects/Active/Service a heater.md';

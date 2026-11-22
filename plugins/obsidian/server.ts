@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { rpcContract, tools } from './contract.ts';
 import { Obsidian } from './core/service.ts';
 import { VaultError } from './core/ports.ts';
+import { UnsupportedMoveLink } from './core/move.ts';
 import { Admission } from './core/admission.ts';
 import type { MirrorCatalog, VaultFiles, NoteParser, StateRepository } from './core/ports.ts';
 import { ICloud } from './adapters/icloud.ts';
@@ -69,8 +70,9 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
         if (text.length > 64000) throw new VaultError('output_limit', 'Use a smaller page or read a specific section. This result exceeded the output limit.');
         return { content: [{ type: 'text' as const, text }] };
       } catch (error) {
-        const known = error instanceof VaultError; if (!known || !error.diagnosticReported) diagnose('tool', known ? error.category : 'unavailable');
-        return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ category: known ? error.category : 'unavailable', nextAction: known ? error.nextAction : 'Check source status. If this was a save, inspect recent operation receipts before preparing another edit.' }) }] };
+        const location = error instanceof UnsupportedMoveLink ? error.location : undefined;
+        const known = error instanceof VaultError; if (!known || !error.diagnosticReported) diagnose(location ? 'move_preflight' : 'tool', known ? error.category : 'unavailable');
+        return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ category: known ? error.category : 'unavailable', nextAction: known ? error.nextAction : 'Check source status. If this was a save, inspect recent operation receipts before preparing another edit.', location }) }] };
       }
     },
   });
