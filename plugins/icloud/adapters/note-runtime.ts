@@ -16,6 +16,8 @@ import { NoteMoves, type MoveInput } from './note-move.ts';
 import type { SearchRequest } from './note-search.ts';
 import { obsidianStageExclude, type MirrorWakeups } from './mirror-wakeups.ts';
 
+const MAX_SAFE_BINDING_ID = BigInt(Number.MAX_SAFE_INTEGER);
+
 // The flock, not a JS timer/lease, owns the generation. All native commands,
 // config calls and mirror mutations enter the same turn. Directory-only cloud
 // listings may share an active native command; they never access mirror files.
@@ -121,10 +123,10 @@ export class NoteRuntime {
   }
   private mirror(id: string) { return this.state().mirrors.find(m => m.id === id); }
   private localPath(mirror: Mirror) { return join(this.root, 'mirrors', mirror.id); }
-  private async local(mirror: Mirror, interrupted = false) {
+  private async local(mirror: Mirror, { interrupted = false, requireBinding = false } = {}) {
     if (!mirror.initialized || mirror.phase === 'retained' || (interrupted ? mirror.blocker !== 'rebuild' : ['rebuild', 'initialization', 'configuration'].includes(mirror.blocker ?? ''))) throw new CloudError('source_changed');
     const bound = this.db.prepare('SELECT * FROM icloud_note_bindings WHERE mirror_id=?').get(mirror.id) as { folder_id: string; root_dev: number; root_ino: number; baseline_dev: number; baseline_ino: number } | undefined;
-    if ((interrupted && !bound) || (bound && bound.folder_id !== mirror.folder.id)) throw new CloudError('source_changed');
+    if (bound ? bound.folder_id !== mirror.folder.id : interrupted || requireBinding) throw new CloudError('source_changed');
     const root = this.localPath(mirror), baseline = join(this.root, 'baselines', mirror.id);
     const [rootInfo, baselineInfo] = await Promise.all([lstat(root).catch(() => null), lstat(baseline).catch(() => null)]);
     if ([rootInfo, baselineInfo].some(info => !info?.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.())) throw new CloudError('source_changed');
@@ -189,12 +191,12 @@ export class NoteRuntime {
       return '';
     });
   }
-  async availability(id: string): Promise<{ available: boolean; reason: 'ownership' | 'recovery_required' | 'source_changed' | null }> {
+  async availability(id: string, { requireBinding = false } = {}): Promise<{ available: boolean; reason: 'ownership' | 'recovery_required' | 'source_changed' | null }> {
     if (!this.ready || this.closed) return { available: false, reason: 'ownership' };
     if (this.storageBlocked || this.blocked.has(id) || this.nativeBlocked.get(id) === 'uncertain' || this.mirror(id)?.blocker === 'rebuild') return { available: false, reason: 'recovery_required' };
     const mirror = this.mirror(id);
     if (!mirror) return { available: false, reason: 'source_changed' };
-    try { await this.local(mirror); return { available: true, reason: null }; }
+    try { await this.local(mirror, { requireBinding }); return { available: true, reason: null }; }
     catch { return { available: false, reason: 'source_changed' }; }
   }
   configure(revision: number, mirrorIds: string[]) {
@@ -210,15 +212,22 @@ export class NoteRuntime {
     this.revision = revision; this.members = new Set(ids); this.search.invalidate(revision);
     return { revision };
   }
-  private guard(id: string) {
+  private guard(id: string, exactIdentity = false) {
     const active = this.context.getStore();
     if (this.storageBlocked || this.blocked.has(id) || this.nativeBlocked.get(id) === 'uncertain' || ['rebuild', 'initialization', 'configuration'].includes(this.mirror(id)?.blocker ?? '')) throw new CloudError('recovery_required');
     if (!this.ready || this.closed || !active || active.mirrorId !== id || active.revision !== this.revision || !this.members.has(id)) throw new CloudError('invalid_selection');
     const mirror = this.mirror(id);
-    const bound = this.db.prepare('SELECT * FROM icloud_note_bindings WHERE mirror_id=?').get(id) as { folder_id: string; root_dev: number; root_ino: number; baseline_dev: number; baseline_ino: number } | undefined;
+    const binding = this.db.prepare('SELECT * FROM icloud_note_bindings WHERE mirror_id=?');
+    const bound = (exactIdentity ? binding.safeIntegers() : binding).get(id) as { folder_id: string; root_dev: number | bigint; root_ino: number | bigint; baseline_dev: number | bigint; baseline_ino: number | bigint } | undefined;
     if (!mirror || !bound || bound.folder_id !== mirror.folder.id || mirror.phase === 'retained') throw new CloudError('source_changed');
+    // The existing binding was recorded from Number stats. An unsafe stored
+    // value may already be rounded, so even an exact match to today's stat
+    // cannot prove provenance. Reject it and any non-INTEGER SQLite value.
+    if (exactIdentity && [bound.root_dev, bound.root_ino, bound.baseline_dev, bound.baseline_ino].some(value =>
+      typeof value !== 'bigint' || value < 0n || value > MAX_SAFE_BINDING_ID)) throw new CloudError('source_changed');
     try {
-      const root = lstatSync(this.localPath(mirror)), baseline = lstatSync(join(this.root, 'baselines', id));
+      const stat = (path: string) => exactIdentity ? lstatSync(path, { bigint: true }) : lstatSync(path);
+      const root = stat(this.localPath(mirror)), baseline = stat(join(this.root, 'baselines', id));
       const marker = openSync(join(this.root, 'baselines', id, 'initialized'), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       let valid = false;
       try {
@@ -227,13 +236,14 @@ export class NoteRuntime {
       } finally { closeSync(marker); }
       if (!valid || !root.isDirectory() || !baseline.isDirectory() || root.isSymbolicLink() || baseline.isSymbolicLink() || root.dev !== bound.root_dev || root.ino !== bound.root_ino || baseline.dev !== bound.baseline_dev || baseline.ino !== bound.baseline_ino) throw new Error();
     } catch { throw new CloudError('source_changed'); }
+    return bound;
   }
-  async access<T>(id: string, revision: number, action: (root: string) => Promise<T>): Promise<T> {
+  async access<T>(id: string, revision: number, action: (root: string) => Promise<T>, { requireBinding = false } = {}): Promise<T> {
     if (this.storageBlocked) throw new CloudError('recovery_required');
     if (!this.ready || this.closed || this.revision !== revision || !this.members.has(id)) throw new CloudError('invalid_selection');
     if (this.moving) throw new NoteError('busy');
     if (this.moves.blocked(id)) throw new NoteError('uncertain');
-    const availability = await this.availability(id);
+    const availability = await this.availability(id, { requireBinding });
     if (!availability.available) throw new CloudError('source_changed');
     this.guardWithin(id, revision);
     if (this.moving) throw new NoteError('busy');
@@ -250,8 +260,22 @@ export class NoteRuntime {
     return this.overlay.filesystemGate(id);
   }
   async mirrorDirectory(id: string, revision: number) {
-    return this.access(id, revision, async directory => {
+    return this.handoffDirectory(id, revision, directory => {
       this.guard(id);
+      return { directory };
+    });
+  }
+  async mirrorDirectoryGrant(id: string, revision: number) {
+    return this.handoffDirectory(id, revision, directory => {
+      const { root_dev, root_ino } = this.guard(id, true);
+      return { directory, rootDev: root_dev.toString(), rootIno: root_ino.toString() };
+    }, { requireBinding: true });
+  }
+  private async handoffDirectory<T>(id: string, revision: number, authorize: (directory: string) => T, options?: { requireBinding: boolean }) {
+    return this.access(id, revision, async directory => {
+      // An entered move may have finished uncertain while availability awaited.
+      if (this.moves.blocked(id)) throw new NoteError('uncertain');
+      const authorized = authorize(directory);
       // No await separates the checks and durable fence. A legacy writer
       // either entered first or sees the fence.
       if (this.overlay.filesystemGate(id) !== 'ready') throw new NoteError('conflict');
@@ -262,8 +286,8 @@ export class NoteRuntime {
         this.direct.add(id);
       }
       if (this.nativeMirror !== id) this.mirrorWakeups?.observe(id, directory);
-      return { directory };
-    });
+      return authorized;
+    }, options);
   }
   private async legacyWrite<T>(id: string, action: () => Promise<T>): Promise<T> {
     if (this.direct.has(id)) throw new NoteError('unsupported');
@@ -396,7 +420,7 @@ export class NoteRuntime {
   private async nativeCommand(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
     for (const mirror of this.state().mirrors) if (mirror.initialized && args.includes(this.localPath(mirror)) && this.moves.blocked(mirror.id)) throw new NoteError('uncertain');
     const direct = args[0] === 'bisync' ? this.state().mirrors.find(m => this.direct.has(m.id) && this.localPath(m) === args[2]) : undefined;
-    if (direct) await this.local(direct, direct.blocker === 'rebuild');
+    if (direct) await this.local(direct, { interrupted: direct.blocker === 'rebuild' });
     this.nativeRunning = true;
     this.nativeMirror = direct?.id;
     if (direct) this.mirrorWakeups?.suspend(direct.id);
@@ -405,7 +429,7 @@ export class NoteRuntime {
       this.nativeRunning = false;
       this.nativeMirror = undefined;
       if (direct && !this.closed) {
-        const directory = await this.local(direct, direct.blocker === 'rebuild').catch(() => null);
+        const directory = await this.local(direct, { interrupted: direct.blocker === 'rebuild' }).catch(() => null);
         if (directory) this.mirrorWakeups?.observe(direct.id, directory);
       }
       await Promise.allSettled([...this.directoryReads]);
@@ -450,11 +474,11 @@ export class NoteRuntime {
       // Already-entered saves must drain through the final publication guard.
       await Promise.allSettled([...this.entered]);
       await this.bindAccount();
-      const root = await this.local(mirror, true);
+      const root = await this.local(mirror, { interrupted: true });
       const held = await this.overlay.interruptedCopies(root, mirror.id).catch(() => { throw new CloudError('recovery_required'); });
       try {
         const output = await this.nativeCommand(args, capture, report);
-        await this.local(mirror, true);
+        await this.local(mirror, { interrupted: true });
         // Validate EVERY held head before collision capture or retirement. In
         // particular canonical D alongside B/C is not a verified conflict.
         await this.overlay.interruptedCopies(root, mirror.id, held);

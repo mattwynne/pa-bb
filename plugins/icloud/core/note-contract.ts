@@ -3,6 +3,7 @@ const id = z.string().regex(/^[a-zA-Z0-9-]{1,64}$/);
 const path = z.string().min(1).max(1024);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const filesystemIdentity = z.string().regex(/^(?:0|[1-9][0-9]*)$/);
 const version = z.literal(2);
 const target = { version, mirrorId: id, revision, path };
 const failure = z.object({ ok: z.literal(false), category: z.enum(['busy', 'unavailable', 'source_unavailable', 'not_connected', 'invalid_path', 'unsupported', 'conflict', 'capacity', 'cancelled', 'uncertain', 'operation_reused', 'operation_expired', 'cursor_expired', 'invalid_query']), nextAction: z.string().max(200) }).strict();
@@ -19,7 +20,9 @@ export type SearchBatch = z.infer<typeof searchBatchSchema>;
 export type SearchCapability = z.infer<typeof searchCapabilitySchema>;
 // Copied into the independent consumer package, never imported across plugin roots.
 export const noteRpcContract = {
+  mirrorDirectoryCapabilities: { input: z.null(), output: z.object({ mirrorDirectoryGrantVersion: z.literal(1).optional() }).strict() },
   mirrorDirectory: { input: z.object({ mirrorId: id, revision }).strict(), output: z.object({ directory: z.string().min(1) }).strict() },
+  mirrorDirectoryGrant: { input: z.object({ mirrorId: id, revision }).strict(), output: z.object({ directory: z.string().min(1), rootDev: filesystemIdentity, rootIno: filesystemIdentity }).strict() },
   noteChildren: { input: z.object({ version, mirrorId: id, revision, folder: prefix }).strict(), output: result(z.object({ entries: z.array(z.object({ name: z.string().min(1).max(1024), kind: z.enum(['directory', 'markdown']) }).strict()).max(5000), incomplete: z.boolean() }).strict()) },
   noteSearch: { input: searchInputSchema, output: result(searchBatchSchema) },
   noteSearchClose: { input: z.object({ version, revision, cursor: z.string().uuid() }).strict(), output: result(z.null()) },

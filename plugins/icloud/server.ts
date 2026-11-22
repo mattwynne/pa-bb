@@ -104,20 +104,27 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       return { ok: false, category: failure, nextAction } as const;
     }
   };
+  type MirrorCaller = { experimental_caller: { kind: string; pluginId?: string } };
+  const assertMirrorCaller = ({ experimental_caller: caller }: MirrorCaller) => {
+    if (caller.kind !== 'plugin' || caller.pluginId !== 'obsidian')
+      throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the host-verified Obsidian plugin can use mirror access.' });
+  };
+  const mirrorAccess = async <T>(stage: 'mirror_directory' | 'mirror_directory_grant', context: MirrorCaller, operation: (owner: NoteRuntime) => Promise<T>) => {
+    assertMirrorCaller(context);
+    try {
+      if (!runtime) throw new CloudError('unavailable');
+      return await operation(runtime);
+    } catch (error) {
+      const failure = error instanceof NoteError ? error.category : category(error);
+      diagnose(stage, failure);
+      if (failure === 'invalid_selection') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Check the current connected vault selection.' });
+      throw new experimental_PluginRpcRefusal({ code: 'conflict', message: 'The mirror directory is unavailable. Check iCloud local access and legacy recovery status.' });
+    }
+  };
   bb.rpc.register(rpcContract, {
-    async mirrorDirectory({ mirrorId, revision }, context) {
-      if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'obsidian')
-        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the host-verified Obsidian plugin can use mirror access.' });
-      try {
-        if (!runtime) throw new CloudError('unavailable');
-        return await runtime.mirrorDirectory(mirrorId, revision);
-      } catch (error) {
-        const failure = error instanceof NoteError ? error.category : category(error);
-        diagnose('mirror_directory', failure);
-        if (failure === 'invalid_selection') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Check the current connected vault selection.' });
-        throw new experimental_PluginRpcRefusal({ code: 'conflict', message: 'The mirror directory is unavailable. Check iCloud local access and legacy recovery status.' });
-      }
-    },
+    mirrorDirectoryCapabilities(_input, context) { assertMirrorCaller(context); return runtime ? { mirrorDirectoryGrantVersion: 1 as const } : {}; },
+    mirrorDirectory({ mirrorId, revision }, context) { return mirrorAccess('mirror_directory', context, owner => owner.mirrorDirectory(mirrorId, revision)); },
+    mirrorDirectoryGrant({ mirrorId, revision }, context) { return mirrorAccess('mirror_directory_grant', context, owner => owner.mirrorDirectoryGrant(mirrorId, revision)); },
     noteConfigure(input, context) { obsidianOnly(context); return noteAction('note_configure', async () => { if (!runtime) throw new NoteError('unavailable'); return runtime.configure(input.revision, input.mirrorIds); }); },
     noteSearch(input, context) { obsidianOnly(context); return noteAction('note_search', () => runtime!.searchNotes(input)); },
     noteSearchClose(input, context) { obsidianOnly(context); return noteAction('note_search', () => runtime!.closeSearch(input.revision, input.cursor)); },
