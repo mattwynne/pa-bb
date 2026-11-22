@@ -147,6 +147,8 @@ export class MarkdownNotes implements NoteParser {
     masked = chars.join(''); nodes = 0;
     const root = fromMarkdown(masked, linksOnly ? moveMarkdown : undefined);
     const destinations = linksOnly ? moveDestinations(masked) : undefined;
+    const codeSpans: Array<{ start: number; end: number }> = [];
+    const definitions = new Set<number>();
     const textOf = (node: any): string => node.value ?? (node.children ?? []).map(textOf).join('');
     walk(root, node => {
       if (++nodes > MAX_NODES) throw new VaultError('parser_limit');
@@ -154,7 +156,11 @@ export class MarkdownNotes implements NoteParser {
       const start = node.position.start.offset; const end = node.position.end.offset;
       if (!linksOnly && node.type === 'heading') meta.headings.push({ ...location(start, end), title: textOf(node), depth: node.depth });
       if (node.type === 'link' || node.type === 'image') addLink(start, end, node.url, node.type === 'image', 'markdown', destinations?.get(start));
-      if (linksOnly && node.type === 'definition') addLink(start, end, node.url, false, 'definition');
+      if (linksOnly && (node.type === 'code' || node.type === 'inlineCode')) codeSpans.push({ start, end });
+      if (linksOnly && node.type === 'definition') {
+        definitions.add(start);
+        addLink(start, end, node.url, false, 'definition');
+      }
       if (linksOnly && node.type === 'wikilink') addLink(start, end, node.path ?? '', node.embedded, 'wiki', destinations?.get(start));
       if (node.type === 'text') {
         const source = masked.slice(start, end);
@@ -183,6 +189,18 @@ export class MarkdownNotes implements NoteParser {
         if (match) meta.tasks.push({ ...location(offset, offset + match[0].length), marker: match[1], markerOffset: offset + 1, complete: match[1].trim() !== '', text: text.slice(offset + match[0].length - match[2].length, offset + match[0].length) });
       }
     });
+    if (linksOnly) {
+      // Keep malformed reference-like Markdown fail-closed outside code and
+      // the regions already masked during parsing.
+      let nextCode = 0;
+      for (const reference of masked.matchAll(/^ {0,3}\[[^\]\n]+\]:/gm)) {
+        const start = reference.index + reference[0].indexOf('[');
+        while (codeSpans[nextCode]?.end <= start) nextCode++;
+        if (definitions.has(start) || (codeSpans[nextCode]?.start <= start && start < codeSpans[nextCode].end)) continue;
+        meta.unparsedReferenceOffset = start;
+        break;
+      }
+    }
     if (h.doc && isMap(h.doc.contents)) for (const pair of h.doc.contents.items) {
       const value = pair.value; const start = h.start + ((value as any)?.range?.[0] ?? 0); const end = h.start + ((value as any)?.range?.[1] ?? 0);
       if (!linksOnly && (pair.key as any).value === 'tags') for (const tag of meta.properties.tags as string[]) meta.tags.push({ ...location(start, end), tag: tag.replace(/^#/, '').toLocaleLowerCase('und') });

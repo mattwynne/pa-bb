@@ -79,11 +79,7 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
     if (metadata.warnings.includes('properties_unsupported')) unsupported('frontmatter', 0);
     if (metadata.warnings.includes('unclosed_html')) unsupported('unclosed_html', metadata.unclosedHtmlOffset);
     if (metadata.warnings.length) unsupported('parser_warning');
-    const parsedDefinitions = new Set(metadata.links.filter(link => link.syntax === 'definition').map(link => link.start));
-    for (const reference of note.text.matchAll(/^ {0,3}\[[^\]\n]+\]:/gm)) {
-      const start = reference.index + reference[0].indexOf('[');
-      if (!parsedDefinitions.has(start)) unsupported('reference_definition', start);
-    }
+    if (metadata.unparsedReferenceOffset !== undefined) unsupported('reference_definition', metadata.unparsedReferenceOffset);
     if (metadata.htmlLinkOffset !== undefined) unsupported('html_link_attribute', metadata.htmlLinkOffset);
     const pieces: string[] = [];
     let offset = 0;

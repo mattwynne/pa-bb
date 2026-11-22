@@ -196,3 +196,15 @@ test('an affected encoded fragment delimiter cannot establish an outgoing target
   assert.throws(() => planMove(notes, from, to, parser),
     error => error instanceof MoveLinkError && error.location.reason === 'target_encoding');
 });
+
+
+test('fenced reference examples keep exact bytes while malformed live references block', () => {
+  const example = '\`\`\`markdown\r\n[demo]: Areas/Example.md\r\n[image]: data:image/png;base64,AAAA\r\n\`\`\`\r\n\r\n';
+  const index = note('Index.md', example + '[[Example]]');
+  const [repair] = planMove([source, index], source.path, 'Reference/Example.md', parser);
+  assert.equal(repair.text, example + '[[Reference/Example]]');
+
+  const malformed = note('Index.md', 'Body\n\n[broken]: [[Example]] trailing markup\n');
+  assert.throws(() => planMove([source, malformed], source.path, 'Reference/Example.md', parser),
+    error => error instanceof MoveLinkError && error.location.reason === 'reference_definition');
+});
