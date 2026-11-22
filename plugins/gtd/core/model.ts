@@ -9,6 +9,7 @@ export const projectSchema = z.object({
   title: z.string().min(1).max(240),
   status: statusSchema,
   areaId: z.string().min(1).max(1024).optional(),
+  notePath: z.string().min(1).max(1024).optional(),
 }).strict();
 export type Project = z.infer<typeof projectSchema>;
 export const sourceSchema = z.object({
@@ -64,7 +65,7 @@ export const pageSchema = z.object({
 }).strict();
 export type ProjectPage = z.infer<typeof pageSchema>;
 
-export const areaSchema = projectSchema.omit({ status: true, areaId: true });
+export const areaSchema = projectSchema.omit({ status: true, areaId: true, notePath: true });
 export type Area = z.infer<typeof areaSchema>;
 export const areaSnapshotSchema = snapshotSchema.omit({ projects: true }).extend({ areas: z.array(areaSchema).max(5000) });
 export type AreaSnapshot = z.infer<typeof areaSnapshotSchema>;

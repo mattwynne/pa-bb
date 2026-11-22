@@ -97,12 +97,15 @@ try {
       let result;
       if (method === 'listProjects') result = { source, projects: mode === 'empty' ? [] : [{ id: ref.id, title, status: 'active', areaId: 'Areas/Learning.md' }], coverage: 'complete', warnings: [], totalProjects: mode === 'empty' ? 0 : 1, matchedProjects: 1, counts: { active: 1, deferred: 0, someday: 0, done: 0 }, nextCursor: null, consistency: 'Per-project local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' };
       if (method === 'listProjects' && mode === 'directory-gap') result = { ...result, projects: [{ id: 'Projects/Folder/', title: 'Folder project', status: 'active' }], coverage: 'partial', warnings: ['directory_enumeration_unavailable'], totalProjects: null, matchedProjects: null, counts: null };
-      if (method === 'listProjects' && mode === 'folder-complete') result = { ...result, projects: [{ id: 'Projects/Empty/', title: 'Empty project', status: 'active' }, { id: 'Projects/Attachments/', title: 'Attachment-only project', status: 'active' }], totalProjects: 2, matchedProjects: 2, counts: { active: 2, deferred: 0, someday: 0, done: 0 } };
+      if (method === 'listProjects' && mode === 'folder-complete') result = { ...result, projects: [{ id: 'Projects/Empty/', title: 'Empty project', status: 'active' }, { id: 'Projects/Attachments/', title: 'Attachment-only project', status: 'active' }, { id: 'Projects/Pilot/', notePath: 'Projects/Pilot/README.md', title, status: 'active' }], totalProjects: 3, matchedProjects: 3, counts: { active: 3, deferred: 0, someday: 0, done: 0 } };
       if (method === 'listAreas') result = { source, areas: [{ id: 'Areas/Learning.md', title: area }], coverage: 'complete', warnings: [], totalAreas: 1, nextCursor: null, consistency: 'Per-area local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.' };
       if (method === 'listProjects' && mode === 'area-boundary') result.projects[0].areaId = 'Areas/Learning/Example Committee/Meeting.md';
       if (method === 'listAreas' && mode === 'area-boundary') result.areas.push(...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` })));
       if (method === 'listProjects' && mode === 'relationships') { result.projects[0].areaId = 'Areas/Learning/Consulting.md'; result.projects.push({ id: 'Projects/Unresolved.md', title: 'Unresolved project', status: 'active' }); }
-      if (method === 'renameProject' || method === 'renameArea') { if (method === 'renameProject') title = input.title; else area = input.title; result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' }; }
+      if (method === 'renameProject' || method === 'renameArea') { if (method === 'renameProject') {
+        if (mode === 'folder-complete') assert.equal(input.id, 'Projects/Pilot/');
+        title = input.title;
+      } else area = input.title; result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' }; }
       if (method === 'newThread') { creations++; await new Promise(r => setTimeout(r, 250)); result = { threadId: 'fixture1' }; }
       if (method === 'associate') { if (input.project) associations.set(input.threadId, input.project); else associations.delete(input.threadId); result = null; }
       return route.fulfill({ json: { ok: true, result } });
@@ -241,6 +244,13 @@ try {
       await nav.getByRole('button', { name: 'Attachment-only project', exact: true }).waitFor();
       assert.equal(await nav.getByText(/Partial inventory/).count(), 0);
       await nav.getByRole('button', { name: 'New thread for Empty project' }).focus();
+      page.on('dialog', dialog => dialog.accept('README title'));
+      const actions = nav.getByLabel('Actions for project Learn woodworking');
+      await actions.click();
+      const rename = actions.locator('..').getByRole('button', { name: 'Rename' });
+      await rename.focus();
+      await page.keyboard.press('Enter');
+      await nav.getByRole('button', { name: 'README title', exact: true }).waitFor();
     } else if (mode === 'directory-gap') {
       await nav.getByText(/Obsidian cannot enumerate directories/).waitFor();
       await nav.getByLabel('Actions for project Folder project').click();

@@ -6,8 +6,8 @@ import { plugin } from '../server.ts';
 import type { ProjectSnapshot } from '../core/model.ts';
 const ref = { source: 'one', id: 'Projects/Woodworking.md' };
 const snapshot = (): ProjectSnapshot => ({ source: { backend: 'fake', id: 'one', name: 'Synthetic', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null }, projects: [{ id: ref.id, title: 'Learn woodworking', status: 'active', areaId: 'Areas/Learning.md' }, { id: 'Projects/Workbench.md', title: 'Build workbench', status: 'deferred' }], complete: true, warnings: [] });
-async function setup() {
-  let data = snapshot(), areaTitle = 'Learning'; const metadata: Record<string, any> = { t1: { unrelated: 'keep' }, t2: { project: ref } }; let spawns = 0; let fail = false;
+async function setup(initial = snapshot()) {
+  let data = initial, areaTitle = 'Learning'; const metadata: Record<string, any> = { t1: { unrelated: 'keep' }, t2: { project: ref } }; let spawns = 0; let fail = false;
   const host = createFakePluginHost({ pluginId: 'gtd', agentSkillIds: ['gtd-projects'], sdk: {
     plugins: { callRpc: async () => ({ vaults: [], incomplete: false }) },
     projects: { list: async () => [{ id: 'personal', kind: 'personal' }] as any },
@@ -17,7 +17,7 @@ async function setup() {
     },
   } });
   const dependencies = {
-    select: async () => ({ key: 'source', backend: { checkAccess: async () => {}, readProjects: async () => data, rename: async (id: string, title: string) => { data.projects.find(p => p.id === id)!.title = title; return { operationId: randomUUID(), outcome: 'saved_locally_pending_sync' as const }; } } }),
+    select: async () => ({ key: 'source', backend: { checkAccess: async () => {}, readProjects: async () => data, rename: async (id: string, title: string) => { data.projects.find(p => (p.notePath ?? p.id) === id)!.title = title; return { operationId: randomUUID(), outcome: 'saved_locally_pending_sync' as const }; } } }),
     selectAreas: async () => ({ key: 'areas', backend: { checkAccess: async () => {}, readAreas: async () => ({ source: data.source, areas: [{ id: 'Areas/Learning.md', title: areaTitle }], complete: true, warnings: [] }), rename: async (_id: string, title: string) => { areaTitle = title; return { operationId: randomUUID(), outcome: 'saved_locally_pending_sync' as const }; } } }),
   };
   await plugin(host.bb, dependencies);
@@ -61,5 +61,16 @@ test('uncertain creation is not retried, even after reload; diagnostics are boun
     const input = { ...ref, requestId: randomUUID() };
     await assert.rejects(f.harness.behavior.callRpc('newThread', input)); await assert.rejects(f.harness.behavior.callRpc('newThread', input)); assert.equal(f.spawns(), 1);
     const logs = JSON.stringify(f.harness.inspection.logEntries); assert.match(logs, /GTD thread_create unconfirmed/); assert.doesNotMatch(logs, /sentinel/);
+  } finally { await f.harness.lifecycle.dispose(); }
+});
+
+test('rename routes a folder ID to its README and retains the folder ID', async () => {
+  const initial = snapshot();
+  const id = 'Projects/Pilot/', notePath = 'Projects/Pilot/README.md';
+  initial.projects = [{ id, notePath, title: 'Pilot', status: 'active' }];
+  const f = await setup(initial);
+  try {
+    await f.harness.behavior.callRpc('renameProject', { source: 'one', id, title: 'New title' });
+    assert.deepEqual(initial.projects, [{ id, notePath, title: 'New title', status: 'active' }]);
   } finally { await f.harness.lifecycle.dispose(); }
 });

@@ -61,3 +61,26 @@ test('an invalid explicit root never borrows supporting metadata, in either page
     await fixture(pages, async backend => { const result = await backend.readProjects(new AbortController().signal); assert.deepEqual(result.projects, []); assert.ok(result.warnings.includes('invalid_project')); });
   }
 });
+
+test('an immediate README keeps the folder ID and sibling notes win across metadata pages', async () => {
+  const ordinary = row('Pilot/Supporting/README.md', { title: 'Nested', status: 'done' });
+  const readme = row('Pilot/README.md', { title: 'Pilot title', status: 'deferred' });
+  const legacy = row('Pilot.md', { title: 'Legacy title', status: 'active' });
+  await fixture([[ordinary]], async backend => {
+    const result = await backend.readProjects(new AbortController().signal);
+    assert.deepEqual(result.projects, [{ id: 'Projects/Pilot/', title: 'Pilot', status: 'active' }]);
+  });
+  await fixture([[ordinary], [readme, row('Done/Finished/README.md', { status: 'active' })]], async backend => {
+    const result = await backend.readProjects(new AbortController().signal);
+    assert.deepEqual(result.projects, [
+      { id: 'Projects/Pilot/', notePath: 'Projects/Pilot/README.md', title: 'Pilot title', status: 'deferred' },
+      { id: 'Projects/Done/Finished/', notePath: 'Projects/Done/Finished/README.md', title: 'Finished', status: 'done' },
+    ]);
+  });
+  for (const pages of [[[readme], [legacy]], [[legacy], [readme]]]) {
+    await fixture(pages, async backend => {
+      const result = await backend.readProjects(new AbortController().signal);
+      assert.deepEqual(result.projects, [{ id: 'Projects/Pilot.md', title: 'Legacy title', status: 'active' }]);
+    });
+  }
+});

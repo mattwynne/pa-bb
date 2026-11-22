@@ -9,7 +9,7 @@ test('relationship projection batches explicit roots only, preserves IDs and nev
     if (args.method === 'status') return state;
     if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Synthetic' }], incomplete: false };
     if (args.method === 'listChildren') return { entries: [], incomplete: false };
-    if (args.method === 'listProperties') return { notes: page++ === 0 ? [] : [...Array.from({ length: 51 }, (_, i) => ({ path: `Life/Projects/P${i}.md`, properties: {} })), { path: 'Life/Projects/P0/Notes.md', properties: { areaId: 'wrong' } }, { path: 'Life/Projects/Folder/Notes.md', properties: { areaId: 'wrong' } }], nextCursor: page === 1 ? '12345678-1234-4123-8123-123456789abc' : null, incomplete: false, warnings: [], observedAt: 'now' };
+    if (args.method === 'listProperties') return { notes: page++ === 0 ? [] : [...Array.from({ length: 51 }, (_, i) => ({ path: `Life/Projects/P${i}.md`, properties: {} })), { path: 'Life/Projects/P0/Notes.md', properties: { areaId: 'wrong' } }, { path: 'Life/Projects/Folder/Notes.md', properties: { areaId: 'wrong' } }, { path: 'Life/Projects/Pilot/README.md', properties: { status: 'deferred' } }], nextCursor: page === 1 ? '12345678-1234-4123-8123-123456789abc' : null, incomplete: false, warnings: [], observedAt: 'now' };
     assert.equal(args.method, 'projectAreas'); assert.equal(args.input.root, 'Life'); assert.equal(args.input.areaFolder, 'Life/Areas');
     requests.push(args.input.paths);
     return { rows: args.input.paths.map((path: string) => ({ path, status: 'resolved', areaId: 'Life/Areas/Work/Consulting.md' })), incomplete: false };
@@ -17,10 +17,15 @@ test('relationship projection batches explicit roots only, preserves IDs and nev
   try {
     const backend = new ObsidianBackend(host.bb.sdk, { vaultId: 'one', root: 'Life', folder: 'Projects', areasFolder: 'Areas' });
     const result = await backend.readProjects(new AbortController().signal);
-    assert.equal(result.complete, true); assert.deepEqual(requests.map(r => r.length), [50, 1]);
+    assert.equal(result.complete, true); assert.deepEqual(requests.map(r => r.length), [50, 2]);
     assert.ok(requests.flat().every(path => !path.endsWith('/Notes.md')));
     assert.equal(result.projects.find(p => p.id === 'Life/Projects/P0.md')?.areaId, 'Life/Areas/Work/Consulting.md');
     assert.equal(result.projects.find(p => p.id === 'Life/Projects/Folder/')?.areaId, undefined);
+    assert.ok(requests.flat().includes('Life/Projects/Pilot/README.md'));
+    assert.deepEqual(result.projects.find(p => p.id === 'Life/Projects/Pilot/'), {
+      id: 'Life/Projects/Pilot/', notePath: 'Life/Projects/Pilot/README.md', title: 'Pilot', status: 'deferred',
+      areaId: 'Life/Areas/Work/Consulting.md',
+    });
   } finally { await host.harness.lifecycle.dispose(); }
 });
 test('missing, malformed or failing relationship rows never claim complete source coverage or infer assignments', async () => {

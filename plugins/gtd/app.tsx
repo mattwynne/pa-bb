@@ -87,7 +87,7 @@ function GtdPanel() {
   const inArea = (area: Area) => visible.filter(p => enclosingArea(inventory.areas, p.areaId)?.id === area.id);
   const shownAreas = inventory.areas.filter(area => status === 'all' || inArea(area).length > 0);
   const unassignedProjects = visible.filter(p => !enclosingArea(inventory.areas, p.areaId));
-  const projectRow = (p: Project) => <Group key={p.id} title={p.title} actions={<><button className="gtd-new" aria-label={`New thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p)}>+</button><RenameMenu label={`Actions for project ${p.title}`} disabled={!!busy || p.id.endsWith('/')} onRename={() => rename('project', p)} /></>}>
+  const projectRow = (p: Project) => <Group key={p.id} title={p.title} actions={<><button className="gtd-new" aria-label={`New thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p)}>+</button><RenameMenu label={`Actions for project ${p.title}`} disabled={!!busy || (p.id.endsWith('/') && !p.notePath)} onRename={() => rename('project', p)} /></>}>
     {threads.filter(t => { const r = reference.safeParse(links[t.id]); return r.success && key(r.data.source, r.data.id) === key(inventory.source, p.id); }).map(row)}{!threads.some(t => { const r = reference.safeParse(links[t.id]); return r.success && key(r.data.source, r.data.id) === key(inventory.source, p.id); }) && <p className="gtd-muted">No linked threads</p>}</Group>;
   const unassigned = threads.filter(t => !reference.safeParse(links[t.id]).success);
   const missing = threads.filter(t => { const r = reference.safeParse(links[t.id]); return r.success && !inventory.projects.some(p => key(inventory.source, p.id) === key(r.data.source, r.data.id)); });
