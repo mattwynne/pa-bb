@@ -30,6 +30,17 @@ Areas also use one immediate entry layer of Markdown root notes and Area-named f
 
 The only persisted change is a private GTD proposal reservation for each new UUID, so a second preview reuses it. A reservation is **not** evidence that the current occupant of a path is the original note. No apply operation exists here. The report is not permission to edit notes or threads: review missing pages, conflicting identities/destinations, unresolved declarations and unmatched thread references first. Other CLI commands, tools and navigation continue to use the legacy IDs.
 
+### Preserving a thread during an approved legacy project move
+
+A physical note move and a BB thread reassignment are separate operations. `associate` has no expected-old-reference parameter: coordinate an exclusive window for this thread's project link, or stop. Do not use `newThread` or unlink first.
+
+1. Save a private, complete `bb gtd migration-preview --json` report. Identify the exact source, old ID and linked thread ID(s); stop for missing or unexpected associations. Review the projected legacy inventory as well as the Obsidian move dry run. Moving an immediate README while retaining its original support directory can produce **two** projects even when the physical move is perfectly safe.
+2. After the separately authorized move, verify its receipt and link repairs. Require the same source and unique new project ID in the complete inventory for the destination status (drain cursors). Refresh the private preview: require the old project row gone, the same thread still referring to the old ID, and no unexpected references. If the target is outside the GTD layout, this API cannot reassign the link. A title match is insufficient.
+3. For the reviewed thread only, write a private JSON input file of the form `{"threadId":"<existing thread>","project":{"source":"<source.id>","id":"<exact new legacy project ID>"}}`. Invoke `bb plugin rpc call gtd associate --input-file <private-file> --json` once. Only the GTD project field changes; this does not rewrite the historical conversation or its creation receipt.
+4. Read back a fresh complete preview: in `links`, verify that same `threadId` now has the exact destination `id`, no old association remains, and the source is unchanged. If already correct, do not repeat the write. After an uncertain result, inspect before doing anything else; if the reference is unchanged, different or unreadable, stop for reconciliation rather than replaying the move or metadata write.
+
+`test/migration-rehearsal.test.ts` drives the real GTD list/associate handlers and preview against disposable fixture state. It covers the README split, a simulated interruption after writing one proposed ID, an unmatched reference after a physical move, and read-back after loss of a successful metadata-write reply. It tests the recovery decisions, **not** a production stable-ID migration runner or the physical Obsidian move implementation.
+
 ## Usage
 
 ```sh
