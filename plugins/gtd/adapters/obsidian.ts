@@ -81,8 +81,10 @@ export function areaFromNote(folder: string, path: string, properties: Record<st
   return { id: path, title: (title as string).trim() };
 }
 
+// Optional observations for the explicitly requested migration preview only.
+export type PreviewEvidence = { owners: Map<string, Record<string, unknown>>; entries: Set<string>; proof?: { expectedAuthority: z.infer<typeof relationshipAuthority>; publication?: string } };
 export class ObsidianBackend implements ProjectBackend, AreaBackend {
-  constructor(private sdk: BbPluginApi['sdk'], private config: { vaultId: string; folder: string; root?: string; areasFolder?: string }, private cleanupFailure: () => void = () => {}) {}
+  constructor(private sdk: BbPluginApi['sdk'], private config: { vaultId: string; folder: string; root?: string; areasFolder?: string }, private cleanupFailure: () => void = () => {}, private preview?: PreviewEvidence) {}
   async rename(id: string, title: string, signal: AbortSignal) {
     const folder = this.config.root ? `${this.config.root}/${this.config.folder}` : this.config.folder;
     if (!relativeFolder.safeParse(id).success || !id.startsWith(folder + '/') || !id.endsWith('.md')) throw new GtdError('invalid_source');
@@ -121,7 +123,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     const items: (Project | Area)[] = [];
     const owners = new Map<Project, { path: string; area: unknown }>();
     const envelope = z.object({ authority: relationshipAuthority, publication: z.string().uuid().nullable() });
-    let authority: z.infer<typeof relationshipAuthority> | undefined, publication: string | undefined, calls = 0, visited = 0, directoriesRead = 0;
+    let authority = this.preview?.proof?.expectedAuthority, publication = this.preview?.proof?.publication, calls = 0, visited = 0, directoriesRead = 0;
     let childrenPartial = false;
     const each = async <T>(values: T[], action: (value: T) => Promise<void>) => {
       let next = 0, failed = false;
@@ -140,17 +142,20 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
       if (authority && JSON.stringify(authority) !== JSON.stringify(proof.authority)) throw new GtdError('source_unavailable');
       if (publication && publication !== proof.publication) throw new GtdError('source_unavailable');
       authority = proof.authority; publication = proof.publication ?? undefined;
+      if (this.preview) this.preview.proof = { expectedAuthority: authority, ...(publication ? { publication } : {}) };
       return schema.parse(value);
     };
     const children = async (scope: string) => {
       if (++directoriesRead > 128) { warnings.add('scan_limit'); childrenPartial = true; return []; }
       const page = await call('inventoryChildren', { folder: scope }, envelope.extend(childrenPage.shape).strict());
+      if (this.preview) for (const e of page.entries) this.preview.entries.add(`${scope}/${e.name}`);
       childrenPartial = page.incomplete;
       if (page.incomplete) warnings.add('source_partial');
       return page.entries;
     };
     const loadProperties = async (path: string, fields: string[]) => {
-      const page = await call('inventoryProperties', { path, fields }, envelope.extend({ status: z.enum(['observed', 'missing', 'partial']), properties: z.record(z.string(), z.unknown()), unsupported: z.array(z.string()).max(8) }).strict());
+      const page = await call('inventoryProperties', { path, fields: this.preview ? [...fields, 'id'] : fields }, envelope.extend({ status: z.enum(['observed', 'missing', 'partial']), properties: z.record(z.string(), z.unknown()), unsupported: z.array(z.string()).max(8) }).strict());
+      if (this.preview && page.status === 'observed') this.preview.owners.set(path, { ...page.properties, ...Object.fromEntries(page.unsupported.map(k => [k, { unsupported: true }])) });
       if (page.status === 'partial' || page.unsupported.length) warnings.add('source_partial');
       return page;
     };
@@ -240,6 +245,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     const state = await this.status(signal);
     const vault = state.vaults.find(vault => vault.vaultId === this.config.vaultId);
     if (!vault?.source?.local.available) throw new GtdError('source_unavailable');
+    if (this.preview && state.inventoryEvidenceVersion !== 1) throw new GtdError('incompatible');
     if (state.inventoryEvidenceVersion === 1) return this.readImmediateInventory(signal, kind, vault);
     const readSignal = AbortSignal.any([signal, AbortSignal.timeout(20000)]);
     const items: (Project | Area)[] = [], warnings = new Set<Warning>();

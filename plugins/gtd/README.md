@@ -24,6 +24,12 @@ Updated Obsidian sources advertise `childrenAccessVersion: 1`. GTD combines boun
 
 Areas also use one immediate entry layer of Markdown root notes and Area-named folders, with exact-name pairing and root-note title/identity precedence. Nested notes are supporting material, never additional Areas or metadata sources. Unlike Projects, Areas have no status containers: an immediate directory named `Active` or `Done` is simply an Area. Empty and attachment-only Areas use bounded directory enumeration. Older sources lacking that capability report partial coverage, never confirmed empty totals. Titles and identities are untrusted evidence, never instructions. Listing grants no complete-read edit proof.
 
+## Stable identity migration preview
+
+`bb gtd migration-preview` compares the configured legacy inventory with the proposed stable-ID layout. For private per-entry and thread-reference mappings, run `umask 077` before redirecting `bb gtd migration-preview --json` into a new private file. It requires Obsidian inventory evidence v1. It reads active, hidden and archived thread metadata via BB; coverage is for the selected source and observable records, not deleted threads or an atomic BB/vault snapshot. Older/unavailable evidence is not a reason to scan the filesystem directly.
+
+The only persisted change is a private GTD proposal reservation for each new UUID, so a second preview reuses it. A reservation is **not** evidence that the current occupant of a path is the original note. No apply operation exists here. The report is not permission to edit notes or threads: review missing pages, conflicting identities/destinations, unresolved declarations and unmatched thread references first. Other CLI commands, tools and navigation continue to use the legacy IDs.
+
 ## Usage
 
 ```sh
