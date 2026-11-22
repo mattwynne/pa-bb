@@ -111,6 +111,8 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
   assert.equal(unsupported.response.category, 'unsupported_links');
   assert.deepEqual(unsupported.response.location, { reason: 'reference_definition', path: 'Reference/ZZ Extra.md', line: 3, column: 3 });
   assert.deepEqual(unsupported.response.additionalLocations, [{ reason: 'html_link_attribute', path: 'Reference/ZZZ Extra.md', line: 1, column: 6 }]);
+  assert.deepEqual(unsupported.response.previewBlockers.counts, { reference_definition: 1, html_link_attribute: 1 });
+  assert.equal(unsupported.response.previewBlockers.locationsTruncated, false);
   await rm(secondBlocker);
   assert.doesNotMatch(JSON.stringify(unsupported.response), /PRIVATE_TARGET/);
   const logs = JSON.stringify(harness.inspection.logEntries);

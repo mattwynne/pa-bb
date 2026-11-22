@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { Obsidian } from '../core/service.ts';
 import { MarkdownNotes } from '../adapters/markdown-notes.ts';
+import { MoveLinkError } from '../core/move.ts';
 import { VaultError, type VaultFiles } from '../core/ports.ts';
 import { FilesFake, CatalogFake, MemoryState, hash } from './fakes.ts';
 class MoveFiles extends FilesFake {
@@ -123,6 +124,32 @@ test('a repair that would grow a note past the store write limit stops before th
       error => error instanceof VaultError && error.category === 'capacity' && /1 MiB write limit/.test(error.nextAction));
     assert.equal(f.files.moves, 0);
     assert.equal(f.state.value.moves, undefined);
+  } finally {
+    await f.service.stop();
+  }
+});
+
+
+test('read-only planning scans past repeated blockers and samples later reasons', async () => {
+  const f = await fixture();
+  try {
+    for (let i = 0; i < 14; i++) f.files.notes.set(`one/Blocker ${i}.md`, '<img src="PRIVATE_TARGET.png">');
+    f.files.notes.set('one/Z.md', '[[Reference/New example]]');
+    await assert.rejects(f.service.move({ ...f.input, dryRun: true }, undefined, 'reader'), error => {
+      assert.ok(error instanceof MoveLinkError);
+      assert.equal(error.location.reason, 'html_link_attribute');
+      assert.equal(error.additionalLocations?.length, 11);
+      assert.ok(error.additionalLocations?.some(location => location.path === 'Z.md' && location.reason === 'ambiguous_target'));
+      assert.deepEqual(error.previewBlockers?.counts, { html_link_attribute: 14, ambiguous_target: 1 });
+      assert.equal(error.previewBlockers?.notesChecked, 17);
+      assert.equal(error.previewBlockers?.locationsTruncated, true);
+      assert.doesNotMatch(JSON.stringify(error.previewBlockers), /PRIVATE_TARGET/);
+      return true;
+    });
+    assert.equal(f.files.moves, 0);
+    assert.equal(f.state.value.moves, undefined);
+    await assert.rejects(f.service.move(f.input, undefined, 'reader'), error => error instanceof MoveLinkError
+      && error.location.reason === 'html_link_attribute' && error.previewBlockers === undefined);
   } finally {
     await f.service.stop();
   }

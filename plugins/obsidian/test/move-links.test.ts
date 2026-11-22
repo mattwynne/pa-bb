@@ -75,12 +75,13 @@ test('live HTML embeds still block a move', () => {
     error => error instanceof MoveLinkError && error.location.reason === 'html_link_attribute');
 });
 
-test('parser-confirmed unrelated absolute file and web links stay unchanged', () => {
+test('parser-confirmed unrelated absolute file and external links stay unchanged', () => {
   const other = [
     '[PDF](file:///example/Report(2026).pdf) and <https://example.test/page>',
     '[Note](file:///external/Reference%20notes.md)',
     '[Folder](<file:///external/Reference folder/>)',
     '[Same stem but another extension](file:///external/Example.wav)',
+    '[Call](tel:+1-555-0100) [Artifact](sandbox:/mnt/data/sample.md)',
     '',
   ].join('\n');
   const [repair] = planMove([source, note('Index.md', other + '[[Example]]')], source.path, 'Reference/Example.md', parser);
@@ -89,6 +90,9 @@ test('parser-confirmed unrelated absolute file and web links stay unchanged', ()
     const index = note('Index.md', '[note](file:///some/mount/' + endpoint + ')');
     assert.throws(() => planMove([source, index], source.path, 'Reference/New.md', parser), /ambiguous_link/);
   }
+  const unknown = note('Index.md', '[Note](obsidian://open?vault=Demo&file=Areas%2FExample)');
+  assert.throws(() => planMove([source, unknown], source.path, 'Reference/New.md', parser),
+    error => error instanceof MoveLinkError && error.location.reason === 'target_scheme');
   const encodedSeparator = note('Index.md', '[note](file:///some/mount/Areas%2FExample.md)');
   assert.throws(() => planMove([source, encodedSeparator], source.path, 'Reference/New.md', parser), /unsupported_links/);
 });

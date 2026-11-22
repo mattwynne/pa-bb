@@ -30,6 +30,9 @@ const unsupportedReasons = {
   html_link_attribute: 'The planner found an HTML link or embed attribute it cannot check safely.',
   unclosed_html: 'The Markdown parser found an HTML element without a closing tag.',
   link_syntax: 'The planner cannot check this link syntax.',
+  destination_markup: 'The link destination uses markup the planner cannot rewrite safely.',
+  file_url: 'The planner could not verify the spelling of this absolute file link.',
+  target_scheme: 'The planner cannot verify whether this link protocol can refer to the moved note.',
   frontmatter_link: 'A YAML wikilink could be affected by the move and cannot be rewritten safely.',
   target_encoding: 'The link target uses unsupported percent encoding.',
   target_characters: 'The link target contains characters the planner cannot handle safely.',
@@ -37,6 +40,7 @@ const unsupportedReasons = {
 } as const;
 export class MoveLinkError extends VaultError {
   additionalLocations?: MoveLinkError['location'][];
+  previewBlockers?: { notesChecked: number; bytesChecked: number; counts: Partial<Record<MoveLinkError['location']['reason'], number>>; locationsTruncated: boolean };
   constructor(
     readonly location: { reason: keyof typeof unsupportedReasons | 'ambiguous_target'; path: string; line?: number; column?: number },
     ambiguity?: string,
@@ -89,13 +93,13 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
         if (/^data:image\/(?:png|gif|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/i.test(link.target)) continue;
         return unsupported('reference_definition', link.start);
       }
-      if (link.syntax === 'markdown' && /^(?:https?:\/\/|mailto:)/i.test(link.target)) continue;
+      if (link.syntax === 'markdown' && /^(?:https?:\/\/|mailto:|tel:|sandbox:\/mnt\/data(?:\/|$))/i.test(link.target)) continue;
       if (link.syntax === 'markdown' && /^file:/i.test(link.target)) {
         const filePath = absoluteFilePath(link.target);
         // An absolute file destination has no dependency on the referring
         // folder. Its mount prefix may differ across machines, so a matching
         // final name is still a possible endpoint.
-        if (filePath === undefined) return unsupported('link_syntax', link.start);
+        if (filePath === undefined) return unsupported('file_url', link.start);
         if (!endpointNames.includes(noteNameKey(filePath))) continue;
         throw ambiguous('An absolute file link could name the source or destination.');
       }
@@ -103,16 +107,17 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
       const wiki = frontmatter || link.syntax === 'wiki';
       const span = link.destination;
       const raw = span && note.text.slice(span.start, span.end);
-      if (!wiki && raw !== undefined && raw !== link.target) return unsupported('link_syntax', link.start);
+      if (!wiki && raw !== undefined && raw !== link.target) return unsupported('destination_markup', link.start);
       if (!wiki && raw === undefined && !link.target) continue;
       const spellingBefore = raw ?? link.target;
       const fragment = spellingBefore.indexOf('#');
       const pathSpelling = fragment < 0 ? spellingBefore : spellingBefore.slice(0, fragment);
       if (!pathSpelling) continue; // Local heading or block references follow their note.
+      if (/^[a-z][\w+.-]*:/i.test(pathSpelling) || pathSpelling.startsWith('//')) return unsupported('target_scheme', link.start);
       if (/%(?:2f|5c)/i.test(pathSpelling)) return unsupported('target_encoding', link.start);
       let name: string;
       try { name = decodeURIComponent(pathSpelling); } catch { return unsupported('target_encoding', link.start); }
-      if (/^[a-z][\w+.-]*:/i.test(name) || name.startsWith('//')) return unsupported('link_syntax', link.start);
+      if (/^[a-z][\w+.-]*:/i.test(name) || name.startsWith('//')) return unsupported('target_scheme', link.start);
       if (pathSpelling.includes('?') || /[\\\x00-\x1f\x7f]/.test(name)) return unsupported('target_characters', link.start);
       if (wiki && (pathSpelling !== pathSpelling.trim() || (raw !== undefined && raw !== link.target))) {
         return unsupported('target_characters', link.start);

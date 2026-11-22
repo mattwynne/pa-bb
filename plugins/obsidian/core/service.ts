@@ -570,12 +570,10 @@ export class Obsidian {
     const listed = await list();
     const inventory = new Set(listed);
     const planner = createMovePlanner(inventory, input.path, input.destination, this.parser);
-    const blockers: MoveLinkError[] = [];
-    const reportBlockers = () => {
-      const first = blockers[0];
-      first.additionalLocations = blockers.slice(1).map(error => error.location);
-      throw first;
-    };
+    const blockerSamples: MoveLinkError[] = [];
+    const firstByReason = new Map<MoveLinkError['location']['reason'], MoveLinkError>();
+    const counts: NonNullable<MoveLinkError['previewBlockers']>['counts'] = {};
+    let blockedNotes = 0;
     let bytes = 0;
     for (let offset = 0; offset < listed.length; offset += MOVE_SCAN_LIMITS.batch) {
       check();
@@ -604,8 +602,11 @@ export class Obsidian {
         try { planner.visit({ path, text, hash }, noteBytes); }
         catch (error) {
           if (input.dryRun && error instanceof MoveLinkError) {
-            blockers.push(error);
-            if (blockers.length >= 12) reportBlockers();
+            const { reason } = error.location;
+            if (!firstByReason.has(reason)) firstByReason.set(reason, error);
+            if (blockerSamples.length < 12) blockerSamples.push(error);
+            counts[reason] = (counts[reason] ?? 0) + 1;
+            blockedNotes++;
             continue;
           }
           if (error instanceof VaultError && error.category === 'parser_limit') {
@@ -616,7 +617,14 @@ export class Obsidian {
         }
       }
     }
-    if (blockers.length) reportBlockers();
+    if (blockedNotes) {
+      // Keep response size fixed while surfacing later refusal reasons.
+      const samples = [...new Set([...firstByReason.values(), ...blockerSamples])].slice(0, 12);
+      const [first, ...additional] = samples;
+      first.additionalLocations = additional.map(error => error.location);
+      first.previewBlockers = { notesChecked: listed.length, bytesChecked: bytes, counts, locationsTruncated: blockedNotes > samples.length };
+      throw first;
+    }
     const finalPaths = await list();
     if (finalPaths.length !== inventory.size || finalPaths.some(path => !inventory.has(path))) {
       throw new VaultError('conflict', 'Move stopped before writing. Vault paths changed during link discovery. Check the source and destination before preparing another move.');
