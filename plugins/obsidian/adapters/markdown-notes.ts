@@ -71,9 +71,9 @@ export class MarkdownNotes implements NoteParser {
       return low + 1;
     };
     const location = (start: number, end: number) => ({ start, end, line: lineNumber(start), endLine: lineNumber(Math.max(start, end - 1)) });
-    const addLink = (start: number, end: number, target: string, embed: boolean) => {
+    const addLink = (start: number, end: number, target: string, embed: boolean, frontmatter = false) => {
       if (linksOnly && meta.links.length >= MAX_NODES) throw new VaultError('parser_limit');
-      meta.links.push({ ...location(start, end), target, embed });
+      meta.links.push({ ...location(start, end), target, embed, ...(linksOnly && frontmatter ? { frontmatter: true as const } : {}) });
     };
     const forbidden: Array<[number, number]> = []; let nodes = 0;
     const html: Array<{ start: number; end: number; value: string }> = [];
@@ -156,7 +156,7 @@ export class MarkdownNotes implements NoteParser {
       const value = pair.value; const start = h.start + ((value as any)?.range?.[0] ?? 0); const end = h.start + ((value as any)?.range?.[1] ?? 0);
       if (!linksOnly && (pair.key as any).value === 'tags') for (const tag of meta.properties.tags as string[]) meta.tags.push({ ...location(start, end), tag: tag.replace(/^#/, '').toLocaleLowerCase('und') });
       const strings = isSeq(value) ? value.items.map(v => (v as any)?.value) : [(value as any)?.value];
-      for (const value of strings) if (typeof value === 'string') for (const match of value.matchAll(/!?\[\[([^\]]+)\]\]/g)) addLink(start, end, match[1].split('|')[0], match[0].startsWith('!'));
+      for (const value of strings) if (typeof value === 'string') for (const match of value.matchAll(/!?\[\[([^\]]+)\]\]/g)) addLink(start, end, match[1].split('|')[0], match[0].startsWith('!'), true);
     }
     return meta;
   }

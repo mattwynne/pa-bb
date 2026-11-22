@@ -35,6 +35,15 @@ test('frontmatter is inspected even when link delimiters only appear after YAML 
   assert.throws(() => planMove([source, index], source.path, 'Reference/Example.md', parser), /unsupported_links/);
 });
 
+test('unrelated YAML wikilinks stay unchanged and affected YAML wikilinks still block', () => {
+  const unrelated = '---\nowner: "[[Workspaces/People/Contact]]"\n---\n';
+  const index = note('Index.md', unrelated + '[[Example]]\n');
+  const [repair] = planMove([source, index], source.path, 'Reference/Example.md', parser);
+  assert.equal(repair.text, unrelated + '[[Reference/Example]]\n');
+  assert.throws(() => planMove([source, note('Index.md', '---\nrelated: "[[Reference/Example]]"\n---\n')], source.path, 'Reference/Example.md', parser),
+    error => error instanceof UnsupportedMoveLink && error.location.reason === 'frontmatter_link');
+});
+
 test('move refusals give the location of the suspect markup without quoting it', () => {
   for (const [text, reason, line, column] of [
     ['---\nnested:\n  value: PRIVATE_MARKER\n---\n', 'frontmatter', 1, 1],

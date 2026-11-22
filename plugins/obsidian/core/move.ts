@@ -17,6 +17,7 @@ const unsupportedReasons = {
   html_link_attribute: 'The planner found an HTML link or embed attribute it cannot check safely.',
   unclosed_html: 'The Markdown parser found an HTML element without a closing tag.',
   link_syntax: 'The planner cannot check this link syntax.',
+  frontmatter_link: 'A YAML wikilink could be affected by the move and cannot be rewritten safely.',
   target_encoding: 'The link target uses unsupported percent encoding.',
   target_characters: 'The link target contains characters the planner cannot handle safely.',
   overlapping_links: 'The planner found overlapping link spans.',
@@ -81,12 +82,13 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
       const raw = note.text.slice(link.start, link.end);
       // CommonMark recognizes this as an external email link.
       if (raw.startsWith('<') && raw.endsWith('>') && link.target === 'mailto:' + raw.slice(1, -1)) continue;
-      const wiki = /^!?\[\[/.test(raw);
-      const match = wiki ? raw.match(/^(!?\[\[)([^|\]#]*)([^\]]*\]\])$/) : raw.match(/^(!?\[[^\]\n]*\]\()([^\s()]+)(\s+"[^"\n]*")?\)$/);
-      if (!match) return unsupported('link_syntax', link.start);
-      let target: string; try { target = decodeURIComponent(match[2]); } catch { return unsupported('target_encoding', link.start); }
+      const wiki = link.frontmatter || /^!?\[\[/.test(raw);
+      const match = link.frontmatter ? null : wiki ? raw.match(/^(!?\[\[)([^|\]#]*)([^\]]*\]\])$/) : raw.match(/^(!?\[[^\]\n]*\]\()([^\s()]+)(\s+"[^"\n]*")?\)$/);
+      const spellingBefore = link.frontmatter ? link.target : match?.[2];
+      if (spellingBefore === undefined) return unsupported('link_syntax', link.start);
+      let target: string; try { target = decodeURIComponent(spellingBefore); } catch { return unsupported('target_encoding', link.start); }
       if (/^[a-z][\w+.-]*:/i.test(target) || target.startsWith('//')) continue;
-      if (/%(?!20)/i.test(match[2])) unsupported('target_encoding', link.start);
+      if (/%(?!20)/i.test(spellingBefore)) unsupported('target_encoding', link.start);
       if (target.includes('\\') || target.includes('?')) unsupported('target_characters', link.start);
       const split = target.indexOf('#'), name = split < 0 ? target : target.slice(0,split), fragment = split < 0 ? '' : target.slice(split);
       if (!name) continue; // Local heading or block references follow their note.
@@ -118,6 +120,7 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
         }
         if (before[0] === after[0]) continue;
       }
+      if (!match) return unsupported('frontmatter_link', link.start);
       const candidates = basename
         ? basenames.get(basenameKey(name)) ?? []
         : before.filter(path => paths.has(path));

@@ -36,7 +36,7 @@ export interface VaultFiles {
 }
 export interface StateRepository { load(): Promise<Configuration | undefined>; save(configuration: Configuration): Promise<void> }
 export type Location = { line: number; endLine: number; start: number; end: number };
-export type Metadata = { properties: Record<string, unknown>; aliases: string[]; tags: Array<Location & { tag: string }>; headings: Array<Location & { title: string; depth: number }>; blocks: Array<Location & { id: string }>; links: Array<Location & { target: string; embed: boolean }>; tasks: Array<Location & { text: string; marker: string; markerOffset: number; complete: boolean }>; warnings: string[]; unclosedHtmlOffset?: number; htmlLinkOffset?: number };
+export type Metadata = { properties: Record<string, unknown>; aliases: string[]; tags: Array<Location & { tag: string }>; headings: Array<Location & { title: string; depth: number }>; blocks: Array<Location & { id: string }>; links: Array<Location & { target: string; embed: boolean; frontmatter?: true }>; tasks: Array<Location & { text: string; marker: string; markerOffset: number; complete: boolean }>; warnings: string[]; unclosedHtmlOffset?: number; htmlLinkOffset?: number };
 export interface NoteParser {
   frontmatter(text: string): { properties: Record<string, unknown>; warnings: string[] };
   parse(text: string, purpose?: 'move'): Metadata;
