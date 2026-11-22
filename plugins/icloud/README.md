@@ -43,6 +43,41 @@ source does not release it. Settle any outstanding updater operation and verify
 clear the stored hold or auto-resume folders to bypass recovery. User Pause,
 failed-folder state, account and Obsidian note authorization remain unchanged.
 
+## Filesystem mirror cutover
+
+The producer advertises `mirrorAccessVersion: 3` and a `filesystem` state for
+each mirror in status. It retains the v2 status shape, selection revision and
+note RPCs for older Obsidian clients. Only host-verified Obsidian can call
+`mirrorDirectory({ mirrorId, revision })` for a configured, initialized mirror.
+The RPC verifies the local binding and returns the directory only to that
+caller. Inventory and diagnostics omit the directory. Paused or disconnected
+mirrors can still serve local data when their binding and recovery state are sound.
+
+1. Apply the producer and consumer as a coordinated update. Pause and drain
+   current work before reload and verify source selections with both versions.
+2. Keep legacy access on mirrors marked `legacy_pending` or `legacy_conflict`.
+   Let existing journaled application and native sync settle acknowledged saves.
+   Inspect and resolve conflicts through the existing recovery workflow. A paused
+   or disconnected mirror may remain on v2 while an acknowledged save awaits sync.
+3. The first successful directory lookup by the upgraded consumer retires legacy
+   writes for that mirror. This durable switch waits for acknowledged heads,
+   unresolved records and entered writers to clear. Legacy reads and historical
+   receipts remain available. Older clients keep v2 writes on mirrors still
+   awaiting cutover. Use the upgraded consumer to write after cutover.
+
+The handoff leaves old receipt and recovery storage in place under its existing
+retention rules. It performs no bulk cleanup or baseline rebuild. After the first
+directory lookup, keep a producer that enforces the saved handoff if the consumer
+is rolled back. Wait until all consumers and unresolved recovery work have moved
+off v2 before considering removal of legacy code or storage.
+
+Minute polling continues for cloud changes. On a direct mirror, local changes
+are coalesced into a targeted sync. The watcher is suspended during native
+transfer so inbound changes cannot launch another run. The minute poll covers
+local changes during transfer and events the watcher misses. Native bisync
+excludes the exact Obsidian UUID staging-name pattern on a direct mirror so
+temporary files stay local.
+
 ## Upgrading from 0.1.x
 
 Use iCloud **0.3.2** with Obsidian **0.3.1**, or later compatible 0.3.x releases. Use this same stopped-update sequence when upgrading from 0.2.x. Record which plugins and sources were enabled. Disable Obsidian, use iCloud's supported Pause controls, let active sync finish, then disable iCloud. Keep **both plugins disabled until both code updates/reloads have fully completed**, including stabilization. Enable iCloud first and check local readiness, then enable Obsidian if it was previously enabled. Resume only the sources that were enabled before maintenance. Keep previously disabled plugins disabled.

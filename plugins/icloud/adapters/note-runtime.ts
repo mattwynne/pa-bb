@@ -14,6 +14,7 @@ import { RcloneProcess } from './rclone-process.ts';
 import { NoteSearch } from './note-search.ts';
 import { NoteMoves, type MoveInput } from './note-move.ts';
 import type { SearchRequest } from './note-search.ts';
+import { obsidianStageExclude, type MirrorWakeups } from './mirror-wakeups.ts';
 
 // The flock, not a JS timer/lease, owns the generation. All native commands,
 // config calls and mirror mutations enter the same turn. Directory-only cloud
@@ -29,6 +30,7 @@ export class NoteRuntime {
   private queue: Promise<void> = Promise.resolve();
   private turnsPending = 0;
   private nativeRunning = false;
+  private nativeMirror: string | undefined;
   private directoryReads = new Set<Promise<unknown>>();
   private entered = new Set<Promise<unknown>>();
   private closed = false;
@@ -44,9 +46,11 @@ export class NoteRuntime {
   private nativeBlocked = new Map<string, 'uncertain' | 'native_failure'>();
   private lastMirror: string | null = null;
   private accountHash: string | null = null;
+  private direct = new Set<string>();
+  private legacyWrites = new Map<string, number>();
   constructor(readonly root: string, private db: Database.Database, readonly worker: RcloneProcess,
     private legacy: NoteStore, private state: () => State, private clock = () => Date.now(),
-    private diagnose: Diagnose = () => {}) {
+    private diagnose: Diagnose = () => {}, private mirrorWakeups?: MirrorWakeups) {
     this.moves = new NoteMoves(db, legacy, id => this.guard(id));
     this.overlay = new NoteOverlay(join(root, 'overlay'), db, legacy, clock, undefined, id => this.guard(id));
     this.search = new NoteSearch(legacy, { paths: id => this.overlay.searchPaths(id), reader: (id, path) => this.overlay.searchReader(this.localPath(this.mirror(id)!), id, path) });
@@ -64,7 +68,9 @@ export class NoteRuntime {
       if (this.db.pragma('synchronous', { simple: true }) !== 2) throw new NoteError('unavailable');
       this.db.exec(`CREATE TABLE IF NOT EXISTS icloud_note_admission (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, members TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS icloud_note_bindings (mirror_id TEXT PRIMARY KEY, folder_id TEXT NOT NULL, root_dev INTEGER NOT NULL, root_ino INTEGER NOT NULL, baseline_dev INTEGER NOT NULL, baseline_ino INTEGER NOT NULL);
-        CREATE TABLE IF NOT EXISTS icloud_note_account (id INTEGER PRIMARY KEY CHECK(id=1), fingerprint TEXT NOT NULL);`);
+        CREATE TABLE IF NOT EXISTS icloud_note_account (id INTEGER PRIMARY KEY CHECK(id=1), fingerprint TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS icloud_note_direct (mirror_id TEXT PRIMARY KEY);`);
+      this.direct = new Set((this.db.prepare('SELECT mirror_id FROM icloud_note_direct').all() as { mirror_id: string }[]).map(row => row.mirror_id));
       if (this.state().mirrors.some(m => m.initialized)) await this.bindAccount();
       this.moves.start();
       await this.overlay.start();
@@ -76,7 +82,11 @@ export class NoteRuntime {
         this.revision = config.revision; this.members = new Set(members);
       }
       for (const mirror of this.state().mirrors.filter(m => m.initialized && m.phase !== 'retained')) {
-        try { await this.local(mirror); await this.overlay.indexLegacy(mirror.id, this.localPath(mirror)); }
+        try {
+          const directory = await this.local(mirror);
+          await this.overlay.indexLegacy(mirror.id, directory);
+          if (this.direct.has(mirror.id)) this.mirrorWakeups?.observe(mirror.id, directory);
+        }
         catch (error) { this.blocked.add(mirror.id); if (error instanceof NoteError && error.category === 'uncertain') throw error; }
       }
       // A disabled interrupted mirror is an operator-held recovery, not an
@@ -233,6 +243,36 @@ export class NoteRuntime {
     if (this.blocked.has(id) || this.nativeBlocked.get(id) === 'uncertain' || this.mirror(id)?.blocker === 'rebuild') throw new CloudError('recovery_required');
     if (this.closed || this.revision !== revision || !this.members.has(id)) throw new CloudError('invalid_selection');
   }
+  filesystemStatus(id: string, available: boolean) {
+    if (!available || this.moves.blocked(id)) return 'unavailable' as const;
+    return this.overlay.filesystemGate(id);
+  }
+  async mirrorDirectory(id: string, revision: number) {
+    return this.access(id, revision, async directory => {
+      this.guard(id);
+      // No await separates the checks and durable fence. A legacy writer
+      // either entered first or sees the fence.
+      if (this.overlay.filesystemGate(id) !== 'ready') throw new NoteError('conflict');
+      if (!this.direct.has(id)) {
+        // A transfer already in progress may lack the staging-file exclusion.
+        if (this.nativeRunning || this.legacyWrites.has(id)) throw new NoteError('busy');
+        this.db.prepare('INSERT INTO icloud_note_direct(mirror_id) VALUES (?)').run(id);
+        this.direct.add(id);
+      }
+      if (this.nativeMirror !== id) this.mirrorWakeups?.observe(id, directory);
+      return { directory };
+    });
+  }
+  private async legacyWrite<T>(id: string, action: () => Promise<T>): Promise<T> {
+    if (this.direct.has(id)) throw new NoteError('unsupported');
+    this.legacyWrites.set(id, (this.legacyWrites.get(id) ?? 0) + 1);
+    try { return await action(); }
+    finally {
+      const remaining = this.legacyWrites.get(id)! - 1;
+      if (remaining) this.legacyWrites.set(id, remaining);
+      else this.legacyWrites.delete(id);
+    }
+  }
   async children(input: { mirrorId: string; revision: number; folder: string }, signal?: AbortSignal) {
     return this.access(input.mirrorId, input.revision, async root => {
       const { noteChildren } = await import('./note-children.ts');
@@ -280,6 +320,9 @@ export class NoteRuntime {
     });
   }
   async move(revision: number, input: MoveInput, signal?: AbortSignal) {
+    return this.legacyWrite(input.mirrorId, () => this.moveLegacy(revision, input, signal));
+  }
+  private async moveLegacy(revision: number, input: MoveInput, signal?: AbortSignal) {
     // Do not queue a second move behind the first or let ordinary overlay
     // publications race canonical unlink. Existing entered saves finish first.
     if (this.moving || this.moves.blocked(input.mirrorId)) throw new NoteError('busy');
@@ -302,7 +345,7 @@ export class NoteRuntime {
   }
   async commit(revision: number, input: CommitInput) {
     if (this.moves.has(input.operationId)) throw new NoteError('operation_reused');
-    const result = await this.access(input.mirrorId, revision, root => this.overlay.commit(root, input));
+    const result = await this.legacyWrite(input.mirrorId, () => this.access(input.mirrorId, revision, root => this.overlay.commit(root, input)));
     this.wake(); return result;
   }
   async resolve(id: string, revision: number, path: string, input: Resolution) {
@@ -310,7 +353,7 @@ export class NoteRuntime {
     // semantic resolution operation identity. Canonicalize RPC input here.
     const semantic: Resolution = { operationId: input.operationId, token: input.token, expectedLogicalHash: input.expectedLogicalHash,
       expectedIncomingHash: input.expectedIncomingHash, choice: input.choice, ...(input.text === undefined ? {} : { text: input.text }) };
-    const result = await this.access(id, revision, root => this.overlay.resolve(root, id, path, semantic));
+    const result = await this.legacyWrite(id, () => this.access(id, revision, root => this.overlay.resolve(root, id, path, semantic)));
     this.wake(); return result;
   }
   // A turn holds native exclusivity from beforeRun through post-run inspection.
@@ -350,10 +393,19 @@ export class NoteRuntime {
   idleFiles<T>(action: (signal: AbortSignal) => Promise<T>) { return this.turn(() => this.worker.withFiles(action)); }
   private async nativeCommand(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
     for (const mirror of this.state().mirrors) if (mirror.initialized && args.includes(this.localPath(mirror)) && this.moves.blocked(mirror.id)) throw new NoteError('uncertain');
+    const direct = args[0] === 'bisync' ? this.state().mirrors.find(m => this.direct.has(m.id) && this.localPath(m) === args[2]) : undefined;
+    if (direct) await this.local(direct, direct.blocker === 'rebuild');
     this.nativeRunning = true;
-    try { return await this.worker.run(args, capture, report); }
+    this.nativeMirror = direct?.id;
+    if (direct) this.mirrorWakeups?.suspend(direct.id);
+    try { return await this.worker.run(direct ? [...args, '--exclude', obsidianStageExclude] : args, capture, report); }
     finally {
       this.nativeRunning = false;
+      this.nativeMirror = undefined;
+      if (direct && !this.closed) {
+        const directory = await this.local(direct, direct.blocker === 'rebuild').catch(() => null);
+        if (directory) this.mirrorWakeups?.observe(direct.id, directory);
+      }
       await Promise.allSettled([...this.directoryReads]);
     }
   }
@@ -504,6 +556,7 @@ export class NoteRuntime {
   applicationBlocker(id: string) { return this.mirror(id)?.blocker === 'rebuild' || this.nativeBlocked.get(id) === 'uncertain' ? 'application_uncertain' as const : this.nativeBlocked.has(id) ? 'native_recovery' as const : null; }
   requestStop() {
     this.closed = true; this.ready = false;
+    this.mirrorWakeups?.stop();
     this.worker.requestStop();
   }
   stop(): Promise<void> {

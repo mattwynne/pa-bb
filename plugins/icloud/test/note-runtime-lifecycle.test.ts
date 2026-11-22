@@ -13,9 +13,11 @@ import { ICloudSync } from '../core/service.ts';
 import { RcloneCloudProvider } from '../adapters/rclone-cloud-provider.ts';
 import { MemoryState } from './fakes.ts';
 import { diagnosticMessage } from '../adapters/diagnostic-log.ts';
+import { MirrorWakeups, obsidianStageExclude } from '../adapters/mirror-wakeups.ts';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
-async function fixture(native = false, initialized = true) {
+async function fixture(native = false, initialized = true, wakeups?: MirrorWakeups) {
   const root = await mkdtemp('/tmp/icloud-lifecycle-');
   const db = new Database(':memory:');
   const state = emptyState(); state.connected = true;
@@ -32,10 +34,105 @@ async function fixture(native = false, initialized = true) {
     worker.call = async () => ({ type: 'alias', remote: 'generated' });
     worker.withFiles = async action => action(new AbortController().signal);
   }
-  const runtime = new NoteRuntime(root, db, worker, new NoteStore(join(root, 'legacy')), () => state);
+  const newRuntime = () => new NoteRuntime(root, db, worker, new NoteStore(join(root, 'legacy')), () => state, undefined, undefined, wakeups);
+  const runtime = newRuntime();
   await runtime.start();
-  return { root, state, runtime, worker, async close() { await runtime.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
+  return { root, state, runtime, worker, newRuntime, async close() { await runtime.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
 }
+
+test('filesystem handoff waits for acknowledged legacy bytes and conflict recovery, and persists the write fence', async () => {
+  const f = await fixture();
+  try {
+    f.runtime.configure(1, ['one']);
+    const directory = join(f.root, 'mirrors/one');
+    await f.runtime.call('rc/noop', {});
+    f.runtime.wake = () => {};
+    const path = 'Note.md';
+    await writeFile(join(directory, path), 'A');
+    const operationId = () => {
+      const time = Date.now().toString(16).padStart(12, '0');
+      return `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
+    };
+    const input = { mirrorId: 'one', path, operationId: operationId(), kind: 'replace' as const, expectedHash: createHash('sha256').update('A').digest('hex'), text: 'B' };
+    await assert.rejects(f.runtime.mirrorDirectory('one', 0), /invalid_selection/);
+    await assert.rejects(f.runtime.mirrorDirectory('other', 1), /invalid_selection/);
+    const receipt = await f.runtime.commit(1, input);
+    assert.equal(f.runtime.filesystemStatus('one', true), 'legacy_pending');
+    await assert.rejects(f.runtime.mirrorDirectory('one', 1), /conflict/);
+    assert.equal((await f.runtime.read('one', 1, path) as { text: string }).text, 'B');
+
+    f.worker.run = async () => { await writeFile(join(directory, path), 'C'); return ''; };
+    const args = ['bisync', 'generated:', directory];
+    await f.runtime.run(args);
+    assert.equal(f.runtime.filesystemStatus('one', true), 'legacy_conflict');
+    await assert.rejects(f.runtime.mirrorDirectory('one', 1), /conflict/);
+    const conflict = await f.runtime.overlay.inspect('one', path, directory);
+    assert.ok(conflict);
+    assert.equal((await f.runtime.read('one', 1, path, conflict.token) as { text: string }).text, 'C');
+    await f.runtime.resolve('one', 1, path, { operationId: operationId(), token: conflict.token, expectedLogicalHash: conflict.logicalHash, expectedIncomingHash: conflict.incomingHash, choice: 'keep_local' });
+    f.worker.run = async () => '';
+    await f.runtime.run(args);
+
+    f.state.connected = false;
+    f.state.mirrors[0].enabled = false;
+    f.state.mirrors[0].phase = 'paused';
+    assert.deepEqual(await f.runtime.mirrorDirectory('one', 1), { directory });
+    assert.equal((await f.runtime.receipts('one', 1, { mirrorId: 'one', operationId: input.operationId, limit: 1 }))[0].hash, receipt.hash);
+    await assert.rejects(f.runtime.commit(1, { ...input, operationId: operationId() }), /unsupported/);
+    await f.runtime.stop();
+    const restarted = f.newRuntime();
+    try {
+      await restarted.start();
+      assert.deepEqual(await restarted.mirrorDirectory('one', 1), { directory });
+      await assert.rejects(restarted.commit(1, { ...input, operationId: operationId() }), /unsupported/);
+      assert.equal((await restarted.read('one', 1, path) as { text: string }).text, 'B');
+      await rename(directory, directory + '-replaced');
+      await mkdir(directory);
+      await assert.rejects(restarted.mirrorDirectory('one', 1), /source_changed/);
+    } finally { await restarted.stop(); }
+  } finally { await f.close(); }
+});
+
+test('direct mirror batches nested writes, filters staging and ignores native changes even during directory lookup', { timeout: 6000 }, async () => {
+  let f: Awaited<ReturnType<typeof fixture>>;
+  let wakeCount = 0;
+  const synced = deferred();
+  const diagnosis: string[] = [];
+  const wakeups = new MirrorWakeups(async ids => {
+    assert.deepEqual([...ids], ['one']);
+    wakeCount++;
+    await f.runtime.run(['bisync', 'generated:', join(f.root, 'mirrors/one')]);
+    synced.resolve();
+    return true;
+  }, (stage, failure) => diagnosis.push(`${stage} ${failure}`));
+  f = await fixture(false, true, wakeups);
+  try {
+    f.runtime.configure(1, ['one']);
+    const directory = join(f.root, 'mirrors/one');
+    const nested = join(directory, 'Nested');
+    await mkdir(nested);
+    let nativeCalls = 0;
+    f.worker.run = async args => {
+      nativeCalls++;
+      assert.deepEqual(args.slice(-2), ['--exclude', obsidianStageExclude]);
+      assert.deepEqual(await f.runtime.mirrorDirectory('one', 1), { directory });
+      await writeFile(join(nested, 'Cloud.md'), 'inbound');
+      return '';
+    };
+    await f.runtime.mirrorDirectory('one', 1);
+    const staging = join(nested, '.obsidian-bb-12345678-1234-7123-8123-123456789abc.tmp');
+    await writeFile(staging, 'temporary');
+    await delay(550);
+    assert.equal(wakeCount, 0);
+    await rename(staging, join(nested, 'Local.md'));
+    await writeFile(join(nested, 'More.md'), 'local');
+    await synced.promise;
+    await delay(550);
+    assert.equal(nativeCalls, 1);
+    assert.equal(wakeCount, 1);
+    assert.deepEqual(diagnosis, []);
+  } finally { await f.close(); }
+});
 
 test('move uses native exclusion, refuses outstanding overlays, and blocks sync after uncertainty', async () => {
   const f = await fixture();

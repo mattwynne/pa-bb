@@ -746,6 +746,12 @@ export class NoteOverlay {
   hasUnresolvedJournals(id: string) {
     return !!this.db.prepare('SELECT 1 FROM icloud_note_overlay_heads WHERE mirror_id = ? AND journal IS NOT NULL LIMIT 1').get(id);
   }
+  filesystemGate(id: string) {
+    if (this.db.prepare('SELECT 1 FROM icloud_note_overlay_heads WHERE mirror_id = ? AND (conflict IS NOT NULL OR journal IS NOT NULL) LIMIT 1').get(id) ||
+        this.db.prepare('SELECT 1 FROM icloud_note_overlay_legacy WHERE mirror_id = ? AND uncertain = 1 LIMIT 1').get(id)) return 'legacy_conflict' as const;
+    if (this.db.prepare('SELECT 1 FROM icloud_note_overlay_heads WHERE mirror_id = ? LIMIT 1').get(id)) return 'legacy_pending' as const;
+    return 'ready' as const;
+  }
   pendingAgeMs(id?: string) {
     const row = this.db.prepare('SELECT MIN(queued_at) AS oldest FROM icloud_note_overlay_heads WHERE (? IS NULL OR mirror_id = ?)').get(id ?? null, id ?? null) as { oldest: number | null };
     return row.oldest === null ? null : Math.max(0, this.clock() - row.oldest);

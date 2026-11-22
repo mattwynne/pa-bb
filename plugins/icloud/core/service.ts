@@ -5,6 +5,10 @@ import { progressSnapshot } from './progress.ts';
 import { SyncDiagnostics } from './diagnostics.ts';
 import type { RunHistoryRepository, HistoryInput } from './diagnostics.ts';
 
+class RunStartError extends CloudError {
+  constructor() { super('unavailable'); }
+}
+
 export class ICloudSync {
   private state: State = emptyState();
   private connectionCheck: 'unknown' | 'verified' | 'unavailable' = 'unknown';
@@ -65,8 +69,19 @@ export class ICloudSync {
   activity() { return { busy: this.stopped || this.busy || this.controlsPending > 0, admissionPaused: this.state.mirrors.every(m => !m.enabled || m.phase === 'retained') }; }
   diagnostics(query: HistoryInput = {}) { return this.history.snapshot(query); }
   private save() {
-    const snapshot = structuredClone(this.state);
-    const task = this.saving.catch(() => {}).then(() => this.repository.save(snapshot));
+    const task = this.saving.catch(() => {}).then(() => this.repository.save(structuredClone(this.state)));
+    this.saving = task; return task;
+  }
+  private saveRunStart(mirror: Mirror) {
+    // Publish running only after its durable checkpoint. Other queued state
+    // writes take their snapshots after this step, so a failed preflight cannot
+    // leak a phantom running phase into a Pause or attention save.
+    const task = this.saving.catch(() => {}).then(async () => {
+      const snapshot = structuredClone(this.state);
+      snapshot.mirrors.find(item => item.id === mirror.id)!.phase = 'running';
+      await this.repository.save(snapshot);
+      if (mirror.blocker !== 'reconnect') mirror.phase = 'running';
+    });
     this.saving = task; return task;
   }
   private attention() {
@@ -205,7 +220,11 @@ export class ICloudSync {
       if (!this.state.connected) throw new CloudError('authentication');
       const mirror = this.folder(id);
       if (mirror.phase === 'retained' || (mirror.blocker !== null && mirror.blocker !== 'reconnect')) throw new CloudError('recovery_required');
-      if (!mirror.initialized) { mirror.enabled = true; await this.run(mirror, true); }
+      if (!mirror.initialized) {
+        mirror.enabled = true;
+        mirror.phase = 'ready';
+        await this.run(mirror, true);
+      }
       else {
         mirror.enabled = true; mirror.blocker = null; await this.save();
         if (mirror.failure !== null) await this.run(mirror, false);
@@ -286,21 +305,31 @@ export class ICloudSync {
       if (!this.state.connected) throw new CloudError('authentication');
       const previous = this.folder(id);
       if (previous.phase !== 'failed' || this.state.mirrors.length >= 20) throw new CloudError('recovery_required');
-      const next: Mirror = { ...structuredClone(previous), id: this.id(), initialized: false, enabled: false, phase: 'paused', failure: null, blocker: null, lastSuccess: null };
+      const next: Mirror = { ...structuredClone(previous), id: this.id(), initialized: false, enabled: true, phase: 'ready', failure: null, blocker: null, lastSuccess: null };
       previous.phase = 'retained'; previous.enabled = false;
-      next.enabled = true;
       this.state.mirrors.push(next); await this.save();
       await this.run(next, true);
       return this.status();
     }, true);
   }
-  async tick() {
-    if (this.busy || this.controlsPending || this.stopped || !this.state.connected) return;
+  async tick(targets?: ReadonlySet<string>, allowed = () => true) {
+    if (this.stopped || !this.state.connected || !allowed()) return true;
+    // A change hint can wait for a turn already in flight. The minute poll
+    // always returns immediately when another operation owns the service.
+    if (targets && (this.busy || this.controlsPending)) await Promise.allSettled([this.current, this.controls]);
+    if (this.stopped || !this.state.connected || !allowed()) return true;
+    if (this.busy || this.controlsPending) return false;
     return this.exclusive(async () => {
       for (const mirror of this.state.mirrors) {
-        if (!this.state.connected || this.stopped) break;
-        if (mirror.enabled && mirror.blocker === null && (mirror.phase === 'ready' || mirror.phase === 'failed')) await this.run(mirror, !mirror.initialized);
+        if (!this.state.connected || this.stopped || !allowed()) break;
+        if (targets && !targets.has(mirror.id)) continue;
+        if (targets && (!mirror.initialized || mirror.phase !== 'ready')) continue;
+        if (mirror.enabled && mirror.blocker === null && (mirror.phase === 'ready' || mirror.phase === 'failed')) {
+          try { await this.run(mirror, !mirror.initialized); }
+          catch (error) { if (!(error instanceof RunStartError)) throw error; }
+        }
       }
+      return true;
     }, true);
   }
   private blockerFor(failure: Failure | null, initial: boolean): Blocker | null {
@@ -312,24 +341,33 @@ export class ICloudSync {
     if (failure === 'recovery_required' || failure === 'unknown') return 'rebuild';
     return null;
   }
+  private assertRunConnection(mirror: Mirror) {
+    if (mirror.blocker === 'reconnect') throw new CloudError(mirror.failure ?? 'authentication');
+  }
   private async run(mirror: Mirror, initial: boolean, interrupted = false) {
-    mirror.phase = 'running'; this.progress.set(mirror.id, activity('checking'));
+    try { await this.saveRunStart(mirror); }
+    catch (error) {
+      this.diagnose(`${initial ? 'prepare' : 'sync'}/persist_start`, category(error));
+      throw new RunStartError();
+    }
     await this.history.begin(initial ? 'initial' : 'sync'); this.history.update(activity('checking'));
+    this.progress.set(mirror.id, activity('checking'));
     let reporting = true; let completed = false; let failure: Failure | null = null; let proof: FailureEvidence | null = null;
     const report: ProgressReporter = value => {
       if (!reporting || mirror.phase !== 'running') return;
       const safe = progressSnapshot(value); if (safe) { this.progress.set(mirror.id, safe); this.history.update(safe); }
     };
     try {
-      await this.save();
       try {
+        if (this.stopped) throw new CloudError('interrupted');
+        this.assertRunConnection(mirror);
         if (interrupted) await this.provider.continueInterrupted!(structuredClone(mirror), report);
         else if (initial) await this.provider.prepareMirror(structuredClone(mirror), report);
         else await this.provider.synchronize(structuredClone(mirror), report);
         if (this.stopped) throw new CloudError('interrupted');
         // A concurrent directory read may have proved account authorization
         // invalid. A finishing child cannot silently clear that stronger stop.
-        if (mirror.blocker === 'reconnect') throw new CloudError(mirror.failure ?? 'authentication');
+        this.assertRunConnection(mirror);
         // Recorded after the provider operation returns, not proof of delivery to another device.
         mirror.initialized = true; mirror.lastSuccess = this.clock(); mirror.failure = null; mirror.blocker = null; mirror.phase = mirror.enabled ? 'ready' : 'paused';
       } catch (error) {

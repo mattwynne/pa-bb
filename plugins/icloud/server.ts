@@ -1,4 +1,5 @@
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
+import { experimental_PluginRpcRefusal } from '@get-bb/plugin-sdk';
 import { dirname, join, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -16,6 +17,7 @@ import { RcloneCloudProvider } from './adapters/rclone-cloud-provider.ts';
 import { vaultRoots } from './adapters/vault-roots.ts';
 import { NoteStore, NoteError } from './adapters/note-store.ts';
 import { NoteRuntime } from './adapters/note-runtime.ts';
+import { MirrorWakeups } from './adapters/mirror-wakeups.ts';
 import type Database from 'better-sqlite3';
 
 export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudProvider; repository?: StateRepository; history?: RunHistoryRepository; notes?: NoteStore; worker?: RcloneProcess; runtime?: NoteRuntime }) {
@@ -34,11 +36,12 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     if (process.root !== root) throw new CloudError('unavailable');
     notes = new NoteStore(join(root, 'note-operations'));
     // Runtime state is read only after sync.start; construction is side-effect free.
-    runtime = dependencies?.runtime ?? new NoteRuntime(root, database as Database.Database, process, notes, () => sync.status(), undefined, diagnose);
+    const wakeups = new MirrorWakeups(ids => sync.tick(ids, () => !updatePause.held), diagnose);
+    runtime = dependencies?.runtime ?? new NoteRuntime(root, database as Database.Database, process, notes, () => sync.status(), undefined, diagnose, wakeups);
     if (runtime.root !== root || runtime.worker !== process) throw new CloudError('unavailable');
     provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body), (args, capture, report) => runtime!.run(args, capture, report), () => process.checkAvailability(), () => runtime!.stop(), undefined, undefined, mirror => runtime!.registerMirror(mirror), operation => runtime!.idleFiles(operation), () => runtime!.requestStop(), (args, capture, report) => runtime!.continueInterrupted(args, capture, report), (mirror, args, capture, report) => runtime!.completeInitialRegistration(mirror, args, capture, report));
   }
-  const sync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose, dependencies?.history ?? bbRunHistory(bb));
+  const sync: ICloudSync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose, dependencies?.history ?? bbRunHistory(bb));
   const updatePause = new UpdatePause(sync, { get: () => bb.storage.kv.get('pa-update-pause-v1'), set: value => bb.storage.kv.set('pa-update-pause-v1', value) });
   let bootStage = 'note_owner';
   try {
@@ -62,13 +65,16 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
   const local = async (id: string) => ({ ...(runtime ? await runtime.availability(id) : { available: false, reason: 'ownership' as const }), pendingAgeMs: runtime?.pendingAgeMs(id) ?? null, applicationBlocker: runtime?.applicationBlocker(id) ?? null });
   const status = async () => {
     const snapshot = sync.status();
-    const mirrors = await Promise.all(snapshot.mirrors.map(async mirror => ({ ...mirror, local: await local(mirror.id) })));
+    const mirrors = await Promise.all(snapshot.mirrors.map(async mirror => {
+      const access = await local(mirror.id);
+      return { ...mirror, local: access, filesystem: runtime?.filesystemStatus(mirror.id, access.available) ?? 'unavailable' as const };
+    }));
     const search = runtime ? await runtime.search.capability() : { version: 1 as const, available: false, reason: 'unavailable' as const };
     const serviceActivity = sync.activity();
     const noteActivity = runtime?.activity();
     const active = serviceActivity.busy || (noteActivity?.busy ?? true);
     const maintenance = { admissionPaused: serviceActivity.admissionPaused, active, ready: serviceActivity.admissionPaused && !active };
-    return { ...snapshot, maintenance, updatePause: updatePause.status(), mirrors, noteAccessVersion: runtime ? 2 as const : null, search, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
+    return { ...snapshot, maintenance, updatePause: updatePause.status(), mirrors, noteAccessVersion: runtime ? 2 as const : null, mirrorAccessVersion: runtime ? 3 as const : null, search, available, prerequisite: available ? null : 'The Linux host needs stock rclone v1.75.2, util-linux flock, mounted procfs, persistent writable storage and private Unix sockets. Ask the host operator to check setup.' };
   };
   const inventory = async () => Promise.all(sync.inventory().map(async item => ({ ...item, local: await local(item.id) })));
   const clientOnly = (context: { experimental_caller: { kind: string } }) => {
@@ -99,6 +105,19 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     }
   };
   bb.rpc.register(rpcContract, {
+    async mirrorDirectory({ mirrorId, revision }, context) {
+      if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'obsidian')
+        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the host-verified Obsidian plugin can use mirror access.' });
+      try {
+        if (!runtime) throw new CloudError('unavailable');
+        return await runtime.mirrorDirectory(mirrorId, revision);
+      } catch (error) {
+        const failure = error instanceof NoteError ? error.category : category(error);
+        diagnose('mirror_directory', failure);
+        if (failure === 'invalid_selection') throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Check the current connected vault selection.' });
+        throw new experimental_PluginRpcRefusal({ code: 'conflict', message: 'The mirror directory is unavailable. Check iCloud local access and legacy recovery status.' });
+      }
+    },
     noteConfigure(input, context) { obsidianOnly(context); return noteAction('note_configure', async () => { if (!runtime) throw new NoteError('unavailable'); return runtime.configure(input.revision, input.mirrorIds); }); },
     noteSearch(input, context) { obsidianOnly(context); return noteAction('note_search', () => runtime!.searchNotes(input)); },
     noteSearchClose(input, context) { obsidianOnly(context); return noteAction('note_search', () => runtime!.closeSearch(input.revision, input.cursor)); },
@@ -163,7 +182,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     }
   }, { auth: 'local' });
   bb.background.schedule('selected-folder-sync', '* * * * *', async () => {
-    try { if (!updatePause.held) await sync.tick(); } catch (error) { diagnose('schedule', category(error), { evidence: evidence(error) }); }
+    try { await sync.tick(undefined, () => !updatePause.held); } catch (error) { diagnose('schedule', category(error), { evidence: evidence(error) }); }
   });
   bb.onDispose(async () => {
     const paused = updatePause.stop();

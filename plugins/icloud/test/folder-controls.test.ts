@@ -81,3 +81,65 @@ test('shutdown drains a folder listing and rejects new controls', async () => {
     listed.resolve(); await browsing; await stopping;
   } finally { listed.resolve(); f.release.resolve(); await f.running; await f.sync.stop(); }
 });
+
+test('failed run checkpoint leaves a live mirror eligible for the next poll without starting native work', async () => {
+  const provider = new FakeCloudProvider();
+  const repository = new MemoryState();
+  repository.value.connected = true;
+  repository.value.mirrors.push({ id: 'one', folder: { id: 'generated', name: 'Generated', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', failure: null, blocker: null, lastSuccess: null });
+  const entered = deferred();
+  const release = deferred();
+  const save = repository.save.bind(repository);
+  let fail = true;
+  repository.save = async state => {
+    if (fail && state.mirrors[0].phase === 'running') {
+      entered.resolve();
+      await release.promise;
+      throw new Error('PRIVATE_SENTINEL');
+    }
+    await save(state);
+  };
+  const logs: string[] = [];
+  const sync = new ICloudSync(provider, repository, () => new Date().toISOString(), () => 'unused', (stage, failure) => logs.push(`${stage} ${failure}`));
+  await sync.start();
+  try {
+    const tick = sync.tick();
+    await entered.promise;
+    const paused = sync.pause('one');
+    release.resolve();
+    await Promise.all([tick, paused]);
+    assert.equal(provider.synced, 0);
+    assert.equal(sync.status().mirrors[0].progress, null);
+    assert.equal(repository.value.mirrors[0].phase, 'paused');
+    assert.equal((await sync.diagnostics()).active, null);
+    assert.deepEqual(logs, ['sync/persist_start unknown']);
+    fail = false;
+    await sync.enable('one');
+    await sync.tick();
+    assert.equal(provider.synced, 1);
+    assert.equal(repository.value.mirrors[0].phase, 'ready');
+  } finally { release.resolve(); await sync.stop(); }
+});
+
+test('a failed initial run checkpoint can be retried by the ordinary schedule after the storage error clears', async () => {
+  const provider = new FakeCloudProvider();
+  const repository = new MemoryState();
+  repository.value.connected = true;
+  repository.value.mirrors.push({ id: 'one', folder: { id: 'generated', name: 'Generated', ancestors: [] }, initialized: false, enabled: false, phase: 'paused', failure: null, blocker: null, lastSuccess: null });
+  const save = repository.save.bind(repository);
+  repository.save = async state => {
+    if (state.mirrors[0].phase === 'running') throw new Error('PRIVATE_SENTINEL');
+    await save(state);
+  };
+  const sync = new ICloudSync(provider, repository, () => new Date().toISOString(), () => 'unused', () => {});
+  await sync.start();
+  try {
+    await assert.rejects(sync.enable('one'), /unavailable/);
+    assert.equal(provider.prepared, 0);
+    assert.equal(sync.status().mirrors[0].phase, 'ready');
+    repository.save = save;
+    await sync.tick();
+    assert.equal(provider.prepared, 1);
+    assert.equal(repository.value.mirrors[0].initialized, true);
+  } finally { await sync.stop(); }
+});
