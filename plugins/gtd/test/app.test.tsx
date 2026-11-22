@@ -45,11 +45,98 @@ test('fast completion reuses its request during the double-click window', async 
   const calls = slot.inspection.rpcCalls.filter(c => c.method === 'newThread'); expect(calls[0].input).toEqual(calls[1].input);
   slot.lifecycle.unmount();
 });
-test('thread menu can unlink during source failure without changing any environment', async () => {
+function associationAction({
+  inventoryLoading = false, inventoryError = '', linksLoading = false, linksError = false, threadRequested = true, stored,
+}: { inventoryLoading?: boolean; inventoryError?: string; linksLoading?: boolean; linksError?: boolean; threadRequested?: boolean; stored?: unknown } = {}) {
   const call = vi.fn(async () => null);
-  const action = app.threadActions[0].item({ thread: { id: 't1' }, data: { inventory: { loading: false, error: 'source unavailable', source: '', projects: [] }, links: { t1: ref }, error: false, loading: false, rpc: { call } } } as any);
-  expect(action).toBeTruthy(); await action!.run({ value: 'unlink' } as any);
-  expect(call).toHaveBeenCalledWith('associate', { threadId: 't1', project: null });
+  const action = app.threadActions[0].item({
+    thread: { id: 't1' },
+    data: {
+      inventory: { loading: inventoryLoading, error: inventoryError, source: ref.source, projects: [project] },
+      links: { t1: stored }, error: linksError, loading: linksLoading, threadIds: new Set(threadRequested ? ['t1'] : []), rpc: { call },
+    },
+  } as any)!;
+  return { action, call, run: (value?: string) => action.run({ value, requestRename: vi.fn() }) };
+}
+test.each([
+  { linksLoading: true, message: 'Loading thread association…' },
+  { threadRequested: false, message: 'Loading thread association…' },
+  { linksError: true, message: 'Thread association could not load' },
+  { stored: { id: ref.id }, message: 'Thread association could not load' },
+])('thread menu shows unknown metadata as $message and rejects every choice', async ({ message, ...state }) => {
+  const { action, call, run } = associationAction(state);
+  expect(action.choices?.hint).toContain(message);
+  for (const choice of action.choices!.items) {
+    expect(choice).toMatchObject({ disabled: true, selected: false });
+    await expect(run(choice.id)).rejects.toThrow('choice is unavailable');
+  }
+  expect(call).not.toHaveBeenCalled();
+});
+test.each([
+  { inventoryLoading: true, message: 'Loading GTD projects…' },
+  { inventoryError: 'GTD could not load', message: 'GTD could not load' },
+])('thread menu can unlink a known association while inventory shows $message', async ({ message, ...state }) => {
+  const { action, call, run } = associationAction({ ...state, stored: ref });
+  expect(action.choices?.hint).toContain(message);
+  expect(action.choices?.items).toMatchObject([{ id: 'unlink', selected: false, disabled: false }]);
+  await expect(run(`project:${project.id}`)).rejects.toThrow('choice is unavailable');
+  await run('unlink');
+  expect(call).toHaveBeenCalledExactlyOnceWith('associate', { threadId: 't1', project: null });
+});
+test('thread association choices reflect the exact source and only accept listed projects', async () => {
+  const unlinked = associationAction();
+  const [unlink, selectProject] = unlinked.action.choices!.items;
+  expect(unlink).toMatchObject({ selected: true, disabled: true });
+  expect(selectProject).toMatchObject({ selected: false, disabled: false });
+  await expect(unlinked.run()).rejects.toThrow('choice is unavailable');
+  await expect(unlinked.run('project:missing')).rejects.toThrow('choice is unavailable');
+  await unlinked.run(selectProject.id);
+  expect(unlinked.call).toHaveBeenCalledExactlyOnceWith('associate', { threadId: 't1', project: ref });
+  expect(associationAction({ stored: ref }).action.choices?.items[1].selected).toBe(true);
+  const missing = associationAction({ stored: { ...ref, source: 'other' } }).action;
+  expect(missing.choices?.hint).toBe('The linked GTD project is unavailable.');
+  expect(missing.choices?.items.every(choice => !choice.selected)).toBe(true);
+});
+test('project and Area menus dismiss outside without stealing focus and consume Escape only while open', async () => {
+  const slot = setup();
+  await slot.findByRole('button', { name: 'Learn woodworking' });
+  const outside = slot.getByRole('button', { name: 'Refresh GTD' });
+  const escape = vi.fn();
+  document.addEventListener('keydown', escape);
+  try {
+    for (const label of ['Actions for project Learn woodworking', 'Actions for area Learning']) {
+      const trigger = slot.getByLabelText(label);
+      const details = trigger.closest('details')!;
+      const rename = details.querySelector('button')!;
+      trigger.focus();
+      fireEvent.click(trigger);
+      rename.focus();
+      expect(details.open).toBe(true);
+      fireEvent.keyDown(rename, { key: 'Escape' });
+      expect(details.open).toBe(false);
+      expect(document.activeElement).toBe(trigger);
+      expect(escape).not.toHaveBeenCalled();
+      fireEvent.keyDown(trigger, { key: 'Escape' });
+      expect(escape).toHaveBeenCalledTimes(1);
+      escape.mockClear();
+
+      fireEvent.click(trigger);
+      outside.focus();
+      expect(details.open).toBe(false);
+      expect(document.activeElement).toBe(outside);
+
+      trigger.focus();
+      fireEvent.click(trigger);
+      fireEvent(details, new Event('toggle'));
+      fireEvent.pointerDown(rename);
+      expect(details.open).toBe(true);
+      fireEvent.pointerDown(outside);
+      expect(details.open).toBe(false);
+    }
+  } finally {
+    document.removeEventListener('keydown', escape);
+  }
+  slot.lifecycle.unmount();
 });
 test('Active shows only matching Areas; nested IDs roll up without any writes; All discovers empty Areas', async () => {
   const slot = setup('nested');
