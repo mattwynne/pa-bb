@@ -73,17 +73,19 @@ function useInventory(includeAreas: boolean, enabled = true) {
   return { ...(loading ? emptyInventory : state), loading };
 }
 
+const projectDragType = 'application/x-bb-gtd-project';
 let linkRevision = 0;
 function linksChanged() {
   ++linkRevision;
   window.dispatchEvent(new Event('gtd:changed'));
 }
-const pendingLinks = new Map<string, Pending<Record<string, unknown>>>();
+type ThreadLinks = { project?: unknown; area?: unknown };
+const pendingLinks = new Map<string, Pending<Record<string, ThreadLinks>>>();
 function useLinks(ids: Iterable<string>) {
   const sdk = useSdk();
   const client = useRef(sdk);
   client.current = sdk;
-  const [state, set] = useState<{ links: Record<string, unknown>; error: boolean; signature: string; revision: number }>({ links: {}, error: false, signature: '', revision: -1 });
+  const [state, set] = useState<{ links: Record<string, ThreadLinks>; error: boolean; signature: string; revision: number }>({ links: {}, error: false, signature: '', revision: -1 });
   const [revision, revise] = useState(() => linkRevision);
   const signature = JSON.stringify([...new Set(ids)].sort());
   useEffect(() => { const fn = () => revise(linkRevision); window.addEventListener('gtd:changed', fn); return () => window.removeEventListener('gtd:changed', fn); }, []);
@@ -93,10 +95,10 @@ function useLinks(ids: Iterable<string>) {
     const { promise, release } = subscribe(pendingLinks, key, async () => {
       const roster: string[] = JSON.parse(signature);
       const sdk = client.current;
-      const links: Record<string, unknown> = Object.create(null);
+      const links: Record<string, ThreadLinks> = Object.create(null);
       for (let i = 0; i < roster.length; i += 200) {
         const batch = await sdk.threads.experimental_listPluginMetadata({ threadIds: roster.slice(i, i + 200) });
-        for (const value of batch.threads) links[value.threadId] = value.metadata.project;
+        for (const value of batch.threads) links[value.threadId] = { project: value.metadata.project, area: value.metadata.area };
       }
       return links;
     });
@@ -111,7 +113,10 @@ function useLinks(ids: Iterable<string>) {
 }
 type RenameTarget = { kind: 'area' | 'project'; source: string; id: string; title: string };
 const renameKey = ({ kind, source, id }: RenameTarget) => JSON.stringify([kind, source, id]);
-function RenameMenu({ target, disabled, onRename }: { target: RenameTarget; disabled: boolean; onRename: (target: RenameTarget, trigger: HTMLElement) => void }) {
+function RowActions({ target, disabled, onRename, actions = [] }: {
+  target: RenameTarget; disabled: boolean; onRename: (target: RenameTarget, trigger: HTMLElement) => void;
+  actions?: { label: string; run: (trigger: HTMLElement) => void }[];
+}) {
   const menu = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
@@ -141,11 +146,14 @@ function RenameMenu({ target, disabled, onRename }: { target: RenameTarget; disa
       closeAndFocus(event.currentTarget);
     }}>
     <summary className="gtd-row-action" ref={trigger} data-gtd-rename={renameKey(target)} aria-label={`Actions for ${target.kind} ${target.title}`}><Icon name="MoreHorizontal" aria-hidden="true" /></summary>
-    <button disabled={disabled} onClick={() => {
-      if (!menu.current || !trigger.current) return;
-      closeAndFocus(menu.current);
-      onRename(target, trigger.current);
-    }}>Rename</button>
+    <div className="gtd-menu-items">
+      {[{ label: 'Rename', run: (trigger: HTMLElement) => onRename(target, trigger) }, ...actions].map(action =>
+        <button key={action.label} disabled={disabled} onClick={() => {
+          if (!menu.current || !trigger.current) return;
+          closeAndFocus(menu.current);
+          action.run(trigger.current);
+        }}>{action.label}</button>)}
+    </div>
   </details>;
 }
 function RenameTitle({ target, onClose }: { target: RenameTarget; onClose: (title?: string) => void }) {
@@ -185,9 +193,46 @@ function RenameTitle({ target, onClose }: { target: RenameTarget; onClose: (titl
     </form>
   </dialog>;
 }
-function Group({ title, children, actions, initialOpen = true, kind = 'section' }: { title: string; children: React.ReactNode; actions?: React.ReactNode; initialOpen?: boolean; kind?: 'section' | 'project' }) {
+function ProjectActionDialog({ action, project, areas, onClose }: {
+  action: 'done' | 'area'; project: Project; areas: Area[]; onClose: (areaPath?: string) => void;
+}) {
+  const headingId = useId();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [area, selectArea] = useState('');
+  useLayoutEffect(() => { dialog.current?.showModal(); }, []);
+  const close = (value?: string) => { dialog.current?.close(); onClose(value); };
+  const title = action === 'area' ? 'Move to Area' : project.status === 'done' ? 'Archive linked threads' : 'Mark as done';
+  return <dialog ref={dialog} className="gtd-title-editor" aria-labelledby={headingId}
+    onCancel={event => { event.preventDefault(); close(); }}
+    onKeyDown={event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    }}>
+    <form onSubmit={event => { event.preventDefault(); close(action === 'area' ? area : ''); }}>
+      <h2 id={headingId}>{title}</h2>
+      {action === 'area' ? <label>Area
+        <select value={area} onChange={event => selectArea(event.target.value)}>
+          <option value="">Choose an Area</option>
+          {areas.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+        </select>
+      </label> : <p>{project.status === 'done'
+        ? `Archive all BB threads linked to “${project.title}”.`
+        : `Move “${project.title}” to Done and archive all its linked BB threads.`}</p>}
+      <div className="gtd-title-actions">
+        <button type="button" onClick={() => close()} autoFocus>Cancel</button>
+        <button type="submit" disabled={action === 'area' && !area}>{action === 'area' ? 'Move' : title}</button>
+      </div>
+    </form>
+  </dialog>;
+}
+function Group({ title, children, actions, initialOpen = true, kind = 'section', headingProps }: {
+  title: string; children: React.ReactNode; actions?: React.ReactNode; initialOpen?: boolean;
+  kind?: 'section' | 'project'; headingProps?: React.HTMLAttributes<HTMLDivElement>;
+}) {
   const [open, setOpen] = useState(initialOpen);
-  return <div className="gtd-group"><div className="gtd-group-heading"><button className={`gtd-collapse gtd-label gtd-label--${kind}`} aria-expanded={open} onClick={() => setOpen(!open)}><Icon name={open ? 'ChevronDown' : 'ChevronRight'} aria-hidden="true" /> {title}</button>{actions}</div>{open && <div className="gtd-indent">{children}</div>}</div>;
+  return <div className="gtd-group"><div {...headingProps} className={`gtd-group-heading ${headingProps?.className ?? ''}`}><button className={`gtd-collapse gtd-label gtd-label--${kind}`} aria-expanded={open} onClick={() => setOpen(!open)}><Icon name={open ? 'ChevronDown' : 'ChevronRight'} aria-hidden="true" /> {title}</button>{actions}</div>{open && <div className="gtd-indent">{children}</div>}</div>;
 }
 function ThreadRow({ thread }: { thread: PluginSidebarThread }) {
   const navigate = useBbNavigate(); const split = useSplit(thread.id);
@@ -204,6 +249,9 @@ function GtdPanel() {
   const { links, error: linkError, loading: linksLoading } = useLinks(threads.map(t => t.id));
   const [status, setStatus] = useState('active');
   const [busy, setBusy] = useState(''); const busyRef = useRef(false); const [notice, setNotice] = useState('');
+  const [dragged, setDragged] = useState<Project>();
+  const [dropArea, setDropArea] = useState('');
+  const [projectAction, setProjectAction] = useState<{ kind: 'done' | 'area'; project: Project; trigger: HTMLElement }>();
   const [editor, setEditor] = useState<{ target: RenameTarget; trigger: HTMLElement }>();
   const nav = useRef<HTMLElement>(null);
   const refreshButton = useRef<HTMLButtonElement>(null);
@@ -241,14 +289,14 @@ function GtdPanel() {
     });
   };
   const openEditor = (target: RenameTarget, trigger: HTMLElement) => setEditor({ target, trigger });
-  const newThread = (project: Project) => void run(project.id, async () => {
-    const k = 'gtd-new:' + key(inventory.source, project.id);
+  const newThread = (item: Area | Project, kind: 'area' | 'project') => void run(item.id, async () => {
+    const k = (kind === 'area' ? 'gtd-new-area:' : 'gtd-new:') + key(inventory.source, item.id);
     let requestId = requests.current.get(k) ?? sessionStorage.getItem(k);
     const completed = Number(sessionStorage.getItem(k + ':completed') ?? 0);
     // Reuse a fast completion during the double-click window, even across reload.
     if (completed && Date.now() - completed > 1000) { requests.current.delete(k); sessionStorage.removeItem(k); requestId = null; }
     if (!requestId) { requestId = crypto.randomUUID(); requests.current.set(k, requestId); sessionStorage.setItem(k, requestId); sessionStorage.removeItem(k + ':completed'); }
-    const result = await rpc.call('newThread', { source: inventory.source, id: project.id, requestId });
+    const result = await rpc.call(kind === 'area' ? 'newAreaThread' : 'newThread', { source: inventory.source, id: item.id, requestId });
     sessionStorage.setItem(k + ':completed', String(Date.now()));
     navigate.toThread(result.threadId); linksChanged();
   });
@@ -263,22 +311,54 @@ function GtdPanel() {
     if (group) group.push(project);
     else byArea.set(area.id, [project]);
   }
-  const shownAreas = inventory.areas.filter(area => status === 'all' || byArea.has(area.id));
+  const eligibleAreas = inventory.areas.filter(area => area.id.endsWith('.md') && !/[\[\]#|%]/.test(area.id));
+  const eligibleIds = new Set(eligibleAreas.map(area => area.id));
+  const changeProject = (project: Project, change: { kind: 'done' } | { kind: 'area'; areaPath: string }, trigger?: HTMLElement) => {
+    if (trigger) restoreAfterSave.current = { target: { ...project, kind: 'project', source: inventory.source }, trigger };
+    void run(project.id, async () => {
+      try { setNotice((await rpc.call('changeProject', { source: inventory.source, id: project.id, change })).message); }
+      finally { refreshInventory(true); linksChanged(); }
+    });
+  };
+  const clearDrag = () => { setDragged(undefined); setDropArea(''); };
 
   const byProject = new Map(inventory.projects.map(project => [project.id, [] as PluginSidebarThread[]]));
-  const unassigned: PluginSidebarThread[] = [], missing: PluginSidebarThread[] = [];
+  const byAreaThread = new Map(inventory.areas.map(area => [area.id, [] as PluginSidebarThread[]]));
+  const unassigned: PluginSidebarThread[] = [], missing: PluginSidebarThread[] = [], missingAreas: PluginSidebarThread[] = [];
   for (const thread of threads) {
-    const link = reference.safeParse(links[thread.id]).data;
-    if (!link) { unassigned.push(thread); continue; }
+    const link = reference.safeParse(links[thread.id]?.project).data;
+    if (!link) {
+      const area = reference.safeParse(links[thread.id]?.area).data;
+      if (!area) { unassigned.push(thread); continue; }
+      const group = area.source === inventory.source ? byAreaThread.get(area.id) : undefined;
+      (group ?? missingAreas).push(thread);
+      continue;
+    }
     const group = link.source === inventory.source ? byProject.get(link.id) : undefined;
     if (group) group.push(thread);
     else missing.push(thread);
   }
+  const shownAreas = inventory.areas.filter(area => dragged || status === 'all' || byArea.has(area.id) || byAreaThread.get(area.id)?.length);
   const projectRow = (p: Project) => {
     const linked = byProject.get(p.id) ?? [];
-    return <Group key={p.id} title={p.title} kind="project" actions={<>
-      <button className="gtd-row-action" aria-label={`New thread for ${p.title}`} title={`Start an AI thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>
-      <RenameMenu target={{ ...p, kind: 'project', source: inventory.source }} disabled={!!busy || p.id.endsWith('/')} onRename={openEditor} />
+    const projectNote = p.id.endsWith('.md');
+    const canDrag = projectNote && eligibleAreas.length > 0 && !busy;
+    return <Group key={p.id} title={p.title} kind="project" headingProps={{
+      draggable: canDrag,
+      className: canDrag ? 'gtd-draggable' : '',
+      onDragStart: event => {
+        if (!canDrag) return;
+        event.dataTransfer.setData(projectDragType, key(inventory.source, p.id));
+        event.dataTransfer.effectAllowed = 'move';
+        setDragged(p);
+      },
+      onDragEnd: clearDrag,
+    }} actions={<>
+      <button className="gtd-row-action" aria-label={`New thread for ${p.title}`} title={`Start an AI thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p, 'project')}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>
+      <RowActions target={{ ...p, kind: 'project', source: inventory.source }} disabled={!!busy || !projectNote} onRename={openEditor} actions={[
+        ...(eligibleAreas.length ? [{ label: 'Move to Area…', run: (trigger: HTMLElement) => setProjectAction({ kind: 'area', project: p, trigger }) }] : []),
+        { label: p.status === 'done' ? 'Archive linked threads' : 'Mark as done', run: trigger => setProjectAction({ kind: 'done', project: p, trigger }) },
+      ]} />
     </>}>
       {linked.length ? linked.map(row) : <p className="gtd-muted">No linked threads</p>}
     </Group>;
@@ -295,15 +375,49 @@ function GtdPanel() {
       {(inventory.error || linkError) && <p role="alert">{inventory.error || 'Thread associations could not load. Refresh before making changes.'}</p>}
       {inventory.partial && <p role="status">Partial inventory. {inventory.directoryGap ? 'Obsidian cannot enumerate directories: empty or attachment-only project/Area folders may be omitted. Inventory totals are unconfirmed.' : 'Some projects or areas may be unavailable.'}</p>}
       {!inventory.error && !inventory.loading && !linksLoading && !linkError && <>
-        {shownAreas.map(area => <Group key={area.id} title={area.title} initialOpen={byArea.has(area.id)} actions={<RenameMenu target={{ ...area, kind: 'area', source: inventory.source }} disabled={!!busy || area.id.endsWith('/')} onRename={openEditor} />} >{byArea.get(area.id)?.map(projectRow)}</Group>)}
+        {shownAreas.map(area => {
+          const droppedProject = !busy && eligibleIds.has(area.id) ? dragged : undefined;
+          return <Group key={area.id} title={area.title} initialOpen={byArea.has(area.id) || !!byAreaThread.get(area.id)?.length} headingProps={{
+            className: dropArea === area.id ? 'gtd-drop-target' : '',
+            onDragOver: event => {
+              if (!droppedProject || !event.dataTransfer.types.includes(projectDragType)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
+              setDropArea(area.id);
+            },
+            onDragLeave: event => {
+              if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget))
+                setDropArea(previous => previous === area.id ? '' : previous);
+            },
+            onDrop: event => {
+              if (!droppedProject || event.dataTransfer.getData(projectDragType) !== key(inventory.source, droppedProject.id)) return;
+              event.preventDefault();
+              clearDrag();
+              if (droppedProject.areaId !== area.id) changeProject(droppedProject, { kind: 'area', areaPath: area.id });
+            },
+          }} actions={<>
+            <button className="gtd-row-action" aria-label={`New thread for Area ${area.title}`} disabled={!!busy} onClick={() => newThread(area, 'area')}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>
+            <RowActions target={{ ...area, kind: 'area', source: inventory.source }} disabled={!!busy || area.id.endsWith('/')} onRename={openEditor} />
+          </>}>
+            {byAreaThread.get(area.id)?.map(row)}
+            {byArea.get(area.id)?.map(projectRow)}
+          </Group>;
+        })}
         {!!unassignedProjects.length && <Group title="Unassigned area">{unassignedProjects.map(projectRow)}</Group>}
         {!visible.length && <p className="gtd-muted">No matching projects</p>}
         {status !== 'all' && shownAreas.length < inventory.areas.length && <button onClick={() => setStatus('all')}>Show all Areas</button>}
         <Group title={`Unassigned threads (${unassigned.length})`} initialOpen={false}>{unassigned.map(row)}</Group>
+        {!!missingAreas.length && <Group title={`Unavailable Area (${missingAreas.length})`}>{missingAreas.map(row)}</Group>}
         {!!missing.length && <Group title={`Unavailable project (${missing.length})`}><p className="gtd-muted">Missing, deleted, or from another source. Use the thread menu to reassign or unlink.</p>{missing.map(row)}</Group>}
       </>}
       {notice && <p role="status">{notice}</p>}
     </div>
+    {projectAction && <ProjectActionDialog action={projectAction.kind} project={projectAction.project} areas={eligibleAreas} onClose={value => {
+      const { kind, project, trigger } = projectAction;
+      setProjectAction(undefined);
+      (trigger.isConnected ? trigger : refreshButton.current)?.focus();
+      if (value !== undefined) changeProject(project, kind === 'done' ? { kind } : { kind, areaPath: value }, trigger);
+    }} />}
     {editor && <RenameTitle target={editor.target} onClose={closeEditor} />}
   </section>;
 }
@@ -313,7 +427,7 @@ export default definePluginApp(app => {
     useData: ({ threadIds }) => ({ inventory: useInventory(false, threadIds.length > 0), ...useLinks(threadIds), threadIds: new Set(threadIds), rpc: useRpc<typeof rpcContract>() }),
     item: ({ thread, data }) => {
       const { inventory } = data;
-      const stored = data.links[thread.id];
+      const stored = data.links[thread.id]?.project;
       const association = reference.safeParse(stored).data;
       const linksLoading = data.loading || !data.threadIds.has(thread.id);
       const linkError = data.error || (stored !== undefined && !association);

@@ -134,3 +134,16 @@ test('agent uncertain creation refuses replay across reload with private context
     assert.doesNotMatch(JSON.stringify(active.inspection.logEntries), /sentinel/);
   } finally { await active.lifecycle.dispose(); }
 });
+
+test('an Area conversation has its own association and keeps the same creation receipt', async () => {
+  const f = await setup();
+  try {
+    const area = { source: ref.source, id: 'Areas/Learning.md' };
+    const input = { ...area, requestId: randomUUID() };
+    const create = () => f.harness.behavior.callRpc('newAreaThread', input);
+    assert.deepEqual(await create(), { threadId: 'created' });
+    assert.deepEqual(await create(), { threadId: 'created' });
+    assert.deepEqual(f.metadata.created, { area, creationRequest: input.requestId });
+    assert.equal(f.spawns(), 1);
+  } finally { await f.harness.lifecycle.dispose(); }
+});

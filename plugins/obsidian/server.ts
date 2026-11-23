@@ -42,7 +42,39 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       throw new Error('Inventory evidence did not complete. Check compatible source access.');
     }
   };
+  const readOwner = async (input: { vaultId: string; path: string }, signal: AbortSignal, reader: string) => {
+    const target = { vaultId: input.vaultId, path: input.path };
+    let page = await service.read(target, signal, reader);
+    let pages = 0;
+    while (page.nextCursor) {
+      if (++pages > 128) throw new VaultError('output_limit');
+      page = await service.read({ ...target, cursor: page.nextCursor }, signal, reader);
+    }
+    if (!page.complete || !page.editReady || !page.hash) throw new VaultError('complete_read_required');
+    return page.hash;
+  };
   bb.rpc.register(rpcContract, {
+    async projectOwnerHash(input, context) {
+      return evidence(() => readOwner(input, context.experimental_signal, randomUUID()), context);
+    },
+    async applyProjectChange(input, context) {
+      return evidence(async () => {
+        const { change, ...target } = input;
+        const signal = context.experimental_signal;
+        const reader = randomUUID();
+        if (await readOwner(target, signal, reader) !== target.expectedHash) throw new VaultError('conflict');
+        if (change.kind === 'area') {
+          const result = await service.properties({ ...target, set: { area: change.areaPath } }, signal, reader);
+          return result.receipt.outcome === 'saved_locally_pending_sync' ? 'saved' : 'inspect_receipt';
+        }
+        const { kind, ...destination } = change;
+        const move = { ...target, ...destination };
+        const preview = await service.move({ ...move, dryRun: true }, signal, reader);
+        if (preview.outcome !== 'link_plan_ready') return 'preview_blocked';
+        await service.move(move, signal, reader);
+        return 'inspect_receipt';
+      }, context);
+    },
     async projectMoveReceipt(input, context) { return evidence(() => service.projectMoveReceipt(input), context); },
     async inventoryStatus(_input, context) { return evidence(() => service.inventoryStatus(), context); },
     async inventoryBatch(input, context) { return evidence(() => service.inventoryBatch(input, context.experimental_signal), context); },
@@ -59,14 +91,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       return admission.run(async () => { try {
         // A unique reader keeps this internal whole-note proof isolated from agent reads.
         const reader = `gtd-title:${randomUUID()}`;
-        let page = await service.read({ vaultId: input.vaultId, path: input.path }, context.experimental_signal, reader);
-        let pages = 0;
-        while (page.nextCursor) {
-          if (++pages > 128) throw new VaultError('output_limit');
-          page = await service.read({ vaultId: input.vaultId, path: input.path, cursor: page.nextCursor }, context.experimental_signal, reader);
-        }
-        if (!page.complete || !page.editReady || !page.hash) throw new VaultError('complete_read_required');
-        const result = await service.properties({ vaultId: input.vaultId, path: input.path, expectedHash: page.hash, set: { title: input.title } }, context.experimental_signal, reader);
+        const expectedHash = await readOwner(input, context.experimental_signal, reader);
+        const result = await service.properties({ vaultId: input.vaultId, path: input.path, expectedHash, set: { title: input.title } }, context.experimental_signal, reader);
         return { operationId: result.operationId, outcome: result.receipt.outcome };
       } catch (error) {
         if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable');

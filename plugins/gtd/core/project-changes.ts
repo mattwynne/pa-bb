@@ -5,6 +5,7 @@ import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { ObsidianBackend, relativeFolder, vaultOptions, type PreviewEvidence } from '../adapters/obsidian.ts';
 import { readThreadReferences } from './migration-preview.ts';
 import { statuses } from './model.ts';
+import { projectActionInput, reference } from '../contract.ts';
 import { isDeepStrictEqual } from 'node:util';
 
 export const changeNames = [
@@ -181,7 +182,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       nextOffset: start + entries.length < page.entries.length ? start + entries.length : null,
     };
   }
-  async function prepare(input: z.infer<typeof prepareInput>, signal: AbortSignal) {
+  async function prepare(input: z.infer<typeof prepareInput>, signal: AbortSignal, fromPanel = false) {
     const s = await scope();
     if (input.source !== s.source) refuse('Wrong project source.');
     const { e, rows } = await inventory(s, signal);
@@ -232,7 +233,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       )
         return { state: 'already_complete', owner };
       next = {
-        tool: 'obsidian_update_properties',
+        tool: 'obsidian_update_properties' as const,
         input: {
           vaultId: s.source,
           path: owner,
@@ -263,9 +264,9 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       if (refs.warnings.length || refs.refs.some((r) => r.id === p.destination))
         refuse('Thread coverage is incomplete or destination already has references.');
       p.threads = refs.refs.filter((r) => r.id === item.id).map((r) => r.threadId);
-      if (p.threads.length > 20) refuse('More than 20 linked conversations; manual review required.');
+      if (!fromPanel && p.threads.length > 20) refuse('More than 20 linked conversations; manual review required.');
       next = {
-        tool: 'obsidian_move_note',
+        tool: 'obsidian_move_note' as const,
         input: {
           vaultId: s.source,
           path: owner,
@@ -417,5 +418,91 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       active.delete(input.planId);
     }
   }
-  return { browse, prepare, check };
+  const panelChanges = new Map<string, symbol>();
+  async function archiveConversations(source: string, id: string, signal: AbortSignal) {
+    const { refs, warnings } = await readThreadReferences(bb.sdk, source, signal);
+    if (warnings.length) throw new Error('Incomplete thread listing.');
+    for (const ref of refs) {
+      if (ref.archived || ref.id !== id) continue;
+      signal.throwIfAborted();
+      const metadata = await bb.sdk.threads.getPluginMetadata({ threadId: ref.threadId });
+      const linked = reference.safeParse(metadata.project).data;
+      if (linked?.source !== source || linked.id !== id) continue;
+      const result = await bb.sdk.threads.archive({ threadId: ref.threadId, signal });
+      if (!result.archivedThreadIds.includes(ref.threadId) &&
+          !(await bb.sdk.threads.get({ threadId: ref.threadId, signal })).archivedAt)
+        throw new Error('Thread archive unconfirmed.');
+    }
+    const result = await readThreadReferences(bb.sdk, source, signal);
+    if (result.warnings.length || result.refs.some(ref => ref.id === id && !ref.archived))
+      throw new Error('Thread archive incomplete.');
+  }
+
+  async function applyFromPanel(input: z.infer<typeof projectActionInput>, signal: AbortSignal) {
+    const key = JSON.stringify([input.source, input.id]);
+    if (panelChanges.has(key)) return { state: 'blocked' as const, message: 'A change for this project is already running.' };
+    const lock = Symbol();
+    panelChanges.set(key, lock);
+    let writing = false;
+    let moved = false;
+    let moveOperation: string | undefined;
+    try {
+      const s = await scope();
+      if (s.source !== input.source || !input.id.startsWith(s.projects + '/') || !input.id.endsWith('.md'))
+        refuse('A project note in the selected Projects folder is required.');
+      const target = { vaultId: s.source, path: input.id };
+      const expectedHash = hash.parse(await rpc('projectOwnerHash', target, signal));
+      const change = input.change;
+      const plan = await prepare(prepareInput.parse({
+        source: input.source, id: input.id, expectedHash,
+        ...(change.kind === 'done' ? { status: 'done' } : { areaPath: change.areaPath }),
+      }), signal, true);
+      await unchanged(s.config);
+      if (!plan.next) {
+        if (change.kind === 'area') return { state: 'assigned' as const, message: 'Project is already assigned to this Area.' };
+        moved = true;
+        await archiveConversations(s.source, input.id, signal);
+        return { state: 'done' as const, message: 'All linked threads are archived.' };
+      }
+
+      const move = plan.next.tool === 'obsidian_move_note' ? plan.next.input : undefined;
+      const destination = move?.destination;
+      if (destination) {
+        const destinationKey = JSON.stringify([s.source, destination]);
+        if (panelChanges.has(destinationKey)) refuse('A change for the destination project is already running.');
+        panelChanges.set(destinationKey, lock);
+        moveOperation = plan.planId;
+      }
+      writing = true;
+      if (change.kind === 'area') {
+        const outcome = await rpc('applyProjectChange', { ...target, expectedHash, change }, signal);
+        if (outcome === 'saved' && (await check({ planId: plan.planId! }, signal)).state === 'verified')
+          return { state: 'assigned' as const, message: 'Project assigned locally. iCloud sync is pending.' };
+      } else if (move && moveOperation) {
+        const { destination, project, root } = move;
+        const outcome = await rpc('applyProjectChange', {
+          ...target, expectedHash, change: { kind: 'move', destination, project, root, operationId: moveOperation },
+        }, signal);
+        if (outcome === 'preview_blocked') return { state: 'blocked' as const, message: 'Obsidian could not prepare a safe move. Review the project and its links.' };
+        const result = await check({ planId: moveOperation, finishLinks: true }, signal);
+        if (result.state === 'links_verified' || result.state === 'move_repairs_pending') {
+          moved = true;
+          await archiveConversations(s.source, destination, signal);
+          if (result.state === 'links_verified') return { state: 'done' as const, message: 'Project moved to Done locally and all linked threads archived.' };
+          return { state: 'partial' as const, message: `Project moved and threads archived. Inspect Obsidian link repairs for operation ${moveOperation}.` };
+        }
+      }
+      throw new Error('Project change unconfirmed.');
+    } catch (error) {
+      bb.log.warn(`GTD project_panel ${moved ? 'archive_incomplete' : writing ? 'write_unconfirmed' : 'prepare_blocked'}`);
+      if (moved) return { state: 'partial' as const, message: 'Project is in Done. Some thread archives are unconfirmed. Open Done and choose Archive linked threads to check the remaining threads.' };
+      if (writing) return { state: 'unconfirmed' as const, message: moveOperation
+        ? `Project completion is unconfirmed. Inspect GTD plan and Obsidian move receipt ${moveOperation} before trying again.`
+        : 'Area assignment is unconfirmed. Inspect the project note and Obsidian receipts before trying again.' };
+      return { state: 'blocked' as const, message: error instanceof ChangeError ? error.message : 'Could not prepare the project change. Refresh GTD and check Obsidian access.' };
+    } finally {
+      for (const [id, owner] of panelChanges) if (owner === lock) panelChanges.delete(id);
+    }
+  }
+  return { browse, prepare, check, applyFromPanel };
 }

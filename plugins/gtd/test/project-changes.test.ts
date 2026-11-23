@@ -80,6 +80,7 @@ async function setup() {
   const meta = { project: { source: 'one', id }, other: 'unchanged' };
   let lost = false,
     writes = 0;
+  let archived = false, archiveFails = false;
   const consumer = createFakePluginHost({
     pluginId: 'gtd',
     agentSkillIds: ['gtd-projects'],
@@ -92,7 +93,16 @@ async function setup() {
           }),
       },
       threads: {
-        list: async (a) => (a?.offset || a?.archived ? [] : [makeThreadResponse({ id: 'linked' })]),
+        list: async (a) => (a?.offset || !!a?.archived !== archived ? [] : [
+          makeThreadResponse({ id: 'linked', visibility: 'hidden', archivedAt: archived ? 1 : null }),
+        ]),
+        archive: async ({ threadId }) => {
+          assert.equal(threadId, 'linked');
+          assert.equal(meta.project.id, moved);
+          if (archiveFails) throw new Error('PRIVATE_ARCHIVE_SENTINEL');
+          archived = true;
+          return { ok: true, archivedThreadIds: [threadId] };
+        },
         experimental_listPluginMetadata: async () => ({
           threads: [{ threadId: 'linked', metadata: structuredClone(meta) }],
         }),
@@ -128,6 +138,8 @@ async function setup() {
     read,
     meta,
     consumer,
+    archived: () => archived,
+    failArchive: (value: boolean) => { archiveFails = value; },
     writes: () => writes,
     lose: () => {
       lost = true;
@@ -196,4 +208,40 @@ test('real move dry run, receipt and backlink repair, then lost metadata reply i
   assert.equal((await f.tool('gtd_check_project_change', args)).state, 'links_verified');
   assert.equal(f.writes(), 1);
   assert.deepEqual(f.meta, { project: { source: 'one', id: moved }, other: 'unchanged' });
+});
+
+test('panel assignment and completion use checked Obsidian writes and archive hidden linked threads', async t => {
+  const f = await setup();
+  t.after(f.close);
+  const change = (projectId: string, change: object) => f.consumer.harness.behavior.callRpc('changeProject', {
+    source: 'one', id: projectId, change,
+  });
+  assert.equal((await change(id, { kind: 'area', areaPath: target }) as { state: string }).state, 'assigned');
+  assert.ok(f.files.notes.get('one/' + id)!.includes(`area: "${target}"`));
+  assert.equal((await change(id, { kind: 'done' }) as { state: string }).state, 'done');
+  assert.ok(f.files.notes.has('one/' + moved));
+  assert.equal(f.meta.project.id, moved);
+  assert.equal(f.archived(), true);
+  assert.equal((await change(moved, { kind: 'done' }) as { state: string }).state, 'done');
+});
+
+test('archive failure keeps the verified move and can be reconciled from Done', async t => {
+  const f = await setup();
+  t.after(f.close);
+  const done = (projectId: string) => f.consumer.harness.behavior.callRpc('changeProject', {
+    source: 'one', id: projectId, change: { kind: 'done' },
+  });
+  f.failArchive(true);
+  const incomplete = await done(id);
+  assert.match(JSON.stringify(incomplete), /"state":"partial"/);
+  assert.doesNotMatch(JSON.stringify(incomplete), /PRIVATE_ARCHIVE_SENTINEL/);
+  const logs = JSON.stringify(f.consumer.harness.inspection.logEntries);
+  assert.match(logs, /GTD project_panel archive_incomplete/);
+  assert.doesNotMatch(logs, /PRIVATE_ARCHIVE_SENTINEL/);
+  assert.equal(f.archived(), false);
+  assert.ok(f.files.notes.has('one/' + moved));
+  f.failArchive(false);
+  assert.match(JSON.stringify(await done(moved)), /"state":"done"/);
+  assert.equal(f.files.moves.size, 1);
+  assert.equal(f.archived(), true);
 });

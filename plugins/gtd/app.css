@@ -9,7 +9,10 @@
 .gtd-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .gtd-indent { margin-left: 12px; border-left: 1px solid var(--border); padding-left: 6px; }
 .gtd-menu { position: relative; }
-.gtd-menu > button { display: block; background: var(--popover); position: absolute; right: 0; z-index: 10; box-shadow: 0 2px 8px #0003; }
+.gtd-menu-items { display: grid; min-width: max-content; padding: 4px; background: var(--popover); position: absolute; right: 0; z-index: 10; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 2px 8px #0003; }
+.gtd-nav .gtd-menu-items button { border: 0; text-align: start; }
+.gtd-draggable .gtd-label--project { cursor: grab; }
+.gtd-drop-target { background: var(--accent); outline: 2px solid var(--ring); border-radius: 6px; }
 .gtd-nav .gtd-row-action {
   display: grid;
   place-items: center;

@@ -51,7 +51,7 @@ test('GTD registers a navigation panel and keeps area, project and thread action
   expect(app.navPanels).toMatchObject([{ id: 'projects', path: 'projects', title: 'Personal GTD projects' }]);
   const slot = setup(); await slot.findByRole('button', { name: 'Learn woodworking' });
   expect(slot.getAllByRole('link')).toHaveLength(2);
-  const area = slot.getByRole('button', { name: /Learning/ }); fireEvent.click(area); expect(area.getAttribute('aria-expanded')).toBe('false'); fireEvent.click(area);
+  const area = slot.getByRole('button', { name: 'Learning' }); fireEvent.click(area); expect(area.getAttribute('aria-expanded')).toBe('false'); fireEvent.click(area);
   const { input } = openRename(slot, 'project', project.title);
   expect(document.activeElement).toBe(input);
   expect([input.selectionStart, input.selectionEnd]).toEqual([0, project.title.length]);
@@ -121,7 +121,7 @@ function associationAction({
     thread: { id: 't1' },
     data: {
       inventory: { loading: inventoryLoading, error: inventoryError, source: ref.source, projects: [project] },
-      links: { t1: stored }, error: linksError, loading: linksLoading, threadIds: new Set(threadRequested ? ['t1'] : []), rpc: { call },
+      links: { t1: { project: stored } }, error: linksError, loading: linksLoading, threadIds: new Set(threadRequested ? ['t1'] : []), rpc: { call },
     },
   } as any)!;
   return { action, call, run: (value?: string) => action.run({ value, requestRename: vi.fn() }) };

@@ -5,7 +5,7 @@ import { makeThreadResponse } from '@get-bb/plugin-sdk/testing';
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { openSync, closeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -50,11 +50,16 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  for (const width of [1280, 390]) for (const mode of ['normal', 'empty', 'error', 'loading', 'missing', 'directory-gap', 'folder-complete', 'area-boundary', 'relationships']) {
+  const modes = ['normal', 'empty', 'error', 'loading', 'missing', 'directory-gap', 'folder-complete', 'area-boundary', 'relationships', 'project-actions'];
+  const reviewedModes = process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
+  assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
+  for (const width of [1280, 390]) for (const mode of reviewedModes) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
     page.setDefaultTimeout(12000);
     const errors = []; const consoleErrors = []; page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     let title = 'Learn woodworking', area = 'Learning', creations = 0;
+    const projectChanges = [], areaCreations = [];
+    let assignedArea = 'Areas/Learning.md', projectStatus = 'active';
     const renames = [];
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
     const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
@@ -97,8 +102,9 @@ try {
       if (mode === 'error') return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic failure' } } });
       let result;
       if (method === 'browseInventory') {
-        const projects = mode === 'empty' ? [] : [{ id: ref.id, title, status: 'active', areaId: 'Areas/Learning.md' }];
+        const projects = mode === 'empty' ? [] : [{ id: ref.id, title, status: projectStatus, areaId: assignedArea }];
         const areas = [{ id: 'Areas/Learning.md', title: area }];
+        if (mode === 'project-actions') areas.push({ id: 'Areas/Home.md', title: 'Home' });
         if (mode === 'directory-gap') projects.splice(0, 1, { id: 'Projects/Folder/', title: 'Folder project', status: 'active' });
         if (mode === 'folder-complete') projects.push(
           { id: 'Projects/Empty/', title: 'Empty project', status: 'active' },
@@ -123,6 +129,17 @@ try {
         title = input.title;
       } else area = input.title; result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' }; }
       if (method === 'newThread') { creations++; await new Promise(r => setTimeout(r, 250)); result = { threadId: 'fixture1' }; }
+      if (method === 'newAreaThread') { areaCreations.push(input); result = { threadId: 'fixture1' }; }
+      if (method === 'changeProject') {
+        projectChanges.push(input.change);
+        if (input.change.kind === 'area') {
+          assignedArea = input.change.areaPath;
+          result = { state: 'assigned', message: 'Project assigned locally. iCloud sync is pending.' };
+        } else {
+          projectStatus = 'done';
+          result = { state: 'done', message: 'Project moved to Done locally and all linked threads archived.' };
+        }
+      }
       if (method === 'associate') { if (input.project) associations.set(input.threadId, input.project); else associations.delete(input.threadId); result = null; }
       return route.fulfill({ json: { ok: true, result } });
     });
@@ -281,6 +298,40 @@ try {
       const create = nav.getByRole('button', { name: 'New thread for Woodwork' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
       await page.waitForURL('**/threads/fixture1');
       assert.equal(creations, 1);
+    } else if (mode === 'project-actions') {
+      const project = nav.getByRole('button', { name: title, exact: true });
+      const menu = nav.getByLabel(`Actions for project ${title}`);
+      const activate = async name => {
+        await menu.focus();
+        await page.keyboard.press('Enter');
+        await menu.locator('..').getByRole('button', { name, exact: true }).focus();
+        await page.keyboard.press('Enter');
+      };
+      await project.waitFor();
+      await nav.getByRole('button', { name: 'Show all Areas' }).click();
+      const home = nav.getByRole('button', { name: 'Home', exact: true });
+      await home.waitFor();
+      if (width === 1280) {
+        await project.locator('..').dragTo(home);
+      } else {
+        await activate('Move to Area…');
+        const dialog = nav.getByRole('dialog', { name: 'Move to Area' });
+        await dialog.getByRole('combobox', { name: 'Area' }).selectOption('Areas/Home.md');
+        await dialog.getByRole('button', { name: 'Move', exact: true }).click();
+      }
+      await nav.getByText('Project assigned locally. iCloud sync is pending.').waitFor();
+      assert.deepEqual(projectChanges, [{ kind: 'area', areaPath: 'Areas/Home.md' }]);
+      await project.waitFor();
+      await activate('Mark as done');
+      const confirm = nav.getByRole('dialog', { name: 'Mark as done' });
+      await confirm.getByText(/archive all its linked BB threads/).waitFor();
+      await page.screenshot({ path: join(artifacts, `done-confirm-${width}.png`), timeout: 30000 });
+      await confirm.getByRole('button', { name: 'Mark as done', exact: true }).click();
+      await nav.getByText('Project moved to Done locally and all linked threads archived.').waitFor();
+      assert.deepEqual(projectChanges.at(-1), { kind: 'done' });
+      await nav.getByRole('button', { name: 'New thread for Area Learning' }).click();
+      await page.waitForURL('**/threads/fixture1');
+      assert.equal(areaCreations[0].id, 'Areas/Learning.md');
     } else if (mode === 'relationships') {
       await nav.getByRole('button', { name: 'Learning', exact: true }).waitFor();
       await nav.getByRole('button', { name: 'Learn woodworking', exact: true }).waitFor();
@@ -330,8 +381,16 @@ try {
     await page.screenshot({ path: join(artifacts, `${mode}-${width}.png`) });
     console.log(`${mode} ${width}: rendered and checked`); await page.close();
   }
-  await writeFile(join(artifacts, 'result.json'), JSON.stringify({ rendered: true, runtimeReads: ['obsidian.status (empty vaults)', 'obsidian.renameTitle caller refusal before note access', 'gtd.projects (unconfigured)', 'bounded GTD read diagnostic'], accountWrites: false, providerRuns: false, fixture: 'Learning > Learn woodworking > two active threads and one archived BB thread', threadList: ['Automatic', 'saved updated-time sort', 'Organize', 'Filter and archived thread', 'retired explicit provider and recovery'] }));
+  await writeFile(join(artifacts, 'result.json'), JSON.stringify({
+    rendered: true, reviewedModes, widths: [1280, 390],
+    runtimeReads: ['obsidian.status (empty vaults)', 'obsidian.renameTitle caller refusal before note access', 'gtd.projects (unconfigured)', 'bounded GTD read diagnostic'],
+    accountWrites: false, providerRuns: false,
+  }));
   console.log(`Evidence: ${artifacts}`);
+} catch (error) {
+  await copyFile(join(root, 'server.log'), join(artifacts, 'server.log'));
+  console.error(`Disposable BB diagnostics: ${artifacts}`);
+  throw error;
 } finally {
   await browser?.close(); server.kill('SIGTERM'); await Promise.race([new Promise(r => server.once('exit', r)), new Promise(r => setTimeout(r, 10000))]);
   if (server.exitCode === 0) await rm(root, { recursive: true, force: true }); else console.error('Retained disposable root:', root);

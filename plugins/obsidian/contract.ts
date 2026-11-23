@@ -41,6 +41,20 @@ const batchRow = z.discriminatedUnion('kind', [
 export type InventoryBatchRequest = z.infer<typeof batchRequest>;
 export type InventoryBatchRow = z.infer<typeof batchRow>;
 export const rpcContract = defineRpcContract({
+  projectOwnerHash: {
+    input: z.object({ vaultId: vault.shape.vaultId, path: consumerFolder }).strict(),
+    output: hash,
+  },
+  applyProjectChange: {
+    input: z.object({
+      vaultId: vault.shape.vaultId, path: consumerFolder, expectedHash: hash,
+      change: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('area'), areaPath: consumerFolder }).strict(),
+        z.object({ kind: z.literal('move'), destination: consumerFolder, project: projectMoveSchema, root: consumerFolder.optional(), operationId: z.string().uuidv7() }).strict(),
+      ]),
+    }).strict(),
+    output: z.enum(['saved', 'preview_blocked', 'inspect_receipt']),
+  },
   projectMoveReceipt: {
     input: z.object({ vaultId: vault.shape.vaultId, operationId: z.string().uuid() }).strict(),
     output: z.object({
