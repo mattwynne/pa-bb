@@ -1,6 +1,6 @@
 # YNAB for BB
 
-BB runs version 0.8.0 of the community [YNAB MCP server](https://github.com/calebl/ynab-mcp-server/tree/v0.8.0) over stdio. It uses a YNAB personal access token. The plugin exposes the server’s tool catalog and passes tool calls through to the pinned package.
+BB runs version 0.8.0 of the community [YNAB MCP server](https://github.com/calebl/ynab-mcp-server) over stdio. It uses a YNAB personal access token. The plugin exposes the server’s tool catalog and passes tool calls through to the pinned package.
 
 ## Set up
 
