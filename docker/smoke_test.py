@@ -35,6 +35,48 @@ if not expected or 'browser-automation' in expected:
 expected['browser-automation'] = 'builtin:browser-automation'
 print(json.dumps(expected))
 '''
+# Exercise the application's own capability probe and descriptor-backed search,
+# not merely a version string. All writes are generated fixtures inside /tmp.
+SEARCH_SCRIPT = r'''
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { NoteStore } from '/opt/pa-bb/plugins/icloud/adapters/note-store.ts';
+import { NoteSearch } from '/opt/pa-bb/plugins/icloud/adapters/note-search.ts';
+
+async function verifySearch() {
+  const root = await mkdtemp(join(tmpdir(), 'pa-bb-smoke-search-'));
+  let search;
+  try {
+    const vault = join(root, 'vault');
+    await mkdir(join(vault, '.hidden'), { recursive: true });
+    await writeFile(join(vault, '.gitignore'), '*.md\n');
+    await writeFile(join(vault, 'Visible.md'), 'generated search needle\n');
+    await writeFile(join(vault, '.hidden', 'Hidden.md'), 'generated search needle\n');
+    await writeFile(join(vault, 'Other.md'), 'generated control\n');
+    const store = new NoteStore(join(root, 'state'));
+    search = new NoteSearch(store, {
+      paths: () => [], reader: (_id, path) => store.searchReader(vault, path),
+    });
+    const capability = await search.capability();
+    if (capability.version !== 1 || capability.available !== true) throw new Error();
+    const query = { mirrorId: 'smoke', revision: 1, projection: 'hits' };
+    const hits = await search.next({ ...query, text: 'needle' }, vault, () => {});
+    const paths = hits.candidates.map(candidate => candidate.path).sort();
+    if (JSON.stringify(paths) !== JSON.stringify(['.hidden/Hidden.md', 'Visible.md']) ||
+        hits.visited !== 3 || hits.warnings.length !== 0 || hits.nextCursor !== null) throw new Error();
+    const empty = await search.next({ ...query, text: 'absent' }, vault, () => {});
+    if (empty.candidates.length !== 0 || empty.warnings.length !== 0 || empty.nextCursor !== null) throw new Error();
+    return { version: 1, available: true, matches: paths.length };
+  } finally {
+    try { await search?.stop(); }
+    finally { await rm(root, { recursive: true, force: true }); }
+  }
+}
+verifySearch().then(result => console.log(JSON.stringify(result))).catch(() => {
+  console.error('Generated note-search verification failed.'); process.exitCode = 1;
+});
+'''
 
 
 class SmokeError(RuntimeError):
@@ -161,6 +203,15 @@ class SmokeTest:
             plugin = installed.get(identity)
             if not plugin or plugin.get('source') != source or plugin.get('enabled') is not True:
                 raise SmokeError('Expected plugin missing, source mismatched, or disabled.')
+        try:
+            search = self.decode(self.docker('container', 'exec', self.container,
+                'node', '--import', '/opt/pa-bb/plugins/icloud/node_modules/tsx/dist/loader.mjs',
+                '--input-type=module', '-e', SEARCH_SCRIPT, timeout=remaining()).stdout)
+        except SmokeError:
+            raise SmokeError('Note-search capability check failed.') from None
+        if (not isinstance(search, dict) or search.get('version') != 1
+                or search.get('available') is not True or search.get('matches') != 2):
+            raise SmokeError('Note-search capability or generated matches not confirmed.')
         remaining()
         return len(expected)
 
@@ -230,7 +281,7 @@ def main(argv=None):
     except SmokeError as error:
         print(f'Smoke test failed: {error}', file=sys.stderr)
         return 1
-    print(f'Smoke test passed: healthy, registration complete, {count} expected plugins verified; cleaned up.')
+    print(f'Smoke test passed: healthy, registration complete, {count} expected plugins verified; note search verified; cleaned up.')
     return 0
 
 

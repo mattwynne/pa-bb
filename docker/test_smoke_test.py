@@ -36,6 +36,8 @@ class FakeDocker:
                          'browser-automation': 'builtin:browser-automation'}
         self.plugins = [{'id': key, 'source': value, 'enabled': True}
                         for key, value in self.expected.items()]
+        self.search = {'version': 1, 'available': True, 'matches': 2}
+        self.search_failure = False
         self.failures = {}
         self.after_write = {}
 
@@ -74,7 +76,14 @@ class FakeDocker:
         elif operation == 'logs':
             output = self.next_value(self.logs)
         elif operation == 'exec':
-            output = json.dumps(self.expected if args[3] == 'python3' else {'plugins': self.plugins})
+            if args[3] == 'python3':
+                output = json.dumps(self.expected)
+            elif args[4] == smoke_test.CLI:
+                output = json.dumps({'plugins': self.plugins})
+            else:
+                if self.search_failure:
+                    return self.fail(True, command)
+                output = json.dumps(self.search)
         else:
             raise AssertionError(f'Unexpected Docker command: {args}')
         if key in self.after_write:
@@ -124,6 +133,32 @@ class SmokeTestTests(unittest.TestCase):
         self.assertEqual(create[-1], 'sha256:' + 'a' * 64)
         self.assertFalse(any(option in create for option in ['-p', '-P', '--publish', '--publish-all']))
         self.assertNotEqual(self.smoke.container, smoke_test.SmokeTest('local:test').container)
+        self.assert_cleaned()
+
+    def test_note_search_capability_and_real_matches_are_required(self):
+        variants = [None, 'PRIVATE_OUTPUT SECRET_TOKEN',
+                    {'version': 1, 'available': False, 'reason': 'unsupported_version'},
+                    {'version': 1, 'available': True, 'matches': 0},
+                    {'version': 1, 'available': True, 'matches': 1},
+                    {'version': 1, 'available': 1, 'matches': 2},
+                    {'version': 2, 'available': True, 'matches': 2}]
+        for result in variants:
+            with self.subTest(result=result):
+                self.docker.search = result
+                self.assert_failure('Note-search capability')
+                self.assertEqual(self.docker.resources, {})
+
+    def test_search_command_failure_is_safe_and_cleans_up(self):
+        self.docker.search_failure = True
+        self.assert_failure('Note-search capability')
+        self.assert_cleaned()
+
+    def test_success_executes_plugin_search_with_its_typescript_loader(self):
+        self.assertEqual(self.smoke.run(), 2)
+        search = next(c for c in self.docker.commands if c[:2] == ['container', 'exec']
+                      and '--import' in c)
+        self.assertIn('/opt/pa-bb/plugins/icloud/node_modules/tsx/dist/loader.mjs', search)
+        self.assertIn('--input-type=module', search)
         self.assert_cleaned()
 
     def test_extra_stock_plugins_are_allowed(self):

@@ -35,6 +35,9 @@ class DockerfileTests(unittest.TestCase):
         self.assertEqual(args['RCLONE_ARCHIVE_SHA256'], scalar(rclone, 'archive_sha256'))
         self.assertEqual(args['RCLONE_BINARY_SHA256'], scalar(rclone, 'binary_sha256'))
         self.assertEqual(args['CHROME_KEY_SHA256'], scalar(manifest, 'key_sha256'))
+        self.assertEqual(args['RIPGREP_VERSION'], scalar(manifest.split('  ripgrep:\n', 1)[1], 'version'))
+        for key in ['RIPGREP_ARCHIVE_SHA256', 'RIPGREP_BINARY_SHA256']:
+            self.assertRegex(args[key], r'^[0-9a-f]{64}$')
         for name in args:
             with self.subTest(argument=name):
                 self.assertRegex(DOCKERFILE, r'\$(?:' + name + r'\b|\{' + name + r'\})')
@@ -64,6 +67,17 @@ class DockerfileTests(unittest.TestCase):
                                     text=True, env={**os.environ, 'RCLONE_VERSION': '1.75.2',
                                                    'PATH': str(tools) + ':' + os.environ['PATH']})
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_ripgrep_uses_verified_upstream_binary_not_bookworm_package(self):
+        unfolded = DOCKERFILE.replace('\\\n', '')
+        installs = re.findall(r'apt-get install -y --no-install-recommends\s+([^;]+);', unfolded)
+        self.assertTrue(installs)
+        self.assertTrue(all('ripgrep' not in command.split() for command in installs))
+        self.assertIn('ripgrep-${RIPGREP_VERSION}-x86_64-unknown-linux-musl.tar.gz', DOCKERFILE)
+        self.assertIn('"$RIPGREP_ARCHIVE_SHA256  /tmp/ripgrep.tar.gz" | sha256sum -c -', DOCKERFILE)
+        self.assertIn('"$RIPGREP_BINARY_SHA256  /tmp/ripgrep-${RIPGREP_VERSION}-x86_64-unknown-linux-musl/rg" | sha256sum -c -', DOCKERFILE)
+        self.assertIn('/usr/local/bin/rg;', DOCKERFILE)
+        self.assertIn('/usr/local/share/licenses/ripgrep/LICENSE-MIT', DOCKERFILE)
 
     def test_image_omits_experimental_hermes_runtime(self):
         self.assertNotIn('hermes', DOCKERFILE.lower())

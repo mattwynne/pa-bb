@@ -37,8 +37,11 @@ same local image that passed the smoke test:
 These are development builds, not versioned releases. Tag pushes do not trigger
 this workflow, and it does not publish `latest`. The smoke test waits for Docker
 health and completed startup registration, then verifies each expected plugin's
-source and enabled state through BB's CLI. It creates and removes its own container
-and home volume, without publishing a port or using existing BB state. It does not
+source and enabled state through BB's CLI. It also runs the note-search plugin's
+capability probe and searches generated visible and hidden Markdown files, even
+when a generated `.gitignore` excludes them. A missing match, unsupported ripgrep
+or failed search blocks publication. It creates and removes its own container and
+home volume, without publishing a port or using existing BB state. It does not
 verify provider sign-in or browser automation.
 
 Trivy scans OS and application packages, including vulnerabilities without fixes.
@@ -73,12 +76,15 @@ The image starts from `node:24-bookworm-slim` and installs dependencies directly
 in the Dockerfile—no Ansible or sudo. It includes stock BB, Pi, Codex, native
 Claude Code, uv/uvx, rclone, ripgrep, Chrome and the native build toolchain.
 Hermes is not bundled. The base image's npm is pinned to a patched release, and
-rclone 1.76.0 uses independently verified archive and binary checksums.
+rclone 1.76.0 and ripgrep 14.1.0 use independently verified archive and binary
+checksums. The upstream static ripgrep binary satisfies note search's 14+ requirement;
+Bookworm's ripgrep 13 package does not.
 Each PA plugin gets `npm ci` from its lockfile.
 
-Application versions and download checksums match the Ansible provisioning;
-`test_dockerfile.py` flags drift. Debian packages, including ripgrep, follow
-Bookworm's repositories rather than Ubuntu's package-version pins. Chrome follows
+Application versions and shared download checksums match the Ansible provisioning;
+`test_dockerfile.py` flags drift. Ripgrep's version matches the host manifest but
+comes from the upstream Linux archive. Other Debian packages follow Bookworm's
+repositories rather than Ubuntu's package-version pins. Chrome follows
 Google's stable APT channel. Node follows the image's Node 24 updates.
 
 At startup it runs BB as UID 1000 and registers all PA source plugins plus the
