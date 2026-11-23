@@ -41,6 +41,70 @@ jobs:
             type=raw,value=edge,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
             type=sha,format=long
 
+      - name: Build local image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: |
+            pa-bb-ci:${{ github.sha }}
+            ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test disposable BB installation
+        run: python3 docker/smoke_test.py pa-bb-ci:${{ github.sha }}
+
+      - name: Scan image vulnerabilities
+        id: scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IMAGE_SRC: docker
+        with:
+          version: v0.76.2
+          scan-type: image
+          image-ref: pa-bb-ci:${{ github.sha }}
+          scanners: vuln
+          format: json
+          output: trivy.json
+          timeout: 15m
+          # Establish a visible baseline without hiding scanner/DB failures.
+          exit-code: '0'
+          ignore-unfixed: 'false'
+
+      - name: Summarize vulnerability findings
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from collections import Counter
+          from pathlib import Path
+
+          report = json.loads(Path('trivy.json').read_text())
+          counts = Counter(v['Severity'] for result in report.get('Results', [])
+                           for v in result.get('Vulnerabilities', []) or [])
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('## Image vulnerability scan\n\n')
+              summary.write('Findings are informational while the baseline is reviewed; '
+                            'scanner or database failures block publication. '
+                            'Download the image-vulnerabilities artifact for details.\n\n')
+              summary.write('| Severity | Package findings |\n| --- | ---: |\n')
+              for severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']:
+                  summary.write(f'| {severity} | {counts[severity]} |\n')
+          PY
+
+      - name: Upload vulnerability report
+        if: always() && steps.scan.outcome != 'skipped'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: image-vulnerabilities
+          path: trivy.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
@@ -49,13 +113,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build image (publish only from main)
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
-        with:
-          context: .
-          platforms: linux/amd64
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Publish tested image (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE_METADATA: ${{ steps.meta.outputs.json }}
+        run: |
+          while IFS= read -r tag; do
+            docker push "$tag"
+          done < <(jq -r '.tags[]' <<< "$IMAGE_METADATA")

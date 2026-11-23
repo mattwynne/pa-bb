@@ -25,16 +25,31 @@ docker exec -it pa-bb /home/bb/.local/bin/codex login --device-auth
 
 ## CI images on GHCR
 
-[Docker CI](../.github/workflows/docker.yml) runs the Docker unit tests and builds
-**linux/amd64** images on pull requests and pushes to `main`. Pull requests never
-log in to GHCR or publish images. Successful builds on `main` publish:
+[Docker CI](../.github/workflows/docker.yml) runs Docker unit tests, builds a
+**linux/amd64** image, smoke-tests a disposable BB installation and scans the image
+for known vulnerabilities on pull requests and pushes to `main`. Pull requests
+never log in to GHCR or publish images. Successful builds on `main` publish the
+same local image that passed the smoke test:
 
 - `ghcr.io/mattwynne/pa-bb:edge` — the most recently published build from `main`.
 - `ghcr.io/mattwynne/pa-bb:sha-<full-commit-sha>` — a commit-specific tag.
 
 These are development builds, not versioned releases. Tag pushes do not trigger
-this workflow, and it does not publish `latest`. CI checks the build and startup
-unit tests, not live provider sign-in or browser automation.
+this workflow, and it does not publish `latest`. The smoke test waits for Docker
+health and completed startup registration, then verifies each expected plugin's
+source and enabled state through BB's CLI. It creates and removes its own container
+and home volume, without publishing a port or using existing BB state. It does not
+verify provider sign-in or browser automation.
+
+Trivy scans OS and application packages, including vulnerabilities without fixes.
+Each run shows severity counts in its summary and saves the JSON report as the
+`image-vulnerabilities` artifact for 14 days. Findings are **informational** while
+the baseline is reviewed; they do not block publication. Scanner, database,
+smoke-test and cleanup failures do block publication. No CVEs are suppressed.
+
+[Dependabot](../.github/dependabot.yml) checks GitHub Actions dependencies weekly
+and opens update PRs for the pinned actions. It does not auto-merge or change the
+application/tool version pins.
 
 Publishing uses the workflow's `GITHUB_TOKEN`; no registry password or personal
 access token is needed. After the first publication, a maintainer must set the
@@ -99,6 +114,8 @@ resume failed/user-paused sync folders.
 
 ```sh
 python3 -m unittest discover -s docker -p 'test_*.py'
+# Checks a new disposable installation, not the existing pa-bb container:
+python3 docker/smoke_test.py pa-bb
 docker inspect --format '{{.State.Health.Status}}' pa-bb
 docker exec pa-bb node /home/bb/.local/lib/node_modules/bb-app/host-daemon/dist/bb plugin list --json
 ```
