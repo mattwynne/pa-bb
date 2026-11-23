@@ -59,8 +59,9 @@ Browser Automation, so **skip step 2** and [connect your services](#3-connect-yo
 No accounts are connected and no sync is enabled automatically.
 
 See the [container guide](docker/README.md) for logs, provider sign-in, persistence
-and safe updates. The image build and container runtime have not yet been verified;
-current checks cover startup logic, shell syntax and dependency-pin alignment.
+and safe updates. The linux/amd64 image build, startup, health check and plugin
+registration have been verified. Provider sign-in and browser automation still
+need checks after account setup.
 
 #### Ansible or manual setup
 
