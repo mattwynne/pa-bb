@@ -71,7 +71,7 @@ jobs:
           format: json
           output: trivy.json
           timeout: 15m
-          # Establish a visible baseline without hiding scanner/DB failures.
+          # Preserve the full report; enforce the fixable HIGH/CRITICAL gate below.
           exit-code: '0'
           ignore-unfixed: 'false'
 
@@ -88,8 +88,8 @@ jobs:
                            for v in result.get('Vulnerabilities', []) or [])
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
               summary.write('## Image vulnerability scan\n\n')
-              summary.write('Findings are informational while the baseline is reviewed; '
-                            'scanner or database failures block publication. '
+              summary.write('Fixable HIGH/CRITICAL findings and scanner/database errors '
+                            'block publication. Other findings remain report-only. '
                             'Download the image-vulnerabilities artifact for details.\n\n')
               summary.write('| Severity | Package findings |\n| --- | ---: |\n')
               for severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']:
@@ -104,6 +104,9 @@ jobs:
           path: trivy.json
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Reject fixable high and critical vulnerabilities
+        run: python3 docker/check_vulnerabilities.py trivy.json
 
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

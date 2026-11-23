@@ -43,9 +43,10 @@ verify provider sign-in or browser automation.
 
 Trivy scans OS and application packages, including vulnerabilities without fixes.
 Each run shows severity counts in its summary and saves the JSON report as the
-`image-vulnerabilities` artifact for 14 days. Findings are **informational** while
-the baseline is reviewed; they do not block publication. Scanner, database,
-smoke-test and cleanup failures do block publication. No CVEs are suppressed.
+`image-vulnerabilities` artifact for 14 days. **HIGH/CRITICAL findings with an
+available fix block publication**, as do scanner, database, malformed-report,
+smoke-test and cleanup failures. Lower-severity findings and findings without a
+published fix remain visible in the report. No CVEs are suppressed.
 
 [Dependabot](../.github/dependabot.yml) checks GitHub Actions dependencies weekly
 and opens update PRs for the pinned actions. It does not auto-merge or change the
@@ -70,7 +71,9 @@ Follow the state-preserving update steps below before replacing a container.
 
 The image starts from `node:24-bookworm-slim` and installs dependencies directly
 in the Dockerfile—no Ansible or sudo. It includes stock BB, Pi, Codex, native
-Claude Code, Hermes, uv/uvx, rclone, ripgrep, Chrome and the native build toolchain.
+Claude Code, uv/uvx, rclone, ripgrep, Chrome and the native build toolchain.
+Hermes is not bundled. The base image's npm is pinned to a patched release, and
+rclone 1.76.0 uses independently verified archive and binary checksums.
 Each PA plugin gets `npm ci` from its lockfile.
 
 Application versions and download checksums match the Ansible provisioning;
@@ -105,6 +108,10 @@ Runtime tools in that home follow BB's native update controls, just as with
 Ansible: rebuilding the image does not overwrite a persistent home's installed
 tools. Rebuild/recreate to update OS dependencies and `/opt/pa-bb` plugin source;
 use native controls for existing home tools (or a new volume for a clean install).
+In particular, older volumes can still contain a previously bundled Hermes
+installation; a new image does not remove its tools, credentials or data. Back up
+and inspect an existing home before changing it—do not discard the volume merely
+to remove a tool.
 Before recreating with changed file-writing plugin code, pause sync and drain
 active work through BB, back up the volume, then stop the old container. Never
 run old and new containers concurrently against the same state or automatically

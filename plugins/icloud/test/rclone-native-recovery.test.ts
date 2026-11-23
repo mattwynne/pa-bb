@@ -145,7 +145,9 @@ test('stock bisync recovers graceful and abrupt interruption, renews and expires
 });
 
 // The interrupted command alone is bandwidth-limited to expose the real native
-// rename-both/copy window. The continuation has exactly the production args.
+// rename-both/copy window. Disable the local alias fixture's server-side clone:
+// it bypasses bandwidth limits, unlike a real iCloud-to-local transfer.
+// The continuation has exactly the production args.
 for (const canonicalD of [false, true]) test(`owned interrupted conflict continuation preserves native B/C${canonicalD ? '/D and remains fenced' : ' and captures the complete pair'}`, { skip: !binary || process.platform !== 'linux', timeout: 180_000 }, async () => {
   const root = await mkdtemp('/tmp/icloud-native-copy-window-');
   const cloud = join(root, 'cloud'), source = join(cloud, 'generated');
@@ -158,7 +160,7 @@ for (const canonicalD of [false, true]) test(`owned interrupted conflict continu
   const repository = new MemoryState(); repository.value.connected = true;
   repository.value.mirrors.push({ id: 'one', folder: { id: Buffer.from('generated').toString('base64url'), name: 'Generated', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', failure: null, blocker: null, lastSuccess: null });
   const provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body),
-    (args, capture, report) => runtime!.run(interrupted ? [...args, '--bwlimit', '16k', '--transfers', '1', '--checkers', '1'] : args, capture, report),
+    (args, capture, report) => runtime!.run(interrupted ? [...args, '--disable', 'Copy', '--bwlimit', '16k', '--transfers', '1', '--checkers', '1'] : args, capture, report),
     async () => {}, async () => runtime!.stop(), undefined, undefined, undefined, undefined, undefined,
     (args, capture, report) => { continuations++; assert.deepEqual(args, syncArguments('icloud:generated', local, baseline, false)); return runtime!.continueInterrupted(args, capture, report); });
   const sync = new ICloudSync(provider, repository, () => new Date().toISOString(), () => 'unused', () => {});

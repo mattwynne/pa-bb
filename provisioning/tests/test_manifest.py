@@ -30,17 +30,17 @@ class ManifestTests(unittest.TestCase):
             "system": "Linux", "architecture": "x86_64",
             "distribution": "Ubuntu", "distribution_version": "24.04",
         })
-        self.assertEqual(self.manifest["rclone"]["version"], "1.75.2")
+        self.assertEqual(self.manifest["rclone"]["version"], "1.76.0")
         self.assertEqual(self.manifest["ripgrep"]["version"], "14.1.0")
         self.assertEqual(self.manifest["packages"], [
-            "ca-certificates", "unzip", "util-linux", "ripgrep=14.1.0-1",
+            "build-essential", "ca-certificates", "unzip", "util-linux", "ripgrep=14.1.0-1",
         ])
 
     def test_archive_and_binary_are_independently_pinned(self):
         binary = self.manifest["rclone"]
         self.assertEqual(binary["archive_url"],
-                         "https://downloads.rclone.org/v1.75.2/rclone-v1.75.2-linux-amd64.zip")
-        self.assertEqual(binary["archive_binary"], "rclone-v1.75.2-linux-amd64/rclone")
+                         "https://downloads.rclone.org/v1.76.0/rclone-v1.76.0-linux-amd64.zip")
+        self.assertEqual(binary["archive_binary"], "rclone-v1.76.0-linux-amd64/rclone")
         for key in ("archive_sha256", "binary_sha256"):
             self.assertRegex(binary[key], r"^[0-9a-f]{64}$")
         self.assertNotEqual(binary["archive_sha256"], binary["binary_sha256"])

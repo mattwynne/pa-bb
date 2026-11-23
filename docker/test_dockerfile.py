@@ -23,10 +23,9 @@ class DockerfileTests(unittest.TestCase):
     def test_application_pins_match_ansible(self):
         args = dict(re.findall(r'^ARG (\w+)=(\S+)$', DOCKERFILE, re.MULTILINE))
         runtime = (ROLES / 'pa_bb_runtime/defaults/main.yml').read_text()
-        for tool in ['bb', 'pi', 'codex', 'claude', 'hermes']:
+        for tool in ['bb', 'pi', 'codex', 'claude']:
             with self.subTest(tool=tool):
                 self.assertEqual(args[f'{tool.upper()}_VERSION'], scalar(runtime, f'pa_bb_{tool}_seed'))
-        self.assertEqual(args['HERMES_INSTALLER_SHA256'], scalar(runtime, 'pa_bb_hermes_installer_sha256'))
         uv = (ROLES / 'pa_bb_runtime/tasks/uv.yml').read_text()
         self.assertEqual(args['UV_VERSION'], scalar(uv, 'workspace_uv_version'))
         self.assertEqual(args['UV_SHA256'], scalar(uv, 'workspace_uv_sha256'))
@@ -65,6 +64,11 @@ class DockerfileTests(unittest.TestCase):
                                     text=True, env={**os.environ, 'RCLONE_VERSION': '1.75.2',
                                                    'PATH': str(tools) + ':' + os.environ['PATH']})
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_image_omits_experimental_hermes_runtime(self):
+        self.assertNotIn('hermes', DOCKERFILE.lower())
+        self.assertRegex(DOCKERFILE, r'ARG NPM_VERSION=\d+\.\d+\.\d+\n')
+        self.assertIn('npm install -g "npm@$NPM_VERSION"', DOCKERFILE)
 
     def test_node_base_without_ansible(self):
         self.assertIn('FROM node:24-bookworm-slim\n', DOCKERFILE)

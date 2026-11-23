@@ -11,7 +11,7 @@ are no folder permissions, read-only settings or per-edit confirmations.
 - An iCloud plugin advertising coordinated note access v2. A paired build with
   mirror access v3 enables filesystem access after iCloud clears each mirror for
   migration. Existing connections keep their vault IDs.
-- A supported Linux iCloud host with stock rclone v1.75.2, util-linux flock,
+- A supported Linux iCloud host with stock rclone v1.76.0 (v1.75.2 remains supported), util-linux flock,
   mounted procfs and persistent writable plugin storage. The host operator handles
   provisioning; neither plugin installs system packages. See the
   [portable requirements](../../../docs/references/bb-host-requirements.md).

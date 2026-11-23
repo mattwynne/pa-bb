@@ -58,7 +58,7 @@ export class RcloneProcess {
     for (const candidate of this.explicitBinary ? [this.explicitBinary] : ['rclone', '/usr/local/bin/rclone', '/usr/bin/rclone']) {
       try {
         const version = await this.execute(candidate, ['version', '--config', '/dev/null'], true, 10_000);
-        if (!/^rclone v1\.75\.2\r?\n/.test(version)) continue;
+        if (!/^rclone v1\.(?:75\.2|76\.0)\r?\n/.test(version)) continue;
         this.binary = candidate; return;
       } catch { /* Try only fixed candidate paths, never emit raw spawn errors. */ }
     }

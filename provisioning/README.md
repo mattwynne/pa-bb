@@ -26,7 +26,7 @@ retirement of registrations absent from main. No release or BB fork is needed.
 is the dependency manifest. The initial supported target is **Ubuntu 24.04,
 x86_64 Linux**, with:
 
-- Stock rclone **1.75.2**, pinned official archive and extracted-binary SHA-256,
+- Stock rclone **1.76.0**, pinned official archive and extracted-binary SHA-256,
   installed root-owned at `/usr/local/bin/rclone`.
 - Stock ripgrep **14.1.0**, pinned Ubuntu package `ripgrep=14.1.0-1`.
 - `build-essential` supplies make and the C/C++ toolchain for native npm

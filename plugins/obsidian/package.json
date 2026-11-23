@@ -44,6 +44,9 @@
     "tsx": "^4.20.0",
     "typescript": "5.9.3"
   },
+  "overrides": {
+    "bb-app": { "npm": "11.21.3" }
+  },
   "scripts": {
     "build": "bb plugin build",
     "typecheck": "tsc --noEmit && bb plugin types --check",

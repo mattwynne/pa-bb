@@ -30,7 +30,7 @@
     "better-sqlite3": "^13.0.3",
     "cron-parser": "^5.10.2",
     "hono": "^4.13.13",
-    "playwright": "^1.51.1",
+    "playwright": "^1.65.1",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "sonner": "^1.7.4",

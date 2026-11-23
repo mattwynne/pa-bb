@@ -57,7 +57,7 @@ volume. Keep it private and back it up; don't replace it with an empty bind moun
 For remote access, use an SSH tunnel or an authenticated TLS reverse proxy.
 
 The [`Dockerfile`](Dockerfile) uses `node:24-bookworm-slim` and installs dependencies
-directly—no Ansible or systemd. It includes BB, Pi, Codex, Claude Code, Hermes,
+directly—no Ansible or systemd. It includes BB, Pi, Codex, Claude Code,
 uv/uvx, rclone, ripgrep and Chrome. Startup registers the PA plugins and official
 Browser Automation, so **skip step 2** and [connect your services](#3-connect-your-services).
 No accounts are connected and no sync is enabled automatically.
@@ -74,7 +74,7 @@ For manual setup, install [BB](https://getbb.app) **0.45 or later**, with Node.j
 **For iCloud and Obsidian, provision the Linux dependencies before installing the plugins.** The included [Ansible role and setup instructions](provisioning/README.md) make that repeatable:
 
 - Supported provisioning target: **Ubuntu 24.04, x86_64**.
-- Pinned rclone **1.75.2** for iCloud folder sync and ripgrep **14.1.0** for note search.
+- Pinned rclone **1.76.0** for iCloud folder sync and ripgrep **14.1.0** for note search.
 - Required locking and process-inspection support for safe background syncing.
 
 Use the dependency role from a reviewed Git revision in your own infrastructure project, or follow the [standalone playbook instructions](provisioning/README.md#consume-from-infrastructure). The dependency role installs host packages, including native Chrome; it does not install BB. The full [application playbook](provisioning/application.md) also installs stock BB and agent tools, configures the service, registers PA plugins and installs official Browser Automation. Neither route connects accounts or enables sync. You supply the machine, persistent storage and private configuration. The plugins never install system packages themselves.

@@ -6,11 +6,10 @@ ARG BB_VERSION=0.49.0
 ARG PI_VERSION=1.5.0
 ARG CODEX_VERSION=0.163.0
 ARG CLAUDE_VERSION=2.1.319
-ARG HERMES_VERSION=0.23.3
-ARG HERMES_INSTALLER_SHA256=c73dad4dcf7c9ecadb98578e28cc763d23d7be3fa1b513545319038795493214
-ARG RCLONE_VERSION=1.75.2
-ARG RCLONE_ARCHIVE_SHA256=349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702
-ARG RCLONE_BINARY_SHA256=ed7ab1f17876bb006c3df3949a3044959671afd9112362dacaa5dd1647735bc1
+ARG RCLONE_VERSION=1.76.0
+ARG RCLONE_ARCHIVE_SHA256=b00f00b3266c3764413afe599d3ec316f6f43b3e0ea8a0bc1d186d2133e46df7
+ARG RCLONE_BINARY_SHA256=62e4d3e5432f2c685f1834b8bb342058ff0611c99d048aeb44bb8d8fd611527e
+ARG NPM_VERSION=11.21.3
 ARG UV_VERSION=0.13.7
 ARG UV_SHA256=c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83
 ARG CHROME_KEY_SHA256=54dea5f6c2a26091578cf52a999cebc6b64df478d37ad4dce96376b711e3b27c
@@ -32,7 +31,9 @@ RUN set -eu; \
     rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources; \
     rm -rf /var/lib/apt/lists/*; \
     usermod --login bb --home /home/bb --move-home node; \
-    groupmod --new-name bb node
+    groupmod --new-name bb node; \
+    npm install -g "npm@$NPM_VERSION"; \
+    npm cache clean --force
 
 RUN set -eu; \
     curl -fsSL "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip" -o /tmp/rclone.zip; \
@@ -53,20 +54,15 @@ USER bb
 WORKDIR /home/bb
 RUN set -eu; \
     umask 077; \
-    mkdir -p .local/bin .bb .pi/agent .codex .hermes; \
+    mkdir -p .local/bin .bb .pi/agent .codex; \
     printf 'prefix=%s/.local\n' "$HOME" > .npmrc; \
     npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@$PI_VERSION"; \
     npm install -g "bb-app@$BB_VERSION" "@openai/codex@$CODEX_VERSION"; \
     curl -fsSL https://claude.ai/install.sh -o /tmp/install-claude.sh; \
     bash /tmp/install-claude.sh "$CLAUDE_VERSION"; \
-    curl -fsSL "https://raw.githubusercontent.com/NousResearch/hermes-agent/v${HERMES_VERSION}/scripts/install.sh" -o /tmp/install-hermes.sh; \
-    echo "$HERMES_INSTALLER_SHA256  /tmp/install-hermes.sh" | sha256sum -c -; \
-    HERMES_HOME="$HOME/.hermes" bash /tmp/install-hermes.sh \
-      --branch "v$HERMES_VERSION" --dir "$HOME/.hermes/hermes-agent" \
-      --non-interactive --skip-browser --skip-computer-use; \
-    rm /tmp/install-claude.sh /tmp/install-hermes.sh; \
+    rm /tmp/install-claude.sh; \
     npm cache clean --force; \
-    pi --version; codex --version; claude --version; hermes --version
+    pi --version; codex --version; claude --version
 
 WORKDIR /opt/pa-bb
 COPY --chown=bb:bb . .
