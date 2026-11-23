@@ -85,5 +85,5 @@ function ToolsmithPanel() {
 }
 
 export default definePluginApp((app) => {
-  app.slots.navPanel({ id: "work", path: "work", title: "Toolsmith", icon: "Toolbox", component: ToolsmithPanel });
+  app.slots.navPanel({ id: "work", path: "work", title: "Toolsmith", icon: "toolsmith/tools", component: ToolsmithPanel });
 });

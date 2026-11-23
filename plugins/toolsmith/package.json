@@ -10,7 +10,10 @@
   "bb": {
     "name": "Toolsmith [Experimental]",
     "description": "Turn a confirmed PA capability gap into a visible BB development thread.",
-    "branding": { "icon": "Toolbox" },
+    "branding": {
+      "icon": "./icon.svg",
+      "experimental_icons": { "tools": "./icon.svg" }
+    },
     "server": "./server.ts",
     "app": "./app.tsx",
     "skills": ["skills"]
