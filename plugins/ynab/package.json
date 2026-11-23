@@ -1,0 +1,38 @@
+{
+  "name": "bb-plugin-ynab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22 || >=24",
+    "bb": ">=0.50.1",
+    "bbPluginSdk": ">=0.6.157 <1"
+  },
+  "bb": {
+    "name": "YNAB",
+    "description": "Use the community YNAB MCP server with a YNAB personal access token.",
+    "branding": {
+      "icon": "Wallet"
+    },
+    "server": "./server.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "ynab-mcp-server": "0.8.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.157",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "22.20.5",
+    "@types/react": "19.2.7",
+    "cron-parser": "^5.10.1",
+    "hono": "^4.13.13",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "build": "bb plugin build",
+    "typecheck": "tsc --noEmit && bb plugin types --check",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts"
+  }
+}
