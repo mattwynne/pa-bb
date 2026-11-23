@@ -13,7 +13,12 @@ const stateKey = "ownership-v2";
 const pluginName = /^[a-z][a-z0-9-]{0,63}$/;
 type Claims = Record<string, { thread: string; at: string }>;
 type Request = { thread: string; plugins: string[] };
-type Ownership = { claims: Claims; queue: Request[] };
+type Completion = Record<string, string[] | null>;
+type Ownership = { claims: Claims; queue: Request[]; completion?: Completion };
+type Thread = Awaited<ReturnType<BbPluginApi["sdk"]["threads"]["list"]>>[number];
+const idle = (thread: Thread) => thread.status === "idle" &&
+  !Object.values(thread.activity).some((count) => count > 0) &&
+  !thread.hasPendingInteraction && (!thread.queuedWork || thread.queuedWork === "none");
 
 export default function toolsmith(bb: BbPluginApi) {
   const settings = bb.settings.define({
@@ -26,49 +31,78 @@ export default function toolsmith(bb: BbPluginApi) {
     chain = next.catch(() => undefined);
     return next;
   };
+  const findThreads = async (ids: string[], signal?: AbortSignal) => {
+    const threads = new Map<string, Thread>();
+    for (let i = 0; i < ids.length; i += 200) {
+      const found = await bb.sdk.threads.list({ threadIds: ids.slice(i, i + 200), archived: false, includeHidden: true, limit: 200, signal });
+      for (const thread of found) threads.set(thread.id, thread);
+    }
+    return threads;
+  };
   const loadOwnership = async (signal?: AbortSignal) => {
-    const { claims, queue } = (await bb.storage.kv.get<Ownership>(stateKey)) ?? {
+    const { claims, queue, completion = {} } = (await bb.storage.kv.get<Ownership>(stateKey)) ?? {
       claims: (await bb.storage.kv.get<Claims>("claims-v1")) ?? {},
       queue: [],
     };
     const owners = [...new Set([...Object.values(claims), ...queue].map(({ thread }) => thread))];
-    const threads = new Map<string, string>();
-    for (let i = 0; i < owners.length; i += 200) {
-      const found = await bb.sdk.threads.list({ threadIds: owners.slice(i, i + 200), archived: false, includeHidden: true, limit: 200, signal });
-      for (const { id, title } of found) threads.set(id, title?.trim() || "Untitled thread");
-    }
+    const threads = await findThreads(owners, signal);
     return {
       claims: Object.assign(Object.create(null) as Claims,
         Object.fromEntries(Object.entries(claims).filter(([, claim]) => threads.has(claim.thread)))),
       queue: queue.filter(({ thread }) => threads.has(thread)),
       threads,
+      completion,
     };
+  };
+  const reviewThreads = async (completion: Completion, busy: Set<string>, signal: AbortSignal) => {
+    const recorded = await findThreads(Object.keys(completion).filter((id) => completion[id] && !busy.has(id)), signal);
+    const { project: projectId } = await settings.get();
+    const threads = new Map([...recorded].filter(([, thread]) => idle(thread)));
+    if (projectId) {
+      for (let page = 0; page < maxPages; page++) {
+        const found = await bb.sdk.threads.list({ projectId, archived: false, hasParent: true, limit: pageSize, offset: page * pageSize, signal });
+        for (const thread of found) {
+          if (!busy.has(thread.id) && !Object.hasOwn(completion, thread.id) &&
+            thread.title?.startsWith("Toolsmith:") && idle(thread)) threads.set(thread.id, thread);
+        }
+        if (found.length < pageSize) return { threads: [...threads.values()], partial: false };
+      }
+      return { threads: [...threads.values()], partial: true };
+    }
+    return { threads: [...threads.values()], partial: false };
   };
   const claimList = (claims: Claims) => Object.entries(claims).map(([plugin, { thread }]) => ({ plugin, thread }));
   const fail = (message: string, code: string, hint?: string) => new PluginCliError(message, { code, hint });
 
   bb.rpc.register(rpcContract, {
     async listWork(_input, { experimental_signal: signal }) {
+      let stage = "ownership";
       try {
-        const { claims, queue, threads } = await loadOwnership(signal);
+        const { claims, queue, threads, completion } = await loadOwnership(signal);
         const active = new Map<string, string[]>();
         for (const { plugin, thread } of claimList(claims)) {
           const plugins = active.get(thread) ?? [];
           plugins.push(plugin);
           active.set(thread, plugins);
         }
-        const row = (thread: string, plugins: string[]) => ({
-          thread, title: threads.get(thread) ?? "Untitled thread", plugins: [...plugins].sort(),
+        const row = (thread: string, plugins: string[], title = threads.get(thread)?.title) => ({
+          thread, title: title?.trim() || "Untitled thread", plugins: [...plugins].sort(),
         });
+        stage = "completion";
+        const review = await reviewThreads(completion, new Set([...active.keys(), ...queue.map(({ thread }) => thread)]), signal);
         return {
           active: [...active].map(([thread, plugins]) => row(thread, plugins)),
           queue: queue.map(({ thread, plugins }) => ({
             ...row(thread, plugins),
             ready: plugins.every((plugin) => !claims[plugin] || claims[plugin].thread === thread),
           })),
+          completed: review.threads.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).map(({ id, title }) => ({
+            ...row(id, completion[id] ?? [], title), recorded: Array.isArray(completion[id]),
+          })),
+          completedPartial: review.partial,
         };
       } catch {
-        if (!signal.aborted) bb.log.warn("listWork ownership read failed");
+        if (!signal.aborted) bb.log.warn(`listWork ${stage} read failed`);
         throw new Error("Could not load Toolsmith threads.");
       }
     },
@@ -89,19 +123,19 @@ export default function toolsmith(bb: BbPluginApi) {
           if (!names.length || invalid.length) throw fail("Plugin names must be lowercase letters, digits and hyphens.", "invalid_plugin", "Use the directory name under plugins/.");
           try {
             return await serialized(async () => {
-              const { claims, queue } = await loadOwnership(signal);
+              const { claims, queue, completion } = await loadOwnership(signal);
               const taken = names.filter((name) => claims[name] && claims[name].thread !== threadId);
               if (taken.length) {
                 const existing = queue.find((request) => request.thread === threadId);
                 const sameRequest = existing?.plugins.length === names.length && names.every((name) => existing.plugins.includes(name));
                 const waiting = sameRequest ? queue : [...queue.filter((request) => request.thread !== threadId), { thread: threadId, plugins: names }];
-                await bb.storage.kv.set(stateKey, { claims, queue: waiting });
+                await bb.storage.kv.set(stateKey, { claims, queue: waiting, completion });
                 throw fail(`Already claimed: ${taken.map((name) => `${name} by ${claims[name].thread}`).join(", ")}.`, "claimed",
                   "Request queued. Research and plan only, then retry the claim when the plugins are free.");
               }
               const at = new Date().toISOString();
               for (const name of names) claims[name] = claims[name] ?? { thread: threadId, at };
-              await bb.storage.kv.set(stateKey, { claims, queue: queue.filter((request) => request.thread !== threadId) });
+              await bb.storage.kv.set(stateKey, { claims, queue: queue.filter((request) => request.thread !== threadId), completion });
               return { exitCode: 0, stdout: input.options.json ? JSON.stringify({ status: "claimed", plugins: names }) : `Claimed ${names.join(", ")}.` };
             });
           } catch (error) {
@@ -115,18 +149,28 @@ export default function toolsmith(bb: BbPluginApi) {
       release: cliCommand({
         summary: "Release this thread's plugin claims, or only the named plugins",
         positionals: [{ name: "plugins", description: "Plugins to release; default all of this thread's claims", variadic: true }],
-        options: { json: { type: "boolean", description: "Emit machine-readable result" } },
+        options: {
+          json: { type: "boolean", description: "Emit machine-readable result" },
+          completed: { type: "boolean", description: "Record the handoff as complete for review when releasing all claims" },
+        },
         async run(input, { signal, threadId }) {
           if (!threadId) throw fail("A release must come from a BB thread.", "no_thread");
+          if (input.options.completed && input.positionals.plugins.length) {
+            throw fail("Release all claims to record completion.", "partial_completion");
+          }
           try {
             return await serialized(async () => {
-              const { claims, queue } = await loadOwnership(signal);
+              const { claims, queue, completion } = await loadOwnership(signal);
               const named = input.positionals.plugins.length ? input.positionals.plugins : undefined;
               const released = Object.keys(claims).filter((name) => claims[name].thread === threadId && (!named || named.includes(name)));
               for (const name of released) delete claims[name];
               const waiting = queue.filter((request) => request.thread !== threadId ||
                 (named && !request.plugins.some((plugin) => named.includes(plugin))));
-              await bb.storage.kv.set(stateKey, { claims, queue: waiting });
+              if (!Object.values(claims).some(({ thread }) => thread === threadId) &&
+                (released.length || waiting.length !== queue.length)) {
+                completion[threadId] = input.options.completed && released.length ? released : null;
+              }
+              await bb.storage.kv.set(stateKey, { claims, queue: waiting, completion });
               return { exitCode: 0, stdout: input.options.json ? JSON.stringify({ status: "released", plugins: released }) : `Released ${released.join(", ") || "nothing"}.` };
             });
           } catch {

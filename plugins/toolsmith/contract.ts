@@ -6,6 +6,11 @@ const work = z.object({ thread: z.string(), title: z.string(), plugins: z.array(
 export const rpcContract = defineRpcContract({
   listWork: {
     input: z.object({}).strict(),
-    output: z.object({ active: z.array(work), queue: z.array(work.extend({ ready: z.boolean() })) }),
+    output: z.object({
+      active: z.array(work),
+      queue: z.array(work.extend({ ready: z.boolean() })),
+      completed: z.array(work.extend({ recorded: z.boolean() })),
+      completedPartial: z.boolean(),
+    }),
   },
 });

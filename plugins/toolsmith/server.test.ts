@@ -4,7 +4,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import toolsmith from "./server.ts";
 
 function host({ projectId = "proj_test", callerId = undefined as string | undefined, project = { kind: "standard", sources: [{}] } as { kind: string; sources: object[] },
-  list = (_: { offset: number }) => [] as { id: string; status: string; activity: object }[],
+  list = (_: { offset: number }) => [] as { id: string; status: string; activity: object; title?: string; updatedAt?: number; queuedWork?: string }[],
   alive = new Set<string>(["thr_a", "thr_b"]), store = new Map<string, unknown>() } = {}) {
   const logs: string[] = [];
   const reads: object[] = [];
@@ -112,6 +112,8 @@ test("a multi-plugin claim is all-or-nothing", async () => {
   assert.deepEqual(await listWork(), {
     active: [{ thread: "thr_a", title: "Thread thr_a", plugins: ["gtd"] }],
     queue: [{ thread: "thr_b", title: "Thread thr_b", plugins: ["gtd", "icloud"], ready: false }],
+    completed: [],
+    completedPartial: false,
   });
 });
 
@@ -129,6 +131,8 @@ test("the queue preserves request order on retry, marks released plugins ready a
   assert.deepEqual(await listWork(), {
     active: [{ thread: "thr_b", title: "Thread thr_b", plugins: ["gtd", "icloud"] }],
     queue: [],
+    completed: [],
+    completedPartial: false,
   });
 });
 
@@ -140,7 +144,51 @@ test("release cancels that thread's queued request and preserves the owner's cla
   assert.deepEqual(await listWork(), {
     active: [{ thread: "thr_a", title: "Thread thr_a", plugins: ["gtd"] }],
     queue: [],
+    completed: [],
+    completedPartial: false,
   });
+});
+
+test("completed handoffs survive reopening the view and disappear on archive or reclaim", async () => {
+  const { as, alive, listWork } = host();
+  await as("thr_a", "claim", "gtd", "obsidian");
+  assert.equal((await parse(as("thr_a", "release", "gtd", "--completed", "--json"))).error.code, "partial_completion");
+  await as("thr_a", "release", "--completed");
+  const completed = [{ thread: "thr_a", title: "Thread thr_a", plugins: ["gtd", "obsidian"], recorded: true }];
+  assert.deepEqual(await listWork(), { active: [], queue: [], completed, completedPartial: false });
+  alive.delete("thr_a");
+  assert.deepEqual(await listWork(), { active: [], queue: [], completed: [], completedPartial: false });
+  alive.add("thr_a");
+  assert.deepEqual(await listWork(), { active: [], queue: [], completed, completedPartial: false });
+  await as("thr_a", "claim", "gtd");
+  await as("thr_a", "release");
+  assert.deepEqual(await listWork(), { active: [], queue: [], completed: [], completedPartial: false });
+});
+
+test("earlier idle Toolsmith handoffs are marked unconfirmed and stopped or pending work stays out", async () => {
+  const { as, listWork, reads } = host({
+    list: () => [
+      { ...idle, id: "thr_a", title: "Toolsmith: Stopped" },
+      { ...idle, id: "thr_legacy", title: "Toolsmith: Earlier handoff", updatedAt: 10 },
+      { ...idle, id: "thr_queued", title: "Toolsmith: Waiting", queuedWork: "waiting" },
+      { ...idle, id: "thr_other", title: "Normal thread" },
+    ],
+  });
+  await as("thr_a", "claim", "gtd");
+  await as("thr_a", "release");
+  assert.deepEqual(await listWork(), {
+    active: [], queue: [], completedPartial: false,
+    completed: [{ thread: "thr_legacy", title: "Toolsmith: Earlier handoff", plugins: [], recorded: false }],
+  });
+  assert.deepEqual({ ...reads[0], signal: undefined }, {
+    projectId: "proj_test", archived: false, hasParent: true, limit: 50, offset: 0, signal: undefined,
+  });
+});
+
+test("completion lookup failures are distinguishable and suppress private data", async () => {
+  const { listWork, logs } = host({ list: () => { throw new Error("PRIVATE_CONTENT and SECRET_TOKEN"); } });
+  await assert.rejects(listWork(), { message: "Could not load Toolsmith threads." });
+  assert.deepEqual(logs, ["listWork completion read failed"]);
 });
 
 test("the panel read logs a bounded diagnostic and returns a safe error", async () => {

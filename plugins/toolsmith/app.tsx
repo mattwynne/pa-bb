@@ -6,7 +6,7 @@ import "./app.css";
 type Rpc = ReturnType<typeof useRpc<typeof rpcContract>>;
 const listWork = (rpc: Rpc) => rpc.call("listWork", {});
 type Work = Awaited<ReturnType<typeof listWork>>;
-type Row = Work["active"][number] & { ready?: boolean };
+type Row = Work["active"][number] & { ready?: boolean; recorded?: boolean };
 
 function WorkSection({ title, rows, empty }: {
   title: string;
@@ -19,15 +19,16 @@ function WorkSection({ title, rows, empty }: {
       <h2>{title}</h2>
       {rows.length === 0 ? <p className="toolsmith-empty">{empty}</p> : (
         <ul className="toolsmith-list">
-          {rows.map(({ thread, title, plugins, ready }) => (
+          {rows.map(({ thread, title, plugins, ready, recorded }) => (
             <li key={thread}>
               <button className="toolsmith-row" type="button" onClick={() => navigate.toThread(thread)}>
                 <span className="toolsmith-row-body">
                   <span className="toolsmith-title">{title}</span>
-                  <span className="toolsmith-plugins">
+                  {(plugins.length > 0 || ready || recorded === false) && <span className="toolsmith-plugins">
                     {plugins.map((plugin) => <span className="toolsmith-plugin" key={plugin}>{plugin}</span>)}
                     {ready && <span className="toolsmith-ready">Ready to retry</span>}
-                  </span>
+                    {recorded === false && <span className="toolsmith-ready">Completion unconfirmed</span>}
+                  </span>}
                 </span>
                 <Icon name="ChevronRight" aria-hidden="true" />
               </button>
@@ -79,6 +80,8 @@ function ToolsmithPanel() {
       {work && <>
         <WorkSection title="Active threads" rows={work.active} empty="No active plugin claims." />
         <WorkSection title="Queue" rows={work.queue} empty="No queued claims." />
+        <WorkSection title="Completed" rows={work.completed} empty={work.completedPartial ? "No completed threads in the results checked." : "No unarchived completed threads."} />
+        {work.completedPartial && <p className="toolsmith-empty" role="status">Some earlier handoffs may be missing.</p>}
       </>}
     </div>
   );
