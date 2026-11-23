@@ -6,7 +6,7 @@ import { MemoryMcp } from '../../testing/memory-mcp.mjs';
 import { SCOPES } from '../../core/auth.mjs';
 import { tools, richResult } from '../support/mcp-fixture.mjs';
 
-async function world(settings = { clientId: 'existing-web-client', clientSecret: 'SECRET_CLIENT' }) {
+async function world(settings = { clientId: 'existing-web-client', clientSecret: 'SECRET_CLIENT' }, ports = {}) {
   const host = createFakePluginHost({ pluginId: 'google-workspace', appUrl: 'https://bb.example', settings });
   const mcp = new MemoryMcp({ tools, handler: () => richResult });
   const oauth = {
@@ -15,7 +15,7 @@ async function world(settings = { clientId: 'existing-web-client', clientSecret:
     refresh: async () => ({ access_token: 'REFRESHED_ACCESS', expires_in: 3600 }),
     identity: async () => ({ sub: 'alice-id', email: 'alice@example.test', email_verified: true }),
   };
-  await plugin(host.bb, { mcp, oauth });
+  await plugin(host.bb, { mcp, oauth, ...ports });
   const rpc = (method, input = null) => host.harness.behavior.callRpc(method, input);
   const selected = () => host.harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
   return { host, mcp, oauth, rpc, selected,
@@ -142,5 +142,44 @@ test('invalid callback is rejected and secrets are never logged', async () => {
     assert.match(html, /href="\/settings\/plugins\/google-workspace"/);
     assert.doesNotMatch(html, /UNKNOWN_STATE|SECRET_CODE/);
     assert.doesNotMatch(JSON.stringify(w.host.harness.inspection.logEntries), /UNKNOWN_STATE|SECRET/);
+  } finally { await w.close(); }
+});
+
+test('Email reuses the exact Gmail connection with read-only calls and safe failures', async () => {
+  const requests = [];
+  let rejected = false;
+  const w = await world(undefined, { gmailFetch: async (url, init) => {
+    assert.equal(init.redirect, 'error');
+    assert.deepEqual(init.headers, { Authorization: 'Bearer SECRET_ACCESS' });
+    requests.push(new URL(url));
+    if (rejected) return new Response('PRIVATE_GMAIL_BODY', { status: 403 });
+    if (requests.at(-1).pathname.endsWith('/messages')) {
+      return Response.json({ messages: [{ id: 'm1' }], nextPageToken: 'next' });
+    }
+    return Response.json({ id: 'm1', raw: Buffer.from('PRIVATE_GMAIL_BODY').toString('base64url') });
+  } });
+  const caller = { experimental_caller: { kind: 'plugin', pluginId: 'email' } };
+  const call = (method, input) => w.host.harness.behavior.callRpc(method, input, caller);
+  try {
+    await w.connect();
+    await assert.rejects(w.rpc('emailArchiveAccounts'), { code: 'forbidden' });
+    let accounts = await call('emailArchiveAccounts', null);
+    assert.deepEqual(accounts, [{ id: 'alice-id', email: 'alice@example.test' }]);
+    assert.deepEqual(await call('emailArchivePage', { accountId: 'alice-id', cursor: null }), { ids: ['m1'], next: 'next' });
+    const message = await call('emailArchiveMessage', { accountId: 'alice-id', messageId: 'm1' });
+    assert.equal(Buffer.from(message.mime, 'base64').toString(), 'PRIVATE_GMAIL_BODY');
+    assert.equal(requests[0].host, 'gmail.googleapis.com');
+    assert.equal(requests[0].searchParams.get('includeSpamTrash'), 'true');
+    assert.equal(requests[1].searchParams.get('format'), 'raw');
+    rejected = true;
+    await assert.rejects(call('emailArchivePage', { accountId: 'alice-id', cursor: 'next' }), /Gmail archive read failed/);
+    const logs = JSON.stringify(w.host.harness.inspection.logEntries);
+    assert.match(logs, /archive_page authorization/);
+    assert.doesNotMatch(logs, /PRIVATE_GMAIL_BODY|SECRET|alice/);
+    await w.rpc('removeAccount', { subject: 'alice-id' });
+    accounts = await call('emailArchiveAccounts', null);
+    assert.deepEqual(accounts, []);
+    await assert.rejects(call('emailArchivePage', { accountId: 'alice-id', cursor: null }), /Gmail archive read failed/);
+    assert.equal(requests.length, 3);
   } finally { await w.close(); }
 });

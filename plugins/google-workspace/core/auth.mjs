@@ -41,21 +41,23 @@ export function createGoogleAuth({ store, oauth, getClient, callbackUrl, clock =
       await store.saveAccount({ subject: info.sub, email: info.email, clientId, refreshToken, accessToken: tokens.access_token, expiresAt: clock() + (Number(tokens.expires_in) || 3600) * 1000 });
       return { subject: info.sub, email: info.email };
     },
-    async access(email) {
-      const record = await store.byEmail(String(email));
-      if (!record) reject('account_missing', 'Unknown Workspace account. Check connected accounts.');
-      if (record.accessToken && record.expiresAt > clock() + 60_000) return record.accessToken;
-      const { clientId, clientSecret } = await getClient();
-      if (!clientId || !clientSecret || clientId !== record.clientId) reject('configuration', 'Restore the account\'s Web OAuth client settings or reconnect the account.');
-      const tokens = await oauth.refresh({ clientId, clientSecret, refreshToken: record.refreshToken });
-      if (!tokens.access_token) reject('authorization', 'Google connection expired. Reconnect this account.');
-      const info = identity(await oauth.identity(tokens.access_token));
-      if (info.sub !== record.subject) reject('identity', 'Google returned a different account. Reconnect this account.');
-      if (!await store.bySubject(record.subject)) reject('account_missing', 'Workspace account was removed.');
-      await store.saveAccount({ ...record, email: info.email, accessToken: tokens.access_token, refreshToken: tokens.refresh_token || record.refreshToken,
-        expiresAt: clock() + (Number(tokens.expires_in) || 3600) * 1000 });
-      return tokens.access_token;
-    },
+    async access(email) { return accessRecord(await store.byEmail(String(email))); },
+    async accessSubject(subject) { return accessRecord(await store.bySubject(subject)); },
     async removeAccount(subject) { return { removed: await store.removeAccount(subject) }; },
   };
+
+  async function accessRecord(record) {
+    if (!record) reject('account_missing', 'Unknown Workspace account. Check connected accounts.');
+    if (record.accessToken && record.expiresAt > clock() + 60_000) return record.accessToken;
+    const { clientId, clientSecret } = await getClient();
+    if (!clientId || !clientSecret || clientId !== record.clientId) reject('configuration', 'Restore the account\'s Web OAuth client settings or reconnect the account.');
+    const tokens = await oauth.refresh({ clientId, clientSecret, refreshToken: record.refreshToken });
+    if (!tokens.access_token) reject('authorization', 'Google connection expired. Reconnect this account.');
+    const info = identity(await oauth.identity(tokens.access_token));
+    if (info.sub !== record.subject) reject('identity', 'Google returned a different account. Reconnect this account.');
+    if (!await store.bySubject(record.subject)) reject('account_missing', 'Workspace account was removed.');
+    await store.saveAccount({ ...record, email: info.email, accessToken: tokens.access_token, refreshToken: tokens.refresh_token || record.refreshToken,
+      expiresAt: clock() + (Number(tokens.expires_in) || 3600) * 1000 });
+    return tokens.access_token;
+  }
 }

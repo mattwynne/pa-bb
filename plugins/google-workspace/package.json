@@ -19,10 +19,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@get-bb/plugin-sdk": "0.6.15",
+    "@get-bb/plugin-sdk": "0.6.157",
     "@types/node": "22.20.5",
     "@types/react": "19.2.7",
     "bb-app": "0.45.0",
