@@ -206,25 +206,27 @@ test('project and Area menus dismiss outside without stealing focus and consume 
   }
   slot.lifecycle.unmount();
 });
-test('Active shows only matching Areas; nested IDs roll up without any writes; All discovers empty Areas', async () => {
+test('every project status shows empty Areas and filters nested projects without writes', async () => {
   const slot = setup('nested');
   await slot.findByRole('button', { name: 'Learning' });
   expect(slot.queryByRole('button', { name: 'Unassigned area' })).toBeNull();
-  expect(slot.queryByRole('button', { name: 'Empty Area 0' })).toBeNull();
-  expect(slot.queryByText('No active projects')).toBeNull();
-  fireEvent.click(slot.getByRole('button', { name: 'Show all Areas' }));
-  const empty = await slot.findByRole('button', { name: 'Empty Area 0' });
+  const empty = slot.getByRole('button', { name: 'Empty Area 0' });
   expect(empty.getAttribute('aria-expanded')).toBe('false');
+  const status = slot.getByRole('combobox', { name: 'Project status' });
+  for (const value of ['active', 'deferred', 'someday', 'done', 'all']) {
+    fireEvent.change(status, { target: { value } });
+    expect(slot.getAllByRole('button', { name: /^Empty Area \d$/ })).toHaveLength(8);
+    expect(slot.getByRole('button', { name: 'Learning' })).toBeTruthy();
+    expect(!!slot.queryByRole('button', { name: 'Learn woodworking' })).toBe(value === 'active' || value === 'all');
+  }
   expect(slot.inspection.rpcCalls.map(c => c.method)).toEqual(['browseInventory']);
   slot.lifecycle.unmount();
 });
-test('no matching projects produces one empty state while retaining all-Areas discovery', async () => {
+test('no matching projects produces one empty state with Areas still visible', async () => {
   const slot = setup('empty'); await slot.findByText('No matching projects');
   expect(slot.getAllByText('No matching projects')).toHaveLength(1);
-  expect(slot.queryByRole('button', { name: 'Learning' })).toBeNull();
-  fireEvent.click(slot.getByRole('button', { name: 'Show all Areas' }));
-  expect(await slot.findByRole('button', { name: 'Learning' })).toBeTruthy();
-  expect(slot.queryByText('No active projects')).toBeNull(); slot.lifecycle.unmount();
+  expect(slot.getByRole('button', { name: 'Learning' }).getAttribute('aria-expanded')).toBe('false');
+  slot.lifecycle.unmount();
 });
 for (const mode of ['empty', 'loading', 'error']) test(`${mode} is distinct and recoverable`, async () => {
   const slot = setup(mode);

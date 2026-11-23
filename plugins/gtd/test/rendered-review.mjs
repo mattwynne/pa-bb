@@ -45,6 +45,8 @@ try {
   assert.ok(unconfigured, 'Harmless GTD read must fail honestly before vault selection');
   assert.match(await cli('plugin', 'logs', 'gtd', '-n', '5'), /GTD list unconfigured/);
   console.log('Runtime checks: updated Obsidian status and title caller refusal, GTD unconfigured guard and bounded diagnostic verified.');
+  // The disposable host has no coding agent to complete first-run onboarding.
+  await cli('settings', 'general', 'onboardingCompletedAt', new Date().toISOString());
   const setPreference = (key, value) => cli('settings', 'ui', 'set', key, value);
   await setPreference('sidebar.chronologicalSort', 'updated');
   await setPreference('sidebar.sortDirection', 'ascending');
@@ -308,7 +310,6 @@ try {
         await page.keyboard.press('Enter');
       };
       await project.waitFor();
-      await nav.getByRole('button', { name: 'Show all Areas' }).click();
       const home = nav.getByRole('button', { name: 'Home', exact: true });
       await home.waitFor();
       if (width === 1280) {
@@ -341,13 +342,17 @@ try {
     } else if (mode === 'area-boundary') {
       await nav.getByRole('button', { name: 'Learning', exact: true }).waitFor();
       await nav.getByRole('button', { name: 'Learn woodworking', exact: true }).waitFor();
-      assert.equal(await nav.getByRole('button', { name: 'Empty Area 0', exact: true }).count(), 0);
-      assert.equal(await nav.getByText('No active projects', { exact: true }).count(), 0);
-      const all = nav.getByRole('button', { name: 'Show all Areas', exact: true }); await all.focus();
-      await page.screenshot({ path: join(artifacts, `areas-active-${width}.png`) });
-      await page.keyboard.press('Enter');
       const empty = nav.getByRole('button', { name: 'Empty Area 0', exact: true }); await empty.waitFor();
       assert.equal(await empty.getAttribute('aria-expanded'), 'false');
+      const status = nav.getByRole('combobox', { name: 'Project status' });
+      assert.equal(await status.inputValue(), 'active');
+      await empty.focus();
+      await page.screenshot({ path: join(artifacts, `areas-active-${width}.png`) });
+      await page.keyboard.press('Enter');
+      assert.equal(await empty.getAttribute('aria-expanded'), 'true');
+      await status.selectOption('done');
+      await nav.getByText('No matching projects').waitFor();
+      assert.equal(await nav.getByRole('button', { name: /^Empty Area \d$/ }).count(), 8);
     } else if (mode === 'folder-complete') {
       await nav.getByRole('button', { name: 'Empty project', exact: true }).waitFor();
       await nav.getByRole('button', { name: 'Attachment-only project', exact: true }).waitFor();

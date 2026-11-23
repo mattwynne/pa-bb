@@ -338,7 +338,6 @@ function GtdPanel() {
     if (group) group.push(thread);
     else missing.push(thread);
   }
-  const shownAreas = inventory.areas.filter(area => dragged || status === 'all' || byArea.has(area.id) || byAreaThread.get(area.id)?.length);
   const projectRow = (p: Project) => {
     const linked = byProject.get(p.id) ?? [];
     const projectNote = p.id.endsWith('.md');
@@ -375,7 +374,7 @@ function GtdPanel() {
       {(inventory.error || linkError) && <p role="alert">{inventory.error || 'Thread associations could not load. Refresh before making changes.'}</p>}
       {inventory.partial && <p role="status">Partial inventory. {inventory.directoryGap ? 'Obsidian cannot enumerate directories: empty or attachment-only project/Area folders may be omitted. Inventory totals are unconfirmed.' : 'Some projects or areas may be unavailable.'}</p>}
       {!inventory.error && !inventory.loading && !linksLoading && !linkError && <>
-        {shownAreas.map(area => {
+        {inventory.areas.map(area => {
           const droppedProject = !busy && eligibleIds.has(area.id) ? dragged : undefined;
           return <Group key={area.id} title={area.title} initialOpen={byArea.has(area.id) || !!byAreaThread.get(area.id)?.length} headingProps={{
             className: dropArea === area.id ? 'gtd-drop-target' : '',
@@ -405,7 +404,6 @@ function GtdPanel() {
         })}
         {!!unassignedProjects.length && <Group title="Unassigned area">{unassignedProjects.map(projectRow)}</Group>}
         {!visible.length && <p className="gtd-muted">No matching projects</p>}
-        {status !== 'all' && shownAreas.length < inventory.areas.length && <button onClick={() => setStatus('all')}>Show all Areas</button>}
         <Group title={`Unassigned threads (${unassigned.length})`} initialOpen={false}>{unassigned.map(row)}</Group>
         {!!missingAreas.length && <Group title={`Unavailable Area (${missingAreas.length})`}>{missingAreas.map(row)}</Group>}
         {!!missing.length && <Group title={`Unavailable project (${missing.length})`}><p className="gtd-muted">Missing, deleted, or from another source. Use the thread menu to reassign or unlink.</p>{missing.map(row)}</Group>}

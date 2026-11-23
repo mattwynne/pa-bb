@@ -75,7 +75,7 @@ Follow every `nextCursor` with the same filter (or omit the filter on continuati
 
 ## Sidebar and thread associations
 
-Open **Personal GTD projects** from BB’s sidebar navigation. The browser shows collapsible Area → Project → Thread groups and defaults to active projects. Filtered project views show only Areas with matching projects, with one empty state if none match. **All** (also reached via **Show all Areas**) retains every top-level Area; Areas without projects start collapsed. Linked threads support BB’s ordinary thread menus, links, modifier-clicks and split drags.
+Open **Personal GTD projects** from BB’s sidebar navigation. The browser shows collapsible Area → Project → Thread groups and defaults to active projects. Every top-level Area is visible in each project status view. Areas with no matching projects or directly linked threads start collapsed. Linked threads support BB’s ordinary thread menus, links, modifier-clicks and split drags.
 
 BB’s **Automatic** thread-list setting uses its bundled list when no other replacement is installed. If you previously selected GTD explicitly as the thread-list provider, choose **Thread list (built-in)** under **Settings → Appearance → Sidebar** to restore it. BB keeps that saved provider choice until you change it.
 
