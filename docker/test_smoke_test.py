@@ -38,6 +38,9 @@ class FakeDocker:
                         for key, value in self.expected.items()]
         self.search = {'version': 1, 'available': True, 'matches': 2}
         self.search_failure = False
+        self.email = {'version': 1, 'available': True, 'messages': 1, 'isolated': True, 'read': True}
+        self.email_failure = False
+        self.timeouts = []
         self.failures = {}
         self.after_write = {}
 
@@ -47,9 +50,10 @@ class FakeDocker:
 
     def run(self, command, *, capture_output, text, errors, timeout):
         assert command[0] == 'docker'
-        assert capture_output and text and errors == 'replace' and 0 < timeout <= 70
+        assert capture_output and text and errors == 'replace' and 0 < timeout <= 90
         args = command[1:]
         self.commands.append(args)
+        self.timeouts.append(timeout)
         key = tuple(args[:2])
         if key in self.failures:
             return self.fail(self.failures[key], command)
@@ -80,6 +84,10 @@ class FakeDocker:
                 output = json.dumps(self.expected)
             elif args[4] == smoke_test.CLI:
                 output = json.dumps({'plugins': self.plugins})
+            elif args[-1] == '/opt/pa-bb/docker/email-smoke.mjs':
+                if self.email_failure:
+                    return self.fail(True, command)
+                output = json.dumps(self.email)
             else:
                 if self.search_failure:
                     return self.fail(True, command)
@@ -159,6 +167,36 @@ class SmokeTestTests(unittest.TestCase):
                       and '--import' in c)
         self.assertIn('/opt/pa-bb/plugins/icloud/node_modules/tsx/dist/loader.mjs', search)
         self.assertIn('--input-type=module', search)
+        self.assert_cleaned()
+
+    def test_email_archive_read_import_and_isolation_are_required(self):
+        variants = [None, 'PRIVATE_OUTPUT SECRET_TOKEN',
+                    dict(self.docker.email, available=False),
+                    dict(self.docker.email, messages=0),
+                    dict(self.docker.email, messages=2),
+                    dict(self.docker.email, messages=True),
+                    dict(self.docker.email, version=2),
+                    dict(self.docker.email, isolated=False),
+                    dict(self.docker.email, read=False),
+                    dict(self.docker.email, available=1)]
+        for result in variants:
+            with self.subTest(result=result):
+                self.docker.email = result
+                self.assert_failure('Email-archive capability')
+                self.assertEqual(self.docker.resources, {})
+
+    def test_email_command_failure_is_safe_and_cleans_up(self):
+        self.docker.email_failure = True
+        self.assert_failure('Email-archive capability')
+        self.assert_cleaned()
+
+    def test_email_check_has_a_bounded_budget_within_the_shared_deadline(self):
+        self.smoke.timeout = 120
+        self.assertEqual(self.smoke.run(), 2)
+        index = next(i for i, c in enumerate(self.docker.commands)
+                     if c[-1] == '/opt/pa-bb/docker/email-smoke.mjs')
+        self.assertIn('--experimental-transform-types', self.docker.commands[index])
+        self.assertEqual(self.docker.timeouts[index], 90)
         self.assert_cleaned()
 
     def test_extra_stock_plugins_are_allowed(self):

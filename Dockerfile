@@ -2,7 +2,7 @@
 FROM node:24-bookworm-slim
 
 # Keep application pins aligned with Ansible (checked by docker/test_dockerfile.py).
-ARG BB_VERSION=0.49.0
+ARG BB_VERSION=0.50.1
 ARG PI_VERSION=1.5.0
 ARG CODEX_VERSION=0.163.0
 ARG CLAUDE_VERSION=2.1.319
@@ -10,6 +10,10 @@ ARG RCLONE_VERSION=1.76.0
 ARG RCLONE_ARCHIVE_SHA256=b00f00b3266c3764413afe599d3ec316f6f43b3e0ea8a0bc1d186d2133e46df7
 ARG RCLONE_BINARY_SHA256=62e4d3e5432f2c685f1834b8bb342058ff0611c99d048aeb44bb8d8fd611527e
 ARG NPM_VERSION=11.21.3
+ARG MSGVAULT_VERSION=0.26.0
+ARG MSGVAULT_ARCHIVE_SHA256=10d7acc254413cb82c2c50079c37bec5e969bd808ec87bf7a3cfb70fccb5a4c1
+ARG MSGVAULT_BINARY_SHA256=bd494e43f076b8576abddb7882e6d29461567d4693837683d7d6c114294ee6ce
+ARG MSGVAULT_LICENSE_SHA256=6c53c20cce3570ab804556dc5ae92ca9a0dcc429b41b28c5fd0c3cc1910fe3be
 ARG RIPGREP_VERSION=14.1.0
 ARG RIPGREP_ARCHIVE_SHA256=f84757b07f425fe5cf11d87df6644691c644a5cd2348a2c670894272999d3ba7
 ARG RIPGREP_BINARY_SHA256=c2feed7a376d3754958fa6235a6ef88a74bcabc9b0cfccacbd48939b5f87860d
@@ -60,6 +64,18 @@ RUN set -eu; \
     install -m 0755 /tmp/uv-x86_64-unknown-linux-gnu/uv /tmp/uv-x86_64-unknown-linux-gnu/uvx /usr/local/bin/; \
     rm -rf /tmp/rclone /tmp/rclone.zip /tmp/uv.tar.gz /tmp/uv-x86_64-unknown-linux-gnu; \
     env -u RCLONE_VERSION rclone version; uv --version; uvx --version
+
+RUN set -eu; \
+    curl -fsSL "https://github.com/kenn-io/msgvault/releases/download/v${MSGVAULT_VERSION}/msgvault_${MSGVAULT_VERSION}_linux_amd64.tar.gz" -o /tmp/msgvault.tar.gz; \
+    echo "$MSGVAULT_ARCHIVE_SHA256  /tmp/msgvault.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/msgvault.tar.gz -C /tmp msgvault; \
+    echo "$MSGVAULT_BINARY_SHA256  /tmp/msgvault" | sha256sum -c -; \
+    install -m 0755 /tmp/msgvault /usr/local/bin/msgvault; \
+    curl -fsSL "https://raw.githubusercontent.com/kenn-io/msgvault/v${MSGVAULT_VERSION}/LICENSE" -o /tmp/msgvault-LICENSE; \
+    echo "$MSGVAULT_LICENSE_SHA256  /tmp/msgvault-LICENSE" | sha256sum -c -; \
+    install -D -m 0644 /tmp/msgvault-LICENSE /usr/local/share/licenses/msgvault/LICENSE; \
+    rm -f /tmp/msgvault.tar.gz /tmp/msgvault /tmp/msgvault-LICENSE; \
+    env -u MSGVAULT_VERSION msgvault version
 
 ENV HOME=/home/bb \
     PATH=/home/bb/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

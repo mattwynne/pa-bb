@@ -152,11 +152,11 @@ class SmokeTest:
     def wait_and_verify(self):
         deadline = time.monotonic() + self.timeout
 
-        def remaining():
+        def remaining(maximum=30):
             seconds = deadline - time.monotonic()
             if seconds <= 0:
                 raise SmokeError('Timed out waiting for healthy, registered startup.')
-            return min(30, seconds)
+            return min(maximum, seconds)
 
         while True:
             state = self.decode(self.docker('container', 'inspect', '--format',
@@ -212,6 +212,17 @@ class SmokeTest:
         if (not isinstance(search, dict) or search.get('version') != 1
                 or search.get('available') is not True or search.get('matches') != 2):
             raise SmokeError('Note-search capability or generated matches not confirmed.')
+        try:
+            email = self.decode(self.docker('container', 'exec', self.container,
+                'node', '--experimental-transform-types', '/opt/pa-bb/docker/email-smoke.mjs',
+                timeout=remaining(90)).stdout)
+        except SmokeError:
+            raise SmokeError('Email-archive capability check failed.') from None
+        if (not isinstance(email, dict) or email.get('version') != 1
+                or email.get('available') is not True or type(email.get('messages')) is not int
+                or email.get('messages') != 1 or email.get('isolated') is not True
+                or email.get('read') is not True):
+            raise SmokeError('Email-archive capability or generated round trip not confirmed.')
         remaining()
         return len(expected)
 
@@ -281,7 +292,7 @@ def main(argv=None):
     except SmokeError as error:
         print(f'Smoke test failed: {error}', file=sys.stderr)
         return 1
-    print(f'Smoke test passed: healthy, registration complete, {count} expected plugins verified; note search verified; cleaned up.')
+    print(f'Smoke test passed: healthy, registration complete, {count} expected plugins verified; note search and email archive verified; cleaned up.')
     return 0
 
 

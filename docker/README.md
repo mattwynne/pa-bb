@@ -40,8 +40,11 @@ health and completed startup registration, then verifies each expected plugin's
 source and enabled state through BB's CLI. It also runs the note-search plugin's
 capability probe and searches generated visible and hidden Markdown files, even
 when a generated `.gitignore` excludes them. A missing match, unsupported ripgrep
-or failed search blocks publication. It creates and removes its own container and
-home volume, without publishing a port or using existing BB state. It does not
+or failed search blocks publication. The Email check verifies that running BB
+meets the plugin's minimum version, imports the same generated email twice through
+the real MsgVault adapter, searches and reads it, and checks that a separate archive
+stays empty. No mail provider is connected. It creates and removes its own container
+and home volume, without publishing a port or using existing BB state. It does not
 verify provider sign-in or browser automation.
 
 Trivy scans OS and application packages, including vulnerabilities without fixes.
@@ -74,7 +77,9 @@ Follow the state-preserving update steps below before replacing a container.
 
 The image starts from `node:24-bookworm-slim` and installs dependencies directly
 in the Dockerfile—no Ansible or sudo. It includes stock BB, Pi, Codex, native
-Claude Code, uv/uvx, rclone, ripgrep, Chrome and the native build toolchain.
+Claude Code, uv/uvx, rclone, ripgrep, MsgVault, Chrome and the native build toolchain.
+BB is pinned to 0.50.1 and MsgVault to 0.26.0, satisfying Email's host requirements.
+MsgVault's upstream archive, executable and license are checksum-verified.
 Hermes is not bundled. The base image's npm is pinned to a patched release, and
 rclone 1.76.0 and ripgrep 14.1.0 use independently verified archive and binary
 checksums. The upstream static ripgrep binary satisfies note search's 14+ requirement;
@@ -114,6 +119,10 @@ Runtime tools in that home follow BB's native update controls, just as with
 Ansible: rebuilding the image does not overwrite a persistent home's installed
 tools. Rebuild/recreate to update OS dependencies and `/opt/pa-bb` plugin source;
 use native controls for existing home tools (or a new volume for a clean install).
+An existing home can still run an older BB even after the image is updated. Email
+requires BB 0.50.1 or later; use BB's native update controls for that installation,
+with backups and the pause/drain precautions below. Do not discard its data volume
+to force an upgrade.
 In particular, older volumes can still contain a previously bundled Hermes
 installation; a new image does not remove its tools, credentials or data. Back up
 and inspect an existing home before changing it—do not discard the volume merely
@@ -127,6 +136,7 @@ resume failed/user-paused sync folders.
 
 ```sh
 python3 -m unittest discover -s docker -p 'test_*.py'
+node --test docker/test_email_smoke.mjs
 # Checks a new disposable installation, not the existing pa-bb container:
 python3 docker/smoke_test.py pa-bb
 docker inspect --format '{{.State.Health.Status}}' pa-bb

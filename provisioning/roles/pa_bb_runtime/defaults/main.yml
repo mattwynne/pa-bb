@@ -11,7 +11,7 @@ pa_bb_cli_argv: ['{{ pa_bb_node }}', '{{ pa_bb_prefix }}/lib/node_modules/bb-app
 pa_bb_user_path: '{{ pa_bb_prefix }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 # Bootstrap only: subsequent updates belong to the native runtime controls.
 pa_bb_pi_seed: '1.5.0'
-pa_bb_bb_seed: '0.49.0'
+pa_bb_bb_seed: '0.50.1'
 pa_bb_codex_seed: '0.163.0'
 pa_bb_claude_seed: '2.1.319'
 pa_bb_hermes_seed: '0.23.3'

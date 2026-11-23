@@ -1,6 +1,7 @@
 """Keep inline Docker pins aligned with provisioning, without requiring Ansible."""
 from pathlib import Path
 import os
+import json
 import re
 import subprocess
 import tempfile
@@ -41,6 +42,30 @@ class DockerfileTests(unittest.TestCase):
         for name in args:
             with self.subTest(argument=name):
                 self.assertRegex(DOCKERFILE, r'\$(?:' + name + r'\b|\{' + name + r'\})')
+
+    def test_host_pin_meets_every_included_plugins_declared_minimum(self):
+        host = tuple(map(int, re.search(r'^ARG BB_VERSION=(\S+)$', DOCKERFILE, re.MULTILINE)[1].split('.')))
+        for manifest in (ROOT / 'plugins').glob('*/package.json'):
+            package = json.loads(manifest.read_text())
+            if not isinstance(package.get('bb'), dict):
+                continue
+            with self.subTest(plugin=manifest.parent.name):
+                required = package.get('engines', {}).get('bb', '')
+                minimum = re.fullmatch(r'>=(\d+)\.(\d+)(?:\.(\d+))?', required)
+                self.assertIsNotNone(minimum, 'Handle the declared BB range explicitly: ' + required)
+                self.assertGreaterEqual(host, tuple(int(part or 0) for part in minimum.groups()))
+
+    def test_msgvault_release_integrity_license_and_supported_line(self):
+        args = dict(re.findall(r'^ARG (\w+)=(\S+)$', DOCKERFILE, re.MULTILINE))
+        self.assertRegex(args['MSGVAULT_VERSION'], r'^0\.26\.\d+$')
+        for key in ['MSGVAULT_ARCHIVE_SHA256', 'MSGVAULT_BINARY_SHA256', 'MSGVAULT_LICENSE_SHA256']:
+            self.assertRegex(args[key], r'^[0-9a-f]{64}$')
+        self.assertIn('msgvault_${MSGVAULT_VERSION}_linux_amd64.tar.gz', DOCKERFILE)
+        self.assertIn('"$MSGVAULT_ARCHIVE_SHA256  /tmp/msgvault.tar.gz" | sha256sum -c -', DOCKERFILE)
+        self.assertIn('"$MSGVAULT_BINARY_SHA256  /tmp/msgvault" | sha256sum -c -', DOCKERFILE)
+        self.assertIn('/usr/local/bin/msgvault;', DOCKERFILE)
+        self.assertIn('"$MSGVAULT_LICENSE_SHA256  /tmp/msgvault-LICENSE" | sha256sum -c -', DOCKERFILE)
+        self.assertIn('/usr/local/share/licenses/msgvault/LICENSE', DOCKERFILE)
 
     def test_run_commands_have_valid_shell_syntax(self):
         unfolded = DOCKERFILE.replace('\\\n', '')

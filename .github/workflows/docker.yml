@@ -26,7 +26,9 @@ jobs:
           persist-credentials: false
 
       - name: Test Docker pins and startup logic
-        run: python3 -m unittest discover -s docker -p 'test_*.py'
+        run: |
+          python3 -m unittest discover -s docker -p 'test_*.py'
+          node --test docker/test_email_smoke.mjs
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4

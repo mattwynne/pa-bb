@@ -18,7 +18,7 @@ For a new installation, use the [Docker quick start](#docker-quick-start) or [An
 | --- | --- | --- |
 | [Google Workspace](plugins/google-workspace/README.md) | Use Drive, Docs, Sheets, Calendar and Gmail across connected Google accounts. Requested writes run without a second PA approval prompt. | Your own Google Web OAuth client and `uvx` on the BB service's PATH. [Setup guide](plugins/google-workspace/README.md#setup). |
 | [Fastmail](plugins/fastmail/README.md) | Use Fastmail's mail, calendar and contacts tools. Available actions depend on the access you grant, including write/send access if selected. An optional API token enables Inbox and label updates. | One Fastmail account. [Setup guide](plugins/fastmail/docs/setup.md). |
-| [Email](plugins/email/README.md) | Index chosen mail accounts into a private MsgVault archive on the BB server and search archived email. | Reuses Workspace Gmail and Fastmail JMAP connections. Requires MsgVault on the server. |
+| [Email](plugins/email/README.md) | Index chosen mail accounts into a private MsgVault archive on the BB server and search archived email. | Reuses Workspace Gmail and Fastmail JMAP connections. Included in Docker; otherwise requires MsgVault 0.26 and BB 0.50.1 or later on the server. |
 | [iCloud Drive](plugins/icloud/README.md) | Sync selected folders in both directions between iCloud Drive and the BB host. | A supported Linux host with rclone. [Setup and recovery guide](plugins/icloud/docs/setup.md). |
 | [Obsidian](plugins/obsidian/README.md) | Search, read, create and edit Markdown notes, properties and tasks across connected vaults. No Obsidian app or Mac relay required. | The iCloud plugin, an initialized synced vault, and the [host search requirements](provisioning/README.md). [Setup guide](plugins/obsidian/docs/setup.md). |
 
@@ -58,7 +58,7 @@ For remote access, use an SSH tunnel or an authenticated TLS reverse proxy.
 
 The [`Dockerfile`](Dockerfile) uses `node:24-bookworm-slim` and installs dependencies
 directly—no Ansible or systemd. It includes BB, Pi, Codex, Claude Code,
-uv/uvx, rclone, ripgrep and Chrome. Startup registers the PA plugins and official
+uv/uvx, rclone, ripgrep, MsgVault and Chrome. Startup registers the PA plugins and official
 Browser Automation, so **skip step 2** and [connect your services](#3-connect-your-services).
 No accounts are connected and no sync is enabled automatically.
 

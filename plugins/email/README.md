@@ -4,7 +4,7 @@ Search mail from selected Google Workspace Gmail accounts and the authenticated 
 
 ## Setup
 
-1. Install [MsgVault 0.26](https://github.com/kenn-io/msgvault/releases) on the BB server. The `msgvault` executable must be on the BB service’s PATH. This integration is tested with 0.26.0 and requires BB 0.50.1 or later.
+1. The [Docker image](../../docker/README.md) includes BB 0.50.1 and MsgVault 0.26.0. For another installation, install [MsgVault 0.26](https://github.com/kenn-io/msgvault/releases) on the BB server and use BB 0.50.1 or later. The `msgvault` executable must be on the BB service’s PATH. Existing Docker homes may still need a BB update through its native controls; replacing the image does not replace the home's installed BB. This integration is tested with MsgVault 0.26.0.
 2. Update the Google Workspace and Fastmail plugins to versions that support Email indexing. For Gmail, connect the Google account in [Google Workspace](../google-workspace/README.md) settings. For Fastmail, configure the [JMAP mail API token](../fastmail/docs/setup.md) in Fastmail Configuration. The Fastmail sending aliases and its MCP connection identify a different surface and cannot authorize this archive.
 3. Install Email and open its settings in BB. Choose **Index account** for each mailbox to copy. BB starts a scan and continues in the background in bounded batches. Use **Scan now** to request another pass or resume from the saved position.
 
