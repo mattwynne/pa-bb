@@ -2,11 +2,12 @@
   "compilerOptions": {
     "target": "ES2023",
     "module": "NodeNext",
+    "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
     "types": ["node"],
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "*.tsx"]
 }

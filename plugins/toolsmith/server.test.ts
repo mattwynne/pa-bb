@@ -8,24 +8,29 @@ function host({ projectId = "proj_test", callerId = undefined as string | undefi
   alive = new Set<string>(["thr_a", "thr_b"]), store = new Map<string, unknown>() } = {}) {
   const logs: string[] = [];
   const reads: object[] = [];
+  let listWork: (() => Promise<unknown>) | undefined;
   let command: Parameters<BbPluginApi["cli"]["register"]>[0] | undefined;
   toolsmith({
     settings: { define: () => ({ get: async () => ({ project: projectId }) }) },
     cli: { register: (registration: typeof command) => { command = registration; } },
+    rpc: { register: (_contract: unknown, handlers: { listWork: (input: object, context: { experimental_signal: AbortSignal }) => Promise<unknown> }) => {
+      listWork = () => handlers.listWork({}, { experimental_signal: new AbortController().signal });
+    } },
     storage: { kv: { get: async (key: string) => store.get(key), set: async (key: string, value: unknown) => { store.set(key, structuredClone(value)); } } },
     log: { warn: (message: string) => logs.push(message) },
     sdk: {
       projects: { get: async () => project },
       threads: { list: async (input: { offset: number; threadIds?: string[] }) => {
-        if (input.threadIds) return input.threadIds.filter((id) => alive.has(id)).map((id) => ({ id, status: "idle", activity: {} }));
+        if (input.threadIds) return input.threadIds.filter((id) => alive.has(id)).map((id) => ({ id, title: `Thread ${id}`, status: "idle", activity: {} }));
         reads.push(input); return list(input);
       } },
     },
   } as unknown as BbPluginApi);
   assert.ok(command);
+  assert.ok(listWork);
   const registered = command;
   const as = (threadId: string | undefined, ...args: string[]) => registered.run(args, { threadId, signal: new AbortController().signal });
-  return { logs, reads, alive, store, as, run: () => as(callerId, "status", "--json") };
+  return { logs, reads, alive, store, as, listWork, run: () => as(callerId, "status", "--json") };
 }
 
 const idle = { id: "thr_idle", status: "idle", activity: {} };
@@ -101,10 +106,48 @@ test("claims are exclusive per plugin, parallel across plugins, and idempotent f
 });
 
 test("a multi-plugin claim is all-or-nothing", async () => {
-  const { as, store } = host();
+  const { as, listWork } = host();
   await as("thr_a", "claim", "gtd");
   assert.equal((await parse(as("thr_b", "claim", "icloud", "gtd", "--json"))).error.code, "claimed");
-  assert.deepEqual(Object.keys(store.get("claims-v1") as object), ["gtd"]);
+  assert.deepEqual(await listWork(), {
+    active: [{ thread: "thr_a", title: "Thread thr_a", plugins: ["gtd"] }],
+    queue: [{ thread: "thr_b", title: "Thread thr_b", plugins: ["gtd", "icloud"], ready: false }],
+  });
+});
+
+test("the queue preserves request order on retry, marks released plugins ready and drops dead threads", async () => {
+  const { as, alive, listWork, store } = host({ alive: new Set(["thr_a", "thr_b", "thr_c"]) });
+  store.set("claims-v1", { gtd: { thread: "thr_a", at: "2026-11-23" } });
+  await as("thr_b", "claim", "gtd", "icloud");
+  await as("thr_c", "claim", "gtd");
+  await as("thr_b", "claim", "icloud", "gtd");
+  await as("thr_a", "release");
+  const ready = await listWork() as { queue: { thread: string; ready: boolean }[] };
+  assert.deepEqual(ready.queue.map(({ thread, ready }) => [thread, ready]), [["thr_b", true], ["thr_c", true]]);
+  await as("thr_b", "claim", "gtd", "icloud");
+  alive.delete("thr_c");
+  assert.deepEqual(await listWork(), {
+    active: [{ thread: "thr_b", title: "Thread thr_b", plugins: ["gtd", "icloud"] }],
+    queue: [],
+  });
+});
+
+test("release cancels that thread's queued request and preserves the owner's claim", async () => {
+  const { as, listWork } = host();
+  await as("thr_a", "claim", "gtd");
+  await as("thr_b", "claim", "gtd");
+  await as("thr_b", "release");
+  assert.deepEqual(await listWork(), {
+    active: [{ thread: "thr_a", title: "Thread thr_a", plugins: ["gtd"] }],
+    queue: [],
+  });
+});
+
+test("the panel read logs a bounded diagnostic and returns a safe error", async () => {
+  const { listWork, store, logs } = host();
+  store.get = () => { throw new Error("PRIVATE_CONTENT and SECRET_TOKEN"); };
+  await assert.rejects(listWork(), { message: "Could not load Toolsmith threads." });
+  assert.deepEqual(logs, ["listWork ownership read failed"]);
 });
 
 test("concurrent claims for one plugin have a single winner", async () => {

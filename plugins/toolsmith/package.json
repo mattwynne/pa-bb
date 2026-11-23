@@ -10,8 +10,9 @@
   "bb": {
     "name": "Toolsmith [Experimental]",
     "description": "Turn a confirmed PA capability gap into a visible BB development thread.",
-    "branding": { "icon": "Wrench" },
+    "branding": { "icon": "Toolbox" },
     "server": "./server.ts",
+    "app": "./app.tsx",
     "skills": ["skills"]
   },
   "scripts": {
@@ -22,6 +23,8 @@
   "devDependencies": {
     "@get-bb/plugin-sdk": "0.6.132",
     "@types/node": "^22.0.0",
+    "@types/react": "^19.2.7",
     "typescript": "^5.7.0"
-  }
+  },
+  "dependencies": { "zod": "4.6.7" }
 }
