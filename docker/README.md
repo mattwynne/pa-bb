@@ -23,6 +23,34 @@ and enable sync through BB after startup. Codex sign-in, for example:
 docker exec -it pa-bb /home/bb/.local/bin/codex login --device-auth
 ```
 
+## CI images on GHCR
+
+[Docker CI](../.github/workflows/docker.yml) runs the Docker unit tests and builds
+**linux/amd64** images on pull requests and pushes to `main`. Pull requests never
+log in to GHCR or publish images. Successful builds on `main` publish:
+
+- `ghcr.io/mattwynne/pa-bb:edge` — the most recently published build from `main`.
+- `ghcr.io/mattwynne/pa-bb:sha-<full-commit-sha>` — a commit-specific tag.
+
+These are development builds, not versioned releases. Tag pushes do not trigger
+this workflow, and it does not publish `latest`. CI checks the build and startup
+unit tests, not live provider sign-in or browser automation.
+
+Publishing uses the workflow's `GITHUB_TOKEN`; no registry password or personal
+access token is needed. After the first publication, a maintainer must set the
+`pa-bb` package's visibility to **Public** in GitHub's package settings. A public
+repository does not make a new GHCR package public automatically.
+
+Once public, anyone can pull without signing in:
+
+```sh
+docker pull ghcr.io/mattwynne/pa-bb:edge
+```
+
+Use that image name instead of `pa-bb` in the run command above. Prefer a
+commit-specific tag or image digest when you need to keep a deployment fixed.
+Follow the state-preserving update steps below before replacing a container.
+
 ## What it includes
 
 The image starts from `node:24-bookworm-slim` and installs dependencies directly
