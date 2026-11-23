@@ -50,7 +50,31 @@ records operation metadata and syncs both parent directories. An interrupted
 two-name state can leave both names present. Receipt inspection checks the
 filesystem evidence without replaying either mutation.
 
-Link repairs are **independent CAS saves**, not one atomic transaction. A concurrently changed note is preserved and reported as not saved. Cancellation/restart leaves unstarted repairs unapplied. Inspect `obsidian_move_status({vaultId, operationId})` after any lost reply: it checks the physical receipt and individual save receipts without replay. Outcomes distinguish `moved_supported_links_updated`, `moved_links_partial`, `not_moved` and `uncertain`; none proves cloud/device delivery. Unknown outcomes must not be retried.
+GTD plans can also move a standalone project, a landing note with its same-name
+support tree, or a directory owned by its immediate `README.md`. Use the
+project mode, optional vault root and operation ID from the GTD plan. Obsidian
+checks note and attachment links in the selected vault. Relative links are
+rebased only where their original targets require it.
+
+Folder moves require a direct local mirror on Linux and system Python 3 with
+`ctypes` and libc `renameat2`. The source and destination must share a
+filesystem supporting `RENAME_NOREPLACE`. The directory rename preserves the
+tree, including non-Markdown files and empty subdirectories. For a paired
+project, the landing note first acquires a hardlink at the destination. The
+original landing name is removed after the verified folder move. An
+interruption can leave both landing names and the folder at either endpoint.
+`project_move_partial` reports the observed locations under `components`.
+An `uncertain` outcome means the filesystem evidence is inconclusive.
+
+Recovery starts with the original operation ID. Inspect the landing and folder
+evidence and resolve any collision or duplicate in the vault before making
+another move. Obsidian can recognize completion after manual reconciliation
+when the original landing inode and hash and the recorded tree are verified at
+their destinations. Repairs that were never entered remain unapplied. Use
+their reported paths to inspect and correct links individually. A receipt check
+does not resume a move or replay link writes.
+
+Link repairs are **independent CAS saves**, not one atomic transaction. A concurrently changed note is preserved and reported as not saved. Cancellation/restart leaves unstarted repairs unapplied. Inspect `obsidian_move_status({vaultId, operationId})` after any lost reply: it checks the physical receipt and individual save receipts without replay. Outcomes include `moved_supported_links_updated`, `moved_links_partial`, `project_move_partial`, `not_moved` and `uncertain`. GTD moves also check the resulting path inventory and note hashes against the preflight and repairs. An observed concurrent change leaves verification incomplete. Receipts reflect local evidence. Inspect an unknown outcome before any further write.
 
 Obsidian tracks up to 20 moves. Legacy recovery records stay in iCloud.
 

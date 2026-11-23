@@ -15,7 +15,8 @@ const base = {
 };
 const record = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('save'), previousHash: hash.nullable(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict(),
-  z.object({ ...base, kind: z.literal('move'), destination: base.path, outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']) }).strict(),
+  z.object({ ...base, kind: z.literal('move'), destination: base.path,
+    tree: z.object({ owner: z.enum(['paired', 'folder']), from: base.path, to: base.path, inode: identity, fingerprint: hash }).strict().optional(), outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']) }).strict(),
   z.object({ ...base, kind: z.literal('resolution'), choice: z.enum(['keep_local', 'accept_incoming', 'replace']), outcome: z.enum(['saved_locally_pending_sync', 'adopted_content', 'not_saved', 'uncertain']) }).strict(),
 ]);
 export type LocalReceipt = z.infer<typeof record>;
@@ -52,8 +53,10 @@ export class LocalReceipts {
   async begin(row: LocalReceipt, paths: string[]) {
     const rows = await this.load();
     if (rows.some(r => r.operationId === row.operationId)) throw new VaultError('operation_reused');
+    const overlaps = (a: string, b: string) => a === b || a.startsWith(b + '/') || b.startsWith(a + '/');
     if (rows.some(r => r.mirrorId === row.mirrorId && r.outcome === 'uncertain' &&
-      (paths.includes(r.path) || (r.kind === 'move' && paths.includes(r.destination))))) {
+      [r.path, ...(r.kind === 'move' ? [r.destination, ...(r.tree ? [r.tree.from, r.tree.to] : [])] : [])]
+        .some(previous => paths.some(path => overlaps(path, previous))))) {
       throw new VaultError('uncertain', 'Inspect the unresolved local operation before changing these notes.');
     }
     const retained = rows.filter(r => r.outcome === 'uncertain' || Date.now() - Date.parse(r.at) < retention);

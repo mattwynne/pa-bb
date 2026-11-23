@@ -1,12 +1,12 @@
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
+import { createFakePluginHost, makeThreadResponse } from '@get-bb/plugin-sdk/testing';
 import { experimental_PluginRpcCallError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { plugin } from '../server.ts';
 import { rpcContract, type InventoryBatchRequest } from '../contract.ts';
@@ -1051,4 +1051,196 @@ test('an Obsidian archive appears in the connected GTD Done inventory', async t 
   });
   assert.deepEqual(after.done, [destination]);
   assert.deepEqual(after.active, []);
+});
+
+const example = 'Projects/Active/Example';
+const deferred = 'Projects/Deferred/Example';
+const nested = '/Research/Notes.md';
+const bytes = Buffer.from([0, 33, 128, 255]);
+
+async function projectMoveFixture(t: TestContext, folderOwned = false, scope = '') {
+  const inVault = (path: string) => scope ? scope + '/' + path : path;
+  const sourceId = inVault(example) + (folderOwned ? '/' : '.md');
+  const sourceNote = inVault(example) + (folderOwned ? '/README.md' : '.md');
+  const destinationId = inVault(deferred) + (folderOwned ? '/' : '.md');
+  const destinationNote = inVault(deferred) + (folderOwned ? '/README.md' : '.md');
+  const f = await fixture(t, 'ready', async root => {
+    for (const path of ['.obsidian', 'Areas', 'Projects/Deferred', example + '/Research/Empty']) await mkdir(join(root, inVault(path)), { recursive: true });
+    await writeFile(join(root, inVault('Areas/Other.md')), '# Section\n');
+    await writeFile(join(root, inVault(example + '/Research/Scan.bin')), bytes);
+    const ownNote = folderOwned ? './Research/Notes.md' : './Example/Research/Notes.md';
+    const area = folderOwned ? '../../../Areas/Other.md' : '../../Areas/Other.md';
+    await writeFile(join(root, sourceNote), `[research](${ownNote}#Heading "source")\n[elsewhere](${area}#Section)\n[static](./Stay.md)\n`);
+    await writeFile(join(root, inVault(folderOwned ? example + '/Stay.md' : 'Projects/Active/Stay.md')), 'Present');
+    const landing = folderOwned ? '../README.md' : '../../Example.md';
+    await writeFile(join(root, inVault(example + nested)), `# Heading\n[landing](${landing})\n![[Projects/Active/Example/Research/Scan.bin]]\n[[#Heading]]\n`);
+    if (scope) await writeFile(join(root, 'Outside.md'), '[[Projects/Active/Example]]');
+    await writeFile(join(root, inVault('Projects/Active/Context.md')), `[[${sourceNote.slice(scope ? scope.length + 1 : 0)}#^block|landing]] ![[${example + nested}#Heading|research]]\n[relative](Example/Research/Notes.md#Heading)\n`);
+  }, undefined, null);
+  const meta = { project: { source: 'one', id: sourceId }, other: 'retained' };
+  const gtd = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: scope ? 'one/' + scope : 'one' }, sdk: {
+    plugins: { callRpc: async (args: any) => f.harness.behavior.callRpc(args.method, args.input, gtdCaller) },
+    threads: {
+      list: async (a) => (a?.offset || a?.archived ? [] : [makeThreadResponse({ id: 'linked' })]),
+      experimental_listPluginMetadata: async () => ({ threads: [{ threadId: 'linked', metadata: structuredClone(meta) }] }),
+      getPluginMetadata: async () => structuredClone(meta),
+      updatePluginMetadata: async (a: any) => { meta.project = a.set.project; return meta; },
+    },
+  } });
+  t.after(() => gtd.harness.lifecycle.dispose());
+  await gtdPlugin(gtd.bb as unknown as Parameters<typeof gtdPlugin>[0]);
+  const call = async (tool: string, args: unknown, error = false) => {
+    const res = await gtd.harness.behavior.callAgentTool(tool, args, { threadId: 'reader' });
+    assert.ok(typeof res !== 'string');
+    const body = (res.content[0] as { text: string }).text;
+    assert.equal(!!res.isError, error, body);
+    return error ? body : JSON.parse(body);
+  };
+  const prepare = async (error = false) => {
+    const path = { vaultId: 'one', path: sourceNote };
+    const proof = await f.tool('read_note', path);
+    assert.equal(proof.editReady, true);
+    return call('gtd_prepare_project_change', { source: 'one', id: sourceId, expectedHash: proof.hash, status: 'deferred' }, error);
+  };
+  return { ...f, call, prepare, meta, sourceNote, sourceId, destinationId, destinationNote,
+    abs: (path: string) => join(f.directory, inVault(path)) };
+}
+
+for (const folderOwned of [false, true]) {
+  test(`GTD status move preserves the ${folderOwned ? 'README-owned' : 'paired'} project tree and its conversation`, async t => {
+    const f = await projectMoveFixture(t, folderOwned);
+    const plan = await f.prepare();
+    assert.equal(plan.next.tool, 'obsidian_move_note');
+    assert.equal(plan.next.input.project, folderOwned ? 'folder' : 'paired');
+    const dry = await f.tool('move_note', plan.next.input);
+    assert.equal(dry.outcome, 'link_plan_ready');
+    assert.equal(dry.movedNotes, folderOwned ? 3 : 2);
+    assert.equal(dry.operationId, plan.planId);
+    assert.deepEqual(dry.folder, { from: example, to: deferred });
+    assert.equal(dry.movedAttachments, 1);
+    const before = await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true });
+    assert.equal(before.state, 'move_not_verified');
+    assert.equal(f.meta.project.id, f.sourceId);
+    const result = await f.tool('move_note', { ...plan.next.input, dryRun: false });
+    assert.equal(result.outcome, 'moved_supported_links_updated');
+    assert.equal(result.operationId, plan.planId);
+    assert.deepEqual(await readFile(f.abs(deferred + '/Research/Scan.bin')), bytes);
+    assert.ok((await stat(f.abs(deferred + '/Research/Empty'))).isDirectory());
+    await assert.rejects(stat(f.abs(example)), { code: 'ENOENT' });
+    await assert.rejects(stat(f.abs(f.sourceNote)), { code: 'ENOENT' });
+    const context = await readFile(f.abs('Projects/Active/Context.md'), 'utf8');
+    assert.equal(context, `[[${f.destinationNote.slice(0, -3)}#^block|landing]] ![[${(deferred + nested).slice(0, -3)}#Heading|research]]\n[relative](../Deferred/Example/Research/Notes.md#Heading)\n`);
+    const research = await readFile(f.abs(deferred + nested), 'utf8');
+    assert.equal(research, `# Heading\n[landing](${folderOwned ? '../README.md' : '../../Example.md'})\n![[Projects/Deferred/Example/Research/Scan.bin]]\n[[#Heading]]\n`);
+    const landing = await readFile(f.abs(f.destinationNote), 'utf8');
+    assert.match(landing, /Other\.md#Section/);
+    assert.match(landing, /Notes\.md#Heading "source"/);
+    assert.match(landing, folderOwned ? /\(\.\/Stay\.md\)/ : /\(\.\.\/Active\/Stay\.md\)/);
+    assert.equal((await f.call('gtd_check_project_change', { planId: plan.planId })).state, 'links_pending');
+    assert.equal((await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true })).state, 'links_verified');
+    assert.deepEqual(f.meta, { project: { source: 'one', id: f.destinationId }, other: 'retained' });
+  });
+}
+
+test('project preflight refuses ambiguous nested links and a destination folder created after planning', async t => {
+  const f = await projectMoveFixture(t);
+  const plan = await f.prepare();
+  await writeFile(f.abs('Notes.md'), 'Other note');
+  await writeFile(f.abs('Ambiguous.md'), '[[Notes#Heading]]');
+  const blocked = await f.tool('move_note', plan.next.input, 'ambiguous_link');
+  assert.equal(blocked.location.path, 'Ambiguous.md');
+  await unlink(f.abs('Ambiguous.md'));
+  await writeFile(f.abs('Missing.md'), '[[Projects/Active/Example/Research/Missing#Heading]]');
+  const missing = await f.tool('move_note', plan.next.input, 'ambiguous_link');
+  assert.equal(missing.location.path, 'Missing.md');
+  await unlink(f.abs('Missing.md'));
+  await f.tool('move_note', plan.next.input);
+  await mkdir(f.abs(deferred));
+  await f.tool('move_note', { ...plan.next.input, dryRun: false }, 'conflict');
+  assert.deepEqual(await readdir(f.abs(deferred)), []);
+  assert.deepEqual(await readFile(f.abs(example + '/Research/Scan.bin')), bytes);
+  assert.equal(f.meta.project.id, f.sourceId);
+});
+
+test('interruption after the landing hardlink gives a durable partial receipt and prevents GTD relinking', async t => {
+  const f = await projectMoveFixture(t);
+  const plan = await f.prepare();
+  await f.tool('move_note', plan.next.input);
+  f.controls.onLookup = async () => {
+    if (await stat(f.abs(f.destinationNote)).catch(() => null)) {
+      f.controls.onLookup = undefined;
+      throw new Error('sentinel-private-interruption');
+    }
+  };
+  const operation = await f.tool('move_note', { ...plan.next.input, dryRun: false });
+  assert.equal(operation.outcome, 'project_move_partial');
+  assert.deepEqual(operation.components, { landing: 'both', folder: 'source' });
+  const key = { vaultId: 'one', operationId: plan.planId };
+  assert.deepEqual((await f.tool('move_status', key)).components, operation.components);
+  const pending = await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true });
+  assert.equal(pending.state, 'move_not_verified');
+  assert.equal(pending.moveOutcome, 'project_move_partial');
+  assert.equal(f.meta.project.id, f.sourceId);
+  assert.deepEqual(await readFile(f.abs(example + '/Research/Scan.bin')), bytes);
+  assert.equal((await stat(f.abs(f.sourceNote))).ino, (await stat(f.abs(f.destinationNote))).ino);
+  // Simulate an operator completing the exact filesystem move. Inspection
+  // must verify the original identities and must never replay link saves.
+  await rename(f.abs(example), f.abs(deferred));
+  await unlink(f.abs(f.sourceNote));
+  const inspected = await f.tool('move_status', key);
+  assert.equal(inspected.physical, 'moved_locally_pending_sync');
+  assert.equal(inspected.outcome, 'moved_links_partial');
+  assert.ok(inspected.repairs.length > 0 && inspected.repairs.every((r: { outcome: string }) => r.outcome === 'unstarted'));
+  const reconciled = await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true });
+  assert.equal(reconciled.state, 'move_repairs_pending');
+  assert.equal(reconciled.moveOutcome, 'moved_links_partial');
+  assert.equal(f.meta.project.id, f.destinationId);
+  assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
+});
+
+test('a nested vault resolves root-relative links inside its own scope', async t => {
+  const f = await projectMoveFixture(t, false, 'Work');
+  await writeFile(f.abs('Root Links.md'), '[[Projects/Active/Example/Research/Notes#Heading]] [link](/Projects/Active/Example.md#^block)');
+  const plan = await f.prepare();
+  assert.equal(plan.next.input.root, 'Work');
+  const result = await f.tool('move_note', { ...plan.next.input, dryRun: false });
+  assert.equal(result.outcome, 'moved_supported_links_updated');
+  assert.equal(await readFile(f.abs('Root Links.md'), 'utf8'),
+    '[[Projects/Deferred/Example/Research/Notes#Heading]] [link](Projects/Deferred/Example.md#^block)');
+  assert.equal(await readFile(join(f.directory, 'Outside.md'), 'utf8'), '[[Projects/Active/Example]]');
+  const relink = await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true });
+  assert.equal(relink.state, 'links_verified');
+  assert.equal(f.meta.project.id, f.destinationId);
+});
+
+test('a concurrent backlink edit remains visible as a failed repair', async t => {
+  const f = await projectMoveFixture(t);
+  const plan = await f.prepare();
+  f.controls.onLookup = async () => {
+    if (await stat(f.abs(deferred)).catch(() => null)) {
+      f.controls.onLookup = undefined;
+      await writeFile(f.abs('Projects/Active/Context.md'), 'Concurrent edit [[Projects/Active/Example]]');
+    }
+  };
+  const result = await f.tool('move_note', { ...plan.next.input, dryRun: false });
+  assert.equal(result.outcome, 'moved_links_partial');
+  assert.equal(result.repairs.find((repair: { path: string }) => repair.path === 'Projects/Active/Context.md').outcome, 'not_saved');
+  assert.equal(await readFile(f.abs('Projects/Active/Context.md'), 'utf8'), 'Concurrent edit [[Projects/Active/Example]]');
+  assert.equal((await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true })).moveOutcome, 'moved_links_partial');
+  assert.equal(f.meta.project.id, f.destinationId);
+});
+
+test('a concurrent backlink added to an otherwise untouched note prevents full verification', async t => {
+  const f = await projectMoveFixture(t);
+  const plan = await f.prepare();
+  f.controls.onLookup = async () => {
+    if (await stat(f.abs(deferred)).catch(() => null)) {
+      f.controls.onLookup = undefined;
+      await writeFile(f.abs('Projects/Active/Stay.md'), 'New backlink [[Projects/Active/Example]]');
+    }
+  };
+  const result = await f.tool('move_note', { ...plan.next.input, dryRun: false });
+  assert.equal(result.outcome, 'moved_links_partial');
+  assert.deepEqual(result.verification, { state: 'note_changed', paths: ['Projects/Active/Stay.md'] });
+  assert.ok(result.repairs.every((repair: { outcome: string }) => repair.outcome === 'saved'));
 });

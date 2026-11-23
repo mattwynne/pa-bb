@@ -4,9 +4,38 @@ import { constants, type Stats } from 'node:fs';
 import { open, opendir, lstat, rename, link, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { MAX_NOTE_BYTES, VaultError } from '../core/ports.ts';
 
+// Node exposes rename without RENAME_NOREPLACE. The system Python/libc
+// bridge calls it directly and has no overwrite or cross-device fallback.
+const renameNoReplace = `
+import ctypes, errno, os, sys
+rename = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
+if rename is None:
+    sys.exit(4)
+if len(sys.argv) == 1:
+    sys.exit(0)
+rename.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+rename.restype = ctypes.c_int
+if rename(3, os.fsencode(sys.argv[1]), 4, os.fsencode(sys.argv[2]), 1) != 0:
+    error = ctypes.get_errno()
+    if error in (errno.EEXIST, errno.ENOTEMPTY):
+        sys.exit(3)
+    if error in (errno.ENOSYS, errno.EINVAL, errno.EOPNOTSUPP, errno.EXDEV):
+        sys.exit(4)
+    sys.exit(5)
+`;
+function renameHelper(args: string[] = [], descriptors: number[] = []) {
+  return new Promise<number | null>((resolve, reject) => {
+    const child = spawn('python3', ['-I', '-S', '-c', renameNoReplace, ...args], {
+      stdio: ['ignore', 'ignore', 'ignore', ...descriptors],
+    });
+    child.once('error', reject);
+    child.once('close', resolve);
+  });
+}
 const NOTE_LIMITS = { bytes: MAX_NOTE_BYTES, entries: 10000, scanMs: 2000 };
 export function validateRelativePath(path: string) {
   if (path.length > 1024 || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..' || Buffer.byteLength(part) > 255)) throw new VaultError('invalid_path');
@@ -134,8 +163,8 @@ export class LocalNotes {
     } catch (e) { throw e instanceof VaultError ? e : new VaultError('conflict', 'Inspect the conflict copies in the vault directory.'); }
     finally { await parent.close(); }
   }
-  async list(root: string) {
-    const paths: string[] = []; let count = 0; const started = Date.now(); let incomplete = false; const warnings = new Set<string>();
+  async list(root: string, includeAttachments = false, scope = '') {
+    const paths: string[] = [], attachments: string[] = []; let count = 0; const started = Date.now(); let incomplete = false; const warnings = new Set<string>();
     const walk = async (folder: FileHandle, prefix: string) => {
       // Stream entries: a huge directory must not allocate an unbounded array.
       const directory = await opendir(fdPath(folder.fd), { bufferSize: 32 });
@@ -150,12 +179,23 @@ export class LocalNotes {
           catch { incomplete = true; warnings.add('unreadable_directory'); }
           finally { await child?.close(); }
         } else if (entry.isFile() && path.endsWith('.md')) { try { paths.push(validateNotePath(path)); } catch { incomplete = true; warnings.add('unsupported_path'); } }
+        else if (includeAttachments && entry.isFile()) {
+          try { attachments.push(validateRelativePath(path)); } catch { incomplete = true; warnings.add('unsupported_path'); }
+        }
       }
     };
     let folder: FileHandle | undefined;
-    try { folder = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); await walk(folder, ''); }
-    catch { throw new VaultError('unavailable'); } finally { await folder?.close(); }
-    return { paths: paths.sort(), incomplete, warnings: [...warnings] };
+    const parent = scope ? await this.parent(root, scope) : undefined;
+    try {
+      folder = await open(parent?.path ?? root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      await walk(folder, scope ? scope + '/' : '');
+      if (parent) {
+        await this.verifyParent(root, scope, parent.folder);
+        if (!identity(await folder.stat(), await lstat(parent.path))) throw new VaultError('conflict');
+      }
+    } catch { throw new VaultError('unavailable'); }
+    finally { await folder?.close(); await parent?.close(); }
+    return { paths: paths.sort(), attachments: attachments.sort(), incomplete, warnings: [...warnings] };
   }
   async searchReader(root: string | FileHandle, path: string): Promise<SearchReader> {
     const parent = await this.parent(root, path); let file: FileHandle | undefined;
@@ -343,7 +383,7 @@ export class LocalNotes {
     }
   }
 
-  async move(root: string, path: string, destination: string, expected: Observation, check: () => Promise<void>, committed: () => void) {
+  async move(root: string, path: string, destination: string, expected: Observation, check: () => Promise<void>, committed: () => void, afterLink?: () => Promise<void>) {
     const source = await this.parent(root, path);
     try {
       const target = await this.parent(root, destination);
@@ -356,6 +396,7 @@ export class LocalNotes {
         catch (error) { if ((error as NodeJS.ErrnoException)?.code === 'EEXIST') throw new VaultError('conflict'); throw error; }
         committed();
         await target.folder.sync();
+        await afterLink?.();
         await check();
         await this.verifyParent(root, path, source.folder);
         await this.verifyParent(root, destination, target.folder);
@@ -363,6 +404,105 @@ export class LocalNotes {
         if (!a || !b || a.hash !== expected.hash || b.hash !== expected.hash || !identity(a.info, expected.info) || !identity(b.info, expected.info)) throw new VaultError('uncertain');
         await unlink(source.path);
         await source.folder.sync();
+      } finally { await target.close(); }
+    } finally { await source.close(); }
+  }
+
+  private async statEntry(path: string) {
+    try { return await lstat(path); }
+    catch (error) { if (missing(error)) return null; throw error; }
+  }
+
+  async entry(root: string, path: string) {
+    const parent = await this.parent(root, path);
+    try {
+      const info = await this.statEntry(parent.path);
+      await this.verifyParent(root, path, parent.folder);
+      return info;
+    } finally { await parent.close(); }
+  }
+
+  // Record names and identities for the entire tree, including empty folders
+  // and attachments. A single rename preserves the original inodes and bytes.
+  async projectTree(root: string, path: string) {
+    const parent = await this.parent(root, path);
+    const started = Date.now();
+    const entries = new Map<string, Stats>();
+    const walk = async (directory: string, prefix: string) => {
+      const folder = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      try {
+        const listing = await opendir(fdPath(folder.fd));
+        for await (const entry of listing) {
+          if (entries.size >= NOTE_LIMITS.entries || Date.now() - started >= NOTE_LIMITS.scanMs) throw new VaultError('capacity');
+          const child = prefix + entry.name;
+          const entryPath = join(fdPath(folder.fd), entry.name);
+          const info = await lstat(entryPath);
+          if ((!info.isFile() && !info.isDirectory()) || /\.(?:icloud|bb)-conflict[1-9][0-9]*$/.test(entry.name))
+            throw new VaultError('conflict', 'Inspect unsupported entries or conflict copies in the project folder.');
+          entries.set(child, info);
+          if (info.isDirectory()) await walk(entryPath, child + '/');
+        }
+      } finally { await folder.close(); }
+    };
+    try {
+      const info = await this.statEntry(parent.path);
+      if (!info?.isDirectory()) throw new VaultError('conflict', 'The expected project folder is unavailable.');
+      await walk(parent.path, '');
+      const current = await lstat(parent.path);
+      if (!same(info, current)) throw new VaultError('conflict');
+      await this.verifyParent(root, path, parent.folder);
+      const names = [...entries.keys()].sort();
+      return {
+        info,
+        notes: names.filter(name => entries.get(name)!.isFile() && name.endsWith('.md')),
+        fingerprint: digest(JSON.stringify(names.map(name => {
+          const { dev, ino, size, mtimeMs } = entries.get(name)!;
+          return [name, dev, ino, size, mtimeMs];
+        }))),
+      };
+    } finally { await parent.close(); }
+  }
+
+  private folderMoveSupport?: Promise<void>;
+
+  async checkProjectFolderMove(root: string, to: string, source: Stats) {
+    this.folderMoveSupport ??= renameHelper().then(code => {
+      if (code !== 0) throw new VaultError('unsupported', 'Project folder moves require Linux no-replace rename support through system Python 3.');
+    }, () => { throw new VaultError('unsupported', 'Project folder moves require Linux no-replace rename support through system Python 3.'); });
+    await this.folderMoveSupport;
+    const parent = await this.parent(root, to);
+    try {
+      if (source.dev !== (await parent.folder.stat()).dev)
+        throw new VaultError('unsupported', 'The project folder and destination must share a filesystem.');
+    } finally { await parent.close(); }
+  }
+
+  async moveProjectFolder(root: string, from: string, to: string, expected: Stats,
+    check: () => Promise<void>, started: () => void) {
+    const source = await this.parent(root, from);
+    try {
+      const target = await this.parent(root, to);
+      try {
+        await check();
+        await this.verifyParent(root, from, source.folder);
+        await this.verifyParent(root, to, target.folder);
+        const current = await this.statEntry(source.path);
+        if (!current?.isDirectory() || !same(current, expected) || await this.statEntry(target.path)) throw new VaultError('conflict');
+        const names = [from.split('/').at(-1)!, to.split('/').at(-1)!];
+        let code: number | null;
+        try { code = await renameHelper(names, [source.folder.fd, target.folder.fd]); }
+        catch { throw new VaultError('unsupported', 'The no-replace rename helper could not start.'); }
+        if (code === 3) throw new VaultError('conflict', 'The destination project folder already exists.');
+        if (code === 4) throw new VaultError('unsupported', 'The filesystem refused a no-replace rename.');
+        if (code === 5) throw new VaultError('unavailable', 'The filesystem rejected the project folder rename.');
+        started();
+        if (code !== 0) throw new VaultError('uncertain');
+        await source.folder.sync();
+        await target.folder.sync();
+        await this.verifyParent(root, from, source.folder);
+        await this.verifyParent(root, to, target.folder);
+        const moved = await this.statEntry(target.path);
+        if (!moved?.isDirectory() || !identity(moved, expected) || await this.statEntry(source.path)) throw new VaultError('uncertain');
       } finally { await target.close(); }
     } finally { await source.close(); }
   }

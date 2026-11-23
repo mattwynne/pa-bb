@@ -43,6 +43,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     }
   };
   bb.rpc.register(rpcContract, {
+    async projectMoveReceipt(input, context) { return evidence(() => service.projectMoveReceipt(input), context); },
     async inventoryStatus(_input, context) { return evidence(() => service.inventoryStatus(), context); },
     async inventoryBatch(input, context) { return evidence(() => service.inventoryBatch(input, context.experimental_signal), context); },
     async inventoryChildren(input, context) { return evidence(() => service.inventoryChildren(input, context.experimental_signal), context); },

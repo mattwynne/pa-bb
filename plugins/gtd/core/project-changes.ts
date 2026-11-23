@@ -1,3 +1,4 @@
+import { posix } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
@@ -11,6 +12,9 @@ export const changeNames = [
   'gtd_prepare_project_change',
   'gtd_check_project_change',
 ] as const;
+const projectMove = z.enum(['standalone', 'paired', 'folder']);
+const physicalMove = z.enum(['moved_locally_pending_sync', 'not_moved', 'partial', 'uncertain']);
+const moveOutcome = z.enum(['moved_supported_links_updated', 'moved_links_partial', 'project_move_partial', 'not_moved', 'uncertain']);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 export const browseInput = z
   .object({ folder: relativeFolder.optional(), offset: z.number().int().min(0).max(5000).optional() })
@@ -41,6 +45,10 @@ export const checkInput = z
     finishLinks: z.boolean().optional(),
   })
   .strict();
+const moveReceipt = z.object({
+  operationId: z.string().uuid(), vaultId: z.string(), path: relativeFolder, destination: relativeFolder,
+  project: projectMove.optional(), root: relativeFolder.optional(), expectedHash: hash.optional(), physical: physicalMove, outcome: moveOutcome,
+});
 type Config = { vaultId: string; projectsFolder: string; areasFolder: string };
 type Plan = {
   config: Config;
@@ -50,6 +58,8 @@ type Plan = {
   expectedHash: string;
   areaPath?: string | null;
   destination?: string;
+  destinationId?: string;
+  project?: z.infer<typeof projectMove>;
   originalArea?: string;
   threads: string[];
   status?: string;
@@ -188,6 +198,10 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       expectedHash: input.expectedHash,
       threads: [],
     };
+    // Legacy note moves also require time-ordered operation IDs.
+    const now = Date.now();
+    const time = now.toString(16).padStart(12, '0');
+    const id = `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
     let next;
     if (input.areaPath !== undefined) {
       p.areaPath = input.areaPath;
@@ -228,8 +242,6 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
         },
       };
     } else {
-      if (item.notePath || e.entries.has(owner.slice(0, -3)))
-        refuse('Status moves support standalone project notes only; keep the support folder and stop.');
       const statusName = input.status![0].toUpperCase() + input.status!.slice(1);
       const dirs = [...e.entries].filter(
         (path) =>
@@ -240,14 +252,18 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
           ),
       );
       if (dirs.length !== 1) refuse('The destination status folder must already exist unambiguously.');
-      p.destination = dirs[0] + '/' + owner.split('/').at(-1);
+      p.project = item.notePath ? 'folder' : e.entries.has(owner.slice(0, -3)) ? 'paired' : 'standalone';
+      const projectName = p.project === 'folder' ? posix.basename(posix.dirname(owner)) : posix.basename(owner, '.md');
+      const destinationStem = dirs[0] + '/' + projectName;
+      p.destination = destinationStem + (p.project === 'folder' ? '/README.md' : '.md');
+      p.destinationId = p.project === 'folder' ? destinationStem + '/' : p.destination;
       if (p.destination === owner && item.status === input.status) return { state: 'already_complete', owner };
       p.status = input.status;
       p.originalArea = item.areaId;
-      if (e.entries.has(p.destination) || e.entries.has(p.destination.slice(0, -3)))
+      if (e.entries.has(destinationStem) || e.entries.has(destinationStem + '.md'))
         refuse('Destination note or support folder already exists.');
       const refs = await readThreadReferences(bb.sdk, s.source, signal);
-      if (refs.warnings.length || refs.refs.some((r) => r.id === p.destination))
+      if (refs.warnings.length || refs.refs.some((r) => r.id === p.destinationId))
         refuse('Thread coverage is incomplete or destination already has references.');
       p.threads = refs.refs.filter((r) => r.id === item.id).map((r) => r.threadId);
       if (p.threads.length > 20) refuse('More than 20 linked conversations; manual review required.');
@@ -258,18 +274,20 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
           path: owner,
           destination: p.destination,
           expectedHash: input.expectedHash,
+          project: p.project,
+          ...(s.root ? { root: s.root } : {}),
+          operationId: id,
           dryRun: true,
         },
       };
     }
     await revalidate(s,e,signal);
-    const id = randomUUID();
-    db.prepare('DELETE FROM project_change_plans WHERE created < ?').run(Date.now() - 7 * 86400000);
+    db.prepare('DELETE FROM project_change_plans WHERE created < ?').run(now - 7 * 86400000);
     if ((db.prepare('SELECT COUNT(*) AS n FROM project_change_plans').get() as { n: number }).n >= 256)
       refuse('Plan capacity reached.');
     db.prepare('INSERT INTO project_change_plans(id,created,plan) VALUES (?,?,?)').run(
       id,
-      Date.now(),
+      now,
       JSON.stringify(p),
     );
     return {
@@ -298,9 +316,9 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       const p = JSON.parse(row.plan) as Plan;
       await unchanged(p.config);
       const s = await scope();
-      const { e, rows } = await inventory(s, signal);
-      const source = rows.find((r) => r.id === p.id);
       if (!p.destination) {
+        const { e, rows } = await inventory(s, signal);
+        const source = rows.find((r) => r.id === p.id);
         if (input.finishLinks || input.receipt) refuse('This plan has no move.');
         const props = e.owners.get(p.owner);
         const ok =
@@ -317,44 +335,58 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
           observedArea: source?.areaId ?? null,
         };
       }
-      const destination = rows.find((r) => r.id === p.destination);
+      const operationId = p.project ? input.planId : row.move_op ?? input.receipt?.operationId;
+      if (input.receipt && (operationId !== input.receipt.operationId || input.receipt.vaultId !== s.source ||
+        input.receipt.path !== p.owner || input.receipt.destination !== p.destination))
+        return refuse('The receipt does not match this project plan.');
+      const receipt = operationId
+        ? moveReceipt.nullable().parse(await rpc('projectMoveReceipt', { vaultId: s.source, operationId }, signal))
+        : null;
+      if (receipt && (operationId !== receipt.operationId || receipt.vaultId !== s.source ||
+        receipt.path !== p.owner || receipt.destination !== p.destination || receipt.project !== p.project ||
+        (p.project && (receipt.expectedHash !== p.expectedHash || (receipt.root ?? '') !== s.root)))) return refuse('The stored move receipt does not match this project plan.');
+      if (receipt?.physical !== 'moved_locally_pending_sync') return {
+        state: 'move_not_verified', operationId: operationId ?? null, moveOutcome: receipt?.outcome ?? null,
+        action: 'Inspect the Obsidian move receipt. For a partial or uncertain operation, do not replay.',
+      };
+      const { e, rows } = await inventory(s, signal);
+      const source = rows.find((r) => r.id === p.id);
+      const destinationId = p.destinationId ?? p.destination;
+      const destination = rows.find((r) => r.id === destinationId);
+      const stem = p.project === 'folder' ? posix.dirname(p.destination) : p.destination.slice(0, -3);
+      const sourceFolder = p.project === 'folder' ? posix.dirname(p.owner) : p.owner.slice(0, -3);
       if (
-        source ||
-        !destination ||
-        destination.status !== p.status ||
-        destination.areaId !== p.originalArea ||
-        destination.notePath ||
-        e.entries.has(p.destination.slice(0, -3))
-      )
-        return {
-          state: 'move_not_verified',
-          sourcePresent: !!source,
-          destinationPresent: !!destination,
-          action: 'Inspect Obsidian move receipt; do not replay.',
-        };
+        source || e.entries.has(p.owner) || e.entries.has(sourceFolder) ||
+        !destination || (destination.notePath ?? destination.id) !== p.destination ||
+        destination.status !== p.status || destination.areaId !== p.originalArea ||
+        e.entries.has(stem) !== (p.project === 'folder' || p.project === 'paired') ||
+        (p.project === 'folder' && e.entries.has(stem + '.md'))
+      ) return {
+        state: 'move_not_verified',
+        sourcePresent: !!source,
+        destinationPresent: !!destination,
+        operationId: operationId ?? null,
+        moveOutcome: receipt.outcome,
+        action: 'Inspect the Obsidian move receipt and check the project inventory. For a partial or uncertain operation, do not replay.',
+      };
       const refs = await readThreadReferences(bb.sdk, s.source, signal);
       if (refs.warnings.length) refuse('Thread coverage incomplete.');
       await revalidate(s,e,signal);
       const ids = new Set(p.threads);
       const before = refs.refs.filter((r) => r.id === p.id);
-      const after = refs.refs.filter((r) => r.id === p.destination);
+      const after = refs.refs.filter((r) => r.id === destinationId);
       if (before.length + after.length !== ids.size || [...before, ...after].some((r) => !ids.has(r.threadId)))
         refuse('Thread associations changed independently. Stop for reconciliation.');
+      const completedState = receipt.outcome === 'moved_supported_links_updated' ? 'links_verified' : 'move_repairs_pending';
       if (!input.finishLinks)
         return {
-          state: before.length ? 'links_pending' : 'links_verified',
+          state: before.length ? 'links_pending' : completedState,
           remaining: before.length,
           atDestination: after.length,
+          moveOutcome: receipt.outcome,
+          operationId: receipt.operationId,
         };
-      const receipt = input.receipt;
-      if (
-        !receipt ||
-        receipt.vaultId !== s.source ||
-        receipt.path !== p.owner ||
-        receipt.destination !== p.destination ||
-        (row.move_op && row.move_op !== receipt.operationId)
-      )
-        return refuse('Inspect the exact successful Obsidian move receipt before finishing.');
+      if (receipt.outcome === 'uncertain') return refuse('Inspect the uncertain Obsidian link repair before finishing conversations.');
       db.prepare('UPDATE project_change_plans SET move_op=? WHERE id=?').run(receipt.operationId, input.planId);
       const attempted = JSON.parse(row.attempted) as string[];
       for (const ref of before) {
@@ -375,16 +407,16 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
         );
         await bb.sdk.threads.updatePluginMetadata({
           threadId: ref.threadId,
-          set: { project: { source: s.source, id: p.destination } },
+          set: { project: { source: s.source, id: destinationId } },
         });
         const updated = await bb.sdk.threads.getPluginMetadata({ threadId: ref.threadId });
         if (
-          !z.object({ source: z.literal(s.source), id: z.literal(p.destination) }).safeParse(updated.project)
+          !z.object({ source: z.literal(s.source), id: z.literal(destinationId) }).safeParse(updated.project)
             .success
         )
           refuse('Thread write not verified. Inspect before continuing.');
       }
-      return { state: 'links_verified', atDestination: ids.size };
+      return { state: completedState, atDestination: ids.size, moveOutcome: receipt.outcome, operationId: receipt.operationId };
     } finally {
       active.delete(input.planId);
     }

@@ -305,12 +305,38 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   inspect(mirrorId: string, revision: number, path: string) {
     return this.route(mirrorId, files => files.inspect(mirrorId, revision, path), () => this.request('noteInspectConflict', { mirrorId, revision, path }, false));
   }
-  move(input: Parameters<NonNullable<VaultFiles['move']>>[0]) {
-    return this.route(input.mirrorId, files => files.move(input), () => this.request('noteMove', input, true));
+  listProjectMove(input: Parameters<NonNullable<VaultFiles['listProjectMove']>>[0]) {
+    return this.route(input.mirrorId, files => files.listProjectMove(input), () => this.listLegacyProjectMove(input));
   }
+
+  private async listLegacyProjectMove(input: Parameters<NonNullable<VaultFiles['listProjectMove']>>[0]) {
+    if (input.project !== 'standalone') throw new VaultError('unsupported', 'Moving project folders requires direct local vault access.');
+    const { mirrorId, revision } = input;
+    for (const path of input.afterMove ? [] : [input.path, input.destination]) {
+      const parts = path.split('/'), name = parts.pop()!;
+      const folder = parts.join('/');
+      const children: Awaited<ReturnType<NonNullable<VaultFiles['children']>>> = await this.request('noteChildren', { mirrorId, revision, folder }, false);
+      if (children.incomplete || children.entries.some(entry => entry.kind === 'directory' && entry.name === name.slice(0, -3)))
+        throw new VaultError('conflict', 'Check the project folder and destination before moving.');
+    }
+    const listed: Awaited<ReturnType<VaultFiles['list']>> = await this.request('noteList', { mirrorId, revision }, false);
+    const paths = input.root ? listed.paths.filter(path => path.startsWith(input.root + '/')) : listed.paths;
+    return { ...listed, paths, attachments: [] };
+  }
+
+  move(input: Parameters<NonNullable<VaultFiles['move']>>[0]) {
+    return this.route(input.mirrorId, files => files.move(input), async () => {
+      const { project, root: _root, movedNotes: _movedNotes, ...note } = input;
+      if (project) await this.listLegacyProjectMove(input);
+      return this.request('noteMove', note, true);
+    });
+  }
+
   async moveReceipts(input: Parameters<NonNullable<VaultFiles['moveReceipts']>>[0]) {
-    const local = await this.filesystem?.moveReceipts(input);
-    return local?.length ? local : this.call('noteMoveReceipts', input);
+    const { project, ...note } = input;
+    const local = await this.filesystem?.moveReceipts(note);
+    if (local?.length || project === 'paired' || project === 'folder') return local ?? [];
+    return this.call('noteMoveReceipts', note);
   }
   commit(input: Parameters<VaultFiles['commit']>[0]) {
     return this.route(input.mirrorId, files => files.commit(input), () => this.request('noteCommit', input, true));

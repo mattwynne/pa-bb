@@ -1,3 +1,4 @@
+import { projectFolders, type MoveEndpoints } from '../core/project-move.ts';
 import { randomUUID } from 'node:crypto';
 import { VaultError } from '../core/ports.ts';
 import type { Diagnose, NoteParser, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
@@ -151,7 +152,7 @@ export class FilesystemVault {
           if (authorized !== root || !identity(rootIdentity, await this.files.rootIdentity(root))) throw new VaultError('source_unavailable');
         };
         const begin = async (row: T) => {
-          await this.ledger.begin(row, row.kind === 'move' ? [row.path, row.destination] : [row.path]);
+          await this.ledger.begin(row, row.kind === 'move' ? [row.path, row.destination, ...(row.tree ? [row.tree.from, row.tree.to] : [])] : [row.path]);
           intent = row;
         };
         const result = await plan(root, check, begin, () => { changed = true; }, rootIdentity);
@@ -193,25 +194,110 @@ export class FilesystemVault {
     return this.saveReceipt(row);
   }
 
+  private async inspectProjectMove(root: string, input: MoveEndpoints) {
+    const folders = projectFolders(input)!;
+    if (await this.files.entry(root, folders.to)) throw new VaultError('conflict', 'The destination project folder already exists.');
+    if (input.project === 'standalone') {
+      if (await this.files.entry(root, folders.from)) throw new VaultError('conflict', 'The project has a support folder. Prepare the move again.');
+    }
+    if (input.project === 'folder') {
+      for (const path of [folders.from + '.md', folders.to + '.md']) {
+        if (await this.files.entry(root, path)) throw new VaultError('conflict', 'A sibling landing note would change project ownership.');
+        await this.clearPath(root, path);
+      }
+    } else {
+      if (await this.files.entry(root, input.destination)) throw new VaultError('conflict', 'The destination landing note already exists.');
+      await this.clearPath(root, input.destination);
+    }
+    await this.clearPath(root, input.path);
+    if (input.project !== 'standalone') {
+      const tree = await this.files.projectTree(root, folders.from);
+      await this.files.checkProjectFolderMove(root, folders.to, tree.info);
+      return tree;
+    }
+  }
+
+  listProjectMove(input: Parameters<NonNullable<VaultFiles['listProjectMove']>>[0]) {
+    return this.access(input.mirrorId, input.revision, async root => {
+      if (!input.afterMove) await this.inspectProjectMove(root, input);
+      return this.files.list(root, true, input.root);
+    });
+  }
+
   async move(input: Parameters<NonNullable<VaultFiles['move']>>[0]) {
-    const { mirrorId, path, destination, operationId, expectedHash } = input;
+    const { mirrorId, path, destination, operationId, expectedHash, project } = input;
     return this.mutate<Extract<LocalReceipt, { kind: 'move' }>>(input, async (root, check, begin, changed, rootIdentity) => {
       validateNotePath(destination);
       if (destination === path) throw new VaultError('invalid_path');
       const current = await this.files.observe(root, path);
-      if (!current || current.hash !== expectedHash || await this.files.observe(root, destination)) throw new VaultError('conflict');
+      if (!current || current.hash !== expectedHash || (project !== 'folder' && await this.files.observe(root, destination))) throw new VaultError('conflict');
       await this.clearPath(root, path);
-      await this.clearPath(root, destination);
+      if (project !== 'folder') await this.clearPath(root, destination);
+      const tree = project ? await this.inspectProjectMove(root, input) : undefined;
+      const folders = projectFolders(input);
       const base = { kind: 'move' as const, mirrorId, path, destination, operationId, hash: expectedHash,
         inode: fileIdentity(current.info), root: rootIdentity, at: new Date().toISOString() };
+      if (tree && folders && (project === 'paired' || project === 'folder')) {
+        const expectedNotes = input.movedNotes;
+        const notes = tree.notes.map(name => folders.from + '/' + name);
+        if (project === 'paired') notes.push(path);
+        if (!expectedNotes || notes.length !== expectedNotes.size) throw new VaultError('conflict');
+        for (const note of notes) {
+          if ((await this.files.observe(root, note))?.hash !== expectedNotes.get(note)) throw new VaultError('conflict');
+        }
+        const receipt = { ...base, tree: { ...folders, owner: project, inode: fileIdentity(tree.info), fingerprint: tree.fingerprint } };
+        await begin({ ...receipt, outcome: 'uncertain' });
+        const moveFolder = async () => {
+          const fresh = await this.files.projectTree(root, folders.from);
+          if (!identity(fresh.info, tree.info) || fresh.fingerprint !== tree.fingerprint) throw new VaultError('conflict');
+          await this.files.moveProjectFolder(root, folders.from, folders.to, fresh.info, check, changed);
+        };
+        if (project === 'paired') {
+          await this.files.move(root, path, destination, current, async () => {
+            await this.clearPath(root, path);
+            await this.clearPath(root, destination);
+            await check();
+          }, changed, moveFolder);
+        } else {
+          await this.inspectProjectMove(root, input);
+          if (!equivalent(current, await this.files.observe(root, path))) throw new VaultError('conflict');
+          await moveFolder();
+        }
+        const state = await this.projectMoveState(root, receipt);
+        if (state.outcome !== 'moved_locally_pending_sync') throw new VaultError('uncertain');
+        return { ...receipt, outcome: state.outcome };
+      }
       await begin({ ...base, outcome: 'uncertain' });
       await this.files.move(root, path, destination, current, async () => {
+        if (project === 'standalone' && folders && (await this.files.entry(root, folders.from) || await this.files.entry(root, folders.to)))
+          throw new VaultError('conflict', 'Project support changed after planning.');
         await this.clearPath(root, path);
         await this.clearPath(root, destination);
         await check();
       }, changed);
       return { ...base, outcome: 'moved_locally_pending_sync' };
     }).then(({ outcome }) => ({ outcome }));
+  }
+
+  private async projectMoveState(root: string, row: Pick<Extract<LocalReceipt, { kind: 'move' }>, 'tree' | 'path' | 'destination' | 'inode' | 'hash'>) {
+    const tree = row.tree!;
+    const oldFolder = await this.files.entry(root, tree.from);
+    const newFolder = await this.files.entry(root, tree.to);
+    const intact = async (path: string) => {
+      const current = await this.files.projectTree(root, path);
+      return identity(tree.inode, current.info) && tree.fingerprint === current.fingerprint;
+    };
+    const folder = !oldFolder && newFolder?.isDirectory() && await intact(tree.to) ? 'destination' :
+      !newFolder && oldFolder?.isDirectory() && await intact(tree.from) ? 'source' : 'unverified';
+    const oldNote = tree.owner === 'paired' || oldFolder?.isDirectory() ? await this.files.observe(root, row.path) : null;
+    const newNote = tree.owner === 'paired' || newFolder?.isDirectory() ? await this.files.observe(root, row.destination) : null;
+    const original = (note: Observed) => note && identity(row.inode, note.info) && row.hash === note.hash;
+    const landing = original(oldNote) && original(newNote) ? 'both' :
+      !oldNote && original(newNote) ? 'destination' : !newNote && original(oldNote) ? 'source' : 'unverified';
+    const outcome = folder === 'destination' && landing === 'destination' ? 'moved_locally_pending_sync' :
+      folder === 'source' && landing === 'source' ? 'uncertain' :
+      folder !== 'unverified' && landing !== 'unverified' ? 'partial' : 'uncertain';
+    return { outcome, components: { landing, folder } } as const;
   }
 
   async resolve(input: Resolution) {
@@ -255,6 +341,20 @@ export class FilesystemVault {
     try {
       const root = await this.directory(row.mirrorId, revision);
       if (!identity(row.root, await this.files.rootIdentity(root))) return row;
+      if (row.kind === 'move' && row.tree) {
+        if ((await this.projectMoveState(root, row)).outcome !== 'moved_locally_pending_sync') return row;
+        await this.files.syncParent(root, row.tree.from);
+        await this.files.syncParent(root, row.tree.to);
+        if (row.tree.owner === 'paired') {
+          await this.files.syncParent(root, row.path);
+          await this.files.syncParent(root, row.destination);
+        }
+        if (!identity(row.root, await this.files.rootIdentity(root)) ||
+          (await this.projectMoveState(root, row)).outcome !== 'moved_locally_pending_sync') return row;
+        const result = { ...row, outcome: 'moved_locally_pending_sync' as const };
+        await this.ledger.finish(result);
+        return result;
+      }
       const path = row.kind === 'move' ? row.destination : row.path;
       const written = await this.files.observe(root, path);
       if (!written || !identity(row.inode, written.info) || row.hash !== written.hash) return row;
@@ -301,7 +401,17 @@ export class FilesystemVault {
       const row = (await this.ledger.load()).find(r => r.kind === 'move' && r.mirrorId === input.mirrorId && r.operationId === input.operationId);
       if (!row) return [];
       const result = await this.reconcile(row, input.revision);
-      return result.kind === 'move' ? [{ outcome: result.outcome }] : [];
+      if (result.kind !== 'move') return [];
+      if (result.outcome === 'uncertain' && result.tree) {
+        try {
+          const root = await this.directory(result.mirrorId, input.revision);
+          if (identity(result.root, await this.files.rootIdentity(root))) {
+            const { outcome, components } = await this.projectMoveState(root, result);
+            return [{ outcome: outcome === 'partial' ? outcome : 'uncertain', components }];
+          }
+        } catch { this.diagnose('filesystem', 'uncertain'); }
+      }
+      return [{ outcome: result.outcome }];
     });
   }
 }

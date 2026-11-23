@@ -33,6 +33,9 @@ class Fixture extends FilesFake {
       incomplete: this.clipped,
     };
   }
+  async listProjectMove(i: { mirrorId: string; revision: number }) {
+    return { ...await this.list(i.mirrorId, i.revision), attachments: [] };
+  }
   async move(i: {
     mirrorId: string;
     revision: number;
@@ -167,7 +170,7 @@ test('actual agent sequence browses nested targets, assigns the exact note, refu
 test('real move dry run, receipt and backlink repair, then lost metadata reply is reconciled without a repeated write', async (t) => {
   const f = await setup();
   t.after(f.close);
-  f.files.dirs.push(id.slice(0, -3));
+  f.files.dirs.push(moved.slice(0, -3));
   await f.prepare({ status: 'done' }, true);
   f.files.dirs.pop();
   const plan = await f.prepare({ status: 'done' });

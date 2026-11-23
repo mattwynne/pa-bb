@@ -142,8 +142,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     }});
   }
   changeTool(changeNames[0],browseInput,'Browse the selected Areas folder one level at a time. Pass an exact returned folder path to discover nested Area note targets. Distinguish identical names by full path. Read only.',changes.browse);
-  changeTool(changeNames[1],prepareInput,'Prepare one explicitly requested legacy project change. Use the exact source and project ID and the complete owner note read hash. Set areaPath to an exact Area note path (null clears), OR status to the destination status folder. Returns a private plan and the checked Obsidian operation; does not write notes. Follow the GTD skill for apply and read-back.',changes.prepare);
-  changeTool(changeNames[2],checkInput,'Inspect an existing project change plan. Read-only by default. After checking the successful Obsidian move receipt for this exact source/destination, finishLinks:true with the successful receipt fields relinks only the captured existing conversations. On uncertainty inspect, do not replay.',changes.check);
+  changeTool(changeNames[1],prepareInput,'Prepare one explicitly requested project change. Use the exact source and project ID and the complete owner note read hash. Set areaPath to an exact Area note path (null clears), OR status to the destination status folder. Returns a private plan and the checked Obsidian operation; does not write notes. Follow the GTD skill for apply and read-back.',changes.prepare);
+  changeTool(changeNames[2],checkInput,'Inspect an existing project change plan. Read-only by default. Checks Obsidian’s durable move receipt directly. After the physical move is verified, finishLinks:true updates only the captured conversations. The result reports the Obsidian link repair outcome separately. On uncertainty inspect, do not replay.',changes.check);
   const browseInventory = async (includeAreas: boolean, fresh: boolean, signal: AbortSignal) => {
     try {
       if (closing || signal.aborted) throw new GtdError('cancelled');

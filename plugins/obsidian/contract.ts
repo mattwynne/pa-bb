@@ -2,6 +2,7 @@ import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { searchCapabilitySchema } from './adapters/icloud-note-contract.ts';
 import { INVENTORY_BATCH_MAX_REQUESTS } from './core/inventory-evidence.ts';
+import { projectMoveSchema } from './core/move.ts';
 import { projectAreaRoutes } from './core/ports.ts';
 import { projectAreasDeclarationKey } from './core/project-areas.ts';
 const source = z.object({ id: z.string(), name: z.string(), initialized: z.boolean(), enabled: z.boolean(), cloudConnected: z.boolean(), phase: z.string(), lastSuccess: z.string().nullable(), failure: z.string().nullable(), local: z.object({ available: z.boolean(), reason: z.enum(['ownership', 'recovery_required', 'source_changed']).nullable(), pendingAgeMs: z.number().int().nonnegative().nullable(), applicationBlocker: z.enum(['application_uncertain', 'native_recovery']).nullable() }).strict() }).strict();
@@ -40,6 +41,15 @@ const batchRow = z.discriminatedUnion('kind', [
 export type InventoryBatchRequest = z.infer<typeof batchRequest>;
 export type InventoryBatchRow = z.infer<typeof batchRow>;
 export const rpcContract = defineRpcContract({
+  projectMoveReceipt: {
+    input: z.object({ vaultId: vault.shape.vaultId, operationId: z.string().uuid() }).strict(),
+    output: z.object({
+      vaultId: vault.shape.vaultId, operationId: z.string().uuid(), path: consumerFolder, destination: consumerFolder,
+      expectedHash: hash.optional(), project: projectMoveSchema.optional(), root: consumerFolder.optional(),
+      physical: z.enum(['moved_locally_pending_sync', 'not_moved', 'partial', 'uncertain']),
+      outcome: z.enum(['moved_supported_links_updated', 'moved_links_partial', 'project_move_partial', 'not_moved', 'uncertain']),
+    }).strict().nullable(),
+  },
   inventoryStatus: {
     input: z.null(),
     output: z.object({ inventoryBatchVersion: z.literal(1), inventoryEvidenceVersion: z.literal(1), propertiesAccessVersion: z.literal(1), vaults: connectedVaults }).strict(),
@@ -81,7 +91,7 @@ export const tools = {
   obsidian_get_note_metadata: { description: 'Get compact properties, aliases, tags, headings, blocks, links and tasks with original source locations and parse warnings. Does not grant a complete-note edit version.', parameters: z.object(target).strict() },
   obsidian_resolve_link: { description: 'Resolve an internal link within its explicit source vault/note. Returns missing or ambiguous candidates instead of guessing; never fetches external URLs or crosses vaults.', parameters: z.object({ ...target, link: z.string().min(1).max(1024) }).strict() },
   obsidian_list_tasks: { description: 'List source-owned task markers and citations. Blank markers are incomplete; all nonblank markers are complete. No community-plugin task states are invented.', parameters: z.object({ vaultId: target.vaultId.optional(), path: target.path.optional(), folder: z.string().max(1024).optional(), complete: z.boolean().optional(), ...page }).strict() },
-  obsidian_move_note: { description: 'Move one completely read Markdown note to an absent path in its connected vault. Set dryRun=true for read-only link planning with the same proof. A ready plan does not reserve or verify write-time access. Independent CAS repairs may be partial. Never repeat uncertain work; inspect obsidian_move_status. Local receipts do not prove cloud delivery.', parameters: z.object({ ...version, destination: z.string().min(1).max(1024), dryRun: z.boolean().optional() }).strict() },
+  obsidian_move_note: { description: 'Move a completely read Markdown note to an absent path. For GTD status changes use the exact project mode and operation ID returned by GTD. Set dryRun=true for read-only link planning with the same proof. A ready plan does not reserve or verify write-time access. Independent CAS repairs may be partial. Never repeat uncertain work; inspect obsidian_move_status. Local receipts do not prove cloud delivery.', parameters: z.object({ ...version, destination: z.string().min(1).max(1024), project: projectMoveSchema.optional(), root: consumerFolder.optional(), operationId: z.string().uuidv7().optional(), dryRun: z.boolean().optional() }).strict().refine(input => !!input.project === !!input.operationId, 'Use the project mode and operation ID from the same GTD plan.') },
   obsidian_move_status: { description: 'Inspect one durable move record and individual link-repair receipts. Read-only; never replays a move or a repair. Unstarted repairs remain unapplied after cancellation or restart.', parameters: z.object({ vaultId: target.vaultId, operationId: z.string().uuid() }).strict() },
   obsidian_create_note: { description: 'Create a Markdown note in an existing folder without overwriting. Executes without a confirmation. Returns a durable local-save receipt, not proof of iCloud or phone delivery. Inspect uncertain outcomes; never blindly recreate.', parameters: z.object({ ...target, text: z.string().max(64000) }).strict() },
   obsidian_edit_note: { description: 'Ordinary complete-read/CAS append, exact replacement or task edit; alternatively resolve an inspected conflict with token and expected logical/incoming hash or explicit absence. Choose keep_local, accept_incoming or replace. Never mix resolution and ordinary edits; inspect a stale token again.', parameters: z.object({

@@ -1,9 +1,13 @@
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { createLinkCandidates, isShortWikiPath, linkPathForms, matchesSuffix, noteNameKey, pathKey, suffixForms } from './link-candidates.ts';
+import { createLinkCandidates, isShortWikiPath, linkPathForms, noteNameKey, pathKey, suffixForms } from './link-candidates.ts';
+import { projectFolders, type ProjectMove } from './project-move.ts';
 import { MAX_NOTE_BYTES, VaultError, type NoteParser } from './ports.ts';
-export const moveRecordSchema = z.object({ operationId: z.string().uuid(), finished: z.boolean().optional(), vaultId: z.string(), path: z.string().max(1024), destination: z.string().max(1024), repairs: z.array(z.object({ path: z.string().max(1024), expectedHash: z.string(), hash: z.string(), operationId: z.string().uuid(), outcome: z.enum(['unstarted', 'submitted', 'saved', 'not_saved', 'uncertain']) }).strict()).max(64) }).strict();
+export const projectMoveSchema = z.enum(['standalone', 'paired', 'folder']);
+export const moveRecordSchema = z.object({ operationId: z.string().uuid(), finished: z.boolean().optional(), refused: z.boolean().optional(), expectedHash: z.string().optional(), root: z.string().max(1024).optional(),
+  verification: z.object({ state: z.enum(['verified', 'inventory_changed', 'note_changed', 'unavailable']), paths: z.array(z.string().max(1024)).max(8) }).strict().optional(),
+  project: projectMoveSchema.optional(), vaultId: z.string(), path: z.string().max(1024), destination: z.string().max(1024), repairs: z.array(z.object({ path: z.string().max(1024), expectedHash: z.string(), hash: z.string(), operationId: z.string().uuid(), outcome: z.enum(['unstarted', 'submitted', 'saved', 'not_saved', 'uncertain']) }).strict()).max(64) }).strict();
 export type MoveRecord = z.infer<typeof moveRecordSchema>;
 export const hashText = (text: string) => createHash('sha256').update(text).digest('hex');
 export const MOVE_SCAN_LIMITS = { notes: 10000, bytes: 128 * 1024 * 1024, milliseconds: 20000, batch: 8 } as const;
@@ -49,17 +53,30 @@ export class MoveLinkError extends VaultError {
       `Move stopped before writing. ${location.reason === 'ambiguous_target' ? ambiguity : unsupportedReasons[location.reason]} Inspect the location in Obsidian.`);
   }
 }
-export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: string, parser: NoteParser) {
+export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: string, parser: NoteParser,
+  project?: ProjectMove, attachments: readonly string[] = [], root = '') {
   if (!paths.has(from) || paths.has(to)) throw new VaultError('conflict');
-  const oldFolder = posix.dirname(from), newFolder = posix.dirname(to);
-  const siblings = posix.dirname(oldFolder) === posix.dirname(newFolder);
-  const endpoints = [from, to].map(pathKey);
-  const endpointNames = [from, to].map(noteNameKey);
-  const beforeMove = createLinkCandidates(paths);
-  const afterPaths = new Set(paths);
-  afterPaths.delete(from);
-  afterPaths.add(to);
+  const folders = projectFolders({ path: from, destination: to, project });
+  const moves = new Map([[from, to]]);
+  const targets = new Set([...paths, ...attachments]);
+  if (folders && project !== 'standalone') {
+    for (const path of targets) {
+      if (below(path, folders.from)) moves.set(path, folders.to + path.slice(folders.from.length));
+      if (below(path, folders.to)) throw new VaultError('conflict');
+    }
+  }
+  const endpoints = new Set([...moves.keys(), ...moves.values()].map(pathKey));
+  const endpointNames = new Set([...endpoints].map(noteNameKey));
+  const movedFolders = folders && project !== 'standalone' ? [pathKey(folders.from), pathKey(folders.to)] : [];
+  const beforeMove = createLinkCandidates(targets);
+  const afterPaths = new Set([...targets].map(path => moves.get(path) ?? path));
+  if (afterPaths.size !== targets.size) throw new VaultError('conflict');
   const afterMove = createLinkCandidates(afterPaths);
+  const forms = (name: string, folder: string, wiki: boolean) => {
+    if (root && (name.startsWith('/') || (wiki && !name.startsWith('./') && !name.startsWith('../'))))
+      return linkPathForms(name, '', wiki).map(path => root + '/' + path);
+    return linkPathForms(name, folder, wiki).filter(path => !root || below(path, root));
+  };
   const repairs: Array<{ path: string; text: string; expectedHash: string; hash: string }> = [];
   let repairBytes = 0;
   const visit = (note: { path: string; text: string; hash: string }, bytes: number) => {
@@ -81,6 +98,10 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
     if (metadata.warnings.length) unsupported('parser_warning');
     if (metadata.unparsedReferenceOffset !== undefined) unsupported('reference_definition', metadata.unparsedReferenceOffset);
     if (metadata.htmlLinkOffset !== undefined) unsupported('html_link_attribute', metadata.htmlLinkOffset);
+    const movedSource = moves.get(note.path) ?? note.path;
+    const oldFolder = posix.dirname(note.path), newFolder = posix.dirname(movedSource);
+    const moved = movedSource !== note.path;
+    const siblings = posix.dirname(oldFolder) === posix.dirname(newFolder);
     const pieces: string[] = [];
     let offset = 0;
     for (const link of [...metadata.links].sort((a, b) => a.start - b.start)) {
@@ -96,7 +117,7 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
         // folder. Its mount prefix may differ across machines, so a matching
         // final name is still a possible endpoint.
         if (filePath === undefined) return unsupported('file_url', link.start);
-        if (!endpointNames.includes(noteNameKey(filePath))) continue;
+        if (!endpointNames.has(noteNameKey(filePath))) continue;
         throw ambiguous('An absolute file link could name the source or destination.');
       }
       const frontmatter = link.syntax === 'frontmatter';
@@ -118,16 +139,19 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
       if (wiki && (pathSpelling !== pathSpelling.trim() || (raw !== undefined && raw !== link.target))) {
         return unsupported('target_characters', link.start);
       }
-      const moved = note.path === from;
-      const movedSource = moved ? to : note.path;
       const basename = wiki && !name.includes('/');
       const shortPath = wiki && isShortWikiPath(name);
-      const before = basename ? [] : linkPathForms(name, posix.dirname(note.path), wiki);
-      const after = moved && !basename ? linkPathForms(name, newFolder, wiki) : before;
+      const before = basename ? [] : forms(name, oldFolder, wiki);
+      const after = moved && !basename ? forms(name, newFolder, wiki) : before;
       const suffixes = shortPath ? suffixForms(name) : [];
+      const touchesPath = (value: string) => {
+        const path = pathKey(value);
+        return endpoints.has(path) || movedFolders.some(folder => below(path, folder));
+      };
       const touchesEndpoint = basename
-        ? endpointNames.includes(noteNameKey(name))
-        : [...before, ...after].some(path => endpoints.includes(pathKey(path))) || endpoints.some(path => matchesSuffix(suffixes, path));
+        ? endpointNames.has(noteNameKey(name))
+        : [...before, ...after].some(touchesPath) ||
+          (shortPath && [...beforeMove.bySuffix(suffixes), ...afterMove.bySuffix(suffixes)].some(touchesPath));
       if (!touchesEndpoint) {
         if (!moved || oldFolder === newFolder) continue;
         if (basename) {
@@ -136,6 +160,8 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
         }
         if (shortPath) {
           const possible = beforeMove.bySuffix(suffixes);
+          if (project && possible.length === 1 && before.includes(possible[0]) &&
+            afterMove.bySuffix(suffixes).every(path => path === possible[0])) continue;
           // Only the two sibling directories change context. A unique match
           // outside them stays in the same ancestor scopes and remains the
           // same candidate. Preserve the original spelling.
@@ -149,7 +175,7 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
       // Native Obsidian can treat percent-encoded URL delimiters as literal
       // spelling. They cannot establish a target for a needed rewrite.
       if (/%(?:23|3f)/i.test(pathSpelling)) return unsupported('target_encoding', link.start);
-      if (!span) return unsupported(frontmatter ? 'frontmatter_link' : 'link_syntax', link.start);
+      if (!span && !project) return unsupported(frontmatter ? 'frontmatter_link' : 'link_syntax', link.start);
       const candidates = basename
         ? beforeMove.byName(name)
         : beforeMove.byPath(before);
@@ -157,16 +183,22 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
         throw ambiguous('A link that could change with this move did not have a uniquely established target.');
       }
       const resolved = candidates[0];
-      if (touchesEndpoint && resolved !== from && (basename || shortPath || !moved)) {
+      if (touchesEndpoint && !moves.has(resolved) && (basename || shortPath || !moved)) {
         throw ambiguous('A link could acquire a different target at the destination.');
       }
-      const destination = resolved === from ? to : resolved;
+      const destination = moves.get(resolved) ?? resolved;
+      if (project) {
+        const unchanged = basename ? afterMove.byName(name) : afterMove.byPath(after);
+        if (unchanged.length === 1 && unchanged[0] === destination &&
+          (!shortPath || afterMove.bySuffix(suffixes).every(path => path === destination))) continue;
+      }
+      if (!span) return unsupported(frontmatter ? 'frontmatter_link' : 'link_syntax', link.start);
       if (wiki && /[#|\[\]<>?%]/.test(destination)) return unsupported('target_characters', link.start);
-      const next = wiki ? destination.replace(/\.md$/, '') : encodePath(posix.relative(posix.dirname(movedSource), destination));
+      const next = wiki ? destination.slice(root ? root.length + 1 : 0).replace(/\.md$/, '') : encodePath(posix.relative(posix.dirname(movedSource), destination));
       const spelling = wiki ? next : decodeURIComponent(next);
       const possibleAfter = wiki && !spelling.includes('/')
         ? afterMove.byName(spelling)
-        : afterMove.byPath(linkPathForms(spelling, posix.dirname(movedSource), wiki));
+        : afterMove.byPath(forms(spelling, newFolder, wiki));
       if (possibleAfter.length !== 1 || possibleAfter[0] !== destination) {
         throw ambiguous('A rewritten link would not uniquely identify its intended target.');
       }
@@ -185,7 +217,7 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
     repairBytes += bytes;
     if (repairBytes > REPAIR_BYTES) throw new VaultError('capacity', 'The planned link repairs exceed the 8 MiB total repair limit.');
     const text = pieces.join('') + note.text.slice(offset);
-    repairs.push({ path: note.path === from ? to : note.path, text, expectedHash: note.hash, hash: hashText(text) });
+    repairs.push({ path: movedSource, text, expectedHash: note.hash, hash: hashText(text) });
   };
-  return { visit, repairs };
+  return { visit, repairs, moves };
 }

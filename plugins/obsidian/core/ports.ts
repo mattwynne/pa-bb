@@ -31,8 +31,9 @@ export type Receipt = SaveReceipt | ResolutionReceipt;
 export type Resolution = { mirrorId: string; revision: number; path: string; operationId: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: 'keep_local' | 'accept_incoming' | 'replace'; text?: string };
 export interface VaultFiles {
   children?(vaultId: string, revision: number, folder: string, access?: LiveProjectAreaAccess): Promise<{ entries: Array<{ name: string; kind: 'directory' | 'markdown' }>; incomplete: boolean }>;
-  move?(input: { mirrorId: string; revision: number; path: string; destination: string; expectedHash: string; operationId: string }): Promise<{ outcome: 'moved_locally_pending_sync' | 'not_moved' | 'uncertain' }>;
-  moveReceipts?(input: { mirrorId: string; revision: number; operationId: string }): Promise<Array<{ outcome: 'moved_locally_pending_sync' | 'not_moved' | 'uncertain' }>>;
+  listProjectMove?(input: import('./project-move.ts').MoveEndpoints & { mirrorId: string; revision: number; afterMove?: boolean }): Promise<{ paths: string[]; attachments: string[]; incomplete: boolean; warnings: string[] }>;
+  move?(input: import('./project-move.ts').MoveEndpoints & { mirrorId: string; revision: number; expectedHash: string; operationId: string; movedNotes?: ReadonlyMap<string, string> }): Promise<{ outcome: import('./project-move.ts').PhysicalMove }>;
+  moveReceipts?(input: { mirrorId: string; revision: number; operationId: string; project?: import('./project-move.ts').ProjectMove }): Promise<Array<{ outcome: import('./project-move.ts').PhysicalMove; components?: { landing: string; folder: string } }>>;
   // An indexed inventory can supply the catalog observation used to select its route.
   configure(configuration: Configuration, projectAreas?: ProjectAreaSelection, observedCatalog?: Catalog): Promise<void>;
   // Optional native read model; legacy logical vaults still use search().
@@ -63,4 +64,4 @@ export interface NoteParser {
   properties(text: string, input: { set: Record<string, unknown>; remove: string[] }): string;
 }
 export class VaultError extends Error { constructor(readonly category: string, readonly nextAction = 'Check source status and reread the note before preparing a change.', readonly diagnosticReported = false) { super(category); this.name = 'VaultError'; } }
-export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight' | 'filesystem' | 'index_refresh' | 'index_watch' | 'index_access', category: string) => void;
+export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight' | 'move_verification' | 'filesystem' | 'index_refresh' | 'index_watch' | 'index_access', category: string) => void;
