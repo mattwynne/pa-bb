@@ -15,7 +15,7 @@ import { hash } from './fakes.ts';
 import { plugin as gtdPlugin } from '../../gtd/server.ts';
 import { ObsidianBackend } from '../../gtd/adapters/obsidian.ts';
 
-async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: string) => Promise<void>, indexLookup?: (signal: AbortSignal) => Promise<void>, grantVersion: 1 | null = 1) {
+async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: string) => Promise<void>, indexLookup?: (signal: AbortSignal) => Promise<void>, grantVersion: 1 | null = 1, reactivationClock?: () => number) {
   const owner = await mkdtemp(join(tmpdir(), 'sentinel-private-mirror-'));
   const directory = join(owner, 'vault');
   await mkdir(directory);
@@ -85,7 +85,7 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
     },
   };
   await storage.kv.set('connected-vaults', { revision: 7, vaultIds: ['one'], pending: [] });
-  const start = () => plugin({ ...bb, sdk, storage });
+  const start = () => plugin({ ...bb, sdk, storage }, undefined, reactivationClock);
   await start();
   t.after(async () => { await harness.lifecycle.dispose(); await rm(owner, { recursive: true, force: true }); });
   const tool = async (name: string, input: unknown, expectedError?: string) => {
@@ -1057,7 +1057,7 @@ const deferred = 'Projects/Deferred/Example';
 const nested = '/Research/Notes.md';
 const bytes = Buffer.from([0, 33, 128, 255]);
 
-async function projectMoveFixture(t: TestContext, scope = '') {
+async function projectMoveFixture(t: TestContext, scope = '', reactivationClock?: () => number) {
   const inVault = (path: string) => scope ? scope + '/' + path : path;
   const sourceNote = inVault(example) + '.md';
   const destinationNote = inVault(deferred) + '.md';
@@ -1076,7 +1076,7 @@ async function projectMoveFixture(t: TestContext, scope = '') {
     await writeFile(join(root, inVault(example + nested)), `# Heading\n[landing](${landing})\n![[Projects/Active/Example/Research/Scan.bin]]\n[[#Heading]]\n`);
     if (scope) await writeFile(join(root, 'Outside.md'), '[[Projects/Active/Example]]');
     await writeFile(join(root, inVault('Projects/Active/Context.md')), `[[${sourceNote.slice(scope ? scope.length + 1 : 0)}#^block|landing]] ![[${example + nested}#Heading|research]]\n[relative](Example/Research/Notes.md#Heading)\n[readme](Example/README.md#Project-references)\n`);
-  }, undefined, null);
+  }, undefined, null, reactivationClock);
   const meta = { project: { source: 'one', id: sourceId }, other: 'retained' };
   const rpcHooks: {
     before?: (method: string, input: { dryRun?: boolean }) => Promise<void>;
@@ -1097,7 +1097,8 @@ async function projectMoveFixture(t: TestContext, scope = '') {
     },
   } });
   t.after(() => gtd.harness.lifecycle.dispose());
-  await gtdPlugin(gtd.bb as unknown as Parameters<typeof gtdPlugin>[0]);
+  const startGtd = (bb: BbPluginApi) => gtdPlugin(bb as unknown as Parameters<typeof gtdPlugin>[0], undefined, reactivationClock);
+  await startGtd(gtd.bb);
   const call = async (tool: string, args: unknown, error = false) => {
     const res = await gtd.harness.behavior.callAgentTool(tool, args, { threadId: 'reader' });
     assert.ok(typeof res !== 'string');
@@ -1111,7 +1112,7 @@ async function projectMoveFixture(t: TestContext, scope = '') {
     assert.equal(proof.editReady, true);
     return call('gtd_prepare_project_change', { source: 'one', id: sourceId, expectedHash: proof.hash, status: 'deferred' }, error);
   };
-  return { ...f, call, prepare, meta, sourceNote, sourceId, destinationId, destinationNote, rpcHooks, gtd,
+  return { ...f, call, prepare, meta, sourceNote, sourceId, destinationId, destinationNote, rpcHooks, gtd, startGtd,
     abs: (path: string) => join(f.directory, inVault(path)) };
 }
 
@@ -1306,6 +1307,166 @@ test('GTD status move preserves the paired project tree and its conversation', a
   assert.equal((await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true })).state, 'links_verified');
   assert.deepEqual(f.meta, { project: { source: 'one', id: f.destinationId }, other: 'retained' });
 });
+
+const reactivationSchedule = 'project-reactivation';
+const reactivationStartup = 'project-reactivation-startup';
+const automaticReactivation = { automaticReactivation: true };
+
+test('scheduled reactivation observes Pacific midnight, skips invalid dates and runs once per local day across reloads', async t => {
+  let now = Date.parse('2027-03-15T06:59:59Z');
+  const f = await projectMoveFixture(t, '', () => now);
+  const deferredResult = await f.call('gtd_defer_project', { id: f.sourceId, deferUntil: '2027-03-15' });
+  assert.equal(deferredResult.state, 'deferred', JSON.stringify(f.harness.inspection.logEntries));
+  const landing = f.abs(f.destinationNote);
+  await writeFile(landing, (await readFile(landing, 'utf8')).replace('"2027-03-15"', '2027-03-15'));
+  const missing = f.abs('Projects/Deferred/Missing.md');
+  const invalid = f.abs('Projects/Deferred/Invalid.md');
+  const bodyOnly = f.abs('Projects/Deferred/Body.md');
+  const unparseable = '---\ndefer-until: 2027-02-30\n---\n';
+  await writeFile(missing, '# Missing');
+  await writeFile(invalid, unparseable);
+  await writeFile(bodyOnly, '# Heading\ndefer-until: 2027-03-01');
+  let writes = 0;
+  let reads = 0;
+  f.rpcHooks.after = (rpc, input) => {
+    if (rpc === 'projectReactivationMove' && !input.dryRun) writes++;
+    if (rpc === 'projectReactivationEvidence') reads++;
+  };
+  const schedule = f.gtd.harness.inspection.registrations.schedules.find(s => s.name === reactivationSchedule);
+  assert.equal(schedule?.cron, '* * * * *');
+  await f.gtd.harness.behavior.runSchedule(reactivationSchedule);
+  assert.equal(reads, 0, 'default off');
+  await f.gtd.harness.behavior.setSettings(automaticReactivation);
+  await f.gtd.harness.behavior.runSchedule(reactivationSchedule);
+  assert.equal(writes, 0, 'UTC already reached Mar 15, Pacific did not');
+  now = Date.parse('2027-03-15T07:00:00Z');
+  await Promise.all([f.gtd.harness.behavior.runSchedule(reactivationSchedule), f.gtd.harness.behavior.runSchedule(reactivationSchedule)]);
+  assert.equal(writes, 1, JSON.stringify(f.gtd.harness.inspection.logEntries));
+  assert.deepEqual(await readFile(f.abs(example + '/Research/Scan.bin')), bytes);
+  assert.match(await readFile(f.abs('Projects/Active/Context.md'), 'utf8'), /\[\[Projects\/Active\/Example#\^block/);
+  assert.match(await readFile(f.abs(example + nested), 'utf8'), /!\[\[Projects\/Active\/Example\/Research\/Scan.bin\]\]/);
+  assert.doesNotMatch(await readFile(f.abs(f.sourceNote), 'utf8'), /defer-until/);
+  assert.equal(f.meta.project.id, f.sourceId);
+  assert.equal(await readFile(missing, 'utf8'), '# Missing');
+  assert.equal(await readFile(invalid, 'utf8'), unparseable);
+  assert.match(await readFile(bodyOnly, 'utf8'), /^# Heading/);
+  const after = reads;
+  await f.gtd.harness.behavior.runSchedule(reactivationSchedule);
+  const reloaded = await f.gtd.harness.lifecycle.reload(f.startGtd);
+  t.after(() => reloaded.harness.lifecycle.dispose());
+  await reloaded.harness.behavior.runService(reactivationStartup).done;
+  await reloaded.harness.behavior.runSchedule(reactivationSchedule);
+  assert.equal(reads, after, 'completed Pacific day survives reload');
+});
+
+test('startup catches up after downtime, and a lost move reply and later cleanup reply are reconciled from receipts', async t => {
+  let now = Date.parse('2027-03-14T06:00:00Z');
+  const f = await projectMoveFixture(t, '', () => now);
+  const deferredResult = await f.call('gtd_defer_project', { id: f.sourceId, deferUntil: '2027-03-15' });
+  assert.equal(deferredResult.state, 'deferred', JSON.stringify(f.harness.inspection.logEntries));
+  await f.gtd.harness.behavior.setSettings(automaticReactivation);
+  now = Date.parse('2027-03-16T22:00:00Z');
+  let moves = 0;
+  let cleanups = 0;
+  f.rpcHooks.after = (rpc, input) => {
+    if (rpc === 'projectReactivationMove' && !input.dryRun) {
+      moves++;
+      throw new Error('SYNTHETIC_PRIVATE_MOVE_REPLY');
+    }
+    if (rpc === 'projectReactivationCleanup') {
+      cleanups++;
+      throw new Error('SYNTHETIC_PRIVATE_CLEANUP_REPLY');
+    }
+  };
+  await f.gtd.harness.behavior.runService(reactivationStartup).done;
+  await f.gtd.harness.behavior.runSchedule(reactivationSchedule);
+  assert.equal(moves, 1);
+  assert.equal(cleanups, 1);
+  assert.equal(f.meta.project.id, f.sourceId);
+  assert.doesNotMatch(await readFile(f.abs(f.sourceNote), 'utf8'), /defer-until/);
+  const logs = JSON.stringify(f.gtd.harness.inspection.logEntries);
+  assert.match(logs, /GTD reactivation cleanup_unconfirmed count=1/);
+  assert.doesNotMatch(logs, /SYNTHETIC_PRIVATE|Example\.md/);
+  const reloaded = await f.gtd.harness.lifecycle.reload(f.startGtd);
+  t.after(() => reloaded.harness.lifecycle.dispose());
+  now += 16 * 60_000;
+  await reloaded.harness.behavior.runSchedule(reactivationSchedule);
+  assert.equal(moves, 1);
+  assert.equal(cleanups, 1);
+  assert.equal((reloaded.bb.storage.database().prepare('SELECT count(*) AS n FROM project_reactivations').get() as { n: number }).n, 0);
+});
+
+test('a verified physical move with unfinished conversations resumes after reload before date cleanup', async t => {
+  // Two minutes around midnight on the final winter day before the spring transition.
+  let now = Date.parse('2025-03-09T07:59:00Z');
+  const f = await projectMoveFixture(t, '', () => now);
+  assert.equal((await f.call('gtd_defer_project', { id: f.sourceId, deferUntil: '2025-03-09' })).state, 'deferred');
+  await f.gtd.harness.behavior.setSettings(automaticReactivation);
+  await f.gtd.harness.behavior.runSchedule(reactivationSchedule);
+  assert.match(await readFile(f.abs(f.destinationNote), 'utf8'), /2025-03-09/);
+  now += 60_000;
+  f.rpcHooks.before = async rpc => {
+    if (rpc === 'projectMoveReceipt') throw new Error('SYNTHETIC_PRIVATE_MOVE_RECEIPT');
+  };
+  await f.gtd.harness.behavior.runSchedule(reactivationSchedule);
+  assert.match(await readFile(f.abs(f.sourceNote), 'utf8'), /2025-03-09/);
+  assert.equal(f.meta.project.id, f.destinationId);
+  assert.match(JSON.stringify(f.gtd.harness.inspection.logEntries), /GTD reactivation move_unconfirmed count=1/);
+  const reloaded = await f.gtd.harness.lifecycle.reload(f.startGtd);
+  t.after(() => reloaded.harness.lifecycle.dispose());
+  f.rpcHooks.before = async rpc => {
+    assert.notEqual(rpc, 'projectReactivationMove', 'verified moves are never replayed');
+  };
+  await reloaded.harness.behavior.runService(reactivationStartup).done;
+  await reloaded.harness.behavior.runSchedule(reactivationSchedule);
+  assert.equal(f.meta.project.id, f.sourceId);
+  assert.doesNotMatch(await readFile(f.abs(f.sourceNote), 'utf8'), /defer-until/);
+});
+
+test('a blocked scheduled move keeps its date and retries after the blocker clears', async t => {
+  let now = Date.parse('2027-03-15T07:00:00Z');
+  const f = await projectMoveFixture(t, '', () => now);
+  assert.equal((await f.call('gtd_defer_project', { id: f.sourceId, deferUntil: '2027-03-15' })).state, 'deferred');
+  await f.gtd.harness.behavior.setSettings(automaticReactivation);
+  await mkdir(f.abs(example));
+  await f.gtd.harness.behavior.runSchedule(reactivationSchedule);
+  assert.match(await readFile(f.abs(f.destinationNote), 'utf8'), /2027-03-15/);
+  assert.match(JSON.stringify(f.gtd.harness.inspection.logEntries), /GTD reactivation candidate_blocked count=1/);
+  await rm(f.abs(example), { recursive: true });
+  await f.gtd.harness.behavior.runSchedule(reactivationSchedule);
+  assert.match(await readFile(f.abs(f.destinationNote), 'utf8'), /2027-03-15/);
+  now += 16 * 60_000;
+  await f.gtd.harness.behavior.runSchedule(reactivationSchedule);
+  assert.doesNotMatch(await readFile(f.abs(f.sourceNote), 'utf8'), /defer-until/);
+});
+
+for (const concurrent of ['reschedule', 'move', 'cleanup edit'] as const) {
+  test(`a concurrent ${concurrent} preserves the later edit during reactivation`, async t => {
+    const f = await projectMoveFixture(t, '', () => Date.parse('2027-03-15T14:00:00Z'));
+    const deferredResult = await f.call('gtd_defer_project', { id: f.sourceId, deferUntil: '2027-03-15' });
+    assert.equal(deferredResult.state, 'deferred');
+    await f.gtd.harness.behavior.setSettings(automaticReactivation);
+    const newDate = '2027-04-20';
+    const movedElsewhere = f.abs('Projects/Elsewhere.md');
+    f.rpcHooks.before = async (rpc, input) => {
+      if (concurrent === 'cleanup edit' ? rpc !== 'projectReactivationCleanup' : rpc !== 'projectReactivationMove' || input.dryRun) return;
+      if (concurrent === 'move') {
+        await rename(f.abs(f.destinationNote), movedElsewhere);
+        return;
+      }
+      const path = f.abs(concurrent === 'reschedule' ? f.destinationNote : f.sourceNote);
+      await writeFile(path, (await readFile(path, 'utf8')).replace('2027-03-15', newDate));
+    };
+    await f.gtd.harness.behavior.runSchedule(reactivationSchedule);
+    if (concurrent === 'move') {
+      assert.match(await readFile(movedElsewhere, 'utf8'), /2027-03-15/);
+      await assert.rejects(stat(f.abs(f.sourceNote)), { code: 'ENOENT' });
+    } else {
+      assert.match(await readFile(f.abs(concurrent === 'reschedule' ? f.destinationNote : f.sourceNote), 'utf8'), new RegExp(newDate));
+      if (concurrent === 'reschedule') await assert.rejects(stat(f.abs(f.sourceNote)), { code: 'ENOENT' });
+    }
+  });
+}
 
 test('a support README does not qualify a folder-only GTD project for a status move or Area assignment', async t => {
   const f = await projectMoveFixture(t);

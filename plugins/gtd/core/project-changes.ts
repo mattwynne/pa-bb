@@ -28,6 +28,9 @@ const deferEvidence = z.object({
   receipt: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']).nullable(),
 });
 const deferSave = deferEvidence.shape.receipt.unwrap();
+const reactivationEvidence = z.object({
+  hash, date: deferInput.shape.deferUntil.nullable(), present: z.boolean(), receipt: deferEvidence.shape.receipt,
+});
 const deferMove = z.object({
   outcome: z.enum(['link_plan_ready', 'moved_supported_links_updated', 'moved_links_partial',
     'project_move_partial', 'not_moved', 'uncertain', 'blocked']),
@@ -72,6 +75,13 @@ const moveReceipt = z.object({
   project: projectMove.optional(), root: relativeFolder.optional(), expectedHash: hash.optional(), physical: physicalMove, outcome: moveOutcome,
 });
 type Config = { vaultId: string; projectsFolder: string; areasFolder: string };
+type Reactivation = { owner: string; destination: string; date: string; planId: string; cleanupId?: string };
+type ReactivationFailure = 'inventory_unavailable' | 'candidate_blocked' | 'move_blocked' | 'move_unconfirmed' |
+  'links_pending' | 'cleanup_unconfirmed';
+const pacificCalendar = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'America/Vancouver', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+const reactivationRetryMs = 15 * 60_000;
 type Plan = {
   config: Config;
   source: string;
@@ -134,7 +144,7 @@ export function safeChangeError(e: unknown) {
     ? e.message
     : 'Evidence unavailable or changed. Inspect the plan, note and receipts before any further write.';
 }
-export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>) {
+export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config & { automaticReactivation?: boolean }>, reactivationClock = Date.now) {
   const db = bb.storage.database();
   db.exec(
     `CREATE TABLE IF NOT EXISTS project_change_plans (id TEXT PRIMARY KEY, created INTEGER NOT NULL, plan TEXT NOT NULL, move_op TEXT, attempted TEXT NOT NULL DEFAULT '[]')`,
@@ -142,6 +152,13 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
   db.exec(`CREATE TABLE IF NOT EXISTS project_deferrals (
     scope TEXT NOT NULL, owner TEXT NOT NULL, destination TEXT NOT NULL, created INTEGER NOT NULL,
     move_plan TEXT, complete INTEGER NOT NULL, request TEXT NOT NULL, PRIMARY KEY (scope, owner)
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS project_reactivation_runs (
+    scope TEXT PRIMARY KEY, completed_day TEXT NOT NULL, attempt_day TEXT NOT NULL, retry_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS project_reactivations (
+    scope TEXT NOT NULL, owner TEXT NOT NULL, plan_id TEXT NOT NULL UNIQUE,
+    request TEXT NOT NULL, PRIMARY KEY (scope, owner)
   )`);
   const active = new Set<string>();
   const deferring = new Set<string>();
@@ -318,6 +335,8 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
     await revalidate(s,e,signal);
     db.prepare(`DELETE FROM project_change_plans WHERE created < ? AND NOT EXISTS (
       SELECT 1 FROM project_deferrals WHERE move_plan = project_change_plans.id AND complete = 0
+    ) AND NOT EXISTS (
+      SELECT 1 FROM project_reactivations WHERE plan_id = project_change_plans.id
     )`).run(now - planLifetime);
     if ((db.prepare('SELECT COUNT(*) AS n FROM project_change_plans').get() as { n: number }).n >= 256)
       refuse('Plan capacity reached.');
@@ -338,7 +357,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
         'Preview only. Recheck the complete owner read/hash. For moves first require a ready Obsidian dry run; keep linked-thread changes exclusive. Never replay uncertain saves or moves.',
     };
   }
-  async function check(input: z.infer<typeof checkInput>, signal: AbortSignal, recoveringDeferral = false) {
+  async function check(input: z.infer<typeof checkInput>, signal: AbortSignal, recovering = false, beforeWrite?: () => Promise<void>) {
     if (active.has(input.planId)) refuse('Plan already in use.');
     active.add(input.planId);
     try {
@@ -347,7 +366,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
         .get(input.planId) as
         | { plan: string; move_op: string | null; attempted: string; created: number }
         | undefined;
-      if (!row || (!recoveringDeferral && row.created < Date.now() - planLifetime))
+      if (!row || (!recovering && row.created < Date.now() - planLifetime))
         return refuse('Plan not found or expired. Do not repeat a prior write.');
       const p = JSON.parse(row.plan) as Plan;
       await unchanged(p.config);
@@ -431,6 +450,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
             action: 'An earlier write was entered; inspect, do not retry.',
           };
         await revalidate(s,e,signal);
+        await beforeWrite?.();
         signal.throwIfAborted();
         const meta = await bb.sdk.threads.getPluginMetadata({ threadId: ref.threadId });
         const current = z.object({ source: z.literal(s.source), id: z.literal(p.id) }).safeParse(meta.project);
@@ -709,5 +729,145 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       return partial('date_unconfirmed', 'Retry this same deferral to check the Deferred note and any saved date receipt.');
     }
   }
-  return { browse, prepare, check, defer, applyFromPanel };
+  async function reactivate(signal: AbortSignal, startup: boolean) {
+    const enabled = async () => !signal.aborted && (await settings()).automaticReactivation === true;
+    if (!await enabled()) return;
+    const s = await scope();
+    const key = JSON.stringify([s.config.vaultId, s.config.projectsFolder]);
+    const now = reactivationClock();
+    const day = pacificCalendar.format(now);
+    const previous = db.prepare('SELECT completed_day, attempt_day, retry_at FROM project_reactivation_runs WHERE scope = ?').get(key) as
+      { completed_day: string; attempt_day: string; retry_at: number } | undefined;
+    if (previous && (previous.completed_day >= day ||
+        (!startup && previous.attempt_day === day && previous.retry_at > now))) return;
+
+    const failures = new Map<ReactivationFailure, { count: number; operations: string[] }>();
+    const fail = (failure: ReactivationFailure, planId?: string) => {
+      const entry = failures.get(failure) ?? { count: 0, operations: [] };
+      entry.count++;
+      if (planId && entry.operations.length < 3) entry.operations.push(planId);
+      failures.set(failure, entry);
+    };
+    const unfinished = db.prepare('SELECT request FROM project_reactivations WHERE scope = ? ORDER BY owner').all(key) as { request: string }[];
+    const pending = new Set<string>();
+    const save = (request: Reactivation) => db.prepare(`INSERT INTO project_reactivations (scope,owner,plan_id,request)
+      VALUES (?,?,?,?) ON CONFLICT(scope,owner) DO UPDATE SET request=excluded.request`)
+      .run(key, request.owner, request.planId, JSON.stringify(request));
+    const finish = (request: Reactivation) =>
+      db.prepare('DELETE FROM project_reactivations WHERE scope = ? AND owner = ?').run(key, request.owner);
+    const evidence = async (path: string, attempt?: string) => reactivationEvidence.parse(await rpc('projectReactivationEvidence', {
+      vaultId: s.source, path, operationId: attempt,
+    }, signal));
+    const beforeWrite = async () => {
+      await unchanged(s.config);
+      if (!await enabled()) refuse('Automatic reactivation is paused.');
+      signal.throwIfAborted();
+    };
+    const recover = async (request: Reactivation) => {
+      const operation = { planId: request.planId };
+      let stage: ReactivationFailure = 'move_unconfirmed';
+      try {
+        let checked = await check(operation, signal, true);
+        if (checked.moveOutcome === 'not_moved') {
+          finish(request);
+          return fail('move_blocked', request.planId);
+        }
+        if (checked.state === 'move_not_verified') return fail(stage, request.planId);
+
+        stage = 'links_pending';
+        if (checked.state === 'links_pending' && checked.moveOutcome !== 'uncertain') {
+          await check({ ...operation, finishLinks: true }, signal, true, beforeWrite);
+          checked = await check(operation, signal, true);
+        }
+        if (checked.state !== 'links_verified') return fail(stage, request.planId);
+
+        stage = 'cleanup_unconfirmed';
+        const current = await evidence(request.destination, request.cleanupId);
+        // A changed field belongs to the later edit. A confirmed receipt also
+        // settles an earlier cleanup even if a date has since been added.
+        if (!current.present || current.date !== request.date || current.receipt === 'saved_locally_pending_sync')
+          return finish(request);
+        if (request.cleanupId && current.receipt !== 'not_saved') return fail(stage, request.planId);
+
+        await beforeWrite();
+        request.cleanupId = operationId();
+        save(request);
+        const outcome = deferSave.parse(await rpc('projectReactivationCleanup', {
+          vaultId: s.source, path: request.destination, deferUntil: request.date,
+          expectedHash: current.hash, operationId: request.cleanupId,
+        }, signal));
+        if (outcome === 'not_saved') {
+          delete request.cleanupId;
+          save(request);
+          return fail(stage, request.planId);
+        }
+        const after = await evidence(request.destination, request.cleanupId);
+        if (after.present && after.date === request.date && after.receipt !== 'saved_locally_pending_sync')
+          return fail(stage, request.planId);
+        finish(request);
+      } catch {
+        fail(stage, request.planId);
+      }
+    };
+
+    for (const row of unfinished) {
+      if (!await enabled()) return;
+      const request = JSON.parse(row.request) as Reactivation;
+      pending.add(request.owner);
+      await recover(request);
+    }
+    try {
+      const { rows, e } = await inventory(s, signal);
+      for (const { id, status } of rows) {
+        const folder = posix.dirname(id);
+        if (status !== 'deferred' || posix.dirname(folder) !== s.projects || posix.basename(folder).toLowerCase() !== 'deferred' ||
+            !e.owners.has(id) || pending.has(id)) continue;
+        if (!await enabled()) return;
+        let request: Reactivation | undefined;
+        try {
+          const { hash, date } = await evidence(id);
+          if (!date || date > day) continue;
+          const deferral = db.prepare('SELECT 1 FROM project_deferrals WHERE scope = ? AND complete = 0 AND (owner = ? OR destination = ?)').get(key, id, id);
+          if (deferral) { fail('candidate_blocked'); continue; }
+          const plan = await prepare({ source: s.source, id, expectedHash: hash, status: 'active' }, signal, s);
+          if (plan.next?.tool !== 'obsidian_move_note' || !plan.planId) { fail('candidate_blocked'); continue; }
+          const move = { ...plan.next.input, deferUntil: date };
+          const discard = () => db.prepare('DELETE FROM project_change_plans WHERE id = ?').run(plan.planId);
+          const preview = deferMove.parse(await rpc('projectReactivationMove', move, signal));
+          if (preview.outcome !== 'link_plan_ready') { discard(); fail('move_blocked'); continue; }
+          await beforeWrite();
+          const verified = await evidence(id);
+          if (verified.date !== date || verified.hash !== hash || date > pacificCalendar.format(reactivationClock())) { discard(); continue; }
+          await beforeWrite();
+          request = { owner: id, destination: move.destination, date, planId: plan.planId };
+          save(request);
+          let outcome;
+          try {
+            outcome = deferMove.parse(await rpc('projectReactivationMove', { ...move, dryRun: false }, signal)).outcome;
+          } catch {
+            // The consumer may have lost the reply after the producer moved.
+            // Recovery proceeds only from the original operation's evidence.
+          }
+          if (outcome === 'blocked') {
+            finish(request);
+            discard();
+            fail('move_blocked');
+          } else {
+            await recover(request);
+          }
+        } catch {
+          fail(request ? 'move_unconfirmed' : 'candidate_blocked', request?.planId);
+        }
+      }
+    } catch {
+      fail('inventory_unavailable');
+    }
+    if (!await enabled()) return;
+    db.prepare(`INSERT INTO project_reactivation_runs (scope,completed_day,attempt_day,retry_at) VALUES (?,?,?,?)
+      ON CONFLICT(scope) DO UPDATE SET completed_day=excluded.completed_day,attempt_day=excluded.attempt_day,retry_at=excluded.retry_at`)
+      .run(key, failures.size ? previous?.completed_day ?? '' : day, day, failures.size ? reactivationClock() + reactivationRetryMs : 0);
+    for (const [stage, { count, operations }] of failures)
+      bb.log.warn(`GTD reactivation ${stage} count=${count}${operations.length ? ` move_operations=${operations.join(',')}` : ''}`);
+  }
+  return { browse, prepare, check, defer, applyFromPanel, reactivate };
 }

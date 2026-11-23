@@ -64,4 +64,4 @@ export interface NoteParser {
   properties(text: string, input: { set: Record<string, unknown>; remove: string[] }): string;
 }
 export class VaultError extends Error { constructor(readonly category: string, readonly nextAction = 'Check source status and reread the note before preparing a change.', readonly diagnosticReported = false) { super(category); this.name = 'VaultError'; } }
-export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight' | 'move_verification' | 'filesystem' | 'index_refresh' | 'index_watch' | 'index_access' | 'defer_move' | 'defer_save', category: string) => void;
+export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight' | 'move_verification' | 'filesystem' | 'index_refresh' | 'index_watch' | 'index_access' | 'defer_move' | 'defer_save' | 'reactivation_move' | 'reactivation_cleanup', category: string) => void;

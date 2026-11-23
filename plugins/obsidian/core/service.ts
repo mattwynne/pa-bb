@@ -597,6 +597,15 @@ export class Obsidian {
   }
 
   async projectDeferEvidence(input: { vaultId: string; path: string; deferUntil: string; operationId?: string }, signal: AbortSignal) {
+    const { note, properties, receipt } = await this.projectDateEvidence(input, signal);
+    const value = properties['defer-until'];
+    const matches = value === input.deferUntil;
+    if (!matches) this.parser.properties(note.text, { set: { 'defer-until': input.deferUntil }, remove: [] });
+    return { hash: note.hash, fieldHash: createHash('sha256').update(JSON.stringify({ value })).digest('hex'),
+      matches, receipt };
+  }
+
+  async projectDateEvidence(input: { vaultId: string; path: string; operationId?: string }, signal: AbortSignal) {
     let receipt = null;
     if (input.operationId) {
       const status = await this.status({ vaultId: input.vaultId, path: input.path, operationId: input.operationId, limit: 1 });
@@ -610,11 +619,7 @@ export class Obsidian {
       createHash('sha256').update(note.text).digest('hex') !== note.hash) throw new VaultError('unsupported');
     const { properties, warnings } = this.parser.frontmatter(note.text);
     if (warnings.length) throw new VaultError('properties_unsupported');
-    const value = properties['defer-until'];
-    const matches = value === input.deferUntil;
-    if (!matches) this.parser.properties(note.text, { set: { 'defer-until': input.deferUntil }, remove: [] });
-    return { hash: note.hash, fieldHash: createHash('sha256').update(JSON.stringify({ value })).digest('hex'),
-      matches, receipt };
+    return { note, properties, receipt };
   }
 
   async projectMoveReceipt(input: { vaultId: string; operationId: string }) {
@@ -655,7 +660,7 @@ export class Obsidian {
         : 'Local evidence only; cloud delivery and concurrent or unsupported links are unverified. Inspect uncertain operations before another write.' };
   }
 
-  async move(input: MoveEndpoints & { vaultId: string; expectedHash: string; dryRun?: boolean; operationId?: string }, signal?: AbortSignal, reader = '') {
+  async move(input: MoveEndpoints & { vaultId: string; expectedHash: string; dryRun?: boolean; operationId?: string }, signal?: AbortSignal, reader = '', beforePhysicalMove?: () => void) {
     validPath(input.path); validPath(input.destination);
     const folders = projectFolders(input);
     if (input.root) {
@@ -810,6 +815,7 @@ export class Obsidian {
         this.proofs.delete(this.key(input.vaultId, path));
         this.proofs.delete(this.key(input.vaultId, destination));
       }
+      beforePhysicalMove?.();
       const receipt = await this.files.move({ mirrorId: input.vaultId, revision, path: input.path, destination: input.destination, expectedHash: input.expectedHash, operationId,
         ...(input.project ? { project: input.project, root: input.root, movedNotes } : {}) });
       this.proofs.delete(this.key(input.vaultId, input.path));

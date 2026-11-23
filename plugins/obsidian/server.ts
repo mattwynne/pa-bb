@@ -1,6 +1,6 @@
 import { experimental_PluginRpcRefusal, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { randomUUID } from 'node:crypto';
-import { rpcContract, tools } from './contract.ts';
+import { deferDate, rpcContract, tools } from './contract.ts';
 import { InventoryBatchRefusal } from './core/inventory-evidence.ts';
 import { Obsidian } from './core/service.ts';
 import { VaultError } from './core/ports.ts';
@@ -11,7 +11,7 @@ import { ICloud } from './adapters/icloud.ts';
 import { MarkdownNotes } from './adapters/markdown-notes.ts';
 import { bbState } from './adapters/bb-state.ts';
 import { diagnosticLogger } from './adapters/diagnostic-log.ts';
-export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository }) {
+export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository }, reactivationClock = Date.now) {
   const diagnose = diagnosticLogger(message => bb.log.warn(message)); const parser = dependencies?.parser ?? new MarkdownNotes();
   const icloud = new ICloud(bb.sdk, diagnose, dependencies?.files ? undefined : bb.storage.kv, parser);
   const service = new Obsidian(dependencies?.catalog ?? icloud, dependencies?.files ?? icloud, parser, dependencies?.repository ?? bbState(bb, diagnose), randomUUID, Date.now, diagnose);
@@ -42,9 +42,65 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       throw new Error('Inventory evidence did not complete. Check compatible source access.');
     }
   };
-  const deferAccess = (context: { experimental_caller: { kind: string; pluginId?: string } }) => {
+  const datedChangeAccess = (context: { experimental_caller: { kind: string; pluginId?: string } }) => {
     if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd')
-      throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only GTD can request project deferral.' });
+      throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only GTD can write dated project changes.' });
+  };
+  const pacificCalendar = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'America/Vancouver', year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const readDate = async (input: { vaultId: string; path: string; operationId?: string }, signal: AbortSignal) => {
+    const { note, properties, receipt } = await service.projectDateEvidence(input, signal);
+    const parsed = deferDate.safeParse(properties['defer-until']);
+    return { hash: note.hash, date: parsed.success ? parsed.data : null, present: Object.hasOwn(properties, 'defer-until'), receipt };
+  };
+  const saveDate = async (
+    { vaultId, path, deferUntil, expectedHash, operationId }: { vaultId: string; path: string; deferUntil: string; expectedHash: string; operationId: string },
+    signal: AbortSignal, cleanup: boolean,
+  ) => {
+    const stage = cleanup ? 'reactivation_cleanup' : 'defer_save';
+    const reader = randomUUID();
+    try {
+      if (cleanup) {
+        const evidence = await readDate({ vaultId, path }, signal);
+        if (evidence.hash !== expectedHash || evidence.date !== deferUntil) throw new VaultError('conflict');
+      }
+      if (await service.completeRead({ vaultId, path }, signal, reader) !== expectedHash) throw new VaultError('conflict');
+      const change = cleanup ? { remove: ['defer-until'] } : { set: { 'defer-until': deferUntil } };
+      const result = await service.properties({ vaultId, path, expectedHash, ...change }, signal, reader, operationId);
+      if (result.receipt.outcome !== 'saved_locally_pending_sync') diagnose(stage, result.receipt.outcome);
+      return result.receipt.outcome;
+    } catch (error) {
+      const category = error instanceof VaultError ? error.category : 'unavailable';
+      if (!(error instanceof VaultError && error.diagnosticReported)) diagnose(stage, category);
+      return ['conflict', 'complete_read_required', 'properties_unsupported', 'cancelled'].includes(category) ? 'not_saved' as const : 'uncertain' as const;
+    }
+  };
+  const moveDatedProject = async (
+    input: Parameters<Obsidian['move']>[0], signal: AbortSignal, deferUntil?: string,
+  ) => {
+    let enteringMove = false;
+    const stage = deferUntil ? 'reactivation_move' : 'defer_move';
+    try {
+      const reader = randomUUID();
+      if (deferUntil) {
+        const date = await readDate(input, signal);
+        if (date.hash !== input.expectedHash || date.date !== deferUntil || deferUntil > pacificCalendar.format(reactivationClock()))
+          throw new VaultError('conflict');
+      }
+      if (await service.completeRead({ vaultId: input.vaultId, path: input.path }, signal, reader) !== input.expectedHash)
+        throw new VaultError('conflict', 'The landing note changed. Check the current note before moving the project.');
+      const result = await service.move(input, signal, reader, () => {
+        if (deferUntil && deferUntil > pacificCalendar.format(reactivationClock())) throw new VaultError('cancelled');
+        enteringMove = true;
+      });
+      return { outcome: result.outcome };
+    } catch (error) {
+      if (!(error instanceof VaultError && error.diagnosticReported)) diagnose(stage, error instanceof VaultError ? error.category : 'unavailable');
+      if (input.dryRun || !enteringMove)
+        return { outcome: 'blocked' as const, action: error instanceof VaultError ? error.nextAction.slice(0, 512) : 'Check Obsidian source access and try the preflight again.' };
+      return { outcome: 'uncertain' as const };
+    }
   };
   bb.rpc.register(rpcContract, {
     async projectOwnerHash(input, context) {
@@ -71,43 +127,24 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     async projectDeferEvidence(input, context) {
       return evidence(() => service.projectDeferEvidence(input, context.experimental_signal), context);
     },
-    async projectDeferSave({ vaultId, path, deferUntil, expectedHash, operationId }, context) {
-      deferAccess(context);
-      return admission.run(async () => {
-        try {
-          const signal = context.experimental_signal;
-          const reader = `gtd-defer:${randomUUID()}`;
-          if (await service.completeRead({ vaultId, path }, signal, reader) !== expectedHash) throw new VaultError('conflict');
-          const result = await service.properties({ vaultId, path, expectedHash, set: { 'defer-until': deferUntil } }, signal, reader, operationId);
-          if (result.receipt.outcome === 'not_saved') diagnose('defer_save', 'not_saved');
-          if (result.receipt.outcome === 'uncertain') diagnose('defer_save', 'uncertain');
-          return result.receipt.outcome;
-        } catch (error) {
-          const category = error instanceof VaultError ? error.category : 'unavailable';
-          if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('defer_save', category);
-          return ['conflict', 'complete_read_required', 'properties_unsupported', 'cancelled'].includes(category) ? 'not_saved' : 'uncertain';
-        }
-      });
+    async projectDeferSave(input, context) {
+      datedChangeAccess(context);
+      return admission.run(() => saveDate(input, context.experimental_signal, false));
     },
     async projectDeferMove(input, context) {
-      deferAccess(context);
-      return admission.run(async () => {
-        let enteringMove = false;
-        try {
-          const reader = `gtd-defer:${randomUUID()}`;
-          const signal = context.experimental_signal;
-          const hash = await service.completeRead({ vaultId: input.vaultId, path: input.path }, signal, reader);
-          if (hash !== input.expectedHash) throw new VaultError('conflict', 'The landing note changed. Reread it before deferring.');
-          enteringMove = true;
-          const result = await service.move(input, signal, reader);
-          return { outcome: result.outcome };
-        } catch (error) {
-          if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('defer_move', error instanceof VaultError ? error.category : 'unavailable');
-          if (input.dryRun || !enteringMove)
-            return { outcome: 'blocked', action: error instanceof VaultError ? error.nextAction.slice(0, 512) : 'Check Obsidian source access and try the preflight again.' };
-          return { outcome: 'uncertain' as const };
-        }
-      });
+      datedChangeAccess(context);
+      return admission.run(() => moveDatedProject(input, context.experimental_signal));
+    },
+    async projectReactivationEvidence(input, context) {
+      return evidence(() => readDate(input, context.experimental_signal), context);
+    },
+    async projectReactivationMove({ deferUntil, ...input }, context) {
+      datedChangeAccess(context);
+      return admission.run(() => moveDatedProject(input, context.experimental_signal, deferUntil));
+    },
+    async projectReactivationCleanup(input, context) {
+      datedChangeAccess(context);
+      return admission.run(() => saveDate(input, context.experimental_signal, true));
     },
     async projectMoveReceipt(input, context) { return evidence(() => service.projectMoveReceipt(input), context); },
     async inventoryStatus(_input, context) { return evidence(() => service.inventoryStatus(), context); },

@@ -38,7 +38,7 @@ export function formatAreas(page: AreaPage): string {
   out.push(page.consistency);
   return out.join('\n') + '\n';
 }
-export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Promise<BackendSelection>; selectAreas?: () => Promise<AreaBackendSelection> }) {
+export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Promise<BackendSelection>; selectAreas?: () => Promise<AreaBackendSelection> }, reactivationClock = Date.now) {
   let choices: Awaited<ReturnType<typeof vaultOptions>> = { vaults: [], incomplete: true };
   try { choices = await vaultOptions(bb.sdk); } catch { bb.log.warn('GTD sources source_unavailable'); }
   const labels = Object.fromEntries(choices.vaults.map(v => [v.selection, choices.vaults.filter(other => other.name === v.name).length > 1 ? `${v.name} — ${v.id}/${v.root}` : v.name]));
@@ -47,6 +47,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     vaultId: { type: 'select', label: 'Vault', description: choices.incomplete ? 'Vault discovery is unavailable or incomplete. Check Obsidian, then reload GTD to refresh this list. Existing settings are kept.' : 'Choose an Obsidian vault. After connecting another source, reload GTD to refresh this list.', options: ['__none__', ...choices.vaults.map(v => v.selection)], experimental_optionLabels: { '__none__': 'Choose a vault…', ...labels }, default: '__none__', experimental_schema: z.union([z.literal('__none__'), vaultSelectionSchema]) },
     areasFolder: { type: 'string', label: 'Areas folder', description: 'Relative to the vault, such as Areas. Immediate root notes and Area-named folders are Areas; matching note/folder pairs are one Area. Nested notes are supporting material. No status-container semantics apply.', default: 'Areas', experimental_schema: relativeFolder },
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Top-level notes and supporting folders are projects; a matching note/folder pair is one project. Active, Deferred, Someday and Done containers add one grouping layer. Empty and attachment-only project folders are included when the source supports directory enumeration; otherwise coverage is explicitly partial.', default: 'Projects', experimental_schema: relativeFolder },
+    automaticReactivation: { type: 'boolean', label: 'Automatically reactivate deferred projects', description: 'Move due projects and their supporting folders to Active, with their links and conversations. Checks daily after midnight Pacific and when GTD starts.', default: false },
   });
   const diagnose = (stage: 'list' | 'areas' | 'sources' | 'cleanup', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial'].includes(code) ? code : 'unknown';
@@ -128,7 +129,26 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     try { return await task; } finally { enteredRenames.delete(task); }
   };
   const threads = threadActions(bb, select, selectAreas);
-  const changes = projectChanges(bb, () => settings.get());
+  const changes = projectChanges(bb, async () => {
+    const config = await settings.get();
+    return { ...config, automaticReactivation: !closing && config.automaticReactivation };
+  }, reactivationClock);
+  let reactivation: Promise<void> | undefined;
+  const tickReactivation = (startup = false) => {
+    if (closing || reactivation) return reactivation;
+    reactivation = changes.reactivate(new AbortController().signal, startup)
+      .catch(() => { bb.log.warn('GTD reactivation run_unavailable'); })
+      .finally(() => { reactivation = undefined; });
+    return reactivation;
+  };
+  bb.background.schedule('project-reactivation', '* * * * *', async () => { await tickReactivation(); });
+  bb.background.service('project-reactivation-startup', { async start(signal) {
+    if (!signal.aborted) void tickReactivation(true);
+  } });
+  bb.onDispose(async () => {
+    closing = true;
+    await reactivation;
+  });
   function changeTool<T>(name: string, parameters: z.ZodType<T>, description: string, action: (input:T,signal:AbortSignal)=>Promise<unknown>) {
     bb.agents.registerTool({name, parameters, description, async execute(input,context){
       try {

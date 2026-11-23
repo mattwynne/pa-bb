@@ -30,6 +30,14 @@ Ask, for example: **“Assign the launch project to Work/Active Income/Cucumber,
 
 `bb gtd area-targets --json` lists one level of exact note and folder paths. Pass `--folder` to descend and `--offset` for the next page. The corresponding agent tools are `gtd_browse_area_targets`, `gtd_prepare_project_change` and `gtd_check_project_change`. They compose with the existing checked Obsidian editor/move tools; the CLI does not write vault notes. See the [agent workflow](skills/gtd-projects/SKILL.md#change-one-projects-area-or-status) for ordering, read-back, failure handling and limits. A status move requires a landing note and carries its same-name support tree when present. Obsidian verifies the physical move and reports backlink repairs. GTD uses the move receipt and destination inventory to reconcile the captured BB conversations. Partial moves and link repairs have separate outcomes.
 
+## Dated project reactivation
+
+Use `gtd_defer_project` to move a project to Deferred and set its landing note's top-level `defer-until` date in `YYYY-MM-DD` form. Use the current Deferred project ID to reschedule it.
+
+**Automatically reactivate deferred projects** is off by default in GTD settings. When enabled, GTD checks on the first scheduler tick at or after midnight in America/Vancouver and catches up on startup. A due project moves from Deferred to Active with its same-name support folder. GTD clears the date after Obsidian verifies the move and link repairs and GTD verifies the linked conversations. Both status folders must exist under Projects.
+
+Missing, invalid, and future dates stay in place. For blockers, read `bb plugin logs gtd -n 30` and `bb plugin logs obsidian -n 30`. A blocked check can retry after fifteen minutes. Interrupted work resumes from recorded operations and current evidence. If a move or repair remains uncertain, inspect the Obsidian receipt and reconcile the affected project before making another change.
+
 ## Stable identity migration preview
 
 `bb gtd migration-preview` compares the configured legacy inventory with the proposed stable-ID layout. For private per-entry and thread-reference mappings, run `umask 077` before redirecting `bb gtd migration-preview --json` into a new private file. It requires Obsidian inventory evidence v1. It reads active, hidden and archived thread metadata via BB; coverage is for the selected source and observable records, not deleted threads or an atomic BB/vault snapshot. Older/unavailable evidence is not a reason to scan the filesystem directly.

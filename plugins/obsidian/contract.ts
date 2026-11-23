@@ -39,10 +39,16 @@ const batchRow = z.discriminatedUnion('kind', [
   propertiesEvidence.extend({ kind: z.literal('properties') }),
   linkEvidence.extend({ kind: z.literal('target') }),
 ]);
-const deferDate = z.iso.date().refine(date => !date.startsWith('0000-'));
+export const deferDate = z.iso.date().refine(date => !date.startsWith('0000-'));
 const deferNote = vault.extend({ path: consumerFolder, deferUntil: deferDate });
-const deferredLanding = (path: string) => path.endsWith('.md') &&
-  posix.basename(posix.dirname(path)).toLowerCase() === 'deferred';
+const statusLanding = (status: string) => (path: string) => path.endsWith('.md') &&
+  posix.basename(posix.dirname(path)).toLowerCase() === status;
+const deferredLanding = statusLanding('deferred');
+const activeLanding = statusLanding('active');
+const datedMoveInput = vault.extend({ path: consumerFolder, destination: consumerFolder, expectedHash: hash,
+  project: projectMoveSchema, root: consumerFolder.optional(), operationId: z.string().uuidv7(), dryRun: z.boolean() });
+const datedMoveOutput = z.object({ outcome: z.enum(['link_plan_ready', 'moved_supported_links_updated', 'moved_links_partial',
+  'project_move_partial', 'not_moved', 'uncertain', 'blocked']), action: z.string().max(512).optional() }).strict();
 const dateSaveOutcome = z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']);
 export type InventoryBatchRequest = z.infer<typeof batchRequest>;
 export type InventoryBatchRow = z.infer<typeof batchRow>;
@@ -70,11 +76,23 @@ export const rpcContract = defineRpcContract({
     output: dateSaveOutcome,
   },
   projectDeferMove: {
-    input: vault.extend({ path: consumerFolder, destination: consumerFolder.refine(deferredLanding), expectedHash: hash,
-      project: projectMoveSchema, root: consumerFolder.optional(), operationId: z.string().uuidv7(), dryRun: z.boolean() })
+    input: datedMoveInput.extend({ destination: consumerFolder.refine(deferredLanding) })
       .refine(({ path, destination }) => posix.basename(path) === posix.basename(destination)),
-    output: z.object({ outcome: z.enum(['link_plan_ready', 'moved_supported_links_updated', 'moved_links_partial',
-      'project_move_partial', 'not_moved', 'uncertain', 'blocked']), action: z.string().max(512).optional() }).strict(),
+    output: datedMoveOutput,
+  },
+  projectReactivationEvidence: {
+    input: vault.extend({ path: consumerFolder.refine(path => deferredLanding(path) || activeLanding(path)), operationId: z.string().uuidv7().optional() }),
+    output: z.object({ hash, date: deferDate.nullable(), present: z.boolean(), receipt: dateSaveOutcome.nullable() }).strict(),
+  },
+  projectReactivationMove: {
+    input: datedMoveInput.extend({ path: consumerFolder.refine(deferredLanding), destination: consumerFolder.refine(activeLanding), deferUntil: deferDate })
+      .refine(({ path, destination }) => posix.basename(path) === posix.basename(destination) &&
+        posix.dirname(posix.dirname(path)) === posix.dirname(posix.dirname(destination))),
+    output: datedMoveOutput,
+  },
+  projectReactivationCleanup: {
+    input: deferNote.extend({ path: consumerFolder.refine(activeLanding), expectedHash: hash, operationId: z.string().uuidv7() }),
+    output: dateSaveOutcome,
   },
   projectMoveReceipt: {
     input: z.object({ vaultId: vault.shape.vaultId, operationId: z.string().uuid() }).strict(),

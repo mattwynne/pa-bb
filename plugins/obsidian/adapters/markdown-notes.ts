@@ -28,17 +28,20 @@ function header(text: string): { start: number; end: number; closeEnd: number; y
       if (node && !(isScalar(node) || (isSeq(node) && node.items.every(item => isScalar(item))))) throw new Error();
       if (node?.tag || pair.key.tag || (isSeq(node) && node.items.some(item => (item as any)?.tag))) throw new Error();
     }
-    const properties = doc.toJS({ maxAliasCount: 0 }) ?? {}; validateProperties(properties);
+    const properties = doc.toJS({ maxAliasCount: 0 }) ?? {}; validateProperties(properties, true);
     return { start: open[0].length, end: found.index, closeEnd: found.index + found[0].length + (text[found.index + found[0].length] === '\n' ? 1 : 0), yaml, doc, valid: true };
   } catch { return { start: open[0].length, end: found.index, closeEnd: found.index + found[0].length + 1, yaml, doc: null, valid: false }; }
 }
-function validateProperties(properties: Record<string, unknown>) {
+function validateProperties(properties: Record<string, unknown>, reading = false) {
   for (const [key, value] of Object.entries(properties)) {
     if (['__proto__', 'constructor', 'prototype'].includes(key) || !key || /[\r\n\x00]/.test(key)) throw new VaultError('properties_unsupported');
     const scalar = (v: unknown) => v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
     if (!scalar(value) && !(Array.isArray(value) && value.length <= 256 && value.every(scalar))) throw new VaultError('properties_unsupported');
     if (['tags', 'aliases', 'cssclasses'].includes(key) && !(Array.isArray(value) && value.every(v => typeof v === 'string'))) throw new VaultError('properties_unsupported');
     if (key === 'tags' && (value as string[]).some(v => !validTag(v.replace(/^#/, '')))) throw new VaultError('properties_unsupported');
+    // A malformed defer date is still observable YAML. Date consumers reject
+    // it without making neighboring projects or supported links unreadable.
+    if (reading && key === 'defer-until') continue;
     if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value)) {
       const date = value.slice(0, 10); const parsed = new Date(date + 'T00:00:00Z');
       if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date || (value.length > 10 && !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$/.test(value))) throw new VaultError('properties_unsupported');
