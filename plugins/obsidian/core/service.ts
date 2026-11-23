@@ -586,6 +586,37 @@ export class Obsidian {
     const resolved = await this.read({ vaultId: input.vaultId, path: matches[0], ...(subpath.startsWith('^') ? { blockId: subpath.slice(1) } : subpath ? { heading: subpath } : {}) }, signal, reader);
     return { status: 'resolved', ...resolved };
   }
+  async completeRead(input: { vaultId: string; path: string }, signal: AbortSignal, reader: string) {
+    let page = await this.read(input, signal, reader);
+    for (let pages = 0; page.nextCursor; pages++) {
+      if (pages >= 128) throw new VaultError('output_limit');
+      page = await this.read({ ...input, cursor: page.nextCursor }, signal, reader);
+    }
+    if (!page.complete || !page.editReady || !page.hash) throw new VaultError('complete_read_required');
+    return page.hash;
+  }
+
+  async projectDeferEvidence(input: { vaultId: string; path: string; deferUntil: string; operationId?: string }, signal: AbortSignal) {
+    let receipt = null;
+    if (input.operationId) {
+      const status = await this.status({ vaultId: input.vaultId, path: input.path, operationId: input.operationId, limit: 1 });
+      if (status.receiptFailures.length) throw new VaultError('unavailable');
+      const save = status.receipts.find(r => r.kind === 'save' && r.operationId === input.operationId && r.path === input.path);
+      receipt = save?.kind === 'save' ? save.outcome : null;
+    }
+    const { note } = await this.note(input.vaultId, input.path);
+    signal.throwIfAborted();
+    if (!note.complete || Buffer.byteLength(note.text) > MAX_NOTE_BYTES ||
+      createHash('sha256').update(note.text).digest('hex') !== note.hash) throw new VaultError('unsupported');
+    const { properties, warnings } = this.parser.frontmatter(note.text);
+    if (warnings.length) throw new VaultError('properties_unsupported');
+    const value = properties['defer-until'];
+    const matches = value === input.deferUntil;
+    if (!matches) this.parser.properties(note.text, { set: { 'defer-until': input.deferUntil }, remove: [] });
+    return { hash: note.hash, fieldHash: createHash('sha256').update(JSON.stringify({ value })).digest('hex'),
+      matches, receipt };
+  }
+
   async projectMoveReceipt(input: { vaultId: string; operationId: string }) {
     if (this.enteredMoves.has(input.operationId) || !this.state.moves?.some(r => r.vaultId === input.vaultId && r.operationId === input.operationId)) return null;
     const { operationId, vaultId, path, destination, project, root, expectedHash, physical, outcome } = await this.moveStatus(input);
@@ -757,7 +788,7 @@ export class Obsidian {
     if (input.dryRun) {
       check();
       checkLedger();
-      return { outcome: 'link_plan_ready', notesChecked: listed.length, bytesChecked: bytes, plannedRepairs: plan.length, ...(input.project ? {
+      return { outcome: 'link_plan_ready' as const, notesChecked: listed.length, bytesChecked: bytes, plannedRepairs: plan.length, ...(input.project ? {
         project: input.project, movedNotes: movedNotes.size, movedAttachments: planner.moves.size - movedNotes.size, operationId,
         ...(folders && input.project !== 'standalone' ? { folder: folders } : {}),
       } : {}), repairPaths: plan.map(repair => repair.path),
@@ -819,7 +850,7 @@ export class Obsidian {
       return status;
     } catch (error) {
       if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose('tool', 'uncertain');
-      return { operationId, outcome: 'uncertain', nextAction: 'Inspect obsidian_move_status with this operation ID. Do not repeat the move or repairs.' };
+      return { operationId, outcome: 'uncertain' as const, nextAction: 'Inspect obsidian_move_status with this operation ID. Do not repeat the move or repairs.' };
     } finally {
       this.enteredMoves.delete(operationId);
     }
@@ -885,7 +916,7 @@ export class Obsidian {
     if (this.state.pending?.some(p => p.operationId === operationId)) await this.save({ ...this.state, pending: this.state.pending?.filter(p => p.operationId !== operationId) });
   }); }
   private operationId() { const time = Math.floor(this.clock()).toString(16).padStart(12, '0'); return `${time.slice(0, 8)}-${time.slice(8)}-7${this.id().slice(15)}`; }
-  private async write(vaultId: string, path: string, expectedHash: string | null, prepare: (text: string) => string, create = false, signal?: AbortSignal, reader = '') {
+  private async write(vaultId: string, path: string, expectedHash: string | null, prepare: (text: string) => string, create = false, signal?: AbortSignal, reader = '', requestedOperationId?: string) {
     if (signal?.aborted) throw new VaultError('cancelled');
     validPath(path); const { revision, source } = await this.source(vaultId);
     let text = '';
@@ -897,7 +928,8 @@ export class Obsidian {
     const next = prepare(text); const metadata = this.parser.parse(next);
     if (metadata.warnings.includes('properties_unsupported')) throw new VaultError('properties_unsupported', 'The proposed note has malformed or unsupported properties. Correct the explicit change before saving.');
     this.check(vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
-    const operationId = this.operationId(); await this.pending(vaultId, path, operationId, revision, 'save');
+    const operationId = requestedOperationId ?? this.operationId();
+    await this.pending(vaultId, path, operationId, revision, 'save');
     try {
       this.check(vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
       // The file adapter rechecks authorization immediately before local publication.
@@ -943,7 +975,7 @@ export class Obsidian {
       return input.append !== undefined ? this.parser.edit(text, []) + input.append : this.parser.edit(text, input.replacements!);
     }, false, signal, reader);
   }
-  properties(input: { vaultId: string; path: string; expectedHash: string; set?: Record<string, unknown>; remove?: string[]; addAliases?: string[] }, signal?: AbortSignal, reader = '') {
-    return this.write(input.vaultId, input.path, input.expectedHash, text => { const set = { ...input.set }; if (input.addAliases?.length) { if ('aliases' in set || input.remove?.includes('aliases')) throw new VaultError('ambiguous_edit'); set.aliases = [...new Set([...this.parser.parse(text).aliases, ...input.addAliases])]; } return this.parser.properties(text, { set, remove: input.remove ?? [] }); }, false, signal, reader);
+  properties(input: { vaultId: string; path: string; expectedHash: string; set?: Record<string, unknown>; remove?: string[]; addAliases?: string[] }, signal?: AbortSignal, reader = '', operationId?: string) {
+    return this.write(input.vaultId, input.path, input.expectedHash, text => { const set = { ...input.set }; if (input.addAliases?.length) { if ('aliases' in set || input.remove?.includes('aliases')) throw new VaultError('ambiguous_edit'); set.aliases = [...new Set([...this.parser.parse(text).aliases, ...input.addAliases])]; } return this.parser.properties(text, { set, remove: input.remove ?? [] }); }, false, signal, reader, operationId);
   }
 }

@@ -2,7 +2,7 @@ import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb
 import { z } from 'zod';
 import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions } from './adapters/obsidian.ts';
 import { Areas, compareAreas, normalizeAreaSnapshot } from './core/areas.ts';
-import { browseInput, changeNames, checkInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
+import { browseInput, changeNames, checkInput, deferInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
 import { migrationPreview } from './core/migration-preview.ts';
 import { rpcContract, renameInput, reference, newThreadInput } from './contract.ts';
 import { threadActions } from './core/threads.ts';
@@ -137,12 +137,17 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
         try {return {content:[{type:'text' as const,text:JSON.stringify(await task)}]};}
         finally {enteredRenames.delete(task);}
       }
-      catch(error){bb.log.warn('GTD project_change not_confirmed');return {isError:true,content:[{type:'text' as const,text:safeChangeError(error)}]};}
+      catch(error){bb.log.warn(name === changeNames[3] ? 'GTD project_defer not_confirmed' : 'GTD project_change not_confirmed');return {isError:true,content:[{type:'text' as const,text:safeChangeError(error)}]};}
     }});
   }
   changeTool(changeNames[0],browseInput,'Browse the selected Areas folder one level at a time. Pass an exact returned folder path to discover nested Area note targets. Distinguish identical names by full path. Read only.',changes.browse);
   changeTool(changeNames[1],prepareInput,'Prepare one explicitly requested project change. Use the exact source and project ID and the complete owner note read hash. Set areaPath to an exact Area note path (null clears), OR status to the destination status folder. Returns a private plan and the checked Obsidian operation; does not write notes. Follow the GTD skill for apply and read-back.',changes.prepare);
   changeTool(changeNames[2],checkInput,'Inspect an existing project change plan. Read-only by default. Checks Obsidian’s durable move receipt directly. After the physical move is verified, finishLinks:true updates only the captured conversations. The result reports the Obsidian link repair outcome separately. On uncertainty inspect, do not replay.',changes.check);
+  changeTool(changeNames[3], deferInput, 'Explicitly defer one project in the configured GTD source. Supply the exact landing-note project ID and a local calendar date (YYYY-MM-DD). Moves the project to Deferred, reconciles supported links and conversations, and verifies the top-level defer-until field. Use the current Deferred ID to change the date. After uncertainty, inspect the returned operation IDs and retry only the same request to reconcile it.', async (input, signal) => {
+    current?.backend.invalidate();
+    try { return await changes.defer(input, signal); }
+    finally { current?.backend.invalidate(); }
+  });
   const browseInventory = async (includeAreas: boolean, fresh: boolean, signal: AbortSignal) => {
     try {
       if (closing || signal.aborted) throw new GtdError('cancelled');

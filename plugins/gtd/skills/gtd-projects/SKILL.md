@@ -39,6 +39,10 @@ Read [project and area practice](references/project-and-area-practice.md) when t
 
 ## Change one project's Area or status
 
+For an explicit request to defer until a date, use `gtd_defer_project` with the exact landing-note `id` from the configured source and `deferUntil` as a local calendar date in `YYYY-MM-DD` form. The tool moves the project into the existing Deferred status folder and confirms its top-level `defer-until` value. For a project physically in Deferred, pass its current ID to update the date in place. If the status folder is missing, create `Deferred` directly under the configured Projects folder in Obsidian before retrying.
+
+Use the returned ID for future changes. `deferred` with `dateVerified: true` confirms the local date and, if moved, the supported Obsidian link repairs and BB conversation updates. `move_repairs_pending` confirms the local date and conversation updates and directs you to the move receipt for unfinished note-link repairs. On an unconfirmed result, use the returned operation IDs with `obsidian_move_status` or `obsidian_status` for the date save, then repeat the same ID and date to reconcile the request. Follow the recovery action in the result if a concurrent edit changed the field. A local receipt does not confirm cloud delivery.
+
 Use this as one workflow for an explicit request. For a preview-only request, stop before any write. Do not infer assignments, migrate IDs, promote nested targets or restructure folders.
 
 1. Get a **complete** project inventory and identify one exact `{source,id}`. This workflow requires a project ID that is a landing-note path. For an Area note, browse `gtd_browse_area_targets` from the configured root, then pass each returned folder path to descend. Follow `nextOffset` and respect `incomplete`. The CLI equivalent is `bb gtd area-targets [--folder <exact path>] [--offset N] --json`. Choose the full note path, not its title or enclosing Area. If two targets fit, ask which full path. This workflow assigns to notes, not bare directories.

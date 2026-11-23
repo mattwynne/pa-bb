@@ -12,11 +12,32 @@ export const changeNames = [
   'gtd_browse_area_targets',
   'gtd_prepare_project_change',
   'gtd_check_project_change',
+  'gtd_defer_project',
 ] as const;
 const projectMove = z.enum(['standalone', 'paired']);
 const physicalMove = z.enum(['moved_locally_pending_sync', 'not_moved', 'partial', 'uncertain']);
 const moveOutcome = z.enum(['moved_supported_links_updated', 'moved_links_partial', 'project_move_partial', 'not_moved', 'uncertain']);
+type MoveOutcome = z.infer<typeof moveOutcome>;
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
+export const deferInput = z.object({
+  id: relativeFolder.refine(id => id.endsWith('.md'), 'Use the exact project landing-note ID.'),
+  deferUntil: z.iso.date().refine(date => !date.startsWith('0000-'), 'Use a real calendar date in YYYY-MM-DD form.'),
+}).strict();
+const deferEvidence = z.object({
+  hash, fieldHash: hash, matches: z.boolean(),
+  receipt: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']).nullable(),
+});
+const deferSave = deferEvidence.shape.receipt.unwrap();
+const deferMove = z.object({
+  outcome: z.enum(['link_plan_ready', 'moved_supported_links_updated', 'moved_links_partial',
+    'project_move_partial', 'not_moved', 'uncertain', 'blocked']),
+  action: z.string().max(512).optional(),
+});
+const planLifetime = 7 * 86400000;
+function operationId(now = Date.now()) {
+  const time = now.toString(16).padStart(12, '0');
+  return `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
+}
 export const browseInput = z
   .object({ folder: relativeFolder.optional(), offset: z.number().int().min(0).max(5000).optional() })
   .strict();
@@ -64,6 +85,15 @@ type Plan = {
   threads: string[];
   status?: string;
 };
+type Deferral = {
+  owner: string;
+  destination: string;
+  date: string;
+  fieldHash: string;
+  movePlan?: string;
+  dateAttempt?: string;
+  completed?: 'deferred' | 'move_repairs_pending';
+};
 const proof = z.object({
   revision: z.number().int(),
   epoch: z.string().uuid(),
@@ -109,7 +139,12 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
   db.exec(
     `CREATE TABLE IF NOT EXISTS project_change_plans (id TEXT PRIMARY KEY, created INTEGER NOT NULL, plan TEXT NOT NULL, move_op TEXT, attempted TEXT NOT NULL DEFAULT '[]')`,
   );
+  db.exec(`CREATE TABLE IF NOT EXISTS project_deferrals (
+    scope TEXT NOT NULL, owner TEXT NOT NULL, destination TEXT NOT NULL, created INTEGER NOT NULL,
+    move_plan TEXT, complete INTEGER NOT NULL, request TEXT NOT NULL, PRIMARY KEY (scope, owner)
+  )`);
   const active = new Set<string>();
+  const deferring = new Set<string>();
   async function scope() {
     const { vaultId, projectsFolder, areasFolder } = await settings();
     if (vaultId === '__none__') return refuse('Choose a vault first.');
@@ -182,10 +217,11 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       nextOffset: start + entries.length < page.entries.length ? start + entries.length : null,
     };
   }
-  async function prepare(input: z.infer<typeof prepareInput>, signal: AbortSignal, fromPanel = false) {
-    const s = await scope();
+  async function prepare(input: z.infer<typeof prepareInput>, signal: AbortSignal,
+    s?: Awaited<ReturnType<typeof scope>>, observed?: Awaited<ReturnType<typeof inventory>>, fromPanel = false) {
+    s ??= await scope();
     if (input.source !== s.source) refuse('Wrong project source.');
-    const { e, rows } = await inventory(s, signal);
+    const { e, rows } = observed ?? await inventory(s, signal);
     const item = rows.find((p) => p.id === input.id);
     if (!item) return refuse('Exact project not found. If already moved, inspect the original plan.');
     const owner = item.id;
@@ -200,8 +236,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
     };
     // Legacy note moves also require time-ordered operation IDs.
     const now = Date.now();
-    const time = now.toString(16).padStart(12, '0');
-    const id = `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
+    const id = operationId(now);
     let next;
     if (input.areaPath !== undefined) {
       p.areaPath = input.areaPath;
@@ -251,7 +286,8 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
             path.slice(s.projects.length + 1).toLowerCase(),
           ),
       );
-      if (dirs.length !== 1) refuse('The destination status folder must already exist unambiguously.');
+      if (dirs.length === 0) refuse(`Create a ${statusName} folder directly under the configured Projects folder in Obsidian, then retry.`);
+      if (dirs.length > 1) refuse(`Resolve the duplicate ${statusName} folders under the configured Projects folder in Obsidian, then retry.`);
       p.project = e.entries.has(owner.slice(0, -3)) ? 'paired' : 'standalone';
       const destinationStem = dirs[0] + '/' + posix.basename(owner, '.md');
       p.destination = destinationStem + '.md';
@@ -280,7 +316,9 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       };
     }
     await revalidate(s,e,signal);
-    db.prepare('DELETE FROM project_change_plans WHERE created < ?').run(now - 7 * 86400000);
+    db.prepare(`DELETE FROM project_change_plans WHERE created < ? AND NOT EXISTS (
+      SELECT 1 FROM project_deferrals WHERE move_plan = project_change_plans.id AND complete = 0
+    )`).run(now - planLifetime);
     if ((db.prepare('SELECT COUNT(*) AS n FROM project_change_plans').get() as { n: number }).n >= 256)
       refuse('Plan capacity reached.');
     db.prepare('INSERT INTO project_change_plans(id,created,plan) VALUES (?,?,?)').run(
@@ -300,7 +338,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
         'Preview only. Recheck the complete owner read/hash. For moves first require a ready Obsidian dry run; keep linked-thread changes exclusive. Never replay uncertain saves or moves.',
     };
   }
-  async function check(input: z.infer<typeof checkInput>, signal: AbortSignal) {
+  async function check(input: z.infer<typeof checkInput>, signal: AbortSignal, recoveringDeferral = false) {
     if (active.has(input.planId)) refuse('Plan already in use.');
     active.add(input.planId);
     try {
@@ -309,7 +347,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
         .get(input.planId) as
         | { plan: string; move_op: string | null; attempted: string; created: number }
         | undefined;
-      if (!row || row.created < Date.now() - 7 * 86400000)
+      if (!row || (!recoveringDeferral && row.created < Date.now() - planLifetime))
         return refuse('Plan not found or expired. Do not repeat a prior write.');
       const p = JSON.parse(row.plan) as Plan;
       await unchanged(p.config);
@@ -456,7 +494,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       const plan = await prepare(prepareInput.parse({
         source: input.source, id: input.id, expectedHash,
         ...(change.kind === 'done' ? { status: 'done' } : { areaPath: change.areaPath }),
-      }), signal, true);
+      }), signal, s, undefined, true);
       await unchanged(s.config);
       if (!plan.next) {
         if (change.kind === 'area') return { state: 'assigned' as const, message: 'Project is already assigned to this Area.' };
@@ -504,5 +542,172 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       for (const [id, owner] of panelChanges) if (owner === lock) panelChanges.delete(id);
     }
   }
-  return { browse, prepare, check, applyFromPanel };
+  async function defer(input: z.infer<typeof deferInput>, signal: AbortSignal) {
+    const s = await scope();
+    const key = JSON.stringify([s.config.vaultId, s.config.projectsFolder]);
+    if (deferring.has(key)) refuse('A deferral is in progress in this Projects folder. Wait for its result before retrying.');
+    deferring.add(key);
+    try {
+      return await deferInScope(s, key, input, signal);
+    } finally {
+      deferring.delete(key);
+    }
+  }
+
+  async function deferInScope(s: Awaited<ReturnType<typeof scope>>, key: string,
+    { id, deferUntil }: z.infer<typeof deferInput>, signal: AbortSignal) {
+    const now = Date.now();
+    db.prepare('DELETE FROM project_deferrals WHERE complete = 1 AND created < ?').run(now - planLifetime);
+    const pending = db.prepare(`SELECT request FROM project_deferrals WHERE scope = ? AND complete = 0
+      AND (owner = ? OR destination = ?) LIMIT 1`).get(key, id, id) as { request: string } | undefined;
+    let request: Deferral;
+    const noteEvidence = async (path: string, attempt?: string) => deferEvidence.parse(await rpc('projectDeferEvidence',
+      { vaultId: s.source, path, deferUntil, operationId: attempt }, signal));
+    const inDeferred = (path: string, e: PreviewEvidence) => {
+      const folder = posix.dirname(path);
+      return e.entries.has(folder) && posix.dirname(folder) === s.projects &&
+        posix.basename(folder).toLowerCase() === 'deferred';
+    };
+    const saveRequest = (r: Deferral) => db.prepare(`INSERT INTO project_deferrals
+      (scope, owner, destination, created, move_plan, complete, request) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(scope,owner) DO UPDATE SET destination=excluded.destination, created=excluded.created,
+      move_plan=excluded.move_plan, complete=excluded.complete, request=excluded.request`).run(
+      key, r.owner, r.destination, now, r.movePlan ?? null, r.completed ? 1 : 0, JSON.stringify(r));
+    const forgetRequest = () => db.prepare('DELETE FROM project_deferrals WHERE scope = ? AND owner = ?').run(key, request.owner);
+    if (pending) {
+      request = JSON.parse(pending.request) as Deferral;
+      if (request.date !== deferUntil && id !== request.destination)
+        return { state: 'deferral_pending', id: request.destination, deferUntil: request.date,
+          moveOperationId: request.movePlan ?? null, dateOperationId: request.dateAttempt ?? null,
+          action: 'Retry the original ID and date to reconcile the pending deferral. To change it, first confirm the current Deferred project ID.' };
+    } else {
+      const observed = await inventory(s, signal);
+      const item = observed.rows.find(p => p.id === id);
+      if (!item) {
+        const old = db.prepare('SELECT request FROM project_deferrals WHERE scope = ? AND owner = ? AND complete = 1')
+          .get(key, id) as { request: string } | undefined;
+        if (!old) return refuse('Exact project ID not found in the configured source. List projects for its current ID.');
+        request = JSON.parse(old.request) as Deferral;
+        if (!observed.e.owners.has(request.destination) || !inDeferred(request.destination, observed.e))
+          return refuse('The earlier destination is no longer in Deferred. List projects for its current ID.');
+        if (request.date === deferUntil && (await noteEvidence(request.destination)).matches) {
+          await revalidate(s, observed.e, signal);
+          return { state: request.completed, id: request.destination, deferUntil, dateVerified: true, moveOperationId: request.movePlan };
+        }
+        return { state: 'project_id_changed', id: request.destination, action: 'Use the exact current ID to change the date.' };
+      }
+      if (!observed.e.owners.has(id)) refuse('A confirmed project landing note is required.');
+      const baseline = await noteEvidence(id);
+      request = { owner: id, destination: id, date: deferUntil, fieldHash: baseline.fieldHash };
+      if ((db.prepare('SELECT COUNT(*) AS n FROM project_deferrals WHERE complete = 0').get() as { n: number }).n >= 256)
+        refuse('Deferral recovery capacity reached. Inspect unresolved deferrals before starting another.');
+      if (!inDeferred(id, observed.e)) {
+        const plan = await prepare({ source: s.source, id, expectedHash: baseline.hash, status: 'deferred' }, signal, s, observed);
+        if (!plan.next || plan.next.tool !== 'obsidian_move_note' || !plan.planId)
+          return refuse('The checked Deferred move plan is unavailable.');
+        request.destination = plan.next.input.destination;
+        request.movePlan = plan.planId;
+        const discardPlan = () => db.prepare('DELETE FROM project_change_plans WHERE id = ?').run(plan.planId);
+        try {
+          const overlapping = db.prepare(`SELECT 1 FROM project_deferrals WHERE scope = ? AND complete = 0
+            AND (owner = ? OR destination = ?)`).get(key, request.destination, request.destination);
+          if (overlapping) refuse('An unresolved deferral already holds this Deferred destination. Inspect the earlier move before continuing.');
+          const preview = deferMove.parse(await rpc('projectDeferMove', plan.next.input, signal));
+          if (preview.outcome !== 'link_plan_ready') refuse(preview.action ?? 'Obsidian could not verify the move preflight.');
+          await revalidate(s, observed.e, signal);
+          signal.throwIfAborted();
+        } catch (error) {
+          discardPlan();
+          throw error;
+        }
+        saveRequest(request);
+        let submitted;
+        try {
+          submitted = deferMove.parse(await rpc('projectDeferMove', { ...plan.next.input, dryRun: false }, signal));
+        } catch {
+          bb.log.warn('GTD defer_move reply_unconfirmed');
+        }
+        if (submitted?.outcome === 'blocked') {
+          forgetRequest();
+          discardPlan();
+          refuse(submitted.action ?? 'Obsidian stopped before moving the project. Check the landing note and retry.');
+        }
+      }
+    }
+
+    let moveOutcome: MoveOutcome | null = null;
+    const result = () => ({
+      id: moveOutcome === 'not_moved' ? request.owner : request.destination,
+      deferUntil, moveOperationId: request.movePlan ?? null, moveOutcome,
+    });
+    const partial = (state: 'not_moved' | 'move_unconfirmed' | 'destination_unconfirmed' | 'date_unconfirmed' | 'date_changed' | 'date_not_saved', action: string) => {
+      bb.log.warn(`GTD project_defer ${state}`);
+      return { ...result(), state, dateVerified: false, dateOperationId: request.dateAttempt ?? null, action };
+    };
+    let outcome: NonNullable<Deferral['completed']> = 'deferred';
+    if (request.movePlan) {
+      try {
+        const operation = { planId: request.movePlan };
+        let checked = await check(operation, signal, true);
+        moveOutcome = checked.moveOutcome ?? null;
+        if (checked.state === 'move_not_verified' && checked.moveOutcome === 'not_moved') {
+          forgetRequest();
+          return partial('not_moved', 'Obsidian confirmed that the project stayed in place. Inspect the move receipt before preparing a fresh deferral.');
+        }
+        if (checked.state === 'links_pending' && checked.moveOutcome !== 'uncertain')
+          checked = await check({ ...operation, finishLinks: true }, signal, true);
+        if (checked.state !== 'links_verified' && checked.state !== 'move_repairs_pending')
+          return partial('move_unconfirmed', 'Inspect the Obsidian move receipt and captured conversation updates. Retry the same deferral after reconciling any partial or uncertain work.');
+        outcome = checked.state === 'links_verified' ? 'deferred' : 'move_repairs_pending';
+      } catch {
+        return partial('move_unconfirmed', 'Inspect the Obsidian move receipt and captured conversation updates, then retry this same deferral to check their current state.');
+      }
+    }
+
+    try {
+      const { e } = await inventory(s, signal);
+      if (!e.owners.has(request.destination) || !inDeferred(request.destination, e))
+        return partial('destination_unconfirmed', 'Confirm the exact landing note in Deferred, then retry the same deferral.');
+      const observed = await noteEvidence(request.destination, request.dateAttempt);
+      await revalidate(s, e, signal);
+      if (request.date !== deferUntil) {
+        if (request.dateAttempt && (!observed.receipt || observed.receipt === 'uncertain'))
+          return partial('date_unconfirmed', 'Inspect the earlier date save receipt before changing the date again.');
+        request.date = deferUntil;
+        request.fieldHash = observed.fieldHash;
+        delete request.dateAttempt;
+      }
+      if (!observed.matches) {
+        if (request.dateAttempt && (!observed.receipt || observed.receipt === 'uncertain'))
+          return partial('date_unconfirmed', 'Inspect the date save receipt and the current defer-until field before updating it.');
+        if (observed.fieldHash !== request.fieldHash || observed.receipt === 'saved_locally_pending_sync')
+          return partial('date_changed', 'The defer-until field changed during this request. Review the current value in Obsidian. Use the current Deferred ID with a newly chosen date, or set the original requested date in Obsidian and repeat this request to verify it.');
+        signal.throwIfAborted();
+        request.dateAttempt = operationId();
+        saveRequest(request);
+        const saved = deferSave.parse(await rpc('projectDeferSave', {
+          vaultId: s.source, path: request.destination, deferUntil, expectedHash: observed.hash,
+          operationId: request.dateAttempt,
+        }, signal));
+        if (saved === 'not_saved') {
+          const failed = partial('date_not_saved', 'Obsidian declined the versioned date save. Review the current note, then retry this same deferral.');
+          delete request.dateAttempt;
+          saveRequest(request);
+          return failed;
+        }
+        if (!(await noteEvidence(request.destination, request.dateAttempt)).matches)
+          return partial('date_unconfirmed', 'Inspect the date save receipt and the current defer-until field before updating it.');
+        await unchanged(s.config);
+      }
+      request.completed = outcome;
+      if (request.movePlan) saveRequest(request);
+      else forgetRequest();
+      if (outcome === 'move_repairs_pending') bb.log.warn('GTD project_defer move_repairs_pending');
+      return { ...result(), state: outcome, dateVerified: true, dateOperationId: request.dateAttempt ?? null,
+        ...(outcome === 'move_repairs_pending' ? { action: 'Inspect the Obsidian move receipt for unfinished note-link repairs.' } : {}) };
+    } catch {
+      return partial('date_unconfirmed', 'Retry this same deferral to check the Deferred note and any saved date receipt.');
+    }
+  }
+  return { browse, prepare, check, defer, applyFromPanel };
 }

@@ -1,4 +1,5 @@
 import { defineRpcContract } from '@get-bb/plugin-sdk';
+import { posix } from 'node:path';
 import { z } from 'zod';
 import { searchCapabilitySchema } from './adapters/icloud-note-contract.ts';
 import { INVENTORY_BATCH_MAX_REQUESTS } from './core/inventory-evidence.ts';
@@ -38,6 +39,11 @@ const batchRow = z.discriminatedUnion('kind', [
   propertiesEvidence.extend({ kind: z.literal('properties') }),
   linkEvidence.extend({ kind: z.literal('target') }),
 ]);
+const deferDate = z.iso.date().refine(date => !date.startsWith('0000-'));
+const deferNote = vault.extend({ path: consumerFolder, deferUntil: deferDate });
+const deferredLanding = (path: string) => path.endsWith('.md') &&
+  posix.basename(posix.dirname(path)).toLowerCase() === 'deferred';
+const dateSaveOutcome = z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']);
 export type InventoryBatchRequest = z.infer<typeof batchRequest>;
 export type InventoryBatchRow = z.infer<typeof batchRow>;
 export const rpcContract = defineRpcContract({
@@ -54,6 +60,21 @@ export const rpcContract = defineRpcContract({
       ]),
     }).strict(),
     output: z.enum(['saved', 'preview_blocked', 'inspect_receipt']),
+  },
+  projectDeferEvidence: {
+    input: deferNote.extend({ operationId: z.string().uuidv7().optional() }),
+    output: z.object({ hash, fieldHash: hash, matches: z.boolean(), receipt: dateSaveOutcome.nullable() }).strict(),
+  },
+  projectDeferSave: {
+    input: deferNote.extend({ path: consumerFolder.refine(deferredLanding), expectedHash: hash, operationId: z.string().uuidv7() }),
+    output: dateSaveOutcome,
+  },
+  projectDeferMove: {
+    input: vault.extend({ path: consumerFolder, destination: consumerFolder.refine(deferredLanding), expectedHash: hash,
+      project: projectMoveSchema, root: consumerFolder.optional(), operationId: z.string().uuidv7(), dryRun: z.boolean() })
+      .refine(({ path, destination }) => posix.basename(path) === posix.basename(destination)),
+    output: z.object({ outcome: z.enum(['link_plan_ready', 'moved_supported_links_updated', 'moved_links_partial',
+      'project_move_partial', 'not_moved', 'uncertain', 'blocked']), action: z.string().max(512).optional() }).strict(),
   },
   projectMoveReceipt: {
     input: z.object({ vaultId: vault.shape.vaultId, operationId: z.string().uuid() }).strict(),

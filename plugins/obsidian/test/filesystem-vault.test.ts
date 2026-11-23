@@ -1078,8 +1078,17 @@ async function projectMoveFixture(t: TestContext, scope = '') {
     await writeFile(join(root, inVault('Projects/Active/Context.md')), `[[${sourceNote.slice(scope ? scope.length + 1 : 0)}#^block|landing]] ![[${example + nested}#Heading|research]]\n[relative](Example/Research/Notes.md#Heading)\n[readme](Example/README.md#Project-references)\n`);
   }, undefined, null);
   const meta = { project: { source: 'one', id: sourceId }, other: 'retained' };
+  const rpcHooks: {
+    before?: (method: string, input: { dryRun?: boolean }) => Promise<void>;
+    after?: (method: string, input: { dryRun?: boolean }) => void;
+  } = {};
   const gtd = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: scope ? 'one/' + scope : 'one' }, sdk: {
-    plugins: { callRpc: async (args: any) => f.harness.behavior.callRpc(args.method, args.input, gtdCaller) },
+    plugins: { callRpc: async (args: any) => {
+      await rpcHooks.before?.(args.method, args.input);
+      const response = await f.harness.behavior.callRpc(args.method, args.input, gtdCaller);
+      rpcHooks.after?.(args.method, args.input);
+      return response;
+    } },
     threads: {
       list: async (a) => (a?.offset || a?.archived ? [] : [makeThreadResponse({ id: 'linked' })]),
       experimental_listPluginMetadata: async () => ({ threads: [{ threadId: 'linked', metadata: structuredClone(meta) }] }),
@@ -1102,9 +1111,166 @@ async function projectMoveFixture(t: TestContext, scope = '') {
     assert.equal(proof.editReady, true);
     return call('gtd_prepare_project_change', { source: 'one', id: sourceId, expectedHash: proof.hash, status: 'deferred' }, error);
   };
-  return { ...f, call, prepare, meta, sourceNote, sourceId, destinationId, destinationNote,
+  return { ...f, call, prepare, meta, sourceNote, sourceId, destinationId, destinationNote, rpcHooks, gtd,
     abs: (path: string) => join(f.directory, inVault(path)) };
 }
+
+test('GTD defer tool moves the real support tree, reads back YAML and updates links and conversations', async t => {
+  const f = await projectMoveFixture(t, 'Life');
+  const input = { id: f.sourceId, deferUntil: '2027-03-15' };
+  const tool = (args: unknown, error = false) => f.call('gtd_defer_project', args, error);
+  await assert.rejects(f.harness.behavior.callRpc('projectDeferEvidence', {
+    vaultId: 'one', path: f.sourceNote, deferUntil: input.deferUntil,
+  }), error => error instanceof experimental_PluginRpcCallError && error.code === 'forbidden');
+  for (const args of [
+    { ...input, deferUntil: '2027-02-29' },
+    { ...input, deferUntil: '2027-3-15' },
+    { ...input, deferUntil: '2027-03-15T00:00:00Z' },
+    { ...input, deferUntil: '0000-03-15' },
+    { ...input, id: 'Projects/../Example.md' },
+    { ...input, source: 'one' },
+  ]) {
+    await assert.rejects(f.gtd.harness.behavior.callAgentTool('gtd_defer_project', args, { threadId: 'reader' }));
+  }
+  assert.match(await tool({ ...input, id: 'Projects/Active/Unknown.md' }, true), /Exact project ID not found/);
+  const first = await tool(input);
+  assert.equal(first.state, 'deferred');
+  assert.equal(first.id, f.destinationId);
+  assert.equal(first.dateVerified, true);
+  assert.equal((await f.tool('move_status', { vaultId: 'one', operationId: first.moveOperationId })).outcome,
+    'moved_supported_links_updated');
+  const readDate = async () => (await f.tool('get_note_metadata', { vaultId: 'one', path: f.destinationNote })).properties['defer-until'];
+  assert.equal(await readDate(), '2027-03-15');
+  assert.match(await readFile(f.abs(f.destinationNote.slice('Life/'.length)), 'utf8'), /^---\ndefer-until: "2027-03-15"\n---\n/);
+  await assert.rejects(stat(f.abs(example)), { code: 'ENOENT' });
+  await assert.rejects(stat(f.abs(example + '.md')), { code: 'ENOENT' });
+  assert.deepEqual(await readFile(f.abs(deferred + '/Research/Scan.bin')), bytes);
+  assert.ok((await stat(f.abs(deferred + '/Research/Empty'))).isDirectory());
+  assert.match(await readFile(f.abs(deferred + nested), 'utf8'), /Projects\/Deferred\/Example\/Research\/Scan.bin/);
+  assert.match(await readFile(f.abs('Projects/Active/Context.md'), 'utf8'), /Projects\/Deferred\/Example/);
+  assert.deepEqual(f.meta, { project: { source: 'one', id: f.destinationId }, other: 'retained' });
+  assert.equal((await tool(input)).moveOperationId, first.moveOperationId);
+  const update = await tool({ id: f.destinationId, deferUntil: '2028-02-29' });
+  assert.equal(update.state, 'deferred');
+  assert.equal(update.moveOperationId, null);
+  assert.equal(await readDate(), '2028-02-29');
+  assert.equal((await tool(input)).state, 'project_id_changed');
+  assert.equal(await readDate(), '2028-02-29');
+});
+
+test('GTD defer blocks on a missing status folder and leaves the source untouched', async t => {
+  const f = await projectMoveFixture(t);
+  await rm(f.abs('Projects/Deferred'), { recursive: true });
+  const original = await readFile(f.abs(f.sourceNote), 'utf8');
+  const error = await f.call('gtd_defer_project', { id: f.sourceId, deferUntil: '2027-03-15' }, true);
+  assert.match(error, /Create a Deferred folder directly under the configured Projects folder/);
+  assert.equal(await readFile(f.abs(f.sourceNote), 'utf8'), original);
+  assert.equal(f.meta.project.id, f.sourceId);
+});
+
+test('GTD defer requires physical Deferred membership even if legacy YAML reports deferred', async t => {
+  const f = await projectMoveFixture(t);
+  const id = 'Projects/Example at root.md';
+  await writeFile(f.abs(id), '---\nstatus: deferred\n---\nExample');
+  const result = await f.call('gtd_defer_project', { id, deferUntil: '2027-03-15' });
+  assert.equal(result.state, 'deferred');
+  assert.equal(result.id, 'Projects/Deferred/Example at root.md');
+  assert.ok(result.moveOperationId);
+  await assert.rejects(stat(f.abs(id)), { code: 'ENOENT' });
+});
+
+test('GTD defer holds a split move and leaves the date and conversation alone on retry', async t => {
+  const f = await projectMoveFixture(t);
+  const input = { id: f.sourceId, deferUntil: '2027-03-15' };
+  f.controls.onLookup = async () => {
+    if (await stat(f.abs(f.destinationNote)).catch(() => null)) {
+      f.controls.onLookup = undefined;
+      throw new Error('sentinel-private-split-move');
+    }
+  };
+  const first = await f.call('gtd_defer_project', input);
+  assert.equal(first.state, 'move_unconfirmed');
+  assert.equal(first.moveOutcome, 'project_move_partial');
+  const retry = await f.call('gtd_defer_project', input);
+  assert.equal(retry.moveOperationId, first.moveOperationId);
+  assert.equal(retry.dateVerified, false);
+  assert.doesNotMatch(await readFile(f.abs(f.destinationNote), 'utf8'), /defer-until/);
+  assert.equal(f.meta.project.id, f.sourceId);
+});
+
+test('GTD defer reconciles a lost move reply, a rejected date CAS and a lost save reply without replaying either mutation', async t => {
+  const f = await projectMoveFixture(t);
+  const input = { id: f.sourceId, deferUntil: '2027-03-15' };
+  const tool = (args = input) => f.call('gtd_defer_project', args);
+  let moves = 0;
+  let saves = 0;
+  f.rpcHooks.before = async method => {
+    if (method !== 'projectDeferSave' || ++saves !== 1) return;
+    const path = f.abs(f.destinationNote);
+    await writeFile(path, (await readFile(path, 'utf8')) + '\nUnrelated concurrent edit\n');
+  };
+  f.rpcHooks.after = (method, args) => {
+    if (method === 'projectDeferMove' && !args.dryRun) {
+      moves++;
+      throw new Error('sentinel-private-move-reply');
+    }
+    if (method === 'projectDeferSave' && saves === 2) throw new Error('sentinel-private-save-reply');
+  };
+  const first = await tool();
+  assert.equal(first.state, 'date_not_saved');
+  assert.equal(f.meta.project.id, f.destinationId);
+  const lost = await tool();
+  assert.equal(lost.state, 'date_unconfirmed');
+  assert.ok(lost.dateOperationId);
+  const recovered = await tool({ ...input, id: f.destinationId });
+  assert.equal(recovered.state, 'deferred');
+  assert.equal(recovered.dateOperationId, lost.dateOperationId);
+  assert.equal(recovered.moveOperationId, first.moveOperationId);
+  assert.equal(moves, 1);
+  assert.equal(saves, 2);
+  const text = await readFile(f.abs(f.destinationNote), 'utf8');
+  assert.match(text, /defer-until: "2027-03-15"/);
+  assert.match(text, /Unrelated concurrent edit/);
+  const logs = JSON.stringify(f.gtd.harness.inspection.logEntries);
+  assert.match(logs, /GTD defer_move reply_unconfirmed/);
+  assert.match(logs, /GTD project_defer date_unconfirmed/);
+  assert.doesNotMatch(logs, /sentinel-private|2027-03-15|Example\.md/);
+});
+
+test('GTD defer serializes competing calls and preserves an independently changed date', async t => {
+  const f = await projectMoveFixture(t);
+  const input = { id: f.sourceId, deferUntil: '2027-03-15' };
+  const call = (args = input, error = false) => f.call('gtd_defer_project', args, error);
+  let entered!: () => void;
+  let release!: () => void;
+  const reached = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  f.rpcHooks.before = async (method, args) => {
+    if (method !== 'projectDeferMove' || !args.dryRun) return;
+    entered();
+    await gate;
+  };
+  const first = call();
+  try {
+    await reached;
+    assert.match(await call({ ...input, deferUntil: '2027-04-01' }, true), /deferral is in progress/);
+    f.rpcHooks.before = async method => {
+      if (method !== 'projectMoveReceipt') return;
+      f.rpcHooks.before = undefined;
+      const path = f.abs(f.destinationNote);
+      await writeFile(path, '---\ndefer-until: "2027-04-01"\n---\n' + await readFile(path, 'utf8'));
+    };
+  } finally {
+    release();
+  }
+  const conflict = await first;
+  assert.equal(conflict.state, 'date_changed');
+  assert.match(await readFile(f.abs(f.destinationNote), 'utf8'), /defer-until: "2027-04-01"/);
+  const updated = await call({ id: f.destinationId, deferUntil: '2027-05-01' });
+  assert.equal(updated.state, 'deferred');
+  assert.equal(updated.moveOperationId, conflict.moveOperationId);
+  assert.match(await readFile(f.abs(f.destinationNote), 'utf8'), /defer-until: "2027-05-01"/);
+});
 
 test('GTD status move preserves the paired project tree and its conversation', async t => {
   const f = await projectMoveFixture(t);

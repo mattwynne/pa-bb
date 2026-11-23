@@ -42,27 +42,20 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       throw new Error('Inventory evidence did not complete. Check compatible source access.');
     }
   };
-  const readOwner = async (input: { vaultId: string; path: string }, signal: AbortSignal, reader: string) => {
-    const target = { vaultId: input.vaultId, path: input.path };
-    let page = await service.read(target, signal, reader);
-    let pages = 0;
-    while (page.nextCursor) {
-      if (++pages > 128) throw new VaultError('output_limit');
-      page = await service.read({ ...target, cursor: page.nextCursor }, signal, reader);
-    }
-    if (!page.complete || !page.editReady || !page.hash) throw new VaultError('complete_read_required');
-    return page.hash;
+  const deferAccess = (context: { experimental_caller: { kind: string; pluginId?: string } }) => {
+    if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd')
+      throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only GTD can request project deferral.' });
   };
   bb.rpc.register(rpcContract, {
     async projectOwnerHash(input, context) {
-      return evidence(() => readOwner(input, context.experimental_signal, randomUUID()), context);
+      return evidence(() => service.completeRead(input, context.experimental_signal, randomUUID()), context);
     },
     async applyProjectChange(input, context) {
       return evidence(async () => {
         const { change, ...target } = input;
         const signal = context.experimental_signal;
         const reader = randomUUID();
-        if (await readOwner(target, signal, reader) !== target.expectedHash) throw new VaultError('conflict');
+        if (await service.completeRead(target, signal, reader) !== target.expectedHash) throw new VaultError('conflict');
         if (change.kind === 'area') {
           const result = await service.properties({ ...target, set: { area: change.areaPath } }, signal, reader);
           return result.receipt.outcome === 'saved_locally_pending_sync' ? 'saved' : 'inspect_receipt';
@@ -74,6 +67,47 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
         await service.move(move, signal, reader);
         return 'inspect_receipt';
       }, context);
+    },
+    async projectDeferEvidence(input, context) {
+      return evidence(() => service.projectDeferEvidence(input, context.experimental_signal), context);
+    },
+    async projectDeferSave({ vaultId, path, deferUntil, expectedHash, operationId }, context) {
+      deferAccess(context);
+      return admission.run(async () => {
+        try {
+          const signal = context.experimental_signal;
+          const reader = `gtd-defer:${randomUUID()}`;
+          if (await service.completeRead({ vaultId, path }, signal, reader) !== expectedHash) throw new VaultError('conflict');
+          const result = await service.properties({ vaultId, path, expectedHash, set: { 'defer-until': deferUntil } }, signal, reader, operationId);
+          if (result.receipt.outcome === 'not_saved') diagnose('defer_save', 'not_saved');
+          if (result.receipt.outcome === 'uncertain') diagnose('defer_save', 'uncertain');
+          return result.receipt.outcome;
+        } catch (error) {
+          const category = error instanceof VaultError ? error.category : 'unavailable';
+          if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('defer_save', category);
+          return ['conflict', 'complete_read_required', 'properties_unsupported', 'cancelled'].includes(category) ? 'not_saved' : 'uncertain';
+        }
+      });
+    },
+    async projectDeferMove(input, context) {
+      deferAccess(context);
+      return admission.run(async () => {
+        let enteringMove = false;
+        try {
+          const reader = `gtd-defer:${randomUUID()}`;
+          const signal = context.experimental_signal;
+          const hash = await service.completeRead({ vaultId: input.vaultId, path: input.path }, signal, reader);
+          if (hash !== input.expectedHash) throw new VaultError('conflict', 'The landing note changed. Reread it before deferring.');
+          enteringMove = true;
+          const result = await service.move(input, signal, reader);
+          return { outcome: result.outcome };
+        } catch (error) {
+          if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('defer_move', error instanceof VaultError ? error.category : 'unavailable');
+          if (input.dryRun || !enteringMove)
+            return { outcome: 'blocked', action: error instanceof VaultError ? error.nextAction.slice(0, 512) : 'Check Obsidian source access and try the preflight again.' };
+          return { outcome: 'uncertain' as const };
+        }
+      });
     },
     async projectMoveReceipt(input, context) { return evidence(() => service.projectMoveReceipt(input), context); },
     async inventoryStatus(_input, context) { return evidence(() => service.inventoryStatus(), context); },
@@ -91,7 +125,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       return admission.run(async () => { try {
         // A unique reader keeps this internal whole-note proof isolated from agent reads.
         const reader = `gtd-title:${randomUUID()}`;
-        const expectedHash = await readOwner(input, context.experimental_signal, reader);
+        const expectedHash = await service.completeRead({ vaultId: input.vaultId, path: input.path }, context.experimental_signal, reader);
         const result = await service.properties({ vaultId: input.vaultId, path: input.path, expectedHash, set: { title: input.title } }, context.experimental_signal, reader);
         return { operationId: result.operationId, outcome: result.receipt.outcome };
       } catch (error) {
