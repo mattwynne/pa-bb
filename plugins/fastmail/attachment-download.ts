@@ -22,6 +22,8 @@ type Options = {
   location: () => Promise<string>;
   ensureCurrent: () => void;
 };
+type SessionOptions = Pick<Options, 'fetch' | 'signal' | 'ensureCurrent'>;
+
 export class AttachmentError extends Error {
   stage: string; category: string;
   constructor(stage: string, category: string) {
@@ -114,8 +116,8 @@ function receivedAt(value: unknown): number {
   return Date.parse(value);
 }
 class DownloadClient {
-  token: string; options: Options; signal: AbortSignal; api = ''; accountId = ''; username = ''; template = '';
-  constructor(token: string | undefined, options: Options) {
+  token: string; options: SessionOptions; signal: AbortSignal; api = ''; accountId = ''; username = ''; template = '';
+  constructor(token: string | undefined, options: SessionOptions) {
     if (!token || token.length > 8192 || /[\x00-\x20\x7f]/.test(token)) attachmentFail('attachment_config', 'token_missing_or_invalid');
     this.token = token; this.options = options;
     this.signal = AbortSignal.any([AbortSignal.timeout(60_000), ...(options.signal ? [options.signal] : [])]);
@@ -138,8 +140,8 @@ class DownloadClient {
       return attachmentFail(stage, this.signal.aborted ? 'cancelled' : 'transport');
     }
   }
-  async mcp(name: string, args: Json) {
-    try { this.signal.throwIfAborted(); return mcpJson(await abortable(this.options.mcp(name, args, this.signal), this.signal, 'attachment_mcp')); }
+  async mcp(call: Options['mcp'], name: string, args: Json) {
+    try { this.signal.throwIfAborted(); return mcpJson(await abortable(call(name, args, this.signal), this.signal, 'attachment_mcp')); }
     catch (error) { if (error instanceof AttachmentError) throw error; return attachmentFail('attachment_mcp', this.signal.aborted ? 'cancelled' : 'transport'); }
   }
   async json(url: string, stage: string, payload?: Json): Promise<Json> {
@@ -148,15 +150,25 @@ class DownloadClient {
     try { const v = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); if (object(v)) return v; } catch { /* fixed diagnostic below */ }
     return attachmentFail(stage, 'invalid_response');
   }
-  async call(method: string, properties: Json, using: string[]) {
+  async method(method: string, properties: Json, using: string[]) {
     const data = await this.json(this.api, 'attachment_metadata', { using: [CORE, ...using], methodCalls: [[method, { accountId: this.accountId, ...properties }, 'attachment']] });
     const responses = data.methodResponses;
     if (!Array.isArray(responses) || responses.length !== 1 || !Array.isArray(responses[0]) || responses[0].length !== 3) return attachmentFail('attachment_metadata', 'invalid_response');
     const [name, result, callId] = responses[0];
-    if (name === 'error') return attachmentFail('attachment_metadata', 'provider_rejected');
-    if (name !== method || callId !== 'attachment' || !object(result) || result.accountId !== this.accountId ||
-        !Array.isArray(result.list) || !Array.isArray(result.notFound) || result.notFound.length) return attachmentFail('attachment_metadata', 'invalid_response');
+    if (name === 'error')
+      return attachmentFail('attachment_metadata', method === 'Email/query' && result?.type === 'anchorNotFound' ? 'anchor_missing' : 'provider_rejected');
+    if (name !== method || callId !== 'attachment' || !object(result) || result.accountId !== this.accountId) return attachmentFail('attachment_metadata', 'invalid_response');
     return result;
+  }
+  async call(method: string, properties: Json, using: string[]) {
+    const result = await this.method(method, properties, using);
+    if (!Array.isArray(result.list) || !Array.isArray(result.notFound) || result.notFound.length)
+      return attachmentFail('attachment_metadata', 'invalid_response');
+    return result;
+  }
+  downloadUrl(blobId: string, name: string, type: string) {
+    return endpoint(this.template.replace(/\{(accountId|blobId|name|type)\}/g, (_, key: string) => encodeURIComponent(
+      ({ accountId: this.accountId, blobId, name, type } as Json)[key])), true);
   }
   async open() {
     const session = await this.json('https://api.fastmail.com/jmap/session', 'attachment_session');
@@ -180,10 +192,10 @@ class DownloadClient {
     this.options.ensureCurrent();
     return { account: this.username, accountId: this.accountId, identityBinding: 'authenticated-jmap-session' as const };
   }
-  async download(r: Request, threadId: string) {
+  async download(r: Request, threadId: string, options: Pick<Options, 'mcp' | 'location'>) {
     const identity = await this.open();
     if (r.account !== this.username) return attachmentFail('attachment_identity', 'account_mismatch');
-    const mcp = await this.mcp('read_email', { id: r.emailId });
+    const mcp = await this.mcp(options.mcp, 'read_email', { id: r.emailId });
     if (!object(mcp) || mcp.id !== r.emailId || !validId(mcp.threadId) || !Array.isArray(mcp.attachments) || mcp.attachments.length > 256)
       return attachmentFail('attachment_ownership', 'invalid_response');
     const matches = mcp.attachments.filter((a: Json) => object(a) && a.blobId === r.blobId);
@@ -199,8 +211,7 @@ class DownloadClient {
     if (parts.length !== 1 || !matchesMetadata(parts[0], r)) return attachmentFail('attachment_ownership', 'metadata_mismatch');
     // Never interpolate untrusted names into paths before validation, even URLs.
     safeAttachmentName(r.expectedName);
-    const url = endpoint(this.template.replace(/\{(accountId|blobId|name|type)\}/g, (_, key: string) => encodeURIComponent(
-      ({ accountId: this.accountId, blobId: r.blobId, name: r.expectedName, type: r.expectedMimeType } as Json)[key])), true);
+    const url = this.downloadUrl(r.blobId, r.expectedName, r.expectedMimeType);
     const response = await this.request(url, 'attachment_bytes');
     const length = response.headers.get('content-length');
     const encoding = response.headers.get('content-encoding');
@@ -217,7 +228,7 @@ class DownloadClient {
       name: r.expectedName, mimeType: r.expectedMimeType, sizeBytes: bytes.length, sha256, downloadedAt: new Date().toISOString(),
       sourceMessage: { messageId: messageIds(email.messageId), receivedAt: email.receivedAt },
       ownershipBinding: 'exact-email-thread-message-attachment-metadata-in-both-apis' };
-    const path = await saveOriginal(await abortable(this.options.location(), this.signal, 'attachment_file'), r.expectedName, bytes, provenance, () => { this.signal.throwIfAborted(); this.options.ensureCurrent(); });
+    const path = await saveOriginal(await abortable(options.location(), this.signal, 'attachment_file'), r.expectedName, bytes, provenance, () => { this.signal.throwIfAborted(); this.options.ensureCurrent(); });
     return { status: 'downloaded', source: { host: 'bb-server', threadId, path }, name: r.expectedName,
       mimeType: r.expectedMimeType, sizeBytes: bytes.length, sha256, provenance,
       note: 'Exact downloaded bytes; not opened, extracted, converted or uploaded. A Drive upload requires a separate user request and approval.' };
@@ -232,5 +243,75 @@ export async function attachmentStatus(token: string | undefined, options: Optio
 export async function downloadAttachment(token: string | undefined, input: unknown, threadId: string, options: Options) {
   const parsed = attachmentDownloadSchema.safeParse(input);
   if (!parsed.success || !/^thr_[a-z0-9]+$/.test(threadId)) return attachmentFail('attachment_arguments', 'invalid_arguments');
-  return new DownloadClient(token, options).download(parsed.data, threadId);
+  return new DownloadClient(token, options).download(parsed.data, threadId, options);
+}
+
+const archiveCursor = id;
+const maxMimeBytes = 32 * 1024 * 1024;
+const archivePage = z.object({
+  ids: z.array(id).max(25), next: archiveCursor.nullable(), restart: z.boolean().optional(),
+});
+const archiveRaw = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('ok'), mime: z.string().max(Math.ceil(maxMimeBytes * 4 / 3) + 4) }),
+  z.object({ status: z.enum(['missing', 'too_large']) }),
+]);
+export const emailArchiveContract = {
+  emailArchiveAccounts: { input: z.null(), output: z.array(z.object({ id, email: account })).max(1) },
+  emailArchivePage: { input: z.object({ accountId: id, cursor: archiveCursor.nullable() }), output: archivePage },
+  emailArchiveMessage: { input: z.object({ accountId: id, messageId: id }), output: archiveRaw },
+};
+
+export async function fastmailArchiveAccounts(token: string | undefined, options: SessionOptions) {
+  if (!token) return [];
+  const client = new DownloadClient(token, options);
+  const { accountId, account } = await client.open();
+  return [{ id: accountId, email: account }];
+}
+
+async function archiveSession(token: string | undefined, options: SessionOptions, accountId: string) {
+  const client = new DownloadClient(token, options);
+  const identity = await client.open();
+  if (identity.accountId !== accountId) attachmentFail('archive_session', 'account_mismatch');
+  return client;
+}
+
+export async function fastmailArchivePage(token: string | undefined, options: SessionOptions, accountId: string, cursor: string | null): Promise<z.infer<typeof archivePage>> {
+  const client = await archiveSession(token, options, accountId);
+  let response: Json;
+  try {
+    response = await client.method('Email/query', {
+      ...(cursor ? { anchor: cursor, anchorOffset: 1 } : { position: 0 }),
+      limit: 25, sort: [{ property: 'receivedAt', isAscending: true }],
+    }, [MAIL]);
+  } catch (error) {
+    if (cursor && error instanceof AttachmentError && error.category === 'anchor_missing')
+      return { ids: [], next: null, restart: true };
+    throw error;
+  }
+  const result = z.object({
+    ids: z.array(id).max(25),
+    position: z.number().int().nonnegative(),
+  }).parse(response);
+  if ((!cursor && result.position !== 0) || (cursor && result.ids.includes(cursor)))
+    attachmentFail('archive_page', 'invalid_response');
+  return { ids: result.ids, next: result.ids.at(-1) ?? null };
+}
+
+export async function fastmailArchiveMessage(token: string | undefined, options: SessionOptions, accountId: string, messageId: string): Promise<z.infer<typeof archiveRaw>> {
+  const client = await archiveSession(token, options, accountId);
+  const response = await client.method('Email/get', { ids: [messageId], properties: ['id', 'blobId', 'size'] }, [MAIL]);
+  const metadata = z.object({
+    list: z.array(z.object({ id, blobId: id, size: z.number().int().positive() })).max(1),
+    notFound: z.array(id).max(1),
+  }).parse(response);
+  if (!metadata.list.length && metadata.notFound[0] === messageId) return { status: 'missing' };
+  const email = metadata.list[0];
+  if (!email || email.id !== messageId || metadata.notFound.length) attachmentFail('archive_message', 'invalid_response');
+  if (email.size > maxMimeBytes) return { status: 'too_large' };
+  const url = client.downloadUrl(email.blobId, 'message.eml', 'message/rfc822');
+  const blob = await client.request(url, 'archive_mime');
+  const bytes = await bounded(blob, email.size, client.signal, 'archive_mime');
+  if (bytes.length !== email.size) attachmentFail('archive_mime', 'size_mismatch');
+  options.ensureCurrent();
+  return { status: 'ok', mime: bytes.toString('base64') };
 }

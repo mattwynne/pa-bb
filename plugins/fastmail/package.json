@@ -21,11 +21,11 @@
     "@modelcontextprotocol/client": "2.0.0",
     "@xmldom/xmldom": "0.9.12",
     "unicode-case-folding": "1.1.1",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.1",
-    "@get-bb/plugin-sdk": "0.6.80",
+    "@get-bb/plugin-sdk": "0.6.157",
     "@types/node": "22.20.5",
     "@types/react": "19.2.7",
     "ajv": "^8.20.0",

@@ -28,6 +28,17 @@
       }
     },
     {
+      "id": "email",
+      "displayName": "Email",
+      "description": "Index selected Workspace and Fastmail accounts in a local MsgVault archive and search their email.",
+      "icon": "Mail",
+      "tags": ["email", "gmail", "fastmail", "search", "archive"],
+      "author": { "name": "Matt Wynne", "github": "mattwynne" },
+      "source": {
+        "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/email", "ref": "main" }
+      }
+    },
+    {
       "id": "icloud",
       "displayName": "iCloud",
       "description": "Sync selected iCloud Drive folders with persistent local folders, with protected Apple setup and coordinated note saves.",

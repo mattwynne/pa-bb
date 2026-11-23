@@ -12,7 +12,7 @@ test('marketplace validates and lists only independently installable current plu
   addFormats(ajv);
   const validate = ajv.compile(schema);
   assert.ok(validate(catalog), JSON.stringify(validate.errors));
-  assert.deepEqual(catalog.plugins.map(p => p.id).sort(), ['fastmail', 'google-workspace', 'icloud', 'obsidian']);
+  assert.deepEqual(catalog.plugins.map(p => p.id).sort(), ['email', 'fastmail', 'google-workspace', 'icloud', 'obsidian']);
   for (const entry of catalog.plugins) {
     assert.equal(entry.source.git.url, 'https://github.com/mattwynne/pa-bb.git');
     assert.equal(entry.source.git.subdir, `plugins/${entry.id}`);

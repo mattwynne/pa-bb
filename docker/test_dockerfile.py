@@ -1,7 +1,9 @@
 """Keep inline Docker pins aligned with provisioning, without requiring Ansible."""
 from pathlib import Path
+import os
 import re
 import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +48,23 @@ class DockerfileTests(unittest.TestCase):
                     result = subprocess.run(['/bin/sh', '-n'], input=line[4:],
                                             text=True, capture_output=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rclone_check_does_not_inherit_its_boolean_version_flag(self):
+        # Docker exposes ARG values to RUN. rclone treats RCLONE_VERSION as a
+        # boolean --version flag, not the release number used for the download.
+        check = next(line.strip() for line in DOCKERFILE.splitlines()
+                     if 'rclone version;' in line)
+        with tempfile.TemporaryDirectory() as tmp:
+            tools = Path(tmp)
+            for name, body in [('rclone', 'test -z "${RCLONE_VERSION+x}"\n'),
+                               ('uv', 'exit 0\n'), ('uvx', 'exit 0\n')]:
+                path = tools / name
+                path.write_text('#!/bin/sh\n' + body)
+                path.chmod(0o755)
+            result = subprocess.run(['/bin/sh', '-ec', check], capture_output=True,
+                                    text=True, env={**os.environ, 'RCLONE_VERSION': '1.75.2',
+                                                   'PATH': str(tools) + ':' + os.environ['PATH']})
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_node_base_without_ansible(self):
         self.assertIn('FROM node:24-bookworm-slim\n', DOCKERFILE)

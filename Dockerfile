@@ -45,7 +45,7 @@ RUN set -eu; \
     tar -xzf /tmp/uv.tar.gz -C /tmp; \
     install -m 0755 /tmp/uv-x86_64-unknown-linux-gnu/uv /tmp/uv-x86_64-unknown-linux-gnu/uvx /usr/local/bin/; \
     rm -rf /tmp/rclone /tmp/rclone.zip /tmp/uv.tar.gz /tmp/uv-x86_64-unknown-linux-gnu; \
-    rclone version; uv --version; uvx --version
+    env -u RCLONE_VERSION rclone version; uv --version; uvx --version
 
 ENV HOME=/home/bb \
     PATH=/home/bb/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

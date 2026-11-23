@@ -18,6 +18,7 @@ For a new installation, use the [Docker quick start](#docker-quick-start) or [An
 | --- | --- | --- |
 | [Google Workspace](plugins/google-workspace/README.md) | Use Drive, Docs, Sheets, Calendar and Gmail across connected Google accounts. Requested writes run without a second PA approval prompt. | Your own Google Web OAuth client and `uvx` on the BB service's PATH. [Setup guide](plugins/google-workspace/README.md#setup). |
 | [Fastmail](plugins/fastmail/README.md) | Use Fastmail's mail, calendar and contacts tools. Available actions depend on the access you grant, including write/send access if selected. An optional API token enables Inbox and label updates. | One Fastmail account. [Setup guide](plugins/fastmail/docs/setup.md). |
+| [Email](plugins/email/README.md) | Index chosen mail accounts into a private MsgVault archive on the BB server and search archived email. | Reuses Workspace Gmail and Fastmail JMAP connections. Requires MsgVault on the server. |
 | [iCloud Drive](plugins/icloud/README.md) | Sync selected folders in both directions between iCloud Drive and the BB host. | A supported Linux host with rclone. [Setup and recovery guide](plugins/icloud/docs/setup.md). |
 | [Obsidian](plugins/obsidian/README.md) | Search, read, create and edit Markdown notes, properties and tasks across connected vaults. No Obsidian app or Mac relay required. | The iCloud plugin, an initialized synced vault, and the [host search requirements](provisioning/README.md). [Setup guide](plugins/obsidian/docs/setup.md). |
 
@@ -59,8 +60,9 @@ Browser Automation, so **skip step 2** and [connect your services](#3-connect-yo
 No accounts are connected and no sync is enabled automatically.
 
 See the [container guide](docker/README.md) for logs, provider sign-in, persistence
-and safe updates. The image build and container runtime have not yet been verified;
-current checks cover startup logic, shell syntax and dependency-pin alignment.
+and safe updates. The linux/amd64 image build, startup, health check and plugin
+registration have been verified. Provider sign-in and browser automation still
+need checks after account setup.
 
 #### Ansible or manual setup
 

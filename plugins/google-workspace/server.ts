@@ -1,5 +1,7 @@
+import * as sdk from '@get-bb/plugin-sdk';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
+import { emailArchiveContract, gmailArchive, MailReadError } from './email-archive.js';
 import { rpcContract } from './contract.js';
 import { createWorkspace } from './core/workspace.mjs';
 import { createGoogleAuth } from './core/auth.mjs';
@@ -56,6 +58,26 @@ export default async function plugin(bb: BbPluginApi, ports: any = {}) {
       return { ready: workspace.tools().length > 0 };
     } catch (error) { diagnose('catalogue_discovery', error); lastError = message(error); return { ready: false }; }
   }
+  const archive = gmailArchive(subject => auth.accessSubject(subject), ports.gmailFetch);
+  type ArchiveContext = { experimental_caller: { kind: string; pluginId?: string }; experimental_signal?: AbortSignal };
+  async function archiveRead<T>(context: ArchiveContext, stage: string, read: (signal: AbortSignal) => Promise<T>) {
+    if (context?.experimental_caller?.kind !== 'plugin' || context.experimental_caller.pluginId !== 'email') {
+      const refusal = 'Only the Email plugin can request archive reads.';
+      // Older BB builds can still load the provider’s existing tools.
+      if (sdk.experimental_PluginRpcRefusal) throw new sdk.experimental_PluginRpcRefusal({ code: 'forbidden', message: refusal });
+      throw new Error(refusal);
+    }
+    try { return await read(AbortSignal.any([context.experimental_signal ?? lifetime.signal, lifetime.signal])); }
+    catch (error) {
+      bb.log.warn(`Google Workspace archive_${stage} ${error instanceof MailReadError ? error.category : category(error)}`);
+      throw new Error('Gmail archive read failed. Check Google Workspace configuration.');
+    }
+  }
+  bb.rpc.register(emailArchiveContract, {
+    emailArchiveAccounts: (_, context) => archiveRead(context, 'accounts', async () => (await auth.list()).map(({ subject, email }: { subject: string; email: string }) => ({ id: subject, email }))),
+    emailArchivePage: ({ accountId, cursor }, context) => archiveRead(context, 'page', signal => archive.page(accountId, cursor, signal)),
+    emailArchiveMessage: ({ accountId, messageId }, context) => archiveRead(context, 'message', signal => archive.message(accountId, messageId, signal)),
+  }, { experimental_discoverable: false });
   bb.rpc.register(rpcContract, {
     async status() {
       const { clientId, clientSecret } = await settings.get();
