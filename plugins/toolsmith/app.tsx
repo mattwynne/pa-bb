@@ -78,10 +78,10 @@ function ToolsmithPanel() {
       </div>}
       {!work && !failed && <p className="toolsmith-empty" role="status">Loading threads…</p>}
       {work && <>
-        <WorkSection title="Active threads" rows={work.active} empty="No active plugin claims." />
-        <WorkSection title="Queue" rows={work.queue} empty="No queued claims." />
         <WorkSection title="Completed" rows={work.completed} empty={work.completedPartial ? "No completed threads in the results checked." : "No unarchived completed threads."} />
         {work.completedPartial && <p className="toolsmith-empty" role="status">Some earlier handoffs may be missing.</p>}
+        <WorkSection title="Active threads" rows={work.active} empty="No active plugin claims." />
+        <WorkSection title="Queue" rows={work.queue} empty="No queued claims." />
       </>}
     </div>
   );
