@@ -32,7 +32,9 @@ export type Resolution = { mirrorId: string; revision: number; path: string; ope
 export interface VaultFiles {
   children?(vaultId: string, revision: number, folder: string, access?: LiveProjectAreaAccess): Promise<{ entries: Array<{ name: string; kind: 'directory' | 'markdown' }>; incomplete: boolean }>;
   listProjectMove?(input: import('./project-move.ts').MoveEndpoints & { mirrorId: string; revision: number; afterMove?: boolean }): Promise<{ paths: string[]; attachments: string[]; incomplete: boolean; warnings: string[] }>;
-  move?(input: import('./project-move.ts').MoveEndpoints & { mirrorId: string; revision: number; expectedHash: string; operationId: string; movedNotes?: ReadonlyMap<string, string> }): Promise<{ outcome: import('./project-move.ts').PhysicalMove }>;
+  listLinkTargets?(vaultId: string, revision: number, root: string): Promise<{ paths: string[]; attachments: string[]; incomplete: boolean; warnings: string[] }>;
+  readonly checksLinkPlanAtWrite?: true;
+  move?(input: import('./project-move.ts').MoveEndpoints & { mirrorId: string; revision: number; expectedHash: string; operationId: string; movedNotes?: ReadonlyMap<string, string>; checkLinkPlan?: () => Promise<() => void> }): Promise<{ outcome: import('./project-move.ts').PhysicalMove }>;
   moveReceipts?(input: { mirrorId: string; revision: number; operationId: string; project?: import('./project-move.ts').ProjectMove }): Promise<Array<{ outcome: import('./project-move.ts').PhysicalMove; components?: { landing: string; folder: string } }>>;
   // An indexed inventory can supply the catalog observation used to select its route.
   configure(configuration: Configuration, projectAreas?: ProjectAreaSelection, observedCatalog?: Catalog): Promise<void>;

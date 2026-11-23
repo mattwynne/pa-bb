@@ -25,8 +25,8 @@ not a per-user security boundary.
 | `obsidian_status` | Connected sources, setup guidance, recent/exact save and resolution receipts plus exact-path conflict metadata and unresolved operations. Filter by vault, note, operation ID or time. |
 | `obsidian_search_notes` | Vault-relative path globs, literal text, semantic tags, exact scalar YAML properties, folder scopes and counts over one or all connected vaults. |
 | `obsidian_read_note` | Whole note, guarded incoming version or explicit legacy absence, exact heading or block, original source lines and whole-note hash. |
-| `obsidian_get_note_metadata` | Properties, aliases, tags, headings, blocks, references and task markers. |
-| `obsidian_resolve_link` | A reference in its source vault; missing/ambiguous results rather than guessed targets. |
+| `obsidian_get_note_metadata` | Properties, headings, task markers, source-spanned links, and optional backlinks. |
+| `obsidian_resolve_link` | A reference in its source vault, with resolution and competing candidates. |
 | `obsidian_list_tasks` | Original task locations and completion markers, with optional vault/folder/note filters. |
 | `obsidian_create_note` | Create in an existing folder without replacing anything. |
 | `obsidian_edit_note` | Append, uniquely replace exact text, update one task marker, or explicitly resolve an inspected conflict. |
@@ -38,9 +38,11 @@ not a per-user security boundary.
 
 Preflight requires complete vault listings before and after discovery. It reads exact note versions in batches of eight and retains only proposed repairs. Discovery stops at 10,000 notes, 128 MiB of input or 20 seconds. Directory listings have separate entry and time limits. The store’s 1 MiB UTF-8 limit per note and Markdown parser complexity limits still apply. The plan is limited to 64 repairs, 8 MiB of repaired text and 32,000 serialized metadata characters.
 
-Supported forms are unambiguous wikilinks (including aliases/embeds and heading/block suffixes) and simple inline Markdown links/images (including percent-encoded spaces and optional quoted titles). Outgoing relative links are planned using the old source location. Unrelated missing or ambiguous links can stay as written when neither location can change their target. A sibling-folder move can also preserve an outgoing short path with a unique candidate outside the two sibling folders. A path suffix alone does not authorize a rewrite. Email autolinks and HTML examples in code are left alone. Incomplete listings, path changes during discovery, indeterminate links that the move could affect, YAML links that would need to change, reference-style Markdown links, HTML link or embed attributes, parser warnings, unsupported inline syntax and special path syntax are refused before moving. The scan observes per-note versions and checks the final path inventory. It does not provide a concurrent vault snapshot.
+The planner can repair wikilinks with aliases, embeds, or fragments, as well as inline Markdown links and images with encoded paths and optional titles. It checks outgoing relative links from both source locations. A missing or ambiguous link can stay as written when the move leaves its evidence unchanged. The planner refuses incomplete listings, unsupported link markup, parser warnings, and YAML links that would need a rewrite. Code examples stay intact.
 
-Pass `dryRun: true` with the same read proof to check link discovery and limits without recording a move or writing notes. A ready plan reports counts only. A move reruns discovery and the file adapter checks write-time access, conflicts and the destination.
+Pass `dryRun: true` with the same read proof to check link discovery and limits without recording a move or writing notes. Link inspection and moves use the same vault-relative resolution model. Metadata shows the original link spelling and UTF-16 source span. Set `backlinks: true` to include bounded incoming links and their coverage. On direct local mirrors the note index supplies versioned links and candidate paths. Legacy readers use a bounded local note scan for backlinks.
+
+Preflight compares link targets before and after the move, including missing links that would gain a target and duplicate names that change precedence. External links, including absolute `file://` URLs, stay untouched. Ambiguous changes report competing paths and source locations. Plans recheck the current vault boundary, paths, and note versions. A ready preview reports planned repair paths and counts. Apply validates again at the write boundary. See [desktop link evidence](docs/desktop-link-evidence.md) for the opt-in Obsidian comparison.
 
 An `unsupported_links` or `ambiguous_link` result identifies the first refusal with a reason, vault-relative path and, when available, a one-based line and column. A dry run can report up to 12 such locations. The result omits note text and link targets. Plugin logs record the stage and error category.
 
@@ -73,7 +75,7 @@ their destinations. Repairs that were never entered remain unapplied. Use
 their reported paths to inspect and correct links individually. A receipt check
 does not resume a move or replay link writes.
 
-Link repairs are **independent CAS saves**, not one atomic transaction. A concurrently changed note is preserved and reported as not saved. Cancellation/restart leaves unstarted repairs unapplied. Inspect `obsidian_move_status({vaultId, operationId})` after any lost reply: it checks the physical receipt and individual save receipts without replay. Outcomes include `moved_supported_links_updated`, `moved_links_partial`, `project_move_partial`, `not_moved` and `uncertain`. GTD moves also check the resulting path inventory and note hashes against the preflight and repairs. An observed concurrent change leaves verification incomplete. Receipts reflect local evidence. Inspect an unknown outcome before any further write.
+Link repairs are **independent CAS saves**, not one atomic transaction. A concurrently changed note is preserved and reported as not saved. Cancellation/restart leaves unstarted repairs unapplied. Inspect `obsidian_move_status({vaultId, operationId})` after any lost reply: it checks the physical receipt and individual save receipts without replay. Outcomes include `moved_supported_links_updated`, `moved_links_partial`, `project_move_partial`, `not_moved` and `uncertain`. Moves check the resulting path inventory and note hashes against the preflight and repairs. An observed concurrent change leaves verification incomplete. Receipts reflect local evidence. Inspect an unknown outcome before any further write.
 
 Obsidian tracks up to 20 moves. Legacy recovery records stay in iCloud.
 

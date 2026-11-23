@@ -120,11 +120,15 @@ test('archive scans a large vault, repairs late backlinks, and leaves a durable 
   assert.doesNotMatch(logs, /PRIVATE_TARGET|ZZ Extra/);
   assert.equal(await readFile(join(vault, path), 'utf8'), original);
   assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);
-  await writeFile(extra, '[[Projects/Active/Service a heater]]\n');
+  const introduced = '[[Projects/Done/Service a heater]]';
+  await writeFile(extra, introduced + '\n');
   const ambiguous = await call('obsidian_move_note', request);
   assert.equal(ambiguous.isError, true);
   assert.equal(ambiguous.response.category, 'ambiguous_link');
-  assert.deepEqual(ambiguous.response.location, { reason: 'ambiguous_target', path: 'Reference/ZZ Extra.md', line: 1, column: 1 });
+  assert.deepEqual(ambiguous.response.location, {
+    reason: 'ambiguous_target', path: 'Reference/ZZ Extra.md', line: 1, column: 1,
+    start: 0, end: introduced.length, beforeCandidates: [], afterCandidates: [destination],
+  });
   assert.equal(await readFile(join(vault, path), 'utf8'), original);
   await assert.rejects(readFile(join(vault, destination)), { code: 'ENOENT' });
   assert.equal(db.prepare('SELECT count(*) AS count FROM icloud_note_moves').pluck().get(), 0);

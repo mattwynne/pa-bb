@@ -1,10 +1,11 @@
+import type { ParsedLinks, VaultLinks } from './vault-links.ts';
 import { VaultError, type Metadata } from './ports.ts';
 
 type Frozen<T> = T extends object ? { readonly [K in keyof T]: Frozen<T[K]> } : T;
-export type IndexedNote = Frozen<{ path: string; hash: string; readAt: string; properties: Record<string, unknown>; propertyWarning?: 'properties_unsupported'; metadata?: Omit<Metadata, 'properties'>; metadataWarning?: 'parser_limit' }>;
+export type IndexedNote = Frozen<{ path: string; hash: string; readAt: string; properties: Record<string, unknown>; linkData?: ParsedLinks; propertyWarning?: 'properties_unsupported'; metadata?: Omit<Metadata, 'properties'>; metadataWarning?: 'parser_limit' }>;
 export type IndexOmission = Readonly<{ path: string; kind: 'note' | 'tree' }>;
-export type IndexView = Readonly<{ notes: readonly IndexedNote[]; directories: readonly string[]; omissions: readonly IndexOmission[] }>;
-export type IndexLease = { readonly view: IndexView; check(signal?: AbortSignal): Promise<void>; assertValid(): void; close(): void };
+export type IndexView = Readonly<{ notes: readonly IndexedNote[]; attachments?: readonly string[]; links?: (root: string) => VaultLinks; directories: readonly string[]; omissions: readonly IndexOmission[] }>;
+export type IndexLease = { readonly view: IndexView; check(signal?: AbortSignal): Promise<void>; assertValid(): void; assertUnchanged?(): void; close(): void };
 export type IndexGeneration = { view: IndexView; memory?: IndexReservation; published?(): void; release(): void };
 type Refresh = (previous: IndexView | undefined, paths: ReadonlySet<string> | null, signal: AbortSignal) => Promise<IndexGeneration>;
 
@@ -24,6 +25,7 @@ export class VaultIndex {
   private failure?: VaultError;
   private paths = new Set<string>();
   private full = false;
+  private observation = 0;
   private active?: Promise<void>;
   private debounce?: ReturnType<typeof setTimeout>;
   private leases = new Set<() => void>();
@@ -32,6 +34,7 @@ export class VaultIndex {
 
   hint(path?: string, delay = 0) {
     if (this.controller.signal.aborted) return;
+    this.observation++;
     if (!path || this.paths.size >= 1024 || this.failure) { this.full = true; this.paths.clear(); }
     else if (!this.full) this.paths.add(path);
     if (this.active) return;
@@ -74,6 +77,7 @@ export class VaultIndex {
     if (this.failure) throw this.failure;
     let held = this.current;
     if (!held) throw new VaultError('unavailable');
+    const observed = this.observation;
     held.refs++;
     const close = () => { this.drop(held); held = undefined; this.leases.delete(close); };
     const requireHeld = () => { if (!held) throw new VaultError('source_unavailable'); return held; };
@@ -88,7 +92,11 @@ export class VaultIndex {
         await this.authorize(cancellation);
         if (cancellation.aborted) throw abortError(cancellation);
         requireHeld();
-      }, assertValid: requireHeld, close,
+      }, assertValid: requireHeld,
+      assertUnchanged: () => {
+        requireHeld();
+        if (observed !== this.observation) throw new VaultError('conflict', 'Vault changes were observed during link discovery. Prepare a fresh move plan.');
+      }, close,
     };
   }
   async stop(reason = new VaultError('cancelled')) {

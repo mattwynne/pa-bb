@@ -154,3 +154,23 @@ test('read-only planning scans past repeated blockers and samples later reasons'
     await f.service.stop();
   }
 });
+
+test('a newly added link in an existing source invalidates preview and actual planning', async () => {
+  for (const dryRun of [true, false]) {
+    const f = await fixture();
+    const list = f.files.list.bind(f.files);
+    let calls = 0;
+    f.files.list = async (...args) => {
+      if (++calls === 2) f.files.notes.set('one/Index.md', '[[Reference/New example]]');
+      return list(...args);
+    };
+    try {
+      const move = f.service.move({ ...f.input, dryRun }, undefined, 'reader');
+      if (dryRun) await assert.rejects(move, /conflict/);
+      else assert.equal((await move).outcome, 'not_moved');
+      assert.equal(f.files.moves, 0);
+      assert.equal(f.files.notes.get('one/Index.md'), '[[Reference/New example]]');
+      assert.ok(f.logs.includes('move_preflight:conflict'));
+    } finally { await f.service.stop(); }
+  }
+});

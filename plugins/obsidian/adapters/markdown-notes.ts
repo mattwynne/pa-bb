@@ -207,8 +207,22 @@ export class MarkdownNotes implements NoteParser {
     if (h.doc && isMap(h.doc.contents)) for (const pair of h.doc.contents.items) {
       const value = pair.value; const start = h.start + ((value as any)?.range?.[0] ?? 0); const end = h.start + ((value as any)?.range?.[1] ?? 0);
       if (!linksOnly && (pair.key as any).value === 'tags') for (const tag of meta.properties.tags as string[]) meta.tags.push({ ...location(start, end), tag: tag.replace(/^#/, '').toLocaleLowerCase('und') });
-      const strings = isSeq(value) ? value.items.map(v => (v as any)?.value) : [(value as any)?.value];
-      for (const value of strings) if (typeof value === 'string') for (const match of value.matchAll(/!?\[\[([^\]]+)\]\]/g)) addLink(start, end, match[1].split('|')[0], match[0].startsWith('!'), 'frontmatter');
+      const scalars = isSeq(value) ? value.items : [value];
+      for (const scalar of scalars) {
+        const decoded = (scalar as any)?.value;
+        if (typeof decoded !== 'string') continue;
+        const scalarStart = h.start + ((scalar as any)?.range?.[0] ?? start - h.start);
+        const scalarEnd = h.start + ((scalar as any)?.range?.[1] ?? end - h.start);
+        const raw = text.slice(scalarStart, scalarEnd);
+        // Where the scalar's bytes match its decoded value, report the exact
+        // link span. For YAML escapes, the scalar is the source evidence.
+        const literal = raw.indexOf(decoded);
+        for (const match of decoded.matchAll(/!?\[\[([^\]]+)\]\]/g)) {
+          const at = literal < 0 ? scalarStart : scalarStart + literal + match.index;
+          const stop = literal < 0 ? scalarEnd : at + match[0].length;
+          addLink(linksOnly ? at : start, linksOnly ? stop : end, match[1].split('|')[0], match[0].startsWith('!'), 'frontmatter');
+        }
+      }
     }
     return meta;
   }

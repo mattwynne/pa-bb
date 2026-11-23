@@ -247,6 +247,9 @@ export class LocalNotes {
           try { validateRelativePath(relative); } catch { yield { kind: 'unsupported' as const, path: relative, scope }; continue; }
           yield entry.isDirectory() ? { kind: 'child' as const, path: relative } :
             entry.isFile() ? { kind: 'note' as const, path: relative } : { kind: 'unsupported' as const, path: relative, scope };
+        } else if (entry.isFile()) {
+          try { yield { kind: 'attachment' as const, path: validateRelativePath(relative) }; }
+          catch { yield { kind: 'unsupported' as const, path: relative, scope: 'note' as const }; }
         } else yield { kind: 'other' as const };
       }
       const fresh = await this.parent(root, marker, true);
@@ -383,15 +386,17 @@ export class LocalNotes {
     }
   }
 
-  async move(root: string, path: string, destination: string, expected: Observation, check: () => Promise<void>, committed: () => void, afterLink?: () => Promise<void>) {
+  async move(root: string, path: string, destination: string, expected: Observation, check: () => Promise<void>, committed: () => void, afterLink?: () => Promise<void>, beforeLink?: () => Promise<() => void>) {
     const source = await this.parent(root, path);
     try {
       const target = await this.parent(root, destination);
       try {
+        const assertLinkPlan = await beforeLink?.();
         await check();
         await this.verifyParent(root, path, source.folder);
         await this.verifyParent(root, destination, target.folder);
         if (!equivalent(await this.observe(root, path), expected) || await this.observe(root, destination)) throw new VaultError('conflict');
+        assertLinkPlan?.();
         try { await link(source.path, target.path); }
         catch (error) { if ((error as NodeJS.ErrnoException)?.code === 'EEXIST') throw new VaultError('conflict'); throw error; }
         committed();

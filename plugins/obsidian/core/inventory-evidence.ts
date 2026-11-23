@@ -1,7 +1,6 @@
 import { posix } from 'node:path';
 import type { InventoryBatchRequest } from '../contract.ts';
 import type { IndexedNote, IndexView } from './vault-index.ts';
-import { createLinkCandidates, isShortWikiPath, linkPathForms, suffixForms } from './link-candidates.ts';
 import { VaultError } from './ports.ts';
 
 export const within = (path: string, root: string) => !root || path.startsWith(root + '/');
@@ -77,17 +76,6 @@ function matchingNotes(notes: Iterable<string>, root: string, path: string | und
     if (matches.length === limit) break;
   }
   return matches;
-}
-export function genericNoteCandidates(target: string, source: string, paths: Iterable<string>) {
-  if (!target) return { matches: [source], possible: [] };
-  const index = createLinkCandidates(new Set(paths));
-  if (!target.includes('/')) return { matches: index.byName(target), possible: [] };
-  const forms = linkPathForms(target, posix.dirname(source), true);
-  const path = forms.find(path => path.endsWith('.md'))!;
-  if (path.length > 1024 || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new VaultError('invalid_path');
-  const matches = index.byPath(forms);
-  const possible = isShortWikiPath(target) ? index.bySuffix(suffixForms(target)).filter(path => !matches.includes(path)) : [];
-  return { matches, possible };
 }
 export function targetEvidence(query: ReturnType<typeof targetQuery>, root: string, notes: Iterable<string>, directory: boolean, incomplete: boolean) {
   const matches: Array<{ path: string; kind: 'markdown' | 'directory' }> = [];

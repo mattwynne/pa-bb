@@ -1,3 +1,4 @@
+import { parseLinks, VaultLinks } from '../core/vault-links.ts';
 import { watch, type FSWatcher, type Stats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { Buffer } from 'node:buffer';
@@ -150,12 +151,13 @@ export class FilesystemIndex {
   private async build(lane: Lane, root: FileHandle, previous: IndexView | undefined, paths: ReadonlySet<string> | null,
     signal: AbortSignal, authorize: (signal: AbortSignal) => Promise<void>) {
     const memory = this.budget.reservation();
-    const notes: IndexedNote[] = [], directories = new Set<string>(), omissions = new Map<string, IndexOmission>();
+    const notes: IndexedNote[] = [], directories = new Set<string>(), attachments = new Set<string>(), omissions = new Map<string, IndexOmission>();
     const scopes = paths ? [...paths] : [''];
     const starts = scopes.filter(path => !scopes.some(other => other !== path && under(path, other)));
     const untouched = (path: string) => !starts.some(scope => under(path, scope));
     const addNote = (note: IndexedNote) => { memory.add(256 + 4 * sizeOf(note)); notes.push(note); };
     const addDirectory = (path: string) => { if (!directories.has(path)) { memory.add(128 + 4 * path.length); directories.add(path); } };
+    const addAttachment = (path: string) => { memory.add(128 + 4 * path.length); attachments.add(path); };
     const omit = (path: string, kind: IndexOmission['kind']) => {
       const old = omissions.get(path);
       if (!old) memory.add(128 + 4 * path.length);
@@ -172,6 +174,7 @@ export class FilesystemIndex {
       if (previous && paths) {
         for (const note of previous.notes) if (untouched(note.path)) addNote(note);
         for (const path of previous.directories) if (untouched(path)) addDirectory(path);
+        for (const path of previous.attachments ?? []) if (untouched(path)) addAttachment(path);
         for (const entry of previous.omissions) if (untouched(entry.path)) omit(entry.path, entry.kind);
       }
       const frontier = starts.map(path => ({ path, allowAbsent: !!paths }));
@@ -184,6 +187,7 @@ export class FilesystemIndex {
           check();
           if (++count > this.limits.entries) throw new VaultError('capacity');
           if (entry.kind === 'directory') addDirectory(path);
+          else if (entry.kind === 'attachment') addAttachment(entry.path);
           else if (entry.kind === 'unsupported') omit(entry.path, entry.scope);
           else if (entry.kind === 'child') {
             frontierBytes += 2 * entry.path.length + 128;
@@ -205,19 +209,29 @@ export class FilesystemIndex {
                 const { properties: _properties, ...parsed } = this.parser.parse(reader.text);
                 if (sizeOf(parsed) <= 32768) metadata = parsed;
               } catch (error) { if (!(error instanceof VaultError && error.category === 'parser_limit')) throw error; }
-              addNote(freeze({ path: entry.path, hash: reader.hash, readAt: reader.readAt, properties, propertyWarning, metadata,
+              let linkData: IndexedNote['linkData'];
+              try {
+                const parsed = parseLinks(reader.text, this.parser);
+                if (sizeOf(parsed) <= 32768) linkData = parsed;
+              } catch (error) { if (!(error instanceof VaultError && error.category === 'parser_limit')) throw error; }
+              addNote(freeze({ linkData, path: entry.path, hash: reader.hash, readAt: reader.readAt, properties, propertyWarning, metadata,
                 metadataWarning: metadata ? undefined : 'parser_limit' as const }));
             } finally { await reader.close(); }
           }
         }
       }
-      if (notes.length + directories.size + omissions.size > this.limits.entries) throw new VaultError('capacity');
+      if (notes.length + directories.size + attachments.size + omissions.size > this.limits.entries) throw new VaultError('capacity');
       await authorize(signal); check();
       notes.sort((a, b) => a.path < b.path ? -1 : a.path === b.path ? 0 : 1);
       const warnings = new Set<string>();
       if (omissions.size || notes.some(note => !!note.propertyWarning)) warnings.add('unsupported');
-      if (notes.some(note => !!note.metadataWarning)) warnings.add('limit');
-      return { view: Object.freeze({ notes: Object.freeze(notes), directories: Object.freeze([...directories]),
+      if (notes.some(note => !!note.metadataWarning || !note.linkData)) warnings.add('limit');
+      const allPaths = [...notes.map(note => note.path), ...attachments];
+      // Retain only the full-mirror lookup. Nested vault lookups are request scoped.
+      memory.add(allPaths.reduce((bytes, path) => bytes + 256 + 4 * path.length, 0));
+      const links = new VaultLinks(allPaths, '', notes);
+      return { view: Object.freeze({ notes: Object.freeze(notes), attachments: Object.freeze([...attachments]),
+        links: (root: string) => root ? new VaultLinks(allPaths, root, notes) : links, directories: Object.freeze([...directories]),
         omissions: Object.freeze([...omissions.values()]) }), memory, release: memory.release,
         published: () => {
           for (const path of lane.watches.keys()) if (!directories.has(path)) this.unwatch(lane, path);

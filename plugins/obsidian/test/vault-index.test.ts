@@ -11,6 +11,7 @@ import { MarkdownNotes } from '../adapters/markdown-notes.ts';
 import { diagnosticLogger } from '../adapters/diagnostic-log.ts';
 import { abortError, IndexBudget, VaultIndex } from '../core/vault-index.ts';
 import { VaultError } from '../core/ports.ts';
+import { parseLinks } from '../core/vault-links.ts';
 
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
 const category = (expected: string) => (error: unknown) => error instanceof VaultError && error.category === expected;
@@ -272,7 +273,7 @@ test('full published budget still permits repeated replacements with and without
     const root = join(f.root, id); await mkdir(root); await writeFile(join(root, 'Only.md'), body('first')); roots.set(id, root);
   }
   const { properties, ...metadata } = parser.parse(body('first'));
-  const bytes = 256 + 128 + 256 + 4 * JSON.stringify({ path: 'Only.md', hash: 'h'.repeat(64), readAt: '2026-01-01T00:00:00.000Z', properties, metadata }).length;
+  const bytes = 256 + 128 + 256 + 256 + 4 * 'Only.md'.length + 4 * JSON.stringify({ linkData: parseLinks(body('first'), parser), path: 'Only.md', hash: 'h'.repeat(64), readAt: '2026-01-01T00:00:00.000Z', properties, metadata }).length;
   const logs: string[] = [];
   const noEvents = (() => Object.assign(new EventEmitter(), { close() {} })) as unknown as typeof import('node:fs').watch;
   const index = new FilesystemIndex(files, id => grantFor(roots.get(id)!), parser, diagnosticLogger(log => logs.push(log)),
@@ -307,4 +308,16 @@ test('repeated unchanged omission is logged once at publication', async t => {
   folderWatch.emit('change', 'change', 'Updated.md');
   await nextPaths(f, value => value.includes('Folder/Updated.md'));
   assert.deepEqual(f.logs, ['Obsidian index_refresh unsupported']);
+});
+
+test('file or sync hints invalidate write evidence on a held link generation before refresh', async () => {
+  const empty = { notes: [], directories: [], omissions: [] };
+  const actor = new VaultIndex(async () => ({ view: empty, release() {} }), async () => {}, error => error);
+  const lease = await actor.acquire();
+  try {
+    lease.assertUnchanged?.();
+    actor.hint(undefined, 1000);
+    assert.equal(lease.view, empty);
+    assert.throws(() => lease.assertUnchanged?.(), /conflict/);
+  } finally { lease.close(); await actor.stop(); }
 });

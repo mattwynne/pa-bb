@@ -1296,7 +1296,7 @@ test('GTD status move preserves the paired project tree and its conversation', a
   await assert.rejects(stat(f.abs(example)), { code: 'ENOENT' });
   await assert.rejects(stat(f.abs(f.sourceNote)), { code: 'ENOENT' });
   const context = await readFile(f.abs('Projects/Active/Context.md'), 'utf8');
-  assert.equal(context, `[[${f.destinationNote.slice(0, -3)}#^block|landing]] ![[${(deferred + nested).slice(0, -3)}#Heading|research]]\n[relative](../Deferred/Example/Research/Notes.md#Heading)\n[readme](../Deferred/Example/README.md#Project-references)\n`);
+  assert.equal(context, `[[${f.destinationNote.slice(0, -3)}#^block|landing]] ![[${(deferred + nested).slice(0, -3)}#Heading|research]]\n[relative](Example/Research/Notes.md#Heading)\n[readme](Example/README.md#Project-references)\n`);
   const research = await readFile(f.abs(deferred + nested), 'utf8');
   assert.equal(research, `# Heading\n[landing](../../Example.md)\n![[Projects/Deferred/Example/Research/Scan.bin]]\n[[#Heading]]\n`);
   const landing = await readFile(f.abs(f.destinationNote), 'utf8');
@@ -1485,15 +1485,19 @@ test('a support README does not qualify a folder-only GTD project for a status m
 test('project preflight refuses ambiguous nested links and a destination folder created after planning', async t => {
   const f = await projectMoveFixture(t);
   const plan = await f.prepare();
-  await writeFile(f.abs('Notes.md'), 'Other note');
+  const rivalFolder = 'x'.repeat('Projects/Active/Example/Research'.length);
+  await mkdir(f.abs(rivalFolder));
+  await writeFile(f.abs(rivalFolder + '/Notes.md'), 'Other note');
   await writeFile(f.abs('Ambiguous.md'), '[[Notes#Heading]]');
   const blocked = await f.tool('move_note', plan.next.input, 'ambiguous_link');
   assert.equal(blocked.location.path, 'Ambiguous.md');
   await unlink(f.abs('Ambiguous.md'));
-  await writeFile(f.abs('Missing.md'), '[[Projects/Active/Example/Research/Missing#Heading]]');
+  await unlink(f.abs(rivalFolder + '/Notes.md'));
+  await writeFile(f.abs('Missing.md'), '[[Projects/Deferred/Example/Research/Notes#Heading]]');
   const missing = await f.tool('move_note', plan.next.input, 'ambiguous_link');
   assert.equal(missing.location.path, 'Missing.md');
   await unlink(f.abs('Missing.md'));
+  await delay(150);
   await f.tool('move_note', plan.next.input);
   await mkdir(f.abs(deferred));
   await f.tool('move_note', { ...plan.next.input, dryRun: false }, 'conflict');
@@ -1583,4 +1587,71 @@ test('a concurrent backlink added to an otherwise untouched note prevents full v
   assert.equal(result.outcome, 'moved_links_partial');
   assert.deepEqual(result.verification, { state: 'note_changed', paths: ['Projects/Active/Stay.md'] });
   assert.ok(result.repairs.every((repair: { outcome: string }) => repair.outcome === 'saved'));
+});
+
+test('the shared vault link index gives inspection, backlinks and moves the same README targets', async t => {
+  const source = 'Work/Projects/Pilot/README.md';
+  const destination = 'Work/Projects/Archive/README.md';
+  const journal = 'Work/Journal/Nested/Entry.md';
+  const external = '[external](file:///tmp/external/README.md)';
+  const journalText = `[[README]]\nSee [[Projects/Pilot/README|project]]\n${external}\n`;
+  const f = await fixture(t, 'ready', async root => {
+    for (const folder of ['Work/.obsidian', 'Other/.obsidian', 'Work/Projects/Pilot', 'Work/Projects/Archive', 'Work/Journal/Nested'])
+      await mkdir(join(root, folder), { recursive: true });
+    for (const [path, text] of Object.entries({
+      'Work/README.md': '# Root',
+      'Other/README.md': '# Sibling vault',
+      [source]: '# Project',
+      [journal]: journalText,
+      'Work/Prose.md': 'Projects/Pilot/README and README are mentioned here.',
+    })) await writeFile(join(root, path), text);
+  });
+  const target = { vaultId: 'one', path: journal };
+  const result = await f.tool('get_note_metadata', target);
+  assert.deepEqual(result.links.map((link: any) => [link.spelling, link.resolution.target]), [
+    ['[[README]]', 'Work/README.md'], ['[[Projects/Pilot/README|project]]', source],
+  ]);
+  assert.equal((await f.tool('resolve_link', { ...target, link: '[[README]]' })).target, 'Work/README.md');
+  const backlinks = await f.tool('get_note_metadata', { vaultId: 'one', path: source, backlinks: true });
+  assert.equal(backlinks.backlinksIncomplete, false);
+  assert.deepEqual(backlinks.backlinks.map((link: any) => [link.source, link.line, link.column, link.start, link.end, link.spelling]),
+    [[journal, 2, 5, 15, 48, '[[Projects/Pilot/README|project]]']]);
+  const proof = await f.tool('read_note', { vaultId: 'one', path: source });
+  const move = { vaultId: 'one', path: source, destination, expectedHash: proof.hash };
+  assert.deepEqual((await f.tool('move_note', { ...move, dryRun: true })).repairPaths, [journal]);
+  const missing = 'Work/Missing.md';
+  await writeFile(join(f.directory, missing), '[[Projects/Archive/README]]');
+  // Planning observes live inventory even before the watch publishes it.
+  const blocked = await f.tool('move_note', { ...move, dryRun: true }, 'ambiguous_link');
+  assert.deepEqual(blocked.location, { reason: 'ambiguous_target', path: missing, line: 1, column: 1,
+    start: 0, end: 27, beforeCandidates: [], afterCandidates: [destination] });
+  await unlink(join(f.directory, missing));
+  await delay(150); // Drain the synthetic filesystem watch before applying.
+  assert.equal((await f.tool('move_note', move)).outcome, 'moved_supported_links_updated');
+  assert.equal(await readFile(join(f.directory, journal), 'utf8'), journalText.replace('Projects/Pilot', 'Projects/Archive'));
+});
+
+test('a sync authority change during vault link revalidation prevents publication', async t => {
+  const f = await fixture(t, 'ready', async root => {
+    await writeFile(join(root, 'Source.md'), '');
+    await writeFile(join(root, 'Index.md'), '[[Source]]');
+  });
+  const input = { vaultId: 'one', path: 'Source.md' };
+  const read = await f.tool('read_note', input);
+  const original = LocalNotes.prototype.move;
+  const move = { ...input, destination: 'Next.md', expectedHash: read.hash };
+  // Switch the mirror handoff at the final adapter fence, after the plan
+  // has been computed and the local move intent has been recorded.
+  LocalNotes.prototype.move = function (root, from, to, expected, check, changed, after, before) {
+    return original.call(this, root, from, to, expected, check, changed, after, async () => {
+      f.controls.denyGrant = true;
+      return (await before?.()) ?? (() => {});
+    });
+  };
+  t.after(() => { LocalNotes.prototype.move = original; });
+  const result = await f.tool('move_note', move);
+  assert.notEqual(result.outcome, 'moved_supported_links_updated');
+  assert.equal(await readFile(join(f.directory, 'Source.md'), 'utf8'), '');
+  await assert.rejects(stat(join(f.directory, 'Next.md')), { code: 'ENOENT' });
+  assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
 });

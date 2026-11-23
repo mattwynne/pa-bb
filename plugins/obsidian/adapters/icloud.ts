@@ -19,6 +19,7 @@ const mirror = z.object({ id: z.string(), folder: z.object({ name: z.string() })
 const status = z.object({ search: z.unknown().optional(), mirrorAccessVersion: z.number().int().nullish(), noteAccessVersion: z.number().int().nullable(), available: z.boolean(), connected: z.boolean(), challenge: z.string().nullable(), mirrors: z.array(mirror) });
 const unavailable = (setup: string, nextAction: string): Catalog => ({ setup, nextAction, sources: [], connected: false, compatible: false });
 export class ICloud implements MirrorCatalog, VaultFiles {
+  readonly checksLinkPlanAtWrite = true as const;
   private filesystem?: FilesystemVault;
   private indexState?: Configuration;
   private indexConfirmed?: number;
@@ -287,6 +288,12 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   list(mirrorId: string, revision: number, access?: LiveProjectAreaAccess) {
     return this.route(mirrorId, files => files.list(mirrorId, revision, access?.signal), () => this.request('noteList', { mirrorId, revision }, false, access?.signal), access && { revision, access });
   }
+  listLinkTargets(mirrorId: string, revision: number, root: string) {
+    return this.route(mirrorId, files => files.listLinkTargets(mirrorId, revision, root), async () => {
+      const listed: Awaited<ReturnType<VaultFiles['list']>> = await this.request('noteList', { mirrorId, revision }, false);
+      return { ...listed, paths: root ? listed.paths.filter(path => path.startsWith(root + '/')) : listed.paths, attachments: [] };
+    });
+  }
   read(mirrorId: string, revision: number, path: string, access?: LiveProjectAreaAccess) {
     return this.route(mirrorId, files => files.read(mirrorId, revision, path, access?.signal), () => this.request('noteRead', { mirrorId, revision, path }, false, access?.signal), access && { revision, access });
   }
@@ -326,8 +333,10 @@ export class ICloud implements MirrorCatalog, VaultFiles {
 
   move(input: Parameters<NonNullable<VaultFiles['move']>>[0]) {
     return this.route(input.mirrorId, files => files.move(input), async () => {
-      const { project, root: _root, movedNotes: _movedNotes, ...note } = input;
+      const { project, root: _root, movedNotes: _movedNotes, checkLinkPlan, ...note } = input;
       if (project) await this.listLegacyProjectMove(input);
+      const assertLinkPlan = await checkLinkPlan?.();
+      assertLinkPlan?.();
       return this.request('noteMove', note, true);
     });
   }

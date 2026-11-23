@@ -17,6 +17,7 @@ type Conflict = { canonical: Observed; copies: Copy[]; logical: NonNullable<Obse
 type Token = { target: Target; root: string; identity: FileIdentity; version: string; expires: number };
 
 export class FilesystemVault {
+  readonly checksLinkPlanAtWrite = true as const;
   private files = new LocalNotes();
   readonly searcher = new LocalSearch(this.files);
   private tokens = new Map<string, Token>();
@@ -63,6 +64,10 @@ export class FilesystemVault {
       if (result.incomplete) this.diagnose('filesystem', result.warnings.includes('scan_limit') ? 'capacity' : 'unavailable');
       return result;
     }, signal);
+  }
+
+  listLinkTargets(id: string, revision: number, scope: string) {
+    return this.access(id, revision, root => this.files.list(root, true, scope));
   }
 
   children(id: string, revision: number, folder: string, signal?: AbortSignal) {
@@ -247,7 +252,7 @@ export class FilesystemVault {
           await this.clearPath(root, path);
           await this.clearPath(root, destination);
           await check();
-        }, changed, moveFolder);
+        }, changed, moveFolder, input.checkLinkPlan);
         const state = await this.projectMoveState(root, receipt);
         if (state.outcome !== 'moved_locally_pending_sync') throw new VaultError('uncertain');
         return { ...receipt, outcome: state.outcome };
@@ -259,7 +264,7 @@ export class FilesystemVault {
         await this.clearPath(root, path);
         await this.clearPath(root, destination);
         await check();
-      }, changed);
+      }, changed, undefined, input.checkLinkPlan);
       return { ...base, outcome: 'moved_locally_pending_sync' };
     }).then(({ outcome }) => ({ outcome }));
   }

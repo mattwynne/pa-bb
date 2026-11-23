@@ -198,7 +198,7 @@ test('two simultaneously submitted different-note operations keep both durable p
   assert.equal(files.notes.get('one/A.md'), 'A1'); assert.equal(files.notes.get('one/B.md'), 'B2');
 });
 
-test('resolve distinguishes a possible shortened path from a verified target', async () => {
+test('resolve uses suffix candidates after exact vault paths', async () => {
   const { service, files } = await setup();
   files.notes.set('one/Workspace/Areas/Equipment.md', '');
   files.notes.set('one/.attachments/Equipment.md', '');
@@ -206,14 +206,14 @@ test('resolve distinguishes a possible shortened path from a verified target', a
   const resolve = (link: string) => service.resolve({ vaultId: 'one', path: 'Launch.md', link });
 
   const short = await resolve('[[Areas/Equipment]]');
-  assert.equal(short.status, 'missing');
-  assert.deepEqual('possibleCandidates' in short && short.possibleCandidates, ['Workspace/Areas/Equipment.md']);
+  assert.equal(short.status, 'resolved');
+  assert.equal(short.target, 'Workspace/Areas/Equipment.md');
   assert.equal((await resolve('[[/Workspace/Areas/Equipment]]')).status, 'resolved');
 
   files.notes.set('one/Areas/Equipment.md', '');
-  const ambiguous = await resolve('[[Areas/Equipment]]');
-  assert.equal(ambiguous.status, 'ambiguous');
-  assert.deepEqual('candidates' in ambiguous && ambiguous.candidates, ['Areas/Equipment.md', 'Workspace/Areas/Equipment.md']);
+  const exact = await resolve('[[Areas/Equipment]]');
+  assert.equal(exact.status, 'resolved');
+  assert.deepEqual(exact.competing, ['Workspace/Areas/Equipment.md']);
   assert.equal((await resolve('[[/Areas/Equipment]]')).status, 'resolved');
 
   assert.equal((await service.resolve({ vaultId: 'one', path: 'Journal/Entry.md', link: '[[.attachments/Equipment]]' })).status, 'resolved');

@@ -86,15 +86,14 @@ test('parser-confirmed unrelated absolute file and external links stay unchanged
   ].join('\n');
   const [repair] = planMove([source, note('Index.md', other + '[[Example]]')], source.path, 'Reference/Example.md', parser);
   assert.equal(repair.text, other + '[[Reference/Example]]');
-  for (const endpoint of ['Example.md', 'Ex%61mple.md', 'New.md', 'Example.md#heading']) {
-    const index = note('Index.md', '[note](file:///some/mount/' + endpoint + ')');
-    assert.throws(() => planMove([source, index], source.path, 'Reference/New.md', parser), /ambiguous_link/);
+  for (const external of [
+    'file:///some/mount/Example.md', 'file:///some/mount/Ex%61mple.md', 'file:///some/mount/New.md',
+    'file:///some/mount/Example.md#heading', 'file:///some/mount/Areas%2FExample.md',
+    'obsidian://open?vault=Demo&file=Areas%2FExample',
+  ]) {
+    const index = note('Index.md', '[note](' + external + ')');
+    assert.deepEqual(planMove([source, index], source.path, 'Reference/New.md', parser), []);
   }
-  const unknown = note('Index.md', '[Note](obsidian://open?vault=Demo&file=Areas%2FExample)');
-  assert.throws(() => planMove([source, unknown], source.path, 'Reference/New.md', parser),
-    error => error instanceof MoveLinkError && error.location.reason === 'target_scheme');
-  const encodedSeparator = note('Index.md', '[note](file:///some/mount/Areas%2FExample.md)');
-  assert.throws(() => planMove([source, encodedSeparator], source.path, 'Reference/New.md', parser), /unsupported_links/);
 });
 
 const projectPath = 'Example/Projects/Active/Service a heater.md';
@@ -110,40 +109,58 @@ test('sibling move preserves a stable short path and ignores unrelated missing a
   }]);
 });
 
-for (const [title, backlink, extra] of [
-  ['duplicate source basename', '[[Service a heater]]', 'Copy/Service a heater.md'],
-  ['unresolved short path that could be a backlink', '[[Projects/Active/Service a heater]]'],
+for (const [title, backlink] of [
   ['missing destination link that would acquire a target', '[[Example/Projects/Done/Service a heater]]'],
   ['contextual link that could acquire the destination', '[[Projects/Done/Service a heater]]'],
   ['Markdown link that would acquire the destination', '[project](Projects/Done/Service%20a%20heater.md)'],
 ] as const) {
   test(`${title} blocks the move`, () => {
     const notes = [note(projectPath, ''), note('Example/Index.md', backlink)];
-    if (extra) notes.push(note(extra, ''));
     assert.throws(() => planMove(notes, projectPath, donePath, parser), /ambiguous_link/);
   });
 }
 
-test('a short outgoing path with a possible target under the destination sibling blocks the move', () => {
+test('a uniquely resolved short backlink is repaired', () => {
+  const index = note('Example/Index.md', '[[Projects/Active/Service a heater]]');
+  const [repair] = planMove([note(projectPath, ''), index], projectPath, donePath, parser);
+  assert.equal(repair.text, '[[Example/Projects/Done/Service a heater]]');
+});
+
+test('an outgoing link preserves its target when the source context changes precedence', () => {
   const notes = [
-    note(projectPath, '[[Areas/Equipment]]\n'),
+    note(projectPath, '[[Areas/Equipment]]'),
+    note('Example/Projects/Active/Areas/Equipment.md', ''),
     note('Example/Projects/Done/Areas/Equipment.md', ''),
   ];
-  assert.throws(() => planMove(notes, projectPath, donePath, parser), /ambiguous_link/);
+  const [repair] = planMove(notes, projectPath, donePath, parser);
+  assert.equal(repair.path, donePath);
+  assert.equal(repair.text, '[[Example/Projects/Active/Areas/Equipment]]');
 });
 
-test('a relative link that would rebase from a missing target fails closed', () => {
-  const notes = [note(projectPath, '[Equipment](Areas/Equipment.md)\n')];
-  assert.throws(() => planMove(notes, projectPath, donePath, parser), /ambiguous_link/);
+test('a missing link that remains missing needs no repair', () => {
+  const notes = [note(projectPath, '[Equipment](./Areas/Equipment.md)')];
+  assert.deepEqual(planMove(notes, projectPath, donePath, parser), []);
 });
 
-test('a repair that would introduce an ambiguous wiki path fails closed', () => {
+test('an exact repair path takes precedence over a suffix candidate', () => {
   const notes = [
     note(projectPath, ''),
     note('Example/Index.md', '[[Example/Projects/Active/Service a heater]]'),
     note('Copy/Example/Projects/Done/Service a heater.md', ''),
   ];
-  assert.throws(() => planMove(notes, projectPath, donePath, parser), /ambiguous_link/);
+  const [repair] = planMove(notes, projectPath, donePath, parser);
+  assert.equal(repair.text, '[[Example/Projects/Done/Service a heater]]');
+});
+
+test('a move that changes the winner of a genuine tie reports both snapshots and the exact span', () => {
+  const from = 'Alpha/README.md';
+  const notes = [note(from, ''), note('Bravo/README.md', ''), note('Journal/Entry.md', '😀 x\nLink [[README|alias]]')];
+  assert.throws(() => planMove(notes, from, 'Archive/Moved.md', parser), (error: unknown) => {
+    assert.ok(error instanceof MoveLinkError);
+    assert.deepEqual(error.location, { reason: 'ambiguous_target', path: 'Journal/Entry.md', line: 2, column: 6,
+      start: 10, end: 26, beforeCandidates: ['Alpha/README.md', 'Bravo/README.md'], afterCandidates: ['Bravo/README.md'] });
+    return true;
+  });
 });
 
 test('repairs angle and table destinations while preserving every surrounding byte', () => {
