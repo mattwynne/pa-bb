@@ -5,7 +5,7 @@ import { ObsidianBackend } from '../adapters/obsidian.ts';
 const authority = { revision: 1, route: 'index', epoch: '11111111-1111-4111-8111-111111111111' };
 const publication = '22222222-2222-4222-8222-222222222222';
 const status = { inventoryEvidenceVersion: 1, propertiesAccessVersion: 1, vaults: [{ vaultId: 'one', name: 'Fixture', source: { local: { available: true }, cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null } }] };
-test('partial sibling catalogs never license borrowing a README; malformed owners also retain precedence', async t => {
+test('partial catalogs and malformed sibling notes cannot establish a folder-only project', async t => {
   for (const mode of ['clipped', 'malformed', 'publication']) await t.test(mode, async t => {
     const paths: string[] = []; let childCalls = 0;
     const host = createFakePluginHost({ pluginId: 'gtd', sdk: { plugins: { callRpc: async (args: any) => {

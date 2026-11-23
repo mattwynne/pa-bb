@@ -9,7 +9,7 @@ import { migrationPreview } from '../core/migration-preview.ts';
 import type { ProjectPage } from '../core/model.ts';
 
 const old = 'Projects/Active/Service heater.md', done = 'Projects/Done/Service heater.md';
-const dir = 'Projects/Notebook', readme = `${dir}/README.md`, canonical = 'Projects/Active/Notebook.md';
+const dir = 'Projects/Notebook', readme = `${dir}/README.md`;
 const nested = 'Areas/Work/Writing.md';
 const select = { vaultId: 'one', projectsFolder: 'Projects', areasFolder: 'Areas' };
 async function fixture() {
@@ -38,11 +38,12 @@ async function fixture() {
     list:async()=>await host.harness.behavior.callRpc('listProjects',{}) as ProjectPage,
     associate:(id:string)=>host.harness.behavior.callRpc('associate',{threadId:'thread-1',project:{source:'one',id}})};
 }
-test('README-only move leaves the support folder as a second complete legacy project', async t=>{
+test('migration preview keeps a folder ID when a supporting README moves', async t=>{
   const f=await fixture();t.after(()=>f.host.harness.lifecycle.dispose());
-  const before=await f.list();assert.equal(before.coverage,'complete');assert.equal(before.projects.length,2);assert.equal(before.projects.find(p=>p.id===dir+'/')?.notePath,readme);
-  f.move(readme,canonical);
-  const after=await f.list();assert.equal(after.coverage,'complete');assert.equal(after.projects.length,3);assert.ok(after.projects.some(p=>p.id===canonical));
+  const before=await f.list();assert.equal(before.coverage,'complete');assert.equal(before.projects.length,2);
+  assert.equal((await f.preview()).rows.find(r=>r.oldId===dir+'/')?.notePath,null);
+  f.move(readme,dir+'/Overview.md');
+  const after=await f.list();assert.equal(after.coverage,'complete');assert.equal(after.projects.length,2);
   assert.deepEqual(after.projects.find(p=>p.id===dir+'/'),{id:dir+'/',title:'Notebook',status:'active'});
   assert.deepEqual(f.docs.get(dir+'/Minutes.md'),{title:'Supporting material'});assert.equal(f.writes(),0);
 });

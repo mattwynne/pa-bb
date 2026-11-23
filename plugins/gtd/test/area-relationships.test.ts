@@ -24,14 +24,12 @@ test('relationship projection batches explicit roots only, preserves IDs and nev
   try {
     const backend = new ObsidianBackend(host.bb.sdk, { vaultId: 'one', root: 'Life', folder: 'Projects', areasFolder: 'Areas' });
     const result = await backend.readProjects(new AbortController().signal);
-    assert.equal(result.complete, true); assert.deepEqual(requests.map(r => r.length), [50, 2]);
-    assert.ok(requests.flat().every(path => !path.endsWith('/Notes.md') && path !== 'Life/Projects/P0/README.md'));
+    assert.equal(result.complete, true); assert.deepEqual(requests.map(r => r.length), [50, 1]);
+    assert.ok(requests.flat().every(path => !path.endsWith('/Notes.md') && !path.endsWith('/README.md')));
     assert.equal(result.projects.find(p => p.id === 'Life/Projects/P0.md')?.areaId, 'Life/Areas/Work/Consulting.md');
     assert.equal(result.projects.find(p => p.id === 'Life/Projects/Folder/')?.areaId, undefined);
-    assert.ok(requests.flat().includes('Life/Projects/Pilot/README.md'));
     assert.deepEqual(result.projects.find(p => p.id === 'Life/Projects/Pilot/'), {
-      id: 'Life/Projects/Pilot/', notePath: 'Life/Projects/Pilot/README.md', title: 'Pilot', status: 'deferred',
-      areaId: 'Life/Areas/Work/Consulting.md',
+      id: 'Life/Projects/Pilot/', title: 'Pilot', status: 'active',
     });
   } finally { await host.harness.lifecycle.dispose(); }
 });

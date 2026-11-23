@@ -278,7 +278,7 @@ function GtdPanel() {
     const linked = byProject.get(p.id) ?? [];
     return <Group key={p.id} title={p.title} kind="project" actions={<>
       <button className="gtd-row-action" aria-label={`New thread for ${p.title}`} title={`Start an AI thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>
-      <RenameMenu target={{ ...p, kind: 'project', source: inventory.source }} disabled={!!busy || (p.id.endsWith('/') && !p.notePath)} onRename={openEditor} />
+      <RenameMenu target={{ ...p, kind: 'project', source: inventory.source }} disabled={!!busy || p.id.endsWith('/')} onRename={openEditor} />
     </>}>
       {linked.length ? linked.map(row) : <p className="gtd-muted">No linked threads</p>}
     </Group>;

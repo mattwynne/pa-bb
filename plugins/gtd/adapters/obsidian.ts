@@ -194,7 +194,7 @@ function projectEntry(folder: string, path: string, statusGroups = true) {
   const grouped = statusGroups && parts.length > 1 && Object.hasOwn(aliases, parts[0].toLowerCase());
   const prefix = grouped ? parts.shift()! + '/' : '';
   const rootNote = parts.length === 1;
-  return { key: `${folder}/${prefix}${rootNote ? parts[0].slice(0, -3) : parts[0]}`, rootNote, readme: parts.length === 2 && parts[1] === 'README.md' };
+  return { key: `${folder}/${prefix}${rootNote ? parts[0].slice(0, -3) : parts[0]}`, rootNote };
 }
 export function projectFromNote(folder: string, path: string, properties: Record<string, unknown>): Project | 'invalid' | null {
   const entry = projectEntry(folder, path);
@@ -202,16 +202,14 @@ export function projectFromNote(folder: string, path: string, properties: Record
   const parts = path.slice(folder.length + 1).split('/');
   // Folder membership defines projects; a status folder overrides old frontmatter.
   const folderStatus = parts.length > 1 && Object.hasOwn(aliases, parts[0].toLowerCase()) ? parts.shift()!.toLowerCase() : undefined;
-  // A project-level README supplies metadata while keeping the directory ID.
-  if (!entry.rootNote && !entry.readme) return text(parts[0], 240) ? { id: entry.key + '/', title: parts[0], status: folderStatus ? aliases[folderStatus] : 'active' } : 'invalid';
+  if (!entry.rootNote) return text(parts[0], 240) ? { id: entry.key + '/', title: parts[0], status: folderStatus ? aliases[folderStatus] : 'active' } : 'invalid';
   const status = folderStatus ? aliases[folderStatus] : properties.status === undefined ? 'active'
     : typeof properties.status === 'string' && Object.hasOwn(aliases, properties.status) ? aliases[properties.status] : undefined;
   if (!status) return 'invalid';
-  const title = properties.title === undefined ? (entry.readme ? parts[0] : parts[0].slice(0, -3)) : properties.title;
+  const title = properties.title === undefined ? parts[0].slice(0, -3) : properties.title;
   if (!text(title, 240)) return 'invalid';
   return {
-    id: entry.readme ? entry.key + '/' : path,
-    ...(entry.readme ? { notePath: path } : {}),
+    id: path,
     title: (title as string).trim(),
     status,
   };
@@ -462,9 +460,8 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     const folder = [root, this.folder(kind)].filter(Boolean).join('/');
     const warnings = new Set<Warning>();
     const items: (Project | Area)[] = [];
-    const candidates: Array<{ name: string; path: string; owner?: string; status?: ProjectStatus; included: boolean }> = [];
+    const candidates: Array<{ name: string; path: string; owner?: string; status?: ProjectStatus }> = [];
     let visited = 0, directoriesRead = 0;
-    const ownersPending: Array<Promise<void>> = [];
     const children = async (scope: string) => {
       if (++directoriesRead > 128) {
         warnings.add('scan_limit');
@@ -483,45 +480,28 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         if (!relativeFolder.safeParse(path).success) { warnings.add('source_partial'); continue; }
         const directory = entry.kind === 'directory';
         if (kind === 'project' && directory && status === undefined && Object.hasOwn(aliases, entry.name.toLowerCase())) {
-          // Earlier candidates have already reserved their directory reads.
-          // That evidence can arrive with the next status catalog.
           await enumerate(path, aliases[entry.name.toLowerCase()]);
           continue;
         }
         if (directory && (page.incomplete || notes.has(entry.name + '.md'))) continue;
-        const candidate = { name: entry.name, path, owner: directory ? undefined : path, status, included: true };
-        candidates.push(candidate);
-        if (kind === 'project' && directory) {
-          const reading = children(path).then(inside => {
-            if (inside.entries.some(child => child.kind === 'markdown' && child.name === 'README.md')) {
-              candidate.owner = path + '/README.md';
-            } else if (inside.incomplete) candidate.included = false;
-          });
-          // The next status catalog can suspend traversal before the final
-          // barrier subscribes. Observe early errors immediately.
-          void reading.catch(() => {});
-          ownersPending.push(reading);
-        }
+        candidates.push({ name: entry.name, path, owner: directory ? undefined : path, status });
       }
     };
 
     // Retain the Area listing for both relationship resolution and the sidebar
     // Area rows. The project scan still accounts for it in its own directory cap.
     await enumerate(folder);
-    await Promise.all(ownersPending);
     const fields = kind === 'project' ? ['title', 'status', 'area'] : ['title'];
     const owners = new Map<Project, { path: string; area: unknown }>();
-    const properties = await Promise.all(candidates.map(candidate => candidate.included && candidate.owner
+    const properties = await Promise.all(candidates.map(candidate => candidate.owner
       ? evidence.read<'properties'>({ kind: 'properties', path: candidate.owner, fields }) : undefined));
     for (const [i, candidate] of candidates.entries()) {
-      if (!candidate.included) continue;
-      const { path, name, status } = candidate;
-      let { owner } = candidate;
+      const { path, name, status, owner } = candidate;
       const page = properties[i];
       if (page && (page.status === 'partial' || page.unsupported.length)) warnings.add('source_partial');
       if (page && page.status !== 'observed') {
-        if (page.status === 'missing' && path !== owner) owner = undefined;
-        else { warnings.add('source_partial'); continue; }
+        warnings.add('source_partial');
+        continue;
       }
       const invalid = kind === 'project' ? 'invalid_project' : 'invalid_area';
       if (page?.unsupported.some(field => field === 'title' || (field === 'status' && !status))) { warnings.add(invalid); continue; }
@@ -610,20 +590,11 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         const path = `${scope}/${entry.name}`;
         if (!relativeFolder.safeParse(path).success) { warnings.add('source_partial'); continue; }
         if (kind === 'project' && entry.kind === 'directory' && status === undefined && Object.hasOwn(aliases, entry.name.toLowerCase())) { await enumerate(path, aliases[entry.name.toLowerCase()]); continue; }
-        // A clipped/omitted sibling cannot license README ownership or a
-        // folder-only default. Confirmed note owners remain independently usable.
+        // An incomplete listing cannot confirm the absence of a sibling note.
         if (entry.kind === 'directory' && (scopePartial || notes.has(entry.name + '.md'))) continue;
-        let owner: string | undefined = entry.kind === 'markdown' ? path : undefined;
-        if (kind === 'project' && entry.kind === 'directory') {
-          const inside = await children(path);
-          if (inside.some(e => e.kind === 'markdown' && e.name === 'README.md')) owner = path + '/README.md';
-          else if (childrenPartial) continue;
-        }
+        const owner = entry.kind === 'markdown' ? path : undefined;
         const page = owner ? await properties(owner, kind === 'project' ? ['title', 'status', 'area'] : ['title']) : undefined;
-        if (page && page.status !== 'observed') {
-          if (page.status === 'missing' && entry.kind === 'directory') owner = undefined;
-          else { warnings.add('source_partial'); continue; }
-        }
+        if (page && page.status !== 'observed') { warnings.add('source_partial'); continue; }
         if (page?.unsupported.some(f => f === 'title' || (f === 'status' && !status))) { warnings.add(kind === 'project' ? 'invalid_project' : 'invalid_area'); continue; }
         const props = page?.properties ?? {};
         const item = kind === 'project'
@@ -677,7 +648,6 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     if (state.childrenAccessVersion !== 1) warnings.add('directory_enumeration_unavailable');
     const entries = new Map<string, Project | Area>();
     const invalidRoots = new Set<string>(), seenRoots = new Set<string>();
-    const readmes = new Map<string, Project | 'invalid'>();
     let cursor: string | undefined, pages = 0, notes = 0, observedAt = new Date().toISOString();
     try {
       do {
@@ -698,16 +668,6 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
           if (++notes > 5000) { warnings.add('scan_limit'); break; }
           const folder = this.config.root ? `${this.config.root}/${this.folder(kind)}` : this.folder(kind);
           const entry = projectEntry(folder, note.path, kind === 'project');
-          if (kind === 'project' && entry?.readme) {
-            const item = projectFromNote(folder, note.path, note.properties);
-            if (readmes.has(entry.key)) {
-              warnings.add('duplicate_id');
-              readmes.set(entry.key, 'invalid');
-            } else if (item) {
-              readmes.set(entry.key, item);
-            }
-            continue;
-          }
           const item = kind === 'area' ? areaFromNote(folder, note.path, note.properties) : projectFromNote(folder, note.path, note.properties);
           if (entry?.rootNote) { if (seenRoots.has(entry.key)) warnings.add('duplicate_id'); seenRoots.add(entry.key); }
           if (!entry || item === 'invalid') { warnings.add(kind === 'project' ? 'invalid_project' : 'invalid_area'); if (entry?.rootNote) { entries.delete(entry.key); invalidRoots.add(entry.key); } }
@@ -754,27 +714,14 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
       await enumerate(folder);
     }
     if (signal.aborted) throw new GtdError('cancelled');
-    // Resolve README ownership after both scans so a legacy sibling keeps its
-    // existing ID and metadata regardless of page order.
-    for (const [key, item] of readmes) {
-      if (seenRoots.has(key) || invalidRoots.has(key)) continue;
-      if (item === 'invalid') {
-        warnings.add('invalid_project');
-        entries.delete(key);
-      } else {
-        entries.set(key, item);
-      }
-    }
     if (kind === 'project' && this.config.areasFolder) {
       // Older producers can consult bodies or interpret the old YAML key.
       // Do not call them or treat a raw property as a resolved Area ID.
       if (state.projectAreasVersion !== 1 || state.projectAreasFrontmatterOnly !== true || state.projectAreasDeclarationKey !== projectAreasDeclarationKey) warnings.add('source_partial');
       else {
         const areaFolder = [this.config.root, this.config.areasFolder].filter(Boolean).join('/');
-        const roots = [...entries.values()].flatMap(item => {
-          const notePath = 'notePath' in item ? item.notePath : undefined;
-          return notePath || item.id.endsWith('.md') ? [{ item: item as Project, path: notePath ?? item.id }] : [];
-        });
+        const roots = [...entries.values()].filter(item => item.id.endsWith('.md'))
+          .map(item => ({ item: item as Project, path: item.id }));
         const assignments = new Map<Project, string>();
         let authority: z.infer<typeof relationshipAuthority> | undefined;
         for (let start = 0; start < roots.length; start += 50) {

@@ -50,11 +50,10 @@ records operation metadata and syncs both parent directories. An interrupted
 two-name state can leave both names present. Receipt inspection checks the
 filesystem evidence without replaying either mutation.
 
-GTD plans can also move a standalone project, a landing note with its same-name
-support tree, or a directory owned by its immediate `README.md`. Use the
-project mode, optional vault root and operation ID from the GTD plan. Obsidian
-checks note and attachment links in the selected vault. Relative links are
-rebased only where their original targets require it.
+GTD plans move a landing note and carry its same-name support tree when
+present. Use the project mode, optional vault root and operation ID from the
+GTD plan. Obsidian checks note and attachment links in the selected vault.
+Relative links are rebased only where their original targets require it.
 
 Folder moves require a direct local mirror on Linux and system Python 3 with
 `ctypes` and libc `renameat2`. The source and destination must share a
@@ -277,7 +276,7 @@ Native BB disable/reload closes dispatch. Obsidian's disposal hook closes operat
 
 `projectAreasFrontmatterOnly: true` advertises the GTD-only `projectAreasFromFrontmatter` read-only RPC; `projectAreasDeclarationKey: 'area'` confirms the YAML input contract. Updated GTD checks both and sends `declarationKey: 'area'` on every batch. A rolled-back producer either lacks the method or rejects the extra request field before invoking its resolver. Unmarked requests and the historical `projectAreas` method remain available for older GTD builds, with unchanged response shapes and the same current backend.
 
-Both methods accept at most 50 selected project root-note paths (including a project `README.md` when it supplies the metadata), the selected vault prefix and the exact Areas folder. Only the top-level YAML `area` key declares a relationship; a YAML `areaId` is ignored. `area` accepts a local path/wikilink string or a flat list of up to eight strings. Every declared target must resolve to the same path. The response contains per-path `none`, `resolved` with the backend path in `areaId`, or `unresolved`, plus source incompleteness. No bodies, snippets, hashes, edit proofs or writes cross this boundary.
+Both methods accept at most 50 project landing-note paths, the selected vault prefix and the exact Areas folder. Only the top-level YAML `area` key declares a relationship; a YAML `areaId` is ignored. `area` accepts a local path/wikilink string or a flat list of up to eight strings. Every declared target must resolve to the same path. The response contains per-path `none`, `resolved` with the backend path in `areaId`, or `unresolved`, plus source incompleteness. No bodies, snippets, hashes, edit proofs or writes cross this boundary.
 
 Local matching uses selected-vault-relative or mirror-prefixed paths, optional `.md`, display aliases and unique basenames; explicit paths can address nested Area notes and directories. No external URL, title/topic inference or alias-property index is involved. Targets must be within the configured Areas folder. For an indexed direct vault, each batch uses a single authorized generation for project properties, candidate note paths and directories. A warm batch neither opens note files nor enumerates directories. It still checks current source access and the revision-bound directory identity; a denied or unconfirmed index grant does not fall back to live access. Omitted target catalogs within the selected scope cannot establish a unique relationship. Missing indexed project rows and unreadable frontmatter mark coverage partial, while an unresolved declaration by itself does not.
 

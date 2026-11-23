@@ -12,7 +12,7 @@ export const changeNames = [
   'gtd_prepare_project_change',
   'gtd_check_project_change',
 ] as const;
-const projectMove = z.enum(['standalone', 'paired', 'folder']);
+const projectMove = z.enum(['standalone', 'paired']);
 const physicalMove = z.enum(['moved_locally_pending_sync', 'not_moved', 'partial', 'uncertain']);
 const moveOutcome = z.enum(['moved_supported_links_updated', 'moved_links_partial', 'project_move_partial', 'not_moved', 'uncertain']);
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
@@ -58,7 +58,6 @@ type Plan = {
   expectedHash: string;
   areaPath?: string | null;
   destination?: string;
-  destinationId?: string;
   project?: z.infer<typeof projectMove>;
   originalArea?: string;
   threads: string[];
@@ -188,7 +187,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
     const { e, rows } = await inventory(s, signal);
     const item = rows.find((p) => p.id === input.id);
     if (!item) return refuse('Exact project not found. If already moved, inspect the original plan.');
-    const owner = item.notePath ?? item.id;
+    const owner = item.id;
     if (!owner.endsWith('.md') || !e.owners.has(owner)) refuse('A confirmed project landing note is required.');
     const p: Plan = {
       config: s.config,
@@ -252,18 +251,16 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
           ),
       );
       if (dirs.length !== 1) refuse('The destination status folder must already exist unambiguously.');
-      p.project = item.notePath ? 'folder' : e.entries.has(owner.slice(0, -3)) ? 'paired' : 'standalone';
-      const projectName = p.project === 'folder' ? posix.basename(posix.dirname(owner)) : posix.basename(owner, '.md');
-      const destinationStem = dirs[0] + '/' + projectName;
-      p.destination = destinationStem + (p.project === 'folder' ? '/README.md' : '.md');
-      p.destinationId = p.project === 'folder' ? destinationStem + '/' : p.destination;
+      p.project = e.entries.has(owner.slice(0, -3)) ? 'paired' : 'standalone';
+      const destinationStem = dirs[0] + '/' + posix.basename(owner, '.md');
+      p.destination = destinationStem + '.md';
       if (p.destination === owner && item.status === input.status) return { state: 'already_complete', owner };
       p.status = input.status;
       p.originalArea = item.areaId;
       if (e.entries.has(destinationStem) || e.entries.has(destinationStem + '.md'))
         refuse('Destination note or support folder already exists.');
       const refs = await readThreadReferences(bb.sdk, s.source, signal);
-      if (refs.warnings.length || refs.refs.some((r) => r.id === p.destinationId))
+      if (refs.warnings.length || refs.refs.some((r) => r.id === p.destination))
         refuse('Thread coverage is incomplete or destination already has references.');
       p.threads = refs.refs.filter((r) => r.id === item.id).map((r) => r.threadId);
       if (p.threads.length > 20) refuse('More than 20 linked conversations; manual review required.');
@@ -323,7 +320,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
         const props = e.owners.get(p.owner);
         const ok =
           source &&
-          (source.notePath ?? source.id) === p.owner &&
+          source.id === p.owner &&
           props &&
           (p.areaPath === null
             ? !Object.hasOwn(props, 'area') && source.areaId === undefined
@@ -351,16 +348,15 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config>)
       };
       const { e, rows } = await inventory(s, signal);
       const source = rows.find((r) => r.id === p.id);
-      const destinationId = p.destinationId ?? p.destination;
+      const destinationId = p.destination;
       const destination = rows.find((r) => r.id === destinationId);
-      const stem = p.project === 'folder' ? posix.dirname(p.destination) : p.destination.slice(0, -3);
-      const sourceFolder = p.project === 'folder' ? posix.dirname(p.owner) : p.owner.slice(0, -3);
+      const stem = p.destination.slice(0, -3);
+      const sourceFolder = p.owner.slice(0, -3);
       if (
         source || e.entries.has(p.owner) || e.entries.has(sourceFolder) ||
-        !destination || (destination.notePath ?? destination.id) !== p.destination ||
+        !destination ||
         destination.status !== p.status || destination.areaId !== p.originalArea ||
-        e.entries.has(stem) !== (p.project === 'folder' || p.project === 'paired') ||
-        (p.project === 'folder' && e.entries.has(stem + '.md'))
+        e.entries.has(stem) !== (p.project === 'paired')
       ) return {
         state: 'move_not_verified',
         sourcePresent: !!source,

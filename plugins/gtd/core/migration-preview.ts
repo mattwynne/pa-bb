@@ -12,7 +12,7 @@ type Thread = { threadId: string; archived: boolean; id: string };
 export function planRows(projects: Project[], areas: Area[], evidence: PreviewEvidence, folders: {project: string; area: string}, reserve: (kind: Row['kind'], oldId: string) => string) {
   const rows: Row[] = [];
   for (const [kind, items] of [['project', projects], ['area', areas]] as const) for (const item of items) {
-    const owner = (item as Project).notePath ?? (item.id.endsWith('/') ? null : item.id);
+    const owner = item.id.endsWith('/') ? null : item.id;
     const props = owner ? evidence.owners.get(owner) : undefined;
     const stem = item.id.replace(/\/$/, '').split('/').at(-1)!;
     const name = item.id.endsWith('/') ? stem + '.md' : stem;

@@ -62,7 +62,7 @@ test('an invalid explicit root never borrows supporting metadata, in either page
   }
 });
 
-test('an immediate README keeps the folder ID and sibling notes win across metadata pages', async () => {
+test('nested README metadata is ignored and sibling notes win across metadata pages', async () => {
   const ordinary = row('Pilot/Supporting/README.md', { title: 'Nested', status: 'done' });
   const readme = row('Pilot/README.md', { title: 'Pilot title', status: 'deferred' });
   const legacy = row('Pilot.md', { title: 'Legacy title', status: 'active' });
@@ -73,8 +73,8 @@ test('an immediate README keeps the folder ID and sibling notes win across metad
   await fixture([[ordinary], [readme, row('Done/Finished/README.md', { status: 'active' })]], async backend => {
     const result = await backend.readProjects(new AbortController().signal);
     assert.deepEqual(result.projects, [
-      { id: 'Projects/Pilot/', notePath: 'Projects/Pilot/README.md', title: 'Pilot title', status: 'deferred' },
-      { id: 'Projects/Done/Finished/', notePath: 'Projects/Done/Finished/README.md', title: 'Finished', status: 'done' },
+      { id: 'Projects/Pilot/', title: 'Pilot', status: 'active' },
+      { id: 'Projects/Done/Finished/', title: 'Finished', status: 'done' },
     ]);
   });
   for (const pages of [[[readme], [legacy]], [[legacy], [readme]]]) {

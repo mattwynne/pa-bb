@@ -145,11 +145,10 @@ test('public GTD lists use only owner evidence on a warm nested-root index and f
   const rows = page.projects;
   assert.equal(rows.length, 6);
   assert.equal(rows.find((p: any) => p.id.endsWith('/Plan.md')).areaId, 'Life/Areas/Finance.md');
-  assert.equal(rows.find((p: any) => p.id.endsWith('/Pilot/')).areaId, 'Life/Areas/Empty/');
-  assert.equal(rows.find((p: any) => p.id.endsWith('/Pilot/')).notePath, 'Life/Projects/Pilot/README.md');
+  assert.deepEqual(rows.find((p: any) => p.id.endsWith('/Pilot/')), { id: 'Life/Projects/Pilot/', title: 'Pilot', status: 'active' });
   assert.equal(rows.find((p: any) => p.id.endsWith('/Finished.md')).status, 'done');
   assert.ok(rows.some((p: any) => p.id.endsWith('/Attachments/')));
-  assert.ok(requests.filter(r => r.method === 'inventoryProperties').every(r => !r.input.path.endsWith('/Notes.md') && r.input.path !== 'Life/Projects/Pair/README.md'));
+  assert.ok(requests.filter(r => r.method === 'inventoryProperties').every(r => !r.input.path.endsWith('/Notes.md') && !r.input.path.endsWith('/README.md')));
   assert.ok(!requests.some(r => ['listProperties', 'projectAreasFromFrontmatter'].includes(r.method)));
   const areas: any = await gtd.harness.behavior.callRpc('listAreas', {});
   assert.equal(areas.coverage, 'complete'); assert.equal(areas.areas.length, 2);
@@ -703,7 +702,7 @@ const gtdCaller = { experimental_caller: { kind: 'plugin' as const, pluginId: 'g
 test('warm indexed project relationships read neither notes nor directories, across batches', async t => {
   let revokeAtFinalCheck = false, grantChecks = 0;
   const f = await fixture(t, 'ready', async root => {
-    for (const path of ['Life/Projects/Pilot', 'Life/Areas/Work/Nested', 'Life/Areas/Finance', 'Other/Areas'])
+    for (const path of ['Life/Projects', 'Life/Areas/Work/Nested', 'Life/Areas/Finance', 'Other/Areas'])
       await mkdir(join(root, path), { recursive: true });
     await writeFile(join(root, 'Life/Areas/Finance.md'), 'target');
     await writeFile(join(root, 'Other/Areas/Finance.md'), 'different vault');
@@ -711,7 +710,7 @@ test('warm indexed project relationships read neither notes nor directories, acr
     await writeFile(join(root, 'Life/Projects/Plan.md'), '---\nareaId: Areas/Stale.md\narea: "[[Areas/Finance|Budget]]"\n---\n' + 'x'.repeat(70000));
     await writeFile(join(root, 'Life/Projects/Body.md'), '## Area\n- [[Areas/Finance]]');
     await writeFile(join(root, 'Life/Projects/OldOnly.md'), '---\nareaId: Areas/Finance.md\n---\n');
-    await writeFile(join(root, 'Life/Projects/Pilot/README.md'), '---\narea: "[[Areas/Work/Nested]]"\n---\n');
+    await writeFile(join(root, 'Life/Projects/Pilot.md'), '---\narea: "[[Areas/Work/Nested]]"\n---\n');
     await writeFile(join(root, 'Life/Projects/Invalid.md'), '---\narea: [\n---\n## Area\n- [[Areas/Finance]]');
   }, async () => {
     if (revokeAtFinalCheck && ++grantChecks === 2) throw new Error('sentinel-private-revoked-final-grant');
@@ -734,8 +733,8 @@ test('warm indexed project relationships read neither notes nor directories, acr
     { path: 'Life/Projects/Body.md', status: 'none' },
     { path: 'Life/Projects/OldOnly.md', status: 'none' },
   ], incomplete: false, authority });
-  assert.deepEqual(await lookup(['Life/Projects/Pilot/README.md'], 'Life/Areas', authority), { rows: [
-    { path: 'Life/Projects/Pilot/README.md', status: 'resolved', areaId: 'Life/Areas/Work/Nested/' },
+  assert.deepEqual(await lookup(['Life/Projects/Pilot.md'], 'Life/Areas', authority), { rows: [
+    { path: 'Life/Projects/Pilot.md', status: 'resolved', areaId: 'Life/Areas/Work/Nested/' },
   ], incomplete: false, authority });
   assert.deepEqual(await lookup(['Life/Projects/Invalid.md', 'Life/Projects/Absent.md']), { rows: [
     { path: 'Life/Projects/Invalid.md', status: 'unresolved' },
@@ -1058,24 +1057,25 @@ const deferred = 'Projects/Deferred/Example';
 const nested = '/Research/Notes.md';
 const bytes = Buffer.from([0, 33, 128, 255]);
 
-async function projectMoveFixture(t: TestContext, folderOwned = false, scope = '') {
+async function projectMoveFixture(t: TestContext, scope = '') {
   const inVault = (path: string) => scope ? scope + '/' + path : path;
-  const sourceId = inVault(example) + (folderOwned ? '/' : '.md');
-  const sourceNote = inVault(example) + (folderOwned ? '/README.md' : '.md');
-  const destinationId = inVault(deferred) + (folderOwned ? '/' : '.md');
-  const destinationNote = inVault(deferred) + (folderOwned ? '/README.md' : '.md');
+  const sourceNote = inVault(example) + '.md';
+  const destinationNote = inVault(deferred) + '.md';
+  const sourceId = sourceNote;
+  const destinationId = destinationNote;
   const f = await fixture(t, 'ready', async root => {
     for (const path of ['.obsidian', 'Areas', 'Projects/Deferred', example + '/Research/Empty']) await mkdir(join(root, inVault(path)), { recursive: true });
     await writeFile(join(root, inVault('Areas/Other.md')), '# Section\n');
     await writeFile(join(root, inVault(example + '/Research/Scan.bin')), bytes);
-    const ownNote = folderOwned ? './Research/Notes.md' : './Example/Research/Notes.md';
-    const area = folderOwned ? '../../../Areas/Other.md' : '../../Areas/Other.md';
+    const ownNote = './Example/Research/Notes.md';
+    const area = '../../Areas/Other.md';
     await writeFile(join(root, sourceNote), `[research](${ownNote}#Heading "source")\n[elsewhere](${area}#Section)\n[static](./Stay.md)\n`);
-    await writeFile(join(root, inVault(folderOwned ? example + '/Stay.md' : 'Projects/Active/Stay.md')), 'Present');
-    const landing = folderOwned ? '../README.md' : '../../Example.md';
+    await writeFile(join(root, inVault('Projects/Active/Stay.md')), 'Present');
+    await writeFile(join(root, inVault(example + '/README.md')), '# Project references\n');
+    const landing = '../../Example.md';
     await writeFile(join(root, inVault(example + nested)), `# Heading\n[landing](${landing})\n![[Projects/Active/Example/Research/Scan.bin]]\n[[#Heading]]\n`);
     if (scope) await writeFile(join(root, 'Outside.md'), '[[Projects/Active/Example]]');
-    await writeFile(join(root, inVault('Projects/Active/Context.md')), `[[${sourceNote.slice(scope ? scope.length + 1 : 0)}#^block|landing]] ![[${example + nested}#Heading|research]]\n[relative](Example/Research/Notes.md#Heading)\n`);
+    await writeFile(join(root, inVault('Projects/Active/Context.md')), `[[${sourceNote.slice(scope ? scope.length + 1 : 0)}#^block|landing]] ![[${example + nested}#Heading|research]]\n[relative](Example/Research/Notes.md#Heading)\n[readme](Example/README.md#Project-references)\n`);
   }, undefined, null);
   const meta = { project: { source: 'one', id: sourceId }, other: 'retained' };
   const gtd = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: scope ? 'one/' + scope : 'one' }, sdk: {
@@ -1106,41 +1106,54 @@ async function projectMoveFixture(t: TestContext, folderOwned = false, scope = '
     abs: (path: string) => join(f.directory, inVault(path)) };
 }
 
-for (const folderOwned of [false, true]) {
-  test(`GTD status move preserves the ${folderOwned ? 'README-owned' : 'paired'} project tree and its conversation`, async t => {
-    const f = await projectMoveFixture(t, folderOwned);
-    const plan = await f.prepare();
-    assert.equal(plan.next.tool, 'obsidian_move_note');
-    assert.equal(plan.next.input.project, folderOwned ? 'folder' : 'paired');
-    const dry = await f.tool('move_note', plan.next.input);
-    assert.equal(dry.outcome, 'link_plan_ready');
-    assert.equal(dry.movedNotes, folderOwned ? 3 : 2);
-    assert.equal(dry.operationId, plan.planId);
-    assert.deepEqual(dry.folder, { from: example, to: deferred });
-    assert.equal(dry.movedAttachments, 1);
-    const before = await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true });
-    assert.equal(before.state, 'move_not_verified');
-    assert.equal(f.meta.project.id, f.sourceId);
-    const result = await f.tool('move_note', { ...plan.next.input, dryRun: false });
-    assert.equal(result.outcome, 'moved_supported_links_updated');
-    assert.equal(result.operationId, plan.planId);
-    assert.deepEqual(await readFile(f.abs(deferred + '/Research/Scan.bin')), bytes);
-    assert.ok((await stat(f.abs(deferred + '/Research/Empty'))).isDirectory());
-    await assert.rejects(stat(f.abs(example)), { code: 'ENOENT' });
-    await assert.rejects(stat(f.abs(f.sourceNote)), { code: 'ENOENT' });
-    const context = await readFile(f.abs('Projects/Active/Context.md'), 'utf8');
-    assert.equal(context, `[[${f.destinationNote.slice(0, -3)}#^block|landing]] ![[${(deferred + nested).slice(0, -3)}#Heading|research]]\n[relative](../Deferred/Example/Research/Notes.md#Heading)\n`);
-    const research = await readFile(f.abs(deferred + nested), 'utf8');
-    assert.equal(research, `# Heading\n[landing](${folderOwned ? '../README.md' : '../../Example.md'})\n![[Projects/Deferred/Example/Research/Scan.bin]]\n[[#Heading]]\n`);
-    const landing = await readFile(f.abs(f.destinationNote), 'utf8');
-    assert.match(landing, /Other\.md#Section/);
-    assert.match(landing, /Notes\.md#Heading "source"/);
-    assert.match(landing, folderOwned ? /\(\.\/Stay\.md\)/ : /\(\.\.\/Active\/Stay\.md\)/);
-    assert.equal((await f.call('gtd_check_project_change', { planId: plan.planId })).state, 'links_pending');
-    assert.equal((await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true })).state, 'links_verified');
-    assert.deepEqual(f.meta, { project: { source: 'one', id: f.destinationId }, other: 'retained' });
-  });
-}
+test('GTD status move preserves the paired project tree and its conversation', async t => {
+  const f = await projectMoveFixture(t);
+  const plan = await f.prepare();
+  assert.equal(plan.next.tool, 'obsidian_move_note');
+  assert.equal(plan.next.input.project, 'paired');
+  const dry = await f.tool('move_note', plan.next.input);
+  assert.equal(dry.outcome, 'link_plan_ready');
+  assert.equal(dry.movedNotes, 3);
+  assert.equal(dry.operationId, plan.planId);
+  assert.deepEqual(dry.folder, { from: example, to: deferred });
+  assert.equal(dry.movedAttachments, 1);
+  const before = await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true });
+  assert.equal(before.state, 'move_not_verified');
+  assert.equal(f.meta.project.id, f.sourceId);
+  const result = await f.tool('move_note', { ...plan.next.input, dryRun: false });
+  assert.equal(result.outcome, 'moved_supported_links_updated');
+  assert.equal(result.operationId, plan.planId);
+  assert.deepEqual(await readFile(f.abs(deferred + '/Research/Scan.bin')), bytes);
+  assert.equal(await readFile(f.abs(deferred + '/README.md'), 'utf8'), '# Project references\n');
+  assert.ok((await stat(f.abs(deferred + '/Research/Empty'))).isDirectory());
+  await assert.rejects(stat(f.abs(example)), { code: 'ENOENT' });
+  await assert.rejects(stat(f.abs(f.sourceNote)), { code: 'ENOENT' });
+  const context = await readFile(f.abs('Projects/Active/Context.md'), 'utf8');
+  assert.equal(context, `[[${f.destinationNote.slice(0, -3)}#^block|landing]] ![[${(deferred + nested).slice(0, -3)}#Heading|research]]\n[relative](../Deferred/Example/Research/Notes.md#Heading)\n[readme](../Deferred/Example/README.md#Project-references)\n`);
+  const research = await readFile(f.abs(deferred + nested), 'utf8');
+  assert.equal(research, `# Heading\n[landing](../../Example.md)\n![[Projects/Deferred/Example/Research/Scan.bin]]\n[[#Heading]]\n`);
+  const landing = await readFile(f.abs(f.destinationNote), 'utf8');
+  assert.match(landing, /Other\.md#Section/);
+  assert.match(landing, /Notes\.md#Heading "source"/);
+  assert.match(landing, /\(\.\.\/Active\/Stay\.md\)/);
+  assert.equal((await f.call('gtd_check_project_change', { planId: plan.planId })).state, 'links_pending');
+  assert.equal((await f.call('gtd_check_project_change', { planId: plan.planId, finishLinks: true })).state, 'links_verified');
+  assert.deepEqual(f.meta, { project: { source: 'one', id: f.destinationId }, other: 'retained' });
+});
+
+test('a support README does not qualify a folder-only GTD project for a status move or Area assignment', async t => {
+  const f = await projectMoveFixture(t);
+  const folder = 'Projects/Active/Folder';
+  const path = folder + '/README.md';
+  await mkdir(f.abs(folder));
+  await writeFile(f.abs(path), '---\ntitle: Wrong title\nstatus: done\narea: Areas/Other.md\n---\nSupporting material');
+  const note = await f.tool('read_note', { vaultId: 'one', path });
+  const target = { source: 'one', id: folder + '/', expectedHash: note.hash };
+  for (const change of [{ status: 'deferred' }, { areaPath: 'Areas/Other.md' }]) {
+    const result = await f.call('gtd_prepare_project_change', { ...target, ...change }, true);
+    assert.match(result, /landing note/);
+  }
+});
 
 test('project preflight refuses ambiguous nested links and a destination folder created after planning', async t => {
   const f = await projectMoveFixture(t);
@@ -1199,7 +1212,7 @@ test('interruption after the landing hardlink gives a durable partial receipt an
 });
 
 test('a nested vault resolves root-relative links inside its own scope', async t => {
-  const f = await projectMoveFixture(t, false, 'Work');
+  const f = await projectMoveFixture(t, 'Work');
   await writeFile(f.abs('Root Links.md'), '[[Projects/Active/Example/Research/Notes#Heading]] [link](/Projects/Active/Example.md#^block)');
   const plan = await f.prepare();
   assert.equal(plan.next.input.root, 'Work');

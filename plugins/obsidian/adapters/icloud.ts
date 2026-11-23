@@ -335,7 +335,7 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   async moveReceipts(input: Parameters<NonNullable<VaultFiles['moveReceipts']>>[0]) {
     const { project, ...note } = input;
     const local = await this.filesystem?.moveReceipts(note);
-    if (local?.length || project === 'paired' || project === 'folder') return local ?? [];
+    if (local?.length || project === 'paired') return local ?? [];
     return this.call('noteMoveReceipts', note);
   }
   commit(input: Parameters<VaultFiles['commit']>[0]) {

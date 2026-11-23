@@ -100,10 +100,10 @@ try {
         const projects = mode === 'empty' ? [] : [{ id: ref.id, title, status: 'active', areaId: 'Areas/Learning.md' }];
         const areas = [{ id: 'Areas/Learning.md', title: area }];
         if (mode === 'directory-gap') projects.splice(0, 1, { id: 'Projects/Folder/', title: 'Folder project', status: 'active' });
-        if (mode === 'folder-complete') projects.splice(0, 1,
+        if (mode === 'folder-complete') projects.push(
           { id: 'Projects/Empty/', title: 'Empty project', status: 'active' },
           { id: 'Projects/Attachments/', title: 'Attachment-only project', status: 'active' },
-          { id: 'Projects/Pilot/', notePath: 'Projects/Pilot/README.md', title, status: 'active' });
+          { id: 'Projects/Pilot/', title: 'Pilot', status: 'active' });
         if (mode === 'area-boundary') {
           projects[0].areaId = 'Areas/Learning/Example Committee/Meeting.md';
           areas.push(...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` })));
@@ -119,7 +119,7 @@ try {
         };
       }
       if (method === 'renameProject' || method === 'renameArea') { renames.push(input); if (method === 'renameProject') {
-        if (mode === 'folder-complete') assert.equal(input.id, 'Projects/Pilot/');
+        if (mode === 'folder-complete') assert.equal(input.id, ref.id);
         title = input.title;
       } else area = input.title; result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' }; }
       if (method === 'newThread') { creations++; await new Promise(r => setTimeout(r, 250)); result = { threadId: 'fixture1' }; }
@@ -302,14 +302,19 @@ try {
       await nav.getByRole('button', { name: 'Attachment-only project', exact: true }).waitFor();
       assert.equal(await nav.getByText(/Partial inventory/).count(), 0);
       await nav.getByRole('button', { name: 'New thread for Empty project' }).focus();
+      const folderActions = nav.getByLabel('Actions for project Pilot');
+      await folderActions.focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await folderActions.locator('..').getByRole('button', { name: 'Rename' }).isDisabled(), true);
+      await page.keyboard.press('Escape');
       const actions = nav.getByLabel('Actions for project Learn woodworking');
       await actions.click();
       const rename = actions.locator('..').getByRole('button', { name: 'Rename' });
       await rename.focus();
       await page.keyboard.press('Enter');
-      await nav.getByRole('textbox', { name: 'Title' }).fill('README title');
+      await nav.getByRole('textbox', { name: 'Title' }).fill('Updated note title');
       await nav.getByRole('button', { name: 'Save', exact: true }).click();
-      await nav.getByRole('button', { name: 'README title', exact: true }).waitFor();
+      await nav.getByRole('button', { name: 'Updated note title', exact: true }).waitFor();
     } else if (mode === 'directory-gap') {
       await nav.getByText(/Obsidian cannot enumerate directories/).waitFor();
       await nav.getByLabel('Actions for project Folder project').click();

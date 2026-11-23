@@ -18,7 +18,7 @@ async function setup(initial = snapshot()) {
     },
   } });
   const dependencies = {
-    select: async () => ({ key: 'source', backend: { checkAccess: async () => {}, readProjects: async () => data, rename: async (id: string, title: string) => { data.projects.find(p => (p.notePath ?? p.id) === id)!.title = title; return { operationId: randomUUID(), outcome: 'saved_locally_pending_sync' as const }; } } }),
+    select: async () => ({ key: 'source', backend: { checkAccess: async () => {}, readProjects: async () => data, rename: async (id: string, title: string) => { data.projects.find(p => p.id === id)!.title = title; return { operationId: randomUUID(), outcome: 'saved_locally_pending_sync' as const }; } } }),
     selectAreas: async () => ({ key: 'areas', backend: { checkAccess: async () => {}, readAreas: async () => ({ source: data.source, areas: [{ id: 'Areas/Learning.md', title: areaTitle }], complete: true, warnings: [] }), rename: async (_id: string, title: string) => { areaTitle = title; return { operationId: randomUUID(), outcome: 'saved_locally_pending_sync' as const }; } } }),
   };
   await plugin(host.bb, dependencies);
@@ -65,20 +65,22 @@ test('uncertain creation is not retried, even after reload; diagnostics are boun
   } finally { await f.harness.lifecycle.dispose(); }
 });
 
-test('rename routes a folder ID to its README and retains the folder ID', async () => {
+test('rename refuses folder-only projects and preserves their conversation references', async () => {
   const initial = snapshot();
-  const id = 'Projects/Pilot/', notePath = 'Projects/Pilot/README.md';
-  initial.projects = [{ id, notePath, title: 'Pilot', status: 'active' }];
+  const id = 'Projects/Pilot/';
+  initial.projects = [{ id, title: 'Pilot', status: 'active' }];
   const f = await setup(initial);
   try {
-    await f.harness.behavior.callRpc('renameProject', { source: 'one', id, title: 'New title' });
-    assert.deepEqual(initial.projects, [{ id, notePath, title: 'New title', status: 'active' }]);
+    await f.harness.behavior.callRpc('associate', { threadId: 't1', project: { source: 'one', id } });
+    await assert.rejects(f.harness.behavior.callRpc('renameProject', { source: 'one', id, title: 'New title' }));
+    assert.deepEqual(initial.projects, [{ id, title: 'Pilot', status: 'active' }]);
+    assert.deepEqual(f.metadata.t1.project, { source: 'one', id });
   } finally { await f.harness.lifecycle.dispose(); }
 });
 
 test('agent conversation tool is discoverable and shares UI receipts and stable association without external writes', async () => {
   for (const id of [ref.id, 'project_7fc1cc63-1601-46fb-9def-1f148bf96a23']) {
-    const initial = snapshot(); initial.projects = [{ id, notePath: 'Projects/Active/Events.md', title: "Plan next year's events", status: 'active' }];
+    const initial = snapshot(); initial.projects = [{ id, title: "Plan next year's events", status: 'active' }];
     const f = await setup(initial); let active = f.harness;
     try {
       const config = await active.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
@@ -97,8 +99,7 @@ test('agent conversation tool is discoverable and shares UI receipts and stable 
       await active.behavior.callAgentTool('gtd_create_project_thread', input); assert.equal(f.spawns(), 1);
       const conflict = await active.behavior.callAgentTool('gtd_create_project_thread', { ...input, source: 'other' }) as any;
       assert.equal(conflict.isError, true); assert.equal(f.spawns(), 1);
-      for (const invalid of [{ ...input, requestId: randomUUID(), id: initial.projects[0].title }, { ...input, requestId: randomUUID(), source: 'other' }, { ...input, requestId: randomUUID(), id: initial.projects[0].notePath }]) {
-        // For legacy fixtures the listed id differs from notePath too.
+      for (const invalid of [{ ...input, requestId: randomUUID(), id: initial.projects[0].title }, { ...input, requestId: randomUUID(), source: 'other' }, { ...input, requestId: randomUUID(), id: 'Projects/Unlisted.md' }]) {
         const error = await active.behavior.callAgentTool('gtd_create_project_thread', invalid) as any; assert.equal(error.isError, true);
       }
       assert.equal(f.spawns(), 1);

@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { experimental_PluginRpcCallError } from '@get-bb/plugin-sdk';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { ObsidianBackend } from '../adapters/obsidian.ts';
-import { enclosingArea } from '../core/area-presentation.ts';
 import { plugin } from '../server.ts';
 
 const firstPublication = '22222222-2222-4222-8222-222222222222';
@@ -99,13 +98,12 @@ test('cold grouped inventory batches existing evidence and warm sidebar and asso
   const coldCalls = calls.slice(coldStart);
   assert.equal(result.projects.projects.length, 243);
   const pilot = result.projects.projects.find(p => p.id === 'Life/Projects/Active/Pilot/');
-  assert.deepEqual(pilot, { id: 'Life/Projects/Active/Pilot/', notePath: 'Life/Projects/Active/Pilot/README.md', status: 'active', title: 'Pilot title', areaId: 'Life/Areas/Learning/Reading.md' });
-  assert.equal(enclosingArea(result.areas.areas, pilot!.areaId)?.id, 'Life/Areas/Learning.md');
+  assert.deepEqual(pilot, { id: 'Life/Projects/Active/Pilot/', status: 'active', title: 'Pilot' });
   assert.ok(result.projects.projects.some(p => p.id === 'Life/Projects/Active/Empty/'));
   const requests = batches(coldCalls).flatMap(call => call.input.requests as Array<{ folder?: string; path?: string }>);
   assert.equal(requests.filter(req => req.folder === 'Life/Areas').length, 1);
-  assert.ok(!requests.some(req => req.path === 'Life/Projects/Pair/README.md' || req.folder === 'Life/Projects/Pair'));
-  assert.equal(requests.length, 249);
+  assert.ok(!requests.some(req => req.path?.endsWith('/README.md') || req.folder === 'Life/Projects/Pair' || req.folder === 'Life/Projects/Active/Pilot'));
+  assert.equal(requests.length, 245);
   assert.ok(coldCalls.length <= 12, JSON.stringify(coldCalls.map(({ method }) => method)));
   assert.equal(result.projects.complete && result.areas.complete, true);
   const start = calls.length;
@@ -217,11 +215,11 @@ test('cold combined reads share group waves and finish with one checked publicat
   const result = await backend.readBoth(signal());
   const elapsed = Math.round(performance.now() - start);
   const rounds = batches(calls);
-  const mixed = rounds.filter(call => call.input.requests.some((r: any) => /Projects\/(Active|Deferred|Done|Someday)$/.test(r.folder)) &&
-    call.input.requests.some((r: any) => /Projects\/(Active|Deferred|Done|Someday)\/[^/]+$/.test(r.folder)));
+  const statusScopes = rounds.flatMap(call => call.input.requests)
+    .filter(r => r.kind === 'children' && /Projects\/(Active|Deferred|Done|Someday)/.test(r.folder));
   t.diagnostic(`Four status groups: ${calls.length} Obsidian calls, ${elapsed} ms with a synthetic 12 ms delay per RPC`);
   assert.equal(calls[0].method, 'inventoryStatus');
-  assert.ok(mixed.length >= 3);
+  assert.deepEqual(statusScopes.map(r => r.folder), groups.map(group => 'Life/Projects/' + group));
   assert.equal(state.finalProbe, 1);
   assert.ok(calls.length <= 10);
   assert.deepEqual(calls[1].input.requests, [
@@ -247,7 +245,7 @@ test('cold combined lightweight negotiation falls back only for a missing method
   assert.ok(!calls.slice(start).some(call => call.method === 'status'));
 });
 
-test('status overlap preserves the global directory bound and immediate traversal precedence', async t => {
+test('status traversal includes folder-only projects without consuming directory reads on their contents', async t => {
   const { backend, children, state, calls } = fixture(t, 0);
   const early = Array.from({ length: 125 }, (_, index) => `Dir-${index}`);
   children['Life/Projects'] = [...dir(...early, 'Done', 'Someday'), ...mark('Root.md')];
@@ -255,12 +253,12 @@ test('status overlap preserves the global directory bound and immediate traversa
   children['Life/Projects/Someday'] = dir('Too-late');
   const result = await backend.readProjects(signal());
   const requested = batches(calls).flatMap(call => call.input.requests).filter(row => row.kind === 'children');
-  assert.equal(requested.length, 128);
-  assert.ok(requested.some(row => row.folder === 'Life/Projects/Done/Last'));
-  assert.ok(!requested.some(row => row.folder === 'Life/Projects/Someday'));
+  assert.ok(requested.every(row => ['Life/Projects', 'Life/Areas', 'Life/Projects/Done', 'Life/Projects/Someday'].includes(row.folder)));
+  assert.ok(requested.some(row => row.folder === 'Life/Projects/Someday'));
   assert.ok(result.projects.some(row => row.id === 'Life/Projects/Done/Last/'));
   assert.ok(result.projects.some(row => row.id === 'Life/Projects/Root.md'));
-  assert.equal(result.complete, false);
+  assert.ok(result.projects.some(row => row.id === 'Life/Projects/Someday/Too-late/'));
+  assert.equal(result.complete, true);
   state.legacy = true;
   const oldRoute = await backend.readProjects(signal());
   assert.deepEqual(result.projects, oldRoute.projects);

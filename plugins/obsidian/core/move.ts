@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { createLinkCandidates, isShortWikiPath, linkPathForms, noteNameKey, pathKey, suffixForms } from './link-candidates.ts';
 import { projectFolders, type ProjectMove } from './project-move.ts';
 import { MAX_NOTE_BYTES, VaultError, type NoteParser } from './ports.ts';
-export const projectMoveSchema = z.enum(['standalone', 'paired', 'folder']);
+export const projectMoveSchema = z.enum(['standalone', 'paired']);
 export const moveRecordSchema = z.object({ operationId: z.string().uuid(), finished: z.boolean().optional(), refused: z.boolean().optional(), expectedHash: z.string().optional(), root: z.string().max(1024).optional(),
   verification: z.object({ state: z.enum(['verified', 'inventory_changed', 'note_changed', 'unavailable']), paths: z.array(z.string().max(1024)).max(8) }).strict().optional(),
   project: projectMoveSchema.optional(), vaultId: z.string(), path: z.string().max(1024), destination: z.string().max(1024), repairs: z.array(z.object({ path: z.string().max(1024), expectedHash: z.string(), hash: z.string(), operationId: z.string().uuid(), outcome: z.enum(['unstarted', 'submitted', 'saved', 'not_saved', 'uncertain']) }).strict()).max(64) }).strict();
