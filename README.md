@@ -37,16 +37,19 @@ The source checkout also includes a read-only [GTD plugin](plugins/gtd/README.md
 On a **linux/amd64** Docker host:
 
 ```sh
-git clone https://github.com/mattwynne/pa-bb.git
-cd pa-bb
-docker build --platform linux/amd64 -t pa-bb .
+docker pull ghcr.io/mattwynne/pa-bb:edge
 docker volume create pa-bb-home
 docker run -d --name pa-bb \
   -p 127.0.0.1:38886:38886 \
   --mount source=pa-bb-home,target=/home/bb \
   --shm-size=1g --stop-timeout=60 \
-  pa-bb
+  ghcr.io/mattwynne/pa-bb:edge
 ```
+
+The public image needs no GitHub login. `edge` tracks successful builds from `main`;
+these are development builds, not versioned releases. To keep a deployment fixed,
+use a `sha-<full-commit-sha>` tag or image digest. See the [container guide](docker/README.md)
+to build from source or update an existing container safely.
 
 Open <http://localhost:38886> and finish BB setup. The container runs as a non-root
 user and stores settings, credentials, synced files and workspaces in the named
