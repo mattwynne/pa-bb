@@ -15,9 +15,10 @@ def main():
     if hashlib.sha256(data).hexdigest() != SHA256:
         raise SystemExit('Docker seccomp profile checksum failed.')
     profile = json.loads(data)
-    # Chromium uses these syscalls to create its own sandbox as a nonroot user.
+    # Chromium creates a nested user namespace, then chroots within it.
+    # The smoke container still drops every outer capability, including SYS_CHROOT.
     profile['syscalls'].append({
-        'names': ['clone', 'setns', 'unshare'],
+        'names': ['clone', 'setns', 'unshare', 'chroot'],
         'action': 'SCMP_ACT_ALLOW',
         'comment': 'Allow Chromium to create its user namespace sandbox',
     })

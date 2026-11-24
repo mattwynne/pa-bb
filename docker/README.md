@@ -132,10 +132,11 @@ libraries and resources.
 
 Use the same image and security policy as the intended BB container. Docker's
 default seccomp profile blocks namespace creation for the Chromium sandbox.
-The smoke test uses the pinned Docker profile with the three namespace calls
+The smoke test uses the pinned Docker profile with the namespace calls
 needed for that sandbox, following the
 [Playwright Docker setup](https://playwright.dev/docs/docker#crawling-and-scraping).
-It runs as the image's `bb` user with all capabilities dropped and
+The profile also permits Chromium's `chroot` call inside its own user
+namespace. It runs as the image's `bb` user with all capabilities dropped and
 no-new-privileges, using a disposable profile, socket and vault with no network
 access.
 
