@@ -1,4 +1,6 @@
 import { experimental_PluginRpcRefusal, type BbPluginApi } from '@get-bb/plugin-sdk';
+import { dirname, join } from 'node:path';
+import { ManagedDesktop } from './adapters/desktop-install.ts';
 import { randomUUID } from 'node:crypto';
 import { rpcContract, tools } from './contract.ts';
 import { Obsidian } from './core/service.ts';
@@ -13,20 +15,18 @@ import { diagnosticLogger } from './adapters/diagnostic-log.ts';
 export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository }) {
   const diagnose = diagnosticLogger(message => bb.log.warn(message)); const parser = dependencies?.parser ?? new MarkdownNotes();
   const settings = bb.settings.define({
-    desktopBinary: { type: 'string', label: 'Obsidian Desktop executable', description: 'Absolute path to the official Linux Desktop executable.' },
-    desktopCli: { type: 'string', label: 'Obsidian CLI executable', description: 'Absolute path to the CLI from the same Obsidian bundle.' },
-    desktopVaultId: { type: 'string', label: 'Desktop vault ID', description: 'Exact connected vault ID. Choose a vault you control that contains ordinary files and folders.' },
-    desktopVaultRoot: { type: 'string', label: 'Desktop vault folder', description: 'Relative to the connected iCloud folder. Leave empty if that folder contains one vault.' },
+    desktopBinary: { type: 'string', label: 'Desktop executable override (optional)', description: 'Leave blank for automatic installation.' },
+    desktopCli: { type: 'string', label: 'CLI executable override (optional)', description: 'For a manual installation, use the CLI from the same Desktop bundle.' },
+    desktopVaultId: { type: 'string', label: 'Desktop vault ID (optional)', description: 'Limit Desktop to one connected vault. Required with manual executable paths.' },
+    desktopVaultRoot: { type: 'string', label: 'Desktop vault folder (optional)', description: 'Relative to the connected iCloud folder. Leave empty if that folder contains one vault.' },
   });
-  const configured = await settings.get();
-  const environment = desktopConfiguration();
-  const desktop = configured.desktopBinary && configured.desktopCli && configured.desktopVaultId
-    ? { desktop: configured.desktopBinary, cli: configured.desktopCli, vaultId: configured.desktopVaultId, root: configured.desktopVaultRoot || undefined }
-    : Object.values(configured).some(Boolean) ? undefined : environment;
-  const icloud = new ICloud(bb.sdk, diagnose, dependencies?.files ? undefined : bb.storage.kv, parser, desktop);
+  const desktop = desktopConfiguration(await settings.get());
+  const managed = desktop && !desktop.binaries && !dependencies?.files
+    ? new ManagedDesktop(join(dirname(bb.storage.database().name), 'desktop'), diagnose) : undefined;
+  const icloud = new ICloud(bb.sdk, diagnose, dependencies?.files ? undefined : bb.storage.kv, parser, desktop, managed);
   const service = new Obsidian(dependencies?.catalog ?? icloud, dependencies?.files ?? icloud, parser, dependencies?.repository ?? bbState(bb, diagnose), randomUUID, Date.now, diagnose);
   const admission = new Admission();
-  bb.onDispose(async () => { await admission.stop(); await service.stop(); await icloud.stop(); });
+  bb.onDispose(async () => { icloud.cancelInstallation(); await admission.stop(); await service.stop(); await icloud.stop(); });
   await service.start();
   const clientOnly = (context: { experimental_caller: { kind: string } }) => { if (context.experimental_caller.kind !== 'client') throw new Error('Use Obsidian client settings for connection or conflict recovery.'); };
   const evidence = async <T>(read: () => Promise<T>, context: { experimental_caller: { kind: string } }): Promise<T> => {
@@ -46,6 +46,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     movePath(input, context) { return evidence(() => service.movePath(input, context.experimental_signal), context); },
     moveReceipt(input, context) { return evidence(() => service.moveReceipt(input), context); },
     status() { return service.status(); },
+    async retryDesktop(_, context) { clientOnly(context); icloud.retryDesktop(); return service.status(); },
     vaultLocations() { return service.vaultLocations(); },
     async listChildren(input, context) {
       try { return await service.listChildren(input, context.experimental_signal); }

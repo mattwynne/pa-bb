@@ -10,7 +10,7 @@ const browser = await chromium.launch({ headless: true, ...(process.env.BB_REVIE
 const source = id => ({ id, name: 'Launch', initialized: true, enabled: true, cloudConnected: true, phase: 'ready', lastSuccess: '2026-10-10T12:00:00Z', failure: null, local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null } });
 const setups = { icloud_error: 'Open iCloud settings and check its startup status.', apple_disconnected: 'Apple is disconnected; sound local notes remain accessible but cloud delivery is stopped.', missing: 'Install iCloud from Plugins, then open its settings.', disabled: 'Enable iCloud in Plugins.', starting: 'Open iCloud settings and check its startup status.', incompatible: 'Update iCloud and Obsidian together for coordinated note access v2. No filesystem fallback is available.', host_prerequisite: 'Ask the operator to check the host requirements shown in iCloud settings.', apple_verification: 'Finish Apple verification in iCloud settings; sound local notes remain accessible.', no_folder: 'Choose a vault folder in iCloud settings.', sync_disabled: 'Enable sync for the selected folder in iCloud settings and finish initial sync.', initial_sync_running: 'Wait for initial sync to finish in iCloud settings.', initial_sync_failed: 'Inspect the initial-sync failure in iCloud settings.', check_failed: 'Could not check iCloud. Keep your settings and choose Check again.' };
 try {
-  for (const view of ['first', 'eligible', 'connected', 'multiple', 'paused', 'running', 'removed', 'recovery', 'local_blocked', 'unconfirmed', 'error', 'search_missing', 'search_unsupported', 'search_mismatch', 'search_recovered', ...Object.keys(setups)]) for (const width of [1280, 390]) {
+  for (const view of ['first', 'eligible', 'connected', 'multiple', 'paused', 'running', 'removed', 'recovery', 'local_blocked', 'unconfirmed', 'error', 'search_missing', 'search_unsupported', 'search_mismatch', 'search_recovered', 'installing', 'checksum_failed', 'managed_ready', ...Object.keys(setups)]) for (const width of [1280, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1100 } });
     let dialogs = 0; page.on('dialog', dialog => { dialogs++; void dialog.dismiss(); });
     const state = { search: { version: 1, available: true, reason: null }, revision: 0, conflict: null, conflictFailure: null, configurationUnconfirmed: false, setup: setups[view] ? view : 'ready', nextAction: setups[view] ?? null, vaults: [], eligible: [], receipts: [], receiptFailures: [], uncertainOperations: [], uncertainOperationCount: 0, uncertainOperationsIncomplete: false, evidenceOnly: true };
@@ -23,11 +23,17 @@ try {
     if (view === 'paused') Object.assign(state.vaults[0].source, { enabled: false, phase: 'paused' });
     if (view === 'running') { state.vaults[0].source.phase = 'running'; state.eligible[0].phase = 'running'; }
     if (view === 'removed' || view === 'check_failed') state.vaults[0].source = null;
+    if (['installing', 'checksum_failed', 'managed_ready'].includes(view)) {
+      state.vaults = [{ vaultId: 'one', name: 'Launch', source: source('one') }];
+      state.desktop = { mode: 'managed', state: view === 'managed_ready' ? 'ready' : view };
+      state.search.available = view === 'managed_ready';
+    }
     const methods = [];
     await page.route('**/api/v1/plugins/obsidian/rpc/**', route => {
       const method = new URL(route.request().url()).pathname.split('/').at(-1); methods.push(method);
       const input = route.request().postDataJSON();
       if (view === 'search_recovered' && method === 'status' && methods.filter(m => m === 'status').length > 1) state.search = { version: 1, available: true, reason: null };
+      if (method === 'retryDesktop') { state.desktop.state = 'ready'; state.search.available = true; }
       if (method === 'connect') { const item = state.eligible.find(s => s.id === input.vaultId); assert.ok(item); state.vaults.push({ vaultId: item.id, source: item }); state.eligible = state.eligible.filter(s => s.id !== item.id); state.revision++; }
       if (method === 'remove') { state.vaults = state.vaults.filter(v => v.vaultId !== input.vaultId); state.revision++; }
       return route.fulfill({ json: view === 'error' ? { ok: false, error: { code: 'synthetic', message: 'Controlled review failure' } } : { ok: true, result: state } });
@@ -61,6 +67,16 @@ try {
       assert.equal(await connect.isEnabled(), true);
       assert.equal(await section.getByText(/wait for note tools/i).count(), 0);
       await connect.click(); await section.getByText('Vault connected.', { exact: true }).waitFor();
+    }
+    if (view === 'installing') await section.getByText(/Installing the verified Obsidian/).waitFor();
+    if (view === 'managed_ready') await section.getByText('Obsidian Desktop is ready.').waitFor();
+    if (view === 'checksum_failed') {
+      await section.getByText(/failed checksum verification/).waitFor();
+      const retry = section.getByRole('button', { name: 'Retry Desktop setup' });
+      await retry.focus(); await page.keyboard.press('Enter');
+      await section.getByText('Obsidian Desktop is ready.').waitFor();
+      assert.equal(methods.filter(method => method === 'retryDesktop').length, 1);
+      assert.equal(methods.includes('connect'), false);
     }
     if (view.startsWith('search_')) {
       await section.getByText(/Vault search is unavailable/).waitFor();

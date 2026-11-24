@@ -11,6 +11,7 @@ pa_bb_host_manifest:
   packages:
     # npm ci rebuilds native development dependencies (for example better-sqlite3).
     - build-essential
+    - libgtk-3-0t64
     - ca-certificates
     - unzip
     - util-linux

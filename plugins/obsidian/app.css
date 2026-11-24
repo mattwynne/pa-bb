@@ -15,3 +15,5 @@
 .pa-obsidian__picker li + li { border-top: 1px solid var(--border); }
 .pa-obsidian__picker li > span { min-width: 0; overflow-wrap: anywhere; }
 .pa-obsidian__picker small { display: block; color: var(--muted-foreground); }
+
+.pa-obsidian [role=alert] button { margin-inline-start: 0.5rem; }

@@ -8,7 +8,8 @@ import { VaultError, type Diagnose, type DesktopLinkOperation, type DesktopLinkR
 import { validateNotePath } from './local-notes.ts';
 
 export type DesktopBinaries = { desktop: string; cli: string };
-export type DesktopConfiguration = DesktopBinaries & { vaultId: string; root?: string };
+export type DesktopConfiguration = { binaries?: DesktopBinaries; vaultId?: string; root?: string };
+type Overrides = { desktopBinary?: string; desktopCli?: string; desktopVaultId?: string; desktopVaultRoot?: string };
 type Target = { id: string; directory: string; identity: string };
 type Check = (phase: 'before_launch' | 'before_command' | 'after_close', signal: AbortSignal) => Promise<void>;
 
@@ -18,10 +19,18 @@ const OUTPUT_BYTES = 8 * 1024 * 1024;
 const readyProbe = 'code=app.workspace.layoutReady && app.metadataCache.initialized && app.metadataCache.isCacheClean() ? { directory: app.vault.adapter.getBasePath(), restricted: !app.plugins.isEnabled() && Object.keys(app.plugins.plugins).length === 0, updateLinks: app.vault.getConfig("alwaysUpdateLinks") } : null';
 const exec = promisify(execFile);
 
-export function desktopConfiguration(env = process.env): DesktopConfiguration | undefined {
-  const desktop = env.PA_OBSIDIAN_DESKTOP, cli = env.PA_OBSIDIAN_CLI, vaultId = env.PA_OBSIDIAN_DESKTOP_VAULT_ID;
-  if (process.platform === 'linux' && desktop && cli && vaultId && /^[a-zA-Z0-9-]{1,64}$/.test(vaultId))
-    return { desktop, cli, vaultId, root: env.PA_OBSIDIAN_DESKTOP_ROOT };
+export function desktopConfiguration(settings: Overrides, env = process.env): DesktopConfiguration | undefined {
+  const environment = { desktopBinary: env.PA_OBSIDIAN_DESKTOP, desktopCli: env.PA_OBSIDIAN_CLI,
+    desktopVaultId: env.PA_OBSIDIAN_DESKTOP_VAULT_ID, desktopVaultRoot: env.PA_OBSIDIAN_DESKTOP_ROOT };
+  // Older installations can have a partial settings form alongside a working environment override.
+  for (const source of [settings, environment]) {
+    if (source.desktopBinary && source.desktopCli && source.desktopVaultId && /^[a-zA-Z0-9-]{1,64}$/.test(source.desktopVaultId))
+      return { binaries: { desktop: source.desktopBinary, cli: source.desktopCli }, vaultId: source.desktopVaultId, root: source.desktopVaultRoot || undefined };
+  }
+  const source = Object.values(settings).some(Boolean) ? settings : environment;
+  if (source.desktopBinary || source.desktopCli || (source.desktopVaultRoot && !source.desktopVaultId) ||
+      (source.desktopVaultId && !/^[a-zA-Z0-9-]{1,64}$/.test(source.desktopVaultId))) return undefined;
+  return { vaultId: source.desktopVaultId || undefined, root: source.desktopVaultRoot || undefined };
 }
 
 function exactNotePath(path: string) {
@@ -112,9 +121,11 @@ export class DesktopLinks {
   private shutdown = new AbortController();
   private session?: Session;
 
-  constructor(private binaries: DesktopBinaries, private diagnose: Diagnose) {}
+  constructor(private binaries: DesktopBinaries, private diagnose: Diagnose, private pinned = false) {}
 
   get running() { return this.session?.alive() ?? false; }
+
+  get activeVaultId() { return this.session?.target.id; }
 
   reset() {
     const task = this.queue.then(async () => {
@@ -244,7 +255,7 @@ export class DesktopLinks {
       for (const directory of Object.values(env).slice(2)) await mkdir(directory, { mode: 0o700 });
       await mkdir(profile, { mode: 0o700 });
       await writeFile(join(profile, 'obsidian.json'), JSON.stringify({
-        cli: true, vaults: { [target.id]: { path: target.directory, ts: 1, open: true } },
+        cli: true, ...(this.pinned ? { updateDisabled: true } : {}), vaults: { [target.id]: { path: target.directory, ts: 1, open: true } },
       }), { mode: 0o600, flag: 'wx' });
       signal.throwIfAborted();
       const child = spawn(this.binaries.desktop, [`--user-data-dir=${profile}`, '--ozone-platform=headless',

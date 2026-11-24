@@ -119,3 +119,16 @@ test('obsidian_edit_note resolves a guarded conflict but rejects mixed ordinary-
     assert.equal(files.notes.get('one/Launch.md'), text);
   } finally { await harness.lifecycle.dispose(); }
 });
+
+test('Desktop setup failure before a property write reports not saved and clears the pending operation', async () => {
+  const { harness, files } = await setup();
+  try {
+    await harness.behavior.callRpc('connect', { vaultId: 'one' });
+    files.desktopCommit = async () => { throw new VaultError('desktop_setup', 'Retry Desktop setup.', true); };
+    const result = await harness.behavior.callRpc('writeProperties', { vaultId: 'one', path: 'Launch.md', set: { status: 'active' } },
+      { experimental_caller: { kind: 'plugin', pluginId: 'fixture' } }) as { outcome: string };
+    assert.equal(result.outcome, 'not_saved');
+    const status = settingsSchema.parse(await harness.behavior.callRpc('status', null));
+    assert.equal(status.uncertainOperationCount, 0);
+  } finally { await harness.lifecycle.dispose(); }
+});

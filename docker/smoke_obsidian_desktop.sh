@@ -1,37 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "Usage: bash docker/smoke_obsidian_desktop.sh IMAGE [EXTRACTED_OBSIDIAN_BUNDLE]" >&2
+if [[ $# != 1 ]]; then
+  echo "Usage: bash docker/smoke_obsidian_desktop.sh IMAGE" >&2
   exit 2
 fi
 image=$1
 staging=$(mktemp -d)
-trap 'rm -rf -- "$staging"' EXIT
-profile=$staging/seccomp.json
-python3 "$(dirname -- "${BASH_SOURCE[0]}")/obsidian_desktop_seccomp.py" > "$profile"
-if [[ $# == 2 ]]; then
-  bundle_directory=$(realpath -e -- "$2")
-else
-  archive=$staging/desktop.tar.gz
-  curl -fsSL --retry 2 --retry-max-time 120 --max-time 90 -o "$archive" \
-    https://github.com/obsidianmd/obsidian-releases/releases/download/v1.15.1/obsidian-1.15.1.tar.gz
-  printf '%s  %s\n' 09074f0635ecf366307d808d0fec06c01a87a0bcc66da6d34126ceece0eb8519 \
-    "$archive" | sha256sum -c -
-  bundle_directory=$staging/desktop
-  mkdir "$bundle_directory"
-  tar -xzf "$archive" --strip-components=1 -C "$bundle_directory"
-  chmod 755 "$staging" "$bundle_directory"
-fi
-test -x "$bundle_directory/obsidian" && test -x "$bundle_directory/obsidian-cli" || exit 2
+volume=''
+cleanup() {
+  if [[ -n $volume ]]; then docker volume rm "$volume" >/dev/null || return 1; fi
+  rm -rf -- "$staging"
+}
+trap cleanup EXIT
+python3 "$(dirname -- "${BASH_SOURCE[0]}")/obsidian_desktop_seccomp.py" > "$staging/seccomp.json"
+volume=$(docker volume create)
+security=(--cap-drop ALL --security-opt no-new-privileges --security-opt "seccomp=$staging/seccomp.json")
+run=(docker run --rm --pull never -i --init --platform linux/amd64 --shm-size=1g "${security[@]}"
+  --no-healthcheck --read-only --tmpfs /home/bb --workdir /tmp --entrypoint /usr/bin/timeout)
 
-docker run --rm --pull never -i --init --platform linux/amd64 --network none --shm-size=1g \
-  --cap-drop ALL --security-opt no-new-privileges --security-opt "seccomp=$profile" --no-healthcheck \
-  --read-only --tmpfs /tmp:mode=1777 --tmpfs /home/bb --workdir /tmp \
-  --mount "type=bind,src=$bundle_directory,dst=/opt/obsidian,readonly" \
-  --entrypoint /usr/bin/timeout "$image" -k 5s 45s /bin/bash -se <<'SH'
+# First installation happens inside the stock image, as its BB user. Only the
+# runtime cache survives into a second container with networking turned off.
+managed_bundle() {
+  node --experimental-transform-types --disable-warning=ExperimentalWarning --input-type=module - "$1" <<'JS'
+import { ManagedDesktop } from '/opt/pa-bb/plugins/obsidian/adapters/desktop-install.ts';
+import { dirname } from 'node:path';
+const desktop = new ManagedDesktop(process.argv[2], (stage, category) => console.error(stage, category));
+await desktop.ensure(new AbortController().signal);
+console.log(dirname(desktop.binaries.desktop));
+JS
+}
+{ declare -f managed_bundle; cat <<'SH'
 set -euo pipefail
-bundle=/opt/obsidian
+test -z "$(find /opt/pa-bb -type f \( -name obsidian -o -name obsidian-cli -o -name obsidian.asar -o -name 'obsidian-*.tar.gz' \) -print -quit)"
+managed_bundle /tmp/desktop >/dev/null
+SH
+} | "${run[@]}" --mount "type=volume,src=$volume,dst=/tmp" "$image" -k 5s 210s /bin/bash -se
+
+{ declare -f managed_bundle; cat <<'SH'
+set -euo pipefail
+bundle=$(managed_bundle /opt/cache/desktop)
+test -x "$bundle/obsidian" && test -x "$bundle/obsidian-cli"
 for binary in "$bundle"/{obsidian,obsidian-cli,chrome-sandbox,chrome_crashpad_handler,*.so*} \
     "$bundle"/resources/app.asar.unpacked/node_modules/*/*.node; do
   libs=$(ldd "$binary")
@@ -50,13 +59,13 @@ vault="$scratch/vault"
 profile="$XDG_CONFIG_HOME/obsidian"
 mkdir -p "$HOME" "$TMPDIR" "$XDG_RUNTIME_DIR" "$XDG_CACHE_HOME" \
   "$XDG_DATA_HOME" "$XDG_STATE_HOME" "$profile" "$vault/.obsidian"
-printf '{"cli":true,"vaults":{"smoke":{"path":"%s","ts":1,"open":true}}}\n' "$vault" \
+printf '{"cli":true,"updateDisabled":true,"vaults":{"smoke":{"path":"%s","ts":1,"open":true}}}\n' "$vault" \
   > "$profile/obsidian.json"
 printf '[]\n' > "$vault/.obsidian/community-plugins.json"
 printf '# Target\n' > "$vault/Target.md"
 printf '[[Target]]\n' > "$vault/Source.md"
-cli() { timeout -k 1s 2s /opt/obsidian/obsidian-cli vault=smoke "$@" < /dev/null; }
-/opt/obsidian/obsidian --user-data-dir="$profile" --ozone-platform=headless \
+cli() { timeout -k 1s 2s "$bundle/obsidian-cli" vault=smoke "$@" < /dev/null; }
+"$bundle/obsidian" --user-data-dir="$profile" --ozone-platform=headless \
   --disable-gpu --disable-crash-reporter > "$scratch/desktop.log" 2>&1 &
 desktop_pid=$!
 trap 'tail -n 20 "$scratch/desktop.log" >&2; kill "$desktop_pid" 2>/dev/null || true' EXIT
@@ -69,9 +78,38 @@ until [[ -S "$XDG_RUNTIME_DIR/.obsidian-cli.sock" ]] &&
   kill -0 "$desktop_pid"
   sleep 0.25
 done
+# Chromium's sandbox zygote enters a nested PID namespace. Sandboxed
+# children install another seccomp filter beyond the outer Docker policy.
+python3 - "$desktop_pid" <<'PYTHON'
+import pathlib, sys
+
+def status(pid):
+    lines = pathlib.Path('/proc', pid, 'status').read_text().splitlines()
+    return dict(line.split(':', 1) for line in lines)
+
+main = sys.argv[1]
+parent = status(main)
+pending = [main]
+nested = filtered = False
+while pending:
+    pid = pending.pop()
+    try:
+        entry = status(pid)
+        if entry['Name'].strip() == 'obsidian':
+            nested |= len(entry['NSpid'].split()) > len(parent['NSpid'].split())
+            filtered |= (int(entry['Seccomp_filters']) > int(parent['Seccomp_filters'])
+                         and entry['Seccomp'].strip() == '2' and int(entry['CapEff'], 16) == 0)
+        pending.extend(pathlib.Path('/proc', pid, 'task', pid, 'children').read_text().split())
+    except (FileNotFoundError, ProcessLookupError):
+        continue
+if parent['NoNewPrivs'].strip() != '1' or int(parent['CapEff'], 16) or not (nested and filtered):
+    raise SystemExit('Chromium namespace and seccomp sandbox were not observed.')
+PYTHON
 cli eval 'code=setTimeout(() => window.close(), 250); "closing"' > /dev/null
 wait "$desktop_pid"
 if cli version > /dev/null 2>&1; then exit 1; else test "$?" -eq 1; fi
 trap - EXIT
 printf 'Obsidian Desktop CLI smoke test passed.\n'
 SH
+} | "${run[@]}" --network none --tmpfs /tmp:mode=1777 \
+  --mount "type=volume,src=$volume,dst=/opt/cache,readonly" "$image" -k 5s 60s /bin/bash -se

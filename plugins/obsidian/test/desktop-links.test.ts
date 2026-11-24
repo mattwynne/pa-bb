@@ -73,9 +73,10 @@ if (command === 'eval' && args[0].includes('window.close')) {
   assert.equal((await readFile(trace, 'utf8')).trim().split('\n').length, 3);
 });
 
+const managed = process.env.PA_OBSIDIAN_TEST_MANAGED === '1';
 const binaries = { desktop: process.env.PA_OBSIDIAN_TEST_DESKTOP, cli: process.env.PA_OBSIDIAN_TEST_CLI };
 test('normal tools use native Desktop against a disposable vault', {
-  skip: !binaries.desktop || !binaries.cli, timeout: 40_000,
+  skip: !managed && (!binaries.desktop || !binaries.cli), timeout: managed ? 220_000 : 40_000,
 }, async t => {
   const owner = await mkdtemp('/tmp/pa-native-desktop-');
   const root = join(owner, 'vault');
@@ -91,7 +92,7 @@ test('normal tools use native Desktop against a disposable vault', {
   await writeFile(join(root, 'Malformed.md'), '---\nstatus: [invalid\n---\n# Malformed');
   await writeFile(join(root, 'Reference.md'), '[[Active/Target]] and [[OldFolder/Child]]\n');
   const id = 'fixture';
-  const { bb, harness } = createFakePluginHost({ pluginId: 'obsidian', settings: {
+  const { bb, harness } = createFakePluginHost({ pluginId: 'obsidian', settings: managed ? {} : {
     desktopBinary: binaries.desktop!, desktopCli: binaries.cli!, desktopVaultId: id,
   } });
   let denyGrant = false, denyAfter = Infinity, configureCount = 0, grantCount = 0;
@@ -117,9 +118,10 @@ test('normal tools use native Desktop against a disposable vault', {
       return outputSchema.parse(replies[method]);
     },
   } } as unknown as BbPluginApi['sdk'];
-  await bb.storage.kv.set('connected-vaults', { revision: 1, vaultIds: [id] });
   await plugin({ ...bb, sdk });
   t.after(async () => { await harness.lifecycle.dispose(); await rm(owner, { recursive: true, force: true }); });
+  const connected = await harness.behavior.callRpc('connect', { vaultId: id }) as any;
+  assert.equal(connected.desktop.mode, managed ? 'managed' : 'manual');
   const tool = async (name: string, input: object, category?: string) => {
     if (name === 'move_note' || name === 'move_folder') input = { operationId: randomUUID(), ...input };
     const result = await harness.behavior.callAgentTool('obsidian_' + name, { vaultId: id, ...input }, { threadId: 'test' });

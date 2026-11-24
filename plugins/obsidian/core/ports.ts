@@ -40,7 +40,9 @@ export type PathMoveReceipt = Pick<PathMove, 'vaultId' | 'path' | 'destination' 
 
 export type DesktopLinkTarget = { status: 'resolved' | 'ambiguous' | 'missing' | 'incomplete'; target?: string; candidates?: string[] };
 
+export type DesktopStatus = { mode: 'managed' | 'manual'; state: 'pending' | 'installing' | 'starting' | 'ready' | 'start_failed' | 'unsupported_host' | 'configuration_needed' | 'download_failed' | 'checksum_failed' | 'extract_failed' | 'storage_failed' };
 export interface VaultFiles {
+  desktopStatus?(): DesktopStatus;
   desktopConfiguration?(configuration: Configuration): void;
   // The direct adapter checks its identity-bound iCloud grant on both sides of the read.
   readonly desktopNoteReauthorizes?: true;
@@ -71,4 +73,4 @@ export interface NoteParser {
   properties(text: string, input: { set: Record<string, unknown>; remove: string[] }): string;
 }
 export class VaultError extends Error { constructor(readonly category: string, readonly nextAction = 'Check source status and reread the note before preparing a change.', readonly diagnosticReported = false) { super(category); this.name = 'VaultError'; } }
-export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'filesystem' | 'desktop_setup' | 'desktop_start' | 'desktop_command' | 'desktop_cleanup', category: string) => void;
+export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'filesystem' | 'desktop_install' | 'desktop_setup' | 'desktop_start' | 'desktop_command' | 'desktop_cleanup', category: string) => void;

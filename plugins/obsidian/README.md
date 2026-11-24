@@ -22,7 +22,7 @@ not a per-user security boundary.
 
 Obsidian Desktop supplies note reads, search, metadata, links, tasks and moves
 for the configured vault. BB keeps version-checked edits and iCloud conflict
-recovery. Follow the [setup guide](docs/setup.md) to configure Desktop.
+recovery. Connecting a vault installs the pinned, checksum-verified Desktop and CLI bundle on Linux x86-64. See the [setup guide](docs/setup.md) for host requirements and optional overrides.
 
 - Use `obsidian_search_notes` for literal text, nested tags, exact scalar
   frontmatter properties and POSIX path globs. Scope with `folders` or

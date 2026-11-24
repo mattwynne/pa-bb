@@ -140,7 +140,7 @@ export class Obsidian {
     this.checkRevision(revision);
     const uncertain = (this.state.pending ?? []).filter(matchesPending);
     const uncertainOperations = uncertain.slice(0, Math.min(input.limit ?? 20, 100));
-    return { ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
+    return { ...(this.files.desktopStatus ? { desktop: this.files.desktopStatus() } : {}), ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
   }
   private inventoryVaults(catalog: Catalog) {
     return this.state.vaultIds.map(vaultId => {
@@ -467,7 +467,7 @@ export class Obsidian {
       return { operationId, outcome: result.receipt.outcome };
     } catch (error) {
       if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable');
-      return { operationId, outcome: error instanceof VaultError && ['conflict', 'properties_unsupported', 'cancelled', 'complete_read_required'].includes(error.category)
+      return { operationId, outcome: error instanceof VaultError && ['conflict', 'properties_unsupported', 'cancelled', 'complete_read_required', 'desktop_setup'].includes(error.category)
         ? 'not_saved' as const : 'uncertain' as const };
     } finally {
       const proof = this.proofs.get(this.key(input.vaultId, input.path));

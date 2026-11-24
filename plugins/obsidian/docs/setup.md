@@ -13,31 +13,42 @@ Desktop metadata and search can omit hidden folders.
   mounted procfs and persistent writable plugin storage. The host operator handles
   provisioning; neither plugin installs system packages. See the
   [portable requirements](../../../docs/references/bb-host-requirements.md).
-- A vault folder available in iCloud Drive and the official Linux Obsidian
-  Desktop bundle. Use a trusted vault with ordinary files and folders. Desktop
+- A vault folder available in iCloud Drive and a Linux x86-64 BB host for automatic Desktop installation. Use a trusted vault with ordinary files and folders. Desktop
   follows filesystem links, so the selected vault must have no symbolic links,
   hard links to outside files or nested mounts that expose other directories.
 
 ## Search requirements
 
-Install and test the [official Desktop bundle](../../../docker/README.md#optional-obsidian-desktop-cli)
-under the host's normal security settings. In Obsidian's BB plugin settings set
-**Obsidian Desktop executable**, **Obsidian CLI executable** and **Desktop vault
-ID**. Both executables come from the same bundle. The vault ID is the exact
-connected iCloud source ID. If that source contains several distinct vaults,
-give the mirror-relative **Desktop vault folder** too. Reload the Obsidian
-plugin after saving these values.
+On Linux x86-64, connect a vault by name. BB downloads the official pinned
+Obsidian Desktop 1.15.1 archive from GitHub, verifies its SHA-256 checksum and
+installs Desktop and its bundled CLI together in private, persistent plugin
+storage. The first installation needs outbound HTTPS, GNU tar, about 500 MB of
+free space and permission to execute files there. BB reuses it across vaults,
+plugin reloads and restarts. Each Desktop session uses a private profile and
+checks restricted mode and vault identity before serving commands.
 
-The existing `PA_OBSIDIAN_DESKTOP`, `PA_OBSIDIAN_CLI` and
-`PA_OBSIDIAN_DESKTOP_VAULT_ID` environment variables also configure startup.
-Use `PA_OBSIDIAN_DESKTOP_ROOT` if you need to name a nested vault folder.
-Desktop runs in a private profile with restricted mode, and iCloud continues
-to sync the same local vault.
+The host needs the Desktop runtime libraries (including GTK 3) and a working
+Chromium namespace sandbox. Use the [Docker quick start](../../../docker/README.md)
+when creating the BB container. If the existing container's policy blocks
+startup, schedule a replacement with the documented flags and preserved volume.
 
-If a Desktop command reports unavailable, check the binary paths, vault ID and
-local iCloud access. Ask the operator to inspect the Obsidian plugin logs for
-the failing stage. For moves, enable automatic link updates in the Obsidian
-vault's settings.
+If setup fails, the vault stays connected. Check the message in Obsidian settings,
+correct the indicated network, storage or host prerequisite, then choose **Retry
+Desktop setup**. A checksum failure discards the download before extraction.
+For damaged installed files, stop the Obsidian plugin during a maintenance
+window, move the affected version folder out of its plugin-owned `desktop`
+directory, then enable the plugin again to fetch a verified copy.
+
+### Optional overrides
+
+Existing **Desktop executable**, **CLI executable**, **Desktop vault ID** and
+**Desktop vault folder** settings and their environment equivalents
+`PA_OBSIDIAN_DESKTOP`, `PA_OBSIDIAN_CLI`, `PA_OBSIDIAN_DESKTOP_VAULT_ID` and
+`PA_OBSIDIAN_DESKTOP_ROOT` remain supported. A complete manual configuration
+uses the supplied pair and skips the download. Use the exact connected vault
+ID to restrict Desktop to one vault. If an iCloud folder contains several
+vaults, set the ID and mirror-relative vault folder. Reload the Obsidian plugin
+after changing overrides. For moves, enable automatic link updates in the vault.
 
 ## In BB: prepare iCloud first
 

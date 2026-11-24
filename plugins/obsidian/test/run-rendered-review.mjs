@@ -1,7 +1,6 @@
-// Disposable BB 0.45.0 host, actual installed plugin bundles and synthetic
+// Disposable BB host, actual installed plugin bundles and synthetic
 // settings RPC views. This does not prove iCloud native access or tool calls.
-// Prerequisites: built iCloud/Obsidian packages, BB 0.45.0 from the local
-// devDependency, and BB_REVIEW_CHROME pointing to a local Chromium executable.
+// Uses the local BB devDependency or BB_REVIEW_APP_ROOT. Set BB_REVIEW_CHROME to Chromium.
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -14,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 const exec = promisify(execFile);
 const repo = resolve(fileURLToPath(new URL('../../../', import.meta.url)));
 const obsidian = join(repo, 'plugins/obsidian');
-const bb = join(obsidian, 'node_modules/bb-app');
+const bb = process.env.BB_REVIEW_APP_ROOT ?? join(obsidian, 'node_modules/bb-app');
 const port = Number(process.env.BB_REVIEW_PORT ?? 42988);
 assert.ok(Number.isInteger(port) && port > 1024 && port < 65535);
 // Never accidentally point the installer at an unrelated listener on this port.
@@ -45,7 +44,7 @@ try {
   }
   assert.ok(ready, 'Isolated BB server did not become ready');
   result.bbVersion = (await cli('--version')).trim();
-  assert.equal(result.bbVersion, '0.45.0');
+  assert.ok(result.bbVersion);
   const existing = JSON.parse(await cli('plugin', 'list', '--json')).plugins;
   assert.ok(!existing.some(plugin => ['icloud', 'obsidian'].includes(plugin.id)), 'Review requires a fresh BB data root');
   for (const id of ['icloud', 'obsidian']) {
@@ -54,12 +53,14 @@ try {
     result.installed[id] = { version: installation.plugin.version, status: installation.plugin.status };
   }
   assert.equal(result.installed.obsidian.status, 'running', 'Obsidian settings must be mounted by BB');
+  if (process.env.BB_REVIEW_APP_ROOT)
+    await cli('settings', 'general', 'onboardingCompletedAt', new Date().toISOString());
   const reviewEnv = { ...env, BB_REVIEW_BASE: env.BB_SERVER_URL, BB_REVIEW_ARTIFACTS: artifacts, BB_REVIEW_CHROME: process.env.BB_REVIEW_CHROME };
   const rendered = await exec(process.execPath, [join(obsidian, 'test/rendered-review.mjs')], { env: reviewEnv, cwd: root, timeout: 180_000, maxBuffer: 2 * 1024 * 1024 });
   await writeFile(join(artifacts, 'assertions.log'), rendered.stdout, { mode: 0o600 });
   result.rendered = true;
   result.screenshots = (await readdir(artifacts)).filter(file => file.endsWith('.png')).length;
-  assert.equal(result.screenshots, 58);
+  assert.equal(result.screenshots, 64);
   await writeFile(join(artifacts, 'result.json'), JSON.stringify(result, null, 2) + '\n', { mode: 0o600 });
   console.log(JSON.stringify({ ...result, artifacts }));
 } finally {

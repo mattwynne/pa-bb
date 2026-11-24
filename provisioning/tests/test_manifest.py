@@ -33,7 +33,7 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(self.manifest["rclone"]["version"], "1.76.0")
         self.assertEqual(self.manifest["ripgrep"]["version"], "14.1.0")
         self.assertEqual(self.manifest["packages"], [
-            "build-essential", "ca-certificates", "unzip", "util-linux", "ripgrep=14.1.0-1",
+            "build-essential", "libgtk-3-0t64", "ca-certificates", "unzip", "util-linux", "ripgrep=14.1.0-1",
         ])
 
     def test_archive_and_binary_are_independently_pinned(self):

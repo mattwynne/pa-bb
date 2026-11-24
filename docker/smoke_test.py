@@ -9,9 +9,11 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
+from obsidian_desktop_seccomp import desktop_profile
 
 
 REGISTRATION_COMPLETE = 'PA plugins registered. Connect accounts in BB settings.'
@@ -85,7 +87,8 @@ class SmokeError(RuntimeError):
 
 
 class SmokeTest:
-    def __init__(self, image, timeout=300):
+    def __init__(self, image, profile, timeout=300):
+        self.profile = profile
         self.image = image
         self.timeout = timeout
         self.owner = uuid.uuid4().hex
@@ -145,7 +148,8 @@ class SmokeTest:
         self.docker('container', 'create', '--name', self.container,
                     '--label', f'{OWNER_LABEL}={self.owner}', '--platform', 'linux/amd64',
                     '--pull=never', '--mount', f'type=volume,source={self.volume},target=/home/bb',
-                    '--shm-size=1g', '--stop-timeout=60', image_id, timeout=60)
+                    '--shm-size=1g', '--stop-timeout=60', '--cap-drop', 'ALL',
+                    '--security-opt', 'no-new-privileges', '--security-opt', f'seccomp={self.profile}', image_id, timeout=60)
         if not self.owned('container', self.container):
             raise SmokeError('Fresh container ownership not confirmed.')
         self.docker('container', 'start', self.container)
@@ -229,6 +233,15 @@ class SmokeTest:
                 or email.get('messages') != 1 or email.get('isolated') is not True
                 or email.get('read') is not True):
             raise SmokeError('Email-archive capability or generated round trip not confirmed.')
+        try:
+            desktop = self.docker('container', 'exec', '--env', 'PA_OBSIDIAN_TEST_MANAGED=1',
+                '--workdir', '/opt/pa-bb/plugins/obsidian', self.container, 'node', '--import', 'tsx',
+                '--test', '--test-reporter=tap', '--test-name-pattern=normal tools use native Desktop',
+                'test/desktop-links.test.ts', timeout=remaining(210)).stdout
+        except SmokeError:
+            raise SmokeError('Managed Desktop vault connection failed.') from None
+        if not re.search(r'^# pass 1$', desktop, re.MULTILINE) or not re.search(r'^# skipped 0$', desktop, re.MULTILINE):
+            raise SmokeError('Managed Desktop vault operations did not pass.')
         remaining()
         return len(expected)
 
@@ -294,9 +307,12 @@ def main(argv=None):
     parser.add_argument('image', help='locally built image reference (never pulled)')
     args = parser.parse_args(argv)
     try:
-        count = SmokeTest(args.image).run()
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory) / 'desktop-seccomp.json'
+            profile.write_text(desktop_profile())
+            count = SmokeTest(args.image, profile).run()
         script = Path(__file__).with_name('smoke_obsidian_desktop.sh')
-        subprocess.run(['bash', str(script), args.image], check=True, timeout=270)
+        subprocess.run(['bash', str(script), args.image], check=True, timeout=330)
     except SmokeError as error:
         print(f'Smoke test failed: {error}', file=sys.stderr)
         return 1

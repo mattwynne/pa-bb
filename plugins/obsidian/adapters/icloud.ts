@@ -4,9 +4,10 @@ import { isAbsolute, normalize } from 'node:path';
 import { FilesystemVault } from './filesystem-vault.ts';
 import { LocalReceipts } from './local-receipts.ts';
 import { noteRpcContract } from './icloud-note-contract.ts';
-import { desktopConfiguration, DesktopLinks, type DesktopConfiguration } from './desktop-links.ts';
+import type { ManagedDesktop } from './desktop-install.ts';
+import { DesktopLinks, type DesktopConfiguration } from './desktop-links.ts';
 import { VaultError } from '../core/ports.ts';
-import type { MirrorCatalog, VaultFiles, Diagnose, Catalog, Configuration, DesktopLinkOperation, InventoryInput, Inventory, NoteParser, PathMove } from '../core/ports.ts';
+import type { DesktopStatus, MirrorCatalog, VaultFiles, Diagnose, Catalog, Configuration, DesktopLinkOperation, InventoryInput, Inventory, NoteParser, PathMove } from '../core/ports.ts';
 import { validateRelativePath, validateNotePath } from './local-notes.ts';
 import { MarkdownNotes } from './markdown-notes.ts';
 
@@ -29,49 +30,92 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   private stopping = new AbortController();
   private admission?: { identity: string; completed: Promise<void> };
   private checking?: Promise<Catalog>;
-  private root?: Awaited<ReturnType<FilesystemVault['desktopRoot']>>;
+  private roots = new Map<string, Awaited<ReturnType<FilesystemVault['desktopRoot']>>>();
+  private startFailed = false;
+  private pauseStartup = false;
+  private readonly installStop = new AbortController();
 
   constructor(private sdk: BbPluginApi['sdk'], private diagnose: Diagnose, kv?: BbPluginApi['storage']['kv'],
-    private parser: NoteParser = new MarkdownNotes(), private setup: DesktopConfiguration | undefined = desktopConfiguration()) {
+    private parser: NoteParser = new MarkdownNotes(), private setup?: DesktopConfiguration, private managed?: ManagedDesktop) {
     if (kv) {
       this.filesystem = new FilesystemVault(this.directory.bind(this), this.directoryGrant.bind(this), new LocalReceipts(kv), diagnose);
-      if (setup) this.desktopRunner = new DesktopLinks({ desktop: setup.desktop, cli: setup.cli }, diagnose);
+      const binaries = setup?.binaries ?? managed?.binaries;
+      if (binaries) this.desktopRunner = new DesktopLinks(binaries, diagnose, !!managed);
     }
   }
 
+  cancelInstallation() {
+    this.installStop.abort();
+  }
+
   async stop() {
+    this.cancelInstallation();
     this.stopping.abort();
     clearTimeout(this.timer);
     await this.desktopRunner?.stop();
     await this.launch;
+    await this.managed?.drain();
   }
 
   desktopConfiguration(value: Configuration) {
     if (this.configuration?.revision === value.revision) return;
+    const removed = this.configuration?.vaultIds.some(id => !value.vaultIds.includes(id));
     this.configuration = value;
-    this.root = undefined;
-    if (this.setup && !value.vaultIds.includes(this.setup.vaultId)) {
+    this.roots.clear();
+    this.pauseStartup = false;
+    this.startFailed = false;
+    if (removed) {
       void this.desktopRunner?.reset().catch(() => this.diagnose('desktop_cleanup', 'unavailable'));
     }
     this.startDesktop();
   }
 
+  desktopStatus(): DesktopStatus {
+    const mode = this.managed ? 'managed' : 'manual';
+    if (!this.setup || (this.setup.vaultId && this.configuration?.vaultIds.length && !this.configuration.vaultIds.includes(this.setup.vaultId))) return { mode, state: 'configuration_needed' };
+    if (this.managed && this.managed.state !== 'installed' && this.managed.state !== 'pending')
+      return { mode, state: this.managed.state };
+    const state = this.desktopRunner?.running ? 'ready' : this.startFailed ? 'start_failed' :
+      this.configuration?.vaultIds.length ? 'starting' : 'pending';
+    return { mode, state };
+  }
+
+  retryDesktop() {
+    this.managed?.retry();
+    this.pauseStartup = false;
+    this.startFailed = false;
+    this.startDesktop();
+  }
+
   private startDesktop() {
-    const state = this.configuration, id = this.setup?.vaultId;
-    if (!id || !state?.vaultIds.includes(id) || this.stopping.signal.aborted || this.launch) return;
+    const state = this.configuration;
+    if (!this.desktopRunner || !state?.vaultIds.length || this.stopping.signal.aborted ||
+        this.launch || this.managed?.failed || this.pauseStartup) return;
+    if (this.setup?.vaultId && !state.vaultIds.includes(this.setup.vaultId)) return;
     clearTimeout(this.timer);
     this.launch = (async () => {
       const catalog = await this.snapshot();
-      if (!catalog.compatible || catalog.filesystem?.[id] !== 'ready' ||
-          !catalog.sources.some(source => source.id === id && source.local.available)) throw new VaultError('source_unavailable');
+      const available = (id: string) => catalog.compatible && catalog.filesystem?.[id] === 'ready' &&
+        catalog.sources.some(source => source.id === id && source.local.available);
+      const active = this.desktopRunner?.activeVaultId;
+      const id = this.setup?.vaultId ?? (active && state.vaultIds.includes(active) && available(active) ? active : state.vaultIds.find(available));
+      if (!id || !available(id)) throw new VaultError('source_unavailable');
       await this.admitConfiguration(state);
       await this.desktop(id, state.revision, { kind: 'start' }, this.stopping.signal);
     })().catch(error => {
+      if (this.configuration?.revision === state.revision) {
+        this.startFailed = true;
+        // A host launch failure needs operator action. Continue observing transient source availability.
+        if (error instanceof VaultError && ['unavailable', 'desktop_timeout', 'desktop_restricted', 'desktop_reply', 'unsupported', 'invalid_path'].includes(error.category))
+          this.pauseStartup = true;
+      }
       if (!this.stopping.signal.aborted && !(error instanceof VaultError && error.diagnosticReported))
         this.diagnose('desktop_start', error instanceof VaultError ? error.category : 'unavailable');
     }).finally(() => {
       this.launch = undefined;
-      if (this.stopping.signal.aborted || !this.configuration?.vaultIds.includes(id)) return;
+      if (this.stopping.signal.aborted || this.managed?.failed) return;
+      if (this.configuration?.revision !== state.revision) { this.startDesktop(); return; }
+      if (this.pauseStartup) return;
       this.timer = setTimeout(() => this.startDesktop(), this.desktopRunner?.running ? 30_000 : 5_000);
       this.timer.unref();
     });
@@ -79,17 +123,23 @@ export class ICloud implements MirrorCatalog, VaultFiles {
 
   private async desktopAccess(vaultId: string, revision: number, signal?: AbortSignal) {
     const filesystem = this.filesystem, runner = this.desktopRunner;
-    if (!filesystem || !runner || this.setup?.vaultId !== vaultId) throw new VaultError('desktop_setup',
+    if (!filesystem || !runner || !this.setup || (this.setup.vaultId && this.setup.vaultId !== vaultId)) throw new VaultError('desktop_setup',
       'Configure Obsidian Desktop and select this connected vault.');
-    const request = AbortSignal.any([this.stopping.signal, AbortSignal.timeout(40_000), ...(signal ? [signal] : [])]);
+    const lifetime = AbortSignal.any([this.stopping.signal, ...(signal ? [signal] : [])]);
+    let request = AbortSignal.any([lifetime, AbortSignal.timeout(40_000)]);
     const check = () => {
       if (request.aborted) throw new VaultError('cancelled');
       if (this.configuration?.revision !== revision || !this.configuration.vaultIds.includes(vaultId)) throw new VaultError('not_connected');
     };
     check();
-    const root = this.root ?? await filesystem.desktopRoot(vaultId, revision, this.setup.root, request);
+    const root = this.roots.get(vaultId) ?? await filesystem.desktopRoot(vaultId, revision, this.setup.root, request);
     check();
-    this.root = root;
+    this.roots.set(vaultId, root);
+    if (this.managed && this.managed.state !== 'installed') {
+      await this.managed.ensure(this.installStop.signal, lifetime);
+      request = AbortSignal.any([lifetime, AbortSignal.timeout(40_000)]);
+      check();
+    }
     const relative = (path: string) => {
       validateRelativePath(path);
       if (root.prefix && !path.startsWith(root.prefix + '/')) throw new VaultError('invalid_path');
@@ -102,7 +152,7 @@ export class ICloud implements MirrorCatalog, VaultFiles {
         return 'value' in result ? result.value : undefined;
       } catch (error) {
         if (error instanceof VaultError && error.category === 'source_unavailable') {
-          this.root = undefined;
+          this.roots.delete(vaultId);
           await runner.reset();
         }
         throw error;

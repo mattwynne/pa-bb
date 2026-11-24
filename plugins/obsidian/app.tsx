@@ -21,6 +21,15 @@ function sourceStatus(source: Source | null, setup: string) {
   if (source.failure || source.phase === 'failed') return 'Local notes available · cloud retry needed';
   return 'Local notes available · cloud sync scheduled';
 }
+const desktopProblems = {
+  download_failed: 'BB could not download Obsidian Desktop. Check the host’s internet connection.',
+  checksum_failed: 'The Desktop download failed checksum verification. BB discarded it.',
+  extract_failed: 'BB could not unpack the verified Desktop bundle. Check available space and GNU tar on the host.',
+  storage_failed: 'BB could not use its Desktop installation folder. Check plugin storage, permissions and free space.',
+  unsupported_host: 'Automatic Desktop installation requires a Linux x86-64 BB host.',
+  configuration_needed: 'Check the Desktop overrides and confirm the selected vault is connected. For automatic setup, clear the overrides and reload the plugin.',
+  start_failed: 'Desktop could not open the vault. Check the vault folder, local access and host startup requirements.',
+} as const;
 function ObsidianSettings() {
   const rpc = useRpc<typeof rpcContract>();
   const [state, setState] = useState<Status | null>(null);
@@ -37,7 +46,7 @@ function ObsidianSettings() {
     catch { if (request === generation.current) setError('Could not check vaults. Your connections are kept. Check BB and choose Check again.'); }
     finally { pending.current = false; }
   }
-  const waiting = !state || state.setup !== 'ready' || !state.vaults.length || state.vaults.some(v => v.source?.phase === 'running');
+  const waiting = !state || state.setup !== 'ready' || state.desktop?.state === 'starting' || state.desktop?.state === 'installing' || !state.vaults.length || state.vaults.some(v => v.source?.phase === 'running');
   useEffect(() => { void refresh(); const returned = () => { if (document.visibilityState === 'visible') void refresh(); }; window.addEventListener('focus', returned); document.addEventListener('visibilitychange', returned); return () => { generation.current++; window.removeEventListener('focus', returned); document.removeEventListener('visibilitychange', returned); }; }, []);
   useEffect(() => { if (!waiting) return; const timer = window.setInterval(() => void refresh(), 10000); return () => window.clearInterval(timer); }, [waiting]);
   async function change(method: 'connect' | 'remove', vaultId: string) {
@@ -46,6 +55,14 @@ function ObsidianSettings() {
     catch { setError(method === 'connect' ? 'Connection was not confirmed. Check again before trying to connect.' : 'Removal was not confirmed. Check again after the current note operation finishes.'); }
     finally { pending.current = false; setBusy(false); }
   }
+  async function retryDesktop() {
+    const request = ++generation.current; pending.current = true; setBusy(true); setError('');
+    try { accept(await rpc.call('retryDesktop', null), request); }
+    catch { setError('Desktop setup could not be checked. Choose Check again.'); }
+    finally { pending.current = false; setBusy(false); }
+  }
+  const desktopState = state?.desktop?.state;
+  const problem = desktopState && desktopState in desktopProblems ? desktopProblems[desktopState as keyof typeof desktopProblems] : undefined;
   const duplicate = (name: string) => state && [...state.eligible.map(s => ({ id: s.id, name: s.name })), ...state.vaults.map(v => ({ id: v.vaultId, name: v.source?.name ?? v.name }))].filter((s, i, all) => all.findIndex(other => other.id === s.id) === i && s.name === name).length > 1;
   const label = (id: string, name: string) => duplicate(name) ? `${name} · ${id}` : name;
   return <section className="pa-obsidian" aria-label="Connected vaults and source status" aria-busy={busy}>
@@ -56,10 +73,17 @@ function ObsidianSettings() {
         action={<ConnectionButton tone="primary" disabled={busy} onClick={() => setAdding(true)}>Add vault</ConnectionButton>} />
       {!state.vaults.length && <ConnectionSetup title="Connect your first vault">
         <p>Connect a vault so BB can read and edit all its notes. Changes are sent back through iCloud.</p>
-        <ol><li>In BB’s <a className="pa-connection__guide" href={ICLOUD}>iCloud settings</a>, install or enable iCloud and connect Apple.</li><li>Choose the vault folder, enable sync and wait for its first successful sync.</li><li>Return here, choose <strong>Add vault</strong>, then connect a vault by name. Nothing is selected automatically.</li></ol>
+        <ol><li>In BB’s <a className="pa-connection__guide" href={ICLOUD}>iCloud settings</a>, install or enable iCloud and connect Apple.</li><li>Choose the vault folder, enable sync and wait for its first successful sync.</li><li>Return here, choose <strong>Add vault</strong>, then connect a vault by name. On first use, BB installs the official Desktop app and CLI on this host.</li></ol>
         <ConnectionGuide href={GUIDE}>Step-by-step setup guide ↗</ConnectionGuide>
       </ConnectionSetup>}
-      {!!state.vaults.length && !state.search.available && <ConnectionAlert>Vault search is unavailable. Ask the host operator to check the <a className="pa-connection__guide" href={GUIDE + '#search-requirements'}>search requirements</a>. Your vault connections and local notes are kept.</ConnectionAlert>}
+      {!!state.vaults.length && desktopState === 'installing' && <p role="status">Installing the verified Obsidian Desktop bundle on this BB host…</p>}
+      {!!state.vaults.length && desktopState === 'starting' && <p role="status">Preparing Obsidian Desktop for the vault…</p>}
+      {!!state.vaults.length && desktopState === 'ready' && <p role="status">Obsidian Desktop is ready.</p>}
+      {!!state.vaults.length && problem && <ConnectionAlert>{problem}{' '}
+        <a className="pa-connection__guide" href={GUIDE + '#search-requirements'}>Desktop setup guide</a>
+        {desktopState !== 'unsupported_host' && desktopState !== 'configuration_needed' && <ConnectionButton disabled={busy} onClick={() => void retryDesktop()}>Retry Desktop setup</ConnectionButton>}
+      </ConnectionAlert>}
+      {!!state.vaults.length && !desktopState && !state.search.available && <ConnectionAlert>Vault search is unavailable. Ask the host operator to check the <a className="pa-connection__guide" href={GUIDE + '#search-requirements'}>search requirements</a>. Your vault connections and local notes are kept.</ConnectionAlert>}
       {state.configurationUnconfirmed && <ConnectionAlert>A connection change has not been confirmed by iCloud. Check again before relying on removal or adding another vault.</ConnectionAlert>}
       {!!state.uncertainOperationCount && <ConnectionAlert>{state.uncertainOperationCount} local operation{state.uncertainOperationCount === 1 ? '' : 's'} need exact receipt inspection with obsidian_status before retrying. No edit is replayed automatically.</ConnectionAlert>}
       {!!state.receiptFailures.length && <ConnectionAlert>Local receipt inspection is unavailable. Check iCloud and try again; an uncertain change must not be repeated.</ConnectionAlert>}
@@ -72,7 +96,7 @@ function ObsidianSettings() {
       })}</ConnectionAccounts>}
       {adding && <div className="pa-obsidian__picker" aria-label="Available vaults">
         <ConnectionHeading title="Choose a vault" action={<ConnectionButton disabled={busy} onClick={() => setAdding(false)}>Close</ConnectionButton>} />
-        <p>Connecting gives BB read/write access to every Markdown note, including nested and hidden folders.</p>
+        <p>Choose a trusted vault. Desktop opens it on this host. Connecting gives BB read/write access to every Markdown note, including nested and hidden folders.</p>
         {!state.eligible.length ? <ConnectionEmpty>{state.setup === 'check_failed' || state.setup === 'incompatible' ? 'Available vaults could not be verified. Update both plugins if incompatible, then choose Check again.' : 'No additional locally available initialized vaults. Check the source in iCloud settings.'}</ConnectionEmpty> : <ul>{state.eligible.map(source => <li key={source.id}><span><strong>{source.name}</strong>{duplicate(source.name) && <small>Source ID: {source.id}</small>}</span><ConnectionButton tone="secondary" disabled={busy} aria-label={`Connect ${label(source.id, source.name)}`} onClick={() => void change('connect', source.id)}>Connect</ConnectionButton></li>)}</ul>}
       </div>}
     </>}

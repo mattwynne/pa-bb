@@ -38,13 +38,22 @@ On a **linux/amd64** Docker host:
 
 ```sh
 docker pull ghcr.io/mattwynne/pa-bb:edge
+docker run --rm --entrypoint python3 ghcr.io/mattwynne/pa-bb:edge \
+  /opt/pa-bb/docker/obsidian_desktop_seccomp.py > obsidian-desktop-seccomp.json
 docker volume create pa-bb-home
 docker run -d --name pa-bb \
   -p 127.0.0.1:38886:38886 \
   --mount source=pa-bb-home,target=/home/bb \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --security-opt "seccomp=$PWD/obsidian-desktop-seccomp.json" \
   --shm-size=1g --stop-timeout=60 \
   ghcr.io/mattwynne/pa-bb:edge
 ```
+
+The Docker host must permit unprivileged user namespaces. Generate the verified
+seccomp profile before creating the BB container so Chromium can start its own
+sandbox. Keep the profile for future starts. For an existing container, apply
+these options at its next planned replacement using the same backed-up home volume.
 
 The public image needs no GitHub login. `edge` tracks successful builds from `main`;
 these are development builds, not versioned releases. To keep a deployment fixed,

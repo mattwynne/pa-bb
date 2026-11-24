@@ -4,14 +4,23 @@ A single-user PA server on **linux/amd64**. Build from a reviewed checkout:
 
 ```sh
 docker build --platform linux/amd64 -t pa-bb .
+docker run --rm --entrypoint python3 pa-bb \
+  /opt/pa-bb/docker/obsidian_desktop_seccomp.py > obsidian-desktop-seccomp.json
 docker volume create pa-bb-home
 docker run -d --name pa-bb \
   -p 127.0.0.1:38886:38886 \
   --mount source=pa-bb-home,target=/home/bb \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --security-opt "seccomp=$PWD/obsidian-desktop-seccomp.json" \
   --shm-size=1g --stop-timeout=60 \
   pa-bb
 docker logs -f pa-bb
 ```
+
+The Docker host must permit unprivileged user namespaces. Generate the verified
+seccomp profile before creating the BB container so Chromium can start its own
+sandbox. Keep the profile for future starts. For an existing container, apply
+these options at its next planned replacement using the same backed-up home volume.
 
 Open <http://localhost:38886> and finish BB setup. For remote access, use your
 own authenticated TLS reverse proxy or SSH tunnel; do not expose the port
@@ -41,9 +50,10 @@ source and enabled state through BB's CLI. It also runs the note-search plugin's
 capability probe and searches generated visible and hidden Markdown files, even
 when a generated `.gitignore` excludes them. A missing match, unsupported ripgrep
 or failed search blocks publication. It checks that the GTK 3 shared library
-loads. A separate smoke test downloads and verifies the pinned Obsidian Desktop
-bundle on the runner, then launches it in a fresh, network-isolated container
-under the documented security settings. The Email check verifies that running
+loads. A generated vault connection inside the running BB container exercises the
+managed download and native note tools. A separate smoke test runs the plugin’s installer inside the image, then reuses its
+verified bundle from a read-only volume in a fresh, network-isolated container.
+It checks the Chromium sandbox, restricted mode and a real CLI backlink query. The Email check verifies that running
 BB meets the plugin's minimum version, imports the same generated email twice through
 the real MsgVault adapter, searches and reads it, and checks that a separate archive
 stays empty. No mail provider is connected. It creates and removes its own container
@@ -111,62 +121,29 @@ access to prepare their plugin-owned runtimes.
 
 ### Optional Obsidian Desktop CLI
 
-Supply the official Linux amd64 bundle. Download
-[`obsidian-1.15.1.tar.gz`](https://github.com/obsidianmd/obsidian-releases/releases/download/v1.15.1/obsidian-1.15.1.tar.gz)
-and run this from the directory containing the archive, outside the Docker build
-context. Keep the whole bundle together so Desktop can load its adjacent
-libraries and resources.
+In **Plugins → Obsidian → Configuration**, connect an initialized iCloud vault.
+On Linux amd64 the plugin downloads the official pinned Obsidian 1.15.1 release,
+checks its SHA-256 checksum, and installs the whole Desktop and CLI bundle in BB’s
+persistent plugin storage. The image ships the installer. First use needs HTTPS
+access to GitHub release downloads and roughly 500 MB of free space. Subsequent
+starts reuse the installed release.
+
+The quick start above creates the container with a checksum-verified Docker
+seccomp profile that permits Chromium’s namespace and chroot calls. This profile
+applies to the entire container. It runs as the image’s ordinary BB user, with
+all outer capabilities dropped and no-new-privileges. A running container with
+a different policy requires a planned replacement to use these creation options.
+Keep the Chromium sandbox enabled.
+
+To test the image on the intended Docker host, run this command from the checkout:
 
 ```sh
-(
-  set -eu
-  printf '%s  %s\n' \
-    09074f0635ecf366307d808d0fec06c01a87a0bcc66da6d34126ceece0eb8519 \
-    obsidian-1.15.1.tar.gz | sha256sum -c -
-  mkdir obsidian-1.15.1-amd64
-  tar -xzf obsidian-1.15.1.tar.gz --strip-components=1 -C obsidian-1.15.1-amd64
-)
+bash docker/smoke_obsidian_desktop.sh pa-bb
 ```
 
-#### Smoke-test on the target Docker machine
-
-Use the same image and security policy as the intended BB container. Docker's
-default seccomp profile blocks namespace creation for the Chromium sandbox.
-The smoke test uses the pinned Docker profile with the namespace calls
-needed for that sandbox, following the
-[Playwright Docker setup](https://playwright.dev/docs/docker#crawling-and-scraping).
-The profile also permits Chromium's `chroot` call inside its own user
-namespace. It runs as the image's `bb` user with all capabilities dropped and
-no-new-privileges, using a disposable profile, socket and vault with no network
-access.
-
-```sh
-bash docker/smoke_obsidian_desktop.sh pa-bb "$PWD/obsidian-1.15.1-amd64"
-```
-
-#### Enable in BB
-
-Enable only after the smoke test passes under the intended security policy.
-Generate the same profile with
-`python3 docker/obsidian_desktop_seccomp.py > obsidian-desktop-seccomp.json`.
-When starting the BB container that runs Desktop, use these flags together.
-
-```text
---security-opt seccomp=obsidian-desktop-seccomp.json
---security-opt no-new-privileges
---cap-drop ALL
-```
-
-The profile applies to the whole container.
-Select a trusted vault with no filesystem links (symbolic or hard links) or
-nested mounts exposing files from outside the vault. Desktop can write vault
-settings when it opens that vault.
-
-Mount the same bundle read-only at `/opt/obsidian` in the BB container. Set
-`PA_OBSIDIAN_DESKTOP=/opt/obsidian/obsidian`,
-`PA_OBSIDIAN_CLI=/opt/obsidian/obsidian-cli`, and `PA_OBSIDIAN_DESKTOP_VAULT_ID`
-to the exact connected vault ID selected for this opt-in. If the host's
-security policy blocks Desktop's namespace setup, leave this route disabled.
+Use a trusted vault with ordinary files and directories. Desktop can update vault
+settings when it opens the folder. The [Obsidian setup guide](../plugins/obsidian/docs/setup.md)
+covers recovery and existing manual overrides.
 
 ## Persistent state and updates
 

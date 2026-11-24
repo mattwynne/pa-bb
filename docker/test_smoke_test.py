@@ -41,6 +41,7 @@ class FakeDocker:
         self.search_failure = False
         self.email = {'version': 1, 'available': True, 'messages': 1, 'isolated': True, 'read': True}
         self.email_failure = False
+        self.desktop = "# pass 1\n# skipped 0\n"
         self.timeouts = []
         self.failures = {}
         self.after_write = {}
@@ -51,7 +52,8 @@ class FakeDocker:
 
     def run(self, command, *, capture_output, text, errors, timeout):
         assert command[0] == 'docker'
-        assert capture_output and text and errors == 'replace' and 0 < timeout <= 90
+        maximum = 210 if command[-1] == 'test/desktop-links.test.ts' else 90
+        assert capture_output and text and errors == 'replace' and 0 < timeout <= maximum
         args = command[1:]
         self.commands.append(args)
         self.timeouts.append(timeout)
@@ -89,6 +91,9 @@ class FakeDocker:
                 output = json.dumps(self.expected)
             elif args[4] == smoke_test.CLI:
                 output = json.dumps({'plugins': self.plugins})
+            elif args[-1] == 'test/desktop-links.test.ts':
+                assert 'PA_OBSIDIAN_TEST_MANAGED=1' in args
+                output = self.desktop
             elif args[-1] == '/opt/pa-bb/docker/email-smoke.mjs':
                 if self.email_failure:
                     return self.fail(True, command)
@@ -114,7 +119,7 @@ class FakeDocker:
 
 class SmokeTestTests(unittest.TestCase):
     def setUp(self):
-        self.smoke = smoke_test.SmokeTest('local:test', timeout=5)
+        self.smoke = smoke_test.SmokeTest('local:test', '/profile', timeout=5)
         self.docker = FakeDocker(self.smoke)
         self.clock = Clock()
         self.patches = [patch.object(smoke_test.subprocess, 'run', side_effect=self.docker.run),
@@ -141,12 +146,16 @@ class SmokeTestTests(unittest.TestCase):
         create = next(c for c in self.docker.commands if c[:2] == ['container', 'create'])
         self.assertEqual(create[create.index('--name') + 1], self.smoke.container)
         self.assertIn('type=volume,source=' + self.smoke.volume + ',target=/home/bb', create)
-        for option in ['linux/amd64', '--shm-size=1g', '--stop-timeout=60', '--pull=never']:
+        for option in ['linux/amd64', '--shm-size=1g', '--stop-timeout=60', '--pull=never', '--cap-drop', 'ALL', 'no-new-privileges', 'seccomp=/profile']:
             self.assertIn(option, create)
         self.assertEqual(create[-1], 'sha256:' + 'a' * 64)
         self.assertFalse(any(option in create for option in ['-p', '-P', '--publish', '--publish-all']))
-        self.assertNotEqual(self.smoke.container, smoke_test.SmokeTest('local:test').container)
+        self.assertNotEqual(self.smoke.container, smoke_test.SmokeTest('local:test', '/profile').container)
         self.assert_cleaned()
+
+    def test_skipped_native_desktop_connection_fails_smoke(self):
+        self.docker.desktop = '# pass 0\n# skipped 1\n'
+        self.assert_failure('Managed Desktop vault operations')
 
     def test_note_search_capability_and_real_matches_are_required(self):
         variants = [None, 'PRIVATE_OUTPUT SECRET_TOKEN',
@@ -368,7 +377,7 @@ class SmokeTestTests(unittest.TestCase):
     def test_main_returns_nonzero_on_cleanup_failure_without_raw_output(self):
         self.docker.failures['volume', 'rm'] = True
         output = io.StringIO()
-        with patch.object(smoke_test, 'SmokeTest', return_value=self.smoke), \
+        with patch.object(smoke_test, 'desktop_profile', return_value='{}'), patch.object(smoke_test, 'SmokeTest', return_value=self.smoke), \
                 contextlib.redirect_stderr(output):
             self.assertEqual(smoke_test.main(['local:test']), 1)
         self.assertIn('Cleanup failed', output.getvalue())
