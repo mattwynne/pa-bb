@@ -64,3 +64,8 @@ point-in-time evidence. The write adapter revalidates at its write boundary and
 the receipt reports incomplete verification if subsequent checks detect a
 concurrent change. Independent editors and sync processes do not share a
 vault-wide transaction with BB.
+
+For a vault nested inside a connected mirror, BB also accepts an exact explicit
+path that includes that vault's mirror prefix. If the same spelling names a
+different file when read from the vault root, BB reports both candidates.
+This is compatibility for existing mirror-prefixed links stored by BB.

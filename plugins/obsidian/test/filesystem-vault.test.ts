@@ -1593,8 +1593,11 @@ test('the shared vault link index gives inspection, backlinks and moves the same
   const source = 'Work/Projects/Pilot/README.md';
   const destination = 'Work/Projects/Archive/README.md';
   const journal = 'Work/Journal/Nested/Entry.md';
+  const second = 'Work/Second.md';
+  const explicit = '[[Work/Projects/Pilot/README|project]]';
+  const markdown = '[Project](/Work/Projects/Pilot/README.md)';
   const external = '[external](file:///tmp/external/README.md)';
-  const journalText = `[[README]]\nSee [[Projects/Pilot/README|project]]\n${external}\n`;
+  const journalText = `[[README]]\nSee ${explicit}\n${external}\n`;
   const f = await fixture(t, 'ready', async root => {
     for (const folder of ['Work/.obsidian', 'Other/.obsidian', 'Work/Projects/Pilot', 'Work/Projects/Archive', 'Work/Journal/Nested'])
       await mkdir(join(root, folder), { recursive: true });
@@ -1603,22 +1606,25 @@ test('the shared vault link index gives inspection, backlinks and moves the same
       'Other/README.md': '# Sibling vault',
       [source]: '# Project',
       [journal]: journalText,
+      [second]: markdown,
       'Work/Prose.md': 'Projects/Pilot/README and README are mentioned here.',
     })) await writeFile(join(root, path), text);
   });
   const target = { vaultId: 'one', path: journal };
   const result = await f.tool('get_note_metadata', target);
   assert.deepEqual(result.links.map((link: any) => [link.spelling, link.resolution.target]), [
-    ['[[README]]', 'Work/README.md'], ['[[Projects/Pilot/README|project]]', source],
+    ['[[README]]', 'Work/README.md'], [explicit, source],
   ]);
   assert.equal((await f.tool('resolve_link', { ...target, link: '[[README]]' })).target, 'Work/README.md');
+  assert.equal((await f.tool('resolve_link', { ...target, link: explicit })).target, source);
+  assert.equal((await f.tool('resolve_link', { ...target, path: second, link: markdown })).target, source);
   const backlinks = await f.tool('get_note_metadata', { vaultId: 'one', path: source, backlinks: true });
   assert.equal(backlinks.backlinksIncomplete, false);
   assert.deepEqual(backlinks.backlinks.map((link: any) => [link.source, link.line, link.column, link.start, link.end, link.spelling]),
-    [[journal, 2, 5, 15, 48, '[[Projects/Pilot/README|project]]']]);
+    [[journal, 2, 5, 15, 15 + explicit.length, explicit], [second, 1, 1, 0, markdown.length, markdown]]);
   const proof = await f.tool('read_note', { vaultId: 'one', path: source });
   const move = { vaultId: 'one', path: source, destination, expectedHash: proof.hash };
-  assert.deepEqual((await f.tool('move_note', { ...move, dryRun: true })).repairPaths, [journal]);
+  assert.deepEqual((await f.tool('move_note', { ...move, dryRun: true })).repairPaths, [journal, second]);
   const missing = 'Work/Missing.md';
   await writeFile(join(f.directory, missing), '[[Projects/Archive/README]]');
   // Planning observes live inventory even before the watch publishes it.
@@ -1628,7 +1634,8 @@ test('the shared vault link index gives inspection, backlinks and moves the same
   await unlink(join(f.directory, missing));
   await delay(150); // Drain the synthetic filesystem watch before applying.
   assert.equal((await f.tool('move_note', move)).outcome, 'moved_supported_links_updated');
-  assert.equal(await readFile(join(f.directory, journal), 'utf8'), journalText.replace('Projects/Pilot', 'Projects/Archive'));
+  assert.equal(await readFile(join(f.directory, journal), 'utf8'), journalText.replace('Work/Projects/Pilot', 'Projects/Archive'));
+  assert.equal(await readFile(join(f.directory, second), 'utf8'), '[Project](Projects/Archive/README.md)');
 });
 
 test('a sync authority change during vault link revalidation prevents publication', async t => {

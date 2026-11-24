@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MarkdownNotes } from '../adapters/markdown-notes.ts';
 import { createMovePlanner, hashText, MoveLinkError } from '../core/move.ts';
+import { VaultLinks } from '../core/vault-links.ts';
 const parser=new MarkdownNotes();
 const note=(path:string,text:string)=>({path,text,hash:hashText(text)});
 function planMove(notes: ReturnType<typeof note>[], from: string, to: string, parser: MarkdownNotes) {
@@ -224,4 +225,29 @@ test('fenced reference examples keep exact bytes while malformed live references
   const malformed = note('Index.md', 'Body\n\n[broken]: [[Example]] trailing markup\n');
   assert.throws(() => planMove([source, malformed], source.path, 'Reference/Example.md', parser),
     error => error instanceof MoveLinkError && error.location.reason === 'reference_definition');
+});
+
+test('mirror-prefixed spelling is exact within the selected vault and exposes a literal collision', () => {
+  const root = 'Mirrors/Work';
+  const source = root + '/Journal/Entry.md';
+  const target = root + '/Projects/Pilot/README.md';
+  const literal = root + '/' + target;
+  const outside = 'Other/Projects/Pilot/README.md';
+  const index = new VaultLinks([source, target, literal, outside], root);
+  assert.equal(index.resolve('/Projects/Pilot/README', source).target, target);
+  assert.equal(index.resolve('/Other/Projects/Pilot/README', source).status, 'missing');
+  assert.equal(index.resolve('./Mirrors/Work/Projects/Pilot/README', source).status, 'missing');
+  const conflict = index.resolve('/' + target, source);
+  assert.equal(conflict.status, 'ambiguous');
+  assert.deepEqual(conflict.candidates, [target, literal]);
+
+  const planner = createMovePlanner(new Set([source, target, literal, outside]),
+    target, root + '/Projects/Archive/README.md', parser, undefined, [], root);
+  const reference = note(source, '[Project](/' + target + ')');
+  assert.throws(() => planner.visit(reference, Buffer.byteLength(reference.text)), (error: unknown) => {
+    assert.ok(error instanceof MoveLinkError);
+    assert.deepEqual(error.location.beforeCandidates, [target, literal]);
+    assert.deepEqual(error.location.afterCandidates, [literal]);
+    return true;
+  });
 });

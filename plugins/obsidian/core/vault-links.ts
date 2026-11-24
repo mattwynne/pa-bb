@@ -100,7 +100,11 @@ export class VaultLinks {
       reference = referringFolder === '.' ? reference : referringFolder + '/' + reference;
     }
     if (absolute) reference = reference.slice(1);
-    const exact = paths.filter(path => pathKey(this.relative(path)) === reference);
+    // Explicit references can include the vault's prefix inside its connected
+    // mirror. Resolve either exact spelling inside this vault, and keep both
+    // paths ambiguous if a real vault-relative path uses the same spelling.
+    const exact = paths.filter(path => pathKey(this.relative(path)) === reference ||
+      (!relative && this.root && pathKey(path) === reference));
     if (exact.length) return evidence(exact, absolute || relative ? [] : paths.filter(path => !exact.includes(path) &&
       pathKey(this.relative(path)).endsWith(reference)));
     if (absolute) return missing;
