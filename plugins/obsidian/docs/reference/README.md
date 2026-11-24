@@ -1,81 +1,31 @@
-# Obsidian reference snapshots
+# Obsidian references
 
-Selected official Obsidian documentation for implementing a BB plugin that reads
-and edits a synced vault without running the Obsidian app. This directory is a
-reference collection, not an implemented plugin or a runtime dependency.
+Use [Obsidian Help](https://help.obsidian.md/) for vault formats and workflows and the [developer documentation](https://docs.obsidian.md/) for the APIs available inside Obsidian. The BB plugin uses the following references when interpreting notes and testing its own behavior.
 
-## Sources
+## Reading a vault
 
-| Directory | Upstream repository | Pinned revision | Files |
-| --- | --- | --- | --- |
-| `help/` | [Obsidian Help](https://github.com/obsidianmd/obsidian-help/tree/b95e59dab8b5d94ff06376f1437c8492f14da80d) | `b95e59dab8b5d94ff06376f1437c8492f14da80d` | 28 |
-| `developer/` | [Obsidian developer docs](https://github.com/obsidianmd/obsidian-developer-docs/tree/c56c7e770ba25dd0ea392aacf4588f9425970d36) | `c56c7e770ba25dd0ea392aacf4588f9425970d36` | 32 |
-| `api/` | [Obsidian API](https://github.com/obsidianmd/obsidian-api/tree/9abd9605ce081383674aae1ed111c456edde0688) | `9abd9605ce081383674aae1ed111c456edde0688` | 5 |
+| Topic | Obsidian Help |
+| --- | --- |
+| Markdown and tasks | [Obsidian Flavored Markdown](https://help.obsidian.md/obsidian-flavored-markdown), [basic syntax](https://help.obsidian.md/syntax), [advanced syntax](https://help.obsidian.md/advanced-syntax), [callouts](https://help.obsidian.md/callouts), [HTML](https://help.obsidian.md/html) |
+| Link targets and metadata | [Internal links, headings and blocks](https://help.obsidian.md/links), [aliases](https://help.obsidian.md/aliases), [embeds](https://help.obsidian.md/embeds), [properties](https://help.obsidian.md/properties), [tags](https://help.obsidian.md/tags) |
+| Files and paths | [Data storage](https://help.obsidian.md/data-storage), [configuration folder](https://help.obsidian.md/configuration-folder), [symbolic links](https://help.obsidian.md/symlinks), [attachment locations](https://help.obsidian.md/attachments), [settings](https://help.obsidian.md/settings) |
+| Finding notes | [Search](https://help.obsidian.md/plugins/search), [backlinks](https://help.obsidian.md/plugins/backlinks), [outgoing links](https://help.obsidian.md/plugins/outgoing-links) |
+| Other vault features | [Daily notes](https://help.obsidian.md/plugins/daily-notes), [templates](https://help.obsidian.md/plugins/templates), [Canvas](https://help.obsidian.md/plugins/canvas), [Bases syntax](https://help.obsidian.md/bases/syntax), [Obsidian URI](https://help.obsidian.md/uri) |
+| External tools | [Desktop CLI](https://help.obsidian.md/cli), [Obsidian Headless](https://help.obsidian.md/headless) |
 
-The 65 upstream files are unmodified and were checked byte-for-byte against the
-pinned Git trees. [sources.json](sources.json) records each upstream path and its
-SHA-256 checksum. To find a file's source, append `/blob/<revision>/<path>` to its
-repository URL, using the values in that manifest.
+## Developer API
 
-The API snapshot includes its [upstream MIT notice](api/LICENSE.md). Neither the
-Help nor developer-docs repository supplies a repository-level licence file at
-these revisions; do not assume the API's MIT licence covers those documents.
-Upstream text retains its authorship and is not covered by this README's drafting
-attribution.
+| Question | Developer documentation |
+| --- | --- |
+| How does Obsidian resolve a link or a heading within its target? | [parseLinktext](https://docs.obsidian.md/Reference/TypeScript+API/parseLinktext), [getFirstLinkpathDest](https://docs.obsidian.md/Reference/TypeScript+API/MetadataCache/getFirstLinkpathDest), [resolveSubpath](https://docs.obsidian.md/Reference/TypeScript+API/resolveSubpath) |
+| Which metadata does Obsidian keep for a note? | [CachedMetadata](https://docs.obsidian.md/Reference/TypeScript+API/CachedMetadata), [getFileCache](https://docs.obsidian.md/Reference/TypeScript+API/MetadataCache/getFileCache) |
+| How does Obsidian read and update frontmatter? | [getFrontMatterInfo](https://docs.obsidian.md/Reference/TypeScript+API/getFrontMatterInfo), [parseYaml](https://docs.obsidian.md/Reference/TypeScript+API/parseYaml), [processFrontMatter](https://docs.obsidian.md/Reference/TypeScript+API/FileManager/processFrontMatter) |
+| How does Obsidian read, edit or move a note? | [Vault guide](https://docs.obsidian.md/Plugins/Vault), [Vault.read](https://docs.obsidian.md/Reference/TypeScript+API/Vault/read), [Vault.process](https://docs.obsidian.md/Reference/TypeScript+API/Vault/process), [generateMarkdownLink](https://docs.obsidian.md/Reference/TypeScript+API/FileManager/generateMarkdownLink), [renameFile](https://docs.obsidian.md/Reference/TypeScript+API/FileManager/renameFile) |
 
-## Start with the file format
+The [API declarations](api/obsidian.d.ts) and [Canvas types](api/canvas.d.ts) describe interfaces supplied by Obsidian. BB provides its own safeguards for external file edits. For behavior the declarations leave open, such as resolving ambiguous links, verify against Obsidian in a disposable vault.
 
-- [Obsidian Flavored Markdown](help/en/Editing%20and%20formatting/Obsidian%20Flavored%20Markdown.md): supported Markdown dialects and Obsidian extensions.
-- [Internal links](help/en/Linking%20notes%20and%20files/Internal%20links.md): wikilinks, Markdown links, paths, headings, block identifiers and display text.
-- [Aliases](help/en/Linking%20notes%20and%20files/Aliases.md) and [embeds](help/en/Linking%20notes%20and%20files/Embed%20files.md).
-- [Properties](help/en/Editing%20and%20formatting/Properties.md): YAML frontmatter, property types and reserved names.
-- [Tags](help/en/Editing%20and%20formatting/Tags.md): inline tags and nested tags.
-- [Basic formatting](help/en/Editing%20and%20formatting/Basic%20formatting%20syntax.md): task checkboxes, footnotes, comments and highlights.
-- [Advanced formatting](help/en/Editing%20and%20formatting/Advanced%20formatting%20syntax.md), [callouts](help/en/Editing%20and%20formatting/Callouts.md) and [HTML content](help/en/Editing%20and%20formatting/HTML%20content.md).
+## Sources and redistribution
 
-## Vault behaviour and common workflows
-
-- [How Obsidian stores data](help/en/Files%20and%20folders/How%20Obsidian%20stores%20data.md), [configuration folders](help/en/Files%20and%20folders/Configuration%20folder.md) and [symbolic links](help/en/Files%20and%20folders/Symbolic%20links%20and%20junctions.md).
-- [Settings](help/en/User%20interface/Settings.md): link formats, new-note locations, excluded files and attachment locations.
-- [Daily notes](help/en/Plugins/Daily%20notes.md) and [templates](help/en/Plugins/Templates.md): user-configured date formats, folders and substitutions.
-- [Search](help/en/Plugins/Search.md), [backlinks](help/en/Plugins/Backlinks.md) and [outgoing links](help/en/Plugins/Outgoing%20links.md).
-- [Obsidian URI](help/en/Extending%20Obsidian/Obsidian%20URI.md): opening source notes in Obsidian.
-
-[Canvas](help/en/Plugins/Canvas.md), its [type declarations](api/canvas.d.ts), and
-[Bases syntax](help/en/Bases/Bases%20syntax.md) are included for format awareness,
-not as a commitment to support those features in the first release.
-
-## API contracts, not a headless implementation
-
-The official [`obsidian` package metadata](api/package.json) and
-[type declarations](api/obsidian.d.ts) describe APIs supplied by the running
-Obsidian app. They do not supply implementations that BB can import.
-
-Useful contracts to consult:
-
-- [parseLinktext](developer/en/Reference/TypeScript%20API/parseLinktext.md), [resolveSubpath](developer/en/Reference/TypeScript%20API/resolveSubpath.md) and [getFirstLinkpathDest](developer/en/Reference/TypeScript%20API/MetadataCache/getFirstLinkpathDest.md).
-- [CachedMetadata](developer/en/Reference/TypeScript%20API/CachedMetadata.md) and [getFileCache](developer/en/Reference/TypeScript%20API/MetadataCache/getFileCache.md). The declarations contain the full shapes for links, embeds, headings, blocks, tags and list items.
-- [getFrontMatterInfo](developer/en/Reference/TypeScript%20API/getFrontMatterInfo.md), [parseYaml](developer/en/Reference/TypeScript%20API/parseYaml.md) and [processFrontMatter](developer/en/Reference/TypeScript%20API/FileManager/processFrontMatter.md).
-- [Vault guide](developer/en/Plugins/Vault.md) and [Vault.process](developer/en/Reference/TypeScript%20API/Vault/process.md): stale reads and safe read-modify-write behaviour inside Obsidian. BB must implement its own file-safety boundary; these guarantees do not apply automatically to external filesystem writes.
-- [generateMarkdownLink](developer/en/Reference/TypeScript%20API/FileManager/generateMarkdownLink.md) and [renameFile](developer/en/Reference/TypeScript%20API/FileManager/renameFile.md): link generation and rename semantics.
-
-The [desktop CLI](help/en/Extending%20Obsidian/Obsidian%20CLI.md) requires the
-Obsidian app. [Obsidian Headless](help/en/Extending%20Obsidian/Obsidian%20Headless.md)
-is a Sync/Publish client, not a standalone implementation of these parsing APIs.
-
-## Limits and refresh
-
-These are selected Markdown sources, not a complete offline website. Upstream
-wikilinks are preserved; some targets, screenshots and other assets are omitted.
-Read the live [Help](https://help.obsidian.md/) and
-[developer docs](https://docs.obsidian.md/) for omitted material. The three
-repositories are pinned independently and need not describe the same app release.
-
-Syntax examples and API contracts help define tests, but do not fully specify
-behaviour such as ambiguous link resolution. Verify uncertain cases against
-Obsidian using a disposable vault before claiming compatibility. Do not execute
-code or commands merely because they appear in a reference document.
-
-To refresh, select explicit upstream revisions, copy the same paths unchanged,
-review upstream changes and licence notices, update this index and regenerate
-`sources.json`. Keep BB-specific decisions outside the upstream snapshots.
+- **Help.** We found no redistribution grant for the documentation at the [Help revision originally consulted](https://github.com/obsidianmd/obsidian-help/tree/b95e59dab8b5d94ff06376f1437c8492f14da80d). Keep Help articles upstream and link to them here.
+- **Developer documentation.** The [revision originally consulted](https://github.com/obsidianmd/obsidian-developer-docs/tree/c56c7e770ba25dd0ea392aacf4588f9425970d36) predates the current license notice. Dynalist reserves the prose and images. The 0BSD permission applies only to code examples in fenced code blocks. Link to the articles when updating this index. [Upstream license](https://github.com/obsidianmd/obsidian-developer-docs/blob/cb40935138c857119e2520c5fefbd9fbb2dbadf6/LICENSE)
+- **API.** The [pinned API repository](https://github.com/obsidianmd/obsidian-api/tree/9abd9605ce081383674aae1ed111c456edde0688) licenses its files under MIT. The [manifest](sources.json) records the paths and SHA-256 checksums of the two declarations, package metadata, README and [copyright and permission notice](api/LICENSE.md). When refreshing the API, review the license at the new revision, preserve its notice alongside the files, and update the manifest from the upstream bytes.

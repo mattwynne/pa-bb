@@ -135,7 +135,8 @@ remain enforced by the existing parser before saving.
 
 ## Supported Markdown subset
 
-The [pinned official references](docs/reference/README.md) guide behavior;
+The [reference index](docs/reference/README.md) links to Obsidian Help and the
+developer docs and includes pinned MIT API declarations.
 `mdast-util-from-markdown` 2.1.0 and `yaml` 2.9.1 supply maintained parsers.
 They provide source spans and prepare checked text and property changes.
 

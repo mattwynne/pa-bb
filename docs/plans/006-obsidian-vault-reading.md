@@ -46,8 +46,9 @@ never execute note HTML, scripts, templates or YAML tags.
 
 ## Starting point and ownership
 
-- `plugins/obsidian/docs/reference/` contains pinned official documentation, not a
-  working plugin. The `obsidian` npm package supplies declarations, not a runtime.
+- The [Obsidian reference index](../../plugins/obsidian/docs/reference/README.md)
+  links to upstream documentation and includes the MIT declarations for the
+  APIs supplied by the running Obsidian app.
 - iCloud already supplies `status` and `inventory` RPCs. Inventory exposes initialized
   mirror IDs, names, server-local folders, phases and last-success timestamps.
 - iCloud's native sync/recovery changes are delivered through
@@ -115,7 +116,8 @@ races. A failed vault does not make other connected vaults unusable.
 
 **Work**
 
-- Choose maintained Markdown/YAML libraries against pinned-reference fixtures.
+- Choose maintained Markdown/YAML libraries using vault fixtures that exercise
+  the documented syntax.
   Preserve original text and source offsets rather than render/rewrite a whole note.
 - Implement search, bounded reads, metadata, link resolution and task listing.
   Search may span all connected vaults; targeted operations identify one vault.
@@ -257,8 +259,8 @@ not instructions. Installing the plugin alone connects no vaults.
   that vault is connected; they do not establish current file contents. Removed vaults
   expose neither content nor receipts.
 
-Use the [pinned references](../../plugins/obsidian/docs/reference/README.md) as
-semantic guidance: `Vault.read`/`Vault.process`, `MetadataCache.getFileCache`,
+Consult the [API references](../../plugins/obsidian/docs/reference/README.md#developer-api)
+for `Vault.read`/`Vault.process`, `MetadataCache.getFileCache`,
 `FileManager.processFrontMatter`, `getFirstLinkpathDest` and `resolveSubpath`.
 Implement our own guarantees; do not claim Obsidian runtime or full resolver parity.
 

@@ -5,6 +5,9 @@
 !docker/**
 !plugins/
 !plugins/**
+# Keep local copies of upstream articles out of the image build context.
+plugins/obsidian/docs/reference/help/
+plugins/obsidian/docs/reference/developer/
 !shared/
 !shared/**
 !AGENTS.md
