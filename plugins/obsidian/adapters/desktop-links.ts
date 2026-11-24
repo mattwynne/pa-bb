@@ -164,7 +164,11 @@ export class DesktopLinks {
         request.throwIfAborted();
         assertSelected();
         const invoke = (args: string[]) => this.session!.invoke(args, request);
-        if (operation.kind === 'start') return { kind: 'start' } as const;
+        if (operation.kind === 'start') {
+          await check('after_close', request);
+          assertSelected();
+          return { kind: 'start' } as const;
+        }
         let value: unknown;
         switch (operation.kind) {
         case 'write':

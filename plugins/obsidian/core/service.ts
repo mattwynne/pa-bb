@@ -80,10 +80,10 @@ export class Obsidian {
     });
   }
   private fingerprint(catalog: Catalog) { return JSON.stringify({ compatible: catalog.compatible, sources: catalog.sources.map(s => [s.id, s.local.available, s.local.reason, catalog.filesystem?.[s.id]]) }); }
-  private async source(vaultId: string): Promise<SourceContext> {
+  private async source(vaultId: string, desktop?: { signal?: AbortSignal }): Promise<SourceContext> {
     if (this.stopped || !this.state.vaultIds.includes(vaultId)) throw new VaultError('not_connected', 'Connect this vault in Obsidian settings.');
     const revision = this.state.revision;
-    const catalog = await this.catalog.snapshot();
+    const catalog = desktop && this.catalog.desktopSnapshot ? await this.catalog.desktopSnapshot(desktop.signal) : await this.catalog.snapshot();
     if (!catalog.compatible) throw new VaultError('incompatible', catalog.nextAction ?? 'Update both plugins for note access v2.');
     const source = catalog.sources.find(s => s.id === vaultId);
     if (!source?.local.available) throw new VaultError('source_unavailable', 'Local note access is unavailable. Check this source in iCloud settings.');
@@ -159,11 +159,12 @@ export class Obsidian {
     return { vaults, incomplete };
   }
   async vaultInventory(input: InventoryInput, signal?: AbortSignal) {
-    const { revision } = await this.source(input.vaultId);
+    const { revision, source } = await this.source(input.vaultId, { signal });
     if (!this.files.vaultInventory) throw new VaultError('desktop_setup');
     const result = await this.files.vaultInventory(input, revision, signal);
     this.check(input.vaultId, revision);
-    return result;
+    const { id: vaultId, name, lastSuccess, cloudConnected, enabled, phase, failure } = source;
+    return { ...result, source: { vaultId, name, lastSuccess, cloudConnected, enabled, phase, failure } };
   }
   async listChildren(input: { vaultId: string; folder: string }, signal?: AbortSignal) {
     validPath(input.folder, true);
@@ -196,7 +197,7 @@ export class Obsidian {
     try {
     const cancelled = () => { if (signal?.aborted) throw new VaultError('cancelled'); };
     cancelled();
-    const context = await this.source(input.vaultId);
+    const context = await this.source(input.vaultId, input.selector ? undefined : { signal });
     const incoming = input.selector ? await this.files.readIncoming(input.vaultId, context.revision, input.path, input.selector.token) : null;
     this.check(input.vaultId, context.revision); cancelled();
     if (incoming?.absent) {
@@ -208,8 +209,10 @@ export class Obsidian {
     this.check(input.vaultId, revision); cancelled();
     const totalBytes = Buffer.byteLength(note.text);
     if (!note.complete || totalBytes > READ_LIMITS.bytes || createHash('sha256').update(note.text).digest('hex') !== note.hash) throw new VaultError('unsupported', 'The source did not return a bounded, complete, hash-verified note.');
-    // Recheck local safety after the async read; cloud progress alone is not a revocation.
-    const catalog = await this.catalog.snapshot(); this.check(input.vaultId, revision); cancelled();
+    // Desktop reads already recheck the exact directory grant before releasing
+    // content. Incoming reads use the retained iCloud path.
+    const catalog = !input.selector && this.files.desktopNoteReauthorizes ? context.catalog : await this.catalog.snapshot();
+    this.check(input.vaultId, revision); cancelled();
     const fingerprint = this.fingerprint(catalog);
     if (fingerprint !== this.fingerprint(context.catalog) || (session && (session.hash !== note.hash || session.source !== fingerprint))) throw new VaultError('conflict', 'The note or local source changed. Start a fresh whole-note read.');
     let start = session?.offset ?? 0, end = note.text.length;

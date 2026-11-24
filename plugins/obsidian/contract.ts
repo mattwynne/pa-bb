@@ -27,8 +27,10 @@ const moveOutput = moveInput.pick({ vaultId: true, path: true, destination: true
 });
 export const rpcContract = defineRpcContract({
   vaultInventory: {
-    input: vault.extend({ root: z.union([z.literal(''), consumerFolder]), folders: z.array(consumerFolder).max(16).optional(), metadataFolders: z.array(consumerFolder).max(16).optional(), fields }),
-    output: z.object({ notes: z.array(z.object({ path: consumerFolder, properties: z.record(z.string(), z.unknown()), malformed: z.boolean() }).strict()).max(10000), folders: z.array(consumerFolder).max(10000), incomplete: z.boolean() }).strict(),
+    input: vault.extend({ root: z.union([z.literal(''), consumerFolder]), folders: z.array(consumerFolder).max(16).optional(), metadataFolders: z.array(consumerFolder).max(16).optional(), metadataDepth: z.number().int().min(1).max(16).optional(), fields }),
+    output: z.object({
+      source: z.object({ vaultId: vault.shape.vaultId, name: z.string().nullable(), lastSuccess: z.string().nullable(), cloudConnected: z.boolean(), enabled: z.boolean(), phase: z.string(), failure: z.string().nullable() }).strict(),
+      notes: z.array(z.object({ path: consumerFolder, properties: z.record(z.string(), z.unknown()), malformed: z.boolean() }).strict()).max(10000), folders: z.array(consumerFolder).max(10000), incomplete: z.boolean() }).strict(),
   },
   noteEvidence: {
     input: noteInput.extend({ operationId: operationId.optional() }),

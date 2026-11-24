@@ -20,12 +20,14 @@ const mirror = z.object({ id: z.string(), folder: z.object({ name: z.string() })
 const status = z.object({ search: z.unknown().optional(), mirrorAccessVersion: z.number().int().nullish(), noteAccessVersion: z.number().int().nullable(), available: z.boolean(), connected: z.boolean(), challenge: z.string().nullable(), mirrors: z.array(mirror) });
 const unavailable = (setup: string, nextAction: string): Catalog => ({ setup, nextAction, sources: [], connected: false, compatible: false });
 export class ICloud implements MirrorCatalog, VaultFiles {
+  readonly desktopNoteReauthorizes = true as const;
   private filesystem?: FilesystemVault;
   private desktopRunner?: DesktopLinks;
   private configuration?: Configuration;
   private launch?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
   private stopping = new AbortController();
+  private admission?: { identity: string; completed: Promise<void> };
   private checking?: Promise<Catalog>;
   private root?: Awaited<ReturnType<FilesystemVault['desktopRoot']>>;
 
@@ -62,7 +64,7 @@ export class ICloud implements MirrorCatalog, VaultFiles {
       const catalog = await this.snapshot();
       if (!catalog.compatible || catalog.filesystem?.[id] !== 'ready' ||
           !catalog.sources.some(source => source.id === id && source.local.available)) throw new VaultError('source_unavailable');
-      await this.request('noteConfigure', { revision: state.revision, mirrorIds: state.vaultIds }, false, this.stopping.signal);
+      await this.admitConfiguration(state);
       await this.desktop(id, state.revision, { kind: 'start' }, this.stopping.signal);
     })().catch(error => {
       if (!this.stopping.signal.aborted && !(error instanceof VaultError && error.diagnosticReported))
@@ -187,52 +189,81 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     const prefix = input.root === root.prefix ? '' : input.root ? relative(input.root) : '';
     const folders = input.folders?.map(folder => folder === root.prefix ? '' : relative(folder));
     const metadataFolders = input.metadataFolders?.map(folder => folder === root.prefix ? '' : relative(folder));
-    const criteria = JSON.stringify({ prefix, folders, metadataFolders, fields: input.fields, tags: input.tags ?? false });
+    if (folders?.length === 0) {
+      await run({ kind: 'start' });
+      return { notes: [], folders: [], incomplete: false };
+    }
+    const criteria = JSON.stringify({ prefix, folders, metadataFolders, metadataDepth: input.metadataDepth, fields: input.fields, tags: input.tags ?? false });
     const output = await run({ kind: 'eval', code: String.raw`(async () => {
-      const { prefix, folders, metadataFolders, fields, tags } = ${criteria};
-      const inside = (p, r) => !r || p === r || p.startsWith(r + "/");
-      const visible = () => app.vault.getAllLoadedFiles().filter(f => inside(f.path, prefix) &&
-        (!folders || folders.some(folder => inside(f.path, folder))));
+      const { prefix, folders, metadataFolders, metadataDepth, fields, tags } = ${criteria};
+      const within = (p, r) => !r || p === r || p.startsWith(r + "/");
+      const visible = () => app.vault.getAllLoadedFiles().filter(file =>
+        (file.extension === "md" || Array.isArray(file.children)) && within(file.path, prefix) &&
+        (!folders || folders.some(folder => within(file.path, folder))));
+      const scopes = metadataFolders ?? [prefix];
+      const selected = path => scopes.some(folder => within(path, folder) &&
+        (metadataDepth === undefined || path === folder || path.slice(folder ? folder.length + 1 : 0).split("/").length <= metadataDepth));
       const files = visible();
-      const signature = files.map(f => f.path).sort().join("\n");
+      const signature = files.map(file => file.path).sort().join("\n");
       let incomplete = files.length > 10000;
       const notes = [], directories = [];
-      const unknown = [], checked = [];
+      const unknown = [], parents = new Map();
       for (const file of files.slice(0, 10000)) {
-        const selected = !metadataFolders || metadataFolders.some(folder => inside(file.path, folder));
-        if (selected && file.path !== "/" && (fields.length || metadataFolders)) checked.push(file.path);
+        const {path} = file;
+        if (path === "/") continue;
+        const includeMetadata = selected(path);
+        if (includeMetadata && (fields.length || metadataFolders)) {
+          const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+          let children = parents.get(parent);
+          if (!children) parents.set(parent, children = new Set());
+          children.add(path);
+        }
         if (Array.isArray(file.children)) {
-          if (file.path !== "/") directories.push(file.path);
-        } else if (file.extension === "md") {
-          const cache = selected ? app.metadataCache.getFileCache(file) : null;
+          directories.push(path);
+          if ((fields.length || metadataFolders) && selected(path + "/note.md") && !parents.has(path)) parents.set(path, new Set());
+        } else {
+          const cache = includeMetadata ? app.metadataCache.getFileCache(file) : null;
           const fm = cache?.frontmatter;
-          const properties = Object.fromEntries(fields.filter(k => fm && Object.hasOwn(fm, k)).map(k => [k, fm[k]]));
-          const row = { path: file.path, properties, malformed: false };
+          const properties = Object.fromEntries(fields.filter(key => fm && Object.hasOwn(fm, key)).map(key => [key, fm[key]]));
+          const row = { path, properties, malformed: false };
           if (tags) {
             row.tags = [...(cache?.tags ?? []).map(t => t.tag), ...(Array.isArray(fm?.tags) ? fm.tags : typeof fm?.tags === "string" ? [fm.tags] : [])].filter(t => typeof t === "string");
           }
-          if (selected && !fm && fields.length) unknown.push([file, row]);
+          if (includeMetadata && !fm && fields.length) unknown.push([file, row]);
           notes.push(row);
         }
       }
-      // Only frontmatter missing from Desktop's metadata can need source verification.
-      for (let i = 0; i < unknown.length; i += 32) {
-        await Promise.all(unknown.slice(i, i + 32).map(async ([file, row]) => {
+      // Directory listings verify visible endpoint names in one call per
+      // relevant parent. They also expose a name added ahead of Desktop's watcher.
+      const missing = new Set();
+      const groups = [...parents];
+      for (let i = 0; i < groups.length; i += 32) {
+        await Promise.all(groups.slice(i, i + 32).map(async ([parent, expected]) => {
+          try {
+            const listing = await app.vault.adapter.list(parent);
+            const actual = new Set([...listing.folders, ...listing.files.filter(path => path.endsWith(".md"))]
+              .filter(path => within(path, prefix) && selected(path) && (!folders || folders.some(folder => within(path, folder))) &&
+                !path.split("/").some(part => part.startsWith("."))));
+            for (const path of expected) if (!actual.has(path)) missing.add(path);
+            for (const path of actual) if (!expected.has(path)) incomplete = true;
+          } catch {
+            for (const path of expected) missing.add(path);
+          }
+        }));
+      }
+      // Desktop represents invalid YAML and absent properties the same way.
+      // Verify only the selected notes with missing cached frontmatter.
+      for (let i = 0; i < unknown.length; i += 64) {
+        await Promise.all(unknown.slice(i, i + 64).map(async ([file, row]) => {
+          if (missing.has(row.path)) return;
           try {
             const text = await app.vault.cachedRead(file);
-            if (/^\uFEFF?---(?:\r?\n|$)|^---(?:\r?\n|$)/.test(text)) {
+            if (/^(?:\uFEFF)?---(?:\r?\n|$)/.test(text)) {
               const closing = /^---[ \t]*\r?$/m.exec(text.slice(text.indexOf("\n") + 1));
               if (!closing || closing.index > 32768) row.malformed = true;
               else row.frontmatter = text.slice(0, text.indexOf("\n") + 1 + closing.index + closing[0].length);
             }
           } catch { row.malformed = true; incomplete = true; }
-        }));
-      }
-      const missing = new Set();
-      for (let i = 0; i < checked.length; i += 32) {
-        await Promise.all(checked.slice(i, i + 32).map(async path => {
-          try { if (!await app.vault.adapter.exists(path)) missing.add(path); }
-          catch { missing.add(path); }
         }));
       }
       return {
@@ -298,15 +329,21 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     return this.checking ??= this.checkCatalog().finally(() => { this.checking = undefined; });
   }
 
-  private async checkCatalog(signal?: AbortSignal): Promise<Catalog> {
+  desktopSnapshot(signal?: AbortSignal) {
+    return this.checkCatalog(signal, true);
+  }
+
+  private async checkCatalog(signal?: AbortSignal, direct = false): Promise<Catalog> {
     try {
-      const plugins = await this.sdk.plugins.list();
-      if (signal?.aborted) throw new VaultError('cancelled');
-      const plugin = plugins.plugins.find(p => p.id === 'icloud');
-      if (!plugin || !plugin.enabled || plugin.status !== 'running') {
-        if (!plugin) return unavailable('missing', 'Install iCloud from Plugins, then open its settings.');
-        if (!plugin.enabled) return unavailable('disabled', 'Enable iCloud in Plugins.');
-        return unavailable(plugin.status === 'error' ? 'icloud_error' : 'starting', 'Open iCloud settings and check its startup status.');
+      if (!direct) {
+        const plugins = await this.sdk.plugins.list();
+        if (signal?.aborted) throw new VaultError('cancelled');
+        const plugin = plugins.plugins.find(p => p.id === 'icloud');
+        if (!plugin?.enabled || plugin.status !== 'running') {
+          if (!plugin) return unavailable('missing', 'Install iCloud from Plugins, then open its settings.');
+          if (!plugin.enabled) return unavailable('disabled', 'Enable iCloud in Plugins.');
+          return unavailable(plugin.status === 'error' ? 'icloud_error' : 'starting', 'Open iCloud settings and check its startup status.');
+        }
       }
       const state = await this.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'status', input: null, outputSchema: status, signal });
       if (signal?.aborted) throw new VaultError('cancelled');
@@ -390,10 +427,31 @@ export class ICloud implements MirrorCatalog, VaultFiles {
       throw new VaultError(uncertain ? 'uncertain' : 'unavailable', uncertain ? 'The mutation reply was lost. Inspect its scoped operation receipt; do not repeat the change.' : 'Check iCloud is updated and running, then choose Check again.', true);
     }
   }
+  private configurationKey(value: Configuration) {
+    return JSON.stringify([value.revision, [...value.vaultIds].sort()]);
+  }
+
+  private admitConfiguration(value: Configuration) {
+    const identity = this.configurationKey(value);
+    // iCloud persists a successful note admission revision. Its exact
+    // directory grant rechecks that revision plus current local access.
+    if (this.admission?.identity === identity) return this.admission.completed;
+    const completed = this.request('noteConfigure', { revision: value.revision, mirrorIds: value.vaultIds }, false)
+      .then(result => {
+        if (result.revision !== value.revision) throw new VaultError('incompatible');
+      }).catch(error => {
+        if (this.admission?.completed === completed) this.admission = undefined;
+        throw error;
+      });
+    this.admission = { identity, completed };
+    return completed;
+  }
+
   async configure(value: Configuration) {
+    if (this.admission?.identity === this.configurationKey(value)) return this.admission.completed;
     const catalog = await this.snapshot();
     if (!catalog.compatible) throw new VaultError(catalog.setup === 'incompatible' ? 'incompatible' : 'source_unavailable', catalog.nextAction ?? 'Check iCloud status.');
-    await this.request('noteConfigure', { revision: value.revision, mirrorIds: value.vaultIds }, false);
+    return this.admitConfiguration(value);
   }
   vaultRoots(mirrorId: string, revision: number) {
     return this.route(mirrorId, files => files.vaultRoots(mirrorId, revision), () => this.request('noteVaultRoots', { mirrorId, revision }, false));

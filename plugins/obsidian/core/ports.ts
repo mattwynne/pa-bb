@@ -10,7 +10,10 @@ export type Source = { id: string; name: string; initialized: boolean; enabled: 
 export type SearchCapability = { version: 1; available: boolean; reason: 'missing_executable' | 'unsupported_version' | 'unavailable' | null };
 export type SearchQuery = { vaultId?: string; text?: string; tag?: string; pathGlob?: string; folders?: string[]; excludeFolders?: string[]; properties?: Array<{ key: string; equals: string | number | boolean | null }>; mode?: 'results' | 'count'; selectProperties?: string[]; cursor?: string; limit?: number };
 export type Catalog = { mirrorDirectoryGrantVersion?: 1; mirrorDirectoryGrantUnconfirmed?: true; filesystem?: Record<string, 'ready' | 'legacy_pending' | 'legacy_conflict' | 'unavailable'>; search?: SearchCapability; setup: string; nextAction: string | null; sources: Source[]; connected: boolean; compatible: boolean };
-export interface MirrorCatalog { snapshot(options?: { fresh: true; signal?: AbortSignal }): Promise<Catalog> }
+export interface MirrorCatalog {
+  snapshot(options?: { fresh: true; signal?: AbortSignal }): Promise<Catalog>;
+  desktopSnapshot?(signal?: AbortSignal): Promise<Catalog>;
+}
 export type CompleteNote = { text: string; hash: string; readAt: string; complete: true };
 // The iCloud note store applies this UTF-8 byte limit to whole reads and saves.
 export const MAX_NOTE_BYTES = 1024 * 1024;
@@ -28,7 +31,7 @@ export type DesktopLinkOperation =
   | { kind: 'tasks'; path?: string }
   | { kind: 'move'; path: string; destination: string };
 export type DesktopLinkResult = { kind: 'start' } | { kind: Exclude<DesktopLinkOperation['kind'], 'start'>; value: unknown };
-export type InventoryInput = { vaultId: string; root: string; folders?: string[]; metadataFolders?: string[]; fields: string[]; tags?: boolean };
+export type InventoryInput = { vaultId: string; root: string; folders?: string[]; metadataFolders?: string[]; metadataDepth?: number; fields: string[]; tags?: boolean };
 export type Inventory = { notes: { path: string; properties: Record<string, unknown>; malformed: boolean; tags?: string[] }[]; folders: string[]; incomplete: boolean };
 export type PathMove = { vaultId: string; path: string; destination: string; operationId: string; expectedHash?: string; kind: 'note' | 'folder' };
 export type PathMoveReceipt = Pick<PathMove, 'vaultId' | 'path' | 'destination' | 'operationId'> & {
@@ -39,6 +42,8 @@ export type DesktopLinkTarget = { status: 'resolved' | 'ambiguous' | 'missing' |
 
 export interface VaultFiles {
   desktopConfiguration?(configuration: Configuration): void;
+  // The direct adapter checks its identity-bound iCloud grant on both sides of the read.
+  readonly desktopNoteReauthorizes?: true;
   desktopNote?(vaultId: string, revision: number, path: string, signal?: AbortSignal): Promise<string>;
   desktopCommit?(input: Parameters<VaultFiles['commit']>[0], previous: string, signal?: AbortSignal): Promise<Omit<SaveReceipt, 'kind'>>;
   desktopTargets?(vaultId: string, revision: number, path: string, links: string[], signal?: AbortSignal): Promise<DesktopLinkTarget[]>;

@@ -79,25 +79,31 @@ test('normal tools use native Desktop against a disposable vault', {
 }, async t => {
   const owner = await mkdtemp('/tmp/pa-native-desktop-');
   const root = join(owner, 'vault');
-  await Promise.all(['.obsidian', 'Active', 'Done', 'OldFolder', 'Elsewhere'].map(folder => mkdir(join(root, folder), { recursive: true })));
+  await Promise.all(['.obsidian', 'Active', 'Done', 'OldFolder', 'Elsewhere', 'Active/Support/Nested'].map(folder => mkdir(join(root, folder), { recursive: true })));
   await writeFile(join(root, '.obsidian/app.json'), '{"alwaysUpdateLinks":true}');
   const original = '\r\n# Target\r\n\r\n- [ ] item\r\n';
   await writeFile(join(root, 'Active/Target.md'), original);
   await writeFile(join(root, 'Elsewhere/Target.md'), '# Separate namesake');
   await writeFile(join(root, 'Occupied.md'), 'sentinel-occupied');
   await writeFile(join(root, 'OldFolder/Child.md'), '# Child\n');
+  await writeFile(join(root, 'Active/Support/Visible.md'), '# Visible');
+  await writeFile(join(root, 'Active/Support/Nested/Deep.md'), '---\nstatus: [invalid\n---\n# Deep');
   await writeFile(join(root, 'Malformed.md'), '---\nstatus: [invalid\n---\n# Malformed');
   await writeFile(join(root, 'Reference.md'), '[[Active/Target]] and [[OldFolder/Child]]\n');
   const id = 'fixture';
   const { bb, harness } = createFakePluginHost({ pluginId: 'obsidian', settings: {
     desktopBinary: binaries.desktop!, desktopCli: binaries.cli!, desktopVaultId: id,
   } });
-  let denyGrant = false;
+  let denyGrant = false, denyAfter = Infinity, configureCount = 0, grantCount = 0;
   const sdk = { ...bb.sdk, plugins: {
     async list() { return { plugins: [{ id: 'icloud', enabled: true, status: 'running' }] }; },
     async callRpc({ method, input, outputSchema }: { method: string; input: { revision: number }; outputSchema: { parse(value: unknown): unknown } }) {
       const info = await lstat(root, { bigint: true });
-      if (method === 'mirrorDirectoryGrant' && denyGrant) throw new Error('sentinel denied grant');
+      if (method === 'noteConfigure') configureCount++;
+      if (method === 'mirrorDirectoryGrant') {
+        grantCount++;
+        if (denyGrant || grantCount >= denyAfter) throw new Error('sentinel denied grant');
+      }
       const replies: Record<string, unknown> = {
         status: { noteAccessVersion: 2, mirrorAccessVersion: 3, available: true, connected: false, challenge: null, mirrors: [
           { id, folder: { name: 'Fixture' }, initialized: true, enabled: false, phase: 'paused', lastSuccess: null, failure: null, filesystem: 'ready',
@@ -129,7 +135,22 @@ test('normal tools use native Desktop against a disposable vault', {
   const first = await tool('read_note', { path: 'Active/Target.md' });
   assert.equal(first.text, original);
   assert.equal(first.hash, createHash('sha256').update(original).digest('hex'));
-  assert.equal((await vaultInventory()).notes.find((row: any) => row.path === 'Malformed.md').malformed, true);
+  const admitted = await vaultInventory();
+  assert.equal(admitted.notes.find((row: any) => row.path === 'Malformed.md').malformed, true);
+  assert.deepEqual(admitted.source, { vaultId: id, name: 'Fixture', lastSuccess: null, cloudConnected: false, enabled: false, phase: 'paused', failure: null });
+  const grantsBefore = grantCount;
+  const scoped = await harness.behavior.callRpc('vaultInventory',
+    { vaultId: id, root: '', metadataFolders: ['Active'], metadataDepth: 2, fields: ['status'] }, caller) as typeof admitted;
+  assert.ok(grantCount >= grantsBefore + 2, 'the metadata query reauthorized the exact directory before and after the read');
+  assert.equal(configureCount, 1, 'unchanged configuration is already confirmed');
+  assert.equal(scoped.notes.find((row: any) => row.path === 'Active/Support/Nested/Deep.md').malformed, false);
+  assert.equal(scoped.incomplete, false);
+  await rename(join(root, 'Active/Support/Visible.md'), join(root, 'Active/Support/Arrived.md'));
+  const refreshed = await harness.behavior.callRpc('vaultInventory',
+    { vaultId: id, root: '', metadataFolders: ['Active'], metadataDepth: 2, fields: ['status'] }, caller) as typeof admitted;
+  const paths = refreshed.notes.map((row: any) => row.path);
+  assert.ok(refreshed.incomplete || paths.includes('Active/Support/Arrived.md'));
+  assert.ok(refreshed.incomplete || !(paths.includes('Active/Support/Visible.md') && paths.includes('Active/Support/Arrived.md')));
   assert.equal((await tool('resolve_link', { path: 'Reference.md', link: '[[Target]]' })).status, 'ambiguous');
   assert.deepEqual((await tool('get_note_metadata', { path: 'Active/Target.md', backlinks: true })).backlinkSources, ['Reference.md']);
   assert.deepEqual((await tool('search_notes', { text: 'missing-unique-native-search-query' })).results, []);
@@ -140,7 +161,7 @@ test('normal tools use native Desktop against a disposable vault', {
   const updated = await tool('read_note', { path: 'Active/Target.md' });
   const properties = await tool('update_properties', { path: 'Active/Target.md', expectedHash: updated.hash, set: { status: 'active' } });
   assert.equal(properties.receipt.outcome, 'saved_locally_pending_sync');
-  assert.equal((await tool('search_notes', { pathGlob: 'Active/**/*.md', properties: [{ key: 'status', equals: 'active' }], mode: 'count' })).totalMatches, 1);
+  assert.equal((await tool('search_notes', { pathGlob: 'Active/Target.md', properties: [{ key: 'status', equals: 'active' }], mode: 'count' })).totalMatches, 1);
   assert.equal((await tool('move_note', { path: 'Active/Target.md', destination: 'Occupied.md' })).outcome, 'not_moved');
   assert.equal(await readFile(join(root, 'Occupied.md'), 'utf8'), 'sentinel-occupied');
   const moved = await tool('move_note', { path: 'Active/Target.md', destination: 'Done/Target.md' });
@@ -160,5 +181,10 @@ test('normal tools use native Desktop against a disposable vault', {
   assert.ok(page.nextCursor);
   denyGrant = true;
   await tool('search_notes', { cursor: page.nextCursor }, 'cursor_expired');
+  denyGrant = false;
+  denyAfter = grantCount + 2;
+  await tool('read_note', { path: 'Reference.md' }, 'source_unavailable');
+  denyAfter = Infinity;
+  assert.equal((await tool('read_note', { path: 'Reference.md' })).complete, true);
   assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /sentinel/);
 });
