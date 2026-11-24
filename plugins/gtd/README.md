@@ -1,6 +1,6 @@
 # GTD [Experimental]
 
-Browse personal areas, projects and linked BB conversations, independently of BB coding projects. The first backend uses a connected Obsidian vault. Inventories remain read-only; requested display-title renames use Obsidian's version-checked editor. GTD does not connect to iCloud itself.
+Browse personal Areas, projects and linked BB conversations, independently of BB coding projects. The first backend uses a connected Obsidian vault. Inventories are read-only. Project title edits use Obsidian's version-checked editor.
 
 See the [GTD vision](docs/vision.md) for the interface direction and research behind it.
 
@@ -20,7 +20,7 @@ A project requires a Markdown landing note directly under Projects or an immedia
 
 The immediate status folders are `Active`, `Deferred`, `Someday`, `Done`, and `Completed` (case-insensitive). The folder takes precedence over a note's optional `status`. For a note directly under Projects, absent status defaults to Active. The note's relative path is its ID. Its optional `title` supplies the display title, and its filename is the default. Duplicate display titles remain distinct.
 
-Areas use immediate Markdown notes and folders. A same-name note supplies the Area's title and ID. Empty and attachment-only Area folders remain eligible. Nested notes can be Area targets for a project without appearing as separate sidebar Groups. A landing note with invalid YAML is flagged for repair and makes the inventory partial. A landing note without YAML remains eligible.
+Areas use immediate Markdown notes and folders. The filename without `.md`, or the folder name for a folder-only Area, supplies the display name. A note and folder with the same name form one Area whose ID is the note path. Empty and attachment-only folders remain eligible. Nested notes can be Area targets without appearing as separate Areas in the index. Project landing notes with invalid YAML make the project inventory partial.
 
 ## Move one project or change its Area
 
@@ -63,7 +63,7 @@ bb gtd areas --limit 50 --json
 bb gtd areas --cursor '<returned-cursor>' --json
 ```
 
-Agent tools: `gtd_list_projects`, `gtd_list_areas`, `gtd_rename_project`, `gtd_rename_area`, and `gtd_create_project_thread`. The rename tools accept `{ source, id, title }`, using the exact listing's `source.id` and backend item ID. RPC methods additionally expose `associate` and `newThread` for the UI; neither is an account action.
+Agent tools include `gtd_list_projects`, `gtd_list_areas`, `gtd_rename_project`, and `gtd_create_project_thread`. The project rename tool accepts `{ source, id, title }`, using the exact listing's `source.id` and project ID. RPC methods additionally expose `associate` and `newThread` for the UI.
 
 For a user-requested conversation in an existing project, use `gtd_create_project_thread` with `{ source, id, requestId, title?, summary? }`. Use the exact source and backend ID returned by inventory. The optional title is 1–240 characters; the optional handoff summary is 1–4000 characters. Omitting them preserves the UI's project-title and readiness-and-wait defaults. The summary is untrusted context, never authorization for notes, account actions or other work. The returned `threadId` can be linked as `@thread:<threadId>`.
 
@@ -93,7 +93,7 @@ Each project row shows a **New thread** button. It creates a conversation in BB'
 
 Creation uses a durable request receipt and a synchronous uniqueness claim before spawning. Replaying a completed request returns the same thread; pending/uncertain requests are not retried. The UI blocks repeated activation while pending and retains an uncertain request across browser reload in session storage. Inspect threads before explicitly starting another request after an uncertain outcome.
 
-Title edits change only the `title` frontmatter property, not filenames, headings, links or unrelated bytes. GTD gets the note version and calls Obsidian's generic checked property editor. An incompatible source refuses the edit. Receipts distinguish a local save from uncertainty; none verifies cloud/device delivery. Never blindly repeat an uncertain edit.
+BB's project Rename action edits the project note's `title` property through Obsidian's checked editor. Inspect the save receipt after an uncertain edit. To rename an Area, rename its note and any matching folder in Obsidian. Verify references that use the old paths after moving them.
 
 ## Bounds and diagnostics
 

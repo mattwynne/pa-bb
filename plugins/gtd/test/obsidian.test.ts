@@ -16,7 +16,9 @@ function fixture() {
       note(projects + '/Completed/Pilot.md', { status: 'active', title: 'Example', area: 'Areas/Work/Nested' }),
       note(projects + '/Example/README.md', { title: 'Support metadata', area: 'Areas/Work' }),
       note(projects + '/Notebook/README.md'),
-      note(areas + '/Finance.md'), note(areas + '/Work.md'), note(areas + '/Work/Nested.md'),
+      note(areas + '/Finance.md', { title: 'Old finance label' }),
+      note(areas + '/Work.md', { title: false }),
+      note(areas + '/Work/Nested.md'),
     ],
     folders: [root, projects, projects + '/Completed', projects + '/Notebook', projects + '/Example', projects + '/Empty',
       areas, areas + '/Work', areas + '/Empty'],
@@ -31,8 +33,15 @@ function fixture() {
     assert.equal(input?.root, root);
     const page = await read();
     if (Array.isArray(input?.folders) && input.folders.length === 0) return { ...page, notes: [], folders: [] };
-    assert.equal(input?.metadataDepth, 2);
-    assert.deepEqual(input?.metadataFolders, [projects, areas]);
+    if (Array.isArray(input?.folders)) {
+      assert.deepEqual(input.folders, [areas]);
+      assert.deepEqual(input.metadataFolders, [areas]);
+      assert.equal(input.metadataDepth, 1);
+      assert.deepEqual(input.fields, []);
+    } else {
+      assert.equal(input?.metadataDepth, 2);
+      assert.deepEqual(input?.metadataFolders, [projects, areas]);
+    }
     return page;
   } } } as unknown as BbPluginApi['sdk'];
   return { result, received, sdk, setReader(next: typeof read) { read = next; },
@@ -49,25 +58,32 @@ test('one Desktop query gives note-backed project IDs, status and Area assignmen
     { id: projects + '/Example.md', title: 'Example', status: 'active', areaId: areas + '/Finance.md' },
     { id: projects + '/Completed/Pilot.md', title: 'Example', status: 'done', areaId: areas + '/Work/Nested.md' },
   ]);
-  assert.deepEqual(areaList.areas.map(area => area.id), [areas + '/Finance.md', areas + '/Work.md', areas + '/Empty/']);
+  const expectedAreas = [
+    { id: areas + '/Finance.md', title: 'Finance' },
+    { id: areas + '/Work.md', title: 'Work' },
+    { id: areas + '/Empty/', title: 'Empty' },
+  ];
+  assert.deepEqual(areaList.areas, expectedAreas);
+  assert.deepEqual((await f.backend.readAreas(signal())).areas, expectedAreas);
   f.result.notes[0].path = projects + '/Renamed.md';
   const newer = await f.backend.readBoth(signal());
   assert.ok(newer.projects.projects.some(row => row.id === projects + '/Renamed.md'));
   assert.ok(newer.projects.projects.every(row => row.id !== projects + '/Example.md'));
 });
 
-test('malformed landing frontmatter is named as partial, absent frontmatter and malformed supporting material are distinct', async () => {
+test('malformed project frontmatter is partial and Area entries use their paths', async () => {
   const f = fixture();
   f.result.notes.push(note(projects + '/Broken.md', {}, true), note(areas + '/Broken.md', {}, true),
     note(projects + '/No Properties.md'), note(projects + '/Support/Broken.md', {}, true));
   f.result.folders.push(areas + '/Broken');
   const { projects: snapshot, areas: areaList } = await f.backend.readBoth(signal());
   assert.deepEqual(snapshot.malformedFrontmatter, [projects + '/Broken.md']);
-  assert.deepEqual(areaList.malformedFrontmatter, [areas + '/Broken.md']);
+  assert.equal(areaList.malformedFrontmatter, undefined);
   assert.equal(snapshot.complete, false);
-  assert.equal(areaList.complete, false);
+  assert.equal(areaList.complete, true);
   assert.ok(snapshot.projects.some(row => row.id === projects + '/No Properties.md'));
   assert.ok(snapshot.projects.every(row => row.id !== projects + '/Broken.md'));
+  assert.ok(areaList.areas.some(row => row.id === areas + '/Broken.md' && row.title === 'Broken'));
   assert.ok(areaList.areas.every(row => row.id !== areas + '/Broken/'));
 });
 

@@ -59,7 +59,7 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
     page.setDefaultTimeout(12000);
     const errors = []; const consoleErrors = []; page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
-    let title = 'Learn woodworking', area = 'Learning', creations = 0;
+    let title = 'Learn woodworking', creations = 0;
     const projectChanges = [], areaCreations = [];
     let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
     const renames = [];
@@ -118,7 +118,7 @@ try {
       let result;
       if (method === 'browseInventory') {
         const projects = mode === 'empty' ? [] : [{ id: projectId, title, status: projectStatus, areaId: assignedArea }];
-        const areas = [{ id: 'Areas/Learning.md', title: area }];
+        const areas = [{ id: 'Areas/Learning.md', title: 'Learning' }];
         if (mode === 'empty') areas.length = 0;
         if (mode === 'project-actions' || mode === 'browser-flow') areas.push({ id: 'Areas/Home.md', title: 'Home' });
         if (mode === 'browser-flow') {
@@ -144,9 +144,11 @@ try {
           areas: (input.input ?? input).includeAreas ? { source, areas, complete: true, warnings: [] } : null,
         };
       }
-      if (method === 'renameProject' || method === 'renameArea') { renames.push(input); if (method === 'renameProject') {
+      if (method === 'renameProject') {
+        renames.push(input);
         title = input.title;
-      } else area = input.title; result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' }; }
+        result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' };
+      }
       if (method === 'newThread') { creations++; await new Promise(r => setTimeout(r, 250)); result = { threadId: 'fixture1' }; }
       if (method === 'newAreaThread') { areaCreations.push(input); result = { threadId: 'fixture1' }; }
       if (method === 'changeProject') {
@@ -335,51 +337,56 @@ try {
       await link('Empty Area').waitFor();
     } else if (mode === 'normal') {
       await openLearning();
+      assert.equal(await nav.getByLabel('Actions for area Learning').count(), 0);
+      await page.keyboard.press('Tab');
+      const newAreaThread = nav.getByRole('button', { name: 'New thread for Area Learning' });
+      assert.equal(await newAreaThread.evaluate(el => el.matches(':focus-visible')), true);
+      await page.keyboard.press('Tab');
+      assert.equal(await nav.getByRole('button', { name: 'Refresh GTD' }).evaluate(el => el.matches(':focus')), true);
       const plus = nav.getByRole('button', { name: 'New thread for Learn woodworking' });
       await page.keyboard.press('Tab'); await plus.focus();
       assert.notEqual(await plus.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
       if (width === 390) assert.ok(await plus.evaluate(el => el.getBoundingClientRect().height >= 44));
       await page.screenshot({ path: join(artifacts, `focus-${width}.png`) });
-      for (const [kind, name, replacement] of [['area', 'Learning', 'Skills'], ['project', 'Learn woodworking', 'Woodwork']]) {
-        const trigger = nav.getByLabel(`Actions for ${kind} ${name}`);
-        const dialog = nav.getByRole('dialog', { name: `Rename ${kind}` });
-        const input = dialog.getByRole('textbox', { name: 'Title' });
-        const openEditor = async () => {
-          await trigger.focus();
-          await page.keyboard.press('Enter');
-          const rename = trigger.locator('..').getByRole('button', { name: 'Rename' });
-          await rename.focus();
-          await page.keyboard.press('Enter');
-          await input.waitFor();
-          assert.equal(await input.evaluate(el => el.matches(':focus')), true);
-          assert.deepEqual(await input.evaluate(el => [el.value, el.selectionStart, el.selectionEnd]), [name, 0, name.length]);
-          assert.notEqual(await input.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
-        };
-        await openEditor();
-        const bounds = await dialog.boundingBox();
-        assert.ok(bounds.x >= 12 && bounds.x + bounds.width <= width - 12);
-        if (width === 390) {
-          for (const control of [input, dialog.getByRole('button', { name: 'Save' }), dialog.getByRole('button', { name: 'Cancel' })]) {
-            assert.ok((await control.boundingBox()).height >= 44);
-          }
+      const name = 'Learn woodworking', replacement = 'Woodwork';
+      const trigger = nav.getByLabel(`Actions for project ${name}`);
+      const dialog = nav.getByRole('dialog', { name: 'Rename project' });
+      const input = dialog.getByRole('textbox', { name: 'Title' });
+      const openEditor = async () => {
+        await trigger.focus();
+        await page.keyboard.press('Enter');
+        const rename = trigger.locator('..').getByRole('button', { name: 'Rename' });
+        await rename.focus();
+        await page.keyboard.press('Enter');
+        await input.waitFor();
+        assert.equal(await input.evaluate(el => el.matches(':focus')), true);
+        assert.deepEqual(await input.evaluate(el => [el.value, el.selectionStart, el.selectionEnd]), [name, 0, name.length]);
+        assert.notEqual(await input.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
+      };
+      await openEditor();
+      const bounds = await dialog.boundingBox();
+      assert.ok(bounds.x >= 12 && bounds.x + bounds.width <= width - 12);
+      if (width === 390) {
+        for (const control of [input, dialog.getByRole('button', { name: 'Save' }), dialog.getByRole('button', { name: 'Cancel' })]) {
+          assert.ok((await control.boundingBox()).height >= 44);
         }
-        await page.screenshot({ path: join(artifacts, `rename-${kind}-${width}.png`) });
-        await page.keyboard.press('Escape');
-        await dialog.waitFor({ state: 'hidden' });
-        assert.equal(await trigger.evaluate(el => el.matches(':focus')), true);
-        await openEditor();
-        await page.keyboard.press('Enter');
-        await dialog.waitFor({ state: 'hidden' });
-        assert.equal(renames.length, kind === 'area' ? 0 : 1);
-        await openEditor();
-        await page.keyboard.insertText(replacement);
-        await page.keyboard.press('Enter');
-        await (kind === 'area' ? heading(replacement) : link(replacement)).waitFor();
-        const updatedTrigger = nav.getByLabel(`Actions for ${kind} ${replacement}`);
-        await updatedTrigger.waitFor();
-        assert.equal(await updatedTrigger.evaluate(el => el.matches(':focus')), true);
       }
-      assert.deepEqual(renames, [{ source: ref.source, id: 'Areas/Learning.md', title: 'Skills' }, { ...ref, title: 'Woodwork' }]);
+      await page.screenshot({ path: join(artifacts, `rename-project-${width}.png`) });
+      await page.keyboard.press('Escape');
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(await trigger.evaluate(el => el.matches(':focus')), true);
+      await openEditor();
+      await page.keyboard.press('Enter');
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(renames.length, 0);
+      await openEditor();
+      await page.keyboard.insertText(replacement);
+      await page.keyboard.press('Enter');
+      await link(replacement).waitFor();
+      const updatedTrigger = nav.getByLabel(`Actions for project ${replacement}`);
+      await updatedTrigger.waitFor();
+      assert.equal(await updatedTrigger.evaluate(el => el.matches(':focus')), true);
+      assert.deepEqual(renames, [{ ...ref, title: 'Woodwork' }]);
       await link('Woodwork').click();
       const projectUrl = page.url();
       await heading('Woodwork').waitFor();
@@ -408,7 +415,7 @@ try {
       await page.getByRole('menuitem', { name: /GTD project/ }).click();
       await page.getByRole('menuitem', { name: 'Woodwork', exact: true }).click();
       await nav.getByText('Unassigned threads (0)', { exact: true }).waitFor();
-      await link('Skills').click();
+      await link('Learning').click();
       await link('Woodwork').click();
       await link('Choose tools').click();
       await page.waitForURL('**/threads/fixture1');

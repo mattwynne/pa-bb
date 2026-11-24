@@ -112,8 +112,8 @@ function useLinks(ids: Iterable<string>) {
   const loading = signature !== state.signature || revision !== state.revision;
   return { links: state.links, error: !loading && state.error, loading };
 }
-type RenameTarget = { kind: 'area' | 'project'; source: string; id: string; title: string };
-const renameKey = ({ kind, source, id }: RenameTarget) => JSON.stringify([kind, source, id]);
+type RenameTarget = { source: string; id: string; title: string };
+const renameKey = ({ source, id }: RenameTarget) => key(source, id);
 function useDisclosure() {
   const menu = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
@@ -146,13 +146,13 @@ function useDisclosure() {
   };
   return { detailsProps, trigger, close: () => { if (menu.current) closeAndFocus(menu.current); } };
 }
-function RowActions({ target, disabled, onRename, actions = [] }: {
+function RowActions({ target, disabled, onRename, actions }: {
   target: RenameTarget; disabled: boolean; onRename: (target: RenameTarget, trigger: HTMLElement) => void;
-  actions?: { label: string; run: (trigger: HTMLElement) => void }[];
+  actions: { label: string; run: (trigger: HTMLElement) => void }[];
 }) {
   const { detailsProps, trigger, close } = useDisclosure();
   return <details className="gtd-menu" {...detailsProps}>
-    <summary className="gtd-row-action" ref={trigger} data-gtd-rename={renameKey(target)} aria-label={`Actions for ${target.kind} ${target.title}`}><Icon name="MoreHorizontal" aria-hidden="true" /></summary>
+    <summary className="gtd-row-action" ref={trigger} data-gtd-rename={renameKey(target)} aria-label={`Actions for project ${target.title}`}><Icon name="MoreHorizontal" aria-hidden="true" /></summary>
     <div className="gtd-menu-items">
       {[{ label: 'Rename', run: (trigger: HTMLElement) => onRename(target, trigger) }, ...actions].map(action =>
         <button key={action.label} disabled={disabled} onClick={() => {
@@ -188,7 +188,7 @@ function RenameTitle({ target, onClose }: { target: RenameTarget; onClose: (titl
       close();
     }}>
     <form onSubmit={event => { event.preventDefault(); if (title) close(title); }}>
-      <h2 id={headingId}>Rename {target.kind}</h2>
+      <h2 id={headingId}>Rename project</h2>
       <label>
         Title
         <input ref={input} value={draft} onChange={event => setDraft(event.target.value)} autoCapitalize="sentences" autoCorrect="off" spellCheck={false} enterKeyHint="done" />
@@ -430,14 +430,14 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const run = async (id: string, task: () => Promise<void>) => { if (busyRef.current) return; busyRef.current = true; setBusy(id); setNotice(''); try { await task(); } catch { setNotice('Change not confirmed. Inspect threads or Obsidian receipts before trying again.'); } finally { busyRef.current = false; setBusy(''); } };
   const closeEditor = (title?: string) => {
     if (!editor) return;
-    const { target: { kind, source, id, title: original }, trigger } = editor;
+    const { target: { source, id, title: original }, trigger } = editor;
     setEditor(undefined);
     (trigger.isConnected ? trigger : refreshButton.current)?.focus();
     if (!title || title === original || busyRef.current) return;
     restoreAfterSave.current = editor;
     void run(id, async () => {
       try {
-        const result = await rpc.call(kind === 'area' ? 'renameArea' : 'renameProject', { source, id, title });
+        const result = await rpc.call('renameProject', { source, id, title });
         setNotice(result.outcome === 'saved_locally_pending_sync' ? 'Title saved locally; cloud delivery is not verified.' : 'Save unconfirmed. Inspect Obsidian receipts before another edit.');
       } finally { refreshInventory(); }
     });
@@ -457,7 +457,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const eligibleAreas = inventory.areas.filter(area => area.id.endsWith('.md') && !/[\[\]#|%]/.test(area.id));
   const eligibleIds = new Set(eligibleAreas.map(area => area.id));
   const changeProject = (project: Project, change: { kind: 'done' } | { kind: 'area'; areaPath: string }, trigger?: HTMLElement) => {
-    if (trigger) restoreAfterSave.current = { target: { ...project, kind: 'project', source: inventory.source }, trigger };
+    if (trigger) restoreAfterSave.current = { target: { ...project, source: inventory.source }, trigger };
     void run(project.id, async () => {
       try { setNotice((await rpc.call('changeProject', { source: inventory.source, id: project.id, change })).message); }
       finally { refreshInventory(true); linksChanged(); }
@@ -530,17 +530,16 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       },
     };
   };
-  const itemActions = (item: Area | Project, kind: 'area' | 'project') => {
-    const target = { ...item, kind, source: inventory.source };
-    return <>
-      <button className="gtd-row-action" aria-label={`New thread for ${kind === 'area' ? 'Area ' : ''}${item.title}`} title="New thread"
-        disabled={!!busy} onClick={() => newThread(item, kind)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>
-      <RowActions target={target} disabled={!!busy || !item.id.endsWith('.md')} onRename={openEditor} actions={'status' in item ? [
-        ...(eligibleAreas.length ? [{ label: 'Move to Area…', run: (trigger: HTMLElement) => setProjectAction({ kind: 'area', project: item, trigger }) }] : []),
-        { label: item.status === 'done' ? 'Archive linked threads' : 'Mark as done', run: trigger => setProjectAction({ kind: 'done', project: item, trigger }) },
-      ] : []} />
-    </>;
-  };
+  const newThreadAction = (item: Area | Project, kind: 'area' | 'project') =>
+    <button className="gtd-row-action" aria-label={`New thread for ${kind === 'area' ? 'Area ' : ''}${item.title}`} title="New thread"
+      disabled={!!busy} onClick={() => newThread(item, kind)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>;
+  const projectActions = (project: Project) => <>
+    {newThreadAction(project, 'project')}
+    <RowActions target={{ ...project, source: inventory.source }} disabled={!!busy || !project.id.endsWith('.md')} onRename={openEditor} actions={[
+      ...(eligibleAreas.length ? [{ label: 'Move to Area…', run: (trigger: HTMLElement) => setProjectAction({ kind: 'area', project, trigger }) }] : []),
+      { label: project.status === 'done' ? 'Archive linked threads' : 'Mark as done', run: trigger => setProjectAction({ kind: 'done', project, trigger }) },
+    ]} />
+  </>;
   return <section className="gtd-nav" aria-label="Personal GTD projects" ref={nav}>
     <div className="gtd-content">
       {(route.kind === 'project' || route.kind === 'invalid' || missing) && <nav className="gtd-crumbs" aria-label="Breadcrumb">
@@ -552,8 +551,8 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       </nav>}
       <div className="gtd-page-heading">
         <h1 tabIndex={-1}>{title}</h1>
-        {area && itemActions(area, 'area')}
-        {project && itemActions(project, 'project')}
+        {area && newThreadAction(area, 'area')}
+        {project && projectActions(project)}
         <button className="gtd-row-action" ref={refreshButton} aria-label="Refresh GTD" title="Refresh GTD" disabled={inventory.loading}
           onClick={() => { refreshInventory(true); linksChanged(); }}><Icon name="RotateCcw" aria-hidden="true" /></button>
       </div>
@@ -597,7 +596,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
               {item.title}{status === 'all' && <span className="gtd-row-status">{item.status[0].toUpperCase() + item.status.slice(1)}</span>}
               <Icon name="ChevronRight" aria-hidden="true" />
             </PanelLink>
-            {itemActions(item, 'project')}
+            {projectActions(item)}
           </li>;
         })}</ul> : <p className="gtd-empty" role="status">{partial ? 'No matching projects in the loaded inventory.' :
           !inArea.length ? (area ? 'No projects in this Area yet.' : 'No unassigned projects.') :

@@ -7,11 +7,11 @@ import type { AreaSnapshot } from '../core/model.ts';
 import { plugin } from '../server.ts';
 const signal = () => new AbortController().signal;
 const data = (): AreaSnapshot => ({ source: { backend: 'fake', id: 'one', name: 'Example', scope: 'Areas', observedAt: 'now', lastSuccessfulSync: null, sync: null }, areas: [{ id: 'Areas/Work.md', title: 'Work' }, { id: 'Areas/Family.md', title: 'Family' }], complete: true, warnings: [] });
-test('top-level Area entries ignore supporting metadata and retain root title and exact scope', () => {
-  assert.deepEqual(areaFromNote('Areas', 'Areas/Work/Clients.md', {}), null);
-  assert.deepEqual(areaFromNote('Areas', 'Areas/Work.md', { type: 'reference', title: 'Profession' }), { id: 'Areas/Work.md', title: 'Profession' });
-  for (const path of ['Areas-copy/Work.md', 'Areas/../Work.md', 'Areas/Work.txt', 'Areas\\Work.md']) assert.equal(areaFromNote('Areas', path, {}), 'invalid');
-  assert.equal(areaFromNote('Areas', 'Areas/Work.md', { title: 'bad\nheading' }), 'invalid');
+test('top-level Area names come from filenames and stay within the exact scope', () => {
+  assert.deepEqual(areaFromNote('Areas', 'Areas/Work/Clients.md'), null);
+  assert.deepEqual(areaFromNote('Areas', 'Areas/🧰 Work.md'), { id: 'Areas/🧰 Work.md', title: '🧰 Work' });
+  for (const path of ['Areas-copy/Work.md', 'Areas/../Work.md', 'Areas/Work.txt', 'Areas\\Work.md', 'Areas/.md'])
+    assert.equal(areaFromNote('Areas', path), 'invalid');
 });
 test('area paging sorts, binds owners, checks access/settings and consumes cursors once', async () => {
   let key = 'one', reads = 0, now = 0, allowed = true;

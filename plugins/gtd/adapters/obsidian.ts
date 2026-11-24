@@ -71,11 +71,11 @@ export function projectFromNote(folder: string, path: string, properties: Record
   return status && text(title) ? { id: path, status, title: title.trim() } : 'invalid';
 }
 
-export function areaFromNote(folder: string, path: string, properties: Record<string, unknown>): Area | 'invalid' | null {
+export function areaFromNote(folder: string, path: string): Area | 'invalid' | null {
   if (!relativeFolder.safeParse(path).success || !path.endsWith('.md') || !within(path, folder)) return 'invalid';
   if (!immediate(path, folder)) return null;
-  const title = properties.title === undefined ? posix.basename(path, '.md') : properties.title;
-  return text(title) ? { id: path, title: title.trim() } : 'invalid';
+  const title = posix.basename(path).slice(0, -3);
+  return text(title) ? { id: path, title } : 'invalid';
 }
 
 function areaLookup(root: string, areaFolder: string, notes: Set<string>, folders: Set<string>) {
@@ -172,12 +172,13 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         ...(projects ? {} : { folders: [areaFolder] }),
         metadataFolders: projects ? [...new Set([projectFolder, areaFolder])] : [areaFolder],
         metadataDepth: projects ? 2 : 1,
-        fields: this.preview ? ['id', 'title', 'status', 'area'] : projects ? ['title', 'status', 'area'] : ['title'],
+        fields: this.preview ? ['id', 'title', 'status', 'area'] : projects ? ['title', 'status', 'area'] : [],
       }, signal);
       this.checkGeneration(generation, signal);
       const notes = new Set(inventory.notes.map(note => note.path));
       const folders = new Set(inventory.folders);
-      const invalidAreas = new Set(inventory.notes.filter(note => note.malformed && immediate(note.path, areaFolder)).map(note => note.path));
+      // Only the stable-ID preview needs to validate Area properties.
+      const invalidAreas = new Set(this.preview ? inventory.notes.filter(note => note.malformed && immediate(note.path, areaFolder)).map(note => note.path) : []);
       const vault = inventory.source;
       const observedAt = new Date().toISOString();
       const source = (scope: string) => ({
@@ -212,10 +213,11 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
           }
         }
         if (areas && immediate(path, areaFolder)) {
-          const area = malformed ? 'invalid' : areaFromNote(areaFolder, path, properties);
+          const invalidMetadata = invalidAreas.has(path);
+          const area = invalidMetadata ? 'invalid' : areaFromNote(areaFolder, path);
           if (area === 'invalid') {
             areaWarnings.add('invalid_area');
-            if (malformed && badAreas.length < 12) badAreas.push(path);
+            if (invalidMetadata && badAreas.length < 12) badAreas.push(path);
           } else if (area) {
             areaRows.push(area);
             this.preview?.owners.set(path, properties);

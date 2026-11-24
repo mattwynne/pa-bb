@@ -8,7 +8,7 @@ import type { ProjectSnapshot } from '../core/model.ts';
 const ref = { source: 'one', id: 'Projects/Woodworking.md' };
 const snapshot = (): ProjectSnapshot => ({ source: { backend: 'fake', id: 'one', name: 'Synthetic', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null }, projects: [{ id: ref.id, title: 'Learn woodworking', status: 'active', areaId: 'Areas/Learning.md' }, { id: 'Projects/Workbench.md', title: 'Build workbench', status: 'deferred' }], complete: true, warnings: [] });
 async function setup(initial = snapshot()) {
-  let data = initial, areaTitle = 'Learning'; const metadata: Record<string, any> = { t1: { unrelated: 'keep' }, t2: { project: ref } }; let spawns = 0; let fail = false;
+  let data = initial; const metadata: Record<string, any> = { t1: { unrelated: 'keep' }, t2: { project: ref } }; let spawns = 0; let fail = false;
   const host = createFakePluginHost({ pluginId: 'gtd', agentSkillIds: ['gtd-projects'], sdk: {
     plugins: { callRpc: async () => ({ vaults: [], incomplete: false }) },
     projects: { list: async () => [{ id: 'personal', kind: 'personal' }] as any },
@@ -19,18 +19,17 @@ async function setup(initial = snapshot()) {
   } });
   const dependencies = {
     select: async () => ({ key: 'source', backend: { checkAccess: async () => {}, readProjects: async () => data, rename: async (id: string, title: string) => { data.projects.find(p => p.id === id)!.title = title; return { operationId: randomUUID(), outcome: 'saved_locally_pending_sync' as const }; } } }),
-    selectAreas: async () => ({ key: 'areas', backend: { checkAccess: async () => {}, readAreas: async () => ({ source: data.source, areas: [{ id: 'Areas/Learning.md', title: areaTitle }], complete: true, warnings: [] }), rename: async (_id: string, title: string) => { areaTitle = title; return { operationId: randomUUID(), outcome: 'saved_locally_pending_sync' as const }; } } }),
+    selectAreas: async () => ({ key: 'areas', backend: { checkAccess: async () => {}, readAreas: async () => ({ source: data.source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }], complete: true, warnings: [] }) } }),
   };
   await plugin(host.bb, dependencies);
   return { ...host, dependencies, metadata, spawns: () => spawns, fail: () => { fail = true; }, remove: () => { data.projects = []; } };
 }
-test('renames preserve IDs, area relationships, both linked threads and unrelated thread metadata; association touches no environment', async () => {
+test('project renames preserve IDs, Area relationships and thread metadata', async () => {
   const f = await setup(); let active = f.harness;
   try {
     await f.harness.behavior.callRpc('associate', { threadId: 't1', project: ref });
-    for (const [tool, input] of [['gtd_rename_project', { ...ref, title: 'Woodwork' }], ['gtd_rename_area', { source: 'one', id: 'Areas/Learning.md', title: 'Skills' }]] as const) {
-      const result = await f.harness.behavior.callAgentTool(tool, input); assert.equal((result as any).isError, undefined);
-    }
+    const result = await f.harness.behavior.callAgentTool('gtd_rename_project', { ...ref, title: 'Woodwork' });
+    assert.equal((result as any).isError, undefined);
     assert.deepEqual(f.metadata.t1, { unrelated: 'keep', project: ref }); assert.deepEqual(f.metadata.t2.project, ref);
     const projects = await f.harness.behavior.callRpc('listProjects', {}) as any; assert.equal(projects.projects[0].id, ref.id); assert.equal(projects.projects[0].areaId, 'Areas/Learning.md');
     await assert.rejects(f.harness.behavior.callRpc('associate', { threadId: 't1', project: { ...ref, source: 'other' } }));

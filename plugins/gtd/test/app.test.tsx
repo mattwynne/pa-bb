@@ -27,7 +27,7 @@ function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }
           areas: includeAreas ? { source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }, ...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` }))], complete: true, warnings: [] } : null,
         };
       },
-      newThread, renameProject: rename, renameArea: rename,
+      newThread, renameProject: rename,
     },
     sdk: { threads: { experimental_listPluginMetadata: async () => ({ threads: [{ threadId: 't1', metadata: { project: ref } }, { threadId: 't2', metadata: { project: ref } }] }) } },
     sidebarThreads: { status: 'ready', threads: ['t1', 't2'].map((id, i) => ({ id, projectId: 'personal', href: '/threads/' + id, displayTitle: 'Woodwork thread ' + i, title: 'Woodwork thread ' + i, titleFallback: '', indicator: 'idle', indicatorLabel: 'Idle', environment: null, isHidden: false, isArchived: false, isUnread: false, activity: {}, status: 'idle' })) as any },
@@ -47,11 +47,11 @@ afterEach(() => {
   vi.restoreAllMocks();
   sessionStorage.clear();
 });
-function openRename(slot: ReturnType<typeof setup>, kind: 'area' | 'project', name: string) {
-  const trigger = slot.getByLabelText(`Actions for ${kind} ${name}`);
+function openRename(slot: ReturnType<typeof setup>, name: string) {
+  const trigger = slot.getByLabelText(`Actions for project ${name}`);
   fireEvent.click(trigger);
   fireEvent.click(trigger.parentElement!.querySelector('button')!);
-  const dialog = slot.getByRole('dialog', { name: `Rename ${kind}` });
+  const dialog = slot.getByRole('dialog', { name: 'Rename project' });
   return { trigger, input: slot.getByRole('textbox', { name: 'Title' }) as HTMLInputElement, dialog };
 }
 test('GTD registers a navigation panel and keeps area, project and thread actions', async () => {
@@ -65,7 +65,9 @@ test('GTD registers a navigation panel and keeps area, project and thread action
   expect(projectLink.getAttribute('href')).toBe(panelHref(woodwork));
   fireEvent.click(projectLink);
   expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ method: 'toPluginPanel', path: 'projects', options: { subPath: woodwork.subPath } });
-  const { input } = openRename(slot, 'project', project.title);
+  expect(slot.getByRole('button', { name: 'New thread for Area Learning' })).toBeTruthy();
+  expect(slot.queryByLabelText('Actions for area Learning')).toBeNull();
+  const { input } = openRename(slot, project.title);
   expect(document.activeElement).toBe(input);
   expect([input.selectionStart, input.selectionEnd]).toEqual([0, project.title.length]);
   fireEvent.change(input, { target: { value: ' Woodwork ' } });
@@ -79,34 +81,34 @@ test('rename cancellation and unchanged or blank submissions leave the title alo
   const slot = setup();
   await slot.findByRole('heading', { name: 'Learning' });
   for (const action of ['escape', 'cancel', 'unchanged', 'blank']) {
-    const { trigger, input, dialog } = openRename(slot, 'area', 'Learning');
+    const { trigger, input, dialog } = openRename(slot, project.title);
     if (action === 'escape') fireEvent.keyDown(input, { key: 'Escape' });
     else if (action === 'cancel') fireEvent.click(slot.getByRole('button', { name: 'Cancel' }));
     else {
-      fireEvent.change(input, { target: { value: action === 'blank' ? '  ' : ' Learning ' } });
+      fireEvent.change(input, { target: { value: action === 'blank' ? '  ' : ` ${project.title} ` } });
       const save = slot.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
       if (action === 'blank') {
         expect(save.disabled).toBe(true);
         fireEvent.submit(dialog.querySelector('form')!);
-        expect(dialog).toBe(slot.getByRole('dialog', { name: 'Rename area' }));
+        expect(dialog).toBe(slot.getByRole('dialog', { name: 'Rename project' }));
         fireEvent.keyDown(input, { key: 'Escape' });
       } else fireEvent.click(save);
     }
     expect(slot.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(trigger);
   }
-  expect(slot.inspection.rpcCalls.some(call => call.method === 'renameArea')).toBe(false);
+  expect(slot.inspection.rpcCalls.some(call => call.method === 'renameProject')).toBe(false);
   slot.lifecycle.unmount();
 });
 test('an uncertain rename sends one write and shows the Obsidian receipt guidance', async () => {
   const slot = setup('normal', undefined, async () => ({ operationId: crypto.randomUUID(), outcome: 'uncertain' }));
   await slot.findByRole('heading', { name: 'Learning' });
-  const { input, dialog } = openRename(slot, 'area', 'Learning');
-  fireEvent.change(input, { target: { value: 'Skills' } });
+  const { input, dialog } = openRename(slot, project.title);
+  fireEvent.change(input, { target: { value: 'Woodwork' } });
   fireEvent.submit(dialog.querySelector('form')!);
   await slot.findByText('Save unconfirmed. Inspect Obsidian receipts before another edit.');
-  expect(slot.inspection.rpcCalls.filter(call => call.method === 'renameArea')).toMatchObject([
-    { input: { source: ref.source, id: 'Areas/Learning.md', title: 'Skills' } },
+  expect(slot.inspection.rpcCalls.filter(call => call.method === 'renameProject')).toMatchObject([
+    { input: { ...ref, title: 'Woodwork' } },
   ]);
   slot.lifecycle.unmount();
 });
@@ -178,42 +180,40 @@ test('thread association choices reflect the exact source and only accept listed
   expect(missing.choices?.hint).toBe('The linked GTD project is unavailable.');
   expect(missing.choices?.items.every(choice => !choice.selected)).toBe(true);
 });
-test('project and Area menus dismiss outside without stealing focus and consume Escape only while open', async () => {
+test('the project menu dismisses outside and consumes Escape only while open', async () => {
   const slot = setup();
   await slot.findByRole('link', { name: 'Learn woodworking' });
   const outside = slot.getByRole('button', { name: 'Refresh GTD' });
   const escape = vi.fn();
   document.addEventListener('keydown', escape);
   try {
-    for (const label of ['Actions for project Learn woodworking', 'Actions for area Learning']) {
-      const trigger = slot.getByLabelText(label);
-      const details = trigger.closest('details')!;
-      const rename = details.querySelector('button')!;
-      trigger.focus();
-      fireEvent.click(trigger);
-      rename.focus();
-      expect(details.open).toBe(true);
-      fireEvent.keyDown(rename, { key: 'Escape' });
-      expect(details.open).toBe(false);
-      expect(document.activeElement).toBe(trigger);
-      expect(escape).not.toHaveBeenCalled();
-      fireEvent.keyDown(trigger, { key: 'Escape' });
-      expect(escape).toHaveBeenCalledTimes(1);
-      escape.mockClear();
+    const trigger = slot.getByLabelText('Actions for project Learn woodworking');
+    const details = trigger.closest('details')!;
+    const rename = details.querySelector('button')!;
+    trigger.focus();
+    fireEvent.click(trigger);
+    rename.focus();
+    expect(details.open).toBe(true);
+    fireEvent.keyDown(rename, { key: 'Escape' });
+    expect(details.open).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+    expect(escape).not.toHaveBeenCalled();
+    fireEvent.keyDown(trigger, { key: 'Escape' });
+    expect(escape).toHaveBeenCalledTimes(1);
+    escape.mockClear();
 
-      fireEvent.click(trigger);
-      outside.focus();
-      expect(details.open).toBe(false);
-      expect(document.activeElement).toBe(outside);
+    fireEvent.click(trigger);
+    outside.focus();
+    expect(details.open).toBe(false);
+    expect(document.activeElement).toBe(outside);
 
-      trigger.focus();
-      fireEvent.click(trigger);
-      fireEvent(details, new Event('toggle'));
-      fireEvent.pointerDown(rename);
-      expect(details.open).toBe(true);
-      fireEvent.pointerDown(outside);
-      expect(details.open).toBe(false);
-    }
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent(details, new Event('toggle'));
+    fireEvent.pointerDown(rename);
+    expect(details.open).toBe(true);
+    fireEvent.pointerDown(outside);
+    expect(details.open).toBe(false);
   } finally {
     document.removeEventListener('keydown', escape);
   }

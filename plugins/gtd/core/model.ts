@@ -71,7 +71,6 @@ export type Area = z.infer<typeof areaSchema>;
 export const areaSnapshotSchema = snapshotSchema.omit({ projects: true }).extend({ areas: z.array(areaSchema).max(5000) });
 export type AreaSnapshot = z.infer<typeof areaSnapshotSchema>;
 export interface AreaBackend {
-  rename?(id: string, title: string, signal: AbortSignal): Promise<{ operationId: string; outcome: 'saved_locally_pending_sync' | 'not_saved' | 'uncertain' }>;
   readAreas(signal: AbortSignal): Promise<AreaSnapshot>;
   checkAccess(signal: AbortSignal): Promise<void>;
 }

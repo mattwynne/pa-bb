@@ -23,7 +23,6 @@ export const rpcContract = defineRpcContract({
   listProjects: { input: listInput, output: pageSchema },
   listAreas: { input: areaListInput, output: areaPageSchema },
   renameProject: { input: renameInput, output: renameResult },
-  renameArea: { input: renameInput, output: renameResult },
   associate: { input: z.object({ threadId: z.string().min(1).max(128), project: reference.nullable() }).strict(), output: z.null() },
   changeProject: { input: projectActionInput, output: z.object({
     state: z.enum(['done', 'assigned', 'partial', 'blocked', 'unconfirmed']),

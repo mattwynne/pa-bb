@@ -10,7 +10,7 @@
   },
   "bb": {
     "name": "GTD [Experimental]",
-    "description": "Browse personal GTD areas, projects and linked threads; rename display titles without changing note paths.",
+    "description": "Browse personal GTD Areas, projects and linked threads.",
     "branding": {
       "icon": "ListTodo"
     },
