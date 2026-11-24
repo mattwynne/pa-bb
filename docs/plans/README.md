@@ -36,6 +36,6 @@ Updater iterations **017, 018 and 020–024 are historical**: the updater, sourc
 | [028 — Indexed link evidence for GTD](028-obsidian-gtd-indexed-link-plan.md) | Delivered | GTD uses indexed folder, frontmatter and link evidence for inventory reads. Live project and area listings returned complete coverage after both plugins were reloaded. Implemented in `5070c13`. |
 | [029 — Stable GTD identity](029-stable-gtd-identities.md) | Proposed | Keep project and Area identity in frontmatter; preview layout and reference migrations before cutover. |
 | [030 — Use Obsidian Desktop for link operations](030-obsidian-desktop-links.md) | Delivered | Optional on-demand Desktop backlinks and ordinary same-folder rename shipped in `b6b7992` and passed through BB on a disposable vault. Live BB runs the build. Desktop still needs to be configured for a selected vault. |
-| [031 — Make Obsidian Desktop the note backend](031-obsidian-desktop-backend.md) | Proposed | Start Desktop when the plugin is enabled, remove duplicate ordinary note operations, and test whether Projects can use Desktop’s data so BB can delete its own index. |
+| [031 — Make Obsidian Desktop the note backend](031-obsidian-desktop-backend.md) | Proposed | Start Desktop when the plugin is enabled, remove duplicate ordinary note operations, and move Projects inventory to Desktop with rendered parity and performance checks. |
 
 See the [roadmap](../roadmap.md) for the proposed order beyond these iterations.
