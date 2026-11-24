@@ -99,13 +99,13 @@ class SmokeTest:
         self.health = 'unknown'
         self.registered = False
 
-    def docker(self, *args, timeout=30):
+    def docker(self, *args, timeout=30, check=True):
         try:
             result = subprocess.run(['docker', *args], capture_output=True,
                                     text=True, errors='replace', timeout=timeout)
         except (OSError, subprocess.TimeoutExpired):
             raise SmokeError(f'Docker {args[0]} command unavailable or timed out ({args[1]}).') from None
-        if result.returncode:
+        if check and result.returncode:
             # Docker/CLI errors may contain arbitrary output. Never echo them.
             raise SmokeError(f'Docker {args[0]} command failed ({args[1]}).')
         return result
@@ -237,10 +237,22 @@ class SmokeTest:
             desktop = self.docker('container', 'exec', '--env', 'PA_OBSIDIAN_TEST_MANAGED=1',
                 '--workdir', '/opt/pa-bb/plugins/obsidian', self.container, 'node', '--import', 'tsx',
                 '--test', '--test-reporter=tap', '--test-name-pattern=normal tools use native Desktop',
-                'test/desktop-links.test.ts', timeout=remaining(210)).stdout
+                'test/desktop-links.test.ts', timeout=remaining(210), check=False)
         except SmokeError:
             raise SmokeError('Managed Desktop vault connection failed.') from None
-        if not re.search(r'^# pass 1$', desktop, re.MULTILINE) or not re.search(r'^# skipped 0$', desktop, re.MULTILINE):
+        if desktop.returncode:
+            # TAP assertions can include file contents. Report only test source line numbers
+            # and fixed backend/runtime categories, even for this generated vault.
+            output = desktop.stdout + desktop.stderr
+            lines = sorted(set(re.findall(r'/test/desktop-links\.test\.ts:(\d{1,4}):', output)))[:5]
+            categories = [name for name in (
+                'ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND', 'ERR_DLOPEN_FAILED', 'EACCES', 'ENOSPC',
+                'ERR_ASSERTION', 'desktop_setup', 'desktop_timeout', 'desktop_reply', 'source_unavailable',
+                'unsupported', 'unavailable', 'checksum_failed', 'download_failed', 'storage_failed',
+                'extract_failed', 'cancelled', 'not_saved', 'uncertain',
+            ) if name in output]
+            raise SmokeError(f'Managed Desktop test exit {desktop.returncode}, test lines {lines}, diagnostics {categories}.')
+        if not re.search(r'^# pass 1$', desktop.stdout, re.MULTILINE) or not re.search(r'^# skipped 0$', desktop.stdout, re.MULTILINE):
             raise SmokeError('Managed Desktop vault operations did not pass.')
         remaining()
         return len(expected)
@@ -307,12 +319,12 @@ def main(argv=None):
     parser.add_argument('image', help='locally built image reference (never pulled)')
     args = parser.parse_args(argv)
     try:
+        script = Path(__file__).with_name('smoke_obsidian_desktop.sh')
+        subprocess.run(['bash', str(script), args.image], check=True, timeout=330)
         with tempfile.TemporaryDirectory() as directory:
             profile = Path(directory) / 'desktop-seccomp.json'
             profile.write_text(desktop_profile())
             count = SmokeTest(args.image, profile).run()
-        script = Path(__file__).with_name('smoke_obsidian_desktop.sh')
-        subprocess.run(['bash', str(script), args.image], check=True, timeout=330)
     except SmokeError as error:
         print(f'Smoke test failed: {error}', file=sys.stderr)
         return 1

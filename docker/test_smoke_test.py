@@ -50,7 +50,11 @@ class FakeDocker:
     def next_value(values):
         return values.pop(0) if len(values) > 1 else values[0]
 
-    def run(self, command, *, capture_output, text, errors, timeout):
+    def run(self, command, *, timeout, capture_output=False, text=False, errors=None, check=False):
+        if command[0] == 'bash':
+            assert Path(command[1]).name == 'smoke_obsidian_desktop.sh'
+            assert command[2:] == ['local:test'] and check and timeout == 330
+            return subprocess.CompletedProcess(command, 0)
         assert command[0] == 'docker'
         maximum = 210 if command[-1] == 'test/desktop-links.test.ts' else 90
         assert capture_output and text and errors == 'replace' and 0 < timeout <= maximum
