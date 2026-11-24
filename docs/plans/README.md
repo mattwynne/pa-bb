@@ -35,5 +35,6 @@ Updater iterations **017, 018 and 020–024 are historical**: the updater, sourc
 | [027 — Google Workspace through upstream MCP](027-google-workspace-mcp.md) | Installed for owner trial; Google consent pending | Thin TDD/hexagonal connector for Drive, Docs, Sheets, Calendar and Gmail with a BB-owned combined connection, MCP adapter/test double and shared contract tests. Reuses existing OAuth client settings, not old user tokens. [ADR 0004](../adrs/0004-google-workspace-mcp.md) records the upstream choice and confident-software principle. Existing plugins remain in place. |
 | [028 — Indexed link evidence for GTD](028-obsidian-gtd-indexed-link-plan.md) | Delivered | GTD uses indexed folder, frontmatter and link evidence for inventory reads. Live project and area listings returned complete coverage after both plugins were reloaded. Implemented in `5070c13`. |
 | [029 — Stable GTD identity](029-stable-gtd-identities.md) | Proposed | Keep project and Area identity in frontmatter; preview layout and reference migrations before cutover. |
+| [030 — Use Obsidian Desktop for link operations](030-obsidian-desktop-links.md) | Proposed | Try on-demand native backlink discovery, then decide whether native single-note renames can retire custom work. GTD keeps its batched inventory. |
 
 See the [roadmap](../roadmap.md) for the proposed order beyond these iterations.
