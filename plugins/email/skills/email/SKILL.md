@@ -1,6 +1,6 @@
 ---
 name: email-archive
-description: Search and read mail archived by the BB Email plugin.
+description: Search and read mail archived by the BB MsgVault plugin.
 ---
 
 Use `email_indexed_accounts` to find the selected accounts and see scan coverage. Use `email_search` with words, quoted phrases, `from:`, `to:`, `subject:`, `after:`, or `before:`. Pass the exact account key to scope to one mailbox. For the message body, pass the exact account key and numeric result ID to `email_read`.

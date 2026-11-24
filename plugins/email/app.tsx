@@ -30,7 +30,7 @@ function caption(account: Account) {
   return parts.join(' · ');
 }
 
-function EmailSettings() {
+function MsgVaultSettings() {
   const rpc = useRpc<typeof rpcContract>();
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState('');
@@ -67,9 +67,9 @@ function EmailSettings() {
   const workspace = status?.providers.find(provider => provider.id === 'google-workspace');
   const fastmail = status?.providers.find(provider => provider.id === 'fastmail');
   const runtimeReady = status?.runtime === 'ready';
-  return <section className="pa-email" aria-label="Email indexing">
+  return <section className="pa-email" aria-label="MsgVault accounts">
     <ConnectionHeading title="Accounts to index"
-      description="Indexing copies email to the BB server. Pausing an account hides its archive from search and keeps the local copies."
+      description="MsgVault stores copies of messages on the BB server for search. Pausing an account hides its archive from search and keeps the local copies."
       action={<ConnectionButton tone="secondary" onClick={() => { setError(''); void load(false, true); }}>Refresh accounts</ConnectionButton>} />
     {error && <ConnectionAlert>{error}</ConnectionAlert>}
     {status && !runtimeReady && <ConnectionAlert>{
@@ -109,5 +109,5 @@ function EmailSettings() {
 }
 
 export default definePluginApp(app => {
-  app.slots.settingsSection({ id: 'indexed-email-accounts', component: EmailSettings });
+  app.slots.settingsSection({ id: 'indexed-email-accounts', component: MsgVaultSettings });
 });

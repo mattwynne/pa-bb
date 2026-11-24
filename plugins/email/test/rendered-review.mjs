@@ -1,4 +1,4 @@
-// Run with a built Email and Fastmail, MsgVault 0.26 on PATH, and a local BB app package.
+// Run with a built MsgVault and Fastmail, MsgVault 0.26 on PATH, and a local BB app package.
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
@@ -68,7 +68,8 @@ try {
   await desktop.goto(base + '/plugins/fastmail?configure=fastmail');
   await desktop.getByRole('region', { name: 'Fastmail connection' }).waitFor({ timeout: 10_000 }).catch(async error => { console.error(desktop.url(), (await desktop.locator('body').innerText()).slice(0, 2500)); throw error; });
   await desktop.goto(base + '/plugins/email?configure=email');
-  const settings = desktop.getByRole('region', { name: 'Email indexing' });
+  await desktop.getByRole('heading', { name: /^MsgVault(?: Configuration)?$/i }).waitFor();
+  const settings = desktop.getByRole('region', { name: 'MsgVault accounts' });
   await settings.getByRole('heading', { name: 'Set up indexing' }).waitFor();
 
   const fixture = join(root, 'workspace-fixture');
@@ -107,7 +108,7 @@ try {
   for (const width of [1280, 390]) {
     const page = width === 1280 ? desktop : await browser.newPage({ viewport: { width, height: 880 } });
     await page.goto(base + '/plugins/email?configure=email');
-    const region = page.getByRole('region', { name: 'Email indexing' });
+    const region = page.getByRole('region', { name: 'MsgVault accounts' });
     const action = region.getByRole('button', { name: 'Index account reader@example.test' });
     await action.waitFor();
     await action.focus();
@@ -128,7 +129,7 @@ try {
     if (artifacts) await region.screenshot({ path: join(artifacts, 'queued-and-error.png') });
   }
   const log = await cli('plugin', 'logs', 'email', '-n', '15');
-  assert.match(log, /Email index_provider failed/);
+  assert.match(log, /MsgVault index_provider failed/);
   assert.doesNotMatch(log, /PRIVATE_MSGVAULT_FIXTURE|@example\.test/);
   assert.doesNotMatch(await readFile(join(root, 'data/logs/server.1.log'), 'utf8'), /PRIVATE_MSGVAULT_FIXTURE/);
   console.log('Disposable BB verified empty, connected, indexed, paused and error states at desktop and narrow sizes. Verified keyboard activation, provider caller refusal and bounded diagnostics.');

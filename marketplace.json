@@ -29,8 +29,8 @@
     },
     {
       "id": "email",
-      "displayName": "Email",
-      "description": "Index selected Workspace and Fastmail accounts in a local MsgVault archive and search their email.",
+      "displayName": "MsgVault",
+      "description": "Archive and search selected Gmail and Fastmail accounts with MsgVault on the BB server.",
       "icon": "Mail",
       "tags": ["email", "gmail", "fastmail", "search", "archive"],
       "author": { "name": "Matt Wynne", "github": "mattwynne" },

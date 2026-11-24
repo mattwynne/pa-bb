@@ -53,7 +53,7 @@ or failed search blocks publication. It checks that the GTK 3 shared library
 loads. A generated vault connection inside the running BB container exercises the
 managed download and native note tools. A separate smoke test runs the plugin’s installer inside the image, then reuses its
 verified bundle from a read-only volume in a fresh, network-isolated container.
-It checks the Chromium sandbox, restricted mode and a real CLI backlink query. The Email check verifies that running
+It checks the Chromium sandbox, restricted mode and a real CLI backlink query. The MsgVault check verifies that running
 BB meets the plugin's minimum version, imports the same generated email twice through
 the real MsgVault adapter, searches and reads it, and checks that a separate archive
 stays empty. No mail provider is connected. It creates and removes its own container
@@ -91,7 +91,7 @@ Follow the state-preserving update steps below before replacing a container.
 The image starts from `node:24-bookworm-slim` and installs dependencies directly
 in the Dockerfile—no Ansible or sudo. It includes stock BB, Pi, Codex, native
 Claude Code, uv/uvx, rclone, ripgrep, MsgVault, Chrome and the native build toolchain.
-BB is pinned to 0.50.1 and MsgVault to 0.26.0, satisfying Email's host requirements.
+BB is pinned to 0.50.1 and MsgVault to 0.26.0, satisfying the plugin's host requirements.
 MsgVault's upstream archive, executable and license are checksum-verified.
 Hermes is not bundled. The base image's npm is pinned to a patched release, and
 rclone 1.76.0 and ripgrep 14.1.0 use independently verified archive and binary
@@ -158,7 +158,7 @@ Runtime tools in that home follow BB's native update controls, just as with
 Ansible: rebuilding the image does not overwrite a persistent home's installed
 tools. Rebuild/recreate to update OS dependencies and `/opt/pa-bb` plugin source;
 use native controls for existing home tools (or a new volume for a clean install).
-An existing home can still run an older BB even after the image is updated. Email
+An existing home can still run an older BB even after the image is updated. The MsgVault plugin
 requires BB 0.50.1 or later; use BB's native update controls for that installation,
 with backups and the pause/drain precautions below. Do not discard its data volume
 to force an upgrade.
