@@ -871,8 +871,6 @@ export class Obsidian {
       }
       const indexed = lease?.view.links?.(root);
       const originalHashes = new Map<string, string>();
-      const movedNotes = new Map<string, string>();
-      const scanned = new Map<string, string>();
       const blockerSamples: MoveLinkError[] = [];
       const firstByReason = new Map<MoveLinkError['location']['reason'], MoveLinkError>();
       const counts: NonNullable<MoveLinkError['previewBlockers']>['counts'] = {};
@@ -897,8 +895,6 @@ export class Obsidian {
           const path = paths[index];
           if (!directory && path === input.path && hash !== input.expectedHash) throw new VaultError('conflict');
           originalHashes.set(path, hash);
-          scanned.set(planner.moves.get(path) ?? path, hash);
-          if (planner.moves.has(path)) movedNotes.set(path, hash);
           const noteBytes = Buffer.byteLength(text);
           if (noteBytes > MAX_NOTE_BYTES) refuse('capacity', 'Link discovery found a note over the 1 MiB whole-note limit.');
           bytes += noteBytes;
@@ -989,6 +985,10 @@ export class Obsidian {
         })) throw new VaultError('busy', 'Inspect the overlapping move receipt before continuing.');
       };
       if (input.dryRun) {
+        let movedNotes = 0;
+        if (directory || input.project) {
+          for (const path of planner.moves.keys()) if (originalHashes.has(path)) movedNotes++;
+        }
         await checkLinkPlan();
         checkLedger();
         if (directory) {
@@ -996,11 +996,11 @@ export class Obsidian {
           this.folderPreviews.set(operationId, { request: previewRequest, evidence: previewEvidence, expires: this.clock() + FOLDER_PREVIEW_MS });
           return { outcome: 'link_plan_ready' as const, vaultId: input.vaultId, path: input.path, destination: input.destination,
             previewId: operationId, affectedBacklinks: planner.backlinks, notesChecked: listed.length, bytesChecked: bytes,
-            movedNotes: movedNotes.size, movedAttachments: planner.moves.size - movedNotes.size,
+            movedNotes, movedAttachments: planner.moves.size - movedNotes,
             plannedRepairs: plan.length, repairPaths: plan.map(repair => repair.path) };
         }
         return { outcome: 'link_plan_ready' as const, notesChecked: listed.length, bytesChecked: bytes, plannedRepairs: plan.length, ...(input.project ? {
-          project: input.project, movedNotes: movedNotes.size, movedAttachments: planner.moves.size - movedNotes.size, operationId,
+          project: input.project, movedNotes, movedAttachments: planner.moves.size - movedNotes, operationId,
           ...(folders && input.project !== 'standalone' ? { folder: folders } : {}),
         } : {}), repairPaths: plan.map(repair => repair.path),
           message: 'Read-only link discovery completed. Moving reruns preflight and checks destination, conflicts and recovery state at write time.' };
@@ -1022,6 +1022,10 @@ export class Obsidian {
         for (const [path, destination] of planner.moves) {
           this.proofs.delete(this.key(input.vaultId, path));
           this.proofs.delete(this.key(input.vaultId, destination));
+        }
+        const movedNotes = input.project ? new Map<string, string>() : undefined;
+        if (movedNotes) {
+          for (const [path, hash] of originalHashes) if (planner.moves.has(path)) movedNotes.set(path, hash);
         }
         if (!this.files.checksLinkPlanAtWrite) await checkLinkPlan();
         beforePhysicalMove?.();
@@ -1062,8 +1066,10 @@ export class Obsidian {
           record.repairs = await Promise.all(record.repairs.map(repair => this.inspectRepair(input.vaultId, revision, repair)));
         }
         if (physicalVerified && record.repairs.every(repair => repair.outcome === 'saved')) {
-          for (const repair of plan) scanned.set(repair.path, repair.hash);
-          record.verification = await this.verifyMovedLinks(projectInput, scanned,
+          const destinationHashes = new Map<string, string>();
+          for (const [path, hash] of originalHashes) destinationHashes.set(planner.moves.get(path) ?? path, hash);
+          for (const repair of plan) destinationHashes.set(repair.path, repair.hash);
+          record.verification = await this.verifyMovedLinks(projectInput, destinationHashes,
             new Set(attachments.map(path => planner.moves.get(path) ?? path)), vaultRootFor(input.destination, observedRoots), signal);
         }
         if (record.refused || record.verification) await updateRecord();
@@ -1156,6 +1162,9 @@ export class Obsidian {
     }
     const next = prepare(text); const metadata = this.parser.parse(next);
     if (metadata.warnings.includes('properties_unsupported')) throw new VaultError('properties_unsupported', 'The proposed note has malformed or unsupported properties. Correct the explicit change before saving.');
+    const oldTags = this.parser.frontmatter(text).properties.tags as string[] | undefined;
+    const newTags = metadata.properties.tags as string[] | undefined;
+    const removedPropertyTags = (oldTags ?? []).filter(tag => !newTags?.includes(tag));
     this.check(vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
     const operationId = requestedOperationId ?? this.operationId();
     await this.pending(vaultId, path, operationId, revision, 'save');
@@ -1165,8 +1174,7 @@ export class Obsidian {
       const receipt = await this.files.commit({ mirrorId: vaultId, revision, path, operationId, expectedHash, text: next, kind: create ? 'create' : 'replace' });
       if (receipt.outcome !== 'uncertain') await this.clearPending(operationId);
       this.proofs.delete(this.key(vaultId, path)); this.check(vaultId, revision);
-      const oldTags = this.parser.parse(text).properties.tags as string[] | undefined; const newTags = this.parser.parse(next).properties.tags as string[] | undefined;
-      return { ...this.provenance(source, receipt.at), path, lineStart: 1, lineEnd: lines(next), operationId, receipt: { ...receipt, kind: 'save' as const }, change: { previousHash: expectedHash, hash: receipt.hash, beforeBytes: Buffer.byteLength(text), afterBytes: Buffer.byteLength(next), removedPropertyTags: (oldTags ?? []).filter(t => !newTags?.includes(t)) }, message: receipt.outcome === 'saved_locally_pending_sync' ? 'Saved locally, pending iCloud sync. This does not verify delivery to iCloud or a phone.' : 'The outcome is not a confirmed save. Inspect receipts; do not repeat the edit.' };
+      return { ...this.provenance(source, receipt.at), path, lineStart: 1, lineEnd: lines(next), operationId, receipt: { ...receipt, kind: 'save' as const }, change: { previousHash: expectedHash, hash: receipt.hash, beforeBytes: Buffer.byteLength(text), afterBytes: Buffer.byteLength(next), removedPropertyTags }, message: receipt.outcome === 'saved_locally_pending_sync' ? 'Saved locally, pending iCloud sync. This does not verify delivery to iCloud or a phone.' : 'The outcome is not a confirmed save. Inspect receipts; do not repeat the edit.' };
     } catch (e) {
       if (e instanceof VaultError && ['busy', 'conflict', 'capacity', 'cancelled', 'invalid_path', 'unsupported', 'not_connected', 'source_unavailable', 'operation_reused', 'incompatible'].includes(e.category)) await this.clearPending(operationId);
       throw e;

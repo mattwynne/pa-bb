@@ -6,7 +6,7 @@ import { MarkdownNotes } from '../adapters/markdown-notes.ts';
 import { CatalogFake, FilesFake, MemoryState } from './fakes.ts';
 import { VaultError } from '../core/ports.ts';
 const gate = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
-async function setup() { const catalog = new CatalogFake(); const files = new FilesFake(); const state = new MemoryState(); const logs: string[] = []; const service = new Obsidian(catalog, files, new MarkdownNotes(), state, randomUUID, Date.now, (stage, category) => logs.push(`${stage} ${category}`)); await service.start(); await service.connect('one'); await service.connect('two'); return { service, catalog, files, state, logs }; }
+async function setup(parser = new MarkdownNotes()) { const catalog = new CatalogFake(); const files = new FilesFake(); const state = new MemoryState(); const logs: string[] = []; const service = new Obsidian(catalog, files, parser, state, randomUUID, Date.now, (stage, category) => logs.push(`${stage} ${category}`)); await service.start(); await service.connect('one'); await service.connect('two'); return { service, catalog, files, state, logs }; }
 test('malformed properties cannot be created or introduced through an append', async () => {
   const { service, files } = await setup();
   await assert.rejects(service.create({ vaultId: 'one', path: 'Unsafe.md', text: '---\na: !unsafe sentinel\n---\n' }), (e: any) => e.category === 'properties_unsupported');
@@ -15,6 +15,24 @@ test('malformed properties cannot be created or introduced through an append', a
   files.notes.set('one/Empty.md', ''); const empty = await service.read({ vaultId: 'one', path: 'Empty.md' });
   await assert.rejects(service.edit({ vaultId: 'one', path: 'Empty.md', expectedHash: empty.hash!, append: '---\na: [broken\n' }), (e: any) => e.category === 'properties_unsupported');
   assert.equal(files.notes.has('one/Unsafe.md'), false); assert.equal(files.notes.get('one/Empty.md'), ''); assert.ok(note.complete);
+});
+test('ordinary saves prepare removed YAML tags before recording a pending write', async t => {
+  const parser = new MarkdownNotes();
+  const { service, files, state } = await setup(parser);
+  const path = 'Tags.md';
+  const text = '---\ntags: [second, keep, "#first"]\n---\n#second #inline\n';
+  files.notes.set('one/' + path, text);
+  const note = await service.read({ vaultId: 'one', path });
+  const parse = t.mock.method(parser, 'parse');
+  const frontmatter = t.mock.method(parser, 'frontmatter', (original: string) => {
+    assert.equal(original, text);
+    assert.equal(state.value.pending?.length ?? 0, 0);
+    return MarkdownNotes.prototype.frontmatter.call(parser, original);
+  });
+  const result = await service.properties({ vaultId: 'one', path, expectedHash: note.hash!, set: { tags: ['keep', 'new'] } });
+  assert.deepEqual(result.change.removedPropertyTags, ['second', '#first']);
+  assert.equal(parse.mock.callCount(), 1);
+  assert.equal(frontmatter.mock.callCount(), 1);
 });
 test('uncertain reply persists operation identity across restart and inspection prevents double append', async () => {
   const { service, files, catalog, state } = await setup(); const read = await service.read({ vaultId: 'one', path: 'Launch.md' }); const commit = files.commit.bind(files);

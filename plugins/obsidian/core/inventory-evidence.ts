@@ -11,24 +11,28 @@ export class InventoryBatchRefusal extends VaultError {
   constructor(readonly reason: 'output_limit' | 'incompatible') { super(reason); }
 }
 type Child = { name: string; kind: 'directory' | 'markdown' };
-function childListing(view: IndexView, folder: string, exists: boolean) {
+function childListing(view: IndexView, folder: string) {
   const entries: Child[] = [];
-  let incomplete = !exists || view.omissions.some(o => hides(o, folder) || posix.dirname(o.path) === folder);
+  let clipped = false;
   let bytes = 0;
   return {
     add(name: string, kind: Child['kind']) {
       bytes += Buffer.byteLength(name) + 40;
-      if (entries.length >= 5000 || bytes > 512 * 1024) incomplete = true;
+      if (entries.length >= 5000 || bytes > 512 * 1024) clipped = true;
       else entries.push({ name, kind });
     },
-    result() { return { entries: entries.sort((a, b) => a.name.localeCompare(b.name, 'en')), incomplete }; },
+    result(exists: boolean) {
+      const incomplete = !exists || clipped || view.omissions.some(o => hides(o, folder) || posix.dirname(o.path) === folder);
+      return { entries: entries.sort((a, b) => a.name.localeCompare(b.name, 'en')), incomplete };
+    },
   };
 }
 export function indexedChildren(view: IndexView, folder: string) {
-  const listing = childListing(view, folder, view.directories.includes(folder));
+  const exists = view.directories.includes(folder);
+  const listing = childListing(view, folder);
   for (const path of view.directories) if (posix.dirname(path) === folder) listing.add(posix.basename(path), 'directory');
   for (const note of view.notes) if (posix.dirname(note.path) === folder) listing.add(posix.basename(note.path), 'markdown');
-  return listing.result();
+  return listing.result(exists);
 }
 export function indexedProperties(view: IndexView, note: IndexedNote | undefined, path: string, fields: string[]) {
   const partial = view.omissions.some(o => hides(o, path)) || !!note?.propertyWarning;
@@ -103,13 +107,13 @@ export function checkIndexedInventoryRoot(view: IndexView, root: string) {
 /** Gather only requested lookup keys. Preserve the view's candidate order and child clipping. */
 export function* indexedInventoryRows(view: IndexView, root: string, requests: InventoryBatchRequest[]) {
   if (!requests.length) return;
-  const folders = new Map<string, { exists: boolean; directories: string[]; notes: string[] }>();
+  const folders = new Map<string, ReturnType<typeof childListing>>();
   const notes = new Map<string, IndexedNote | undefined>();
   const basenames = new Map<string, string[]>();
   const explicitDirectories = new Set<string>();
   const queries = requests.map(request => {
     if (request.kind === 'children') {
-      if (!folders.has(request.folder)) folders.set(request.folder, { exists: false, directories: [], notes: [] });
+      if (!folders.has(request.folder)) folders.set(request.folder, childListing(view, request.folder));
     } else if (request.kind === 'properties') {
       notes.set(request.path, undefined);
     } else {
@@ -125,19 +129,15 @@ export function* indexedInventoryRows(view: IndexView, root: string, requests: I
   const directories = new Set<string>();
   if (folders.size || explicitDirectories.size) {
     for (const path of view.directories) {
-      if (explicitDirectories.has(path)) directories.add(path);
-      if (folders.size) {
-        const folder = folders.get(path);
-        if (folder) folder.exists = true;
-        folders.get(posix.dirname(path))?.directories.push(path);
-      }
+      if (explicitDirectories.has(path) || folders.has(path)) directories.add(path);
+      if (folders.size) folders.get(posix.dirname(path))?.add(posix.basename(path), 'directory');
     }
   }
   if (folders.size || notes.size || basenames.size) {
     for (const note of view.notes) {
       const { path } = note;
       if (notes.has(path)) notes.set(path, note);
-      if (folders.size) folders.get(posix.dirname(path))?.notes.push(path);
+      if (folders.size) folders.get(posix.dirname(path))?.add(posix.basename(path), 'markdown');
       if (basenames.size && within(path, root)) {
         const candidates = basenames.get(basenameKey(posix.basename(path)));
         if (candidates && candidates.length < 2) candidates.push(path);
@@ -152,11 +152,7 @@ export function* indexedInventoryRows(view: IndexView, root: string, requests: I
         const { folder } = request;
         let result = children.get(folder);
         if (!result) {
-          const bucket = folders.get(folder)!;
-          const listing = childListing(view, folder, bucket.exists);
-          for (const path of bucket.directories) listing.add(posix.basename(path), 'directory');
-          for (const path of bucket.notes) listing.add(posix.basename(path), 'markdown');
-          result = listing.result();
+          result = folders.get(folder)!.result(directories.has(folder));
           children.set(folder, result);
         }
         yield { kind: request.kind, ...result };

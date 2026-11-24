@@ -82,3 +82,23 @@ test('batch examines a 52-note catalog once for 51 mixed target lookups and skip
   assert.equal(examined, 52);
   t.diagnostic(JSON.stringify({ references: references.length, indexedCatalogEntries: paths.length, notePathAccesses: examined }));
 });
+
+test('batch child rows retain directory priority at row and byte limits across repeated requests', () => {
+  const byRows = Array.from({ length: 5000 }, (_, i) => `Rows/D${i}`);
+  const byBytes = Array.from({ length: 510 }, (_, i) => `Bytes/${String(i).padStart(3, '0')}${'é'.repeat(500)}`);
+  const index: IndexView = {
+    directories: ['Rows', 'Bytes', 'Empty', 'Omitted', ...byRows, ...byBytes],
+    notes: ['Rows/A.md', 'Bytes/A.md', 'Missing/A.md'].map(path => ({ path, hash: 'hash', readAt: 'now', properties: {} })),
+    omissions: [{ path: 'Omitted/A.md', kind: 'note' }],
+  };
+  const folders = ['Rows', 'Missing', 'Bytes', 'Empty', 'Omitted', 'Rows'];
+  const rows = [...indexedInventoryRows(index, '', folders.map(folder => ({ kind: 'children', folder })))];
+  assert.deepEqual(rows, folders.map(folder => ({ kind: 'children', ...indexedChildren(index, folder) })));
+  for (const [i, count] of [[0, 5000], [2, Math.floor(512 * 1024 / 1043)]] as const) {
+    const row: (typeof rows)[number] = rows[i];
+    assert.equal(row.kind, 'children');
+    assert.equal(row.incomplete, true);
+    assert.equal(row.entries.length, count);
+    assert.ok(row.entries.every(entry => entry.kind === 'directory'));
+  }
+});
