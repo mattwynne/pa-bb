@@ -1,8 +1,8 @@
-import { projectFolders, type MoveEndpoints } from '../core/project-move.ts';
+import { moveFolders, projectFolders, type MoveEndpoints } from '../core/project-move.ts';
 import { randomUUID } from 'node:crypto';
 import { VaultError } from '../core/ports.ts';
 import type { Diagnose, NoteParser, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
-import { digest, equivalent, identity, LocalNotes, validateNotePath } from './local-notes.ts';
+import { digest, equivalent, identity, LocalNotes, validateNotePath, validateRelativePath } from './local-notes.ts';
 import { LocalSearch } from './local-search.ts';
 import { FilesystemIndex, INDEX_LIMITS, type DirectoryGrantLookup } from './filesystem-index.ts';
 import { MarkdownNotes } from './markdown-notes.ts';
@@ -144,13 +144,13 @@ export class FilesystemVault {
     });
   }
 
-  private mutate<T extends LocalReceipt>(target: Target, plan: (root: string, check: () => Promise<void>,
+  private mutate<T extends LocalReceipt>(target: Target & { directory?: true }, plan: (root: string, check: () => Promise<void>,
     begin: (row: T) => Promise<void>, committed: () => void, rootIdentity: FileIdentity) => Promise<T>) {
     return this.ledger.run(async () => {
       const root = await this.directory(target.mirrorId, target.revision);
       let intent: T | undefined, changed = false;
       try {
-        validateNotePath(target.path);
+        (target.directory ? validateRelativePath : validateNotePath)(target.path);
         const rootIdentity = fileIdentity(await this.files.rootIdentity(root));
         const check = async () => {
           const authorized = await this.directory(target.mirrorId, target.revision);
@@ -216,12 +216,58 @@ export class FilesystemVault {
 
   listProjectMove(input: Parameters<NonNullable<VaultFiles['listProjectMove']>>[0]) {
     return this.access(input.mirrorId, input.revision, async root => {
+      if (input.directory) {
+        if (input.afterMove) {
+          if (await this.files.entry(root, input.path) || !(await this.files.entry(root, input.destination))?.isDirectory())
+            throw new VaultError('conflict', 'A folder endpoint changed after the move.');
+          return this.files.list(root, true, input.root, true);
+        }
+        const rows = await this.ledger.load();
+        this.ledger.assertNoOverlap(rows.filter(row => row.operationId !== input.operationId), input.mirrorId, [input.path, input.destination]);
+        const { evidence: folderEvidence } = await this.inspectFolderMove(root, input);
+        return { ...await this.files.list(root, true, input.root, true), folderEvidence };
+      }
       if (!input.afterMove) await this.inspectProjectMove(root, input);
       return this.files.list(root, true, input.root);
     });
   }
 
+  private async inspectFolderMove(root: string, input: MoveEndpoints) {
+    const folders = moveFolders(input)!;
+    if (await this.files.entry(root, folders.to))
+      throw new VaultError('conflict', 'The destination folder path is occupied.');
+    const tree = await this.files.projectTree(root, folders.from, { destination: folders.to });
+    const targetParent = await this.files.checkProjectFolderMove(root, folders.to, tree.info);
+    const evidence = digest(JSON.stringify([fileIdentity(await this.files.rootIdentity(root)),
+      fileIdentity(targetParent), fileIdentity(tree.info), tree.info.ctimeMs, tree.fingerprint]));
+    return { folders, tree, targetParent, evidence };
+  }
+
+  private async moveFolder(input: Parameters<NonNullable<VaultFiles['move']>>[0]) {
+    const { mirrorId, path, destination, operationId, expectedHash, checkLinkPlan } = input;
+    if (!checkLinkPlan) throw new VaultError('unsupported', 'Folder moves require a verified link plan.');
+    return this.mutate<Extract<LocalReceipt, { kind: 'move' }>>(input, async (root, check, begin, changed, rootIdentity) => {
+      const { folders, tree, targetParent, evidence } = await this.inspectFolderMove(root, input);
+      if (evidence !== expectedHash) throw new VaultError('conflict', 'The source tree or destination parent changed after preview.');
+      const inode = fileIdentity(tree.info);
+      const receipt = { kind: 'move' as const, directory: true as const, mirrorId, path, destination, operationId,
+        hash: expectedHash, root: rootIdentity, inode, at: new Date().toISOString(),
+        tree: { ...folders, inode, fingerprint: tree.fingerprint } };
+      await begin({ ...receipt, outcome: 'uncertain' });
+      await this.files.moveProjectFolder(root, path, destination, tree.info, async () => {
+        const assertPlan = await checkLinkPlan();
+        const fresh = await this.inspectFolderMove(root, input);
+        if (fresh.evidence !== evidence) throw new VaultError('conflict', 'The source tree or destination parent changed before rename.');
+        await check();
+        assertPlan();
+      }, changed, targetParent);
+      if (await this.folderMoveLocation(root, receipt) !== 'destination') throw new VaultError('uncertain');
+      return { ...receipt, outcome: 'moved_locally_pending_sync' };
+    }).then(({ outcome }) => ({ outcome }));
+  }
+
   async move(input: Parameters<NonNullable<VaultFiles['move']>>[0]) {
+    if (input.directory) return this.moveFolder(input);
     const { mirrorId, path, destination, operationId, expectedHash, project } = input;
     return this.mutate<Extract<LocalReceipt, { kind: 'move' }>>(input, async (root, check, begin, changed, rootIdentity) => {
       validateNotePath(destination);
@@ -269,16 +315,21 @@ export class FilesystemVault {
     }).then(({ outcome }) => ({ outcome }));
   }
 
-  private async projectMoveState(root: string, row: Pick<Extract<LocalReceipt, { kind: 'move' }>, 'tree' | 'path' | 'destination' | 'inode' | 'hash'>) {
+  private async folderMoveLocation(root: string, row: Pick<Extract<LocalReceipt, { kind: 'move' }>, 'tree' | 'directory'>) {
     const tree = row.tree!;
     const oldFolder = await this.files.entry(root, tree.from);
     const newFolder = await this.files.entry(root, tree.to);
     const intact = async (path: string) => {
-      const current = await this.files.projectTree(root, path);
+      const current = await this.files.projectTree(root, path, row.directory ? { destination: path } : undefined);
       return identity(tree.inode, current.info) && tree.fingerprint === current.fingerprint;
     };
-    const folder = !oldFolder && newFolder?.isDirectory() && await intact(tree.to) ? 'destination' :
+    return !oldFolder && newFolder?.isDirectory() && await intact(tree.to) ? 'destination' :
       !newFolder && oldFolder?.isDirectory() && await intact(tree.from) ? 'source' : 'unverified';
+  }
+
+  private async projectMoveState(root: string, row: Omit<Extract<LocalReceipt, { kind: 'move' }>, 'outcome'>) {
+    const folder = await this.folderMoveLocation(root, row);
+    if (row.directory) return { outcome: folder === 'destination' ? 'moved_locally_pending_sync' : 'uncertain' } as const;
     const oldNote = await this.files.observe(root, row.path);
     const newNote = await this.files.observe(root, row.destination);
     const original = (note: Observed) => note && identity(row.inode, note.info) && row.hash === note.hash;
@@ -287,7 +338,7 @@ export class FilesystemVault {
     const outcome = folder === 'destination' && landing === 'destination' ? 'moved_locally_pending_sync' :
       folder === 'source' && landing === 'source' ? 'uncertain' :
       folder !== 'unverified' && landing !== 'unverified' ? 'partial' : 'uncertain';
-    return { outcome, components: { landing, folder } } as const;
+    return { outcome, components: { landing, folder } };
   }
 
   async resolve(input: Resolution) {

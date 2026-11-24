@@ -29,7 +29,7 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
       local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null } }],
   };
   const calls: Array<{ method: string; input: unknown }> = [];
-  const controls: { fallbackDirectory?: string; onLookup?: () => Promise<void>; deny?: boolean; denyGrant?: boolean; malformedGrant?: boolean; capabilityError?: unknown; capabilityReply?: unknown; afterAreaConfigure?: () => void; beforeStatus?: () => Promise<void>; failFinish?: boolean } = {};
+  const controls: { fallbackDirectory?: string; onLookup?: () => Promise<void>; deny?: boolean; denyGrant?: boolean; malformedGrant?: boolean; capabilityError?: unknown; capabilityReply?: unknown; afterAreaConfigure?: () => void; beforeStatus?: () => Promise<void>; failFinish?: boolean; onMoveIntent?: () => Promise<void>; onMoveSaved?: () => Promise<void> } = {};
   const legacyReceipts = [{
     kind: 'save', path: 'Old.md', mirrorId: 'one', operationId: randomUUID(), at: '2026-01-01T00:00:00Z',
     hash: hash('saved previously'), previousHash: null, outcome: 'saved_locally_pending_sync',
@@ -81,6 +81,10 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
           throw new Error(`sentinel-private-receipt ${directory}`);
         }
         await hostStorage.kv.set(key, value);
+        if (key === 'filesystem-note-receipts' && Array.isArray(value) &&
+          value.at(-1)?.kind === 'move' && value.at(-1)?.outcome === 'uncertain') await controls.onMoveIntent?.();
+        if (key === 'filesystem-note-receipts' && Array.isArray(value) &&
+          value.at(-1)?.kind === 'move' && value.at(-1)?.outcome === 'moved_locally_pending_sync') await controls.onMoveSaved?.();
       },
     },
   };
@@ -102,6 +106,159 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
   return { ...host, tool, calls, controls, state, owner, directory, legacyReceipts };
 }
 const target = { vaultId: 'one', path: 'Notes/Agenda: July.md' };
+
+const folderRequest = { vaultId: 'one', path: 'Life/Active/Workshop', destination: 'Life/Archive/Companion' };
+const folderNotes = {
+  'Life/Active/Workshop/README.md': '# Workshop\n\n[Checklist](./Nested/Checklist.md)\n',
+  'Life/Active/Workshop/Nested/Checklist.md': '# Checklist\n\n![[./Diagram.png]]\n',
+  'Life/Archive/Companion.md': '# Companion\n',
+  'Life/README.md': '# Vault README\n\n[External](file:///example/workshop/README.md)\n',
+  'Life/Journal/Monday.md': '[[Life/Active/Workshop/README#Workshop|Workshop]]\n',
+  'Life/Tuesday.md': '[Checklist](/Life/Active/Workshop/Nested/Checklist.md#Checklist)\n',
+};
+const diagram = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0xff]);
+
+async function standaloneFolder(t: TestContext) {
+  return fixture(t, 'ready', async root => {
+    for (const path of ['Life/.obsidian', folderRequest.path + '/Nested/Empty', 'Life/Archive', 'Life/Journal'])
+      await mkdir(join(root, path), { recursive: true });
+    for (const [path, body] of Object.entries(folderNotes)) await writeFile(join(root, path), body);
+    await writeFile(join(root, folderRequest.path, 'Nested/Diagram.png'), diagram);
+  }, undefined, null);
+}
+
+test('standalone folder preview and apply preserve the full tree and repair two explicit mirror-prefixed backlinks', async t => {
+  const f = await standaloneFolder(t);
+  const companion = join(f.directory, 'Life/Archive/Companion.md');
+  const source = join(f.directory, folderRequest.path), destination = join(f.directory, folderRequest.destination);
+  const originalCompanion = await stat(companion), originalFolder = await stat(source);
+  const originalImage = await stat(join(source, 'Nested/Diagram.png'));
+  const preview = await f.tool('preview_folder_move', folderRequest);
+  assert.equal(preview.outcome, 'link_plan_ready');
+  assert.equal(preview.movedNotes, 2);
+  assert.equal(preview.movedAttachments, 1);
+  assert.equal(preview.plannedRepairs, 2);
+  assert.deepEqual(preview.affectedBacklinks.filter((link: { rewrite: boolean }) => link.rewrite), [
+    { path: 'Life/Journal/Monday.md', line: 1, column: 1, target: folderRequest.path + '/README.md',
+      destination: folderRequest.destination + '/README.md', rewrite: true },
+    { path: 'Life/Tuesday.md', line: 1, column: 1, target: folderRequest.path + '/Nested/Checklist.md',
+      destination: folderRequest.destination + '/Nested/Checklist.md', rewrite: true },
+  ]);
+  assert.equal(await f.bb.storage.kv.get('filesystem-note-receipts'), undefined);
+  await assert.rejects(stat(destination), { code: 'ENOENT' });
+  assert.equal(await readFile(join(f.directory, 'Life/Tuesday.md'), 'utf8'), folderNotes['Life/Tuesday.md']);
+  const request = { ...folderRequest, previewId: preview.previewId };
+  await f.tool('apply_folder_move', { ...request, destination: 'Life/Archive/Other' }, 'conflict');
+  const moved = await f.tool('apply_folder_move', request);
+  assert.equal(moved.operationId, preview.previewId);
+  assert.equal(moved.outcome, 'moved_supported_links_updated');
+  assert.deepEqual(moved.verification, { state: 'verified', paths: [] });
+  assert.deepEqual(moved.folder, { from: folderRequest.path, to: folderRequest.destination });
+  assert.equal((await stat(destination)).ino, originalFolder.ino);
+  assert.equal((await stat(join(destination, 'Nested/Diagram.png'))).ino, originalImage.ino);
+  assert.deepEqual(await readFile(join(destination, 'Nested/Diagram.png')), diagram);
+  assert.deepEqual(await readdir(join(destination, 'Nested/Empty')), []);
+  assert.equal(await readFile(join(destination, 'README.md'), 'utf8'), folderNotes['Life/Active/Workshop/README.md']);
+  assert.equal(await readFile(join(destination, 'Nested/Checklist.md'), 'utf8'), folderNotes['Life/Active/Workshop/Nested/Checklist.md']);
+  assert.equal((await stat(companion)).ino, originalCompanion.ino);
+  assert.equal(await readFile(companion, 'utf8'), folderNotes['Life/Archive/Companion.md']);
+  assert.equal(await readFile(join(f.directory, 'Life/README.md'), 'utf8'), folderNotes['Life/README.md']);
+  await assert.rejects(stat(source), { code: 'ENOENT' });
+  assert.equal(await readFile(join(f.directory, 'Life/Journal/Monday.md'), 'utf8'), '[[Archive/Companion/README#Workshop|Workshop]]\n');
+  assert.equal(await readFile(join(f.directory, 'Life/Tuesday.md'), 'utf8'), '[Checklist](Archive/Companion/Nested/Checklist.md#Checklist)\n');
+  for (const [path, link, ending] of [
+    ['Life/Journal/Monday.md', 'Archive/Companion/README#Workshop', 'README.md'],
+    ['Life/Tuesday.md', 'Archive/Companion/Nested/Checklist.md#Checklist', 'Nested/Checklist.md'],
+  ]) {
+    const result = await f.tool('resolve_link', { vaultId: 'one', path, link });
+    assert.equal(result.target, folderRequest.destination + '/' + ending, JSON.stringify(result));
+  }
+  const receipt = await f.tool('move_status', { vaultId: 'one', operationId: moved.operationId });
+  assert.equal(receipt.physical, 'moved_locally_pending_sync');
+  const rows = await f.bb.storage.kv.get('filesystem-note-receipts') as Array<{ operationId: string; outcome: string }>;
+  for (const repair of receipt.repairs) {
+    assert.equal(repair.outcome, 'saved');
+    assert.equal(rows.find(row => row.operationId === repair.operationId)?.outcome, 'saved_locally_pending_sync');
+  }
+  assert.equal(rows.find(row => row.operationId === moved.operationId)?.outcome, 'moved_locally_pending_sync');
+  await f.tool('apply_folder_move', request, 'operation_reused');
+  assert.ok(!f.calls.some(call => call.method === 'noteMove'));
+});
+
+test('folder preview reports occupancy, overlap, incomplete coverage and an unresolved affected link', async t => {
+  const f = await standaloneFolder(t);
+  const full = (path: string) => join(f.directory, path);
+  const overlap = await f.tool('preview_folder_move', { ...folderRequest, destination: folderRequest.path + '/Nested' }, 'invalid_path');
+  assert.match(overlap.nextAction, /cannot contain/);
+  await mkdir(full(folderRequest.destination));
+  const occupied = await f.tool('preview_folder_move', folderRequest, 'conflict');
+  assert.equal(occupied.destination, folderRequest.destination);
+  assert.match(occupied.nextAction, /occupied/);
+  await rm(full(folderRequest.destination), { recursive: true });
+  await symlink('README.md', full('Life/private-symlink'));
+  const incomplete = await f.tool('preview_folder_move', folderRequest, 'unavailable');
+  assert.match(incomplete.nextAction, /Life\/private-symlink/);
+  assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /private-symlink/);
+  await unlink(full('Life/private-symlink'));
+  await writeFile(full('Life/ZZ.md'), '[[Life/Active/Workshop/Absent]]');
+  const blocked = await f.tool('preview_folder_move', folderRequest, 'ambiguous_link');
+  assert.equal(blocked.location.path, 'Life/ZZ.md');
+  assert.equal(blocked.location.line, 1);
+  assert.equal(blocked.affectedBacklinks.filter((link: { rewrite: boolean }) => link.rewrite).length, 2);
+  assert.equal(blocked.previewId, undefined);
+  assert.equal(await f.bb.storage.kv.get('filesystem-note-receipts'), undefined);
+});
+
+test('folder apply rejects stale tree, inventory and note evidence, and rechecks after journaling', async t => {
+  const f = await standaloneFolder(t);
+  const full = (path: string) => join(f.directory, path);
+  const prepare = async () => ({ ...folderRequest, previewId: (await f.tool('preview_folder_move', folderRequest)).previewId });
+  const note = 'Life/Tuesday.md';
+  let request = await prepare();
+  await writeFile(full(note), folderNotes[note] + 'More text\n');
+  await f.tool('apply_folder_move', request, 'conflict');
+  request = await prepare();
+  await writeFile(full('Life/Journal/Added.md'), '# Added during preview\n');
+  await f.tool('apply_folder_move', request, 'conflict');
+  request = await prepare();
+  await mkdir(full(folderRequest.path + '/Another empty folder'));
+  await f.tool('apply_folder_move', request, 'conflict');
+  request = await prepare();
+  await writeFile(full(folderRequest.destination), 'occupied by a file');
+  await f.tool('apply_folder_move', request, 'conflict');
+  assert.equal(await readFile(full(folderRequest.destination), 'utf8'), 'occupied by a file');
+  await unlink(full(folderRequest.destination));
+  request = await prepare();
+  await rename(full('Life/Archive'), full('Life/Archive retained'));
+  await mkdir(full('Life/Archive'));
+  await rename(full('Life/Archive retained/Companion.md'), full('Life/Archive/Companion.md'));
+  await f.tool('apply_folder_move', request, 'conflict');
+  assert.equal(await f.bb.storage.kv.get('filesystem-note-receipts'), undefined);
+
+  request = await prepare();
+  f.controls.onMoveIntent = () => writeFile(full(note), 'Changed at the write boundary\n');
+  const refused = await f.tool('apply_folder_move', request);
+  assert.equal(refused.outcome, 'not_moved');
+  assert.match(refused.refusal.nextAction, /Life\/Tuesday.md/);
+  assert.equal((await f.tool('move_status', { vaultId: 'one', operationId: request.previewId })).physical, 'not_moved');
+  assert.equal(await readFile(full(note), 'utf8'), 'Changed at the write boundary\n');
+  assert.ok((await stat(full(folderRequest.path))).isDirectory());
+  await assert.rejects(stat(full(folderRequest.destination)), { code: 'ENOENT' });
+});
+
+test('after a standalone folder rename, repair CAS protects a concurrent backlink edit', async t => {
+  const f = await standaloneFolder(t);
+  const preview = await f.tool('preview_folder_move', folderRequest);
+  const backlink = join(f.directory, 'Life/Tuesday.md');
+  f.controls.onMoveSaved = () => writeFile(backlink, 'Concurrent edit\n');
+  const moved = await f.tool('apply_folder_move', { ...folderRequest, previewId: preview.previewId });
+  assert.equal(moved.physical, 'moved_locally_pending_sync');
+  assert.equal(moved.outcome, 'moved_links_partial');
+  assert.deepEqual(moved.repairs.map((row: { path: string; outcome: string }) => [row.path, row.outcome]),
+    [['Life/Journal/Monday.md', 'saved'], ['Life/Tuesday.md', 'not_saved']]);
+  assert.equal(await readFile(backlink, 'utf8'), 'Concurrent edit\n');
+  assert.equal((await f.tool('move_status', { vaultId: 'one', operationId: moved.operationId })).outcome, 'moved_links_partial');
+});
 
 // These scenarios exercise existing consumer generations independently of batch support.
 async function singleReadProducer(f: Awaited<ReturnType<typeof fixture>>, method: string, input: unknown) {

@@ -7,7 +7,7 @@ import { MAX_NOTE_BYTES, VaultError, type NoteParser } from './ports.ts';
 export const projectMoveSchema = z.enum(['standalone', 'paired']);
 export const moveRecordSchema = z.object({ operationId: z.string().uuid(), finished: z.boolean().optional(), verifyLinks: z.literal(true).optional(), refused: z.boolean().optional(), expectedHash: z.string().optional(), root: z.string().max(1024).optional(),
   verification: z.object({ state: z.enum(['verified', 'inventory_changed', 'note_changed', 'unavailable']), paths: z.array(z.string().max(1024)).max(8) }).strict().optional(),
-  project: projectMoveSchema.optional(), vaultId: z.string(), path: z.string().max(1024), destination: z.string().max(1024), repairs: z.array(z.object({ path: z.string().max(1024), expectedHash: z.string(), hash: z.string(), operationId: z.string().uuid(), outcome: z.enum(['unstarted', 'submitted', 'saved', 'not_saved', 'uncertain']) }).strict()).max(64) }).strict();
+  project: projectMoveSchema.optional(), directory: z.literal(true).optional(), vaultId: z.string(), path: z.string().max(1024), destination: z.string().max(1024), repairs: z.array(z.object({ path: z.string().max(1024), expectedHash: z.string(), hash: z.string(), operationId: z.string().uuid(), outcome: z.enum(['unstarted', 'submitted', 'saved', 'not_saved', 'uncertain']) }).strict()).max(64) }).strict();
 export type MoveRecord = z.infer<typeof moveRecordSchema>;
 export const hashText = (text: string) => createHash('sha256').update(text).digest('hex');
 export const MOVE_SCAN_LIMITS = { notes: 10000, bytes: 128 * 1024 * 1024, milliseconds: 20000, batch: 8 } as const;
@@ -31,6 +31,7 @@ const unsupportedReasons = {
 } as const;
 export class MoveLinkError extends VaultError {
   additionalLocations?: MoveLinkError['location'][];
+  affectedBacklinks?: FolderBacklink[];
   previewBlockers?: { notesChecked: number; bytesChecked: number; counts: Partial<Record<MoveLinkError['location']['reason'], number>>; locationsTruncated: boolean };
   constructor(
     readonly location: { reason: keyof typeof unsupportedReasons | 'ambiguous_target'; path: string; line?: number; column?: number; start?: number; end?: number; beforeCandidates?: readonly string[]; afterCandidates?: readonly string[] },
@@ -40,11 +41,14 @@ export class MoveLinkError extends VaultError {
       `Move stopped before writing. ${location.reason === 'ambiguous_target' ? ambiguity : unsupportedReasons[location.reason]} Inspect the location in Obsidian.`);
   }
 }
+
+type FolderBacklink = { path: string; line: number; column: number; target: string; destination: string; rewrite: boolean };
+
 export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: string, parser: NoteParser,
-  project?: ProjectMove, attachments: readonly string[] = [], root = '') {
-  if (!paths.has(from) || paths.has(to)) throw new VaultError('conflict');
-  const folders = projectFolders({ path: from, destination: to, project });
-  const moves = new Map([[from, to]]);
+  project?: ProjectMove, attachments: readonly string[] = [], root = '', directory?: true) {
+  if (!directory && (!paths.has(from) || paths.has(to))) throw new VaultError('conflict');
+  const folders = directory ? { from, to } : projectFolders({ path: from, destination: to, project });
+  const moves = new Map(directory ? [] : [[from, to]]);
   const targets = new Set([...paths, ...attachments]);
   if (folders && project !== 'standalone') {
     for (const path of targets) {
@@ -57,6 +61,8 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
   if (afterPaths.size !== targets.size) throw new VaultError('conflict');
   const afterMove = new VaultLinks(afterPaths, root);
   const repairs: Array<{ path: string; text: string; expectedHash: string; hash: string }> = [];
+  const backlinks: FolderBacklink[] = [];
+  let backlinkBytes = 0;
   let repairBytes = 0;
   const visit = (note: { path: string; text: string; hash: string }, bytes: number, indexed?: ParsedLinks) => {
     const location = (offset?: number) => {
@@ -106,14 +112,33 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
         if (movedSource !== note.path && /^\.\.?(?:\/|$)/.test(name) && /%(?:23|3f)/i.test(pathSpelling)) {
           return unsupported('target_encoding', link.start);
         }
-        const unchanged = before.candidates.length === after.candidates.length &&
+        const touchesFolder = directory && [note.path, movedSource].some(source => {
+          const relative = /^\.\.?(?:\/|$)/.test(name);
+          const explicit = posix.normalize(name.replace(/^\//, ''));
+          const withinFolder = (path: string) => [from, to].some(folder => below(path.toLowerCase(), folder.toLowerCase()));
+          const forms = relative ? [posix.join(posix.dirname(source), name)] :
+            [root ? root + '/' + explicit : explicit, explicit];
+          return (relative && movedSource !== note.path) ||
+            forms.some(withinFolder) ||
+            [...before.candidates, ...before.competing, ...after.candidates, ...after.competing]
+              .some(withinFolder);
+        });
+        const unchanged = !touchesFolder && before.candidates.length === after.candidates.length &&
           before.candidates.every(path => !moves.has(path) && after.candidates.includes(path));
         if (unchanged) continue;
         if (frontmatter) return unsupported('frontmatter_link', link.start);
         throw ambiguous('A changed link did not have a uniquely established target before the move.');
       }
       const destination = moves.get(before.target) ?? before.target;
-      if (after.target === destination && (project || !moves.has(before.target))) continue;
+      const rewrite = after.target !== destination || (!project && !directory && moves.has(before.target));
+      if (directory && moves.has(before.target)) {
+        const backlink = { path: note.path, line: link.line, column: link.column, target: before.target, destination, rewrite };
+        backlinkBytes += JSON.stringify(backlink).length;
+        if (backlinks.length >= 256 || backlinkBytes > 16_000)
+          throw new VaultError('capacity', 'The affected backlinks exceed the folder preview limit.');
+        backlinks.push(backlink);
+      }
+      if (!rewrite) continue;
       if (/%(?:23|3f)/i.test(pathSpelling)) return unsupported('target_encoding', link.start);
       if (!span) return unsupported(frontmatter ? 'frontmatter_link' : 'link_syntax', link.start);
       if (wiki && /[#|\[\]<>?%]/.test(destination)) return unsupported('target_characters', link.start);
@@ -142,5 +167,5 @@ export function createMovePlanner(paths: ReadonlySet<string>, from: string, to: 
     const text = pieces.join('') + note.text.slice(offset);
     repairs.push({ path: movedSource, text, expectedHash: note.hash, hash: hashText(text) });
   };
-  return { visit, repairs, moves };
+  return { visit, repairs, moves, backlinks };
 }

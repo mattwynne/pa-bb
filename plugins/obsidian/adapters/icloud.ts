@@ -317,6 +317,7 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   }
 
   private async listLegacyProjectMove(input: Parameters<NonNullable<VaultFiles['listProjectMove']>>[0]) {
+    if (input.directory) throw new VaultError('unsupported', 'Folder moves require coordinated direct local vault access.');
     if (input.project !== 'standalone') throw new VaultError('unsupported', 'Moving project folders requires direct local vault access.');
     const { mirrorId, revision } = input;
     for (const path of input.afterMove ? [] : [input.path, input.destination]) {
@@ -333,7 +334,8 @@ export class ICloud implements MirrorCatalog, VaultFiles {
 
   move(input: Parameters<NonNullable<VaultFiles['move']>>[0]) {
     return this.route(input.mirrorId, files => files.move(input), async () => {
-      const { project, root: _root, movedNotes: _movedNotes, checkLinkPlan, ...note } = input;
+      const { project, directory, root: _root, movedNotes: _movedNotes, checkLinkPlan, ...note } = input;
+      if (directory) throw new VaultError('unsupported', 'Folder moves require coordinated direct local vault access.');
       if (project) await this.listLegacyProjectMove(input);
       const assertLinkPlan = await checkLinkPlan?.();
       assertLinkPlan?.();
@@ -342,9 +344,9 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   }
 
   async moveReceipts(input: Parameters<NonNullable<VaultFiles['moveReceipts']>>[0]) {
-    const { project, ...note } = input;
+    const { project, directory, ...note } = input;
     const local = await this.filesystem?.moveReceipts(note);
-    if (local?.length || project === 'paired') return local ?? [];
+    if (local?.length || directory || project === 'paired') return local ?? [];
     return this.call('noteMoveReceipts', note);
   }
   commit(input: Parameters<VaultFiles['commit']>[0]) {

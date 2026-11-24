@@ -163,20 +163,30 @@ export class LocalNotes {
     } catch (e) { throw e instanceof VaultError ? e : new VaultError('conflict', 'Inspect the conflict copies in the vault directory.'); }
     finally { await parent.close(); }
   }
-  async list(root: string, includeAttachments = false, scope = '') {
+  async list(root: string, includeAttachments = false, scope = '', strict = false) {
     const paths: string[] = [], attachments: string[] = []; let count = 0; const started = Date.now(); let incomplete = false; const warnings = new Set<string>();
     const walk = async (folder: FileHandle, prefix: string) => {
       // Stream entries: a huge directory must not allocate an unbounded array.
-      const directory = await opendir(fdPath(folder.fd), { bufferSize: 32 });
+      const directory = await opendir(fdPath(folder.fd), { bufferSize: 32, encoding: strict ? 'buffer' as BufferEncoding : 'utf8' });
       for await (const entry of directory) {
         if (++count > NOTE_LIMITS.entries || Date.now() - started > NOTE_LIMITS.scanMs) { incomplete = true; warnings.add('scan_limit'); return; }
-        const path = prefix + entry.name;
+        let name = entry.name;
+        if (strict) {
+          try { name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(entry.name as unknown as Buffer); }
+          catch { incomplete = true; warnings.add('unsupported_path'); continue; }
+        }
+        const path = prefix + name;
+        if (strict && (/\.(?:icloud|bb)-conflict[1-9][0-9]*$/.test(name) || (!entry.isDirectory() && !entry.isFile())))
+          throw new VaultError('unavailable', `Cannot verify the full vault listing at ${path.slice(0, 1024)}. Inspect this unsupported entry or conflict copy.`);
         if (entry.isSymbolicLink()) { incomplete = true; warnings.add('symlink_skipped'); continue; }
         if (entry.isDirectory()) {
           try { validateRelativePath(path); } catch { incomplete = true; warnings.add('unsupported_path'); continue; }
           let child: FileHandle | undefined;
-          try { child = await open(join(fdPath(folder.fd), entry.name), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); await walk(child, path + '/'); }
-          catch { incomplete = true; warnings.add('unreadable_directory'); }
+          try { child = await open(join(fdPath(folder.fd), name), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); await walk(child, path + '/'); }
+          catch (error) {
+            if (strict) throw error instanceof VaultError ? error : new VaultError('unavailable', `Cannot read the full vault listing at ${path}.`);
+            incomplete = true; warnings.add('unreadable_directory');
+          }
           finally { await child?.close(); }
         } else if (entry.isFile() && path.endsWith('.md')) { try { paths.push(validateNotePath(path)); } catch { incomplete = true; warnings.add('unsupported_path'); } }
         else if (includeAttachments && entry.isFile()) {
@@ -193,7 +203,7 @@ export class LocalNotes {
         await this.verifyParent(root, scope, parent.folder);
         if (!identity(await folder.stat(), await lstat(parent.path))) throw new VaultError('conflict');
       }
-    } catch { throw new VaultError('unavailable'); }
+    } catch (error) { throw strict && error instanceof VaultError ? error : new VaultError('unavailable'); }
     finally { await folder?.close(); await parent?.close(); }
     return { paths: paths.sort(), attachments: attachments.sort(), incomplete, warnings: [...warnings] };
   }
@@ -429,20 +439,28 @@ export class LocalNotes {
 
   // Record names and identities for the entire tree, including empty folders
   // and attachments. A single rename preserves the original inodes and bytes.
-  async projectTree(root: string, path: string) {
+  async projectTree(root: string, path: string, directoryMove?: { destination: string }) {
     const parent = await this.parent(root, path);
     const started = Date.now();
     const entries = new Map<string, Stats>();
     const walk = async (directory: string, prefix: string) => {
       const folder = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       try {
-        const listing = await opendir(fdPath(folder.fd));
+        const listing = await opendir(fdPath(folder.fd), { encoding: directoryMove ? 'buffer' as BufferEncoding : 'utf8' });
         for await (const entry of listing) {
           if (entries.size >= NOTE_LIMITS.entries || Date.now() - started >= NOTE_LIMITS.scanMs) throw new VaultError('capacity');
-          const child = prefix + entry.name;
-          const entryPath = join(fdPath(folder.fd), entry.name);
+          let name = entry.name;
+          if (directoryMove) {
+            try { name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(entry.name as unknown as Buffer); }
+            catch { throw new VaultError('invalid_path', 'The source folder contains a filename that is not valid UTF-8.'); }
+            if (name === '.obsidian') throw new VaultError('conflict', 'The source folder contains an Obsidian vault boundary.');
+            validateRelativePath(path + '/' + prefix + name);
+            validateRelativePath(directoryMove.destination + '/' + prefix + name);
+          }
+          const child = prefix + name;
+          const entryPath = join(fdPath(folder.fd), name);
           const info = await lstat(entryPath);
-          if ((!info.isFile() && !info.isDirectory()) || /\.(?:icloud|bb)-conflict[1-9][0-9]*$/.test(entry.name))
+          if ((!info.isFile() && !info.isDirectory()) || /\.(?:icloud|bb)-conflict[1-9][0-9]*$/.test(name))
             throw new VaultError('conflict', 'Inspect unsupported entries or conflict copies in the project folder.');
           entries.set(child, info);
           if (info.isDirectory()) await walk(entryPath, child + '/');
@@ -451,7 +469,7 @@ export class LocalNotes {
     };
     try {
       const info = await this.statEntry(parent.path);
-      if (!info?.isDirectory()) throw new VaultError('conflict', 'The expected project folder is unavailable.');
+      if (!info?.isDirectory()) throw new VaultError('conflict', 'The source path does not name an existing folder.');
       await walk(parent.path, '');
       const current = await lstat(parent.path);
       if (!same(info, current)) throw new VaultError('conflict');
@@ -461,8 +479,8 @@ export class LocalNotes {
         info,
         notes: names.filter(name => entries.get(name)!.isFile() && name.endsWith('.md')),
         fingerprint: digest(JSON.stringify(names.map(name => {
-          const { dev, ino, size, mtimeMs } = entries.get(name)!;
-          return [name, dev, ino, size, mtimeMs];
+          const { dev, ino, size, mtimeMs, ctimeMs } = entries.get(name)!;
+          return directoryMove ? [name, dev, ino, size, mtimeMs, ctimeMs] : [name, dev, ino, size, mtimeMs];
         }))),
       };
     } finally { await parent.close(); }
@@ -479,11 +497,13 @@ export class LocalNotes {
     try {
       if (source.dev !== (await parent.folder.stat()).dev)
         throw new VaultError('unsupported', 'The project folder and destination must share a filesystem.');
+      await this.verifyParent(root, to, parent.folder);
+      return await parent.folder.stat();
     } finally { await parent.close(); }
   }
 
   async moveProjectFolder(root: string, from: string, to: string, expected: Stats,
-    check: () => Promise<void>, started: () => void) {
+    check: () => Promise<void>, started: () => void, expectedParent?: Stats) {
     const source = await this.parent(root, from);
     try {
       const target = await this.parent(root, to);
@@ -491,6 +511,7 @@ export class LocalNotes {
         await check();
         await this.verifyParent(root, from, source.folder);
         await this.verifyParent(root, to, target.folder);
+        if (expectedParent && !identity(expectedParent, await target.folder.stat())) throw new VaultError('conflict', 'The destination parent changed.');
         const current = await this.statEntry(source.path);
         if (!current?.isDirectory() || !same(current, expected) || await this.statEntry(target.path)) throw new VaultError('conflict');
         const names = [from.split('/').at(-1)!, to.split('/').at(-1)!];
