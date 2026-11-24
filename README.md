@@ -20,7 +20,7 @@ For a new installation, use the [Docker quick start](#docker-quick-start) or [An
 | [Fastmail](plugins/fastmail/README.md) | Use Fastmail's mail, calendar and contacts tools. Available actions depend on the access you grant, including write/send access if selected. An optional API token enables Inbox and label updates. | One Fastmail account. [Setup guide](plugins/fastmail/docs/setup.md). |
 | [Email](plugins/email/README.md) | Index chosen mail accounts into a private MsgVault archive on the BB server and search archived email. | Reuses Workspace Gmail and Fastmail JMAP connections. Included in Docker; otherwise requires MsgVault 0.26 and BB 0.50.1 or later on the server. |
 | [iCloud Drive](plugins/icloud/README.md) | Sync selected folders in both directions between iCloud Drive and the BB host. | A supported Linux host with rclone. [Setup and recovery guide](plugins/icloud/docs/setup.md). |
-| [Obsidian](plugins/obsidian/README.md) | Search, read, create and edit Markdown notes, properties and tasks across connected vaults. No Obsidian app or Mac relay required. | The iCloud plugin, an initialized synced vault, and the [host search requirements](provisioning/README.md). [Setup guide](plugins/obsidian/docs/setup.md). |
+| [Obsidian](plugins/obsidian/README.md) | Search, read, create and edit notes, properties and tasks across connected vaults. BB installs Desktop and its CLI when you connect a vault. | The iCloud plugin, an initialized synced vault, and the [Linux host requirements](provisioning/README.md#manifest-and-supported-host). [Setup guide](plugins/obsidian/docs/setup.md). |
 
 These plugins are early-stage and intended for **single-user BB installations**, not shared servers. Listed capabilities are implemented, but not every action has been verified against a live account. Google Workspace replaces the retired standalone Calendar and Drive plugins. Each plugin guide records verification limits; an available tool catalog is not proof of every provider operation. PA core and other [planned integrations](docs/roadmap.md) are not available yet.
 
@@ -85,6 +85,7 @@ For manual setup, install [BB](https://getbb.app) **0.45 or later**, with Node.j
 - Supported provisioning target: **Ubuntu 24.04, x86_64**.
 - Pinned rclone **1.76.0** for iCloud folder sync and ripgrep **14.1.0** for note search.
 - Required locking and process-inspection support for safe background syncing.
+- GTK 3 and permission for the BB user's Obsidian Desktop process to create its Chromium user namespace.
 
 Use the dependency role from a reviewed Git revision in your own infrastructure project, or follow the [standalone playbook instructions](provisioning/README.md#consume-from-infrastructure). The dependency role installs host packages, including native Chrome; it does not install BB. The full [application playbook](provisioning/application.md) also installs stock BB and agent tools, configures the service, registers PA plugins and installs official Browser Automation. Neither route connects accounts or enables sync. You supply the machine, persistent storage and private configuration. The plugins never install system packages themselves.
 

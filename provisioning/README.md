@@ -29,6 +29,11 @@ x86_64 Linux**, with:
 - Stock rclone **1.76.0**, pinned official archive and extracted-binary SHA-256,
   installed root-owned at `/usr/local/bin/rclone`.
 - Stock ripgrep **14.1.0**, pinned Ubuntu package `ripgrep=14.1.0-1`.
+- GTK 3 for Obsidian Desktop. The BB service user needs executable, persistent
+  plugin storage, outbound HTTPS to GitHub release downloads on first use, and
+  permission to create Chromium's unprivileged user namespace. Check the host's
+  security policy when provisioning. Connecting a vault installs the verified
+  Desktop and CLI bundle. See the [Obsidian setup guide](../plugins/obsidian/docs/setup.md).
 - `build-essential` supplies make and the C/C++ toolchain for native npm
   dependencies when preparing plugin development packages on a fresh host.
 - `ca-certificates`, `unzip` and util-linux's `/usr/bin/flock`, provided by the
