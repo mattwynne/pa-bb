@@ -4,6 +4,7 @@ import { rpcContract, reference } from './contract.ts';
 import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
 import { areasIndex, panelHref, readRoute, recordDestination, unassignedArea, type Destination, type PanelPath } from './app-routes.ts';
+import { AreaStandard } from './area-standard.tsx';
 import './app.css';
 const key = (source: string, id: string) => JSON.stringify([source, id]);
 let inventoryRevision = 0;
@@ -579,6 +580,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       {ready && (area || unassigned) && <>
         <AreaPicker current={area ? areaDestination(area) : unassignedArea} entries={[{ title: 'All areas', destination: areasIndex }, ...entries,
           ...(hasUnassigned ? [{ title: 'Unassigned area', destination: unassignedArea }] : [])]} dropProps={dropProps} />
+        {area && <AreaStandard key={key(inventory.source, area.id)} source={inventory.source} id={area.id} />}
         <FilterBar title="Projects" label="Project status">
           {(Object.keys(projectStatuses) as ProjectFilter[]).map(value => <FilterOption key={value} type="radio" name={statusGroup}
             label={projectStatuses[value]} checked={status === value} onChange={() => { lastProjectFilter = value; setStatus(value); }} />)}

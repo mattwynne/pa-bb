@@ -18,6 +18,8 @@ const scalarProperty = z.union([z.string(), z.number().finite(), z.boolean(), z.
 const fields = z.array(z.string().min(1).max(128)).max(16);
 const property = z.union([scalarProperty, z.array(scalarProperty).max(256)]);
 const noteInput = vault.extend({ path: consumerFolder });
+const sectionInput = noteInput.extend({ heading: z.string().min(1).max(128).regex(/^[^\x00-\x1f\x7f]+$/) });
+const sectionText = z.string().max(16000);
 const operationId = z.string().uuid();
 const outcome = z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']);
 const moveInput = noteInput.extend({
@@ -37,6 +39,14 @@ export const rpcContract = defineRpcContract({
   noteEvidence: {
     input: noteInput.extend({ operationId: operationId.optional() }),
     output: z.object({ hash, properties: z.record(z.string(), z.unknown()), receipt: outcome.nullable() }).strict(),
+  },
+  readNoteSection: {
+    input: sectionInput,
+    output: z.object({ hash, text: sectionText }).strict(),
+  },
+  writeNoteSection: {
+    input: sectionInput.extend({ expectedHash: hash, operationId, text: sectionText }),
+    output: z.object({ operationId, outcome, reason: z.enum(['changed', 'invalid_section']).optional() }).strict(),
   },
   writeProperties: {
     input: noteInput.extend({ expectedHash: hash.optional(), operationId: operationId.optional(), set: z.record(z.string().min(1).max(128), property).optional(), remove: fields.optional() }),

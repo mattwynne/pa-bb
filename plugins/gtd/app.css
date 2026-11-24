@@ -117,3 +117,21 @@
   .gtd-nav .gtd-row-action { height: 44px; width: 44px; }
   .gtd-thread .gtd-row-action { opacity: 1; }
 }
+.gtd-standard { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.gtd-standard p { margin: 6px 0; }
+.gtd-standard .gtd-standard-text { white-space: pre-wrap; line-height: 1.5; }
+.gtd-standard-hint { color: var(--muted-foreground); }
+.gtd-standard form { display: grid; gap: 8px; }
+.gtd-standard textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 6rem;
+  resize: vertical;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 16px;
+  color: inherit;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}

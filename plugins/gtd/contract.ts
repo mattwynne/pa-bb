@@ -15,11 +15,19 @@ export const projectActionInput = reference.extend({
 });
 export const renameInput = reference.extend({ title: z.string().trim().min(1).max(240).regex(/^[^\x00-\x1f\x7f]+$/) });
 export const renameResult = z.object({ operationId: z.string().uuid(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict();
+export const standardTextLimit = 16000;
+const standardText = z.string().max(standardTextLimit);
+const noteHash = z.string().regex(/^[0-9a-f]{64}$/);
+export const areaStandardInput = reference.extend({ text: standardText, expectedHash: noteHash, operationId: z.string().uuid() });
+export const areaStandard = z.object({ text: standardText, hash: noteHash }).strict();
+export const standardSaveResult = renameResult.extend({ reason: z.enum(['changed', 'invalid_section']).optional() });
 export const rpcContract = defineRpcContract({
   browseInventory: {
     input: z.object({ includeAreas: z.boolean(), fresh: z.boolean().optional() }).strict(),
     output: z.object({ projects: snapshotSchema, areas: areaSnapshotSchema.nullable() }).strict(),
   },
+  readAreaStandard: { input: reference, output: areaStandard },
+  saveAreaStandard: { input: areaStandardInput, output: standardSaveResult },
   listProjects: { input: listInput, output: pageSchema },
   listAreas: { input: areaListInput, output: areaPageSchema },
   renameProject: { input: renameInput, output: renameResult },

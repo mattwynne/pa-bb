@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { renameResult } from '../contract.ts';
+import { areaStandard, renameResult, standardSaveResult, type areaStandardInput } from '../contract.ts';
 import { areaSnapshotSchema, GtdError, snapshotSchema } from '../core/model.ts';
 import type { Area, AreaBackend, Project, ProjectBackend, ProjectStatus, Warning } from '../core/model.ts';
 
@@ -130,6 +130,22 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     const target = { vaultId: this.config.vaultId, path: id };
     const { hash } = noteEvidence.parse(await vaultRpc(this.sdk, 'noteEvidence', target, signal));
     return renameResult.parse(await vaultRpc(this.sdk, 'writeProperties', { ...target, expectedHash: hash, set: { title } }, signal));
+  }
+
+  private standardTarget(source: string, id: string) {
+    if (source !== this.config.vaultId || !relativeFolder.safeParse(id).success ||
+        !immediate(id, this.scope(this.config.areasFolder ?? this.config.folder)) || !id.endsWith('.md')) throw new GtdError('invalid_source');
+    return { vaultId: source, path: id, heading: 'Standard' };
+  }
+
+  async readAreaStandard({ source, id }: { source: string; id: string }, signal: AbortSignal) {
+    return areaStandard.parse(await vaultRpc(this.sdk, 'readNoteSection', this.standardTarget(source, id), signal));
+  }
+
+  async saveAreaStandard({ source, id, ...change }: z.infer<typeof areaStandardInput>, signal: AbortSignal) {
+    const result = standardSaveResult.parse(await vaultRpc(this.sdk, 'writeNoteSection', { ...this.standardTarget(source, id), ...change }, signal));
+    if (result.operationId !== change.operationId) throw new Error('Obsidian returned a different operation receipt.');
+    return result;
   }
 
   private scope(folder: string) { return [this.config.root, folder].filter(Boolean).join('/'); }

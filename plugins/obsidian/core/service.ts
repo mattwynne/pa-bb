@@ -1,3 +1,4 @@
+import { noteSection, replaceNoteSection } from './note-section.ts';
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
@@ -456,6 +457,35 @@ export class Obsidian {
     return { hash: note.hash, properties: parsed.properties, receipt: receipt?.outcome ?? null };
   }
 
+  async readNoteSection(input: { vaultId: string; path: string; heading: string }, signal?: AbortSignal) {
+    if (signal?.aborted) throw new VaultError('cancelled');
+    const { note } = await this.note(input.vaultId, input.path);
+    const { text } = noteSection(this.parser, note.text, input.heading);
+    if (text.length > 16000) throw new VaultError('output_limit', 'Open the section in Obsidian to read it in full.');
+    return { hash: note.hash, text };
+  }
+
+  async writeNoteSection(input: { vaultId: string; path: string; heading: string; expectedHash: string; operationId: string; text: string }, signal?: AbortSignal) {
+    const { vaultId, path, heading, expectedHash, operationId, text } = input;
+    let started = false;
+    try {
+      const version = await this.note(vaultId, path);
+      if (version.note.hash !== expectedHash) return { operationId, outcome: 'not_saved' as const, reason: 'changed' as const };
+      // Recheck the version in write() and in the adapter commit.
+      started = true;
+      const result = await this.write(vaultId, path, expectedHash, before => replaceNoteSection(this.parser, before, heading, text),
+        false, signal, '', operationId, false, version.revision);
+      return { operationId, outcome: result.receipt.outcome };
+    } catch (error) {
+      if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable');
+      if (error instanceof VaultError && error.category === 'conflict')
+        return { operationId, outcome: 'not_saved' as const, reason: 'changed' as const };
+      if (error instanceof VaultError && ['invalid_section', 'ambiguous_link', 'properties_unsupported', 'parser_limit'].includes(error.category))
+        return { operationId, outcome: 'not_saved' as const, reason: 'invalid_section' as const };
+      return { operationId, outcome: started ? 'uncertain' as const : 'not_saved' as const };
+    }
+  }
+
   async writeProperties(input: { vaultId: string; path: string; expectedHash?: string; operationId?: string; set?: Record<string, unknown>; remove?: string[] }, signal?: AbortSignal) {
     const { note, revision } = await this.note(input.vaultId, input.path);
     const operationId = input.operationId ?? this.operationId();
@@ -512,12 +542,14 @@ export class Obsidian {
     if (this.state.pending?.some(p => p.operationId === operationId)) await this.save({ ...this.state, pending: this.state.pending?.filter(p => p.operationId !== operationId) });
   }); }
   private operationId() { const time = Math.floor(this.clock()).toString(16).padStart(12, '0'); return `${time.slice(0, 8)}-${time.slice(8)}-7${this.id().slice(15)}`; }
-  private async write(vaultId: string, path: string, expectedHash: string | null, prepare: (text: string) => string, create = false, signal?: AbortSignal, reader = '', requestedOperationId?: string, native = false) {
+  private async write(vaultId: string, path: string, expectedHash: string | null, prepare: (text: string) => string, create = false, signal?: AbortSignal, reader = '', requestedOperationId?: string, native = false, checkedRevision?: number) {
     if (signal?.aborted) throw new VaultError('cancelled');
     validPath(path); const { revision, source } = await this.source(vaultId);
     let text = '';
     if (!create) {
-      const proof = this.proofs.get(this.key(vaultId, path)); if (!proof || proof.hash !== expectedHash || proof.revision !== revision || proof.reader !== reader) throw new VaultError('complete_read_required', 'Read the complete note, then prepare a change against its whole-note hash.');
+      const proof = this.proofs.get(this.key(vaultId, path));
+      if (checkedRevision !== undefined ? checkedRevision !== revision : !proof || proof.hash !== expectedHash || proof.revision !== revision || proof.reader !== reader)
+        throw new VaultError('complete_read_required', 'Read the complete note, then prepare a change against its whole-note hash.');
       const current = await this.files.read(vaultId, revision, path); this.check(vaultId, revision);
       if (current.hash !== expectedHash) { this.proofs.delete(this.key(vaultId, path)); throw new VaultError('conflict', 'The note changed. Reread it and prepare a fresh change.'); } text = current.text;
     }

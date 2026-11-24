@@ -52,7 +52,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'area-standard'];
   const reviewedModes = process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
@@ -63,6 +63,10 @@ try {
     const projectChanges = [], areaCreations = [];
     let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
     const renames = [];
+    const standardSaves = [];
+    let standardText = 'Practice weekly.', standardHash = 'a'.repeat(64);
+    const standardReads = [];
+    let homeStandard = '', firstHomeRead = true;
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
     const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
       ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1 }),
@@ -121,6 +125,7 @@ try {
         const areas = [{ id: 'Areas/Learning.md', title: 'Learning' }];
         if (mode === 'empty') areas.length = 0;
         if (mode === 'project-actions' || mode === 'browser-flow') areas.push({ id: 'Areas/Home.md', title: 'Home' });
+        if (mode === 'area-standard') areas.push({ id: 'Areas/Home.md', title: 'Home' }, { id: 'Areas/Folder/', title: 'Folder' });
         if (mode === 'browser-flow') {
           areas.push({ id: 'Areas/Empty #50% 木/', title: 'Empty Area' });
           projects.push(
@@ -148,6 +153,30 @@ try {
         renames.push(input);
         title = input.title;
         result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' };
+      }
+      if (method === 'readAreaStandard') {
+        standardReads.push(input.id);
+        if (input.id === 'Areas/Home.md' && firstHomeRead) {
+          firstHomeRead = false;
+          return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic read failure' } } });
+        }
+        result = { text: input.id === 'Areas/Learning.md' ? standardText : homeStandard, hash: standardHash };
+      }
+      if (method === 'saveAreaStandard') {
+        standardSaves.push(input);
+        result = { operationId: input.operationId, outcome: 'saved_locally_pending_sync' };
+        if (input.text === 'Conflicting draft') {
+          standardText = 'Edit made in Obsidian.';
+          standardHash = 'c'.repeat(64);
+          result = { ...result, outcome: 'not_saved', reason: 'changed' };
+        } else if (input.text === 'Unconfirmed draft') {
+          result = { ...result, outcome: 'uncertain' };
+        } else if (input.id === 'Areas/Home.md') {
+          homeStandard = input.text;
+        } else {
+          standardText = input.text;
+          standardHash = 'b'.repeat(64);
+        }
       }
       if (method === 'newThread') { creations++; await new Promise(r => setTimeout(r, 250)); result = { threadId: 'fixture1' }; }
       if (method === 'newAreaThread') { areaCreations.push(input); result = { threadId: 'fixture1' }; }
@@ -430,6 +459,55 @@ try {
       const create = nav.getByRole('button', { name: 'New thread for Woodwork' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
       await page.waitForURL('**/threads/fixture1');
       assert.equal(creations, 1);
+    } else if (mode === 'area-standard') {
+      const standard = nav.getByRole('region', { name: 'Standard' });
+      await nav.getByRole('link', { name: 'Learning', exact: true }).click();
+      await standard.getByText('Practice weekly.', { exact: true }).waitFor();
+      const edit = standard.getByRole('button', { name: 'Edit standard' });
+      const editor = standard.getByRole('textbox', { name: 'Standard' });
+      const save = standard.getByRole('button', { name: 'Save', exact: true });
+      await edit.focus();
+      await page.keyboard.press('Enter');
+      assert.ok(await editor.evaluate(el => el === document.activeElement));
+      await editor.fill('Discarded draft');
+      await standard.getByRole('button', { name: 'Cancel' }).click();
+      assert.ok(await edit.evaluate(el => el === document.activeElement));
+      assert.equal(standardSaves.length, 0);
+      await edit.click();
+      await editor.fill('Practice daily.\n\nKeep notes.');
+      await page.screenshot({ path: join(artifacts, `standard-edit-${width}.png`) });
+      await save.click();
+      await standard.getByText('Standard saved locally in Obsidian.').waitFor();
+      assert.equal(standardSaves[0].id, 'Areas/Learning.md');
+      assert.equal(standardSaves[0].expectedHash, 'a'.repeat(64));
+      await edit.click();
+      await editor.fill('Conflicting draft');
+      await save.click();
+      await standard.getByRole('alert').getByText(/note changed in Obsidian/).waitFor();
+      assert.equal(await editor.inputValue(), 'Conflicting draft');
+      assert.ok(await save.isDisabled());
+      await standard.getByRole('button', { name: 'Load current standard' }).click();
+      await standard.getByText('Edit made in Obsidian.', { exact: true }).waitFor();
+      await page.screenshot({ path: join(artifacts, `standard-view-${width}.png`) });
+      await edit.click();
+      await editor.fill('Unconfirmed draft');
+      await save.click();
+      await standard.getByRole('alert').getByText(/save is unconfirmed/).waitFor();
+      await standard.getByText(standardSaves.at(-1).operationId, { exact: true }).waitFor();
+      assert.ok(await save.isDisabled());
+      await switchArea('Home');
+      await standard.getByRole('alert').getByText(/Could not read the standard/).waitFor();
+      await standard.getByRole('button', { name: 'Try again' }).click();
+      await standard.getByRole('button', { name: 'Add standard' }).click();
+      assert.equal(await editor.inputValue(), '');
+      assert.ok(await save.isDisabled());
+      await editor.fill('Review household tasks weekly.');
+      await save.click();
+      await standard.getByText('Review household tasks weekly.', { exact: true }).waitFor();
+      await switchArea('Folder');
+      await standard.getByText('Add an Area note in Obsidian to set a standard.').waitFor();
+      assert.ok(!standardReads.includes('Areas/Folder/'));
+      assert.equal(standardSaves.length, 4);
     } else if (mode === 'project-actions') {
       await openLearning();
       const project = link(title);

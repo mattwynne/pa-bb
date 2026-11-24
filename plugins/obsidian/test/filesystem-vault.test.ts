@@ -176,3 +176,48 @@ test('uncertain receipt persistence is inspected from disk without replaying the
   assert.equal(await readFile(join(f.directory, note.path), 'utf8'), 'One version');
   assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
 });
+
+test('a section save preserves the rest of the Area note and checks the displayed version', async t => {
+  const f = await fixture(t);
+  const target = { vaultId: 'one', path: 'Learning.md', heading: 'Standard' };
+  const file = join(f.directory, target.path);
+  const client = { experimental_caller: { kind: 'client' as const } };
+  const gtd = { experimental_caller: { kind: 'plugin' as const, pluginId: 'gtd' } };
+  const call = (method: string, input: unknown = target) => f.harness.behavior.callRpc(method, input, gtd);
+  const read = () => call('readNoteSection') as Promise<{ hash: string; text: string }>;
+  const save = (expectedHash: string, text: string, operationId = randomUUID()) =>
+    call('writeNoteSection', { ...target, expectedHash, text, operationId }) as Promise<{ outcome: string; reason?: string }>;
+  const before = '---\r\ntags: [learning]\r\n---\r\n# Learning\r\n\r\n> ## Standard\r\n\r\n## Standard\r\n\r\nPractice weekly.\r\n\r\n### Notes\r\nUse scrap.\r\n\r\n## Projects\r\nKeep this.\r\n';
+  const after = before.replace('Practice weekly.\r\n\r\n### Notes\r\nUse scrap.', 'Practice daily.\r\n\r\n- Use scrap.');
+  await writeFile(file, before);
+  await assert.rejects(f.harness.behavior.callRpc('readNoteSection', target, client), /Only BB plugins/);
+  const version = await read();
+  assert.equal(version.text, 'Practice weekly.\r\n\r\n### Notes\r\nUse scrap.');
+  const operationId = randomUUID();
+  assert.equal((await save(version.hash, 'Practice daily.\n\n- Use scrap.', operationId)).outcome, 'saved_locally_pending_sync');
+  assert.equal(await readFile(file, 'utf8'), after);
+  const receipt = await call('noteEvidence', { vaultId: target.vaultId, path: target.path, operationId }) as { receipt: string };
+  assert.equal(receipt.receipt, 'saved_locally_pending_sync');
+  const stale = await save(version.hash, 'Stale draft');
+  assert.equal(stale.outcome, 'not_saved');
+  assert.equal(stale.reason, 'changed');
+  const latest = await read();
+  const invalid = await save(latest.hash, 'Practice hard.\n\n## An outside heading');
+  assert.equal(invalid.outcome, 'not_saved');
+  assert.equal(invalid.reason, 'invalid_section');
+  assert.equal(await readFile(file, 'utf8'), after);
+
+  const noSection = '# Learning\n\nPrivate sentinel prose.\n';
+  await writeFile(file, noSection);
+  const empty = await read();
+  assert.equal(empty.text, '');
+  assert.equal((await save(empty.hash, 'Ask better questions.')).outcome, 'saved_locally_pending_sync');
+  const added = await readFile(file, 'utf8');
+  assert.equal(added, noSection + '\n## Standard\n\nAsk better questions.\n');
+  await writeFile(file, added + '\n## Standard\nPrivate sentinel duplicate.\n');
+  await assert.rejects(read(), /Keep one matching heading/);
+  const logs = JSON.stringify(f.harness.inspection.logEntries);
+  assert.match(logs, /Obsidian rpc invalid_section/);
+  assert.match(logs, /Obsidian rpc ambiguous_link/);
+  assert.doesNotMatch(logs, /sentinel|Learning\.md|Ask better/);
+});

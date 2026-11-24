@@ -10,7 +10,7 @@ import type { Metadata, NoteParser } from '../core/ports.ts';
 const MAX_BYTES = 64 * 1024; const MAX_NODES = 20000;
 const lineAt = (text: string, offset: number) => text.slice(0, offset).split('\n').length;
 const blank = (text: string) => text.replace(/[^\r\n]/g, ' ');
-const walk = (node: any, visit: (node: any) => void, depth = 0) => { if (depth > 64) throw new VaultError('parser_limit'); visit(node); for (const child of node.children ?? []) walk(child, visit, depth + 1); };
+const walk = (node: any, visit: (node: any, depth: number) => void, depth = 0) => { if (depth > 64) throw new VaultError('parser_limit'); visit(node, depth); for (const child of node.children ?? []) walk(child, visit, depth + 1); };
 function header(text: string): { start: number; end: number; closeEnd: number; yaml: string; doc: Document | null; valid: boolean } {
   const open = /^(?:\uFEFF)?---\r?\n/.exec(text);
   if (!open) return { start: 0, end: 0, closeEnd: 0, yaml: '', doc: null, valid: true };
@@ -78,7 +78,7 @@ export class MarkdownNotes implements NoteParser {
     const value = header(text);
     return { properties: value.doc?.toJS({ maxAliasCount: 0 }) ?? {}, warnings: value.valid ? [] : ['properties_unsupported'] };
   }
-  parse(text: string, purpose?: 'move'): Metadata {
+  parse(text: string, purpose?: 'move' | 'section'): Metadata {
     const linksOnly = purpose === 'move';
     if (Buffer.byteLength(text) > (linksOnly ? MAX_NOTE_BYTES : MAX_BYTES)) throw new VaultError('parser_limit');
     const meta: Metadata = { properties: {}, aliases: [], tags: [], headings: [], blocks: [], links: [], tasks: [], warnings: [] };
@@ -104,8 +104,8 @@ export class MarkdownNotes implements NoteParser {
       if (linksOnly && meta.links.length >= MAX_NODES) throw new VaultError('parser_limit');
       meta.links.push({ ...location(start, end), target, embed, ...(linksOnly && syntax ? { syntax, ...(destination ? { destination } : {}) } : {}) });
     };
-    // micromark omits a leading BOM from offsets. Mask it for both move parses.
-    if (linksOnly && masked.startsWith('\uFEFF')) masked = ' ' + masked.slice(1);
+    // micromark omits a leading BOM from offsets. Mask it for source edits.
+    if ((linksOnly || purpose === 'section') && masked.startsWith('\uFEFF')) masked = ' ' + masked.slice(1);
     const forbidden: Array<[number, number]> = []; let nodes = 0;
     const html: Array<{ start: number; end: number; value: string }> = [];
     walk(fromMarkdown(masked), node => { if (++nodes > MAX_NODES) throw new VaultError('parser_limit'); if (['code', 'inlineCode', 'html'].includes(node.type)) forbidden.push([node.position.start.offset, node.position.end.offset]); if (node.type === 'html') html.push({ start: node.position.start.offset, end: node.position.end.offset, value: node.value }); });
@@ -153,11 +153,11 @@ export class MarkdownNotes implements NoteParser {
     const codeSpans: Array<{ start: number; end: number }> = [];
     const definitions = new Set<number>();
     const textOf = (node: any): string => node.value ?? (node.children ?? []).map(textOf).join('');
-    walk(root, node => {
+    walk(root, (node, depth) => {
       if (++nodes > MAX_NODES) throw new VaultError('parser_limit');
       if (!node.position) return;
       const start = node.position.start.offset; const end = node.position.end.offset;
-      if (!linksOnly && node.type === 'heading') meta.headings.push({ ...location(start, end), title: textOf(node), depth: node.depth });
+      if (!linksOnly && node.type === 'heading' && (purpose !== 'section' || depth === 1)) meta.headings.push({ ...location(start, end), title: textOf(node), depth: node.depth });
       if (node.type === 'link' || node.type === 'image') addLink(start, end, node.url, node.type === 'image', 'markdown', destinations?.get(start));
       if (linksOnly && (node.type === 'code' || node.type === 'inlineCode')) codeSpans.push({ start, end });
       if (linksOnly && node.type === 'definition') {

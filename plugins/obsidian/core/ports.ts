@@ -68,7 +68,7 @@ export type Location = { line: number; endLine: number; start: number; end: numb
 export type Metadata = { properties: Record<string, unknown>; aliases: string[]; tags: Array<Location & { tag: string }>; headings: Array<Location & { title: string; depth: number }>; blocks: Array<Location & { id: string }>; links: Array<Location & { target: string; embed: boolean; syntax?: 'frontmatter' | 'markdown' | 'wiki' | 'definition'; destination?: { start: number; end: number } }>; tasks: Array<Location & { text: string; marker: string; markerOffset: number; complete: boolean }>; warnings: string[]; unclosedHtmlOffset?: number; htmlLinkOffset?: number; unparsedReferenceOffset?: number };
 export interface NoteParser {
   frontmatter(text: string): { properties: Record<string, unknown>; warnings: string[] };
-  parse(text: string, purpose?: 'move'): Metadata;
+  parse(text: string, purpose?: 'move' | 'section'): Metadata;
   edit(text: string, replacements: Array<{ oldText: string; newText: string }>): string;
   properties(text: string, input: { set: Record<string, unknown>; remove: string[] }): string;
 }

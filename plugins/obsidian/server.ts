@@ -42,6 +42,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
   bb.rpc.register(rpcContract, {
     vaultInventory(input, context) { return evidence(() => service.vaultInventory(input, context.experimental_signal), context); },
     noteEvidence(input, context) { return evidence(() => service.noteEvidence(input, context.experimental_signal), context); },
+    readNoteSection(input, context) { return evidence(() => service.readNoteSection(input, context.experimental_signal), context); },
+    writeNoteSection(input, context) { return evidence(() => service.writeNoteSection(input, context.experimental_signal), context); },
     writeProperties(input, context) { return evidence(() => service.writeProperties(input, context.experimental_signal), context); },
     movePath(input, context) { return evidence(() => service.movePath(input, context.experimental_signal), context); },
     moveReceipt(input, context) { return evidence(() => service.moveReceipt(input), context); },

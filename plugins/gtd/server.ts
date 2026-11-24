@@ -4,7 +4,7 @@ import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema,
 import { Areas, compareAreas, normalizeAreaSnapshot } from './core/areas.ts';
 import { applyInput, browseInput, changeInput, changeNames, checkInput, deferInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
 import { migrationPreview } from './core/migration-preview.ts';
-import { rpcContract, renameInput, reference, newThreadInput } from './contract.ts';
+import { areaStandardInput, rpcContract, renameInput, reference, newThreadInput } from './contract.ts';
 import { threadActions } from './core/threads.ts';
 import { areaListInput, areaPageSchema } from './core/model.ts';
 import type { AreaBackendSelection, AreaPage } from './core/model.ts';
@@ -50,7 +50,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Each project needs a Markdown note directly in this folder or in Active, Deferred, Someday or Done. A folder with the same name can hold supporting files.', default: 'Projects', experimental_schema: relativeFolder },
     automaticReactivation: { type: 'boolean', label: 'Automatically reactivate deferred projects', description: 'Move due projects and their supporting folders to Active, with their links and conversations. Checks daily after midnight Pacific and when GTD starts.', default: false },
   });
-  const diagnose = (stage: 'list' | 'areas' | 'sources', code: string) => {
+  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial'].includes(code) ? code : 'unknown';
     bb.log.warn(`GTD ${stage} ${safe}`);
   };
@@ -88,8 +88,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
   });
   const projects = new Projects(select);
   const areas = new Areas(selectAreas);
-  const enteredRenames = new Set<Promise<unknown>>(); let closing = false;
-  bb.onDispose(async () => { closing = true; current?.backend.invalidate(); await Promise.allSettled([...enteredRenames]); projects.stop(); areas.stop(); });
+  const enteredWrites = new Set<Promise<unknown>>(); let closing = false;
+  bb.onDispose(async () => { closing = true; current?.backend.invalidate(); await Promise.allSettled([...enteredWrites]); projects.stop(); areas.stop(); });
   const listAreas = async (input: z.infer<typeof areaListInput>, signal: AbortSignal, owner: string) => {
     try {
       const result = areaPageSchema.parse(await areas.list(input, signal, owner));
@@ -119,8 +119,35 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       try { return await selection.backend.rename(item.id, input.title, signal); }
       finally { selectedBackend?.invalidate(); }
     } catch { bb.log.warn('GTD rename unconfirmed'); throw new Error('Rename was not confirmed. Inspect Obsidian receipts before another edit; do not retry automatically.'); } })();
-    enteredRenames.add(task);
-    try { return await task; } finally { enteredRenames.delete(task); }
+    enteredWrites.add(task);
+    try { return await task; } finally { enteredWrites.delete(task); }
+  };
+  const readStandard = async (input: z.infer<typeof reference>, signal: AbortSignal) => {
+    try {
+      const { config, key } = await configured('areasFolder');
+      return await backendFor(config, key).readAreaStandard(input, signal);
+    } catch (error) {
+      diagnose('standard_read', safeError(error, signal).code);
+      throw new Error('Could not read the standard. Check the Area note in Obsidian and try again.');
+    }
+  };
+  const saveStandard = async (input: z.infer<typeof areaStandardInput>, signal: AbortSignal) => {
+    if (closing || signal.aborted) throw new GtdError('cancelled');
+    const task = (async () => {
+      let dispatched = false;
+      try {
+        const { config, key } = await configured('areasFolder');
+        if (closing || signal.aborted) throw new GtdError('cancelled');
+        dispatched = true;
+        return await backendFor(config, key).saveAreaStandard(input, signal);
+      } catch (error) {
+        diagnose('standard_save', safeError(error, signal).code);
+        const outcome = dispatched && !(error instanceof GtdError && error.code === 'invalid_source') ? 'uncertain' : 'not_saved';
+        return { operationId: input.operationId, outcome } as const;
+      }
+    })();
+    enteredWrites.add(task);
+    try { return await task; } finally { enteredWrites.delete(task); }
   };
   const threads = threadActions(bb, select, selectAreas);
   const changes = projectChanges(bb, async () => {
@@ -147,9 +174,9 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     bb.agents.registerTool({name, parameters, description, async execute(input,context){
       try {
         if (closing || context.signal.aborted) throw new GtdError('cancelled');
-        const task = action(input,context.signal); enteredRenames.add(task);
+        const task = action(input,context.signal); enteredWrites.add(task);
         try {return {content:[{type:'text' as const,text:JSON.stringify(await task)}]};}
-        finally {enteredRenames.delete(task);}
+        finally {enteredWrites.delete(task);}
       }
       catch(error){bb.log.warn(name === changeNames[3] ? 'GTD project_defer not_confirmed' : 'GTD project_change not_confirmed');return {isError:true,content:[{type:'text' as const,text:safeChangeError(error)}]};}
     }});
@@ -196,10 +223,12 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     async changeProject(input, context) {
       if (closing || context.experimental_signal.aborted) throw new GtdError('cancelled');
       const task = changes.applyFromPanel(input, context.experimental_signal);
-      enteredRenames.add(task);
+      enteredWrites.add(task);
       try { return await task; }
-      finally { current?.backend.invalidate(); enteredRenames.delete(task); }
+      finally { current?.backend.invalidate(); enteredWrites.delete(task); }
     },
+    readAreaStandard: (input, context) => readStandard(input, context.experimental_signal),
+    saveAreaStandard: (input, context) => saveStandard(input, context.experimental_signal),
     renameProject: (input, context) => renameProject(input, context.experimental_signal),
     listAreas: (input, context) => listAreas(input, context.experimental_signal, 'rpc'),
     listProjects: (input, context) => list(input, context.experimental_signal, 'rpc'),

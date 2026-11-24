@@ -27,6 +27,7 @@ function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }
           areas: includeAreas ? { source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }, ...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` }))], complete: true, warnings: [] } : null,
         };
       },
+      readAreaStandard: async () => ({ text: 'Practice weekly.', hash: 'a'.repeat(64) }),
       newThread, renameProject: rename,
     },
     sdk: { threads: { experimental_listPluginMetadata: async () => ({ threads: [{ threadId: 't1', metadata: { project: ref } }, { threadId: 't2', metadata: { project: ref } }] }) } },
@@ -291,7 +292,7 @@ test('manual Refresh starts one fresh combined request and hides previous rows u
   fireEvent.click(slot.getByRole('button', { name: 'Refresh GTD' }));
   expect(slot.queryByRole('heading', { name: 'Learning' })).toBeNull();
   await slot.findByRole('heading', { name: 'Learning' });
-  expect(slot.inspection.rpcCalls.map(call => [call.method, call.input])).toEqual([
+  expect(slot.inspection.rpcCalls.filter(call => call.method === 'browseInventory').map(call => [call.method, call.input])).toEqual([
     ['browseInventory', { includeAreas: true }],
     ['browseInventory', { includeAreas: true, fresh: true }],
   ]);
