@@ -1,15 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
+import type { InventoryInput } from '../core/ports.ts';
 import { plugin } from '../server.ts';
 import { CatalogFake, FilesFake, MemoryState } from './fakes.ts';
 test('consumer child enumeration is scoped, read-only, bounded and fails safely', async () => {
   const host = createFakePluginHost({ pluginId: 'obsidian' }); const files = new FilesFake();
   let fail = false, calls = 0;
-  const source = Object.assign(files, { children: async (id: string, revision: number, folder: string) => {
-    assert.equal(id, 'one'); assert.ok(revision > 0); assert.equal(folder, 'Projects'); calls++;
+  const source = Object.assign(files, { children: async () => ({ entries: [], incomplete: false }),
+    vaultInventory: async (input: InventoryInput, revision: number) => {
+    assert.equal(input.vaultId, 'one'); assert.ok(revision > 0); assert.equal(input.root, 'Projects'); calls++;
     if (fail) throw new Error('private-sentinel');
-    return { entries: [{ name: 'Empty', kind: 'directory' as const }], incomplete: false };
+    return { notes: [], folders: ['Projects', 'Projects/Empty'], incomplete: false };
   } });
   await plugin(host.bb, { catalog: new CatalogFake(), files: source, repository: new MemoryState() });
   await host.harness.behavior.callRpc('connect', { vaultId: 'one' });

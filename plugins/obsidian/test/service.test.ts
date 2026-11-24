@@ -85,11 +85,6 @@ test('metadata read arriving after removal cannot expose revoked content', async
   const pending = service.metadata({ vaultId: 'one', path: 'Launch.md' }); await entered.promise; await service.remove('one'); release.resolve();
   await assert.rejects(pending, (e: unknown) => e instanceof VaultError && e.category === 'not_connected');
 });
-test('a search cannot resurrect cached rows after removal during its final async continuation', async () => {
-  const { service, files } = await setup(); files.notes.set('one/Launch.md', '# Private\n'); const search = files.search.bind(files);
-  files.search = async input => { const result = await search(input); if (!input.startOnly) await service.remove('one'); return result; };
-  await assert.rejects(service.search({ vaultId: 'one', text: 'Private' }), (e: unknown) => e instanceof VaultError && e.category === 'not_connected'); assert.equal((service as any).searcher.sessions.size, 0);
-});
 test('known operation inspection is independent of the latest receipt page', async () => {
   const { service } = await setup(); const first = await service.create({ vaultId: 'one', path: 'First.md', text: '# First\n' }); await service.create({ vaultId: 'one', path: 'Second.md', text: '# Second\n' });
   const status = await service.status({ vaultId: 'one', operationId: first.operationId, limit: 1 }); assert.equal(status.receipts.length, 1); assert.equal(status.receipts[0].operationId, first.operationId);
@@ -181,12 +176,6 @@ test('cloud freshness does not expire cursor, but local safety change and remova
   const next = await service.search({ text: 'Launch', limit: 1 }); catalog.value.sources[0].local = { ...catalog.value.sources[0].local, available: false, reason: 'source_changed' };
   await assert.rejects(service.search({ cursor: next.nextCursor! }), /cursor_expired/);
 });
-test('an empty work slice is not absence, but continuation completes beyond the former scan limit', async () => {
-  const { service, files } = await setup(); for (let i = 0; i < 3300; i++) files.notes.set(`one/.hidden/n${i}.md`, 'Unrelated');
-  let result = await service.search({ vaultId: 'one', text: 'Needle' }); assert.equal(result.results.length, 0); assert.equal(result.incomplete, true); assert.ok(result.nextCursor); assert.equal(result.totalMatches, null);
-  while (result.nextCursor) result = await service.search({ cursor: result.nextCursor });
-  assert.equal(result.coverage.state, 'complete'); assert.equal(result.incomplete, false); assert.equal(result.totalMatches, 0); assert.equal(result.coverage.visitedNotes, 3302);
-});
 test('verified names and legacy pending IDs persist across failed catalog/restart without reset', async () => {
   const { service, catalog, files, state } = await setup();
   const first = await service.status(); assert.equal(first.vaults[0].name, 'Launch');
@@ -231,12 +220,11 @@ test('resolve uses suffix candidates after exact vault paths', async () => {
   files.notes.set('one/Areas/Equipment.md', '');
   const exact = await resolve('[[Areas/Equipment]]');
   assert.equal(exact.status, 'resolved');
-  assert.deepEqual(exact.competing, ['Workspace/Areas/Equipment.md']);
   assert.equal((await resolve('[[/Areas/Equipment]]')).status, 'resolved');
 
   assert.equal((await service.resolve({ vaultId: 'one', path: 'Journal/Entry.md', link: '[[.attachments/Equipment]]' })).status, 'resolved');
 
-  const list = files.list.bind(files);
-  files.list = async (...args) => ({ ...await list(...args), incomplete: true });
-  assert.equal((await resolve('[[/Areas/Equipment]]')).status, 'incomplete');
+  const lookup = files.desktopTargets.bind(files);
+  files.desktopTargets = async (...args) => (await lookup(...args)).map(row => row.status === 'missing' ? { status: 'incomplete' } : row);
+  assert.equal((await resolve('[[Missing]]')).status, 'incomplete');
 });

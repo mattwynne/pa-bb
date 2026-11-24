@@ -1,38 +1,43 @@
 # Connect an Obsidian vault
 
-Connect a vault so BB can read and edit all its notes. Changes are sent back
-through iCloud. Connecting includes nested and hidden Markdown folders; there
-are no folder permissions, read-only settings or per-edit confirmations.
+Connect a vault so BB can read and edit its notes. Changes sync through iCloud.
+Desktop metadata and search can omit hidden folders.
 
 ## Requirements
 
 - A single-user BB installation with BB 0.45.0 or newer, Node.js 22 or newer and
   the iCloud and Obsidian plugins installed separately.
-- An iCloud plugin advertising coordinated note access v2. A paired build with
-  mirror access v3 enables filesystem access after iCloud clears each mirror for
-  migration. Existing connections keep their vault IDs.
+- An iCloud plugin with coordinated note access v2 and an identity-bound local
+  directory grant for the selected vault. Existing connections keep their IDs.
 - A supported Linux iCloud host with stock rclone v1.76.0 (v1.75.2 remains supported), util-linux flock,
   mounted procfs and persistent writable plugin storage. The host operator handles
   provisioning; neither plugin installs system packages. See the
   [portable requirements](../../../docs/references/bb-host-requirements.md).
-- A vault folder available in iCloud Drive. No Obsidian desktop app, plugin inside
-  Obsidian, Mac relay or PA core is required on the BB host.
+- A vault folder available in iCloud Drive and the official Linux Obsidian
+  Desktop bundle. Use a trusted vault with ordinary files and folders. Desktop
+  follows filesystem links, so the selected vault must have no symbolic links,
+  hard links to outside files or nested mounts that expose other directories.
 
 ## Search requirements
 
-Ripgrep search needs stock ripgrep available to BB's service user. The [host manifest](../../../provisioning/README.md) pins the
-Linux-validated 14.1.0 release. The host operator provisions it; the plugins do
-not download or install executables.
+Install and test the [official Desktop bundle](../../../docker/README.md#optional-obsidian-desktop-cli)
+under the host's normal security settings. In Obsidian's BB plugin settings set
+**Obsidian Desktop executable**, **Obsidian CLI executable** and **Desktop vault
+ID**. Both executables come from the same bundle. The vault ID is the exact
+connected iCloud source ID. If that source contains several distinct vaults,
+give the mirror-relative **Desktop vault folder** too. Reload the Obsidian
+plugin after saving these values.
 
-If settings says **Vault search is unavailable**, keep your vault connections,
-ask the operator to check these requirements, then choose **Check again**.
-Ordinary reads, saves and sync do not depend on search availability.
+The existing `PA_OBSIDIAN_DESKTOP`, `PA_OBSIDIAN_CLI` and
+`PA_OBSIDIAN_DESKTOP_VAULT_ID` environment variables also configure startup.
+Use `PA_OBSIDIAN_DESKTOP_ROOT` if you need to name a nested vault folder.
+Desktop runs in a private profile with restricted mode, and iCloud continues
+to sync the same local vault.
 
-Ask for YAML properties explicitly, for example: “Count notes whose `status`
-property equals `active`.” Body text is not a property, and a note count is not
-a deduplicated project count. The assistant must follow continuations until a
-reliable total is available; partial or running matches are not a final count.
-See [search and counts](../README.md#search-and-counts) for query scopes and limits.
+If a Desktop command reports unavailable, check the binary paths, vault ID and
+local iCloud access. Ask the operator to inspect the Obsidian plugin logs for
+the failing stage. For moves, enable automatic link updates in the Obsidian
+vault's settings.
 
 ## In BB: prepare iCloud first
 
@@ -58,9 +63,8 @@ See [search and counts](../README.md#search-and-counts) for query scopes and lim
 4. Repeat for another vault if needed. The connected view shows source status and
    last successful sync, not host paths or individual note contents.
 
-Connecting immediately makes the whole vault readable and editable by the
-assistant. There is no second permission dialog. Installing the plugin alone
-connects no vaults.
+Desktop operations become available when the connected vault is selected for
+Desktop and the app starts. Installing the plugin alone connects no vaults.
 
 ## Ask the assistant
 
@@ -117,4 +121,4 @@ connected explicitly, even if its name is unchanged.
 
 The [README](../README.md#resource-and-recovery-limits) records concrete format,
 scan, output and retention limits and operator-assisted restoration. No browser,
-editor, graph, history dashboard, approval queue or delete tool is supplied. The bounded move/rename tool and its independent link-repair limits are described in the [README](../README.md#bounded-path-move-and-rename).
+editor, graph, history dashboard, approval queue or delete tool is supplied. The direct move tools and their receipts are described in the [README](../README.md#tools).

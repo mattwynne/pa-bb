@@ -23,7 +23,7 @@ test('all published tool parameter schemas have an object root for provider func
   const f = await setup();
   try {
     const config = await f.harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
-    assert.equal(config.tools.length, 13);
+    assert.equal(config.tools.length, 12);
     for (const tool of config.tools) assert.equal((tool.inputSchema as { type?: unknown }).type, 'object', tool.name);
   } finally { await f.harness.lifecycle.dispose(); }
 });

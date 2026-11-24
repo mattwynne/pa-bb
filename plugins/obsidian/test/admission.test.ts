@@ -12,7 +12,7 @@ test('closing admission rejects new work and waits for owned work, including rej
   await assert.rejects(gate.run(async () => {}), /unavailable/); assert.equal(stopped, false);
   release(); await task; await stop; assert.equal(stopped, true);
 });
-test('native disposal waits for an entered title save before invalidating service/receipt state', async () => {
+test('native disposal waits for an entered property save before invalidating service/receipt state', async () => {
   const host = createFakePluginHost({ pluginId: 'obsidian' }); const files = new FilesFake(); const repository = new MemoryState();
   await plugin(host.bb, { catalog: new CatalogFake(), files, repository });
   await host.harness.behavior.callRpc('connect', { vaultId: 'one' });
@@ -21,7 +21,7 @@ test('native disposal waits for an entered title save before invalidating servic
   const ready = new Promise<void>(resolve => { entered = resolve; });
   const commit = files.commit.bind(files);
   files.commit = async input => { entered(); await new Promise<void>(resolve => { release = resolve; }); return commit(input); };
-  const task = host.harness.behavior.callRpc('renameTitle', { vaultId: 'one', path: 'Projects/Plan.md', title: 'New' }, { experimental_caller: { kind: 'plugin', pluginId: 'gtd' } });
+  const task = host.harness.behavior.callRpc('writeProperties', { vaultId: 'one', path: 'Projects/Plan.md', set: { title: 'New' } }, { experimental_caller: { kind: 'plugin', pluginId: 'gtd' } });
   await ready; let stopped = false;
   const disposal = host.harness.lifecycle.dispose().then(() => { stopped = true; });
   await new Promise(resolve => setTimeout(resolve, 20)); assert.equal(stopped, false);

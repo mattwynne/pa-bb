@@ -1,16 +1,12 @@
-import { moveFolders, projectFolders, type MoveEndpoints } from '../core/project-move.ts';
+import type { Stats } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { VaultError } from '../core/ports.ts';
-import type { Diagnose, NoteParser, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
+import type { Diagnose, DesktopLinkOperation, PathMove, PathMoveReceipt, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
 import { digest, equivalent, identity, LocalNotes, validateNotePath, validateRelativePath } from './local-notes.ts';
-import { LocalSearch } from './local-search.ts';
-import { FilesystemIndex, INDEX_LIMITS, type DirectoryGrantLookup } from './filesystem-index.ts';
-import { MarkdownNotes } from './markdown-notes.ts';
+import type { DirectoryGrant } from './local-notes.ts';
 import { fileIdentity, LocalReceipts } from './local-receipts.ts';
 import type { FileIdentity, LocalReceipt } from './local-receipts.ts';
-import { validateDesktopOperation, type DesktopLinks } from './desktop-links.ts';
-import { desktopRenameUncertain, type DesktopLinkOperation } from '../core/ports.ts';
-import { untilAborted } from '../core/vault-index.ts';
+import type { DesktopLinks } from './desktop-links.ts';
 
 type Target = { mirrorId: string; revision: number; path: string };
 type DirectoryLookup = (mirrorId: string, revision: number, signal?: AbortSignal) => Promise<string>;
@@ -19,66 +15,115 @@ type Copy = Awaited<ReturnType<LocalNotes['conflictCopies']>>[number];
 type Conflict = { canonical: Observed; copies: Copy[]; logical: NonNullable<Observed>; incoming: NonNullable<Observed> };
 type Token = { target: Target; root: string; identity: FileIdentity; version: string; expires: number };
 
-export class FilesystemVault {
-  readonly checksLinkPlanAtWrite = true as const;
-  private files = new LocalNotes();
-  readonly searcher = new LocalSearch(this.files);
-  private tokens = new Map<string, Token>();
+const versionIdentity = (info: Stats) => ({ ...fileIdentity(info), birthtime: info.birthtimeMs });
 
-  readonly index: FilesystemIndex;
-  constructor(private directory: DirectoryLookup, private grant: DirectoryGrantLookup, private ledger: LocalReceipts, private diagnose: Diagnose,
-    parser: NoteParser = new MarkdownNotes(), private revoked: (id: string) => void = () => {}) {
-    this.index = new FilesystemIndex(this.files, grant, parser, diagnose, INDEX_LIMITS, undefined, revoked);
+export class FilesystemVault {
+  private files = new LocalNotes();
+  private tokens = new Map<string, Token>();
+  constructor(private directory: DirectoryLookup, private grant: (id: string, revision: number, signal?: AbortSignal) => Promise<DirectoryGrant>,
+    private ledger: LocalReceipts, private diagnose: Diagnose) {}
+
+  async desktopRoot(id: string, revision: number, requested: string | undefined, signal: AbortSignal) {
+    const grant = await this.grant(id, revision, signal);
+    let prefix = requested;
+    if (prefix === undefined) {
+      const { roots, incomplete } = await this.files.vaultRoots(grant.directory);
+      if (incomplete || roots.length !== 1) throw new VaultError('unsupported', 'Configure the exact Desktop vault root.');
+      prefix = roots[0]!;
+    }
+    if (prefix) validateRelativePath(prefix);
+    return this.files.desktopRoot(grant, prefix);
   }
 
-  desktopLink(target: { mirrorId: string; revision: number }, operation: DesktopLinkOperation, desktop: DesktopLinks, signal: AbortSignal, assertSelected: () => void) {
-    const run = async () => {
-      try {
-        validateDesktopOperation(operation);
-        assertSelected();
-        const { mirrorId, revision } = target;
-        const destination = operation.kind === 'rename' ? operation.destination : undefined;
-        if (destination) this.ledger.assertNoOverlap(await this.ledger.load(), mirrorId, [operation.path, destination]);
-        const getGrant = (abort: AbortSignal) => untilAborted(this.grant(mirrorId, revision, abort), abort);
-        signal.throwIfAborted();
-        const grant = await getGrant(signal);
-        const selected = await this.files.desktopTarget(grant, operation.path, destination);
-        const relative = (path: string) => selected.prefix ? path.slice(selected.prefix.length + 1) : path;
-        const native = operation.kind === 'rename'
-          ? { ...operation, path: relative(operation.path), destination: relative(operation.destination) }
-          : { ...operation, path: relative(operation.path) };
-        const check = async (afterClose: boolean, abort: AbortSignal) => {
-          const currentGrant = await getGrant(abort);
-          if (grant.directory !== currentGrant.directory || grant.rootDev !== currentGrant.rootDev || grant.rootIno !== currentGrant.rootIno)
-            throw new VaultError('source_unavailable');
-          const current = await this.files.desktopTarget(currentGrant, operation.path, destination, afterClose);
-          if (current.directory !== selected.directory || current.dev !== selected.dev || current.ino !== selected.ino ||
-              current.settingsDev !== selected.settingsDev || current.settingsIno !== selected.settingsIno) throw new VaultError('source_unavailable');
-        };
-        const result = await desktop.run({ id: mirrorId, directory: selected.directory }, native,
-          (phase, abort) => check(phase === 'after_close', abort), signal, assertSelected);
-        const inMirror = (path: string) => selected.prefix ? selected.prefix + '/' + path : path;
-        try { assertSelected(); }
-        catch (error) { throw result.kind === 'rename' ? desktopRenameUncertain() : error; }
-        if (result.kind === 'rename') return { root: selected.prefix, result: { ...result, destination: inMirror(result.destination) } };
-        let bytes = 2; // JSON array delimiters.
-        const sources = result.sources.map((path, index) => {
-          const translated = validateNotePath(inMirror(path));
-          bytes += Buffer.byteLength(JSON.stringify(translated)) + (index ? 1 : 0);
-          if (bytes > 512 * 1024) throw new VaultError('output_limit');
-          return translated;
+  async desktopRun(id: string, revision: number, root: Awaited<ReturnType<FilesystemVault['desktopRoot']>>,
+    desktop: DesktopLinks, operation: DesktopLinkOperation, signal: AbortSignal, assertSelected: () => void, before?: () => Promise<void>) {
+    return desktop.run({ id, directory: root.directory, identity: [root.dev, root.ino, root.settingsDev, root.settingsIno].join(':') }, operation, async (phase, request) => {
+      const current = await this.desktopRoot(id, revision, root.prefix, request);
+      if (current.directory !== root.directory || current.dev !== root.dev || current.ino !== root.ino ||
+          current.settingsDev !== root.settingsDev || current.settingsIno !== root.settingsIno) throw new VaultError('source_unavailable');
+      if (phase === 'before_command') await before?.();
+    }, signal, assertSelected);
+  }
+
+  private async moved(root: string, row: Extract<LocalReceipt, { kind: 'move' }>, saves: LocalReceipt[] = []) {
+    if (await this.files.entry(root, row.path)) return false;
+    const target = await this.files.entry(root, row.destination);
+    let expected: FileIdentity & { birthtime?: number } = { ...row.inode, birthtime: row.birthtime };
+    if (!row.directory && expected.birthtime !== undefined) for (const save of saves) {
+      if (save.kind !== 'save' || save.outcome !== 'saved_locally_pending_sync' || save.path !== row.destination ||
+          save.mirrorId !== row.mirrorId || !identity(row.root, save.root) || !save.previousIdentity ||
+          !identity(expected, save.previousIdentity) || expected.birthtime !== save.previousIdentity.birthtime ||
+          save.birthtime === undefined) continue;
+      expected = { ...save.inode, birthtime: save.birthtime };
+    }
+    if (!target || !identity(target, expected) || (expected.birthtime !== undefined && expected.birthtime !== target.birthtimeMs) ||
+        (row.directory ? !target.isDirectory() : !target.isFile())) return false;
+    if (!row.tree || row.directory) return true;
+    const folder = await this.files.entry(root, row.tree.to);
+    return !await this.files.entry(root, row.tree.from) && !!folder?.isDirectory() && identity(folder, row.tree.inode);
+  }
+
+  async movePath(input: PathMove, revision: number, run: (before: () => Promise<void>) => Promise<unknown>): Promise<PathMoveReceipt> {
+    const { vaultId, path, destination, operationId, expectedHash, kind } = input;
+    const folder = kind === 'folder';
+    (folder ? validateRelativePath : validateNotePath)(destination);
+    if (path === destination || (folder && (destination.startsWith(path + '/') || path.startsWith(destination + '/')))) throw new VaultError('invalid_path');
+    const endpoints = { vaultId, path, destination, operationId };
+    try {
+      const row = await this.mutate<Extract<LocalReceipt, { kind: 'move' }>>(
+        { mirrorId: vaultId, path, revision, ...(folder ? { directory: true as const } : {}) },
+        async (root, check, begin, changed, rootIdentity) => {
+          const source = await this.files.entry(root, path);
+          const base = {
+            kind: 'move' as const, mirrorId: vaultId, path, destination, operationId,
+            hash: expectedHash ?? digest(''), root: rootIdentity, inode: fileIdentity(source ?? rootIdentity),
+            at: new Date().toISOString(), birthtime: source?.birthtimeMs, ...(folder ? { directory: true as const } : {}),
+          };
+          const verify = async () => {
+            await check();
+            const current = await this.files.entry(root, path);
+            if (!source || !current || !identity(source, current) || (folder ? !current.isDirectory() : !current.isFile()) ||
+              await this.files.entry(root, destination)) throw new VaultError('conflict', 'Check the source and choose an unoccupied destination.');
+            if (!folder) {
+              if (expectedHash && (await this.files.observe(root, path))?.hash !== expectedHash) throw new VaultError('conflict');
+              await this.clearPath(root, path);
+              await this.clearPath(root, destination);
+            }
+          };
+          await verify();
+          await begin({ ...base, outcome: 'uncertain' });
+          const applied = await run(async () => { await verify(); changed(); });
+          if (applied === false) return { ...base, outcome: 'not_moved' };
+          if (!await this.moved(root, { ...base, outcome: 'uncertain' })) throw new VaultError('uncertain');
+          await check();
+          return { ...base, outcome: 'moved_locally_pending_sync' };
         });
-        const checkAccess = async () => {
-          await check(true, signal);
-          assertSelected();
-        };
-        return { root: selected.prefix, result: { ...result, sources }, checkAccess };
-      } catch (error) {
-        if (signal.aborted && !(error instanceof VaultError && error.category === 'uncertain')) throw new VaultError('cancelled');
-        throw this.report(error);
+      return { ...endpoints, outcome: row.outcome };
+    } catch (error) {
+      if (!(error instanceof VaultError)) throw error;
+      if (error.category === 'uncertain') return { ...endpoints, outcome: 'uncertain' };
+      if (['conflict', 'invalid_path', 'cancelled'].includes(error.category)) return { ...endpoints, outcome: 'not_moved' };
+      throw error;
+    }
+  }
+
+  async moveReceipt(vaultId: string, revision: number, operationId: string): Promise<PathMoveReceipt | null> {
+    return this.ledger.run(async () => {
+      const ledger = await this.ledger.load();
+      const index = ledger.findIndex(r => r.kind === 'move' && r.mirrorId === vaultId && r.operationId === operationId);
+      const row = ledger[index];
+      if (!row || row.kind !== 'move') return null;
+      let current = await this.reconcile(row, revision);
+      if (current.kind !== 'move') return null;
+      if (current.outcome === 'moved_locally_pending_sync') {
+        try {
+          const root = await this.directory(vaultId, revision);
+          if (!identity(current.root, await this.files.rootIdentity(root)) || !await this.moved(root, current, ledger.slice(index + 1)))
+            current = { ...current, outcome: 'uncertain' };
+        } catch { current = { ...current, outcome: 'uncertain' }; }
       }
-    };
-    return operation.kind === 'rename' ? this.ledger.run(run, signal) : run();
+      return { vaultId, path: current.path, destination: current.destination, operationId, outcome: current.outcome };
+    });
   }
 
   private async access<T>(mirrorId: string, revision: number, action: (root: string) => Promise<T>, signal?: AbortSignal) {
@@ -87,12 +132,12 @@ export class FilesystemVault {
       if (signal?.aborted) throw new VaultError('cancelled');
       const rootIdentity = async () => {
         try { return await this.files.rootIdentity(root); }
-        catch { this.revoked(mirrorId); throw new VaultError('source_unavailable'); }
+        catch { throw new VaultError('source_unavailable'); }
       };
       const before = await rootIdentity();
       try { return await action(root); }
       finally {
-        if (!identity(before, await rootIdentity())) { this.revoked(mirrorId); throw new VaultError('source_unavailable'); }
+        if (!identity(before, await rootIdentity())) { throw new VaultError('source_unavailable'); }
       }
     } catch (error) { throw this.report(error); }
   }
@@ -105,22 +150,6 @@ export class FilesystemVault {
     this.diagnose('filesystem', category);
     return new VaultError(category, committed ? 'Inspect the exact operation receipt before making another change.' :
       error instanceof VaultError ? error.nextAction : 'Check the local vault and reread before preparing a change.', true);
-  }
-
-  checkAccess(id: string, revision: number, signal?: AbortSignal) {
-    return this.access(id, revision, async () => {}, signal);
-  }
-
-  list(id: string, revision: number, signal?: AbortSignal) {
-    return this.access(id, revision, async root => {
-      const result = await this.files.list(root);
-      if (result.incomplete) this.diagnose('filesystem', result.warnings.includes('scan_limit') ? 'capacity' : 'unavailable');
-      return result;
-    }, signal);
-  }
-
-  listLinkTargets(id: string, revision: number, scope: string) {
-    return this.access(id, revision, root => this.files.list(root, true, scope));
   }
 
   children(id: string, revision: number, folder: string, signal?: AbortSignal) {
@@ -141,10 +170,6 @@ export class FilesystemVault {
 
   read(id: string, revision: number, path: string, signal?: AbortSignal) {
     return this.access(id, revision, root => this.files.read(root, path), signal);
-  }
-
-  search(input: Parameters<VaultFiles['search']>[0], signal?: AbortSignal) {
-    return this.access(input.mirrorId, input.revision, root => this.searcher.next(input, root, signal), signal);
   }
 
   private async conflict(root: string, path: string): Promise<Conflict | null> {
@@ -241,171 +266,43 @@ export class FilesystemVault {
       if (input.kind === 'create' ? current || expectedHash !== null : !current || current.hash !== expectedHash) throw new VaultError('conflict');
       await this.clearPath(root, path);
       const base = { kind: 'save' as const, mirrorId, path, operationId, previousHash: expectedHash, hash: digest(text),
-        root: rootIdentity, at: new Date().toISOString() };
+        root: rootIdentity, at: new Date().toISOString(), ...(current ? { previousIdentity: versionIdentity(current.info) } : {}) };
       let inode!: FileIdentity;
+      let birthtime!: number;
       await this.files.publish(root, path, text, current, async stage => {
         inode = fileIdentity(stage);
-        await begin({ ...base, inode, outcome: 'uncertain' });
+        birthtime = stage.birthtimeMs;
+        await begin({ ...base, inode, birthtime, outcome: 'uncertain' });
       }, async () => { await this.clearPath(root, path); await check(); }, changed);
-      return { ...base, inode, outcome: 'saved_locally_pending_sync' };
+      return { ...base, inode, birthtime, outcome: 'saved_locally_pending_sync' };
     });
     return this.saveReceipt(row);
   }
 
-  private async inspectProjectMove(root: string, input: MoveEndpoints) {
-    const folders = projectFolders(input)!;
-    if (await this.files.entry(root, folders.to)) throw new VaultError('conflict', 'The destination project folder already exists.');
-    if (input.project === 'standalone' && await this.files.entry(root, folders.from))
-      throw new VaultError('conflict', 'The project has a support folder. Prepare the move again.');
-    if (await this.files.entry(root, input.destination)) throw new VaultError('conflict', 'The destination landing note already exists.');
-    await this.clearPath(root, input.destination);
-    await this.clearPath(root, input.path);
-    if (input.project === 'paired') {
-      const tree = await this.files.projectTree(root, folders.from);
-      await this.files.checkProjectFolderMove(root, folders.to, tree.info);
-      return tree;
-    }
-  }
-
-  listProjectMove(...[input, indexed]: Parameters<NonNullable<VaultFiles['listProjectMove']>>) {
-    return this.access(input.mirrorId, input.revision, async root => {
-      if (input.directory) {
-        const inventory = async () => {
-          if (!indexed) return this.files.list(root, true, input.root, true);
-          const { lease, signal } = indexed;
-          await lease.checkMembership(signal, root);
-          const { view } = lease;
-          const scope = input.root ?? '';
-          const within = (path: string) => !scope || path === scope || path.startsWith(scope + '/');
-          const missing = [...lease.blockers, ...view.omissions].find(({ path }) => within(path) || !path || scope.startsWith(path + '/'));
-          if (missing) {
-            throw new VaultError('index_incomplete', `The vault index has incomplete coverage at ${missing.path.slice(0, 1024) || 'the mirror root'}. Inspect unsupported entries or conflict copies before preparing another move.`);
-          }
-          return { paths: view.notes.filter(note => within(note.path)).map(note => note.path),
-            attachments: (view.attachments ?? []).filter(within).sort(), incomplete: false, warnings: [] };
-        };
-        if (input.afterMove) {
-          if (await this.files.entry(root, input.path) || !(await this.files.entry(root, input.destination))?.isDirectory())
-            throw new VaultError('conflict', 'A folder endpoint changed after the move.');
-          return inventory();
-        }
-        const rows = await this.ledger.load();
-        this.ledger.assertNoOverlap(rows.filter(row => row.operationId !== input.operationId), input.mirrorId, [input.path, input.destination]);
-        const { evidence: folderEvidence } = await this.inspectFolderMove(root, input);
-        return { ...await inventory(), folderEvidence };
-      }
-      if (!input.afterMove) await this.inspectProjectMove(root, input);
-      return this.files.list(root, true, input.root);
-    }, indexed?.signal);
-  }
-
-  private async inspectFolderMove(root: string, input: MoveEndpoints) {
-    const folders = moveFolders(input)!;
-    if (await this.files.entry(root, folders.to))
-      throw new VaultError('conflict', 'The destination folder path is occupied.');
-    const tree = await this.files.projectTree(root, folders.from, { destination: folders.to });
-    const targetParent = await this.files.checkProjectFolderMove(root, folders.to, tree.info);
-    const evidence = digest(JSON.stringify([fileIdentity(await this.files.rootIdentity(root)),
-      fileIdentity(targetParent), fileIdentity(tree.info), tree.info.ctimeMs, tree.fingerprint]));
-    return { folders, tree, targetParent, evidence };
-  }
-
-  private async moveFolder(input: Parameters<NonNullable<VaultFiles['move']>>[0]) {
-    const { mirrorId, path, destination, operationId, expectedHash, checkLinkPlan } = input;
-    if (!checkLinkPlan) throw new VaultError('unsupported', 'Folder moves require a verified link plan.');
-    return this.mutate<Extract<LocalReceipt, { kind: 'move' }>>(input, async (root, check, begin, changed, rootIdentity) => {
-      const { folders, tree, targetParent, evidence } = await this.inspectFolderMove(root, input);
-      if (evidence !== expectedHash) throw new VaultError('conflict', 'The source tree or destination parent changed after preview.');
-      const inode = fileIdentity(tree.info);
-      const receipt = { kind: 'move' as const, directory: true as const, mirrorId, path, destination, operationId,
-        hash: expectedHash, root: rootIdentity, inode, at: new Date().toISOString(),
-        tree: { ...folders, inode, fingerprint: tree.fingerprint } };
-      await begin({ ...receipt, outcome: 'uncertain' });
-      await this.files.moveProjectFolder(root, path, destination, tree.info, async () => {
-        const assertPlan = await checkLinkPlan();
-        const fresh = await this.inspectFolderMove(root, input);
-        if (fresh.evidence !== evidence) throw new VaultError('conflict', 'The source tree or destination parent changed before rename.');
-        await check();
-        assertPlan();
-      }, changed, targetParent);
-      if (await this.folderMoveLocation(root, receipt) !== 'destination') throw new VaultError('uncertain');
-      return { ...receipt, outcome: 'moved_locally_pending_sync' };
-    }).then(({ outcome }) => ({ outcome }));
-  }
-
-  async move(input: Parameters<NonNullable<VaultFiles['move']>>[0]) {
-    if (input.directory) return this.moveFolder(input);
-    const { mirrorId, path, destination, operationId, expectedHash, project } = input;
-    return this.mutate<Extract<LocalReceipt, { kind: 'move' }>>(input, async (root, check, begin, changed, rootIdentity) => {
-      validateNotePath(destination);
-      if (destination === path) throw new VaultError('invalid_path');
+  async desktopCommit(input: Parameters<VaultFiles['commit']>[0], run: (before: () => Promise<void>) => Promise<unknown>) {
+    const { mirrorId, path, operationId, expectedHash, text } = input;
+    const attempted = await this.mutate<Extract<LocalReceipt, { kind: 'save' }>>(input, async (root, check, begin, changed, rootIdentity) => {
       const current = await this.files.observe(root, path);
-      if (!current || current.hash !== expectedHash || await this.files.observe(root, destination)) throw new VaultError('conflict');
-      await this.clearPath(root, path);
-      await this.clearPath(root, destination);
-      const tree = project ? await this.inspectProjectMove(root, input) : undefined;
-      const folders = projectFolders(input);
-      const base = { kind: 'move' as const, mirrorId, path, destination, operationId, hash: expectedHash,
-        inode: fileIdentity(current.info), root: rootIdentity, at: new Date().toISOString() };
-      if (tree && folders) {
-        const expectedNotes = input.movedNotes;
-        const notes = [path, ...tree.notes.map(name => folders.from + '/' + name)];
-        if (!expectedNotes || notes.length !== expectedNotes.size) throw new VaultError('conflict');
-        for (const note of notes) {
-          if ((await this.files.observe(root, note))?.hash !== expectedNotes.get(note)) throw new VaultError('conflict');
-        }
-        const receipt = { ...base, tree: { ...folders, inode: fileIdentity(tree.info), fingerprint: tree.fingerprint } };
-        await begin({ ...receipt, outcome: 'uncertain' });
-        const moveFolder = async () => {
-          const fresh = await this.files.projectTree(root, folders.from);
-          if (!identity(fresh.info, tree.info) || fresh.fingerprint !== tree.fingerprint) throw new VaultError('conflict');
-          await this.files.moveProjectFolder(root, folders.from, folders.to, fresh.info, check, changed);
-        };
-        await this.files.move(root, path, destination, current, async () => {
-          await this.clearPath(root, path);
-          await this.clearPath(root, destination);
-          await check();
-        }, changed, moveFolder, input.checkLinkPlan);
-        const state = await this.projectMoveState(root, receipt);
-        if (state.outcome !== 'moved_locally_pending_sync') throw new VaultError('uncertain');
-        return { ...receipt, outcome: state.outcome };
-      }
-      await begin({ ...base, outcome: 'uncertain' });
-      await this.files.move(root, path, destination, current, async () => {
-        if (project === 'standalone' && folders && (await this.files.entry(root, folders.from) || await this.files.entry(root, folders.to)))
-          throw new VaultError('conflict', 'Project support changed after planning.');
+      if (!current || current.hash !== expectedHash) throw new VaultError('conflict');
+      const base = { kind: 'save' as const, mirrorId, path, operationId, previousHash: expectedHash, hash: digest(text),
+        inode: fileIdentity(current.info), root: rootIdentity, at: new Date().toISOString(), previousIdentity: versionIdentity(current.info) };
+      const verify = async () => {
         await this.clearPath(root, path);
-        await this.clearPath(root, destination);
         await check();
-      }, changed, undefined, input.checkLinkPlan);
-      return { ...base, outcome: 'moved_locally_pending_sync' };
-    }).then(({ outcome }) => ({ outcome }));
-  }
-
-  private async folderMoveLocation(root: string, row: Pick<Extract<LocalReceipt, { kind: 'move' }>, 'tree' | 'directory'>) {
-    const tree = row.tree!;
-    const oldFolder = await this.files.entry(root, tree.from);
-    const newFolder = await this.files.entry(root, tree.to);
-    const intact = async (path: string) => {
-      const current = await this.files.projectTree(root, path, row.directory ? { destination: path } : undefined);
-      return identity(tree.inode, current.info) && tree.fingerprint === current.fingerprint;
-    };
-    return !oldFolder && newFolder?.isDirectory() && await intact(tree.to) ? 'destination' :
-      !newFolder && oldFolder?.isDirectory() && await intact(tree.from) ? 'source' : 'unverified';
-  }
-
-  private async projectMoveState(root: string, row: Omit<Extract<LocalReceipt, { kind: 'move' }>, 'outcome'>) {
-    const folder = await this.folderMoveLocation(root, row);
-    if (row.directory) return { outcome: folder === 'destination' ? 'moved_locally_pending_sync' : 'uncertain' } as const;
-    const oldNote = await this.files.observe(root, row.path);
-    const newNote = await this.files.observe(root, row.destination);
-    const original = (note: Observed) => note && identity(row.inode, note.info) && row.hash === note.hash;
-    const landing = original(oldNote) && original(newNote) ? 'both' :
-      !oldNote && original(newNote) ? 'destination' : !newNote && original(oldNote) ? 'source' : 'unverified';
-    const outcome = folder === 'destination' && landing === 'destination' ? 'moved_locally_pending_sync' :
-      folder === 'source' && landing === 'source' ? 'uncertain' :
-      folder !== 'unverified' && landing !== 'unverified' ? 'partial' : 'uncertain';
-    return { outcome, components: { landing, folder } };
+        if (!equivalent(current, await this.files.observe(root, path))) throw new VaultError('conflict');
+      };
+      await verify();
+      await begin({ ...base, outcome: 'uncertain' });
+      const applied = await run(async () => { await verify(); changed(); });
+      if (applied === false) return { ...base, outcome: 'not_saved' };
+      const updated = await this.files.observe(root, path);
+      if (!updated || updated.hash !== base.hash) throw new VaultError('uncertain');
+      await this.files.syncParent(root, path);
+      await check();
+      if (!equivalent(updated, await this.files.observe(root, path))) throw new VaultError('uncertain');
+      return { ...base, inode: fileIdentity(updated.info), birthtime: updated.info.birthtimeMs, outcome: 'saved_locally_pending_sync' };
+    });
+    return this.saveReceipt(attempted);
   }
 
   async resolve(input: Resolution) {
@@ -449,31 +346,24 @@ export class FilesystemVault {
     try {
       const root = await this.directory(row.mirrorId, revision);
       if (!identity(row.root, await this.files.rootIdentity(root))) return row;
-      if (row.kind === 'move' && row.tree) {
-        if ((await this.projectMoveState(root, row)).outcome !== 'moved_locally_pending_sync') return row;
-        await this.files.syncParent(root, row.tree.from);
-        await this.files.syncParent(root, row.tree.to);
-        if (!identity(row.root, await this.files.rootIdentity(root)) ||
-          (await this.projectMoveState(root, row)).outcome !== 'moved_locally_pending_sync') return row;
+      if (row.kind === 'move') {
+        if (!await this.moved(root, row)) return row;
+        await this.files.syncParent(root, row.path);
+        await this.files.syncParent(root, row.destination);
+        if (!identity(row.root, await this.files.rootIdentity(root)) || !await this.moved(root, row)) return row;
         const result = { ...row, outcome: 'moved_locally_pending_sync' as const };
         await this.ledger.finish(result);
         return result;
       }
-      const path = row.kind === 'move' ? row.destination : row.path;
+      const path = row.path;
       const written = await this.files.observe(root, path);
       if (!written || !identity(row.inode, written.info) || row.hash !== written.hash) return row;
       await this.files.syncParent(root, path);
       if (!equivalent(written, await this.files.observe(root, path))) return row;
-      if (row.kind === 'move') {
-        if (await this.files.observe(root, row.path)) return row;
-        await this.files.syncParent(root, row.path);
-        if (await this.files.observe(root, row.path)) return row;
-      }
       if (row.kind === 'resolution' && (await this.files.conflictCopies(root, row.path)).length) return row;
       if (!identity(row.root, await this.files.rootIdentity(root))) return row;
-      const result = row.kind === 'move' ? { ...row, outcome: 'moved_locally_pending_sync' as const } :
-        row.kind === 'resolution' && row.choice === 'accept_incoming' ? { ...row, outcome: 'adopted_content' as const } :
-        { ...row, outcome: 'saved_locally_pending_sync' as const };
+      const result = row.kind === 'resolution' && row.choice === 'accept_incoming' ? { ...row, outcome: 'adopted_content' as const } :
+        { ...row, ...(row.kind === 'save' ? { birthtime: written.info.birthtimeMs } : {}), outcome: 'saved_locally_pending_sync' as const };
       await this.ledger.finish(result);
       return result;
     } catch (error) {
@@ -500,22 +390,4 @@ export class FilesystemVault {
     });
   }
 
-  async moveReceipts(input: Parameters<NonNullable<VaultFiles['moveReceipts']>>[0]) {
-    return this.ledger.run(async () => {
-      const row = (await this.ledger.load()).find(r => r.kind === 'move' && r.mirrorId === input.mirrorId && r.operationId === input.operationId);
-      if (!row) return [];
-      const result = await this.reconcile(row, input.revision);
-      if (result.kind !== 'move') return [];
-      if (result.outcome === 'uncertain' && result.tree) {
-        try {
-          const root = await this.directory(result.mirrorId, input.revision);
-          if (identity(result.root, await this.files.rootIdentity(root))) {
-            const { outcome, components } = await this.projectMoveState(root, result);
-            return [{ outcome: outcome === 'partial' ? outcome : 'uncertain', components }];
-          }
-        } catch { this.diagnose('filesystem', 'uncertain'); }
-      }
-      return [{ outcome: result.outcome }];
-    });
-  }
 }

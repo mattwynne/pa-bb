@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { VaultError } from '../core/ports.ts';
+import { createHash } from 'node:crypto';
+import { VaultError, type DesktopLinkOperation, type DesktopLinkTarget, type InventoryInput } from '../core/ports.ts';
 import type { Configuration, MirrorCatalog, Catalog, VaultFiles, StateRepository, Receipt, SaveReceipt, ConflictInspection, Resolution } from '../core/ports.ts';
+import { MarkdownNotes } from '../adapters/markdown-notes.ts';
 export const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 export class MemoryState implements StateRepository { value: Configuration = { revision: 0, vaultIds: [] }; async load() { return structuredClone(this.value); } async save(value: Configuration) { this.value = structuredClone(value); } }
 export class CatalogFake implements MirrorCatalog {
@@ -10,23 +11,54 @@ export class CatalogFake implements MirrorCatalog {
 export class FilesFake implements VaultFiles {
   configuration: Configuration = { revision: -1, vaultIds: [] }; notes = new Map<string, string>(); saved: Receipt[] = []; conflicts = new Map<string, { inspection: ConflictInspection; incoming: string | null }>();
   constructor() { for (const id of ['one', 'two']) this.notes.set(`${id}/Launch.md`, '# Launch\r\n- [ ] Ship\r\n[[Other]]\r\n'); this.notes.set('one/Other.md', '# Other\nSource evidence\n'); }
-  private searches = new Map<string, { paths: string[]; offset: number }>();
-  private readonly epoch = randomUUID(); // Synthetic source without a revocable adapter lane.
-  projectAreaEpoch(id: string, revision: number) { this.admit(id, revision); return this.epoch; }
-  async configure(value: Configuration) { if (value.revision !== this.configuration.revision) this.searches.clear(); this.configuration = structuredClone(value); }
-  async closeSearch(_revision: number, cursor: string) { this.searches.delete(cursor); }
-  async search(input: import('../core/ports.ts').SearchRequest, _signal?: AbortSignal): Promise<import('../core/ports.ts').SearchBatch> {
-    this.admit(input.mirrorId, input.revision);
-    let token=input.cursor, state=token?this.searches.get(token):undefined;
-    if(token&&!state)throw new VaultError('cursor_expired');
-    if(!state){token=randomUUID();state={paths:[...this.notes.keys()].filter(p=>p.startsWith(input.mirrorId+'/')).map(p=>p.slice(input.mirrorId.length+1)).filter(p=>(!input.folders||input.folders.some(f=>p.startsWith(f+'/')))&&!input.excludeFolders?.some(f=>p.startsWith(f+'/'))),offset:0};this.searches.set(token,state);}
-    if(input.startOnly)return{candidates:[],nextCursor:token!,visited:0,warnings:[]};
-    const candidates:import('../core/ports.ts').SearchBatch['candidates']=[],warnings:import('../core/ports.ts').SearchBatch['warnings']=[];let visited=0;
-    for(const path of state.paths.slice(state.offset,state.offset+64)){visited++;try{const note=await this.read(input.mirrorId,input.revision,path);const index=input.text?note.text.toLocaleLowerCase('und').indexOf(input.text.toLocaleLowerCase('und')):0;if(index<0)continue;const line=note.text.slice(0,index).split('\n').length;let content=note.text;
-      if(input.projection==='frontmatter'){const open=/^(?:\uFEFF)?---\r?\n/.exec(content),close=/^---[ \t]*\r?$/gm;close.lastIndex=open?.[0].length??0;const end=open?close.exec(content):null;content=!open?'':end?content.slice(0,end.index+end[0].length)+'\n':content;}
-      candidates.push({path,hash:note.hash,readAt:note.readAt,line,snippet:note.text.split('\n')[line-1].replace(/\r$/,'').slice(0,240),...(input.projection==='hits'?{}:{content:Buffer.byteLength(content)>65536?'':content,limited:Buffer.byteLength(content)>65536})});
-    }catch{if(!warnings.includes('note_unavailable'))warnings.push('note_unavailable');}}
-    state.offset+=visited;const nextCursor=state.offset<state.paths.length?token!:null;if(!nextCursor)this.searches.delete(token!);return{candidates,nextCursor,visited,warnings};
+  async configure(value: Configuration) { this.configuration = structuredClone(value); }
+  async desktopCommit(input: Parameters<VaultFiles['commit']>[0]) { return this.commit(input); }
+  async desktopNote(id: string, revision: number, path: string) {
+    const note = await this.read(id, revision, path);
+    if (!note.complete || hash(note.text) !== note.hash) throw new VaultError('unsupported');
+    return note.text;
+  }
+  async vaultInventory(input: InventoryInput, revision: number) {
+    this.admit(input.vaultId, revision);
+    const list = await this.list(input.vaultId, revision);
+    const parser = new MarkdownNotes();
+    const within = (path: string, folder: string) => !folder || path === folder || path.startsWith(folder + '/');
+    const paths = list.paths.filter(path => within(path, input.root) && (!input.folders || input.folders.some(folder => within(path, folder))));
+    const folders = [...new Set(paths.flatMap(path => path.split('/').slice(1).map((_, i) => path.split('/').slice(0, i + 1).join('/'))))];
+    return { folders, notes: paths.map(path => {
+      const text = this.notes.get(input.vaultId + '/' + path)!;
+      const { properties, warnings } = parser.frontmatter(text);
+      return { path, properties: Object.fromEntries(input.fields.filter(field => Object.hasOwn(properties, field)).map(field => [field, properties[field]])),
+        malformed: warnings.length > 0, tags: input.tags ? parser.parse(text).tags.map(tag => tag.tag) : [] };
+    }), incomplete: false };
+  }
+  async desktop(id: string, rev: number, operation: DesktopLinkOperation) {
+    const paths = (await this.list(id, rev)).paths;
+    switch (operation.kind) {
+      case 'start': return;
+      case 'backlinks': return [];
+      case 'search': {
+        const query = String(JSON.parse(operation.query)).toLowerCase();
+        return paths.flatMap(file => {
+          const matches = this.notes.get(id + '/' + file)!.split(/\r?\n/).flatMap((text, i) =>
+            text.toLowerCase().includes(query) ? [{ line: i + 1, text }] : []);
+          return matches.length ? [{ file, matches }] : [];
+        });
+      }
+      case 'tasks': return paths.filter(path => !operation.path || path === operation.path).flatMap(file =>
+        new MarkdownNotes().parse(this.notes.get(id + '/' + file)!).tasks.map(task => ({ line: task.line, status: task.marker, text: task.text, file })));
+      default: throw new VaultError('unsupported');
+    }
+  }
+  async desktopTargets(id: string, rev: number, _path: string, links: string[]): Promise<DesktopLinkTarget[]> {
+    const paths = (await this.list(id, rev)).paths;
+    return links.map(link => {
+      const pattern = link.replace(/^\//, '') + (link.endsWith('.md') ? '' : '.md');
+      const exact = paths.filter(path => path === pattern);
+      const matches = exact.length ? exact : paths.filter(path => path.endsWith('/' + pattern));
+      return matches.length === 1 ? { status: 'resolved', target: matches[0] } :
+        matches.length > 1 ? { status: 'ambiguous', candidates: matches } : { status: 'missing' };
+    });
   }
   private admit(id: string, revision: number) { if (this.configuration.revision !== revision || !this.configuration.vaultIds.includes(id)) throw new VaultError('not_connected'); }
   async vaultRoots(id: string, revision: number) { this.admit(id, revision); return { roots: [''], incomplete: false }; }

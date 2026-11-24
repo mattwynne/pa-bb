@@ -1,41 +1,12 @@
 // Linux file primitives carried forward from the iCloud note store. All paths
 // below a host-authorized mirror are traversed with no-follow directory handles.
-import { constants, type BigIntStats, type Stats } from 'node:fs';
+import { constants, type Stats } from 'node:fs';
 import { open, opendir, lstat, rename, link, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { MAX_NOTE_BYTES, VaultError } from '../core/ports.ts';
 
-// Node exposes rename without RENAME_NOREPLACE. The system Python/libc
-// bridge calls it directly and has no overwrite or cross-device fallback.
-const renameNoReplace = `
-import ctypes, errno, os, sys
-rename = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
-if rename is None:
-    sys.exit(4)
-if len(sys.argv) == 1:
-    sys.exit(0)
-rename.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
-rename.restype = ctypes.c_int
-if rename(3, os.fsencode(sys.argv[1]), 4, os.fsencode(sys.argv[2]), 1) != 0:
-    error = ctypes.get_errno()
-    if error in (errno.EEXIST, errno.ENOTEMPTY):
-        sys.exit(3)
-    if error in (errno.ENOSYS, errno.EINVAL, errno.EOPNOTSUPP, errno.EXDEV):
-        sys.exit(4)
-    sys.exit(5)
-`;
-function renameHelper(args: string[] = [], descriptors: number[] = []) {
-  return new Promise<number | null>((resolve, reject) => {
-    const child = spawn('python3', ['-I', '-S', '-c', renameNoReplace, ...args], {
-      stdio: ['ignore', 'ignore', 'ignore', ...descriptors],
-    });
-    child.once('error', reject);
-    child.once('close', resolve);
-  });
-}
 const NOTE_LIMITS = { bytes: MAX_NOTE_BYTES, entries: 10000, scanMs: 2000 };
 export function validateRelativePath(path: string) {
   if (path.length > 1024 || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..' || Buffer.byteLength(part) > 255)) throw new VaultError('invalid_path');
@@ -50,16 +21,14 @@ const fdPath = (fd: number) => `/proc/self/fd/${fd}`;
 const missing = (error: unknown) => (error as NodeJS.ErrnoException)?.code === 'ENOENT';
 export const identity = (a: Pick<Stats, 'dev' | 'ino'>, b: Pick<Stats, 'dev' | 'ino'>) => a.dev === b.dev && a.ino === b.ino;
 const same = (a: Stats, b: Stats) => identity(a, b) && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
-const directoryStamp = (info: BigIntStats) => [info.dev, info.ino, info.mtimeNs, info.ctimeNs].join(':');
 const isConflictCopy = (name: string) => /\.(?:icloud|bb)-conflict[1-9][0-9]*$/.test(name);
 type Observation = { text: string; hash: string; info: Stats };
 export const equivalent = (a: Observation | null, b: Observation | null) => a === null || b === null ? a === b : a.hash === b.hash && same(a.info, b.info);
-export type SearchPath = { path: string } | { progress: true } | { warning: 'note_unavailable' | 'unsupported' | 'capacity' };
 export type SearchReader = { file: FileHandle; info: Stats; text: string; hash: string; readAt: string; verify(): Promise<void>; close(): Promise<void> };
 export type DirectoryGrant = { directory: string; rootDev: string; rootIno: string };
 // Positional reads never advance a descriptor inherited by ripgrep. Recheck the
 // same pinned inode and exact bytes, not a replacement opened by its pathname.
-export async function pinSearchFile(file: FileHandle, named: (info: Stats) => Promise<void>, index = false): Promise<SearchReader> {
+export async function pinSearchFile(file: FileHandle, named: (info: Stats) => Promise<void>): Promise<SearchReader> {
   try {
     const before = await file.stat(), stamp = await file.stat({ bigint: true });
     if (!before.isFile() || before.size > NOTE_LIMITS.bytes) throw new VaultError('unsupported');
@@ -72,7 +41,7 @@ export async function pinSearchFile(file: FileHandle, named: (info: Stats) => Pr
     const bytes = await read(), hash = digest(bytes);
     let text: string;
     try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
-    catch (error) { if (index) throw new VaultError('unsupported'); throw error; }
+    catch { throw new VaultError('unsupported'); }
     if (text.includes('\0')) throw new VaultError('unsupported');
     const verify = async () => {
       const bytes = await read(), after = await file.stat({ bigint: true });
@@ -86,22 +55,21 @@ export async function pinSearchFile(file: FileHandle, named: (info: Stats) => Pr
   } catch (error) { await file.close().catch(() => {}); throw error instanceof VaultError ? error : new VaultError('unavailable'); }
 }
 export class LocalNotes {
-  private async parent(root: string | FileHandle, path: string, validatedFolder = false, allowAbsent = false) {
+  private async parent(root: string | FileHandle, path: string, validatedFolder = false) {
     if (!validatedFolder) validateRelativePath(path);
     const handles: FileHandle[] = [];
     try {
       let folder: FileHandle;
       if (typeof root === 'string') { folder = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); handles.push(folder); }
-      else folder = root; // borrow the verified index root; never reopen its pathname
+      else folder = root;
       for (const part of path.split('/').slice(0, -1)) {
         folder = await open(join(fdPath(folder.fd), part), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
         handles.push(folder);
       }
       return { handles, folder, path: join(fdPath(folder.fd), path.split('/').at(-1)!), close: async () => { await Promise.all(handles.map(h => h.close())); } };
     } catch (error) {
-      const absent = allowAbsent && typeof root !== 'string' && missing(error);
       await Promise.all(handles.map(h => h.close().catch(() => {})));
-      if (absent || error instanceof VaultError) throw error;
+      if (error instanceof VaultError) throw error;
       throw new VaultError('invalid_path');
     }
   }
@@ -165,185 +133,19 @@ export class LocalNotes {
     } catch (e) { throw e instanceof VaultError ? e : new VaultError('conflict', 'Inspect the conflict copies in the vault directory.'); }
     finally { await parent.close(); }
   }
-  async list(root: string, includeAttachments = false, scope = '', strict = false) {
-    const paths: string[] = [], attachments: string[] = []; let count = 0; const started = Date.now(); let incomplete = false; const warnings = new Set<string>();
-    const walk = async (folder: FileHandle, prefix: string) => {
-      // Stream entries: a huge directory must not allocate an unbounded array.
-      const directory = await opendir(fdPath(folder.fd), { bufferSize: 32, encoding: strict ? 'buffer' as BufferEncoding : 'utf8' });
-      for await (const entry of directory) {
-        if (++count > NOTE_LIMITS.entries) { incomplete = true; warnings.add(strict ? 'entry_cap' : 'scan_limit'); return; }
-        if (Date.now() - started > NOTE_LIMITS.scanMs) { incomplete = true; warnings.add(strict ? 'scan_timeout' : 'scan_limit'); return; }
-        let name = entry.name;
-        if (strict) {
-          try { name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(entry.name as unknown as Buffer); }
-          catch { incomplete = true; warnings.add('unsupported_path'); continue; }
-        }
-        const path = prefix + name;
-        if (strict && (isConflictCopy(name) || (!entry.isDirectory() && !entry.isFile())))
-          throw new VaultError('unavailable', `Cannot verify the full vault listing at ${path.slice(0, 1024)}. Inspect this unsupported entry or conflict copy.`);
-        if (entry.isSymbolicLink()) { incomplete = true; warnings.add('symlink_skipped'); continue; }
-        if (entry.isDirectory()) {
-          try { validateRelativePath(path); } catch { incomplete = true; warnings.add('unsupported_path'); continue; }
-          let child: FileHandle | undefined;
-          try { child = await open(join(fdPath(folder.fd), name), constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); await walk(child, path + '/'); }
-          catch (error) {
-            if (strict) throw error instanceof VaultError ? error : new VaultError('unavailable', `Cannot read the full vault listing at ${path}.`);
-            incomplete = true; warnings.add('unreadable_directory');
-          }
-          finally { await child?.close(); }
-        } else if (entry.isFile() && path.endsWith('.md')) { try { paths.push(validateNotePath(path)); } catch { incomplete = true; warnings.add('unsupported_path'); } }
-        else if (includeAttachments && entry.isFile()) {
-          try { attachments.push(validateRelativePath(path)); } catch { incomplete = true; warnings.add('unsupported_path'); }
-        }
-      }
-    };
-    let folder: FileHandle | undefined;
-    const parent = scope ? await this.parent(root, scope) : undefined;
-    try {
-      folder = await open(parent?.path ?? root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-      await walk(folder, scope ? scope + '/' : '');
-      if (parent) {
-        await this.verifyParent(root, scope, parent.folder);
-        if (!identity(await folder.stat(), await lstat(parent.path))) throw new VaultError('conflict');
-      }
-    } catch (error) { throw strict && error instanceof VaultError ? error : new VaultError('unavailable'); }
-    finally { await folder?.close(); await parent?.close(); }
-    return { paths: paths.sort(), attachments: attachments.sort(), incomplete, warnings: [...warnings] };
-  }
-  async searchReader(root: string | FileHandle, path: string): Promise<SearchReader> {
-    const parent = await this.parent(root, path); let file: FileHandle | undefined;
-    try {
-      file = await open(parent.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-      // Keep only the immediate directory pin while rg runs, not an ancestry
-      // chain per reader. Fresh traversal below still verifies containment.
-      await Promise.all(parent.handles.splice(0, parent.handles.length - 1).map(handle => handle.close()));
-      return await pinSearchFile(file, async info => {
-        const fresh = await this.parent(root, path);
-        try { if (!identity(await parent.folder.stat(), await fresh.folder.stat()) || !same(info, await lstat(fresh.path))) throw new VaultError('conflict'); }
-        finally { await fresh.close(); }
-      }, typeof root !== 'string').then(reader => { let closed = false; return { ...reader, async close() { if (closed) return; closed = true; try { await reader.close(); } finally { await parent.close(); } } }; });
-    } catch (error) { await file?.close().catch(() => {}); await parent.close(); throw error instanceof VaultError ? error : new VaultError('unavailable'); }
-  }
-  // Separate strict index walk: only ENOENT beneath an authorized, pinned
-  // root can remove a scoped directory. Other open/read errors abort a build.
-  async openIndexRoot(grant: DirectoryGrant) {
+  async desktopRoot(grant: DirectoryGrant, prefix: string) {
     const root = await open(grant.directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     try {
-      const info = await root.stat({ bigint: true });
-      if (info.dev.toString() !== grant.rootDev || info.ino.toString() !== grant.rootIno) throw new VaultError('source_unavailable');
-      return root;
-    } catch (error) { await root.close(); throw error; }
-  }
-  // Find the outermost Obsidian vault on the requested note's ancestry, as
-  // vaultRoots() does. The authorized mirror is the upper boundary.
-  async desktopTarget(grant: DirectoryGrant, path: string, destination?: string, afterClose = false) {
-    const root = await this.openIndexRoot(grant);
-    try {
-      const parent = await this.parent(root, path);
+      const mirror = await root.stat({ bigint: true });
+      if (mirror.dev.toString() !== grant.rootDev || mirror.ino.toString() !== grant.rootIno) throw new VaultError('source_unavailable');
+      const parent = await this.parent(root, prefix ? prefix + '/.obsidian' : '.obsidian');
       try {
-        const ancestors = [root, ...parent.handles];
-        const parts = path.split('/');
-        for (const [depth, ancestor] of ancestors.entries()) {
-          const marker = join(fdPath(ancestor.fd), '.obsidian');
-          const settings = await lstat(marker, { bigint: true }).catch(error => {
-            if (!missing(error)) throw error;
-          });
-          if (!settings) continue;
-          if (!settings.isDirectory()) throw new VaultError('invalid_path');
-          if (!afterClose) {
-            const note = await lstat(parent.path).catch(error => {
-              if (!missing(error)) throw error;
-            });
-            if (!note?.isFile()) throw new VaultError('invalid_path');
-            if (destination) {
-              const occupied = await lstat(join(fdPath(parent.folder.fd), destination.split('/').at(-1)!)).catch(error => {
-                if (!missing(error)) throw error;
-              });
-              if (occupied) throw new VaultError('conflict', 'Choose an unoccupied destination.');
-            }
-          }
-          const info = await ancestor.stat({ bigint: true });
-          const prefix = parts.slice(0, depth).join('/');
-          return { prefix, directory: join(grant.directory, prefix), dev: info.dev, ino: info.ino, settingsIno: settings.ino, settingsDev: settings.dev };
-        }
-        throw new VaultError('unsupported', 'Choose a note inside an Obsidian vault with a local settings directory.');
+        const settings = await lstat(parent.path, { bigint: true });
+        if (!settings.isDirectory()) throw new VaultError('source_unavailable');
+        const info = await parent.folder.stat({ bigint: true });
+        return { prefix, directory: join(grant.directory, prefix), dev: info.dev, ino: info.ino, settingsDev: settings.dev, settingsIno: settings.ino };
       } finally { await parent.close(); }
     } finally { await root.close(); }
-  }
-  async indexDirectoryStamp(root: FileHandle, path: string) {
-    const parent = await this.parent(root, path ? path + '/.md' : '.md', true, true);
-    try { return directoryStamp(await parent.folder.stat({ bigint: true })); }
-    finally { await parent.close(); }
-  }
-  async *indexDirectory(root: FileHandle, path: string, allowAbsent: boolean, opened: (pinnedPath: string, info: Stats) => void) {
-    if (path) validateRelativePath(path);
-    const marker = path ? `${path}/.md` : '.md';
-    let parent;
-    try { parent = await this.parent(root, marker, true, allowAbsent); }
-    catch (error) { if (allowAbsent && missing(error)) return; throw error; }
-    let directory;
-    try {
-      await Promise.all(parent.handles.splice(0, parent.handles.length - 1).map(handle => handle.close()));
-      const info = await parent.folder.stat();
-      const stamp = directoryStamp(await parent.folder.stat({ bigint: true }));
-      const pinned = fdPath(parent.folder.fd);
-      directory = await opendir(pinned, { bufferSize: 32, encoding: 'buffer' as BufferEncoding });
-      opened(pinned, info);
-      yield { kind: 'directory' as const, path, stamp };
-      for await (const entry of directory) {
-        const bytes = entry.name as unknown as Buffer;
-        let name: string;
-        try { name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
-        catch { yield { kind: 'unsupported' as const, path, scope: 'tree' as const, boundary: true as const }; continue; }
-        const relative = path ? `${path}/${name}` : name;
-        if (isConflictCopy(name)) yield { kind: 'move_blocker' as const, path: relative, scope: 'tree' as const };
-        if (entry.isSymbolicLink()) { yield { kind: 'unsupported' as const, path: relative, scope: 'tree' as const }; continue; }
-        if (entry.isDirectory() || relative.endsWith('.md')) {
-          const scope = entry.isDirectory() ? 'tree' as const : 'note' as const;
-          try { validateRelativePath(relative); }
-          catch { yield { kind: 'unsupported' as const, path: relative, scope, boundary: entry.isDirectory() ? true as const : undefined }; continue; }
-          yield entry.isDirectory() ? { kind: 'child' as const, path: relative } :
-            entry.isFile() ? { kind: 'note' as const, path: relative } : { kind: 'unsupported' as const, path: relative, scope };
-        } else if (entry.isFile()) {
-          try { yield { kind: 'attachment' as const, path: validateRelativePath(relative) }; }
-          catch { yield { kind: 'unsupported' as const, path: relative, scope: 'note' as const }; }
-        } else yield { kind: 'move_blocker' as const, path: relative, scope: 'tree' as const };
-      }
-      const fresh = await this.parent(root, marker, true);
-      try { if (!identity(info, await fresh.folder.stat())) throw new VaultError('conflict'); }
-      finally { await fresh.close(); }
-    } finally { await directory?.close().catch(() => {}); await parent.close(); }
-  }
-  // Streaming discovery for search. Unlike list(), a yield is a continuation,
-  // never a terminal alphabetical prefix. Every directory is opened no-follow.
-  async *searchPaths(root: string, scope?: { file(path: string): boolean; directory(path: string): boolean }): AsyncGenerator<SearchPath> {
-    // Only one directory stream remains pinned across responses. A bounded
-    // path frontier avoids retaining a descriptor pair per nested directory.
-    const frontier = ['']; let bytes = 0;
-    while (frontier.length) {
-      const prefix = frontier.pop()!; bytes -= prefix ? Buffer.byteLength(prefix) + 128 : 0;
-      let parent: Awaited<ReturnType<LocalNotes['parent']>> | undefined;
-      let directory: Awaited<ReturnType<typeof opendir>> | undefined;
-      try {
-        parent = await this.parent(root, prefix ? prefix + '/.md' : '.md', true);
-        await Promise.all(parent.handles.splice(0, parent.handles.length - 1).map(handle => handle.close()));
-        directory = await opendir(fdPath(parent.folder.fd), { bufferSize: 32 });
-        for await (const entry of directory) {
-          const path = (prefix ? prefix + '/' : '') + entry.name;
-          yield { progress: true }; // even no-note directories advance the slice
-          if (entry.isDirectory()) {
-            if (scope && !scope.directory(path)) continue;
-            try { validateRelativePath(path); } catch { yield { warning: 'unsupported' }; continue; }
-            if (bytes + Buffer.byteLength(path) + 128 > 2 * 1024 * 1024) { yield { warning: 'capacity' }; continue; }
-            frontier.push(path); bytes += Buffer.byteLength(path) + 128;
-          } else if (path.endsWith('.md') && (!scope || scope.file(path))) {
-            if (!entry.isFile()) { yield { warning: 'unsupported' }; continue; }
-            try { yield { path: validateNotePath(path) }; } catch { yield { warning: 'unsupported' }; }
-          }
-        }
-      } catch { yield { warning: 'note_unavailable' }; }
-      finally { await directory?.close().catch(() => {}); await parent?.close(); }
-    }
   }
   async rootIdentity(root: string) {
     const handle = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
@@ -450,33 +252,6 @@ export class LocalNotes {
     }
   }
 
-  async move(root: string, path: string, destination: string, expected: Observation, check: () => Promise<void>, committed: () => void, afterLink?: () => Promise<void>, beforeLink?: () => Promise<() => void>) {
-    const source = await this.parent(root, path);
-    try {
-      const target = await this.parent(root, destination);
-      try {
-        const assertLinkPlan = await beforeLink?.();
-        await check();
-        await this.verifyParent(root, path, source.folder);
-        await this.verifyParent(root, destination, target.folder);
-        if (!equivalent(await this.observe(root, path), expected) || await this.observe(root, destination)) throw new VaultError('conflict');
-        assertLinkPlan?.();
-        try { await link(source.path, target.path); }
-        catch (error) { if ((error as NodeJS.ErrnoException)?.code === 'EEXIST') throw new VaultError('conflict'); throw error; }
-        committed();
-        await target.folder.sync();
-        await afterLink?.();
-        await check();
-        await this.verifyParent(root, path, source.folder);
-        await this.verifyParent(root, destination, target.folder);
-        const a = await this.observe(root, path), b = await this.observe(root, destination);
-        if (!a || !b || a.hash !== expected.hash || b.hash !== expected.hash || !identity(a.info, expected.info) || !identity(b.info, expected.info)) throw new VaultError('uncertain');
-        await unlink(source.path);
-        await source.folder.sync();
-      } finally { await target.close(); }
-    } finally { await source.close(); }
-  }
-
   private async statEntry(path: string) {
     try { return await lstat(path); }
     catch (error) { if (missing(error)) return null; throw error; }
@@ -489,105 +264,6 @@ export class LocalNotes {
       await this.verifyParent(root, path, parent.folder);
       return info;
     } finally { await parent.close(); }
-  }
-
-  // Record names and identities for the entire tree, including empty folders
-  // and attachments. A single rename preserves the original inodes and bytes.
-  async projectTree(root: string, path: string, directoryMove?: { destination: string }) {
-    const parent = await this.parent(root, path);
-    const started = Date.now();
-    const entries = new Map<string, Stats>();
-    const walk = async (directory: string, prefix: string) => {
-      const folder = await open(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-      try {
-        const listing = await opendir(fdPath(folder.fd), { encoding: directoryMove ? 'buffer' as BufferEncoding : 'utf8' });
-        for await (const entry of listing) {
-          if (entries.size >= NOTE_LIMITS.entries)
-            throw new VaultError(directoryMove ? 'entry_cap' : 'capacity', 'The source folder tree reached its entry cap.');
-          if (Date.now() - started >= NOTE_LIMITS.scanMs)
-            throw new VaultError(directoryMove ? 'scan_timeout' : 'capacity', 'The source folder tree scan timed out.');
-          let name = entry.name;
-          if (directoryMove) {
-            try { name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(entry.name as unknown as Buffer); }
-            catch { throw new VaultError('invalid_path', 'The source folder contains a filename that is not valid UTF-8.'); }
-            if (name === '.obsidian') throw new VaultError('conflict', 'The source folder contains an Obsidian vault boundary.');
-            validateRelativePath(path + '/' + prefix + name);
-            validateRelativePath(directoryMove.destination + '/' + prefix + name);
-          }
-          const child = prefix + name;
-          const entryPath = join(fdPath(folder.fd), name);
-          const info = await lstat(entryPath);
-          if ((!info.isFile() && !info.isDirectory()) || isConflictCopy(name))
-            throw new VaultError('conflict', 'Inspect unsupported entries or conflict copies in the project folder.');
-          entries.set(child, info);
-          if (info.isDirectory()) await walk(entryPath, child + '/');
-        }
-      } finally { await folder.close(); }
-    };
-    try {
-      const info = await this.statEntry(parent.path);
-      if (!info?.isDirectory()) throw new VaultError('conflict', 'The source path does not name an existing folder.');
-      await walk(parent.path, '');
-      const current = await lstat(parent.path);
-      if (!same(info, current)) throw new VaultError('conflict');
-      await this.verifyParent(root, path, parent.folder);
-      const names = [...entries.keys()].sort();
-      return {
-        info,
-        notes: names.filter(name => entries.get(name)!.isFile() && name.endsWith('.md')),
-        fingerprint: digest(JSON.stringify(names.map(name => {
-          const { dev, ino, size, mtimeMs, ctimeMs } = entries.get(name)!;
-          return directoryMove ? [name, dev, ino, size, mtimeMs, ctimeMs] : [name, dev, ino, size, mtimeMs];
-        }))),
-      };
-    } finally { await parent.close(); }
-  }
-
-  private folderMoveSupport?: Promise<void>;
-
-  async checkProjectFolderMove(root: string, to: string, source: Stats) {
-    this.folderMoveSupport ??= renameHelper().then(code => {
-      if (code !== 0) throw new VaultError('unsupported', 'Project folder moves require Linux no-replace rename support through system Python 3.');
-    }, () => { throw new VaultError('unsupported', 'Project folder moves require Linux no-replace rename support through system Python 3.'); });
-    await this.folderMoveSupport;
-    const parent = await this.parent(root, to);
-    try {
-      if (source.dev !== (await parent.folder.stat()).dev)
-        throw new VaultError('unsupported', 'The project folder and destination must share a filesystem.');
-      await this.verifyParent(root, to, parent.folder);
-      return await parent.folder.stat();
-    } finally { await parent.close(); }
-  }
-
-  async moveProjectFolder(root: string, from: string, to: string, expected: Stats,
-    check: () => Promise<void>, started: () => void, expectedParent?: Stats) {
-    const source = await this.parent(root, from);
-    try {
-      const target = await this.parent(root, to);
-      try {
-        await check();
-        await this.verifyParent(root, from, source.folder);
-        await this.verifyParent(root, to, target.folder);
-        if (expectedParent && !identity(expectedParent, await target.folder.stat())) throw new VaultError('conflict', 'The destination parent changed.');
-        const current = await this.statEntry(source.path);
-        if (!current?.isDirectory() || !same(current, expected) || await this.statEntry(target.path)) throw new VaultError('conflict');
-        const names = [from.split('/').at(-1)!, to.split('/').at(-1)!];
-        let code: number | null;
-        try { code = await renameHelper(names, [source.folder.fd, target.folder.fd]); }
-        catch { throw new VaultError('unsupported', 'The no-replace rename helper could not start.'); }
-        if (code === 3) throw new VaultError('conflict', 'The destination project folder already exists.');
-        if (code === 4) throw new VaultError('unsupported', 'The filesystem refused a no-replace rename.');
-        if (code === 5) throw new VaultError('unavailable', 'The filesystem rejected the project folder rename.');
-        started();
-        if (code !== 0) throw new VaultError('uncertain');
-        await source.folder.sync();
-        await target.folder.sync();
-        await this.verifyParent(root, from, source.folder);
-        await this.verifyParent(root, to, target.folder);
-        const moved = await this.statEntry(target.path);
-        if (!moved?.isDirectory() || !identity(moved, expected) || await this.statEntry(source.path)) throw new VaultError('uncertain');
-      } finally { await target.close(); }
-    } finally { await source.close(); }
   }
 
   async removeCopy(root: string, path: string, expected: Observation) {

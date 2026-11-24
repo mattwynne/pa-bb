@@ -20,204 +20,32 @@ not a per-user security boundary.
 
 ## Tools
 
-| Tool | Purpose |
-| --- | --- |
-| `obsidian_status` | Connected sources, setup guidance, recent/exact save and resolution receipts plus exact-path conflict metadata and unresolved operations. Filter by vault, note, operation ID or time. |
-| `obsidian_search_notes` | Vault-relative path globs, literal text, semantic tags, exact scalar YAML properties, folder scopes and counts over one or all connected vaults. |
-| `obsidian_read_note` | Whole note, guarded incoming version or explicit legacy absence, exact heading or block, original source lines and whole-note hash. |
-| `obsidian_get_note_metadata` | Properties, headings, task markers, source-spanned links, and optional backlinks. |
-| `obsidian_resolve_link` | A reference in its source vault, with resolution and competing candidates. |
-| `obsidian_list_tasks` | Original task locations and completion markers, with optional vault/folder/note filters. |
-| `obsidian_create_note` | Create in an existing folder without replacing anything. |
-| `obsidian_edit_note` | Append, uniquely replace exact text, update one task marker, or explicitly resolve an inspected conflict. |
-| `obsidian_update_properties` | Explicit top-level property set/remove; add aliases without dropping existing aliases. |
+Obsidian Desktop supplies note reads, search, metadata, links, tasks and moves
+for the configured vault. BB keeps version-checked edits and iCloud conflict
+recovery. Follow the [setup guide](docs/setup.md) to configure Desktop.
 
-### Optional Obsidian Desktop backend
+- Use `obsidian_search_notes` for literal text, nested tags, exact scalar
+  frontmatter properties and POSIX path globs. Scope with `folders` or
+  `excludeFolders`. Desktop-visible results can omit hidden notes. Follow every
+  cursor. Use `totalMatches` only when the tool supplies it.
+- `obsidian_get_note_metadata` includes source spans. With backlinks enabled,
+  `backlinkSources` lists bounded referring filenames. Desktop does not
+  report backlink occurrence spans. Use `obsidian_resolve_link` to follow an
+  internal link from its source note.
+- `obsidian_list_tasks` returns the exact task marker and location. A blank
+  marker means incomplete. Use the version-checked `task` edit to change it.
+- `obsidian_move_note` and `obsidian_move_folder` take exact paths and a fresh
+  operation UUID. They run directly when automatic link updates are enabled.
+  An occupied destination is refused. Obsidian rewrites links. Inspect the
+  durable file outcome with `obsidian_move_status` before retrying an
+  interrupted move.
+- `obsidian_status` reports connected vaults, local access, sync and exact
+  save or conflict evidence. `obsidian_create_note`, `obsidian_edit_note`
+  and `obsidian_update_properties` use the checked behavior below.
 
-On Linux, set `PA_OBSIDIAN_DESKTOP` and `PA_OBSIDIAN_CLI` to the absolute paths of the official binaries and `PA_OBSIDIAN_DESKTOP_VAULT_ID` to one exact connected, direct-access vault ID. The backend is off by default. Obsidian obtains the local directory from iCloud. Use this only for an operator-controlled vault with no symbolic links, hard links, or mounts from outside the vault. Desktop uses normal vendor sandbox settings and a fresh restricted-mode profile. Opening and closing the vault can write its `.obsidian` settings.
-
-For `obsidian_get_note_metadata` with `backlinks: true`, the Desktop route reports referring filenames in the bounded `backlinkSources` list. `backlinkSourcesTruncated` marks a clipped list. Desktop provides file-level evidence, so `backlinks` is empty on this route. The filename list stays available while the published index is unavailable, and outgoing resolution is then marked incomplete. Desktop can omit hidden notes, so `backlinksIncomplete` is always true on this route. The default BB route continues to return source-spanned backlink occurrences.
-
-For an ordinary same-folder rename, call `obsidian_move_note({vaultId, path, destination, mode: "desktop_rename"})` when latest-source behavior is intended. The vault must have automatic link updates enabled. Desktop applies its own link rules, including letting a previously broken link resolve to the new filename. This mode offers neither a BB preview nor a hash guard or receipt. On an uncertain result, inspect both exact paths and their links without repeating the command. BB's hash-guarded calls, folder moves, and GTD plans retain their existing behavior.
-
-### Bounded path move and rename
-
-`obsidian_move_note({vaultId, path, destination, expectedHash})` requires a complete source read in the same thread. For example, move `Areas/Example.md` to `Reference/New example.md`. No type property is required. Destination folders must exist; occupied destinations, unresolved operations, conflict copies and blocked sources are refused.
-
-Preflight requires complete vault listings before and after discovery. It reads exact note versions in batches of eight and retains only proposed repairs. Discovery stops at 10,000 notes, 128 MiB of input or 20 seconds. Directory listings have separate entry and time limits. The store’s 1 MiB UTF-8 limit per note and Markdown parser complexity limits still apply. The plan is limited to 64 repairs, 8 MiB of repaired text and 32,000 serialized metadata characters.
-
-The planner can repair wikilinks with aliases, embeds, or fragments, as well as inline Markdown links and images with encoded paths and optional titles. It checks outgoing relative links from both source locations. A missing or ambiguous link can stay as written when the move leaves its evidence unchanged. The planner refuses incomplete listings, unsupported link markup, parser warnings, and YAML links that would need a rewrite. Code examples stay intact.
-
-Pass `dryRun: true` with the same read proof to check link discovery and limits without recording a move or writing notes. BB link inspection and moves use the same vault-relative resolution model. Metadata shows the original link spelling and UTF-16 source span. By default the direct local mirror index supplies versioned links and candidate paths. Legacy readers use a bounded local note scan for backlinks.
-
-Preflight compares link targets before and after the move, including missing links that would gain a target and duplicate names that change precedence. External links, including absolute `file://` URLs, stay untouched. Ambiguous changes report competing paths and source locations. Plans recheck the current vault boundary, paths, and note versions. A ready preview reports planned repair paths and counts. Apply validates again at the write boundary. See [desktop link evidence](docs/desktop-link-evidence.md) for the opt-in Obsidian comparison.
-
-An `unsupported_links` or `ambiguous_link` result identifies the first refusal with a reason, vault-relative path and, when available, a one-based line and column. A dry run can report up to 12 such locations. The result omits note text and link targets. Plugin logs record the stage and error category.
-
-On a filesystem mirror, the physical move creates the destination exclusively
-and verifies its inode and hash before unlinking the source. Obsidian durably
-records operation metadata and syncs both parent directories. An interrupted
-two-name state can leave both names present. Receipt inspection checks the
-filesystem evidence without replaying either mutation.
-
-GTD plans move a landing note and carry its same-name support tree when
-present. Use the project mode, optional vault root and operation ID from the
-GTD plan. Obsidian checks note and attachment links in the selected vault.
-Relative links are rebased only where their original targets require it.
-
-Folder moves require a direct local mirror on Linux and system Python 3 with
-`ctypes` and libc `renameat2`. The source and destination must share a
-filesystem supporting `RENAME_NOREPLACE`. The directory rename preserves the
-tree, including non-Markdown files and empty subdirectories. For a paired
-project, the landing note first acquires a hardlink at the destination. The
-original landing name is removed after the verified folder move. An
-interruption can leave both landing names and the folder at either endpoint.
-`project_move_partial` reports the observed locations under `components`.
-An `uncertain` outcome means the filesystem evidence is inconclusive.
-
-Recovery starts with the original operation ID. Inspect the landing and folder
-evidence and resolve any collision or duplicate in the vault before making
-another move. Obsidian can recognize completion after manual reconciliation
-when the original landing inode and hash and the recorded tree are verified at
-their destinations. Repairs that were never entered remain unapplied. Use
-their reported paths to inspect and correct links individually. A receipt check
-does not resume a move or replay link writes.
-
-Link repairs are **independent CAS saves**, not one atomic transaction. A concurrently changed note is preserved and reported as not saved. Cancellation/restart leaves unstarted repairs unapplied. Inspect `obsidian_move_status({vaultId, operationId})` after any lost reply: it checks the physical receipt and individual save receipts without replay. Outcomes include `moved_supported_links_updated`, `moved_links_partial`, `project_move_partial`, `not_moved` and `uncertain`. Moves check the resulting path inventory and note hashes against the preflight and repairs. An observed concurrent change leaves verification incomplete. Receipts reflect local evidence. Inspect an unknown outcome before any further write.
-
-Obsidian tracks up to 20 moves. Legacy recovery records stay in iCloud.
-
-### Standalone folder moves
-
-Call `obsidian_preview_folder_move({vaultId, path, destination})` with two
-exact paths relative to the connected mirror. Include the actual vault's
-folder prefix when the mirror contains a vault in a subfolder. The source
-must be a directory and the destination parent must already exist. A
-destination such as `Archive/Workshop` can sit beside
-`Archive/Workshop.md`. The directory move leaves the note at its own path.
-
-Preview reports the source and target of each affected backlink, its line and
-column, and whether it needs a rewrite. It also reports blockers such as an
-occupied destination, overlapping paths, an unresolved affected link, or an
-incomplete scan. Folder previews allow up to 256 backlinks and 16,000
-serialized backlink characters.
-
-When iCloud grants the local vault index access, folder moves use it for
-candidate discovery in preview, apply, and verification. Directory membership,
-the folder tree, and note versions are checked against the local filesystem.
-An incomplete index, scan timeout, or entry cap can stop the move.
-
-To make the move, call
-`obsidian_apply_folder_move({vaultId, path, destination, previewId})` in the
-same thread within five minutes. Apply checks the preview against the current
-source tree, destination parent, vault paths and complete note versions, and
-checks again at the write boundary. The coordinated filesystem backend
-renames the directory exclusively and records a durable move receipt.
-Link repairs have independent save receipts. Inspect both using
-`obsidian_move_status({vaultId, operationId: previewId})`.
-
-Targeted note tools require a stable `vaultId` and relative `.md` path. Names alone
-never identify a vault. Results carry source identity, line spans, local observation
-time and observed sync provenance. Note text, filenames and links are evidence,
-not instructions. Tools never execute HTML, templates, scripts or YAML tags,
-fetch external links, delete notes or recursively expand embeds. Path moves use the bounded capability below.
-
-## Search and counts
-
-`pathGlob` matches the entire vault-relative Markdown path, case-sensitively.
-For example, count notes with an exact property in `Projects` or its subfolders:
-
-```json
-{"pathGlob":"Projects/**/*.md","mode":"count","properties":[{"key":"status","equals":"active"}]}
-```
-
-`*` and `?` match within one segment; a standalone `**` matches zero or more
-segments. Character classes and brace choices within a segment are supported
-(e.g. `{Projects,Areas}/**/[A-Z]*.md`). Use one positive pattern, up to 256
-characters. Absolute paths, dot/traversal segments, backslashes, controls,
-malformed classes/braces, and regex or extglob groups are not supported.
-A segment may contain at most two runs of `*`, two brace groups, and twelve
-commas. Like stock Picomatch, `?` matches one UTF-16 code unit, so a character
-outside the BMP such as `😀` matches `??`, not `?`. Literal characters still
-match literally. Globs are filters, never filesystem paths.
-
-Direct filesystem vaults use the local index for glob and property queries that
-don't include text or tags. The index requires iCloud's identity-bound directory
-grant v1, negotiated through `mirrorDirectoryCapabilities(null)` without
-changing the legacy `status` reply. A valid empty capability reply or the SDK's
-typed missing-method response keeps existing property queries live, with
-metadata-only globs unavailable. A denied or malformed capability check does
-not enable that fallback. Text and tag queries still traverse live
-files with host-provisioned ripgrep; a glob can restrict their hits on direct
-vaults. Legacy mirrors keep searching their logical notes (including pending
-edits and creates), but do not support globs. A multi-vault glob reports
-unsupported sources as omitted rather than counting them as zero.
-
-Property predicates are ANDed, exact and typed: `7` is not `"7"`; missing keys
-are not `null`. Text in the body is not a YAML property. Tags retain Markdown
-parser semantics rather than matching tags inside code/comments.
-
-Version 0.3.1 accepts colons in Linux note and folder names for search, scopes,
-full reads and conditional saves. Such names do not require renaming. Absolute
-paths, parent/dot segments, backslashes, controls and symlink escapes remain
-refused; a colon is an ordinary character inside the explicitly selected vault.
-
-`folders` and `excludeFolders` use vault-relative, segment-boundary prefixes.
-They scope this query, not the connection grant. Hidden notes are included by
-default; a folder name such as `.worktrees` does not establish a snapshot or a
-separate project. Counts identify notes by vault/path, not inferred projects.
-
-Follow **every `nextCursor`**, even after an empty page or complete traversal,
-to receive all results. `coverage.state` is `running`, `complete` or `partial`;
-`matchedNotesSoFar` is progress, not a total. `totalMatches` is available only
-after complete traversal/filtering without omissions. Count mode returns no
-rows. Unsupported, changing or inaccessible notes make a dependent query
-partial, with no reliable total. Each indexed cursor pins a published generation
-per vault when it reaches that vault. Indexed rows carry a path, hash and note
-observation time but no body excerpt. Live search uses per-note observations;
-neither route provides an atomic filesystem view or a common time across vaults.
-Search never grants edit proof.
-
-The [host manifest](../../provisioning/README.md) pins Linux-validated ripgrep
-14.1.0. Missing or incompatible search requirements show a quiet settings warning;
-indexed queries, reads, saves, sync and vault choices remain intact. There is no
-fallback to the old terminal bounded scanner. Task listing and ambiguous-link
-discovery retain their existing separate bounds.
-
-### What the index can tell you
-
-An in-memory index starts in the background after local access is confirmed.
-Before scanning or watching, Obsidian checks the opened root descriptor against
-the device and inode in iCloud's grant, then traverses from that descriptor. A
-refused, invalid or mismatched grant never falls back to path-only access. The
-first indexed query waits for initial publication; later queries can read the
-last published snapshot during a refresh. Nonrecursive directory watches ask the
-index to rescan changed subtrees. A full scan every five minutes reconciles missed
-notifications. This is not a visibility deadline: indexed results may lag a
-confirmed save, and a rename whose notifications arrive separately can appear in
-separate refreshes. Use an exact read for current bytes or edit proof.
-
-A required I/O or capacity failure does not publish a partial replacement. New
-queries report the affected vault as incomplete until a successful refresh;
-existing pages may continue a pinned generation only while access remains valid.
-Root changes, revoked access and plugin disposal invalidate those generations.
-Known unsupported files (for example, oversized or invalid UTF-8 notes) and
-skipped paths affect only potentially overlapping folder/glob scopes. A fixed
-glob prefix entirely inside an excluded folder is disjoint; less specific
-wildcard intersections are treated conservatively. Required I/O failures
-still prevent publication. Derived metadata (including headings, tags, blocks, links and tasks) is bounded
-separately; a derived parse limit does not discard valid frontmatter. The index
-retains no note bodies and writes nothing to disk. Operator logs report bounded
-`index_refresh`, `index_access` and `index_watch` categories, not paths, note contents or raw
-errors. Watch degradation leaves periodic reconciliation working.
-
-## Consumer metadata API
-
-`vaultLocations(null)` discovers actual Obsidian vaults inside connected sources by `.obsidian` directory markers. It returns `{vaults: [{id, root, name}], incomplete}`: `id` remains the connected-source identity, `root` is the relative vault prefix (empty for a source that is itself a vault), and `name` is a display label. Discovery runs under coordinated local-source admission with pinned no-follow directory handles, excludes symlinks, and is bounded to 2 seconds / 10,000 entries / depth 32 / 100 roots per source. Missing markers are not guessed from folder names; access failures or limits make discovery incomplete. Existing whole-source connections, note paths, receipts and writes are unchanged. Consumers such as GTD apply the selected prefix internally rather than asking the user to include it in every inventory folder.
-
-Updated source builds advertise `propertiesAccessVersion: 1` in status. Other BB plugins can call `listProperties` with an exact connected `vaultId`, one relative `folder`, 1–8 selected top-level `fields`, and an optional returned `cursor`. It returns up to 200 compact `{path, properties}` rows, `nextCursor`, `incomplete`, `warnings`, and `observedAt`; no bodies, snippets, or edit proofs. Continue every cursor with the same vault/folder/fields, including empty pages. A terminal page with no warnings and `incomplete: false` establishes coverage for the observations used by that listing, not an atomic filesystem snapshot. Stop abandoned producer work or release a pinned generation with `closeProperties({cursor})`.
-
-This generic API uses the pinned local index on direct vaults with identity grants. Legacy vaults and older iCloud producers keep the existing live frontmatter projection. Its v1 shape is unchanged. Selected property data is bounded to 4,096 serialized characters per note; unsupported frontmatter makes coverage partial. It has no GTD classification policy: the [GTD adapter](../gtd/README.md) owns project conventions and counts.
+The BB plugin interface provides generic vault inventory, checked note-property
+edits, path moves and receipts. The [GTD plugin](../gtd/README.md) interprets the
+vault data for Projects and owns conversation associations.
 
 ## Complete reads and long notes
 
@@ -287,7 +115,7 @@ remain enforced by the existing parser before saving.
   and replacement installs a staged file atomically. Concurrent changes from
   the sync process or another writer can still occur between filesystem
   operations.
-- Exact filesystem reads observe current files; indexed queries may lag. Exact-path conflict
+- Desktop metadata can lag a file changed outside Obsidian. Exact-path conflict
   inspection finds native conflict copies on disk. An unambiguous pair can be
   resolved with the existing guarded choice. The resolution writes the chosen
   text to the canonical path and removes the inspected copies. An ambiguous
@@ -305,34 +133,11 @@ remain enforced by the existing parser before saving.
   lost configuration reply stays unconfirmed and must be checked again. A local
   save accepted before revocation is not undone. Removal does not delete notes, pause sync or disconnect Apple.
 
-## Immediate-child consumer
-
-Sources implementing `VaultFiles.children` advertise `childrenAccessVersion: 1` in status. `listChildren({vaultId, folder})` returns bounded immediate `{name, kind: 'directory' | 'markdown'}` entries and `incomplete`; no note bytes, paths outside the connected source, edit proofs or GTD policy. The iCloud adapter forwards to owner-checked `noteChildren` under revision-bound local-source admission. Each call is capped at 5,000 visited entries, 512 KiB of serialized entry data and two seconds. Limits, symlinks, inaccessible directories and unsupported names make coverage incomplete, never confirmed empty. There are no retained directory cursors; callers retain their own bounded inventory paging and must combine coverage with metadata reads. Existing property pages, including empty continuations, still must be drained.
-
-Native BB disable/reload closes dispatch. Obsidian's disposal hook closes operation admission and waits for entered title/tool work before stopping service state; it does not cancel a producer save after admission. Title caller cancellation is checked before save submission. Durable source receipts remain authoritative after uncertain delivery. This is a shutdown boundary, not a new pause/settings workflow.
-
-## GTD relationship projection
-
-`projectAreasFrontmatterOnly: true` advertises the GTD-only `projectAreasFromFrontmatter` read-only RPC; `projectAreasDeclarationKey: 'area'` confirms the YAML input contract. Updated GTD checks both and sends `declarationKey: 'area'` on every batch. A rolled-back producer either lacks the method or rejects the extra request field before invoking its resolver. Unmarked requests and the historical `projectAreas` method remain available for older GTD builds, with unchanged response shapes and the same current backend.
-
-Both methods accept at most 50 project landing-note paths, the selected vault prefix and the exact Areas folder. Only the top-level YAML `area` key declares a relationship; a YAML `areaId` is ignored. `area` accepts a local path/wikilink string or a flat list of up to eight strings. Every declared target must resolve to the same path. The response contains per-path `none`, `resolved` with the backend path in `areaId`, or `unresolved`, plus source incompleteness. No bodies, snippets, hashes, edit proofs or writes cross this boundary.
-
-Local matching uses selected-vault-relative or mirror-prefixed paths, optional `.md`, display aliases and unique basenames; explicit paths can address nested Area notes and directories. No external URL, title/topic inference or alias-property index is involved. Targets must be within the configured Areas folder. For an indexed direct vault, each batch uses a single authorized generation for project properties, candidate note paths and directories. A warm batch neither opens note files nor enumerates directories. It still checks current source access and the revision-bound directory identity; a denied or unconfirmed index grant does not fall back to live access. Omitted target catalogs within the selected scope cannot establish a unique relationship. Missing indexed project rows and unreadable frontmatter mark coverage partial, while an unresolved declaration by itself does not.
-
-Legacy sources and direct sources that do not advertise the index grant still use bounded live paths, directory probes and root-note reads, extracting only frontmatter. A live batch stays on its originally authorized route and rechecks access before returning any rows. The live scan is bounded to 2 MiB of root-note bytes, ten seconds of projection work and at most 50 child-directory listings. Isolated omissions leave a partial page; source-wide refusal or route change withholds the entire page. `projectAreasFromFrontmatter` returns an authority stamp (connection revision, route and an opaque per-source authorization epoch, not a grant). Updated GTD sends it back on later batches. An observed access loss or retired index lane changes the epoch, so restored access cannot reuse earlier assignments even on the same route and revision. Ordinary index updates do not change it. Native disposal tracks the admitted projection and underlying source operations retain their existing revision guards.
-
-## GTD title consumer
-
-The `renameTitle` RPC accepts `{ vaultId, path, title }` only from the host-verified `gtd` plugin caller. It changes a display-title property, not a physical path. GTD validates inventory membership before calling it. Obsidian performs a unique-reader complete read (including every continuation acknowledgement), then invokes its existing version-checked property editor. Paths, links and unrelated bytes remain intact; existing parser, connection, conflict and uncertainty guards still apply. The bounded result is `{ operationId, outcome }`, not note content or a cloud-delivery claim. Failed or uncertain writes are never retried automatically. Ordinary clients and other plugins are refused before reading a note.
-
-Reloading this file-writing integration requires a supported maintenance boundary that prevents new writes and drains accepted operations. A reload abort signal or empty receipt list is not such a guarantee; use a disposable preview when that boundary is unavailable.
-
 ## Supported Markdown subset
 
 The [pinned official references](docs/reference/README.md) guide behavior;
 `mdast-util-from-markdown` 2.1.0 and `yaml` 2.9.1 supply maintained parsers.
-No runtime `obsidian` package is used and full Obsidian search/resolver parity is
-not claimed.
+They provide source spans and prepare checked text and property changes.
 
 The parser retains original UTF-8 text and source offsets, including BOM, Unicode
 and LF/CRLF endings. It extracts headings, inline/standalone block IDs, wikilinks,
@@ -362,16 +167,9 @@ property tags are named in the change result. This does not infer vault-wide typ
 | Connected vaults | 20 |
 | Raw note | 1 MiB, valid UTF-8 regular lowercase `.md` files; relative paths up to 1,024 characters; no symlinks/traversal |
 | Semantic parser / writes | 64 KiB UTF-8, 20,000 nodes and depth 64 |
-| Task/link directory discovery | 10,000 entries or 2 seconds; nested/hidden folders included; incomplete results are explicit |
-| Task/link scan (not search) | 500 notes, 16 MiB plus at most the final 1 MiB note, or 3 seconds checked between file operations; at most 500 rows |
 | Output | At most 48,000 UTF-16 units per read chunk, reduced to fit a 60,000-character serialized read envelope (including JSON escaping); final tool result capped at 64,000 characters; metadata collections capped at 100 items |
 | Whole-note read continuation | Four in-memory sequences including in-flight continuation reservations (all busy refuses new sequences), five-minute idle / thirty-minute absolute lifetime; single-use thread/target/selector-bound cursors, with final empty acknowledgement; no section pagination |
-| Search resources | Four sessions; on the live route, two child/work reservations, up to 64 read-only note descriptors per batch and one directory stream per session, with bounded discovery/dedup and subprocess buffers |
-| Local index | Two concurrent builds; 100,000 entries or 120 seconds per build checked between operations; 16 MiB estimated per generation; separate budgets of 96 MiB current, 32 MiB building and 32 MiB cursor-retained so pinned or current views cannot consume rebuild headroom; at most 4,096 verified directory watches per vault, 16,384 total; up to 1,024 distinct pending directory hints before a full scan |
-| Search continuation | Five-minute idle / thirty-minute absolute lifetime; up to 32 batches or a two-second cooperative slice before yielding, never a terminal total-note cutoff; configuration/local safety changes and restart revoke cursors, ordinary cloud progress does not |
-| Search semantics | Properties inspect at most a 64 KiB header independently of the body; tags retain the 64 KiB semantic-parser bound and disclose omitted notes |
-| Search result pages | Default 20, maximum 50 rows; a complete traversal can still have buffered rows behind nextCursor |
-| Task/link pagination | Default 20, maximum 50 rows; ten in-memory cursors, expiring after 60 seconds or configuration/local safety changes, not cloud progress |
+| Search and task pages | Default 20, maximum 50 rows. Up to ten one-minute result cursors, bound to the configuration and rechecked for vault access. Desktop commands cap stdout at 8 MiB and inventory at 10,000 entries. |
 | Save conflict-copy inspection | At most 10,000 siblings; larger/ambiguous sets refuse with uncertainty. This separate save-safety bound is not a search cutoff |
 | Complete-read proofs | 256 in-memory note versions, bound to the reading thread; issued only after bounded complete delivery without parser-limit warnings, invalidated on the affected note save, configuration change and restart |
 | Pending saves | 100 persisted unresolved operations |

@@ -1,27 +1,27 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { constants } from 'node:fs';
 import { access, lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, basename, normalize } from 'node:path';
+import { isAbsolute, join, normalize } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
-import { desktopRenameUncertain, VaultError, type Diagnose, type DesktopLinkOperation, type DesktopLinkResult } from '../core/ports.ts';
+import { VaultError, type Diagnose, type DesktopLinkOperation, type DesktopLinkResult } from '../core/ports.ts';
 import { validateNotePath } from './local-notes.ts';
 
 export type DesktopBinaries = { desktop: string; cli: string };
-export type DesktopConfiguration = DesktopBinaries & { vaultId: string };
-type Target = { id: string; directory: string };
+export type DesktopConfiguration = DesktopBinaries & { vaultId: string; root?: string };
+type Target = { id: string; directory: string; identity: string };
 type Check = (phase: 'before_launch' | 'before_command' | 'after_close', signal: AbortSignal) => Promise<void>;
 
 const START_MS = 20_000;
 const COMMAND_MS = 8_000;
-const OUTPUT_BYTES = 512 * 1024;
+const OUTPUT_BYTES = 8 * 1024 * 1024;
 const readyProbe = 'code=app.workspace.layoutReady && app.metadataCache.initialized && app.metadataCache.isCacheClean() ? { directory: app.vault.adapter.getBasePath(), restricted: !app.plugins.isEnabled() && Object.keys(app.plugins.plugins).length === 0, updateLinks: app.vault.getConfig("alwaysUpdateLinks") } : null';
 const exec = promisify(execFile);
 
 export function desktopConfiguration(env = process.env): DesktopConfiguration | undefined {
   const desktop = env.PA_OBSIDIAN_DESKTOP, cli = env.PA_OBSIDIAN_CLI, vaultId = env.PA_OBSIDIAN_DESKTOP_VAULT_ID;
   if (process.platform === 'linux' && desktop && cli && vaultId && /^[a-zA-Z0-9-]{1,64}$/.test(vaultId))
-    return { desktop, cli, vaultId };
+    return { desktop, cli, vaultId, root: env.PA_OBSIDIAN_DESKTOP_ROOT };
 }
 
 function exactNotePath(path: string) {
@@ -32,12 +32,7 @@ function exactNotePath(path: string) {
 }
 
 export function validateDesktopOperation(operation: DesktopLinkOperation) {
-  exactNotePath(operation.path);
-  if (operation.kind === 'rename') {
-    exactNotePath(operation.destination);
-    if (dirname(operation.path) !== dirname(operation.destination) || operation.path === operation.destination)
-      throw new VaultError('unsupported');
-  }
+  if (operation.kind === 'backlinks' || (operation.kind === 'tasks' && operation.path)) exactNotePath(operation.path!);
 }
 
 function killGroup(child: ChildProcess, signal: NodeJS.Signals) {
@@ -76,157 +71,225 @@ async function cli(binary: string, args: string[], env: NodeJS.ProcessEnv, cwd: 
   }
 }
 
-function backlinks(output: string): DesktopLinkResult {
-  if (output === 'No backlinks found.') return { kind: 'backlinks', sources: [] };
-  const rows: unknown = JSON.parse(output);
-  if (!Array.isArray(rows)) throw new VaultError('desktop_reply');
-  const sources = new Set<string>();
-  for (const row of rows) {
-    if (!row || typeof row.file !== 'string' || sources.has(row.file)) throw new VaultError('desktop_reply');
-    // Retain Obsidian's exact returned spelling for the caller to check against disk.
-    sources.add(validateNotePath(row.file));
+type Session = {
+  target: Target;
+  invoke(args: string[], signal: AbortSignal, ms?: number): Promise<string>;
+  alive(): boolean;
+  exit: Promise<number | null>;
+  close(): Promise<void>;
+};
+
+function json(output: string): unknown {
+  try { return JSON.parse(output.startsWith('=> ') ? output.slice(3) : output); }
+  catch { throw new VaultError('desktop_reply'); }
+}
+
+// BB can construct a replacement plugin before disposing the previous one.
+// A process-wide lease prevents two generations from opening the vault at once.
+const ownership = Symbol.for('pa-bb.obsidian.desktop-owner');
+const processState = globalThis as typeof globalThis & { [ownership]?: Promise<void> };
+
+async function claimDesktop(signal: AbortSignal) {
+  while (processState[ownership]) {
+    signal.throwIfAborted();
+    const wait = processState[ownership];
+    await new Promise<void>((resolve, reject) => {
+      const cancel = () => reject(signal.reason);
+      signal.addEventListener('abort', cancel, { once: true });
+      void wait.then(() => { signal.removeEventListener('abort', cancel); resolve(); });
+    });
   }
-  return { kind: 'backlinks', sources: [...sources] };
+  signal.throwIfAborted();
+  let release!: () => void;
+  processState[ownership] = new Promise<void>(resolve => {
+    release = () => { delete processState[ownership]; resolve(); };
+  });
+  return release;
 }
 
 export class DesktopLinks {
-  private active?: Promise<DesktopLinkResult>;
+  private queue: Promise<unknown> = Promise.resolve();
   private shutdown = new AbortController();
+  private session?: Session;
 
   constructor(private binaries: DesktopBinaries, private diagnose: Diagnose) {}
 
-  async stop() {
-    this.shutdown.abort();
-    await this.active?.catch(() => {});
-  }
+  get running() { return this.session?.alive() ?? false; }
 
-  run(target: Target, operation: DesktopLinkOperation, check: Check, signal?: AbortSignal, assertSelected = () => {}) {
-    if (this.active) throw new VaultError('busy', 'Wait for the current Obsidian Desktop operation to finish.');
-    const request = signal ? AbortSignal.any([this.shutdown.signal, signal]) : this.shutdown.signal;
-    const task = this.execute(target, operation, check, request, assertSelected).finally(() => { this.active = undefined; });
-    this.active = task;
+  reset() {
+    const task = this.queue.then(async () => {
+      await this.session?.close();
+      this.session = undefined;
+    });
+    this.queue = task.catch(() => {});
     return task;
   }
 
-  private async execute(target: Target, operation: DesktopLinkOperation, check: Check, signal: AbortSignal, assertSelected: () => void): Promise<DesktopLinkResult> {
-    let phase: Parameters<Diagnose>[0] = 'desktop_setup';
-    let dispatched = false;
-    let completed = false;
-    let runtime: string | undefined, stopDesktop: (() => Promise<void>) | undefined;
-    try {
-      try {
-        signal.throwIfAborted();
-        validateDesktopOperation(operation);
-        if (!/^[a-zA-Z0-9-]{1,64}$/.test(target.id) || !isAbsolute(target.directory) ||
-            normalize(target.directory) !== target.directory || target.directory === '/') throw new VaultError('invalid_path');
-        if (Object.values(this.binaries).some(binary => !isAbsolute(binary) || binary.includes('\0')))
-          throw new VaultError('unavailable');
-        await Promise.all(Object.values(this.binaries).map(binary => access(binary, constants.X_OK)));
-        runtime = await mkdtemp('/tmp/pa-obsidian-');
-        const cwd = runtime;
-        const profile = join(cwd, 'config', 'obsidian');
-        const env = {
-          PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8',
-          HOME: join(cwd, 'home'), TMPDIR: join(cwd, 'tmp'),
-          XDG_RUNTIME_DIR: join(cwd, 'run'), XDG_CONFIG_HOME: join(cwd, 'config'),
-          XDG_CACHE_HOME: join(cwd, 'cache'), XDG_DATA_HOME: join(cwd, 'data'), XDG_STATE_HOME: join(cwd, 'state'),
-        };
-        for (const directory of Object.values(env).slice(2)) await mkdir(directory, { mode: 0o700 });
-        // Restricted mode defaults to on in a fresh profile. Never import the
-        // operator's profile or change the vault's community-plugin settings.
-        await mkdir(profile, { mode: 0o700 });
-        await writeFile(join(profile, 'obsidian.json'), JSON.stringify({
-          cli: true, vaults: { [target.id]: { path: target.directory, ts: 1, open: true } },
-        }), { mode: 0o600, flag: 'wx' });
-        await check('before_launch', signal);
-        signal.throwIfAborted();
-        assertSelected();
-        phase = 'desktop_start';
-        const child = spawn(this.binaries.desktop, [`--user-data-dir=${profile}`, '--ozone-platform=headless',
-          '--disable-gpu', '--disable-crash-reporter'], { detached: true, env, cwd, stdio: 'ignore' });
-        const exit = exited(child, 'exit');
-        let stopped = false;
-        void exit.then(() => { stopped = true; });
-        const invoke = (args: string[], abort: AbortSignal, ms?: number) =>
-          cli(this.binaries.cli, [`vault=${target.id}`, ...args], env, cwd, abort, ms);
-        let ready = false;
-        stopDesktop = async () => {
-          // Preserve vendor shutdown when possible, then reap the private group
-          // even if its leader has already exited.
-          try {
-            if (!stopped && ready) {
-              await invoke(['eval', 'code=setTimeout(() => window.close(), 50); "closing"'], AbortSignal.timeout(1500)).catch(() => {});
-              if (await withinExit(exit, 1500)) return;
-            }
-            killGroup(child, 'SIGTERM');
-            if (await withinExit(exit, 500)) return;
-          } finally {
-            killGroup(child, 'SIGKILL');
-            if (!(await withinExit(exit, 1000))) throw new VaultError('desktop_cleanup');
-          }
-        };
+  async stop() {
+    this.shutdown.abort();
+    await this.queue;
+    await this.session?.close();
+    this.session = undefined;
+  }
 
-        const deadline = AbortSignal.timeout(START_MS);
-        const startup = AbortSignal.any([signal, deadline]);
-        const socket = join(env.XDG_RUNTIME_DIR, '.obsidian-cli.sock');
-        let state: { directory?: unknown; restricted?: unknown; updateLinks?: unknown } | null = null;
-        while (!stopped && !startup.aborted) {
-          const entry = await lstat(socket).catch(error => {
-            if (error.code !== 'ENOENT') throw error;
-          });
-          if (entry?.isSocket()) {
-            const output = await invoke(['eval', readyProbe], startup, 1500).catch(() => '');
-            if (output.startsWith('=> {')) {
-              state = JSON.parse(output.slice(3));
-              break;
-            }
-          } else if (entry) throw new VaultError('desktop_reply');
-          await delay(100, undefined, { signal: startup }).catch(() => {});
-        }
-        signal.throwIfAborted();
-        if (!state) throw new VaultError(deadline.aborted ? 'desktop_timeout' : 'unavailable');
-        if (state.directory !== target.directory) throw new VaultError('source_unavailable');
-        ready = true;
-        if (state.restricted !== true) throw new VaultError('desktop_restricted');
-        if (operation.kind === 'rename' && state.updateLinks !== true)
-          throw new VaultError('unsupported', 'Enable automatic link updates in this Obsidian vault before using Desktop rename.');
-        phase = 'desktop_command';
-        await check('before_command', signal);
-        signal.throwIfAborted();
+  run(target: Target, operation: DesktopLinkOperation, check: Check, signal?: AbortSignal, assertSelected = () => {}) {
+    const request = AbortSignal.any([this.shutdown.signal, ...(signal ? [signal] : [])]);
+    const task = this.queue.then(async () => {
+      let dispatched = false;
+      let stage: Parameters<Diagnose>[0] = 'desktop_start';
+      try {
+        request.throwIfAborted();
+        validateDesktopOperation(operation);
         assertSelected();
-        if (stopped) throw new VaultError('unavailable');
-        const path = `path=${operation.path}`;
-        if (operation.kind === 'backlinks') {
-          const output = await invoke(['backlinks', path, 'format=json'], signal);
-          let result;
-          try { result = backlinks(output); } catch { throw new VaultError('desktop_reply'); }
-          completed = true;
-          return result;
+        if (this.session && (!this.session.alive() || this.session.target.id !== target.id ||
+            this.session.target.directory !== target.directory || this.session.target.identity !== target.identity)) {
+          await this.session.close();
+          this.session = undefined;
         }
-        dispatched = true;
-        const output = await invoke(['rename', path, `name=${basename(operation.destination)}`], signal);
-        if (output !== `Renamed: ${operation.path} -> ${operation.destination}`) throw new VaultError('desktop_reply');
-        completed = true;
-        return { kind: 'rename', destination: operation.destination };
-      } finally {
-        try {
-          try { await stopDesktop?.(); }
-          finally { if (runtime) await rm(runtime, { recursive: true, force: true }); }
-        } catch {
-          phase = 'desktop_cleanup';
-          throw new VaultError('desktop_cleanup');
-        }
-        if (completed && !signal.aborted) {
-          await check('after_close', signal);
+        if (!this.session) {
+          await check('before_launch', request);
           assertSelected();
+          const release = await claimDesktop(request);
+          try {
+            await check('before_launch', request);
+            const launched = await this.launch(target, request);
+            let closing: Promise<void> | undefined;
+            const close = () => closing ??= launched.close().finally(release);
+            this.session = { ...launched, close };
+            void launched.exit.then(() => close()).catch(() => this.diagnose('desktop_cleanup', 'unavailable'));
+          } catch (error) { release(); throw error; }
         }
-        signal.throwIfAborted();
+        stage = 'desktop_command';
+        await check('before_command', request);
+        request.throwIfAborted();
+        assertSelected();
+        const invoke = (args: string[]) => this.session!.invoke(args, request);
+        if (operation.kind === 'start') return { kind: 'start' } as const;
+        let value: unknown;
+        switch (operation.kind) {
+        case 'write':
+          dispatched = true;
+        case 'eval':
+          value = json(await invoke(['eval', 'code=' + operation.code]));
+          if (operation.kind === 'write') {
+            if (value === false) dispatched = false;
+            else if (value !== true) throw new VaultError('desktop_reply');
+          }
+          break;
+        case 'backlinks': {
+          const output = await invoke(['backlinks', 'path=' + operation.path, 'format=json']);
+          value = output === 'No backlinks found.' ? [] : json(output);
+          break;
+        }
+        case 'search': {
+          const output = await invoke(['search:context', 'query=' + operation.query, 'format=json', 'limit=10001']);
+          value = output === 'No matches found.' ? [] : json(output);
+          break;
+        }
+        case 'tasks': {
+          const output = await invoke(['tasks', ...(operation.path ? ['path=' + operation.path] : ['all']), 'format=json']);
+          value = output === 'No tasks found.' ? [] : json(output);
+          break;
+        }
+        case 'move': {
+          dispatched = true;
+          const source = JSON.stringify(operation.path);
+          const destination = JSON.stringify(operation.destination);
+          value = json(await invoke(['eval', `code=(async () => {
+            const source = ${source}, destination = ${destination};
+            const file = app.vault.getAbstractFileByPath(source);
+            if (!file || app.vault.getAbstractFileByPath(destination) || await app.vault.adapter.exists(destination) ||
+                !app.vault.getConfig("alwaysUpdateLinks")) return false;
+            await app.fileManager.renameFile(file, destination);
+            return file.path === destination;
+          })()`]));
+          if (value === false) dispatched = false;
+          else if (value !== true) throw new VaultError('desktop_reply');
+          break;
+        }
+        }
+        await check('after_close', request);
+        assertSelected();
+        return { kind: operation.kind, value } as DesktopLinkResult;
+      } catch (error) {
+        const category = error instanceof VaultError ? error.category : request.aborted ? 'cancelled' : 'unavailable';
+        if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose(stage, category);
+        if (dispatched) throw new VaultError('uncertain', 'Inspect the move receipt before making another change.', true);
+        throw new VaultError(category, error instanceof VaultError ? error.nextAction : 'Check the configured Obsidian Desktop installation.', true);
       }
+    });
+    this.queue = task.catch(() => {});
+    return task;
+  }
+
+  private async launch(target: Target, signal: AbortSignal): Promise<Session> {
+    if (!/^[a-zA-Z0-9-]{1,64}$/.test(target.id) || !isAbsolute(target.directory) ||
+        normalize(target.directory) !== target.directory || target.directory === '/' ||
+        Object.values(this.binaries).some(binary => !isAbsolute(binary) || binary.includes('\0'))) throw new VaultError('invalid_path');
+    await Promise.all(Object.values(this.binaries).map(binary => access(binary, constants.X_OK)));
+    const runtime = await mkdtemp('/tmp/pa-obsidian-');
+    const profile = join(runtime, 'config', 'obsidian');
+    const env = {
+      PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8',
+      HOME: join(runtime, 'home'), TMPDIR: join(runtime, 'tmp'),
+      XDG_RUNTIME_DIR: join(runtime, 'run'), XDG_CONFIG_HOME: join(runtime, 'config'),
+      XDG_CACHE_HOME: join(runtime, 'cache'), XDG_DATA_HOME: join(runtime, 'data'), XDG_STATE_HOME: join(runtime, 'state'),
+    };
+    let stop: (() => Promise<void>) | undefined;
+    try {
+      for (const directory of Object.values(env).slice(2)) await mkdir(directory, { mode: 0o700 });
+      await mkdir(profile, { mode: 0o700 });
+      await writeFile(join(profile, 'obsidian.json'), JSON.stringify({
+        cli: true, vaults: { [target.id]: { path: target.directory, ts: 1, open: true } },
+      }), { mode: 0o600, flag: 'wx' });
+      signal.throwIfAborted();
+      const child = spawn(this.binaries.desktop, [`--user-data-dir=${profile}`, '--ozone-platform=headless',
+        '--disable-gpu', '--disable-crash-reporter'], { detached: true, env, cwd: runtime, stdio: 'ignore' });
+      const exit = exited(child, 'exit');
+      let alive = true, ready = false;
+      void exit.then(() => { alive = false; });
+      const invoke = (args: string[], abort: AbortSignal, ms?: number) => {
+        if (!alive) throw new VaultError('unavailable');
+        return cli(this.binaries.cli, [`vault=${target.id}`, ...args], env, runtime, abort, ms);
+      };
+      stop = async () => {
+        try {
+          if (alive && ready) await invoke(['eval', 'code=setTimeout(() => window.close(), 50); "closing"'], AbortSignal.timeout(1500)).catch(() => {});
+          if (alive && !(ready && await withinExit(exit, 1500))) {
+            killGroup(child, 'SIGTERM');
+            await withinExit(exit, 500);
+          }
+        } finally {
+          killGroup(child, 'SIGKILL');
+          await withinExit(exit, 1000);
+        }
+      };
+      const deadline = AbortSignal.timeout(START_MS);
+      const startup = AbortSignal.any([signal, deadline]);
+      const socket = join(env.XDG_RUNTIME_DIR, '.obsidian-cli.sock');
+      while (alive && !startup.aborted) {
+        const entry = await lstat(socket).catch(error => {
+          if (error.code !== 'ENOENT') throw error;
+        });
+        if (entry?.isSocket()) {
+          const output = await invoke(['eval', readyProbe], startup, 1500).catch(() => '');
+          if (output.startsWith('=> {')) {
+            const state = JSON.parse(output.slice(3));
+            if (state.directory !== target.directory) throw new VaultError('source_unavailable');
+            if (state.restricted !== true) throw new VaultError('desktop_restricted');
+            ready = true;
+            return { target, invoke, exit, alive: () => alive, close: async () => {
+              try { await stop?.(); } finally { await rm(runtime, { recursive: true, force: true }); }
+            } };
+          }
+        } else if (entry) throw new VaultError('desktop_reply');
+        await delay(100, undefined, { signal: startup }).catch(() => {});
+      }
+      signal.throwIfAborted();
+      throw new VaultError(deadline.aborted ? 'desktop_timeout' : 'unavailable');
     } catch (error) {
-      const category = error instanceof VaultError ? error.category : signal.aborted ? 'cancelled' : 'unavailable';
-      if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose(phase, category);
-      if (dispatched) throw desktopRenameUncertain(true);
-      throw new VaultError(category, error instanceof VaultError ? error.nextAction : 'Check the configured Obsidian Desktop installation.', true);
+      try { await stop?.(); } finally { await rm(runtime, { recursive: true, force: true }); }
+      throw error;
     }
   }
 }

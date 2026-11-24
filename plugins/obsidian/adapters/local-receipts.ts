@@ -13,9 +13,10 @@ const base = {
   root: identity,
   inode: identity,
 };
+const versionIdentity = identity.extend({ birthtime: z.number().finite() });
 const record = z.discriminatedUnion('kind', [
-  z.object({ ...base, kind: z.literal('save'), previousHash: hash.nullable(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict(),
-  z.object({ ...base, kind: z.literal('move'), destination: base.path,
+  z.object({ ...base, kind: z.literal('save'), previousHash: hash.nullable(), previousIdentity: versionIdentity.optional(), birthtime: z.number().finite().optional(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict(),
+  z.object({ ...base, kind: z.literal('move'), destination: base.path, birthtime: z.number().finite().optional(),
     directory: z.literal(true).optional(),
     tree: z.object({ from: base.path, to: base.path, inode: identity, fingerprint: hash }).strict().optional(), outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']) }).strict(),
   z.object({ ...base, kind: z.literal('resolution'), choice: z.enum(['keep_local', 'accept_incoming', 'replace']), outcome: z.enum(['saved_locally_pending_sync', 'adopted_content', 'not_saved', 'uncertain']) }).strict(),
