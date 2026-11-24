@@ -228,3 +228,37 @@ test('resolve uses suffix candidates after exact vault paths', async () => {
   files.desktopTargets = async (...args) => (await lookup(...args)).map(row => row.status === 'missing' ? { status: 'incomplete' } : row);
   assert.equal((await resolve('[[Missing]]')).status, 'incomplete');
 });
+
+test('warm Desktop inventory overlaps source status and withholds rows on refusal or revision change', { timeout: 3000 }, async () => {
+  for (const action of ['allow', 'revoke', 'remove'] as const) {
+    const { service, files, catalog } = await setup();
+    const status = gate();
+    const inventoryFinished = gate();
+    const source = async () => { await status.promise; return catalog.snapshot(); };
+    Object.assign(catalog, { desktopSnapshot: source });
+    const inventory = files.vaultInventory.bind(files);
+    files.vaultInventory = async (...args) => {
+      const result = await inventory(...args);
+      inventoryFinished.resolve();
+      return result;
+    };
+    const request = service.vaultInventory({ vaultId: 'one', root: '', fields: [] });
+    const settled = Promise.allSettled([request]);
+    await inventoryFinished.promise;
+    let released = false;
+    void settled.then(() => { released = true; });
+    await Promise.resolve();
+    assert.equal(released, false, 'inventory rows wait for source status');
+    if (action === 'revoke') catalog.value.sources[0].local.available = false;
+    if (action === 'remove') await service.remove('one');
+    status.resolve();
+    const [result] = await settled;
+    if (action === 'allow') {
+      assert.equal(result.status, 'fulfilled');
+      assert.ok(result.value.notes.some(row => row.path === 'Launch.md'));
+    } else {
+      assert.equal(result.status, 'rejected');
+      assert.equal(result.reason.category, action === 'remove' ? 'not_connected' : 'source_unavailable');
+    }
+  }
+});

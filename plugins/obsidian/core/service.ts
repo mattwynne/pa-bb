@@ -21,6 +21,7 @@ export class Obsidian {
   private stopped = false;
   private stateQueue: Promise<void> = Promise.resolve();
   private configurationQueue: Promise<void> = Promise.resolve();
+  private confirmedRevision?: number;
   constructor(private catalog: MirrorCatalog, private files: VaultFiles, private parser: NoteParser,
     private repository: StateRepository, private id: () => string, private clock: () => number, private diagnose: Diagnose) {}
   async start() {
@@ -42,7 +43,11 @@ export class Obsidian {
   }
   private async confirm(state: Configuration) {
     await this.files.configure(state);
-    await this.update(async () => { if (this.state.revision === state.revision && this.state.unconfirmedRevision === state.revision) await this.save({ ...this.state, unconfirmedRevision: undefined }); });
+    await this.update(async () => {
+      if (this.state.revision !== state.revision) return;
+      if (this.state.unconfirmedRevision === state.revision) await this.save({ ...this.state, unconfirmedRevision: undefined });
+      this.confirmedRevision = state.revision;
+    });
   }
   private async remember(catalog: Catalog) {
     await this.update(async () => {
@@ -159,10 +164,19 @@ export class Obsidian {
     return { vaults, incomplete };
   }
   async vaultInventory(input: InventoryInput, signal?: AbortSignal) {
-    const { revision, source } = await this.source(input.vaultId, { signal });
-    if (!this.files.vaultInventory) throw new VaultError('desktop_setup');
-    const result = await this.files.vaultInventory(input, revision, signal);
+    const revision = this.state.revision;
     this.check(input.vaultId, revision);
+    const inventory = this.files.vaultInventory?.bind(this.files);
+    if (!inventory) throw new VaultError('desktop_setup');
+    const sourceLookup = this.source(input.vaultId, { signal });
+    // Once the revision is registered, Desktop's before/after grants authorize
+    // the inventory independently. The status result is also required.
+    const read = this.confirmedRevision === revision && this.catalog.desktopSnapshot
+      ? inventory(input, revision, signal)
+      : sourceLookup.then(() => inventory(input, revision, signal));
+    const [{ source }, result] = await Promise.all([sourceLookup, read]);
+    this.check(input.vaultId, revision);
+    if (signal?.aborted) throw new VaultError('cancelled');
     const { id: vaultId, name, lastSuccess, cloudConnected, enabled, phase, failure } = source;
     return { ...result, source: { vaultId, name, lastSuccess, cloudConnected, enabled, phase, failure } };
   }
