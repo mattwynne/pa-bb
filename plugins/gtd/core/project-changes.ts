@@ -1,11 +1,12 @@
 import { posix } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
-import { ObsidianBackend, relativeFolder, vaultOptions, type PreviewEvidence } from '../adapters/obsidian.ts';
+import { noteEvidence, ObsidianBackend, readVaultInventory, relativeFolder, vaultOptions, type PreviewEvidence } from '../adapters/obsidian.ts';
 import { readThreadReferences } from './migration-preview.ts';
 import { statuses } from './model.ts';
 import { projectActionInput, reference } from '../contract.ts';
+import { renameResult } from '../contract.ts';
 import { isDeepStrictEqual } from 'node:util';
 
 export const changeNames = [
@@ -13,29 +14,26 @@ export const changeNames = [
   'gtd_prepare_project_change',
   'gtd_check_project_change',
   'gtd_defer_project',
+  'gtd_change_project',
+  'gtd_apply_project_change',
 ] as const;
 const projectMove = z.enum(['standalone', 'paired']);
-const physicalMove = z.enum(['moved_locally_pending_sync', 'not_moved', 'partial', 'uncertain']);
-const moveOutcome = z.enum(['moved_supported_links_updated', 'moved_links_partial', 'project_move_partial', 'not_moved', 'uncertain']);
+const moveOutcome = z.enum(['moved_locally_pending_sync', 'moved_supported_links_updated', 'moved_links_partial', 'project_move_partial', 'not_moved', 'uncertain']);
 type MoveOutcome = z.infer<typeof moveOutcome>;
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 export const deferInput = z.object({
   id: relativeFolder.refine(id => id.endsWith('.md'), 'Use the exact project landing-note ID.'),
   deferUntil: z.iso.date().refine(date => !date.startsWith('0000-'), 'Use a real calendar date in YYYY-MM-DD form.'),
 }).strict();
-const deferEvidence = z.object({
-  hash, fieldHash: hash, matches: z.boolean(),
-  receipt: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']).nullable(),
-});
-const deferSave = deferEvidence.shape.receipt.unwrap();
-const reactivationEvidence = z.object({
-  hash, date: deferInput.shape.deferUntil.nullable(), present: z.boolean(), receipt: deferEvidence.shape.receipt,
-});
-const deferMove = z.object({
-  outcome: z.enum(['link_plan_ready', 'moved_supported_links_updated', 'moved_links_partial',
-    'project_move_partial', 'not_moved', 'uncertain', 'blocked']),
-  action: z.string().max(512).optional(),
-});
+const savedLocally = 'saved_locally_pending_sync';
+function relativeAreaReference(value: unknown) {
+  if (typeof value !== 'string') return false;
+  try { return /^\.{1,2}\//.test(decodeURIComponent(value.trim().replace(/^\[\[/, ''))); }
+  catch { return false; }
+}
+function localFieldHash(value: unknown) {
+  return createHash('sha256').update(JSON.stringify({ value })).digest('hex');
+}
 const planLifetime = 7 * 86400000;
 function operationId(now = Date.now()) {
   const time = now.toString(16).padStart(12, '0');
@@ -44,16 +42,16 @@ function operationId(now = Date.now()) {
 export const browseInput = z
   .object({ folder: relativeFolder.optional(), offset: z.number().int().min(0).max(5000).optional() })
   .strict();
-export const prepareInput = z
-  .object({
-    source: z.string().min(1).max(128),
-    id: z.string().min(1).max(1024),
-    expectedHash: hash,
-    areaPath: relativeFolder.nullable().optional(),
-    status: z.enum(statuses).optional(),
-  })
-  .strict()
-  .refine((x) => (x.areaPath !== undefined) !== (x.status !== undefined), 'Choose exactly one change.');
+const changeParameters = z.object({
+  source: z.string().min(1).max(128),
+  id: relativeFolder,
+  areaPath: relativeFolder.nullable().optional(),
+  status: z.enum(statuses).optional(),
+}).strict();
+const oneChange = (x: z.infer<typeof changeParameters>) => (x.areaPath !== undefined) !== (x.status !== undefined);
+export const prepareInput = changeParameters.extend({ expectedHash: hash }).refine(oneChange, 'Choose exactly one change.');
+export const changeInput = changeParameters.refine(oneChange, 'Choose exactly one change.');
+export const applyInput = z.object({ planId: z.string().uuid() }).strict();
 export const checkInput = z
   .object({
     planId: z.string().uuid(),
@@ -72,8 +70,14 @@ export const checkInput = z
   .strict();
 const moveReceipt = z.object({
   operationId: z.string().uuid(), vaultId: z.string(), path: relativeFolder, destination: relativeFolder,
-  project: projectMove.optional(), root: relativeFolder.optional(), expectedHash: hash.optional(), physical: physicalMove, outcome: moveOutcome,
+  outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']),
+  legacy: z.object({
+    paired: z.boolean(),
+    outcome: moveOutcome,
+  }).optional(),
 });
+const outcomeFor = (receipt: z.infer<typeof moveReceipt> | null): MoveOutcome | null =>
+  receipt?.legacy?.outcome ?? receipt?.outcome ?? null;
 type Config = { vaultId: string; projectsFolder: string; areasFolder: string };
 type Reactivation = { owner: string; destination: string; date: string; planId: string; cleanupId?: string };
 type ReactivationFailure = 'inventory_unavailable' | 'candidate_blocked' | 'move_blocked' | 'move_unconfirmed' |
@@ -93,6 +97,12 @@ type Plan = {
   project?: z.infer<typeof projectMove>;
   originalArea?: string;
   threads: string[];
+  direct?: true;
+  noteAttempted?: boolean;
+  folderOperation?: string;
+  folderAttempted?: boolean;
+  relativeAreaDeclaration?: unknown;
+  areaOperation?: string;
   status?: string;
 };
 type Deferral = {
@@ -104,37 +114,6 @@ type Deferral = {
   dateAttempt?: string;
   completed?: 'deferred' | 'move_repairs_pending';
 };
-const proof = z.object({
-  revision: z.number().int(),
-  epoch: z.string().uuid(),
-  route: z.enum(['index', 'direct', 'legacy', 'legacy_conflict', 'legacy_pending']),
-});
-const childrenPage = z.object({
-  entries: z
-    .array(
-      z.object({
-        name: z
-          .string()
-          .min(1)
-          .max(1024)
-          .refine((s) => !s.includes('/') && relativeFolder.safeParse(s).success),
-        kind: z.enum(['markdown', 'directory']),
-      }),
-    )
-    .max(5000),
-  incomplete: z.boolean(),
-  authority: proof,
-  publication: z.string().uuid().nullable(),
-});
-const targetPage = z.object({
-  status: z.literal('matched'),
-  matches: z.array(z.object({ path: relativeFolder, kind: z.enum(['directory', 'markdown']) })).max(3),
-  fragment: z.literal(false),
-  embed: z.literal(false),
-  incomplete: z.literal(false),
-  authority: proof,
-  publication: z.string().uuid().nullable(),
-});
 class ChangeError extends Error {}
 const refuse = (message: string): never => {
   throw new ChangeError(message);
@@ -192,19 +171,25 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     const list = await new ObsidianBackend(
       bb.sdk,
       { vaultId: s.source, root: s.root, folder: s.config.projectsFolder, areasFolder: s.config.areasFolder },
-      undefined,
       e,
     ).readProjects(signal);
-    if (!list.complete || !e.proof)
+    if (!list.complete)
       refuse('Complete project and ownership evidence is required. No changes made.');
     return { e, rows: list.projects };
   }
-  async function revalidate(s: Awaited<ReturnType<typeof scope>>, e: PreviewEvidence, signal: AbortSignal) {
-    await unchanged(s.config);
-    const expected = e.proof;
-    if (!expected) return refuse('Source authority unavailable.');
-    const page = childrenPage.parse(await rpc('inventoryChildren', {vaultId:s.source,root:s.root,folder:s.projects,...expected},signal));
-    if(page.incomplete || !isDeepStrictEqual(page.authority,expected.expectedAuthority) || (page.publication??undefined)!==expected.publication) refuse('Project inventory changed. Inspect before continuing.');
+  async function observeNote(vaultId: string, path: string, signal: AbortSignal, operationId?: string) {
+    return noteEvidence.parse(await rpc('noteEvidence', { vaultId, path, operationId }, signal));
+  }
+  async function writeProperties(vaultId: string, path: string, expectedHash: string, change: {set?: Record<string, string>; remove?: string[]}, signal: AbortSignal, operationId?: string) {
+    const result = renameResult.parse(await rpc('writeProperties',
+      { vaultId, path, expectedHash, operationId, ...change }, signal));
+    if (operationId && result.operationId !== operationId) refuse('Unexpected property write receipt.');
+    return result.outcome;
+  }
+  async function confirmArea(s: Awaited<ReturnType<typeof scope>>, path: string, signal: AbortSignal) {
+    const result = await readVaultInventory(bb.sdk, { vaultId: s.source, root: s.root, folders: [posix.dirname(path)], fields: ['title'] }, signal);
+    if (result.incomplete || result.notes.filter(note => note.path === path && !note.malformed).length !== 1)
+      refuse('The exact Area note was not confirmed.');
   }
   async function browse(input: z.infer<typeof browseInput>, signal: AbortSignal) {
     const s = await scope();
@@ -213,25 +198,26 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       refuse('Choose a folder inside the configured Areas folder.');
     if (s.root && !(await vaultOptions(bb.sdk, signal)).vaults.some((v) => v.selection === s.config.vaultId))
       refuse('Selected vault is unavailable.');
-    const page = childrenPage.parse(
-      await rpc('inventoryChildren', { vaultId: s.source, root: s.root, folder }, signal),
-    );
+    const data = await readVaultInventory(bb.sdk, { vaultId: s.source, root: s.root, folders: [folder], fields: [] }, signal);
+    const children = [
+      ...data.notes.filter(note => posix.dirname(note.path) === folder).map(note => ({ path: note.path, kind: 'note' })),
+      ...data.folders.filter(path => posix.dirname(path) === folder).map(path => ({ path, kind: 'folder' })),
+    ].sort((a, b) => a.path.localeCompare(b.path, 'en'));
     const start = input.offset ?? 0;
     let bytes = 0;
     const entries = [];
-    for (const e of page.entries.slice(start, start + 100)) {
-      const path = folder + '/' + e.name;
-      bytes += Buffer.byteLength(path) + 80;
+    for (const entry of children.slice(start, start + 100)) {
+      bytes += Buffer.byteLength(entry.path) + 80;
       if (bytes > 40000) break;
-      entries.push({ path, kind: e.kind === 'markdown' ? 'note' : 'folder' });
+      entries.push(entry);
     }
     await unchanged(s.config);
     return {
       source: s.source,
       folder,
       entries,
-      incomplete: page.incomplete,
-      nextOffset: start + entries.length < page.entries.length ? start + entries.length : null,
+      incomplete: data.incomplete || !data.folders.includes(folder),
+      nextOffset: start + entries.length < children.length ? start + entries.length : null,
     };
   }
   async function prepare(input: z.infer<typeof prepareInput>, signal: AbortSignal,
@@ -250,6 +236,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       owner,
       expectedHash: input.expectedHash,
       threads: [],
+      direct: true,
     };
     // Legacy note moves also require time-ordered operation IDs.
     const now = Date.now();
@@ -262,20 +249,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
           refuse('This path contains link syntax and cannot be used as a literal Area declaration.');
         if (!input.areaPath.startsWith(s.areas + '/') || !input.areaPath.endsWith('.md'))
           refuse('Select an exact Markdown target under the configured Areas folder.');
-        const target = targetPage.parse(
-          await rpc(
-            'inventoryTarget',
-            { vaultId: s.source, root: s.root, path: owner, reference: input.areaPath, ...e.proof },
-            signal,
-          ),
-        );
-        if (
-          !isDeepStrictEqual(target.authority, e.proof?.expectedAuthority) ||
-          (target.publication ?? undefined) !== e.proof?.publication
-        )
-          refuse('Source authority changed; prepare again.');
-        if (!target.matches.some((m) => m.kind === 'markdown' && m.path === input.areaPath))
-          refuse('The exact Area note was not confirmed.');
+        await confirmArea(s, input.areaPath, signal);
       }
       const props = e.owners.get(owner)!;
       if (
@@ -284,15 +258,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
           : props.area === input.areaPath && item.areaId === input.areaPath
       )
         return { state: 'already_complete', owner };
-      next = {
-        tool: 'obsidian_update_properties' as const,
-        input: {
-          vaultId: s.source,
-          path: owner,
-          expectedHash: input.expectedHash,
-          ...(input.areaPath === null ? { remove: ['area'] } : { set: { area: input.areaPath } }),
-        },
-      };
+      next = { tool: 'gtd_apply_project_change' as const, input: { planId: id } };
     } else {
       const statusName = input.status![0].toUpperCase() + input.status!.slice(1);
       const dirs = [...e.entries].filter(
@@ -311,6 +277,9 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       if (p.destination === owner && item.status === input.status) return { state: 'already_complete', owner };
       p.status = input.status;
       p.originalArea = item.areaId;
+      const declaration = e.owners.get(owner)?.area;
+      if (item.areaId && (Array.isArray(declaration) ? declaration : [declaration]).some(relativeAreaReference))
+        p.relativeAreaDeclaration = declaration;
       if (e.entries.has(destinationStem) || e.entries.has(destinationStem + '.md'))
         refuse('Destination note or support folder already exists.');
       const refs = await readThreadReferences(bb.sdk, s.source, signal);
@@ -318,21 +287,10 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         refuse('Thread coverage is incomplete or destination already has references.');
       p.threads = refs.refs.filter((r) => r.id === item.id).map((r) => r.threadId);
       if (!fromPanel && p.threads.length > 20) refuse('More than 20 linked conversations; manual review required.');
-      next = {
-        tool: 'obsidian_move_note' as const,
-        input: {
-          vaultId: s.source,
-          path: owner,
-          destination: p.destination,
-          expectedHash: input.expectedHash,
-          project: p.project,
-          ...(s.root ? { root: s.root } : {}),
-          operationId: id,
-          dryRun: true,
-        },
-      };
+      if (p.project === 'paired') p.folderOperation = operationId(now);
+      next = { tool: 'gtd_apply_project_change' as const, input: { planId: id } };
     }
-    await revalidate(s,e,signal);
+    await unchanged(s.config);
     db.prepare(`DELETE FROM project_change_plans WHERE created < ? AND NOT EXISTS (
       SELECT 1 FROM project_deferrals WHERE move_plan = project_change_plans.id AND complete = 0
     ) AND NOT EXISTS (
@@ -352,23 +310,100 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       previousArea: item.areaId ?? null,
       previousDeclaration: e.owners.get(owner)?.area ?? null,
       linkedThreads: p.threads.length,
+      destination: p.destination,
       next,
       notice:
-        'Preview only. Recheck the complete owner read/hash. For moves first require a ready Obsidian dry run; keep linked-thread changes exclusive. Never replay uncertain saves or moves.',
+        'This read prepares a change. Apply it once with the returned GTD operation.',
     };
   }
+  function storedPlan(planId: string, recovering = false) {
+    const row = db.prepare('SELECT plan,move_op,attempted,created FROM project_change_plans WHERE id=?')
+      .get(planId) as { plan: string; move_op: string | null; attempted: string; created: number } | undefined;
+    if (!row || (!recovering && row.created < Date.now() - planLifetime))
+      return refuse('Plan not found or expired. Do not repeat a prior write.');
+    return { ...row, plan: JSON.parse(row.plan) as Plan };
+  }
+  function recordPlan(planId: string, plan: Plan) {
+    db.prepare('UPDATE project_change_plans SET plan=? WHERE id=?').run(JSON.stringify(plan), planId);
+  }
+  async function moveRecord(plan: Plan, operationId: string, path: string, destination: string,
+    signal: AbortSignal, dispatch?: 'note' | 'folder') {
+    const result = dispatch
+      ? await rpc('movePath', { vaultId: plan.source, operationId, path, destination, kind: dispatch,
+          ...(dispatch === 'note' ? { expectedHash: plan.expectedHash } : {}) }, signal)
+      : await rpc('moveReceipt', { vaultId: plan.source, operationId }, signal);
+    const receipt = moveReceipt.nullable().parse(result);
+    if (receipt && (receipt.operationId !== operationId || receipt.vaultId !== plan.source ||
+        receipt.path !== path || receipt.destination !== destination))
+      refuse('The stored move receipt does not match this project change.');
+    return receipt;
+  }
+  async function advanceMove(planId: string, signal: AbortSignal, startNote: boolean, beforeWrite?: () => Promise<void>) {
+    if (active.has(planId)) refuse('A project change is already in use.');
+    active.add(planId);
+    try {
+      const { plan } = storedPlan(planId, true);
+      if (!plan.direct || !plan.destination) return;
+      await unchanged(plan.config);
+      const { owner, destination } = plan;
+      const verifyBeforeWrite = async () => {
+        await unchanged(plan.config);
+        await beforeWrite?.();
+        signal.throwIfAborted();
+      };
+      let noteReceipt = await moveRecord(plan, planId, owner, destination, signal);
+      if (!noteReceipt && startNote && !plan.noteAttempted) {
+        await verifyBeforeWrite();
+        plan.noteAttempted = true;
+        recordPlan(planId, plan);
+        noteReceipt = await moveRecord(plan, planId, owner, destination, signal, 'note');
+      }
+      if (noteReceipt?.outcome !== 'moved_locally_pending_sync') return;
+      if (plan.folderOperation) {
+        const folderFrom = owner.slice(0, -3), folderTo = destination.slice(0, -3);
+        let folderReceipt = await moveRecord(plan, plan.folderOperation, folderFrom, folderTo, signal);
+        if (!folderReceipt && !plan.folderAttempted) {
+          await verifyBeforeWrite();
+          plan.folderAttempted = true;
+          recordPlan(planId, plan);
+          folderReceipt = await moveRecord(plan, plan.folderOperation, folderFrom, folderTo, signal, 'folder');
+        }
+        if (folderReceipt?.outcome !== 'moved_locally_pending_sync') return;
+      }
+      if (plan.relativeAreaDeclaration === undefined || !plan.originalArea || plan.areaOperation) return;
+      const s = await scope();
+      const { rows } = await inventory(s, signal);
+      const item = rows.find(row => row.id === destination);
+      if (!item || item.areaId === plan.originalArea) return;
+      const current = await observeNote(plan.source, destination, signal);
+      if (!isDeepStrictEqual(current.properties.area, plan.relativeAreaDeclaration)) return;
+      if (plan.originalArea.endsWith('/')) {
+        const folder = plan.originalArea.slice(0, -1);
+        const result = await readVaultInventory(bb.sdk, { vaultId: plan.source, root: s.root, folders: [folder], fields: [] }, signal);
+        if (result.incomplete || !result.folders.includes(folder)) return;
+      } else {
+        await confirmArea(s, plan.originalArea, signal);
+      }
+      await verifyBeforeWrite();
+      plan.areaOperation = operationId();
+      recordPlan(planId, plan);
+      await writeProperties(plan.source, destination, current.hash, { set: { area: plan.originalArea } }, signal, plan.areaOperation);
+    } finally {
+      active.delete(planId);
+    }
+  }
   async function check(input: z.infer<typeof checkInput>, signal: AbortSignal, recovering = false, beforeWrite?: () => Promise<void>) {
+    if (input.finishLinks) {
+      const { plan } = storedPlan(input.planId, recovering);
+      if (input.receipt && (input.receipt.operationId !== input.planId || input.receipt.vaultId !== plan.source ||
+          input.receipt.path !== plan.owner || input.receipt.destination !== plan.destination))
+        refuse('The receipt does not match this project plan.');
+      await advanceMove(input.planId, signal, false, beforeWrite);
+    }
     if (active.has(input.planId)) refuse('Plan already in use.');
     active.add(input.planId);
     try {
-      const row = db
-        .prepare('SELECT plan,move_op,attempted,created FROM project_change_plans WHERE id=?')
-        .get(input.planId) as
-        | { plan: string; move_op: string | null; attempted: string; created: number }
-        | undefined;
-      if (!row || (!recovering && row.created < Date.now() - planLifetime))
-        return refuse('Plan not found or expired. Do not repeat a prior write.');
-      const p = JSON.parse(row.plan) as Plan;
+      const { plan: p, ...row } = storedPlan(input.planId, recovering);
       await unchanged(p.config);
       const s = await scope();
       if (!p.destination) {
@@ -390,19 +425,22 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
           observedArea: source?.areaId ?? null,
         };
       }
-      const operationId = p.project ? input.planId : row.move_op ?? input.receipt?.operationId;
+      const operationId = p.direct || p.project ? input.planId : row.move_op ?? input.receipt?.operationId;
       if (input.receipt && (operationId !== input.receipt.operationId || input.receipt.vaultId !== s.source ||
         input.receipt.path !== p.owner || input.receipt.destination !== p.destination))
         return refuse('The receipt does not match this project plan.');
-      const receipt = operationId
-        ? moveReceipt.nullable().parse(await rpc('projectMoveReceipt', { vaultId: s.source, operationId }, signal))
-        : null;
-      if (receipt && (operationId !== receipt.operationId || receipt.vaultId !== s.source ||
-        receipt.path !== p.owner || receipt.destination !== p.destination || receipt.project !== p.project ||
-        (p.project && (receipt.expectedHash !== p.expectedHash || (receipt.root ?? '') !== s.root)))) return refuse('The stored move receipt does not match this project plan.');
-      if (receipt?.physical !== 'moved_locally_pending_sync') return {
-        state: 'move_not_verified', operationId: operationId ?? null, moveOutcome: receipt?.outcome ?? null,
-        action: 'Inspect the Obsidian move receipt. For a partial or uncertain operation, do not replay.',
+      const receipt = operationId ? await moveRecord(p, operationId, p.owner, p.destination, signal) : null;
+      const folderReceipt = p.folderOperation ? await moveRecord(
+        p, p.folderOperation, p.owner.slice(0, -3), p.destination.slice(0, -3), signal,
+      ) : undefined;
+      const moveOutcome = outcomeFor(receipt);
+      if (receipt?.outcome !== 'moved_locally_pending_sync' ||
+          (p.folderOperation && folderReceipt?.outcome !== 'moved_locally_pending_sync') ||
+          (!p.direct && p.project === 'paired' && receipt.legacy?.paired !== true)) return {
+        state: 'move_not_verified', operationId: operationId ?? null,
+        folderOperationId: p.folderOperation ?? null,
+        moveOutcome: receipt?.outcome === 'moved_locally_pending_sync' ? 'project_move_partial' as const : moveOutcome,
+        action: 'Inspect the note and folder move receipts before repeating any write.',
       };
       const { e, rows } = await inventory(s, signal);
       const source = rows.find((r) => r.id === p.id);
@@ -420,27 +458,28 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         sourcePresent: !!source,
         destinationPresent: !!destination,
         operationId: operationId ?? null,
-        moveOutcome: receipt.outcome,
+        moveOutcome: moveOutcome,
         action: 'Inspect the Obsidian move receipt and check the project inventory. For a partial or uncertain operation, do not replay.',
       };
       const refs = await readThreadReferences(bb.sdk, s.source, signal);
       if (refs.warnings.length) refuse('Thread coverage incomplete.');
-      await revalidate(s,e,signal);
+      await unchanged(s.config);
       const ids = new Set(p.threads);
       const before = refs.refs.filter((r) => r.id === p.id);
       const after = refs.refs.filter((r) => r.id === destinationId);
       if (before.length + after.length !== ids.size || [...before, ...after].some((r) => !ids.has(r.threadId)))
         refuse('Thread associations changed independently. Stop for reconciliation.');
-      const completedState = receipt.outcome === 'moved_supported_links_updated' ? 'links_verified' : 'move_repairs_pending';
+      const completedState = moveOutcome === 'moved_supported_links_updated' || moveOutcome === 'moved_locally_pending_sync'
+        ? 'links_verified' : 'move_repairs_pending';
       if (!input.finishLinks)
         return {
           state: before.length ? 'links_pending' : completedState,
           remaining: before.length,
           atDestination: after.length,
-          moveOutcome: receipt.outcome,
+          moveOutcome: moveOutcome,
           operationId: receipt.operationId,
         };
-      if (receipt.outcome === 'uncertain') return refuse('Inspect the uncertain Obsidian link repair before finishing conversations.');
+      if (moveOutcome === 'uncertain') return refuse('Inspect the uncertain move before finishing conversations.');
       db.prepare('UPDATE project_change_plans SET move_op=? WHERE id=?').run(receipt.operationId, input.planId);
       const attempted = JSON.parse(row.attempted) as string[];
       for (const ref of before) {
@@ -449,9 +488,12 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
             state: 'reconciliation_required',
             action: 'An earlier write was entered; inspect, do not retry.',
           };
-        await revalidate(s,e,signal);
+        await unchanged(s.config);
         await beforeWrite?.();
         signal.throwIfAborted();
+        const currentMove = await moveRecord(p, receipt.operationId, p.owner, destinationId, signal);
+        if (currentMove?.outcome !== 'moved_locally_pending_sync')
+          refuse('The note move is no longer confirmed. Inspect before updating conversations.');
         const meta = await bb.sdk.threads.getPluginMetadata({ threadId: ref.threadId });
         const current = z.object({ source: z.literal(s.source), id: z.literal(p.id) }).safeParse(meta.project);
         if (!current.success) refuse('Thread reference changed; stop.');
@@ -471,9 +513,56 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         )
           refuse('Thread write not verified. Inspect before continuing.');
       }
-      return { state: completedState, atDestination: ids.size, moveOutcome: receipt.outcome, operationId: receipt.operationId };
+      return { state: completedState, atDestination: ids.size, moveOutcome: moveOutcome, operationId: receipt.operationId };
     } finally {
       active.delete(input.planId);
+    }
+  }
+  async function apply(input: z.infer<typeof applyInput>, signal: AbortSignal) {
+    const { plan } = storedPlan(input.planId);
+    const s = await scope();
+    await unchanged(plan.config);
+    if (!plan.direct) return check(input, signal);
+    if (plan.destination) {
+      await advanceMove(input.planId, signal, true).catch(() => bb.log.warn('GTD project_move reply_unconfirmed'));
+      return check({ ...input, finishLinks: true }, signal);
+    }
+
+    if (active.has(input.planId)) refuse('A project change is already in use.');
+    active.add(input.planId);
+    try {
+      const { e } = await inventory(s, signal);
+      if (!e.owners.has(plan.owner)) refuse('A confirmed project landing note is required.');
+      if (plan.areaPath) await confirmArea(s, plan.areaPath, signal);
+      if (!plan.noteAttempted) {
+        await unchanged(plan.config);
+        signal.throwIfAborted();
+        plan.noteAttempted = true;
+        recordPlan(input.planId, plan);
+        try {
+          await writeProperties(plan.source, plan.owner, plan.expectedHash,
+            plan.areaPath ? { set: { area: plan.areaPath } } : { remove: ['area'] }, signal, input.planId);
+        } catch {
+          bb.log.warn('GTD area_assignment reply_unconfirmed');
+        }
+      }
+    } finally { active.delete(input.planId); }
+    return check(input, signal);
+  }
+  async function change(input: z.infer<typeof changeInput>, signal: AbortSignal) {
+    const s = await scope();
+    if (s.source !== input.source || !input.id.startsWith(s.projects + '/') || !input.id.endsWith('.md'))
+      refuse('A project note in the selected Projects folder is required.');
+    const observed = await inventory(s, signal);
+    if (!observed.e.owners.has(input.id)) refuse('Exact project not found.');
+    const { hash: expectedHash } = await observeNote(s.source, input.id, signal);
+    const checked = await prepare({ ...input, expectedHash }, signal, s, observed);
+    if (!checked.next || !checked.planId) return checked;
+    try {
+      return { planId: checked.planId, ...await apply({ planId: checked.planId }, signal) };
+    } catch {
+      bb.log.warn('GTD project_change write_unconfirmed');
+      return { state: 'unconfirmed', planId: checked.planId, action: 'Inspect this GTD change before trying another write.' };
     }
   }
   const panelChanges = new Map<string, symbol>();
@@ -509,7 +598,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       if (s.source !== input.source || !input.id.startsWith(s.projects + '/') || !input.id.endsWith('.md'))
         refuse('A project note in the selected Projects folder is required.');
       const target = { vaultId: s.source, path: input.id };
-      const expectedHash = hash.parse(await rpc('projectOwnerHash', target, signal));
+      const { hash: expectedHash } = await observeNote(target.vaultId, target.path, signal);
       const change = input.change;
       const plan = await prepare(prepareInput.parse({
         source: input.source, id: input.id, expectedHash,
@@ -523,8 +612,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         return { state: 'done' as const, message: 'All linked threads are archived.' };
       }
 
-      const move = plan.next.tool === 'obsidian_move_note' ? plan.next.input : undefined;
-      const destination = move?.destination;
+      const destination = plan.destination;
       if (destination) {
         const destinationKey = JSON.stringify([s.source, destination]);
         if (panelChanges.has(destinationKey)) refuse('A change for the destination project is already running.');
@@ -532,23 +620,13 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         moveOperation = plan.planId;
       }
       writing = true;
-      if (change.kind === 'area') {
-        const outcome = await rpc('applyProjectChange', { ...target, expectedHash, change }, signal);
-        if (outcome === 'saved' && (await check({ planId: plan.planId! }, signal)).state === 'verified')
-          return { state: 'assigned' as const, message: 'Project assigned locally. iCloud sync is pending.' };
-      } else if (move && moveOperation) {
-        const { destination, project, root } = move;
-        const outcome = await rpc('applyProjectChange', {
-          ...target, expectedHash, change: { kind: 'move', destination, project, root, operationId: moveOperation },
-        }, signal);
-        if (outcome === 'preview_blocked') return { state: 'blocked' as const, message: 'Obsidian could not prepare a safe move. Review the project and its links.' };
-        const result = await check({ planId: moveOperation, finishLinks: true }, signal);
-        if (result.state === 'links_verified' || result.state === 'move_repairs_pending') {
-          moved = true;
-          await archiveConversations(s.source, destination, signal);
-          if (result.state === 'links_verified') return { state: 'done' as const, message: 'Project moved to Done locally and all linked threads archived.' };
-          return { state: 'partial' as const, message: `Project moved and threads archived. Inspect Obsidian link repairs for operation ${moveOperation}.` };
-        }
+      const result = await apply({ planId: plan.planId! }, signal);
+      if (change.kind === 'area' && result.state === 'verified')
+        return { state: 'assigned' as const, message: 'Project assigned locally. iCloud sync is pending.' };
+      if (destination && result.state === 'links_verified') {
+        moved = true;
+        await archiveConversations(s.source, destination, signal);
+        return { state: 'done' as const, message: 'Project moved to Done locally and all linked threads archived.' };
       }
       throw new Error('Project change unconfirmed.');
     } catch (error) {
@@ -581,8 +659,11 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     const pending = db.prepare(`SELECT request FROM project_deferrals WHERE scope = ? AND complete = 0
       AND (owner = ? OR destination = ?) LIMIT 1`).get(key, id, id) as { request: string } | undefined;
     let request: Deferral;
-    const noteEvidence = async (path: string, attempt?: string) => deferEvidence.parse(await rpc('projectDeferEvidence',
-      { vaultId: s.source, path, deferUntil, operationId: attempt }, signal));
+    const dateEvidence = async (path: string, attempt?: string) => {
+      const observed = await observeNote(s.source, path, signal, attempt);
+      const value = observed.properties['defer-until'];
+      return { ...observed, fieldHash: localFieldHash(value), matches: value === deferUntil };
+    };
     const inDeferred = (path: string, e: PreviewEvidence) => {
       const folder = posix.dirname(path);
       return e.entries.has(folder) && posix.dirname(folder) === s.projects &&
@@ -610,48 +691,29 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         request = JSON.parse(old.request) as Deferral;
         if (!observed.e.owners.has(request.destination) || !inDeferred(request.destination, observed.e))
           return refuse('The earlier destination is no longer in Deferred. List projects for its current ID.');
-        if (request.date === deferUntil && (await noteEvidence(request.destination)).matches) {
-          await revalidate(s, observed.e, signal);
+        if (request.date === deferUntil && (await dateEvidence(request.destination)).matches) {
+          await unchanged(s.config);
           return { state: request.completed, id: request.destination, deferUntil, dateVerified: true, moveOperationId: request.movePlan };
         }
         return { state: 'project_id_changed', id: request.destination, action: 'Use the exact current ID to change the date.' };
       }
       if (!observed.e.owners.has(id)) refuse('A confirmed project landing note is required.');
-      const baseline = await noteEvidence(id);
+      const baseline = await dateEvidence(id);
       request = { owner: id, destination: id, date: deferUntil, fieldHash: baseline.fieldHash };
       if ((db.prepare('SELECT COUNT(*) AS n FROM project_deferrals WHERE complete = 0').get() as { n: number }).n >= 256)
         refuse('Deferral recovery capacity reached. Inspect unresolved deferrals before starting another.');
       if (!inDeferred(id, observed.e)) {
         const plan = await prepare({ source: s.source, id, expectedHash: baseline.hash, status: 'deferred' }, signal, s, observed);
-        if (!plan.next || plan.next.tool !== 'obsidian_move_note' || !plan.planId)
-          return refuse('The checked Deferred move plan is unavailable.');
-        request.destination = plan.next.input.destination;
+        if (!plan.destination || !plan.planId) return refuse('The Deferred destination is unavailable.');
+        request.destination = plan.destination;
         request.movePlan = plan.planId;
-        const discardPlan = () => db.prepare('DELETE FROM project_change_plans WHERE id = ?').run(plan.planId);
-        try {
-          const overlapping = db.prepare(`SELECT 1 FROM project_deferrals WHERE scope = ? AND complete = 0
-            AND (owner = ? OR destination = ?)`).get(key, request.destination, request.destination);
-          if (overlapping) refuse('An unresolved deferral already holds this Deferred destination. Inspect the earlier move before continuing.');
-          const preview = deferMove.parse(await rpc('projectDeferMove', plan.next.input, signal));
-          if (preview.outcome !== 'link_plan_ready') refuse(preview.action ?? 'Obsidian could not verify the move preflight.');
-          await revalidate(s, observed.e, signal);
-          signal.throwIfAborted();
-        } catch (error) {
-          discardPlan();
-          throw error;
+        const overlapping = db.prepare(`SELECT 1 FROM project_deferrals WHERE scope = ? AND complete = 0
+          AND (owner = ? OR destination = ?)`).get(key, request.destination, request.destination);
+        if (overlapping) {
+          db.prepare('DELETE FROM project_change_plans WHERE id = ?').run(plan.planId);
+          refuse('An unresolved deferral holds this destination. Inspect the earlier move.');
         }
         saveRequest(request);
-        let submitted;
-        try {
-          submitted = deferMove.parse(await rpc('projectDeferMove', { ...plan.next.input, dryRun: false }, signal));
-        } catch {
-          bb.log.warn('GTD defer_move reply_unconfirmed');
-        }
-        if (submitted?.outcome === 'blocked') {
-          forgetRequest();
-          discardPlan();
-          refuse(submitted.action ?? 'Obsidian stopped before moving the project. Check the landing note and retry.');
-        }
       }
     }
 
@@ -668,7 +730,10 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     if (request.movePlan) {
       try {
         const operation = { planId: request.movePlan };
+        try { await advanceMove(operation.planId, signal, true); }
+        catch { bb.log.warn('GTD defer_move reply_unconfirmed'); }
         let checked = await check(operation, signal, true);
+        if (checked.moveOutcome === 'project_move_partial') checked = await check({ ...operation, finishLinks: true }, signal, true);
         moveOutcome = checked.moveOutcome ?? null;
         if (checked.state === 'move_not_verified' && checked.moveOutcome === 'not_moved') {
           forgetRequest();
@@ -688,8 +753,8 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       const { e } = await inventory(s, signal);
       if (!e.owners.has(request.destination) || !inDeferred(request.destination, e))
         return partial('destination_unconfirmed', 'Confirm the exact landing note in Deferred, then retry the same deferral.');
-      const observed = await noteEvidence(request.destination, request.dateAttempt);
-      await revalidate(s, e, signal);
+      const observed = await dateEvidence(request.destination, request.dateAttempt);
+      await unchanged(s.config);
       if (request.date !== deferUntil) {
         if (request.dateAttempt && (!observed.receipt || observed.receipt === 'uncertain'))
           return partial('date_unconfirmed', 'Inspect the earlier date save receipt before changing the date again.');
@@ -700,22 +765,20 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       if (!observed.matches) {
         if (request.dateAttempt && (!observed.receipt || observed.receipt === 'uncertain'))
           return partial('date_unconfirmed', 'Inspect the date save receipt and the current defer-until field before updating it.');
-        if (observed.fieldHash !== request.fieldHash || observed.receipt === 'saved_locally_pending_sync')
+        if (observed.fieldHash !== request.fieldHash || observed.receipt === savedLocally)
           return partial('date_changed', 'The defer-until field changed during this request. Review the current value in Obsidian. Use the current Deferred ID with a newly chosen date, or set the original requested date in Obsidian and repeat this request to verify it.');
         signal.throwIfAborted();
         request.dateAttempt = operationId();
         saveRequest(request);
-        const saved = deferSave.parse(await rpc('projectDeferSave', {
-          vaultId: s.source, path: request.destination, deferUntil, expectedHash: observed.hash,
-          operationId: request.dateAttempt,
-        }, signal));
+        const saved = await writeProperties(s.source, request.destination, observed.hash,
+          { set: { 'defer-until': deferUntil } }, signal, request.dateAttempt);
         if (saved === 'not_saved') {
           const failed = partial('date_not_saved', 'Obsidian declined the versioned date save. Review the current note, then retry this same deferral.');
           delete request.dateAttempt;
           saveRequest(request);
           return failed;
         }
-        if (!(await noteEvidence(request.destination, request.dateAttempt)).matches)
+        if (!(await dateEvidence(request.destination, request.dateAttempt)).matches)
           return partial('date_unconfirmed', 'Inspect the date save receipt and the current defer-until field before updating it.');
         await unchanged(s.config);
       }
@@ -755,9 +818,11 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       .run(key, request.owner, request.planId, JSON.stringify(request));
     const finish = (request: Reactivation) =>
       db.prepare('DELETE FROM project_reactivations WHERE scope = ? AND owner = ?').run(key, request.owner);
-    const evidence = async (path: string, attempt?: string) => reactivationEvidence.parse(await rpc('projectReactivationEvidence', {
-      vaultId: s.source, path, operationId: attempt,
-    }, signal));
+    const evidence = async (path: string, attempt?: string) => {
+      const observed = await observeNote(s.source, path, signal, attempt);
+      return { ...observed, present: Object.hasOwn(observed.properties, 'defer-until'),
+        date: deferInput.shape.deferUntil.safeParse(observed.properties['defer-until']).data ?? null };
+    };
     const beforeWrite = async () => {
       await unchanged(s.config);
       if (!await enabled()) refuse('Automatic reactivation is paused.');
@@ -767,7 +832,10 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       const operation = { planId: request.planId };
       let stage: ReactivationFailure = 'move_unconfirmed';
       try {
+        try { await advanceMove(operation.planId, signal, true, beforeWrite); }
+        catch { /* Inspect the original receipts before any other write. */ }
         let checked = await check(operation, signal, true);
+        if (checked.moveOutcome === 'project_move_partial') checked = await check({ ...operation, finishLinks: true }, signal, true, beforeWrite);
         if (checked.moveOutcome === 'not_moved') {
           finish(request);
           return fail('move_blocked', request.planId);
@@ -785,24 +853,22 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         const current = await evidence(request.destination, request.cleanupId);
         // A changed field belongs to the later edit. A confirmed receipt also
         // settles an earlier cleanup even if a date has since been added.
-        if (!current.present || current.date !== request.date || current.receipt === 'saved_locally_pending_sync')
+        if (!current.present || current.date !== request.date || current.receipt === savedLocally)
           return finish(request);
         if (request.cleanupId && current.receipt !== 'not_saved') return fail(stage, request.planId);
 
         await beforeWrite();
         request.cleanupId = operationId();
         save(request);
-        const outcome = deferSave.parse(await rpc('projectReactivationCleanup', {
-          vaultId: s.source, path: request.destination, deferUntil: request.date,
-          expectedHash: current.hash, operationId: request.cleanupId,
-        }, signal));
+        const outcome = await writeProperties(s.source, request.destination, current.hash,
+          { remove: ['defer-until'] }, signal, request.cleanupId);
         if (outcome === 'not_saved') {
           delete request.cleanupId;
           save(request);
           return fail(stage, request.planId);
         }
         const after = await evidence(request.destination, request.cleanupId);
-        if (after.present && after.date === request.date && after.receipt !== 'saved_locally_pending_sync')
+        if (after.present && after.date === request.date && after.receipt !== savedLocally)
           return fail(stage, request.planId);
         finish(request);
       } catch {
@@ -830,31 +896,13 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
           const deferral = db.prepare('SELECT 1 FROM project_deferrals WHERE scope = ? AND complete = 0 AND (owner = ? OR destination = ?)').get(key, id, id);
           if (deferral) { fail('candidate_blocked'); continue; }
           const plan = await prepare({ source: s.source, id, expectedHash: hash, status: 'active' }, signal, s);
-          if (plan.next?.tool !== 'obsidian_move_note' || !plan.planId) { fail('candidate_blocked'); continue; }
-          const move = { ...plan.next.input, deferUntil: date };
-          const discard = () => db.prepare('DELETE FROM project_change_plans WHERE id = ?').run(plan.planId);
-          const preview = deferMove.parse(await rpc('projectReactivationMove', move, signal));
-          if (preview.outcome !== 'link_plan_ready') { discard(); fail('move_blocked'); continue; }
+          if (!plan.destination || !plan.planId) { fail('candidate_blocked'); continue; }
           await beforeWrite();
           const verified = await evidence(id);
-          if (verified.date !== date || verified.hash !== hash || date > pacificCalendar.format(reactivationClock())) { discard(); continue; }
-          await beforeWrite();
-          request = { owner: id, destination: move.destination, date, planId: plan.planId };
+          if (verified.date !== date || verified.hash !== hash || date > pacificCalendar.format(reactivationClock())) continue;
+          request = { owner: id, destination: plan.destination, date, planId: plan.planId };
           save(request);
-          let outcome;
-          try {
-            outcome = deferMove.parse(await rpc('projectReactivationMove', { ...move, dryRun: false }, signal)).outcome;
-          } catch {
-            // The consumer may have lost the reply after the producer moved.
-            // Recovery proceeds only from the original operation's evidence.
-          }
-          if (outcome === 'blocked') {
-            finish(request);
-            discard();
-            fail('move_blocked');
-          } else {
-            await recover(request);
-          }
+          await recover(request);
         } catch {
           fail(request ? 'move_unconfirmed' : 'candidate_blocked', request?.planId);
         }
@@ -869,5 +917,5 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     for (const [stage, { count, operations }] of failures)
       bb.log.warn(`GTD reactivation ${stage} count=${count}${operations.length ? ` move_operations=${operations.join(',')}` : ''}`);
   }
-  return { browse, prepare, check, defer, applyFromPanel, reactivate };
+  return { browse, prepare, check, apply, change, defer, applyFromPanel, reactivate };
 }

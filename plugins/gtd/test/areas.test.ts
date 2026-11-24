@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { Areas } from '../core/areas.ts';
-import { areaFromNote, ObsidianBackend } from '../adapters/obsidian.ts';
+import { areaFromNote } from '../adapters/obsidian.ts';
 import type { AreaSnapshot } from '../core/model.ts';
 import { plugin } from '../server.ts';
 const signal = () => new AbortController().signal;
 const data = (): AreaSnapshot => ({ source: { backend: 'fake', id: 'one', name: 'Example', scope: 'Areas', observedAt: 'now', lastSuccessfulSync: null, sync: null }, areas: [{ id: 'Areas/Work.md', title: 'Work' }, { id: 'Areas/Family.md', title: 'Family' }], complete: true, warnings: [] });
 test('top-level Area entries ignore supporting metadata and retain root title and exact scope', () => {
-  assert.deepEqual(areaFromNote('Areas', 'Areas/Work/Clients.md', {}), { id: 'Areas/Work/', title: 'Work' });
+  assert.deepEqual(areaFromNote('Areas', 'Areas/Work/Clients.md', {}), null);
   assert.deepEqual(areaFromNote('Areas', 'Areas/Work.md', { type: 'reference', title: 'Profession' }), { id: 'Areas/Work.md', title: 'Profession' });
   for (const path of ['Areas-copy/Work.md', 'Areas/../Work.md', 'Areas/Work.txt', 'Areas\\Work.md']) assert.equal(areaFromNote('Areas', path, {}), 'invalid');
   assert.equal(areaFromNote('Areas', 'Areas/Work.md', { title: 'bad\nheading' }), 'invalid');
@@ -55,15 +55,4 @@ test('CLI, RPC and tool share area contracts and redact failing source diagnosti
     const logs = JSON.stringify(host.harness.inspection.logEntries); assert.match(logs, /GTD areas source_unavailable/); assert.match(logs, /GTD areas partial/); assert.doesNotMatch(logs + JSON.stringify(tool), /sentinel|example.test/);
     await assert.rejects(host.harness.behavior.setSettings({ areasFolder: '../Areas' }));
   } finally { await host.harness.lifecycle.dispose(); }
-});
-test('Obsidian area scan drains empty pages without bodies and retains local sync evidence', async () => {
-  let pages = 0;
-  const token = '12345678-1234-4123-8123-123456789abc';
-  const host = createFakePluginHost({ pluginId: 'gtd', sdk: { plugins: { callRpc: async (args: any) => {
-    if (args.method === 'status') return { propertiesAccessVersion: 1, vaults: [{ vaultId: 'one', name: 'Example', source: { local: { available: true }, cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null } }] };
-    assert.equal(args.method, 'listProperties'); assert.equal(args.input.folder, 'Areas');
-    return { notes: pages++ ? [{ path: 'Areas/Work.md', properties: {} }] : [], nextCursor: pages === 1 ? token : null, incomplete: false, warnings: [], observedAt: 'now' };
-  } } } });
-  try { const result = await new ObsidianBackend(host.bb.sdk, { vaultId: 'one', folder: 'Areas' }).readAreas(signal()); assert.equal(result.areas.length, 1); assert.equal(result.complete, false); assert.deepEqual(result.warnings, ['directory_enumeration_unavailable']); assert.equal(result.source.sync?.phase, 'paused'); assert.equal(pages, 2); }
-  finally { await host.harness.lifecycle.dispose(); }
 });

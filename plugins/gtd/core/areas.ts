@@ -51,6 +51,7 @@ export class Areas {
       const { snapshot } = listing;
       const page: AreaPage = {
         source: snapshot.source, areas: [], coverage: snapshot.complete ? 'complete' : 'partial', warnings: snapshot.warnings,
+        ...(snapshot.malformedFrontmatter ? { malformedFrontmatter: snapshot.malformedFrontmatter } : {}),
         totalAreas: snapshot.complete ? snapshot.areas.length : null, nextCursor: null,
         consistency: 'Per-area local observations, not an atomic source snapshot. Sync timestamps do not verify cloud or device delivery.',
       };

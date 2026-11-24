@@ -17,11 +17,12 @@ export const sourceSchema = z.object({
   observedAt: z.string(), lastSuccessfulSync: z.string().nullable(),
   sync: z.object({ connected: z.boolean(), enabled: z.boolean(), phase: z.string().max(64), failure: z.string().max(128).nullable() }).strict().nullable(),
 }).strict();
-export const warnings = ['invalid_project', 'invalid_area', 'source_partial', 'scan_limit', 'duplicate_id', 'directory_enumeration_unavailable'] as const;
+export const warnings = ['invalid_project', 'invalid_area', 'source_partial', 'scan_limit', 'duplicate_id'] as const;
 export type Warning = typeof warnings[number];
 export const snapshotSchema = z.object({
   source: sourceSchema, projects: z.array(projectSchema).max(5000),
   complete: z.boolean(), warnings: z.array(z.enum(warnings)).max(4),
+  malformedFrontmatter: z.array(z.string().min(1).max(1024)).max(12).optional(),
 }).strict();
 export type ProjectSnapshot = z.infer<typeof snapshotSchema>;
 
@@ -37,7 +38,7 @@ export type ErrorCode = typeof errorCodes[number];
 const hints: Record<ErrorCode, string> = {
   unconfigured: 'Choose your vault by name and set the inventory folders in GTD settings. Reload GTD after connecting another Obsidian source.',
   source_unavailable: 'Check the selected source in Obsidian settings. Keep its configuration; no project data was changed.',
-  incompatible: 'Update Obsidian to a version supporting the listProperties consumer RPC, then try again.',
+  incompatible: 'Update Obsidian to a version supporting Desktop vault inventory, then try again.',
   invalid_configuration: 'Choose an offered vault and use inventory folders relative to it, without parent-directory segments, in GTD settings.',
   invalid_source: 'The backend returned invalid inventory metadata. Check its integration and GTD plugin logs.',
   cancelled: 'The listing was cancelled. Start a new listing when ready.',
@@ -57,6 +58,7 @@ export const countsSchema = z.object({ active: z.number().int().nonnegative(), d
 export const pageSchema = z.object({
   source: sourceSchema, projects: z.array(projectSchema).max(200),
   coverage: z.enum(['complete', 'partial']), warnings: z.array(z.enum(warnings)).max(4),
+  malformedFrontmatter: z.array(z.string().min(1).max(1024)).max(12).optional(),
   totalProjects: z.number().int().nonnegative().nullable(),
   matchedProjects: z.number().int().nonnegative().nullable(), counts: countsSchema.nullable(),
   nextCursor: z.string().uuid().nullable(),

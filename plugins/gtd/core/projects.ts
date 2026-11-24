@@ -59,6 +59,7 @@ export class Projects {
       for (const project of snapshot.projects) counts[project.status]++;
       const page: ProjectPage = {
         source: snapshot.source, projects: [], coverage: snapshot.complete ? 'complete' : 'partial', warnings: snapshot.warnings,
+        ...(snapshot.malformedFrontmatter ? { malformedFrontmatter: snapshot.malformedFrontmatter } : {}),
         totalProjects: snapshot.complete ? snapshot.projects.length : null,
         matchedProjects: snapshot.complete ? listing.rows.length : null,
         counts: snapshot.complete ? counts : null, nextCursor: null,

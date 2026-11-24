@@ -81,13 +81,10 @@ export async function migrationPreview(bb: BbPluginApi, config: { vaultId: strin
   const [vaultId, ...segments] = config.vaultId.split('/'), root = segments.join('/');
   const scope = JSON.stringify([config.vaultId,config.projectsFolder,config.areasFolder]);
   const evidence: PreviewEvidence = { owners: new Map(), entries: new Set() };
-  const adapter = (folder: string) => new ObsidianBackend(bb.sdk, { vaultId, root, folder, areasFolder: config.areasFolder }, undefined, evidence);
-  const project = await adapter(config.projectsFolder).readProjects(signal);
-  const area = await adapter(config.areasFolder).readAreas(signal);
+  const adapter = new ObsidianBackend(bb.sdk, { vaultId, root, folder: config.projectsFolder, areasFolder: config.areasFolder }, evidence);
+  const { projects: project, areas: area } = await adapter.readBoth(signal);
   const threads = await readThreadReferences(bb.sdk, vaultId, signal);
-  // Revalidate the same authority/publication after the independent BB metadata read.
-  if (!evidence.proof) throw new Error('Missing preview authority');
-  await adapter(config.areasFolder).readAreas(signal);
+  await adapter.checkAccess(signal);
   const folder = (name: string) => [root,name].filter(Boolean).join('/');
   const db = bb.storage.database();
   // Reservations are private preview proposals, never proof of file identity for apply.

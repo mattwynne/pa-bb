@@ -1,247 +1,236 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { basename, dirname } from 'node:path/posix';
+import { createHash, randomUUID } from 'node:crypto';
 import { createFakePluginHost, makeThreadResponse } from '@get-bb/plugin-sdk/testing';
-import { plugin as gtd } from '../server.ts';
-import { plugin as obsidian } from '../../obsidian/server.ts';
-import { CatalogFake, FilesFake, MemoryState, hash } from '../../obsidian/test/fakes.ts';
+import { plugin } from '../server.ts';
 
-const id = 'Projects/Active/Example.md',
-  moved = 'Projects/Done/Example.md',
-  target = 'Areas/Work/Active Income/Cucumber.md';
-class Fixture extends FilesFake {
-  dirs = [
-    'Projects',
-    'Projects/Active',
-    'Projects/Done',
-    'Areas',
-    'Areas/Work',
-    'Areas/Work/Active Income',
-    'Areas/Family',
-  ];
-  moves = new Map<string, 'moved_locally_pending_sync'>();
-  clipped = false;
-  async children(v: string, r: number, f: string) {
-    const paths = (await this.list(v, r)).paths;
-    return {
-      entries: [
-        ...this.dirs
-          .filter((p) => dirname(p) === f)
-          .map((p) => ({ name: basename(p), kind: 'directory' as const })),
-        ...paths.filter((p) => dirname(p) === f).map((p) => ({ name: basename(p), kind: 'markdown' as const })),
-      ],
-      incomplete: this.clipped,
-    };
-  }
-  async listProjectMove(i: { mirrorId: string; revision: number }) {
-    return { ...await this.list(i.mirrorId, i.revision), attachments: [] };
-  }
-  async move(i: {
-    mirrorId: string;
-    revision: number;
-    path: string;
-    destination: string;
-    expectedHash: string;
-    operationId: string;
-  }) {
-    const note = await this.read(i.mirrorId, i.revision, i.path);
-    assert.equal(note.hash, i.expectedHash);
-    const key = i.mirrorId + '/' + i.destination;
-    assert.ok(!this.notes.has(key));
-    this.notes.delete(i.mirrorId + '/' + i.path);
-    this.notes.set(key, note.text);
-    this.moves.set(i.operationId, 'moved_locally_pending_sync');
-    return { outcome: 'moved_locally_pending_sync' as const };
-  }
-  async moveReceipts(i: { operationId: string }) {
-    const outcome = this.moves.get(i.operationId);
-    return outcome ? [{ outcome }] : [];
-  }
-}
-async function setup() {
-  const files = new Fixture();
-  files.notes.clear();
-  for (const [path, text] of [
-    [id, '---\ntitle: Example\n---\nBody\n'],
-    [target, 'Target'],
-    ['Areas/Family/Cucumber.md', 'Other'],
-    ['Context.md', '[[Projects/Active/Example]]'],
-  ])
-    files.notes.set('one/' + path, text);
-  const producer = createFakePluginHost({ pluginId: 'obsidian' });
-  const repo = new MemoryState();
-  repo.value = { revision: 1, vaultIds: ['one'] };
-  await files.configure(repo.value);
-  await obsidian(producer.bb as unknown as Parameters<typeof obsidian>[0], {
-    files,
-    catalog: new CatalogFake(),
-    repository: repo,
-  });
-  const meta = { project: { source: 'one', id }, other: 'unchanged' };
-  let lost = false,
-    writes = 0;
-  let archived = false, archiveFails = false;
-  const consumer = createFakePluginHost({
-    pluginId: 'gtd',
-    agentSkillIds: ['gtd-projects'],
-    settings: { vaultId: 'one' },
+const source = 'one', owner = 'Projects/Example.md', done = 'Projects/Done/Example.md';
+const area = 'Areas/Work/Example.md';
+const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+type Receipt = { vaultId: string; path: string; destination: string; operationId: string; outcome: string; identity?: object; legacy?: unknown };
+
+async function setup(paired = false) {
+  const docs = new Map<string, Record<string, unknown>>([[owner, { title: 'Example', area: '../Areas/Work/Example.md' }], [area, {}]]);
+  const folders = new Set(['Projects', 'Projects/Active', 'Projects/Done', 'Projects/Deferred', 'Areas', 'Areas/Work']);
+  if (paired) folders.add(owner.slice(0, -3));
+  const meta = { project: { source, id: owner }, other: 'unchanged' };
+  const history: Array<{ method: string; input: any }> = [];
+  const moves = new Map<string, Receipt>();
+  const saves = new Map<string, string>();
+  let lostMove: string | undefined, loseThreads = false, archiveFails = false, hideReceipt = false;
+  let writes = 0, archived = false;
+  const fixture = createFakePluginHost({
+    pluginId: 'gtd', agentSkillIds: ['gtd-projects'], settings: { vaultId: source },
     sdk: {
-      plugins: {
-        callRpc: async (a: any) =>
-          producer.harness.behavior.callRpc(a.method, a.input, {
-            experimental_caller: { kind: 'plugin', pluginId: 'gtd' },
-          }),
-      },
+      plugins: { callRpc: async ({ method, input }: any) => {
+        history.push({ method, input });
+        if (method === 'vaultLocations') return { vaults: [{ id: source, root: '', name: 'Fixture' }], incomplete: false };
+        if (method === 'status') return { vaults: [{ vaultId: source, name: 'Fixture', source: {
+          local: { available: true }, cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null,
+        } }] };
+        if (method === 'vaultInventory') {
+          const under = (path: string) => !input.folders?.length ||
+            input.folders.some((dir: string) => path === dir || path.startsWith(dir + '/'));
+          return { notes: [...docs].filter(([path]) => under(path)).map(([path, properties]) => ({
+            path, properties: Object.fromEntries(Object.entries(properties).filter(([key]) => input.fields.includes(key))), malformed: false,
+          })), folders: [...folders].filter(under), incomplete: false };
+        }
+        if (method === 'noteEvidence') {
+          const note = docs.get(input.path);
+          assert.ok(note, 'Note exists');
+          return { hash: digest(note), properties: structuredClone(note), receipt: saves.get(input.operationId) ?? null };
+        }
+        if (method === 'writeProperties') {
+          const note = docs.get(input.path);
+          assert.ok(note, 'Note exists');
+          const operationId = input.operationId ?? randomUUID();
+          assert.ok(!saves.has(operationId));
+          const outcome = input.expectedHash === digest(note) ? 'saved_locally_pending_sync' : 'not_saved';
+          if (outcome === 'saved_locally_pending_sync') {
+            Object.assign(note, input.set);
+            for (const key of input.remove ?? []) delete note[key];
+          }
+          saves.set(operationId, outcome);
+          return { operationId, outcome };
+        }
+        if (method === 'movePath') {
+          const { vaultId, path, destination, operationId, kind, expectedHash } = input;
+          assert.ok(!moves.has(operationId));
+          const entry = docs.get(path);
+          const receipt = { vaultId, path, destination, operationId, outcome: 'not_moved', identity: entry };
+          if (!folders.has(destination) && !docs.has(destination)) {
+            if (kind === 'note' && entry && digest(entry) === expectedHash) {
+              docs.delete(path);
+              docs.set(destination, entry);
+              receipt.outcome = 'moved_locally_pending_sync';
+            } else if (kind === 'folder' && folders.delete(path)) {
+              folders.add(destination);
+              receipt.outcome = 'moved_locally_pending_sync';
+            }
+          }
+          moves.set(operationId, receipt);
+          if (lostMove === kind) throw new Error('PRIVATE_LOST_REPLY');
+          return receipt;
+        }
+        if (method === 'moveReceipt') {
+          const receipt = moves.get(input.operationId);
+          if (receipt && hideReceipt) throw new Error('PRIVATE_RECEIPT_UNAVAILABLE');
+          if (!receipt || !receipt.identity || receipt.outcome !== 'moved_locally_pending_sync') return receipt ?? null;
+          return { ...receipt, outcome: docs.get(receipt.destination) === receipt.identity && !docs.has(receipt.path)
+            ? receipt.outcome : 'uncertain' };
+        }
+        assert.fail('Unexpected RPC ' + method);
+      } },
       threads: {
-        list: async (a) => (a?.offset || !!a?.archived !== archived ? [] : [
-          makeThreadResponse({ id: 'linked', visibility: 'hidden', archivedAt: archived ? 1 : null }),
-        ]),
-        archive: async ({ threadId }) => {
-          assert.equal(threadId, 'linked');
-          assert.equal(meta.project.id, moved);
+        list: async (a) => a?.offset || !!a?.archived !== archived ? [] : [makeThreadResponse({ id: 'linked', visibility: 'hidden', archivedAt: archived ? 1 : null })],
+        archive: async () => {
           if (archiveFails) throw new Error('PRIVATE_ARCHIVE_SENTINEL');
           archived = true;
-          return { ok: true, archivedThreadIds: [threadId] };
+          return { ok: true, archivedThreadIds: ['linked'] };
         },
-        experimental_listPluginMetadata: async () => ({
-          threads: [{ threadId: 'linked', metadata: structuredClone(meta) }],
-        }),
+        experimental_listPluginMetadata: async () => ({ threads: [{ threadId: 'linked', metadata: structuredClone(meta) }] }),
         getPluginMetadata: async () => structuredClone(meta),
         updatePluginMetadata: async (a: any) => {
           meta.project = a.set.project;
           writes++;
-          if (lost) throw new Error('PRIVATE_SENTINEL');
+          if (loseThreads) throw new Error('PRIVATE_THREAD_REPLY');
           return meta;
         },
       },
     },
   });
-  await gtd(consumer.bb);
-  const tool = async (name: string, args: any, expectError = false) => {
-    const harness = name.startsWith('gtd_') ? consumer.harness : producer.harness;
-    const res: any = await harness.behavior.callAgentTool(name, args, { threadId: 'operator' });
-    assert.equal(!!res.isError, expectError, JSON.stringify(res));
-    return expectError ? res : JSON.parse(res.content[0].text);
-  };
-  const read = async (path = id) => {
-    let n = await tool('obsidian_read_note', { vaultId: 'one', path });
-    while (n.nextCursor) n = await tool('obsidian_read_note', { vaultId: 'one', path, cursor: n.nextCursor });
-    assert.ok(n.editReady && n.complete);
-    return n.hash;
-  };
-  const prepare = async (options: object, error = false) =>
-    tool('gtd_prepare_project_change', { source: 'one', id, expectedHash: await read(), ...options }, error);
+  const handles = { host: fixture };
+  await plugin(fixture.bb);
   return {
-    files,
-    tool,
-    prepare,
-    read,
-    meta,
-    consumer,
-    archived: () => archived,
+    handles, docs, folders, meta, history, moves, writes: () => writes, archived: () => archived,
+    loseMove: (kind: string) => { lostMove = kind; },
+    hideReceipt: (value: boolean) => { hideReceipt = value; },
+    loseThreadWrite: () => { loseThreads = true; },
     failArchive: (value: boolean) => { archiveFails = value; },
-    writes: () => writes,
-    lose: () => {
-      lost = true;
-    },
-    close: async () => {
-      await consumer.harness.lifecycle.dispose();
-      await producer.harness.lifecycle.dispose();
+    reload: async () => { handles.host = await handles.host.harness.lifecycle.reload(plugin); },
+    async tool(name: string, input: object, expectedError = false) {
+      const result = await handles.host.harness.behavior.callAgentTool(name, input, { threadId: 'operator' });
+      assert.ok(typeof result !== 'string');
+      assert.equal(!!result.isError, expectedError, JSON.stringify(result));
+      if (expectedError) return result;
+      return JSON.parse((result.content[0] as { text: string }).text);
     },
   };
 }
-test('actual agent sequence browses nested targets, assigns the exact note, refuses stale CAS and verifies clear', async (t) => {
-  const f = await setup();
-  t.after(f.close);
-  const cli = await f.consumer.harness.behavior.runCli([
-    'area-targets',
-    '--folder',
-    'Areas/Work/Active Income',
-    '--json',
-  ]);
-  assert.deepEqual(JSON.parse(cli.stdout!).entries, [{ path: target, kind: 'note' }]);
-  const browse = await f.tool('gtd_browse_area_targets', { folder: 'Areas/Family' });
-  assert.equal(browse.entries[0].path, 'Areas/Family/Cucumber.md');
-  const plan = await f.prepare({ areaPath: target });
-  await f.tool(plan.next.tool, plan.next.input);
-  assert.equal((await f.tool('gtd_check_project_change', { planId: plan.planId })).state, 'verified');
-  assert.equal((await f.prepare({ areaPath: target })).state, 'already_complete');
-  const stale = await f.prepare({ areaPath: null });
-  f.files.notes.set('one/' + id, f.files.notes.get('one/' + id) + 'External edit\n');
-  await f.tool(stale.next.tool, stale.next.input, true);
-  assert.equal((await f.tool('gtd_check_project_change', { planId: stale.planId })).state, 'not_verified');
-  const clear = await f.prepare({ areaPath: null });
-  await f.tool(clear.next.tool, clear.next.input);
-  assert.equal((await f.tool('gtd_check_project_change', { planId: clear.planId })).state, 'verified');
-  assert.match(f.files.notes.get('one/' + id)!, /External edit/);
-  assert.equal((await f.prepare({ areaPath: null })).state, 'already_complete');
-  await f.prepare({ areaPath: 'Areas/No.md' }, true);
-  f.files.clipped = true;
-  await f.prepare({ areaPath: target }, true);
-});
-test('real move dry run, receipt and backlink repair, then lost metadata reply is reconciled without a repeated write', async (t) => {
-  const f = await setup();
-  t.after(f.close);
-  f.files.dirs.push(moved.slice(0, -3));
-  await f.prepare({ status: 'done' }, true);
-  f.files.dirs.pop();
-  const plan = await f.prepare({ status: 'done' });
-  const inspect = () => f.tool('gtd_check_project_change', { planId: plan.planId });
-  assert.equal((await inspect()).state, 'move_not_verified');
-  assert.equal((await f.tool(plan.next.tool, plan.next.input)).outcome, 'link_plan_ready');
-  const movedNote = await f.tool(plan.next.tool, { ...plan.next.input, dryRun: false });
-  const receipt = await f.tool('obsidian_move_status', { vaultId: 'one', operationId: movedNote.operationId });
-  assert.equal(receipt.outcome, 'moved_supported_links_updated');
-  assert.equal(receipt.destination, moved);
-  assert.match(f.files.notes.get('one/Context.md')!, /Projects\/Done\/Example/);
-  assert.equal((await inspect()).state, 'links_pending');
-  const args = { planId: plan.planId, finishLinks: true, receipt };
-  await f.tool('gtd_check_project_change', { ...args, receipt: { ...receipt, path: 'Projects/Wrong.md' } }, true);
-  await assert.rejects(
-    f.tool('gtd_check_project_change', { ...args, receipt: { ...receipt, outcome: 'moved_links_partial' } }),
-    /receipt.outcome/,
-  );
-  assert.equal(f.writes(), 0);
-  f.lose();
-  await f.tool('gtd_check_project_change', args, true);
-  assert.equal((await inspect()).state, 'links_verified');
-  assert.equal((await f.tool('gtd_check_project_change', args)).state, 'links_verified');
+
+test('a direct move preserves a relative Area, finishes a companion step, and updates the captured conversation', async t => {
+  const f = await setup(true);
+  t.after(() => f.handles.host.harness.lifecycle.dispose());
+  f.loseMove('note');
+  f.hideReceipt(true);
+  const entered = await f.tool('gtd_change_project', { source, id: owner, status: 'done' });
+  assert.equal(entered.state, 'unconfirmed');
+  assert.equal(f.meta.project.id, owner);
+  assert.equal(f.history.filter(call => call.method === 'movePath').length, 1);
+  await f.reload();
+  f.hideReceipt(false);
+  assert.equal((await f.tool('gtd_check_project_change', { planId: entered.planId })).state, 'move_not_verified');
+  assert.equal(f.history.filter(call => call.method === 'movePath').length, 1);
+  const result = await f.tool('gtd_check_project_change', { planId: entered.planId, finishLinks: true });
+  assert.equal(result.state, 'links_verified');
+  assert.equal(f.meta.project.id, done);
+  assert.equal(f.meta.other, 'unchanged');
+  assert.deepEqual(f.docs.get(done), { title: 'Example', area });
+  assert.equal(f.folders.has(done.slice(0, -3)), true);
+  const dispatches = f.history.filter(call => call.method === 'movePath');
+  assert.deepEqual(dispatches.map(call => call.input.kind), ['note', 'folder']);
+  assert.ok(dispatches.every(call => !Object.hasOwn(call.input, 'dryRun')));
+  assert.equal(f.history.filter(call => call.method === 'writeProperties').length, 1);
   assert.equal(f.writes(), 1);
-  assert.deepEqual(f.meta, { project: { source: 'one', id: moved }, other: 'unchanged' });
+  assert.doesNotMatch(JSON.stringify(f.handles.host.harness.inspection.logEntries), /PRIVATE_LOST_REPLY/);
+  await f.reload();
+  const checked = await f.tool('gtd_check_project_change', { planId: entered.planId, finishLinks: true });
+  assert.equal(checked.state, 'links_verified');
+  assert.equal(f.history.filter(call => call.method === 'movePath').length, 2);
+  assert.equal(f.writes(), 1);
 });
 
-test('panel assignment and completion use checked Obsidian writes and archive hidden linked threads', async t => {
+test('a replaced destination blocks conversation changes and never dispatches again', async t => {
   const f = await setup();
-  t.after(f.close);
-  const change = (projectId: string, change: object) => f.consumer.harness.behavior.callRpc('changeProject', {
-    source: 'one', id: projectId, change,
-  });
-  assert.equal((await change(id, { kind: 'area', areaPath: target }) as { state: string }).state, 'assigned');
-  assert.ok(f.files.notes.get('one/' + id)!.includes(`area: "${target}"`));
-  assert.equal((await change(id, { kind: 'done' }) as { state: string }).state, 'done');
-  assert.ok(f.files.notes.has('one/' + moved));
-  assert.equal(f.meta.project.id, moved);
-  assert.equal(f.archived(), true);
-  assert.equal((await change(moved, { kind: 'done' }) as { state: string }).state, 'done');
+  t.after(() => f.handles.host.harness.lifecycle.dispose());
+  f.loseThreadWrite();
+  const result = await f.tool('gtd_change_project', { source, id: owner, status: 'done' });
+  assert.equal(result.state, 'unconfirmed');
+  await f.reload();
+  f.docs.set(done, structuredClone(f.docs.get(done)!));
+  const checked = await f.tool('gtd_check_project_change', { planId: result.planId, finishLinks: true });
+  assert.equal(checked.state, 'move_not_verified');
+  assert.equal(checked.moveOutcome, 'uncertain');
+  assert.equal(f.history.filter(call => call.method === 'movePath').length, 1);
+  assert.equal(f.writes(), 1);
 });
 
-test('archive failure keeps the verified move and can be reconciled from Done', async t => {
+test('a historical paired plan is inspected only through its original move receipt', async t => {
+  const f = await setup(true);
+  t.after(() => f.handles.host.harness.lifecycle.dispose());
+  const planId = randomUUID();
+  f.docs.set(done, { title: 'Example', area });
+  f.docs.delete(owner);
+  f.folders.delete(owner.slice(0, -3)); f.folders.add(done.slice(0, -3));
+  f.moves.set(planId, { vaultId: source, path: owner, destination: done, operationId: planId,
+    outcome: 'moved_locally_pending_sync', legacy: { paired: true, outcome: 'moved_supported_links_updated' } });
+  const config = { vaultId: source, projectsFolder: 'Projects', areasFolder: 'Areas' };
+  f.handles.host.bb.storage.database().prepare('INSERT INTO project_change_plans (id,created,plan) VALUES (?,?,?)')
+    .run(planId, Date.now(), JSON.stringify({ config, source, id: owner, owner, destination: done,
+      expectedHash: digest({ title: 'Example' }), project: 'paired', status: 'done', originalArea: area, threads: ['linked'] }));
+  const result = await f.tool('gtd_check_project_change', { planId, finishLinks: true });
+  assert.equal(result.state, 'links_verified');
+  assert.equal(f.meta.project.id, done);
+  assert.equal(f.history.filter(call => call.method === 'movePath').length, 0);
+});
+
+test('Area browsing, preview, version-checked assignment, clear, and failed-write readback use generic calls', async t => {
   const f = await setup();
-  t.after(f.close);
-  const done = (projectId: string) => f.consumer.harness.behavior.callRpc('changeProject', {
-    source: 'one', id: projectId, change: { kind: 'done' },
+  t.after(() => f.handles.host.harness.lifecycle.dispose());
+  let result = await f.tool('gtd_browse_area_targets', { folder: 'Areas/Work' });
+  assert.deepEqual(result.entries, [{ path: area, kind: 'note' }]);
+  const prepared = await f.tool('gtd_prepare_project_change', {
+    source, id: owner, expectedHash: digest(f.docs.get(owner)), areaPath: null,
   });
+  assert.equal(prepared.state, 'prepared');
+  f.docs.get(owner)!.title = 'Concurrent';
+  result = await f.tool(prepared.next.tool, prepared.next.input);
+  assert.equal(result.state, 'not_verified');
+  assert.equal(f.docs.get(owner)!.area, '../Areas/Work/Example.md');
+  result = await f.tool('gtd_change_project', { source, id: owner, areaPath: area });
+  assert.equal(result.state, 'verified');
+  assert.equal(f.docs.get(owner)!.area, area);
+  result = await f.tool('gtd_change_project', { source, id: owner, areaPath: null });
+  assert.equal(result.state, 'verified');
+  assert.equal(Object.hasOwn(f.docs.get(owner)!, 'area'), false);
+});
+
+test('deferral moves directly, verifies the date, and uses the current ID for later changes', async t => {
+  const f = await setup();
+  t.after(() => f.handles.host.harness.lifecycle.dispose());
+  const result = await f.tool('gtd_defer_project', { id: owner, deferUntil: '2026-12-01' });
+  assert.equal(result.state, 'deferred');
+  assert.equal(result.dateVerified, true);
+  assert.equal(f.docs.get(result.id)!['defer-until'], '2026-12-01');
+  assert.equal(f.meta.project.id, result.id);
+  assert.equal((await f.tool('gtd_defer_project', { id: owner, deferUntil: '2026-12-01' })).state, 'deferred');
+  const changed = await f.tool('gtd_defer_project', { id: result.id, deferUntil: '2026-12-02' });
+  assert.equal(changed.dateVerified, true);
+  assert.equal(f.docs.get(result.id)!['defer-until'], '2026-12-02');
+  assert.equal(f.history.filter(call => call.method === 'movePath').length, 1);
+});
+
+test('panel completion archives the verified linked thread and can finish after an archive failure', async t => {
+  const f = await setup();
+  t.after(() => f.handles.host.harness.lifecycle.dispose());
   f.failArchive(true);
-  const incomplete = await done(id);
-  assert.match(JSON.stringify(incomplete), /"state":"partial"/);
-  assert.doesNotMatch(JSON.stringify(incomplete), /PRIVATE_ARCHIVE_SENTINEL/);
-  const logs = JSON.stringify(f.consumer.harness.inspection.logEntries);
-  assert.match(logs, /GTD project_panel archive_incomplete/);
-  assert.doesNotMatch(logs, /PRIVATE_ARCHIVE_SENTINEL/);
+  let result: any = await f.handles.host.harness.behavior.callRpc('changeProject', { source, id: owner, change: { kind: 'done' } });
+  assert.equal(result.state, 'partial');
+  assert.equal(f.meta.project.id, done);
   assert.equal(f.archived(), false);
-  assert.ok(f.files.notes.has('one/' + moved));
   f.failArchive(false);
-  assert.match(JSON.stringify(await done(moved)), /"state":"done"/);
-  assert.equal(f.files.moves.size, 1);
+  result = await f.handles.host.harness.behavior.callRpc('changeProject', { source, id: done, change: { kind: 'done' } });
+  assert.equal(result.state, 'done');
   assert.equal(f.archived(), true);
+  assert.doesNotMatch(JSON.stringify(f.handles.host.harness.inspection.logEntries), /PRIVATE_ARCHIVE_SENTINEL/);
 });

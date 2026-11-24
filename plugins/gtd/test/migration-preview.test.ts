@@ -11,15 +11,14 @@ test('canonical mapping preserves existing IDs, separates absent owners, collisi
   assert.ok(rows[2].decisions.includes('missing_landing_page')); assert.ok(rows[3].decisions.includes('invalid_existing_id')); assert.equal(rows[3].proposedId,null);
 });
 test('preview reserves repeatable proposals, reads active and archived links, and never dispatches note or metadata writes', async t => {
-  const authority = {revision:1,route:'index',epoch:uid};
   let revoke = false; let metadataReads = 0;
   const host = createFakePluginHost({pluginId:'gtd',sdk:{plugins:{callRpc:async (a:any)=>{
-    if(a.method==='status') return {inventoryEvidenceVersion:1,propertiesAccessVersion:1,vaults:[{vaultId:'one',name:'Fixture',source:{local:{available:true},cloudConnected:false,enabled:false,phase:'paused',lastSuccess:null,failure:null}}]};
-    const p={authority,publication:uid};
     if (revoke && metadataReads) throw new Error('PRIVATE_SENTINEL');
-    if(a.method==='inventoryChildren') return {...p,entries:[{name:a.input.folder==='Projects'?'Example.md':'Finance.md',kind:'markdown'}],incomplete:false};
-    if(a.method==='inventoryProperties') return {...p,status:'observed',unsupported:[],properties:a.input.path==='Projects/Example.md'?{area:'Areas/Finance.md'}:{id:'area_'+uid}};
-    if(a.method==='inventoryTarget') return {...p,status:'matched',matches:[{path:'Areas/Finance.md',kind:'markdown'}],basename:null,fragment:false,embed:false,incomplete:false};
+    if (a.method === 'status') return {vaults:[{vaultId:'one',name:'Fixture',source:{local:{available:true},cloudConnected:false,enabled:false,phase:'paused',lastSuccess:null,failure:null}}]};
+    if (a.method === 'vaultInventory') return {
+      notes:[{path:'Projects/Example.md',properties:{area:'Areas/Finance.md'},malformed:false},{path:'Areas/Finance.md',properties:{id:'area_'+uid},malformed:false}],
+      folders:['Projects','Areas'], incomplete:false,
+    };
     assert.fail(a.method);
   }},threads:{list: async (args:any)=>args.offset?[]:[{id:args.archived?'old':'new'}] as any, experimental_listPluginMetadata:async (args:any)=>{metadataReads++;return {threads:args.threadIds.map((threadId:string)=>({threadId,metadata:{project:{source:'one',id:'Projects/Example.md'}}}))};}}}});
   t.after(()=>host.harness.lifecycle.dispose());

@@ -15,7 +15,8 @@ function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }
         if (mode === 'error') throw new Error('synthetic');
         if (mode === 'loading') await new Promise(() => {});
         return {
-          projects: { source, projects: mode === 'empty' ? [] : [{ ...project, areaId: mode === 'nested' ? 'Areas/Learning/Committee/Meeting.md' : project.areaId }], complete: true, warnings: [] },
+          projects: { source, projects: mode === 'empty' ? [] : [{ ...project, areaId: mode === 'nested' ? 'Areas/Learning/Committee/Meeting.md' : project.areaId }], complete: mode !== 'malformed', warnings: mode === 'malformed' ? ['invalid_project'] : [],
+            ...(mode === 'malformed' ? { malformedFrontmatter: ['Projects/Broken.md'] } : {}) },
           areas: includeAreas ? { source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }, ...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` }))], complete: true, warnings: [] } : null,
         };
       },
@@ -246,5 +247,15 @@ test('manual Refresh starts one fresh combined request and hides previous rows u
     ['browseInventory', { includeAreas: true }],
     ['browseInventory', { includeAreas: true, fresh: true }],
   ]);
+  slot.lifecycle.unmount();
+});
+
+test('partial Projects identifies the note with invalid frontmatter', async () => {
+  const slot = setup('malformed');
+  await slot.findByText('Some projects or Areas could not be loaded. Inventory totals are unconfirmed.');
+  const summary = slot.getByText('Notes with invalid frontmatter');
+  fireEvent.click(summary);
+  expect(summary.parentElement?.hasAttribute('open')).toBe(true);
+  expect(slot.getByText('Projects/Broken.md')).toBeTruthy();
   slot.lifecycle.unmount();
 });

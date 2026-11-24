@@ -11,8 +11,8 @@ function refreshInventory(fresh = false) {
   window.dispatchEvent(new CustomEvent('gtd:inventory', { detail: fresh }));
 }
 
-type InventoryState = { projects: Project[]; areas: Area[]; source: string; revision: number; error: string; partial: boolean; directoryGap: boolean };
-const emptyInventory: InventoryState = { projects: [], areas: [], source: '', revision: -1, error: '', partial: false, directoryGap: false };
+type InventoryState = { projects: Project[]; areas: Area[]; source: string; revision: number; error: string; partial: boolean; malformedFrontmatter: string[] };
+const emptyInventory: InventoryState = { projects: [], areas: [], source: '', revision: -1, error: '', partial: false, malformedFrontmatter: [] };
 type InventoryRpc = ReturnType<typeof useRpc<typeof rpcContract>>;
 type InventoryResponse = Awaited<ReturnType<typeof browseInventory>>;
 type Pending<T> = { promise: Promise<T>; users: number };
@@ -57,7 +57,7 @@ function useInventory(includeAreas: boolean, enabled = true) {
         if (alive) set({
           projects: projects.projects, areas: includeAreas ? areas?.areas ?? [] : [], source: projects.source.id, revision, error: '',
           partial: !projects.complete || (includeAreas && !areas?.complete),
-          directoryGap: projects.warnings.includes('directory_enumeration_unavailable') || (includeAreas && !!areas?.warnings.includes('directory_enumeration_unavailable')),
+          malformedFrontmatter: [...new Set([...(projects.malformedFrontmatter ?? []), ...(includeAreas ? areas?.malformedFrontmatter ?? [] : [])])],
         });
       }, () => {
         if (alive) set({ ...emptyInventory, revision, error: 'GTD could not load. Check its vault settings, then refresh.' });
@@ -372,7 +372,11 @@ function GtdPanel() {
       {sidebar.status === 'error' && <p role="alert">BB threads could not load. Reload BB to try again.</p>}
       {(inventory.loading || linksLoading) && <p role="status">Loading GTD…</p>}
       {(inventory.error || linkError) && <p role="alert">{inventory.error || 'Thread associations could not load. Refresh before making changes.'}</p>}
-      {inventory.partial && <p role="status">Partial inventory. {inventory.directoryGap ? 'Obsidian cannot enumerate directories: empty or attachment-only project/Area folders may be omitted. Inventory totals are unconfirmed.' : 'Some projects or areas may be unavailable.'}</p>}
+      {inventory.partial && <p role="status">Some projects or Areas could not be loaded. Inventory totals are unconfirmed.</p>}
+      {inventory.malformedFrontmatter.length > 0 && <details className="gtd-frontmatter-errors">
+        <summary>Notes with invalid frontmatter</summary>
+        <ul>{inventory.malformedFrontmatter.map(path => <li key={path}>{path}</li>)}</ul>
+      </details>}
       {!inventory.error && !inventory.loading && !linksLoading && !linkError && <>
         {inventory.areas.map(area => {
           const droppedProject = !busy && eligibleIds.has(area.id) ? dragged : undefined;

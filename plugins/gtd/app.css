@@ -82,3 +82,5 @@
   .gtd-nav .gtd-row-action { height: 44px; width: 44px; }
   .gtd-title-editor input { min-height: 44px; font-size: 16px; }
 }
+
+.gtd-frontmatter-errors { overflow-wrap: anywhere; }

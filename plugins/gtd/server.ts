@@ -2,7 +2,7 @@ import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb
 import { z } from 'zod';
 import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions } from './adapters/obsidian.ts';
 import { Areas, compareAreas, normalizeAreaSnapshot } from './core/areas.ts';
-import { browseInput, changeNames, checkInput, deferInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
+import { applyInput, browseInput, changeInput, changeNames, checkInput, deferInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
 import { migrationPreview } from './core/migration-preview.ts';
 import { rpcContract, renameInput, reference, newThreadInput } from './contract.ts';
 import { threadActions } from './core/threads.ts';
@@ -24,7 +24,7 @@ export function formatProjects(page: ProjectPage): string {
   }
   if (!page.projects.length) out.push('No matching projects in this page. Check the configured folder if unexpected.');
   if (page.warnings.length) out.push('', `Warnings: ${page.warnings.join(', ')}`);
-  if (page.warnings.includes('directory_enumeration_unavailable')) out.push('Obsidian exposes Markdown paths, not directories. Empty projects and folders with only attachments are omitted; project totals are unconfirmed.');
+  for (const path of page.malformedFrontmatter ?? []) out.push(`Fix invalid frontmatter in ${JSON.stringify(path)}`);
   if (page.nextCursor) out.push('', `More projects: bb gtd projects --cursor ${page.nextCursor}`);
   out.push('', page.consistency);
   return out.join('\n') + '\n';
@@ -34,6 +34,7 @@ export function formatAreas(page: AreaPage): string {
   for (const area of page.areas) out.push(`- ${JSON.stringify(area.title)} [${JSON.stringify(area.id)}]`);
   if (!page.areas.length) out.push('No areas in this page. Check the configured folder if unexpected.');
   if (page.warnings.length) out.push(`Warnings: ${page.warnings.join(', ')}`);
+  for (const path of page.malformedFrontmatter ?? []) out.push(`Fix invalid frontmatter in ${JSON.stringify(path)}`);
   if (page.nextCursor) out.push(`More areas: bb gtd areas --cursor ${page.nextCursor}`);
   out.push(page.consistency);
   return out.join('\n') + '\n';
@@ -49,7 +50,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Top-level notes and supporting folders are projects; a matching note/folder pair is one project. Active, Deferred, Someday and Done containers add one grouping layer. Empty and attachment-only project folders are included when the source supports directory enumeration; otherwise coverage is explicitly partial.', default: 'Projects', experimental_schema: relativeFolder },
     automaticReactivation: { type: 'boolean', label: 'Automatically reactivate deferred projects', description: 'Move due projects and their supporting folders to Active, with their links and conversations. Checks daily after midnight Pacific and when GTD starts.', default: false },
   });
-  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'cleanup', code: string) => {
+  const diagnose = (stage: 'list' | 'areas' | 'sources', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial'].includes(code) ? code : 'unknown';
     bb.log.warn(`GTD ${stage} ${safe}`);
   };
@@ -68,8 +69,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
   };
   const makeBackend = (config: Config, folder = config.projectsFolder, areasFolder?: string) => {
     const [vaultId, ...path] = config.vaultId.split('/');
-    return new ObsidianBackend(bb.sdk, { vaultId, root: path.join('/'), folder, areasFolder },
-      () => diagnose('cleanup', 'source_unavailable'));
+    return new ObsidianBackend(bb.sdk, { vaultId, root: path.join('/'), folder, areasFolder });
   };
   const backendFor = (config: Config, key: string) => {
     if (current?.key !== key) {
@@ -161,13 +161,15 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     }});
   }
   changeTool(changeNames[0],browseInput,'Browse the selected Areas folder one level at a time. Pass an exact returned folder path to discover nested Area note targets. Distinguish identical names by full path. Read only.',changes.browse);
-  changeTool(changeNames[1],prepareInput,'Prepare one explicitly requested project change. Use the exact source and project ID and the complete owner note read hash. Set areaPath to an exact Area note path (null clears), OR status to the destination status folder. Returns a private plan and the checked Obsidian operation; does not write notes. Follow the GTD skill for apply and read-back.',changes.prepare);
-  changeTool(changeNames[2],checkInput,'Inspect an existing project change plan. Read-only by default. Checks Obsidian’s durable move receipt directly. After the physical move is verified, finishLinks:true updates only the captured conversations. The result reports the Obsidian link repair outcome separately. On uncertainty inspect, do not replay.',changes.check);
+  changeTool(changeNames[1],prepareInput,'Prepare one explicitly requested project change. Use the exact source and project ID and the complete owner note read hash. Set areaPath to an exact Area note path (null clears), OR status to the destination status folder. Returns a private plan. Use for a requested preview. For a direct requested change use gtd_change_project.',changes.prepare);
+  changeTool(changeNames[2],checkInput,'Inspect an existing project change plan. Read-only by default. Reads Obsidian’s durable move receipts. With finishLinks:true, resume a companion folder step that never started after the note move was confirmed, and reconcile captured conversations after both moves are confirmed. Inspect an uncertain receipt before starting another change.',changes.check);
   changeTool(changeNames[3], deferInput, 'Explicitly defer one project in the configured GTD source. Supply the exact landing-note project ID and a local calendar date (YYYY-MM-DD). Moves the project to Deferred, reconciles supported links and conversations, and verifies the top-level defer-until field. Use the current Deferred ID to change the date. After uncertainty, inspect the returned operation IDs and retry only the same request to reconcile it.', async (input, signal) => {
     current?.backend.invalidate();
     try { return await changes.defer(input, signal); }
     finally { current?.backend.invalidate(); }
   });
+  changeTool(changeNames[4], changeInput, 'Apply one requested project change directly. Use its exact source and ID. Set areaPath to an exact Area note path (null clears), or status to a status folder. Keep the returned plan ID for recovery.', changes.change);
+  changeTool(changeNames[5], applyInput, 'Apply a previously reviewed GTD project change once. Supply its exact plan ID. Inspect any unconfirmed result before taking further action.', changes.apply);
   const browseInventory = async (includeAreas: boolean, fresh: boolean, signal: AbortSignal) => {
     try {
       if (closing || signal.aborted) throw new GtdError('cancelled');

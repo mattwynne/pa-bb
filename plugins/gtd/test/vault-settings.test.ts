@@ -7,8 +7,8 @@ test('unoffered legacy selections fail closed during unavailable discovery rathe
   const host = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one', projectsFolder: 'Life/Projects' }, sdk: { plugins: { callRpc: async (args: any) => {
     if (args.method === 'vaultLocations') throw new Error('sentinel-private-catalog');
     if (args.method === 'status') return { propertiesAccessVersion: 1, vaults: [{ vaultId: 'one', name: 'Container', source: { local: { available: true }, cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null } }] };
-    assert.equal(args.input.folder, 'Life/Projects');
-    return { notes: [], nextCursor: null, incomplete: false, warnings: [], observedAt: 'now' };
+    assert.equal(args.input.root, 'Life');
+    return { notes: [], folders: ['Life', 'Life/Projects'], incomplete: false };
   } } } });
   await plugin(host.bb);
   try {
@@ -23,7 +23,7 @@ test('vault selector offers discovered roots, scopes folders relative to the vau
   const host = createFakePluginHost({ pluginId: 'gtd', sdk: { plugins: { callRpc: async (args: any) => {
     if (args.method === 'vaultLocations') return { vaults: present ? [{ id: 'one', root: 'Life', name: 'Life' }] : [], incomplete: false };
     if (args.method === 'status') return { propertiesAccessVersion: 1, vaults: [{ vaultId: 'one', name: 'Container', source: { local: { available: true }, cloudConnected: true, enabled: true, phase: 'ready', lastSuccess: null, failure: null } }] };
-    if (args.method === 'listProperties') { folders.push(args.input.folder); return { notes: [{ path: 'Life/Projects/Launch.md', properties: { status: 'active' } }], nextCursor: null, incomplete: false, warnings: [], observedAt: 'now' }; }
+    if (args.method === 'vaultInventory') { folders.push(args.input.root); return { notes: [{ path: 'Life/Projects/Launch.md', properties: { status: 'active' }, malformed: false }], folders: ['Life','Life/Projects','Life/Areas'], incomplete: false }; }
     throw new Error('Unexpected method');
   } } } });
   await plugin(host.bb);
@@ -32,7 +32,7 @@ test('vault selector offers discovered roots, scopes folders relative to the vau
     await host.harness.behavior.setSettings({ vaultId: 'one/Life', projectsFolder: 'Projects' });
     const result = JSON.parse((await host.harness.behavior.runCli(['projects', '--json'])).stdout!);
     assert.equal(result.source.name, 'Life'); assert.equal(result.source.scope, 'Projects');
-    assert.deepEqual(folders, ['Life/Projects']);
+    assert.deepEqual(folders, ['Life']);
     assert.equal(result.projects[0].id, 'Life/Projects/Launch.md');
     present = false;
     const missing = await host.harness.behavior.runCli(['projects', '--json']);

@@ -36,15 +36,15 @@ try {
   const state = statusRead.result ?? statusRead;
   assert.deepEqual(state.vaults, []);
   const refusedInput = join(root, 'title-probe.json');
-  await writeFile(refusedInput, JSON.stringify({ vaultId: 'one', path: 'Projects/Woodworking.md', title: 'Synthetic' }), { mode: 0o600 });
+  await writeFile(refusedInput, JSON.stringify({ vaultId: 'one', path: 'Projects/Woodworking.md', expectedHash: '0'.repeat(64), set: {title: 'Synthetic'} }), { mode: 0o600 });
   let refused = false;
-  try { await cli('plugin', 'rpc', 'call', 'obsidian', 'renameTitle', '--input-file', refusedInput, '--json'); } catch (error) { refused = /forbidden/.test(error.stdout ?? ''); }
-  assert.ok(refused, 'Updated title bridge must refuse ordinary clients before note access');
+  try { await cli('plugin', 'rpc', 'call', 'obsidian', 'writeProperties', '--input-file', refusedInput, '--json'); } catch (error) { refused = /forbidden/.test(error.stdout ?? ''); }
+  assert.ok(refused, 'Checked property bridge must refuse ordinary clients before note access');
   let unconfigured = false;
   try { await cli('gtd', 'projects', '--json'); } catch (error) { unconfigured = /unconfigured/.test(error.stdout ?? ''); }
   assert.ok(unconfigured, 'Harmless GTD read must fail honestly before vault selection');
   assert.match(await cli('plugin', 'logs', 'gtd', '-n', '5'), /GTD list unconfigured/);
-  console.log('Runtime checks: updated Obsidian status and title caller refusal, GTD unconfigured guard and bounded diagnostic verified.');
+  console.log('Runtime checks: Obsidian status and property-write caller refusal, GTD unconfigured guard and bounded diagnostic verified.');
   // The disposable host has no coding agent to complete first-run onboarding.
   await cli('settings', 'general', 'onboardingCompletedAt', new Date().toISOString());
   const setPreference = (key, value) => cli('settings', 'ui', 'set', key, value);
@@ -52,7 +52,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['normal', 'empty', 'error', 'loading', 'missing', 'directory-gap', 'folder-complete', 'area-boundary', 'relationships', 'project-actions'];
+  const modes = ['normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions'];
   const reviewedModes = process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
@@ -107,11 +107,6 @@ try {
         const projects = mode === 'empty' ? [] : [{ id: ref.id, title, status: projectStatus, areaId: assignedArea }];
         const areas = [{ id: 'Areas/Learning.md', title: area }];
         if (mode === 'project-actions') areas.push({ id: 'Areas/Home.md', title: 'Home' });
-        if (mode === 'directory-gap') projects.splice(0, 1, { id: 'Projects/Folder/', title: 'Folder project', status: 'active' });
-        if (mode === 'folder-complete') projects.push(
-          { id: 'Projects/Empty/', title: 'Empty project', status: 'active' },
-          { id: 'Projects/Attachments/', title: 'Attachment-only project', status: 'active' },
-          { id: 'Projects/Pilot/', title: 'Pilot', status: 'active' });
         if (mode === 'area-boundary') {
           projects[0].areaId = 'Areas/Learning/Example Committee/Meeting.md';
           areas.push(...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` })));
@@ -120,14 +115,14 @@ try {
           projects[0].areaId = 'Areas/Learning/Consulting.md';
           projects.push({ id: 'Projects/Unresolved.md', title: 'Unresolved project', status: 'active' });
         }
-        const complete = mode !== 'directory-gap';
+        const complete = mode !== 'malformed';
         result = {
-          projects: { source, projects, complete, warnings: complete ? [] : ['directory_enumeration_unavailable'] },
+          projects: { source, projects, complete, warnings: complete ? [] : ['invalid_project'],
+            ...(!complete ? { malformedFrontmatter: ['Projects/Broken.md'] } : {}) },
           areas: (input.input ?? input).includeAreas ? { source, areas, complete: true, warnings: [] } : null,
         };
       }
       if (method === 'renameProject' || method === 'renameArea') { renames.push(input); if (method === 'renameProject') {
-        if (mode === 'folder-complete') assert.equal(input.id, ref.id);
         title = input.title;
       } else area = input.title; result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' }; }
       if (method === 'newThread') { creations++; await new Promise(r => setTimeout(r, 250)); result = { threadId: 'fixture1' }; }
@@ -353,30 +348,12 @@ try {
       await status.selectOption('done');
       await nav.getByText('No matching projects').waitFor();
       assert.equal(await nav.getByRole('button', { name: /^Empty Area \d$/ }).count(), 8);
-    } else if (mode === 'folder-complete') {
-      await nav.getByRole('button', { name: 'Empty project', exact: true }).waitFor();
-      await nav.getByRole('button', { name: 'Attachment-only project', exact: true }).waitFor();
-      assert.equal(await nav.getByText(/Partial inventory/).count(), 0);
-      await nav.getByRole('button', { name: 'New thread for Empty project' }).focus();
-      const folderActions = nav.getByLabel('Actions for project Pilot');
-      await folderActions.focus();
+    } else if (mode === 'malformed') {
+      await nav.getByText('Some projects or Areas could not be loaded. Inventory totals are unconfirmed.').waitFor();
+      const details = nav.getByText('Notes with invalid frontmatter');
+      await details.focus();
       await page.keyboard.press('Enter');
-      assert.equal(await folderActions.locator('..').getByRole('button', { name: 'Rename' }).isDisabled(), true);
-      await page.keyboard.press('Escape');
-      const actions = nav.getByLabel('Actions for project Learn woodworking');
-      await actions.click();
-      const rename = actions.locator('..').getByRole('button', { name: 'Rename' });
-      await rename.focus();
-      await page.keyboard.press('Enter');
-      await nav.getByRole('textbox', { name: 'Title' }).fill('Updated note title');
-      await nav.getByRole('button', { name: 'Save', exact: true }).click();
-      await nav.getByRole('button', { name: 'Updated note title', exact: true }).waitFor();
-    } else if (mode === 'directory-gap') {
-      await nav.getByText(/Obsidian cannot enumerate directories/).waitFor();
-      await nav.getByLabel('Actions for project Folder project').click();
-      assert.equal(await nav.getByLabel('Actions for project Folder project').locator('..').getByRole('button', { name: 'Rename' }).isDisabled(), true);
-      await page.keyboard.press('Escape');
-      await nav.getByRole('button', { name: 'New thread for Folder project' }).focus();
+      await nav.getByText('Projects/Broken.md', { exact: true }).waitFor();
     } else if (mode === 'empty') await nav.getByText('No matching projects').waitFor();
     else if (mode === 'error') await nav.getByRole('alert').waitFor();
     else if (mode === 'loading') await nav.getByText('Loading GTD…').waitFor();
@@ -388,7 +365,7 @@ try {
   }
   await writeFile(join(artifacts, 'result.json'), JSON.stringify({
     rendered: true, reviewedModes, widths: [1280, 390],
-    runtimeReads: ['obsidian.status (empty vaults)', 'obsidian.renameTitle caller refusal before note access', 'gtd.projects (unconfigured)', 'bounded GTD read diagnostic'],
+    runtimeReads: ['obsidian.status (empty vaults)', 'obsidian.writeProperties caller refusal before note access', 'gtd.projects (unconfigured)', 'bounded GTD read diagnostic'],
     accountWrites: false, providerRuns: false,
   }));
   console.log(`Evidence: ${artifacts}`);
