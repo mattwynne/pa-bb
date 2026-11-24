@@ -204,6 +204,11 @@ class SmokeTest:
             if not plugin or plugin.get('source') != source or plugin.get('enabled') is not True:
                 raise SmokeError('Expected plugin missing, source mismatched, or disabled.')
         try:
+            self.docker('container', 'exec', self.container, 'python3', '-c',
+                        'import ctypes; ctypes.CDLL("libgtk-3.so.0")', timeout=remaining())
+        except SmokeError:
+            raise SmokeError('GTK 3 shared library could not be loaded.') from None
+        try:
             search = self.decode(self.docker('container', 'exec', self.container,
                 'node', '--import', '/opt/pa-bb/plugins/icloud/node_modules/tsx/dist/loader.mjs',
                 '--input-type=module', '-e', SEARCH_SCRIPT, timeout=remaining()).stdout)

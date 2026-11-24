@@ -29,7 +29,13 @@ export type SaveReceipt = { kind: 'save'; operationId: string; mirrorId: string;
 export type ResolutionReceipt = { kind: 'resolution'; operationId: string; mirrorId: string; path: string; at: string; outcome: 'saved_locally_pending_sync' | 'adopted_content' | 'adopted_absence'; hash: string | null };
 export type Receipt = SaveReceipt | ResolutionReceipt;
 export type Resolution = { mirrorId: string; revision: number; path: string; operationId: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: 'keep_local' | 'accept_incoming' | 'replace'; text?: string };
+export type DesktopLinkOperation = { kind: 'backlinks'; path: string } | { kind: 'rename'; path: string; destination: string };
+export type DesktopLinkResult = { kind: 'backlinks'; sources: string[] } | { kind: 'rename'; destination: string };
+export type DesktopLinkRoute = { route: 'existing' } | { route: 'desktop'; root: string; result: DesktopLinkResult; checkAccess?: () => Promise<void> };
+export const desktopRenameUncertain = (diagnosticReported = false) => new VaultError('uncertain',
+  'Inspect the source, destination and links before making another change. Do not repeat the Desktop rename. Desktop does not issue a BB move receipt.', diagnosticReported);
 export interface VaultFiles {
+  desktopLink?(target: { mirrorId: string; revision: number }, operation: DesktopLinkOperation, signal?: AbortSignal, assertSelected?: () => void): Promise<DesktopLinkRoute>;
   children?(vaultId: string, revision: number, folder: string, access?: LiveProjectAreaAccess): Promise<{ entries: Array<{ name: string; kind: 'directory' | 'markdown' }>; incomplete: boolean }>;
   listProjectMove?(input: import('./project-move.ts').MoveEndpoints & { mirrorId: string; revision: number; afterMove?: boolean; operationId?: string },
     indexed?: { lease: import('./vault-index.ts').MoveIndexLease; signal: AbortSignal }): Promise<{ paths: string[]; attachments: string[]; incomplete: boolean; warnings: string[]; folderEvidence?: string }>;
@@ -42,6 +48,7 @@ export interface VaultFiles {
   configure(configuration: Configuration, projectAreas?: ProjectAreaSelection, observedCatalog?: Catalog): Promise<void>;
   // Optional native read model; legacy logical vaults still use search().
   index?(vaultId: string, revision: number, signal?: AbortSignal): Promise<import('./vault-index.ts').IndexLease>;
+  publishedIndex?(vaultId: string, revision: number, signal?: AbortSignal): Promise<import('./vault-index.ts').IndexLease | undefined>;
   indexConfiguration?(configuration: Configuration): void;
   search(input: SearchRequest, signal?: AbortSignal): Promise<SearchBatch>;
   closeSearch(revision: number, cursor: string): Promise<void>;
@@ -68,4 +75,4 @@ export interface NoteParser {
   properties(text: string, input: { set: Record<string, unknown>; remove: string[] }): string;
 }
 export class VaultError extends Error { constructor(readonly category: string, readonly nextAction = 'Check source status and reread the note before preparing a change.', readonly diagnosticReported = false) { super(category); this.name = 'VaultError'; } }
-export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight' | 'move_verification' | 'filesystem' | 'index_refresh' | 'index_watch' | 'index_access' | 'defer_move' | 'defer_save' | 'reactivation_move' | 'reactivation_cleanup', category: string) => void;
+export type Diagnose = (stage: 'catalog' | 'rpc' | 'state' | 'parse' | 'tool' | 'move_preflight' | 'move_verification' | 'filesystem' | 'index_refresh' | 'index_watch' | 'index_access' | 'defer_move' | 'defer_save' | 'reactivation_move' | 'reactivation_cleanup' | 'desktop_setup' | 'desktop_start' | 'desktop_command' | 'desktop_cleanup', category: string) => void;

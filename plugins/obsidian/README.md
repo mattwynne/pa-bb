@@ -32,6 +32,14 @@ not a per-user security boundary.
 | `obsidian_edit_note` | Append, uniquely replace exact text, update one task marker, or explicitly resolve an inspected conflict. |
 | `obsidian_update_properties` | Explicit top-level property set/remove; add aliases without dropping existing aliases. |
 
+### Optional Obsidian Desktop backend
+
+On Linux, set `PA_OBSIDIAN_DESKTOP` and `PA_OBSIDIAN_CLI` to the absolute paths of the official binaries and `PA_OBSIDIAN_DESKTOP_VAULT_ID` to one exact connected, direct-access vault ID. The backend is off by default. Obsidian obtains the local directory from iCloud. Use this only for an operator-controlled vault with no symbolic links, hard links, or mounts from outside the vault. Desktop uses normal vendor sandbox settings and a fresh restricted-mode profile. Opening and closing the vault can write its `.obsidian` settings.
+
+For `obsidian_get_note_metadata` with `backlinks: true`, the Desktop route reports referring filenames in the bounded `backlinkSources` list. `backlinkSourcesTruncated` marks a clipped list. Desktop provides file-level evidence, so `backlinks` is empty on this route. The filename list stays available while the published index is unavailable, and outgoing resolution is then marked incomplete. Desktop can omit hidden notes, so `backlinksIncomplete` is always true on this route. The default BB route continues to return source-spanned backlink occurrences.
+
+For an ordinary same-folder rename, call `obsidian_move_note({vaultId, path, destination, mode: "desktop_rename"})` when latest-source behavior is intended. The vault must have automatic link updates enabled. Desktop applies its own link rules, including letting a previously broken link resolve to the new filename. This mode offers neither a BB preview nor a hash guard or receipt. On an uncertain result, inspect both exact paths and their links without repeating the command. BB's hash-guarded calls, folder moves, and GTD plans retain their existing behavior.
+
 ### Bounded path move and rename
 
 `obsidian_move_note({vaultId, path, destination, expectedHash})` requires a complete source read in the same thread. For example, move `Areas/Example.md` to `Reference/New example.md`. No type property is required. Destination folders must exist; occupied destinations, unresolved operations, conflict copies and blocked sources are refused.
@@ -40,7 +48,7 @@ Preflight requires complete vault listings before and after discovery. It reads 
 
 The planner can repair wikilinks with aliases, embeds, or fragments, as well as inline Markdown links and images with encoded paths and optional titles. It checks outgoing relative links from both source locations. A missing or ambiguous link can stay as written when the move leaves its evidence unchanged. The planner refuses incomplete listings, unsupported link markup, parser warnings, and YAML links that would need a rewrite. Code examples stay intact.
 
-Pass `dryRun: true` with the same read proof to check link discovery and limits without recording a move or writing notes. Link inspection and moves use the same vault-relative resolution model. Metadata shows the original link spelling and UTF-16 source span. Set `backlinks: true` to include bounded incoming links and their coverage. On direct local mirrors the note index supplies versioned links and candidate paths. Legacy readers use a bounded local note scan for backlinks.
+Pass `dryRun: true` with the same read proof to check link discovery and limits without recording a move or writing notes. BB link inspection and moves use the same vault-relative resolution model. Metadata shows the original link spelling and UTF-16 source span. By default the direct local mirror index supplies versioned links and candidate paths. Legacy readers use a bounded local note scan for backlinks.
 
 Preflight compares link targets before and after the move, including missing links that would gain a target and duplicate names that change precedence. External links, including absolute `file://` URLs, stay untouched. Ambiguous changes report competing paths and source locations. Plans recheck the current vault boundary, paths, and note versions. A ready preview reports planned repair paths and counts. Apply validates again at the write boundary. See [desktop link evidence](docs/desktop-link-evidence.md) for the opt-in Obsidian comparison.
 

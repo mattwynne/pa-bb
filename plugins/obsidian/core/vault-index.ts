@@ -108,6 +108,12 @@ export class VaultIndex {
       }, close,
     };
   }
+  acquirePublished(signal?: AbortSignal): Promise<IndexLease | undefined> {
+    if (this.controller.signal.aborted) return Promise.reject(abortError(this.controller.signal));
+    if (signal?.aborted) return Promise.reject(abortError(signal));
+    if (this.failure) return Promise.reject(this.failure);
+    return this.current ? this.acquire(signal) : Promise.resolve(undefined);
+  }
   async stop(reason = new VaultError('cancelled')) {
     this.controller.abort(reason); clearTimeout(this.debounce); this.paths.clear();
     for (const close of this.leases) close();

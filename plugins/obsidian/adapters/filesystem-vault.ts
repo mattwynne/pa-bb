@@ -8,6 +8,9 @@ import { FilesystemIndex, INDEX_LIMITS, type DirectoryGrantLookup } from './file
 import { MarkdownNotes } from './markdown-notes.ts';
 import { fileIdentity, LocalReceipts } from './local-receipts.ts';
 import type { FileIdentity, LocalReceipt } from './local-receipts.ts';
+import { validateDesktopOperation, type DesktopLinks } from './desktop-links.ts';
+import { desktopRenameUncertain, type DesktopLinkOperation } from '../core/ports.ts';
+import { untilAborted } from '../core/vault-index.ts';
 
 type Target = { mirrorId: string; revision: number; path: string };
 type DirectoryLookup = (mirrorId: string, revision: number, signal?: AbortSignal) => Promise<string>;
@@ -23,9 +26,59 @@ export class FilesystemVault {
   private tokens = new Map<string, Token>();
 
   readonly index: FilesystemIndex;
-  constructor(private directory: DirectoryLookup, grant: DirectoryGrantLookup, private ledger: LocalReceipts, private diagnose: Diagnose,
+  constructor(private directory: DirectoryLookup, private grant: DirectoryGrantLookup, private ledger: LocalReceipts, private diagnose: Diagnose,
     parser: NoteParser = new MarkdownNotes(), private revoked: (id: string) => void = () => {}) {
     this.index = new FilesystemIndex(this.files, grant, parser, diagnose, INDEX_LIMITS, undefined, revoked);
+  }
+
+  desktopLink(target: { mirrorId: string; revision: number }, operation: DesktopLinkOperation, desktop: DesktopLinks, signal: AbortSignal, assertSelected: () => void) {
+    const run = async () => {
+      try {
+        validateDesktopOperation(operation);
+        assertSelected();
+        const { mirrorId, revision } = target;
+        const destination = operation.kind === 'rename' ? operation.destination : undefined;
+        if (destination) this.ledger.assertNoOverlap(await this.ledger.load(), mirrorId, [operation.path, destination]);
+        const getGrant = (abort: AbortSignal) => untilAborted(this.grant(mirrorId, revision, abort), abort);
+        signal.throwIfAborted();
+        const grant = await getGrant(signal);
+        const selected = await this.files.desktopTarget(grant, operation.path, destination);
+        const relative = (path: string) => selected.prefix ? path.slice(selected.prefix.length + 1) : path;
+        const native = operation.kind === 'rename'
+          ? { ...operation, path: relative(operation.path), destination: relative(operation.destination) }
+          : { ...operation, path: relative(operation.path) };
+        const check = async (afterClose: boolean, abort: AbortSignal) => {
+          const currentGrant = await getGrant(abort);
+          if (grant.directory !== currentGrant.directory || grant.rootDev !== currentGrant.rootDev || grant.rootIno !== currentGrant.rootIno)
+            throw new VaultError('source_unavailable');
+          const current = await this.files.desktopTarget(currentGrant, operation.path, destination, afterClose);
+          if (current.directory !== selected.directory || current.dev !== selected.dev || current.ino !== selected.ino ||
+              current.settingsDev !== selected.settingsDev || current.settingsIno !== selected.settingsIno) throw new VaultError('source_unavailable');
+        };
+        const result = await desktop.run({ id: mirrorId, directory: selected.directory }, native,
+          (phase, abort) => check(phase === 'after_close', abort), signal, assertSelected);
+        const inMirror = (path: string) => selected.prefix ? selected.prefix + '/' + path : path;
+        try { assertSelected(); }
+        catch (error) { throw result.kind === 'rename' ? desktopRenameUncertain() : error; }
+        if (result.kind === 'rename') return { root: selected.prefix, result: { ...result, destination: inMirror(result.destination) } };
+        let bytes = 2; // JSON array delimiters.
+        const sources = result.sources.map((path, index) => {
+          const translated = validateNotePath(inMirror(path));
+          bytes += Buffer.byteLength(JSON.stringify(translated)) + (index ? 1 : 0);
+          if (bytes > 512 * 1024) throw new VaultError('output_limit');
+          return translated;
+        });
+        const checkAccess = async () => {
+          await check(true, signal);
+          assertSelected();
+        };
+        return { root: selected.prefix, result: { ...result, sources }, checkAccess };
+      } catch (error) {
+        if (signal.aborted && !(error instanceof VaultError && error.category === 'uncertain')) throw new VaultError('cancelled');
+        throw this.report(error);
+      }
+    };
+    return operation.kind === 'rename' ? this.ledger.run(run, signal) : run();
   }
 
   private async access<T>(mirrorId: string, revision: number, action: (root: string) => Promise<T>, signal?: AbortSignal) {

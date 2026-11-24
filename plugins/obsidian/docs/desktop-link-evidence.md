@@ -1,7 +1,8 @@
 # Obsidian desktop link evidence
 
-The BB Obsidian plugin operates on vault files. Its runtime, build and regular
-tests require no Obsidian desktop installation or extracted bundle.
+The BB Obsidian plugin operates on vault files. Desktop is optional for the
+runtime, and the build and regular tests run without it. The opt-in setup and
+current tool behavior are in the [plugin README](../README.md#optional-obsidian-desktop-backend).
 
 ## Reproduce the desktop check
 

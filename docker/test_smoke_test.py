@@ -36,6 +36,7 @@ class FakeDocker:
                          'browser-automation': 'builtin:browser-automation'}
         self.plugins = [{'id': key, 'source': value, 'enabled': True}
                         for key, value in self.expected.items()]
+        self.gtk_failure = False
         self.search = {'version': 1, 'available': True, 'matches': 2}
         self.search_failure = False
         self.email = {'version': 1, 'available': True, 'messages': 1, 'isolated': True, 'read': True}
@@ -80,7 +81,11 @@ class FakeDocker:
         elif operation == 'logs':
             output = self.next_value(self.logs)
         elif operation == 'exec':
-            if args[3] == 'python3':
+            if args[3:] == ['python3', '-c', 'import ctypes; ctypes.CDLL("libgtk-3.so.0")']:
+                if self.gtk_failure:
+                    return self.fail(True, command)
+            elif args[3] == 'python3':
+                assert args[-1] == smoke_test.INVENTORY_SCRIPT
                 output = json.dumps(self.expected)
             elif args[4] == smoke_test.CLI:
                 output = json.dumps({'plugins': self.plugins})
@@ -159,6 +164,11 @@ class SmokeTestTests(unittest.TestCase):
     def test_search_command_failure_is_safe_and_cleans_up(self):
         self.docker.search_failure = True
         self.assert_failure('Note-search capability')
+        self.assert_cleaned()
+
+    def test_gtk_loader_failure_is_safe_and_cleans_up(self):
+        self.docker.gtk_failure = True
+        self.assert_failure('GTK 3 shared library could not be loaded')
         self.assert_cleaned()
 
     def test_success_executes_plugin_search_with_its_typescript_loader(self):

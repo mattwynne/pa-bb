@@ -68,6 +68,10 @@ export class FilesystemIndex {
   async acquire(id: string, revision: number, signal?: AbortSignal) {
     return (await this.eligibleLane(id, revision, signal)).actor.acquire(signal);
   }
+  acquirePublished(id: string, revision: number, signal?: AbortSignal) {
+    if (this.stopped || revision !== this.revision || !this.eligible.has(id)) throw new VaultError('source_unavailable');
+    return this.lanes.get(id)?.actor.acquirePublished(signal);
+  }
 
   async acquireForMove(id: string, revision: number, signal: AbortSignal): Promise<MoveIndexLease> {
     const lane = await this.eligibleLane(id, revision, signal);

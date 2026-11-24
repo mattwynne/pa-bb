@@ -1,18 +1,18 @@
 # 030 — Use Obsidian Desktop for link operations
 
-BB keeps its existing link implementations. Obsidian Desktop can rewrite files outside the authorized vault through filesystem links. The proposals below were evaluated in disposable vaults.
+Use Desktop for backlinks and ordinary same-folder renames on a deliberately opted-in Linux vault. Choose a vault you control that contains ordinary files and folders. Desktop follows filesystem links, so the selected vault must have no symlinks, hard links to outside files, or mounts that expose outside directories.
 
 Desktop used about 330 MiB idle. Launch it for a link request and quit when the request ends, including on failure. A disposable-vault test confirmed the CLI reconnects after restart. [Official CLI](https://obsidian.md/help/cli)
 
-## Proposal 1. Backlinks
+## 1. Backlinks
 
 1. On an opted-in Linux host, use the operator-provided binaries, a private profile and CLI socket, and the normal desktop sandbox. Target the authorized direct vault by ID and the note by exact path. iCloud handles sync.
-2. Inside `obsidian_get_note_metadata(backlinks=true)`, call `backlinks` once. It returns referring files. Reuse BB’s parser on those files for the individual occurrences, source spans and hashes callers receive today. Recheck vault access before returning. [Metadata implementation](../../plugins/obsidian/core/service.ts)
+2. Inside `obsidian_get_note_metadata(backlinks=true)`, call `backlinks` once and report the referring files. Preserve the filenames if BB lacks fresh evidence to identify individual occurrences. Recheck vault access before returning. [Metadata implementation](../../plugins/obsidian/core/service.ts)
 3. Compare both results on a disposable vault with repeated links, duplicate names and a hidden source. Check incomplete coverage explicitly. Open and quit with community plugins disabled and inspect the vault diff, including `.obsidian/`, for incidental writes.
 
-**Use Desktop’s candidate list as the backlink source on opted-in direct vaults.** Accept Desktop’s hidden-note handling and writes under `.obsidian/`. Keep BB’s parser for source spans and hashes in the referring notes. A failed lookup must be distinguishable from an empty result. Legacy mirrors keep their existing route.
+**Use Desktop’s result as the backlink source on opted-in direct vaults.** Accept Desktop’s hidden-note handling and writes under `.obsidian/`. Keep BB’s file-level result useful even if occurrence spans are unavailable. A failed lookup must be distinguishable from an empty result. Legacy mirrors keep their existing route.
 
-## Proposal 2. One ordinary rename
+## 2. One ordinary rename
 
 Use Desktop’s same-folder Markdown rename with automatic link updates enabled. Check the resulting file and backlink in a disposable vault. The command acts on the latest source and can give an existing broken link a target. Keep the exact connected vault and path checks. Return an uncertain result if Desktop may have received the rename and its outcome is unknown. Do not repeat an uncertain rename. [Move contract](../../plugins/obsidian/README.md#bounded-path-move-and-rename) · [Known native differences](../../plugins/obsidian/docs/desktop-link-evidence.md)
 
@@ -30,7 +30,11 @@ Independent review found that Desktop indexed a directory symlink and a hard-lin
 
 In an isolated Linux fixture, `nosymfollow` blocked the symlink traversal. A writable bind mount still let a write through the hard link affect the outside file. A separate filesystem prevented creating that hard link. A vault on its own filesystem could use that property, but it would require moving existing iCloud mirrors to new storage and enforcing access throughout each Desktop session.
 
-Hidden-note handling, settings writes and Desktop’s direct rename behavior are acceptable within the authorized vault. Leave Desktop optional for disposable experiments until it can be confined without a separate copy-and-replay system.
+These tests established the condition for opt-in. The operator chooses a trusted vault without filesystem links or outside mounts. BB does not scan the whole vault to enforce that condition. Desktop’s hidden-note handling, settings writes, and direct rename behavior are accepted on that route.
+
+The final disposable check ran both registered BB tools against Obsidian 1.15.1. The file-level backlink lookup took 1.23 seconds. The rename took 1.14 seconds, moved the latest source and rewrote the backlink. Docker declares GTK 3 explicitly. Test the operator-provided bundle under the target machine’s security settings before enabling it. [Setup and tool behavior](../../plugins/obsidian/README.md#optional-obsidian-desktop-backend) · [Docker setup](../../docker/README.md#optional-obsidian-desktop-cli)
+
+After reloading BB with the build, the Projects benchmark returned identical records for 135 projects and 13 Areas. The rendered Active grouping matched, apart from the count of collapsed Unassigned threads. Desktop stayed stopped. Across three trials per build, the median first open went from 531 to 506 ms, reopen from 223 to 184 ms, and Refresh from 1,032 to 957 ms. Median host CPU was 42.5% before and 30.8% after, so the timings do not isolate the effect of the build.
 
 ## Initial evaluation results
 

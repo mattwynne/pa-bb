@@ -33,10 +33,22 @@ export class LocalReceipts {
   private queue: Promise<unknown> = Promise.resolve();
   constructor(private kv: BbPluginApi['storage']['kv']) {}
 
-  run<T>(action: () => Promise<T>): Promise<T> {
-    const task = this.queue.then(action);
+  run<T>(action: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) return Promise.reject(new VaultError('cancelled'));
+    let cancel = () => {};
+    const task = this.queue.then(() => {
+      signal?.removeEventListener('abort', cancel);
+      if (signal?.aborted) throw new VaultError('cancelled');
+      return action();
+    });
     this.queue = task.catch(() => {});
-    return task;
+    if (!signal) return task;
+    // Once admitted, the writer owns cancellation and its outcome.
+    return new Promise<T>((resolve, reject) => {
+      cancel = () => reject(new VaultError('cancelled'));
+      signal.addEventListener('abort', cancel, { once: true });
+      task.then(resolve, reject);
+    });
   }
 
   async load(): Promise<LocalReceipt[]> {

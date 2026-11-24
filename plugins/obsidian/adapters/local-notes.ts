@@ -234,6 +234,42 @@ export class LocalNotes {
       return root;
     } catch (error) { await root.close(); throw error; }
   }
+  // Find the outermost Obsidian vault on the requested note's ancestry, as
+  // vaultRoots() does. The authorized mirror is the upper boundary.
+  async desktopTarget(grant: DirectoryGrant, path: string, destination?: string, afterClose = false) {
+    const root = await this.openIndexRoot(grant);
+    try {
+      const parent = await this.parent(root, path);
+      try {
+        const ancestors = [root, ...parent.handles];
+        const parts = path.split('/');
+        for (const [depth, ancestor] of ancestors.entries()) {
+          const marker = join(fdPath(ancestor.fd), '.obsidian');
+          const settings = await lstat(marker, { bigint: true }).catch(error => {
+            if (!missing(error)) throw error;
+          });
+          if (!settings) continue;
+          if (!settings.isDirectory()) throw new VaultError('invalid_path');
+          if (!afterClose) {
+            const note = await lstat(parent.path).catch(error => {
+              if (!missing(error)) throw error;
+            });
+            if (!note?.isFile()) throw new VaultError('invalid_path');
+            if (destination) {
+              const occupied = await lstat(join(fdPath(parent.folder.fd), destination.split('/').at(-1)!)).catch(error => {
+                if (!missing(error)) throw error;
+              });
+              if (occupied) throw new VaultError('conflict', 'Choose an unoccupied destination.');
+            }
+          }
+          const info = await ancestor.stat({ bigint: true });
+          const prefix = parts.slice(0, depth).join('/');
+          return { prefix, directory: join(grant.directory, prefix), dev: info.dev, ino: info.ino, settingsIno: settings.ino, settingsDev: settings.dev };
+        }
+        throw new VaultError('unsupported', 'Choose a note inside an Obsidian vault with a local settings directory.');
+      } finally { await parent.close(); }
+    } finally { await root.close(); }
+  }
   async indexDirectoryStamp(root: FileHandle, path: string) {
     const parent = await this.parent(root, path ? path + '/.md' : '.md', true, true);
     try { return directoryStamp(await parent.folder.stat({ bigint: true })); }

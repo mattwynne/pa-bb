@@ -1,11 +1,11 @@
 import { posix } from 'node:path';
 import { checkIndexedInventoryRoot, indexedChildren, indexedInventoryRows, indexedProperties, projectFields, targetQuery, targetEvidence, targetCoverageIncomplete, within, InventoryBatchRefusal, INVENTORY_BATCH_MAX_BYTES } from './inventory-evidence.ts';
-import type { InventoryBatchRequest, InventoryBatchRow } from '../contract.ts';
+import type { InventoryBatchRequest, InventoryBatchRow, MoveNoteToolInput } from '../contract.ts';
 import type { IndexLease, IndexView, MoveIndexLease } from './vault-index.ts';
 import { linkReference, parseLinks, VaultLinks, vaultRootFor, type IndexedLink, type LinkResolution, type LinkSource } from './vault-links.ts';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
-import { MAX_NOTE_BYTES, projectAreaRoute, projectAreaSourceRefusal, VaultError } from './ports.ts';
+import { desktopRenameUncertain, MAX_NOTE_BYTES, projectAreaRoute, projectAreaSourceRefusal, VaultError } from './ports.ts';
 import { areaEvidence, areaLookup, areaLinkPath, areaRow, projectAreasDeclarationKey, type AreaRow } from './project-areas.ts';
 import { VaultSearch } from './search.ts';
 import { moveFolders, projectFolders, type MoveEndpoints, type PhysicalMove } from './project-move.ts';
@@ -14,6 +14,7 @@ import type { Catalog, Configuration, MirrorCatalog, VaultFiles, NoteParser, Sta
 export const LIMITS = { output: 48000, scanNotes: 500, scanBytes: 16 * 1024 * 1024, scanMs: 3000, rows: 500, page: 50, cursors: 10, cursorMs: 60000, proofs: 256 } as const;
 export const READ_LIMITS = { sessions: 4, idleMs: 5 * 60000, lifetimeMs: 30 * 60000, bytes: MAX_NOTE_BYTES, serialized: 60000 } as const;
 type SourceContext = { source: Source; revision: number; catalog: Catalog };
+type DesktopBacklinks = { root: string; sources: string[]; checkAccess(): Promise<void> };
 type ProjectAreaRequest = { signal?: AbortSignal; expected?: ProjectAreaAuthority; inventoryBatch?: boolean };
 const inventoryCapabilities = { inventoryEvidenceVersion: 1, inventoryBatchVersion: 1, propertiesAccessVersion: 1 } as const;
 type InventoryInput = { vaultId: string; root: string; expectedAuthority?: ProjectAreaAuthority; publication?: string };
@@ -592,13 +593,62 @@ export class Obsidian {
       data.links.every(link => link.syntax !== 'definition' && linkReference(link.rawTarget ?? link.target).status === 'internal');
   }
 
+  private async withDesktopLinks<T>(input: { vaultId: string; path: string }, revision: number, hash: string,
+    desktop: DesktopBacklinks, signal: AbortSignal | undefined,
+    use: (links: VaultLinks, incomplete: boolean, backlinksIncomplete: boolean) => T): Promise<T> {
+    const { root } = desktop;
+    const { vaultId, path } = input;
+    const check = () => {
+      this.check(vaultId, revision);
+      if (signal?.aborted) throw new VaultError('cancelled');
+    };
+    let lease: IndexLease | undefined;
+    let result: T | undefined;
+    try {
+      lease = await this.files.publishedIndex?.(vaultId, revision, signal);
+      if (lease) {
+        const view = lease.view;
+        const index = view.links?.(root) ?? new VaultLinks([...view.notes.map(note => note.path), ...(view.attachments ?? [])], root);
+        const incomplete = targetCoverageIncomplete(view, root) || !view.notes.some(note => note.path === path && note.hash === hash);
+        result = use(index, incomplete, true);
+        await lease.check(signal);
+      }
+    } catch (error) {
+      check();
+      const category = error instanceof VaultError ? error.category : 'unavailable';
+      if (projectAreaSourceRefusal(category) || category === 'cancelled') throw error;
+      if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose('index_access', category);
+      result = undefined;
+    } finally { lease?.close(); }
+    await desktop.checkAccess();
+    check();
+    return result ?? use(new VaultLinks([], root), true, true);
+  }
+
   async metadata(input: { vaultId: string; path: string; backlinks?: boolean }, signal?: AbortSignal) {
     const context = await this.note(input.vaultId, input.path);
     const { source, note } = context;
+    let desktop: DesktopBacklinks | undefined;
+    if (input.backlinks && this.files.desktopLink) {
+      const assertSelected = () => this.check(input.vaultId, context.revision);
+      const lookup = await this.files.desktopLink({ mirrorId: input.vaultId, revision: context.revision }, { kind: 'backlinks', path: input.path }, signal, assertSelected);
+      assertSelected();
+      if (lookup.route === 'desktop') {
+        if (lookup.result.kind !== 'backlinks' || !lookup.checkAccess) throw new VaultError('desktop_reply');
+        desktop = { root: lookup.root, sources: lookup.result.sources, checkAccess: lookup.checkAccess };
+      }
+    }
     const meta = this.parser.parse(note.text);
     const compact = { ...meta, tags: meta.tags.slice(0, 100), headings: meta.headings.slice(0, 100), blocks: meta.blocks.slice(0, 100), tasks: meta.tasks.slice(0, 100) };
     if (meta.tags.length > 100 || meta.headings.length > 100 || meta.blocks.length > 100 || meta.tasks.length > 100) compact.warnings.push('metadata_limit');
-    return this.withLinks(input, context, note.hash, signal, !!input.backlinks, (index, incomplete, backlinksIncomplete) => {
+    const backlinkSources: string[] = [];
+    let sourceBudget = 8_000;
+    for (const source of desktop?.sources ?? []) {
+      sourceBudget -= JSON.stringify(source).length + 1;
+      if (sourceBudget < 0 || backlinkSources.length >= 200) break;
+      backlinkSources.push(source);
+    }
+    const render = (index: VaultLinks, incomplete: boolean, backlinksIncomplete: boolean) => {
       const parsed = index.source(input.path, note.hash) ?? parseLinks(note.text, this.parser);
       const linkRows = (target: string, link: IndexedLink, resolution?: LinkResolution) => ({
         ...link, spelling: link.spelling.slice(0, 1024), ...(link.spelling.length > 1024 ? { spellingTruncated: true } : {}),
@@ -614,7 +664,7 @@ export class Obsidian {
         if (budget < 0 || links.length >= 100) { compact.warnings.push('metadata_limit'); linksTruncated = true; break; }
         links.push(row);
       }
-      if (input.backlinks) for (const hit of index.backlinks(input.path)) {
+      if (input.backlinks && !desktop) for (const hit of index.backlinks(input.path)) {
         const row = { ...linkRows(hit.source, hit.link, hit.resolution), hash: hit.hash };
         budget -= JSON.stringify(row).length;
         if (budget < 0 || backlinks.length >= 100) { backlinksIncomplete = true; break; }
@@ -622,8 +672,12 @@ export class Obsidian {
       }
       return { ...this.provenance(source, note.readAt), path: input.path, hash: note.hash, lineStart: 1, lineEnd: lines(note.text),
         ...compact, links, linksIncomplete: linksTruncated || incomplete || !this.completeLinkData({ path: input.path, hash: note.hash, linkData: parsed }),
-        ...(input.backlinks ? { backlinks, backlinksIncomplete } : {}), evidenceOnly: true };
-    });
+        ...(input.backlinks ? { backlinks, backlinksIncomplete, ...(desktop ? { backlinksBackend: 'desktop' as const, backlinkSources,
+          backlinkSourcesTruncated: backlinkSources.length < desktop.sources.length } : {}) } : {}), evidenceOnly: true };
+    };
+    return desktop
+      ? this.withDesktopLinks(input, context.revision, note.hash, desktop, signal, render)
+      : this.withLinks(input, context, note.hash, signal, !!input.backlinks, render);
   }
 
   private linkEvidence(result: LinkResolution, incomplete: boolean, limit = 8) {
@@ -773,6 +827,28 @@ export class Obsidian {
 
   applyFolderMove({ previewId, ...input }: FolderRequest & { previewId: string }, signal?: AbortSignal, reader = '') {
     return this.move({ ...input, directory: true, operationId: previewId, expectedHash: '' }, signal, reader);
+  }
+
+  async moveNoteTool(input: MoveNoteToolInput, signal?: AbortSignal, reader = '') {
+    const { mode, expectedHash, ...move } = input;
+    if (mode !== 'desktop_rename') {
+      if (expectedHash === undefined) throw new VaultError('complete_read_required');
+      return this.move({ ...move, expectedHash }, signal, reader);
+    }
+    const { vaultId, path, destination } = move;
+    if ([expectedHash, move.project, move.operationId, move.root, move.dryRun].some(value => value !== undefined))
+      throw new VaultError('unsupported');
+    validPath(path); validPath(destination);
+    if (path === destination || posix.dirname(path) !== posix.dirname(destination) || !this.files.desktopLink)
+      throw new VaultError('unsupported', 'Desktop rename requires different Markdown filenames in the same folder of the opted-in vault.');
+    const { revision } = await this.source(vaultId);
+    const assertSelected = () => this.check(vaultId, revision);
+    const result = await this.files.desktopLink({ mirrorId: vaultId, revision }, { kind: 'rename', path, destination }, signal, assertSelected);
+    if (result.route !== 'desktop') throw new VaultError('unsupported', 'Desktop rename is unavailable for this vault.');
+    try { assertSelected(); if (signal?.aborted) throw new VaultError('cancelled'); }
+    catch { throw desktopRenameUncertain(); }
+    if (result.result.kind !== 'rename' || result.result.destination !== destination) throw desktopRenameUncertain();
+    return { backend: 'desktop' as const, outcome: 'renamed_locally_pending_sync' as const, vaultId, path, destination };
   }
 
   async move(input: MoveEndpoints & { vaultId: string; expectedHash: string; dryRun?: boolean; operationId?: string }, signal?: AbortSignal, reader = '', beforePhysicalMove?: () => void) {

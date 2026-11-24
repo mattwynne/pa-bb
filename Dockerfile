@@ -34,7 +34,7 @@ RUN set -eu; \
       > /etc/apt/sources.list.d/pa-bb-google-chrome.list; \
     printf 'repo_add_once="false"\nrepo_reenable_on_distupgrade="false"\n' > /etc/default/google-chrome; \
     apt-get update; \
-    apt-get install -y --no-install-recommends google-chrome-stable; \
+    apt-get install -y --no-install-recommends google-chrome-stable libgtk-3-0; \
     rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources; \
     rm -rf /var/lib/apt/lists/*; \
     usermod --login bb --home /home/bb --move-home node; \

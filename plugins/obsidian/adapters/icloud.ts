@@ -7,7 +7,8 @@ import { INDEX_LIMITS } from './filesystem-index.ts';
 import { untilAborted } from '../core/vault-index.ts';
 import { LocalReceipts } from './local-receipts.ts';
 import { noteRpcContract, searchCapabilitySchema } from './icloud-note-contract.ts';
-import { projectAreaRoute, projectAreaSourceRefusal, VaultError } from '../core/ports.ts';
+import { desktopConfiguration, DesktopLinks } from './desktop-links.ts';
+import { desktopRenameUncertain, projectAreaRoute, projectAreaSourceRefusal, VaultError, type DesktopLinkOperation, type DesktopLinkRoute } from '../core/ports.ts';
 import type { MirrorCatalog, VaultFiles, Diagnose, Catalog, Configuration, LiveProjectAreaAccess, NoteParser, ProjectAreaRoute, ProjectAreaSelection } from '../core/ports.ts';
 const local = z.object({ available: z.boolean(), reason: z.enum(['ownership', 'recovery_required', 'source_changed']).nullable(), pendingAgeMs: z.number().int().nonnegative().nullable(), applicationBlocker: z.enum(['application_uncertain', 'native_recovery']).nullable() }).strict();
 const filesystemMode = z.enum(['ready', 'legacy_pending', 'legacy_conflict', 'unavailable']);
@@ -21,6 +22,7 @@ const unavailable = (setup: string, nextAction: string): Catalog => ({ setup, ne
 export class ICloud implements MirrorCatalog, VaultFiles {
   readonly checksLinkPlanAtWrite = true as const;
   private filesystem?: FilesystemVault;
+  private desktop?: { vaultId: string; runner: DesktopLinks };
   private indexState?: Configuration;
   private indexConfirmed?: number;
   private indexTimer?: ReturnType<typeof setInterval>;
@@ -32,14 +34,46 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     const current = this.areaEpochs.get(id);
     if (current) current.epoch = randomUUID();
   };
-  constructor(private sdk: BbPluginApi['sdk'], private diagnose: Diagnose, kv?: BbPluginApi['storage']['kv'], parser?: NoteParser) {
-    if (kv) this.filesystem = new FilesystemVault(this.directory.bind(this), this.directoryGrant.bind(this), new LocalReceipts(kv), diagnose, parser, this.revokeAreaEpoch);
+  constructor(private sdk: BbPluginApi['sdk'], private diagnose: Diagnose, kv?: BbPluginApi['storage']['kv'], parser?: NoteParser, desktop = desktopConfiguration()) {
+    if (kv) {
+      this.filesystem = new FilesystemVault(this.directory.bind(this), this.directoryGrant.bind(this), new LocalReceipts(kv), diagnose, parser, this.revokeAreaEpoch);
+      if (desktop) {
+        const { vaultId, ...binaries } = desktop;
+        this.desktop = { vaultId, runner: new DesktopLinks(binaries, diagnose) };
+      }
+    }
   }
   async stopIndexing() {
     this.indexAbort.abort(); clearInterval(this.indexTimer);
     await Promise.all([this.filesystem?.index.stop(), this.indexJob]);
   }
-  async stop() { await Promise.all([this.stopIndexing(), this.filesystem?.searcher.stop()]); }
+  async stop() { await Promise.all([this.stopIndexing(), this.filesystem?.searcher.stop(), this.desktop?.runner.stop()]); }
+
+  // Only explicit in-process link callers can opt in. A selected Desktop
+  // operation either returns its result or throws. There is no retry route.
+  async desktopLink(target: { mirrorId: string; revision: number }, operation: DesktopLinkOperation, signal?: AbortSignal, assertSelected = () => {}):
+      Promise<DesktopLinkRoute> {
+    if (this.desktop?.vaultId !== target.mirrorId || !this.filesystem) return { route: 'existing' };
+    const request = AbortSignal.any([AbortSignal.timeout(40_000), this.indexAbort.signal, ...(signal ? [signal] : [])]);
+    const catalog = await untilAborted(this.snapshot({ fresh: true, signal: request }), request);
+    assertSelected();
+    const mode = catalog.filesystem?.[target.mirrorId];
+    if (!catalog.compatible || !catalog.sources.some(source => source.id === target.mirrorId && source.local.available) || mode === 'unavailable')
+      throw new VaultError('source_unavailable');
+    if (mode !== 'ready') return { route: 'existing' };
+    if (catalog.mirrorDirectoryGrantUnconfirmed || catalog.mirrorDirectoryGrantVersion !== 1)
+      throw new VaultError('source_unavailable');
+    const observed = this.areaEpochs.get(target.mirrorId)?.epoch;
+    const check = () => {
+      assertSelected();
+      if (observed !== this.areaEpochs.get(target.mirrorId)?.epoch || request.aborted)
+        throw new VaultError(request.aborted ? 'cancelled' : 'source_unavailable');
+    };
+    const result = await this.filesystem.desktopLink(target, operation, this.desktop.runner, request, check);
+    try { check(); }
+    catch (error) { throw operation.kind === 'rename' ? desktopRenameUncertain() : error; }
+    return { route: 'desktop', ...result };
+  }
   indexConfiguration(configuration: Configuration) {
     if (!this.filesystem || this.indexAbort.signal.aborted || this.indexState?.revision === configuration.revision) return;
     this.indexState = { revision: configuration.revision, vaultIds: [...configuration.vaultIds] };
@@ -263,6 +297,10 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   index(id: string, revision: number, signal?: AbortSignal) {
     if (!this.filesystem) throw new VaultError('source_unavailable');
     return this.filesystem.index.acquire(id, revision, signal);
+  }
+  async publishedIndex(id: string, revision: number, signal?: AbortSignal) {
+    if (!this.filesystem) throw new VaultError('source_unavailable');
+    return this.filesystem.index.acquirePublished(id, revision, signal);
   }
   indexForFolderMove(id: string, revision: number, signal: AbortSignal) {
     if (!this.filesystem) throw new VaultError('source_unavailable');
