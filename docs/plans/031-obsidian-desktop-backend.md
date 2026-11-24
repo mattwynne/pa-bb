@@ -14,7 +14,7 @@ On a small disposable vault, Desktop took 1.16 seconds to start and used about 3
 
 - Replace BB’s implementations of backlinks, ordinary same-folder rename, plain note reads, text search, task listing and status changes, and supported single-property changes with the corresponding native commands. Use native results and error behavior where compatible. Open each vault and note by its exact authorized identity. Keep tool names where the request and result still mean the same thing. [Official CLI](https://obsidian.md/help/cli)
 - Switch each tool once its main use cases work, then remove the old branch and its tests. Remove `desktop_rename` as a separate choice when ordinary rename uses Desktop directly. While Desktop is unavailable, report that state for migrated commands. Do not keep a second implementation behind a fallback.
-- Check callers of exact text replacement, multi-property saves, conflict recovery, cross-folder moves, and GTD status changes before changing those contracts. Keep a small BB implementation where it protects an outcome a current caller needs, such as recovering an interrupted GTD status change. Record the concrete reason for each piece that stays.
+- Preserve the existing contracts for exact text replacement, multi-property saves, conflict recovery, cross-folder moves, and GTD status changes. Keep the BB code those contracts use for version checks, coordinated writes, receipts and recovery. Share common code where the contracts allow it and delete helpers with no remaining caller.
 
 ## 3. Move Projects inventory to Desktop
 
@@ -29,6 +29,6 @@ The disposable-vault experiment established that one fixed query using Desktop�
 ## Done when
 
 - The enabled plugin runs one Desktop process and ordinary note operations use it through their normal BB entry points.
-- The migrated code and its obsolete tests are gone. Compare production and test size with `b6b7992` and list the BB code still needed and why. Test BB’s command mapping, error handling, access checks and lifecycle. Use a disposable real-app smoke test for the handoff to Obsidian.
+- The migrated implementations and their obsolete tests are gone. Compare production and test size with `b6b7992` and name the remaining callers of shared code that previously served the migrated operations. Test BB’s command mapping, error handling, access checks and lifecycle. Use a disposable real-app smoke test for the handoff to Obsidian.
 - Projects uses Desktop in the normal sidebar, the parity checks above pass, and folders without landing notes are absent from the GTD inventory and sidebar. Compare repeated rendered fresh-client open, warm reopen and Refresh timings before and after on the same vault and host. The median for each must be no slower than the corresponding baseline. A parity or timing failure holds delivery until fixed. Compare warm note requests on the same vault and verify one fresh Docker setup with the documented host security settings.
 - Apply the change to the actual local-path installation, verify a harmless read and iCloud scheduling, then publish the verified work. [Local-path delivery](../../CONTRIBUTING.md#local-path-development)
