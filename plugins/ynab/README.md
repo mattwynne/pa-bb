@@ -14,6 +14,10 @@ The plugin starts in read-only mode. Enable **Allow changes to YNAB plans** if y
 
 Clear the token in BB Configuration to disconnect. Revoke it in YNAB Developer Settings if you want to invalidate it at YNAB.
 
+## Review imported transactions
+
+In a BB conversation, ask YNAB to categorize transactions or clear the approval queue. The [transaction review skill](skills/ynab-transaction-review/SKILL.md) uses the plan's approved history, applies supported categories and approvals when requested, and asks about ambiguous transactions. Connected notes and receipts are optional.
+
 ## Verify
 
 Run `npm ci`, `npm run typecheck`, `npm test`, and `bb plugin build`. Tests start the pinned package for catalog discovery with a synthetic token and use a local stdio fixture for tool results and failures. `bb ynab check` makes the live read. `bb plugin logs ynab -n 20` gives failure categories without including the token, provider stderr, or plan data.
