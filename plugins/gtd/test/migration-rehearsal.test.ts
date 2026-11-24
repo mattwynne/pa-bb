@@ -18,11 +18,12 @@ async function fixture() {
   let lostReply = false, writes = 0;
   const host = createFakePluginHost({pluginId:'gtd',agentSkillIds:['gtd-projects'],settings:select,sdk:{plugins:{callRpc:async (a:any) => {
     if (a.method === 'vaultLocations') return {vaults:[{id:'one',root:'',name:'Synthetic'}],incomplete:false};
-    if (a.method === 'status') return {inventoryEvidenceVersion:1,propertiesAccessVersion:1,vaults:[{vaultId:'one',name:'Synthetic',source:{local:{available:true},cloudConnected:false,enabled:false,phase:'paused',lastSuccess:null,failure:null}}]};
-    if (a.method === 'vaultInventory') return {
-      notes:[...docs].map(([path, properties])=>({path,properties,malformed:false})),
-      folders:dirs, incomplete:false,
-    };
+    if (a.method === 'vaultInventory') {
+      const source = { vaultId: 'one', name: 'Synthetic', cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null };
+      if (a.input.folders?.length === 0) return { source, folders: [], notes: [], incomplete: false };
+      return { source, notes:[...docs].map(([path, properties])=>({path,properties,malformed:false})),
+        folders:dirs, incomplete:false };
+    }
     assert.fail('Unexpected Obsidian call');
   }}, threads:{list:async a=>!a?.offset&&!a?.archived?[makeThreadResponse({id:'thread-1'})]:[],experimental_listPluginMetadata:async()=>({threads:[{threadId:'thread-1',metadata:structuredClone(metadata)}]}),updatePluginMetadata:async (input:any)=>{
     assert.equal(input.threadId,'thread-1'); assert.deepEqual(Object.keys(input.set),['project']);writes++;metadata.project=input.set.project;

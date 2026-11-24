@@ -56,7 +56,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
   };
   type Config = Awaited<ReturnType<typeof settings.get>>;
   let current: { key: string; backend: ObsidianBackend } | undefined;
-  const configured = async (folder: 'projectsFolder' | 'areasFolder') => {
+  const configured = async (folder: 'projectsFolder' | 'areasFolder', includeAreas = false) => {
     const config = await settings.get();
     const key = JSON.stringify(config);
     if (current && current.key !== key) {
@@ -64,7 +64,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       current = undefined;
     }
     if (!config.vaultId || config.vaultId === '__none__') throw new GtdError('unconfigured');
-    if (config.backend !== 'obsidian' || !vaultSelectionSchema.safeParse(config.vaultId).success || !relativeFolder.safeParse(config[folder]).success) throw new GtdError('invalid_configuration');
+    if (config.backend !== 'obsidian' || !vaultSelectionSchema.safeParse(config.vaultId).success || !relativeFolder.safeParse(config[folder]).success ||
+        (includeAreas && !relativeFolder.safeParse(config.areasFolder).success)) throw new GtdError('invalid_configuration');
     return { config, key };
   };
   const makeBackend = (config: Config, folder = config.projectsFolder, areasFolder?: string) => {
@@ -170,18 +171,21 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
   });
   changeTool(changeNames[4], changeInput, 'Apply one requested project change directly. Use its exact source and ID. Set areaPath to an exact Area note path (null clears), or status to a status folder. Keep the returned plan ID for recovery.', changes.change);
   changeTool(changeNames[5], applyInput, 'Apply a previously reviewed GTD project change once. Supply its exact plan ID. Inspect any unconfirmed result before taking further action.', changes.apply);
-  const browseInventory = async (includeAreas: boolean, fresh: boolean, signal: AbortSignal) => {
+  const browseInventory = async (includeAreas: boolean, signal: AbortSignal) => {
     try {
       if (closing || signal.aborted) throw new GtdError('cancelled');
-      const projectSelection = await select();
-      const areaSelection = includeAreas ? await selectAreas() : undefined;
-      if (areaSelection && projectSelection.key !== areaSelection.key) throw new GtdError('cursor_expired');
-      const backend = projectSelection.backend;
-      const result = includeAreas && backend instanceof ObsidianBackend && !dependencies
-        ? await backend.readBoth(signal, fresh)
-        : { projects: await (backend instanceof ObsidianBackend ? backend.readProjects(signal, fresh) : backend.readProjects(signal)), areas: areaSelection ? await areaSelection.backend.readAreas(signal) : null };
+      const selection = dependencies ? await select() : await configured('projectsFolder', includeAreas);
+      const result = await (async () => {
+        if ('config' in selection) {
+          const backend = backendFor(selection.config, selection.key);
+          return includeAreas ? backend.readBoth(signal) : { projects: await backend.readProjects(signal), areas: null };
+        }
+        const areas = includeAreas ? await selectAreas() : undefined;
+        if (areas && selection.key !== areas.key) throw new GtdError('cursor_expired');
+        return { projects: await selection.backend.readProjects(signal), areas: areas ? await areas.backend.readAreas(signal) : null };
+      })();
       if (closing || signal.aborted) throw new GtdError('cancelled');
-      if ((await select()).key !== projectSelection.key) throw new GtdError('cursor_expired');
+      if ((await select()).key !== selection.key) throw new GtdError('cursor_expired');
       const projects = normalizeProjectSnapshot(result.projects);
       const areas = result.areas ? normalizeAreaSnapshot(result.areas) : null;
       if (areas && areas.source.id !== projects.source.id) throw new GtdError('source_unavailable');
@@ -192,7 +196,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     } catch (error) { const safe = safeError(error, signal); diagnose('list', safe.code); throw safe; }
   };
   bb.rpc.register(rpcContract, {
-    browseInventory: (input, context) => browseInventory(input.includeAreas, input.fresh ?? false, context.experimental_signal),
+    browseInventory: (input, context) => browseInventory(input.includeAreas, context.experimental_signal),
     associate: (input, context) => threads.associate(input, context.experimental_signal),
     newThread: (input, context) => threads.newThread(input, context.experimental_signal),
     newAreaThread: (input, context) => threads.newThread(input, context.experimental_signal, 'area'),

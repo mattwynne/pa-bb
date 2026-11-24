@@ -27,13 +27,12 @@ async function setup(paired = false) {
       plugins: { callRpc: async ({ method, input }: any) => {
         history.push({ method, input });
         if (method === 'vaultLocations') return { vaults: [{ id: source, root: '', name: 'Fixture' }], incomplete: false };
-        if (method === 'status') return { vaults: [{ vaultId: source, name: 'Fixture', source: {
-          local: { available: true }, cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null,
-        } }] };
         if (method === 'vaultInventory') {
-          const under = (path: string) => !input.folders?.length ||
+          const under = (path: string) => !input.folders ||
             input.folders.some((dir: string) => path === dir || path.startsWith(dir + '/'));
-          return { notes: [...docs].filter(([path]) => under(path)).map(([path, properties]) => ({
+          return {
+            source: { vaultId: source, name: 'Fixture', cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null },
+            notes: [...docs].filter(([path]) => under(path)).map(([path, properties]) => ({
             path, properties: Object.fromEntries(Object.entries(properties).filter(([key]) => input.fields.includes(key))), malformed: false,
           })), folders: [...folders].filter(under), incomplete: false };
         }

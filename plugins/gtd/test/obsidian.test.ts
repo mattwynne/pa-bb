@@ -10,6 +10,7 @@ const areas = root + '/Areas';
 const note = (path: string, properties: Record<string, unknown> = {}, malformed = false) => ({ path, properties, malformed });
 function fixture() {
   const result = {
+    source: { vaultId: 'one', name: 'Example', cloudConnected: false, enabled: false, phase: 'paused', failure: null, lastSuccess: null },
     notes: [
       note(projects + '/Example.md', { area: ['[[Finance|finance]]', '../Areas/Finance.md'] }),
       note(projects + '/Completed/Pilot.md', { status: 'active', title: 'Example', area: 'Areas/Work/Nested' }),
@@ -25,13 +26,14 @@ function fixture() {
   let read = async () => structuredClone(result);
   const sdk = { plugins: { callRpc: async ({ method, input }: { method: string; input: Record<string, unknown> | null }) => {
     received.push(method);
-    if (method === 'status') return { vaults: [{ vaultId: 'one', name: 'Example', source: {
-      local: { available: true }, cloudConnected: false, enabled: false, phase: 'paused', failure: null, lastSuccess: null,
-    } }] };
     assert.equal(method, 'vaultInventory');
     assert.equal(input?.vaultId, 'one');
     assert.equal(input?.root, root);
-    return read();
+    const page = await read();
+    if (Array.isArray(input?.folders) && input.folders.length === 0) return { ...page, notes: [], folders: [] };
+    assert.equal(input?.metadataDepth, 2);
+    assert.deepEqual(input?.metadataFolders, [projects, areas]);
+    return page;
   } } } as unknown as BbPluginApi['sdk'];
   return { result, received, sdk, setReader(next: typeof read) { read = next; },
     backend: new ObsidianBackend(sdk, { vaultId: 'one', root, folder: 'Projects', areasFolder: 'Areas' }) };
@@ -40,7 +42,7 @@ function fixture() {
 test('one Desktop query gives note-backed project IDs, status and Area assignments, and preserves empty Areas', async () => {
   const f = fixture();
   const { projects: snapshot, areas: areaList } = await f.backend.readBoth(signal());
-  assert.deepEqual(f.received.sort(), ['status', 'vaultInventory']);
+  assert.deepEqual(f.received, ['vaultInventory']);
   assert.equal(snapshot.complete, true);
   assert.equal(snapshot.source.sync?.phase, 'paused');
   assert.deepEqual(snapshot.projects, [
@@ -49,7 +51,7 @@ test('one Desktop query gives note-backed project IDs, status and Area assignmen
   ]);
   assert.deepEqual(areaList.areas.map(area => area.id), [areas + '/Finance.md', areas + '/Work.md', areas + '/Empty/']);
   f.result.notes[0].path = projects + '/Renamed.md';
-  const newer = await f.backend.readBoth(signal(), true);
+  const newer = await f.backend.readBoth(signal());
   assert.ok(newer.projects.projects.some(row => row.id === projects + '/Renamed.md'));
   assert.ok(newer.projects.projects.every(row => row.id !== projects + '/Example.md'));
 });
@@ -98,6 +100,14 @@ test('read refuses scope escape, missing method, changed settings and cancellati
   const changed = f.backend.readProjects(signal());
   f.backend.invalidate(); release();
   await assert.rejects(changed, /source unavailable/);
+});
+
+test('access checks use empty authorized inventory, not source status or retained notes', async () => {
+  const f = fixture();
+  await f.backend.checkAccess(signal());
+  assert.deepEqual(f.received, ['vaultInventory']);
+  f.result.source.vaultId = 'wrong';
+  await assert.rejects(f.backend.checkAccess(signal()), /invalid source/);
 });
 
 test('one landing-note layer and exact folder confinement', () => {

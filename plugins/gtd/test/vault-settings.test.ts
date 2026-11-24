@@ -6,9 +6,8 @@ import { plugin } from '../server.ts';
 test('unoffered legacy selections fail closed during unavailable discovery rather than silently selecting a different vault', async () => {
   const host = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one', projectsFolder: 'Life/Projects' }, sdk: { plugins: { callRpc: async (args: any) => {
     if (args.method === 'vaultLocations') throw new Error('sentinel-private-catalog');
-    if (args.method === 'status') return { propertiesAccessVersion: 1, vaults: [{ vaultId: 'one', name: 'Container', source: { local: { available: true }, cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null } }] };
     assert.equal(args.input.root, 'Life');
-    return { notes: [], folders: ['Life', 'Life/Projects'], incomplete: false };
+    assert.fail('Vault discovery failure must not try inventory');
   } } } });
   await plugin(host.bb);
   try {
@@ -22,8 +21,14 @@ test('vault selector offers discovered roots, scopes folders relative to the vau
   let present = true; const folders: string[] = [];
   const host = createFakePluginHost({ pluginId: 'gtd', sdk: { plugins: { callRpc: async (args: any) => {
     if (args.method === 'vaultLocations') return { vaults: present ? [{ id: 'one', root: 'Life', name: 'Life' }] : [], incomplete: false };
-    if (args.method === 'status') return { propertiesAccessVersion: 1, vaults: [{ vaultId: 'one', name: 'Container', source: { local: { available: true }, cloudConnected: true, enabled: true, phase: 'ready', lastSuccess: null, failure: null } }] };
-    if (args.method === 'vaultInventory') { folders.push(args.input.root); return { notes: [{ path: 'Life/Projects/Launch.md', properties: { status: 'active' }, malformed: false }], folders: ['Life','Life/Projects','Life/Areas'], incomplete: false }; }
+    if (args.method === 'vaultInventory') {
+      if (!present) throw new Error('Unavailable authorized root');
+      const source = { vaultId: 'one', name: 'Container', cloudConnected: true, enabled: true, phase: 'ready', lastSuccess: null, failure: null };
+      if (args.input.folders?.length === 0) return { source, notes: [], folders: [], incomplete: false };
+      folders.push(args.input.root);
+      return { source, notes: [{ path: 'Life/Projects/Launch.md', properties: { status: 'active' }, malformed: false }],
+        folders: ['Life','Life/Projects','Life/Areas'], incomplete: false };
+    }
     throw new Error('Unexpected method');
   } } } });
   await plugin(host.bb);

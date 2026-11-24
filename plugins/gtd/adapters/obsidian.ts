@@ -14,17 +14,15 @@ export const vaultSelectionSchema = z.string().min(1).max(1100).refine(value => 
   return vaultIdSchema.safeParse(id).success && (!parts.length || relativeFolder.safeParse(parts.join('/')).success);
 });
 const inventorySchema = z.object({
+  source: z.object({
+    vaultId: vaultIdSchema, name: z.string().nullable(), cloudConnected: z.boolean(), enabled: z.boolean(),
+    phase: z.string().max(64), lastSuccess: z.string().nullable(), failure: z.string().max(128).nullable(),
+  }),
   notes: z.array(z.object({
     path: relativeFolder, properties: z.record(z.string(), z.unknown()), malformed: z.boolean(),
   })).max(100000),
   folders: z.array(relativeFolder).max(100000),
   incomplete: z.boolean(),
-});
-const statusSchema = z.object({
-  vaults: z.array(z.object({ vaultId: vaultIdSchema, name: z.string().nullable(), source: z.object({
-    local: z.object({ available: z.boolean() }), cloudConnected: z.boolean(), enabled: z.boolean(),
-    phase: z.string().max(64), lastSuccess: z.string().nullable(), failure: z.string().max(128).nullable(),
-  }).nullable() })),
 });
 export const noteEvidence = z.object({
   hash: z.string().regex(/^[0-9a-f]{64}$/),
@@ -42,11 +40,11 @@ export async function vaultOptions(sdk: BbPluginApi['sdk'], signal: AbortSignal 
   return { ...value, vaults: value.vaults.map(v => ({ ...v, selection: v.root ? `${v.id}/${v.root}` : v.id })) };
 }
 export async function readVaultInventory(sdk: BbPluginApi['sdk'], input: {
-  vaultId: string; root: string; folders?: string[]; metadataFolders?: string[]; fields: string[];
+  vaultId: string; root: string; folders?: string[]; metadataFolders?: string[]; metadataDepth?: number; fields: string[];
 }, signal: AbortSignal) {
   const result = inventorySchema.parse(await vaultRpc(sdk, 'vaultInventory', input, signal));
   const withinRoot = (path: string) => !input.root || path === input.root || path.startsWith(input.root + '/');
-  if (result.notes.some(note => !withinRoot(note.path) || !note.path.endsWith('.md')) ||
+  if (result.source.vaultId !== input.vaultId || result.notes.some(note => !withinRoot(note.path) || !note.path.endsWith('.md')) ||
       result.folders.some(path => !withinRoot(path))) throw new GtdError('invalid_source');
   return result;
 }
@@ -136,18 +134,12 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
 
   private scope(folder: string) { return [this.config.root, folder].filter(Boolean).join('/'); }
 
-  private async source(signal: AbortSignal) {
-    const state = statusSchema.parse(await vaultRpc(this.sdk, 'status', null, signal));
-    const vault = state.vaults.find(candidate => candidate.vaultId === this.config.vaultId);
-    if (!vault?.source?.local.available) throw new GtdError('source_unavailable');
-    return { ...vault, source: vault.source };
-  }
-
   async checkAccess(signal: AbortSignal) {
     const generation = this.generation;
-    const [, options] = await Promise.all([this.source(signal), this.config.root && vaultOptions(this.sdk, signal)]);
-    if (options && (options.incomplete || !options.vaults.some(option => option.id === this.config.vaultId && option.root === this.config.root)))
-      throw new GtdError('source_unavailable');
+    const result = await readVaultInventory(this.sdk, {
+      vaultId: this.config.vaultId, root: this.config.root ?? '', folders: [], fields: [],
+    }, signal);
+    if (result.incomplete || result.notes.length || result.folders.length) throw new GtdError('source_unavailable');
     this.checkGeneration(generation, signal);
   }
 
@@ -156,7 +148,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     if (generation !== this.generation) throw new GtdError('source_unavailable');
   }
 
-  async readProjects(signal: AbortSignal, _fresh = false) {
+  async readProjects(signal: AbortSignal) {
     return (await this.load(signal, true, false)).projects!;
   }
 
@@ -164,7 +156,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     return (await this.load(signal, false, true)).areas!;
   }
 
-  async readBoth(signal: AbortSignal, _fresh = false) {
+  async readBoth(signal: AbortSignal) {
     const { projects, areas } = await this.load(signal, true, true);
     return { projects: projects!, areas: areas! };
   }
@@ -175,20 +167,23 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     const projectFolder = this.scope(this.config.folder);
     const areaFolder = this.scope(this.config.areasFolder ?? this.config.folder);
     try {
-      const [vault, inventory] = await Promise.all([this.source(signal), readVaultInventory(this.sdk, {
+      const inventory = await readVaultInventory(this.sdk, {
         vaultId: this.config.vaultId, root,
         ...(projects ? {} : { folders: [areaFolder] }),
-        metadataFolders: projects ? [projectFolder, areaFolder] : [areaFolder],
+        metadataFolders: projects ? [...new Set([projectFolder, areaFolder])] : [areaFolder],
+        metadataDepth: projects ? 2 : 1,
         fields: this.preview ? ['id', 'title', 'status', 'area'] : projects ? ['title', 'status', 'area'] : ['title'],
-      }, signal)]);
+      }, signal);
       this.checkGeneration(generation, signal);
       const notes = new Set(inventory.notes.map(note => note.path));
       const folders = new Set(inventory.folders);
-      const invalidNotes = new Set(inventory.notes.filter(note => note.malformed).map(note => note.path));
+      const invalidAreas = new Set(inventory.notes.filter(note => note.malformed && immediate(note.path, areaFolder)).map(note => note.path));
+      const vault = inventory.source;
+      const observedAt = new Date().toISOString();
       const source = (scope: string) => ({
         backend: 'obsidian', id: vault.vaultId, name: root.split('/').at(-1) || vault.name || 'Obsidian vault',
-        scope, observedAt: new Date().toISOString(), lastSuccessfulSync: vault.source.lastSuccess,
-        sync: { connected: vault.source.cloudConnected, enabled: vault.source.enabled, phase: vault.source.phase, failure: vault.source.failure },
+        scope, observedAt, lastSuccessfulSync: vault.lastSuccess,
+        sync: { connected: vault.cloudConnected, enabled: vault.enabled, phase: vault.phase, failure: vault.failure },
       });
       for (const path of folders) this.preview?.entries.add(path);
       for (const path of notes) this.preview?.entries.add(path);
@@ -210,7 +205,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
           } else if (project) {
             if (this.config.areasFolder && !projectWarnings.has('source_partial') && !projectWarnings.has('duplicate_id')) {
               const areaId = resolveArea(properties.area, path);
-              if (areaId && !invalidNotes.has(areaId)) project.areaId = areaId;
+              if (areaId && !invalidAreas.has(areaId)) project.areaId = areaId;
             }
             projectRows.push(project);
             this.preview?.owners.set(path, properties);

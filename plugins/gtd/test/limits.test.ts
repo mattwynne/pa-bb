@@ -7,9 +7,10 @@ import type { ProjectBackend } from '../core/model.ts';
 
 test('a Desktop response above the GTD row bound yields only confirmed partial rows', async () => {
   const host = createFakePluginHost({ pluginId: 'gtd', sdk: { plugins: { callRpc: async (args: any) => {
-    if (args.method === 'status') return { vaults: [{ vaultId: 'one', name: 'Example', source: { local: { available: true }, cloudConnected: true, enabled: true, phase: 'ready', lastSuccess: null, failure: null } }] };
     assert.equal(args.method, 'vaultInventory');
-    return { folders: ['Projects'], incomplete: false,
+    return {
+      source: { vaultId: 'one', name: 'Example', cloudConnected: true, enabled: true, phase: 'ready', lastSuccess: null, failure: null },
+      folders: ['Projects'], incomplete: false,
       notes: Array.from({ length: 5010 }, (_, i) => ({ path: 'Projects/Project ' + i + '.md', properties: {}, malformed: false })) };
   } } } });
   try {

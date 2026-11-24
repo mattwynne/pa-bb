@@ -14,11 +14,12 @@ test('preview reserves repeatable proposals, reads active and archived links, an
   let revoke = false; let metadataReads = 0;
   const host = createFakePluginHost({pluginId:'gtd',sdk:{plugins:{callRpc:async (a:any)=>{
     if (revoke && metadataReads) throw new Error('PRIVATE_SENTINEL');
-    if (a.method === 'status') return {vaults:[{vaultId:'one',name:'Fixture',source:{local:{available:true},cloudConnected:false,enabled:false,phase:'paused',lastSuccess:null,failure:null}}]};
-    if (a.method === 'vaultInventory') return {
-      notes:[{path:'Projects/Example.md',properties:{area:'Areas/Finance.md'},malformed:false},{path:'Areas/Finance.md',properties:{id:'area_'+uid},malformed:false}],
-      folders:['Projects','Areas'], incomplete:false,
-    };
+    if (a.method === 'vaultInventory') {
+      const source = { vaultId: 'one', name: 'Fixture', cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null };
+      if (a.input.folders?.length === 0) return { source, folders: [], notes: [], incomplete: false };
+      return { source, notes:[{path:'Projects/Example.md',properties:{area:'Areas/Finance.md'},malformed:false},{path:'Areas/Finance.md',properties:{id:'area_'+uid},malformed:false}],
+        folders:['Projects','Areas'], incomplete:false };
+    }
     assert.fail(a.method);
   }},threads:{list: async (args:any)=>args.offset?[]:[{id:args.archived?'old':'new'}] as any, experimental_listPluginMetadata:async (args:any)=>{metadataReads++;return {threads:args.threadIds.map((threadId:string)=>({threadId,metadata:{project:{source:'one',id:'Projects/Example.md'}}}))};}}}});
   t.after(()=>host.harness.lifecycle.dispose());
