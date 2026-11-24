@@ -1,6 +1,6 @@
 // Linux file primitives carried forward from the iCloud note store. All paths
 // below a host-authorized mirror are traversed with no-follow directory handles.
-import { constants, type Stats } from 'node:fs';
+import { constants, type BigIntStats, type Stats } from 'node:fs';
 import { open, opendir, lstat, rename, link, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -50,6 +50,8 @@ const fdPath = (fd: number) => `/proc/self/fd/${fd}`;
 const missing = (error: unknown) => (error as NodeJS.ErrnoException)?.code === 'ENOENT';
 export const identity = (a: Pick<Stats, 'dev' | 'ino'>, b: Pick<Stats, 'dev' | 'ino'>) => a.dev === b.dev && a.ino === b.ino;
 const same = (a: Stats, b: Stats) => identity(a, b) && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+const directoryStamp = (info: BigIntStats) => [info.dev, info.ino, info.mtimeNs, info.ctimeNs].join(':');
+const isConflictCopy = (name: string) => /\.(?:icloud|bb)-conflict[1-9][0-9]*$/.test(name);
 type Observation = { text: string; hash: string; info: Stats };
 export const equivalent = (a: Observation | null, b: Observation | null) => a === null || b === null ? a === b : a.hash === b.hash && same(a.info, b.info);
 export type SearchPath = { path: string } | { progress: true } | { warning: 'note_unavailable' | 'unsupported' | 'capacity' };
@@ -169,14 +171,15 @@ export class LocalNotes {
       // Stream entries: a huge directory must not allocate an unbounded array.
       const directory = await opendir(fdPath(folder.fd), { bufferSize: 32, encoding: strict ? 'buffer' as BufferEncoding : 'utf8' });
       for await (const entry of directory) {
-        if (++count > NOTE_LIMITS.entries || Date.now() - started > NOTE_LIMITS.scanMs) { incomplete = true; warnings.add('scan_limit'); return; }
+        if (++count > NOTE_LIMITS.entries) { incomplete = true; warnings.add(strict ? 'entry_cap' : 'scan_limit'); return; }
+        if (Date.now() - started > NOTE_LIMITS.scanMs) { incomplete = true; warnings.add(strict ? 'scan_timeout' : 'scan_limit'); return; }
         let name = entry.name;
         if (strict) {
           try { name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(entry.name as unknown as Buffer); }
           catch { incomplete = true; warnings.add('unsupported_path'); continue; }
         }
         const path = prefix + name;
-        if (strict && (/\.(?:icloud|bb)-conflict[1-9][0-9]*$/.test(name) || (!entry.isDirectory() && !entry.isFile())))
+        if (strict && (isConflictCopy(name) || (!entry.isDirectory() && !entry.isFile())))
           throw new VaultError('unavailable', `Cannot verify the full vault listing at ${path.slice(0, 1024)}. Inspect this unsupported entry or conflict copy.`);
         if (entry.isSymbolicLink()) { incomplete = true; warnings.add('symlink_skipped'); continue; }
         if (entry.isDirectory()) {
@@ -231,6 +234,11 @@ export class LocalNotes {
       return root;
     } catch (error) { await root.close(); throw error; }
   }
+  async indexDirectoryStamp(root: FileHandle, path: string) {
+    const parent = await this.parent(root, path ? path + '/.md' : '.md', true, true);
+    try { return directoryStamp(await parent.folder.stat({ bigint: true })); }
+    finally { await parent.close(); }
+  }
   async *indexDirectory(root: FileHandle, path: string, allowAbsent: boolean, opened: (pinnedPath: string, info: Stats) => void) {
     if (path) validateRelativePath(path);
     const marker = path ? `${path}/.md` : '.md';
@@ -241,26 +249,29 @@ export class LocalNotes {
     try {
       await Promise.all(parent.handles.splice(0, parent.handles.length - 1).map(handle => handle.close()));
       const info = await parent.folder.stat();
+      const stamp = directoryStamp(await parent.folder.stat({ bigint: true }));
       const pinned = fdPath(parent.folder.fd);
       directory = await opendir(pinned, { bufferSize: 32, encoding: 'buffer' as BufferEncoding });
       opened(pinned, info);
-      yield { kind: 'directory' as const, path };
+      yield { kind: 'directory' as const, path, stamp };
       for await (const entry of directory) {
         const bytes = entry.name as unknown as Buffer;
         let name: string;
         try { name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
-        catch { yield { kind: 'unsupported' as const, path, scope: 'tree' as const }; continue; }
+        catch { yield { kind: 'unsupported' as const, path, scope: 'tree' as const, boundary: true as const }; continue; }
         const relative = path ? `${path}/${name}` : name;
+        if (isConflictCopy(name)) yield { kind: 'move_blocker' as const, path: relative, scope: 'tree' as const };
         if (entry.isSymbolicLink()) { yield { kind: 'unsupported' as const, path: relative, scope: 'tree' as const }; continue; }
         if (entry.isDirectory() || relative.endsWith('.md')) {
           const scope = entry.isDirectory() ? 'tree' as const : 'note' as const;
-          try { validateRelativePath(relative); } catch { yield { kind: 'unsupported' as const, path: relative, scope }; continue; }
+          try { validateRelativePath(relative); }
+          catch { yield { kind: 'unsupported' as const, path: relative, scope, boundary: entry.isDirectory() ? true as const : undefined }; continue; }
           yield entry.isDirectory() ? { kind: 'child' as const, path: relative } :
             entry.isFile() ? { kind: 'note' as const, path: relative } : { kind: 'unsupported' as const, path: relative, scope };
         } else if (entry.isFile()) {
           try { yield { kind: 'attachment' as const, path: validateRelativePath(relative) }; }
           catch { yield { kind: 'unsupported' as const, path: relative, scope: 'note' as const }; }
-        } else yield { kind: 'other' as const };
+        } else yield { kind: 'move_blocker' as const, path: relative, scope: 'tree' as const };
       }
       const fresh = await this.parent(root, marker, true);
       try { if (!identity(info, await fresh.folder.stat())) throw new VaultError('conflict'); }
@@ -328,9 +339,15 @@ export class LocalNotes {
   async vaultRoots(root: string) {
     const roots: string[] = [];
     const started = Date.now();
+    const warnings = new Set<string>();
     let incomplete = false, entries = 0;
+    const scanLimited = (entryCapReached: boolean) => {
+      if (entryCapReached) warnings.add('entry_cap');
+      if (Date.now() - started > NOTE_LIMITS.scanMs) warnings.add('scan_timeout');
+      return warnings.size > 0;
+    };
     const walk = async (path: string, relative: string, depth: number) => {
-      if (depth > 32 || entries >= NOTE_LIMITS.entries || Date.now() - started > NOTE_LIMITS.scanMs || roots.length >= 100) { incomplete = true; return; }
+      if (scanLimited(entries >= NOTE_LIMITS.entries) || depth > 32 || roots.length >= 100) { incomplete = true; return; }
       const handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       try {
         const pinned = fdPath(handle.fd);
@@ -342,7 +359,8 @@ export class LocalNotes {
         } catch (error) { if (!missing(error)) incomplete = true; }
         const directory = await opendir(pinned);
         for await (const child of directory) {
-          if (++entries > NOTE_LIMITS.entries || Date.now() - started > NOTE_LIMITS.scanMs) { incomplete = true; break; }
+          entries++;
+          if (scanLimited(entries > NOTE_LIMITS.entries)) { incomplete = true; break; }
           if (!child.isDirectory() || ['.obsidian', '.git', 'node_modules'].includes(child.name)) continue;
           const next = relative ? relative + '/' + child.name : child.name;
           try { validateRelativePath(next); await walk(join(pinned, child.name), next, depth + 1); }
@@ -351,7 +369,7 @@ export class LocalNotes {
       } finally { await handle.close(); }
     };
     await walk(root, '', 0);
-    return { roots: roots.sort(), incomplete };
+    return { roots: roots.sort(), incomplete, warnings: [...warnings] };
   }
 
   // Staging names are reserved in paired iCloud sync. Stage and destination
@@ -448,7 +466,10 @@ export class LocalNotes {
       try {
         const listing = await opendir(fdPath(folder.fd), { encoding: directoryMove ? 'buffer' as BufferEncoding : 'utf8' });
         for await (const entry of listing) {
-          if (entries.size >= NOTE_LIMITS.entries || Date.now() - started >= NOTE_LIMITS.scanMs) throw new VaultError('capacity');
+          if (entries.size >= NOTE_LIMITS.entries)
+            throw new VaultError(directoryMove ? 'entry_cap' : 'capacity', 'The source folder tree reached its entry cap.');
+          if (Date.now() - started >= NOTE_LIMITS.scanMs)
+            throw new VaultError(directoryMove ? 'scan_timeout' : 'capacity', 'The source folder tree scan timed out.');
           let name = entry.name;
           if (directoryMove) {
             try { name = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(entry.name as unknown as Buffer); }
@@ -460,7 +481,7 @@ export class LocalNotes {
           const child = prefix + name;
           const entryPath = join(fdPath(folder.fd), name);
           const info = await lstat(entryPath);
-          if ((!info.isFile() && !info.isDirectory()) || /\.(?:icloud|bb)-conflict[1-9][0-9]*$/.test(name))
+          if ((!info.isFile() && !info.isDirectory()) || isConflictCopy(name))
             throw new VaultError('conflict', 'Inspect unsupported entries or conflict copies in the project folder.');
           entries.set(child, info);
           if (info.isDirectory()) await walk(entryPath, child + '/');

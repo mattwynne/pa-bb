@@ -94,6 +94,11 @@ occupied destination, overlapping paths, an unresolved affected link, or an
 incomplete scan. Folder previews allow up to 256 backlinks and 16,000
 serialized backlink characters.
 
+When iCloud grants the local vault index access, folder moves use it for
+candidate discovery in preview, apply, and verification. Directory membership,
+the folder tree, and note versions are checked against the local filesystem.
+An incomplete index, scan timeout, or entry cap can stop the move.
+
 To make the move, call
 `obsidian_apply_folder_move({vaultId, path, destination, previewId})` in the
 same thread within five minutes. Apply checks the preview against the current

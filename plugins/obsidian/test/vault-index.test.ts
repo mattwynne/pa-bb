@@ -219,10 +219,34 @@ test('caps refuse incomplete builds, bound watch counts, and account for outstan
 
   await writeFile(join(f.root, 'Extra.md'), 'valid'); await writeFile(join(f.root, 'Overflow.md'), 'valid'); f.refresh();
   await eventually(async () => {
-    try { (await f.acquire()).close(); } catch (e) { if (category('capacity')(e)) return true; throw e; }
+    try { (await f.acquire()).close(); } catch (e) { if (category('entry_cap')(e)) return true; throw e; }
   });
   assert.deepEqual(paths(lease), ['Folder/X.md']); lease.close();
-  assert.deepEqual(f.logs, ['Obsidian index_watch unavailable', 'Obsidian index_refresh capacity']);
+  assert.deepEqual(f.logs, ['Obsidian index_watch unavailable', 'Obsidian index_refresh entry_cap']);
+});
+
+test('folder move index checks directory membership even when a watcher misses the event', async t => {
+  const f = await fixture(t);
+  await mkdir(join(f.root, 'Folder'));
+  await writeFile(join(f.root, 'Folder/Original.md'), 'Synthetic note');
+  f.refresh();
+  const signal = new AbortController().signal;
+  const before = await f.index.acquireForMove('one', 7, signal);
+  await writeFile(join(f.root, 'Folder/Added.md'), 'Synthetic new candidate');
+  await assert.rejects(before.checkMembership(signal), category('conflict'));
+  before.close();
+  const after = await f.index.acquireForMove('one', 7, signal);
+  assert.deepEqual(paths(after), ['Folder/Added.md', 'Folder/Original.md']);
+  after.close();
+});
+
+test('the index reports a scan timeout separately from its entry cap', async t => {
+  const f = await fixture(t, { limits: { scanMs: 20 } });
+  await writeFile(join(f.root, 'Synthetic.md'), 'Synthetic note');
+  f.controls.beforeRead = () => delay(30);
+  f.refresh();
+  await assert.rejects(f.index.acquireForMove('one', 7, new AbortController().signal), category('scan_timeout'));
+  assert.deepEqual(f.logs, ['Obsidian index_refresh scan_timeout']);
 });
 
 test('a cold grant mismatching the opened root causes zero traversal, reads, or watch registration', async t => {
@@ -273,7 +297,12 @@ test('full published budget still permits repeated replacements with and without
     const root = join(f.root, id); await mkdir(root); await writeFile(join(root, 'Only.md'), body('first')); roots.set(id, root);
   }
   const { properties, ...metadata } = parser.parse(body('first'));
-  const bytes = 256 + 128 + 256 + 256 + 4 * 'Only.md'.length + 4 * JSON.stringify({ linkData: parseLinks(body('first'), parser), path: 'Only.md', hash: 'h'.repeat(64), readAt: '2026-01-01T00:00:00.000Z', properties, metadata }).length;
+  const stampLengths = await Promise.all([...roots.values()].map(async root => {
+    const { dev, ino, mtimeNs, ctimeNs } = await stat(root, { bigint: true });
+    return [dev, ino, mtimeNs, ctimeNs].join(':').length;
+  }));
+  const directoryBytes = 256 + 4 * Math.max(...stampLengths);
+  const bytes = 256 + directoryBytes + 256 + 256 + 4 * 'Only.md'.length + 4 * JSON.stringify({ linkData: parseLinks(body('first'), parser), path: 'Only.md', hash: 'h'.repeat(64), readAt: '2026-01-01T00:00:00.000Z', properties, metadata }).length;
   const logs: string[] = [];
   const noEvents = (() => Object.assign(new EventEmitter(), { close() {} })) as unknown as typeof import('node:fs').watch;
   const index = new FilesystemIndex(files, id => grantFor(roots.get(id)!), parser, diagnosticLogger(log => logs.push(log)),

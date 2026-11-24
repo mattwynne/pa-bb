@@ -31,7 +31,9 @@ export type Receipt = SaveReceipt | ResolutionReceipt;
 export type Resolution = { mirrorId: string; revision: number; path: string; operationId: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: 'keep_local' | 'accept_incoming' | 'replace'; text?: string };
 export interface VaultFiles {
   children?(vaultId: string, revision: number, folder: string, access?: LiveProjectAreaAccess): Promise<{ entries: Array<{ name: string; kind: 'directory' | 'markdown' }>; incomplete: boolean }>;
-  listProjectMove?(input: import('./project-move.ts').MoveEndpoints & { mirrorId: string; revision: number; afterMove?: boolean; operationId?: string }): Promise<{ paths: string[]; attachments: string[]; incomplete: boolean; warnings: string[]; folderEvidence?: string }>;
+  listProjectMove?(input: import('./project-move.ts').MoveEndpoints & { mirrorId: string; revision: number; afterMove?: boolean; operationId?: string },
+    indexed?: { lease: import('./vault-index.ts').MoveIndexLease; signal: AbortSignal }): Promise<{ paths: string[]; attachments: string[]; incomplete: boolean; warnings: string[]; folderEvidence?: string }>;
+  indexForFolderMove?(vaultId: string, revision: number, signal: AbortSignal): Promise<import('./vault-index.ts').MoveIndexLease>;
   listLinkTargets?(vaultId: string, revision: number, root: string): Promise<{ paths: string[]; attachments: string[]; incomplete: boolean; warnings: string[] }>;
   readonly checksLinkPlanAtWrite?: true;
   move?(input: import('./project-move.ts').MoveEndpoints & { mirrorId: string; revision: number; expectedHash: string; operationId: string; movedNotes?: ReadonlyMap<string, string>; checkLinkPlan?: () => Promise<() => void> }): Promise<{ outcome: import('./project-move.ts').PhysicalMove }>;
@@ -43,7 +45,7 @@ export interface VaultFiles {
   indexConfiguration?(configuration: Configuration): void;
   search(input: SearchRequest, signal?: AbortSignal): Promise<SearchBatch>;
   closeSearch(revision: number, cursor: string): Promise<void>;
-  vaultRoots(vaultId: string, revision: number): Promise<{ roots: string[]; incomplete: boolean }>;
+  vaultRoots(vaultId: string, revision: number): Promise<{ roots: string[]; incomplete: boolean; warnings?: string[] }>;
   list(vaultId: string, revision: number, access?: LiveProjectAreaAccess): Promise<{ paths: string[]; incomplete: boolean; warnings: string[] }>;
   read(vaultId: string, revision: number, path: string, access?: LiveProjectAreaAccess): Promise<CompleteNote>;
   checkLiveProjectAreaAccess?(vaultId: string, revision: number, access: LiveProjectAreaAccess): Promise<void>;

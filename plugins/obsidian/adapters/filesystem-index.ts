@@ -3,7 +3,7 @@ import { watch, type FSWatcher, type Stats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { Buffer } from 'node:buffer';
 import { VaultError, type Diagnose, type NoteParser } from '../core/ports.ts';
-import { VaultIndex, IndexBudget, abortError, untilAborted, type IndexedNote, type IndexOmission, type IndexView } from '../core/vault-index.ts';
+import { VaultIndex, IndexBudget, abortError, untilAborted, type IndexedNote, type IndexOmission, type IndexView, type MoveIndexLease } from '../core/vault-index.ts';
 import { identity, type DirectoryGrant, type LocalNotes } from './local-notes.ts';
 
 export const INDEX_LIMITS = { vaults: 20, watchers: 16_384, watchersPerVault: 4_096, parallel: 2, entries: 100_000,
@@ -11,8 +11,12 @@ export const INDEX_LIMITS = { vaults: 20, watchers: 16_384, watchersPerVault: 4_
 type Limits = typeof INDEX_LIMITS;
 export type DirectoryGrantLookup = (id: string, revision: number, signal?: AbortSignal) => Promise<DirectoryGrant>;
 type Watched = { handle: FSWatcher; info: Stats };
-type Lane = { actor: VaultIndex; watches: Map<string, Watched>; grant?: DirectoryGrant; degraded: boolean; warnings: Set<string> };
+type Lane = { actor: VaultIndex; watches: Map<string, Watched>; open: (signal: AbortSignal) => Promise<FileHandle>; grant?: DirectoryGrant; degraded: boolean; warnings: Set<string> };
+type MoveEvidence = { stamps: ReadonlyMap<string, string>; roots: readonly string[]; blockers: readonly IndexOmission[] };
 const under = (path: string, scope: string) => !scope || path === scope || path.startsWith(scope + '/');
+const isVaultMarker = (path: string) => path === '.obsidian' || path.endsWith('/.obsidian');
+const inVaultConfig = (path: string) => path.split('/').slice(0, -1)
+  .some(name => name === '.obsidian' || name === '.git' || name === 'node_modules');
 const sizeOf = (value: unknown) => JSON.stringify(value).length;
 function freeze<T>(value: T): T {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -33,6 +37,7 @@ export class FilesystemIndex {
   private active = 0;
   private waiting: Array<() => void> = [];
   private budget: IndexBudget;
+  private moveEvidence = new WeakMap<IndexView, MoveEvidence>();
 
   constructor(private files: LocalNotes, private directory: DirectoryGrantLookup, private parser: NoteParser, private diagnose: Diagnose,
     private limits = INDEX_LIMITS, private watchDirectory = watch, private revoked: (id: string) => void = () => {}) {
@@ -52,12 +57,65 @@ export class FilesystemIndex {
     }
   }
 
-  async acquire(id: string, revision: number, signal?: AbortSignal) {
+  private async eligibleLane(id: string, revision: number, signal?: AbortSignal) {
     const retiring = this.retiring.get(id);
     if (retiring) await (signal ? untilAborted(retiring, signal) : retiring);
     if (signal?.aborted) throw abortError(signal);
     if (this.stopped || revision !== this.revision || !this.eligible.has(id)) throw new VaultError('source_unavailable');
-    return this.lane(id, revision).actor.acquire(signal);
+    return this.lane(id, revision);
+  }
+
+  async acquire(id: string, revision: number, signal?: AbortSignal) {
+    return (await this.eligibleLane(id, revision, signal)).actor.acquire(signal);
+  }
+
+  async acquireForMove(id: string, revision: number, signal: AbortSignal): Promise<MoveIndexLease> {
+    const lane = await this.eligibleLane(id, revision, signal);
+    const acquire = async () => {
+      const lease = await lane.actor.acquire(signal, true);
+      try {
+        const view = lease.view;
+        const { stamps, roots, blockers } = this.moveEvidence.get(view)!;
+        const checkMembership = async (signal: AbortSignal, directory?: string) => {
+          lease.assertValid();
+          const root = await lane.open(signal);
+          try {
+            if (directory !== undefined && lane.grant?.directory !== directory) throw new VaultError('source_unavailable');
+            // A parent stamp covers added, removed and replaced entries even
+            // when a watcher is missing or the event has not arrived yet.
+            let batch: Promise<boolean>[] = [];
+            const flush = async () => {
+              if ((await Promise.allSettled(batch)).some(result => result.status !== 'fulfilled' || !result.value))
+                throw new VaultError('conflict', 'Vault directory membership changed. Prepare a fresh folder move preview.');
+              batch = [];
+              if (signal.aborted) throw abortError(signal);
+            };
+            for (const [path, stamp] of stamps) {
+              batch.push(this.files.indexDirectoryStamp(root, path).then(current => current === stamp));
+              if (batch.length >= 16) await flush();
+            }
+            await flush();
+            await lease.check(signal);
+          } finally { await root.close(); }
+        };
+        await checkMembership(signal);
+        lease.assertUnchanged?.();
+        const boundaryUnverified = (path: string) => !inVaultConfig(path) && !roots.some(root => under(path, root));
+        const invalidBoundary = view.omissions.some(({ path, boundary }) => (boundary || isVaultMarker(path)) && boundaryUnverified(path)) ||
+          blockers.some(({ path }) => isVaultMarker(path) && boundaryUnverified(path)) ||
+          view.attachments?.some(path => isVaultMarker(path) && boundaryUnverified(path));
+        if (invalidBoundary) throw new VaultError('index_incomplete', 'The vault index could not verify the Obsidian vault boundaries. Inspect unsupported entries before preparing another move.');
+        return Object.assign(lease, { roots, blockers, checkMembership });
+      } catch (error) { lease.close(); throw error; }
+    };
+    try { return await acquire(); }
+    catch (error) {
+      // Reconcile a missed event or a scan raced by an external writer. Keep
+      // this bounded and keep using the index's normal grant and scan limits.
+      if (!(error instanceof VaultError && error.category === 'conflict') || signal.aborted) throw error;
+      lane.actor.hint();
+      return acquire();
+    }
   }
 
   async stop() {
@@ -97,7 +155,7 @@ export class FilesystemIndex {
       }
     };
     const authorize = async (signal: AbortSignal) => { const root = await verifiedRoot(signal); await root.close(); };
-    const lane: Lane = { watches: new Map(), degraded: false, warnings: new Set(),
+    const lane: Lane = { watches: new Map(), degraded: false, warnings: new Set(), open: verifiedRoot,
       actor: new VaultIndex((previous, paths, signal) => this.scanSlot(signal, async () => {
         const root = await verifiedRoot(signal);
         let next;
@@ -109,9 +167,9 @@ export class FilesystemIndex {
     return lane;
   }
 
-  private failure(category: string, stage: 'index_refresh' | 'index_access' = 'index_refresh') {
+  private failure(category: string, stage: 'index_refresh' | 'index_access' = 'index_refresh', nextAction?: string) {
     this.diagnose(stage, category);
-    return new VaultError(category, 'The local vault index could not refresh. Check source access or try again after reconciliation.', true);
+    return new VaultError(category, nextAction ?? 'The local vault index could not refresh. Check source access or try again after reconciliation.', true);
   }
 
   private async scanSlot<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T> {
@@ -152,30 +210,39 @@ export class FilesystemIndex {
     signal: AbortSignal, authorize: (signal: AbortSignal) => Promise<void>) {
     const memory = this.budget.reservation();
     const notes: IndexedNote[] = [], directories = new Set<string>(), attachments = new Set<string>(), omissions = new Map<string, IndexOmission>();
+    const stamps = new Map<string, string>(), blockers = new Map<string, IndexOmission>();
     const scopes = paths ? [...paths] : [''];
     const starts = scopes.filter(path => !scopes.some(other => other !== path && under(path, other)));
     const untouched = (path: string) => !starts.some(scope => under(path, scope));
     const addNote = (note: IndexedNote) => { memory.add(256 + 4 * sizeOf(note)); notes.push(note); };
-    const addDirectory = (path: string) => { if (!directories.has(path)) { memory.add(128 + 4 * path.length); directories.add(path); } };
+    const addDirectory = (path: string, stamp: string) => {
+      if (!directories.has(path)) memory.add(256 + 4 * (path.length + stamp.length));
+      directories.add(path); stamps.set(path, stamp);
+    };
     const addAttachment = (path: string) => { memory.add(128 + 4 * path.length); attachments.add(path); };
-    const omit = (path: string, kind: IndexOmission['kind']) => {
+    const omit = (path: string, kind: IndexOmission['kind'], boundary?: true) => {
       const old = omissions.get(path);
       if (!old) memory.add(128 + 4 * path.length);
-      if (!old || kind === 'tree') omissions.set(path, Object.freeze({ path, kind }));
+      if (!old || kind === 'tree') omissions.set(path, Object.freeze({ path, kind, boundary: old?.boundary ?? boundary }));
+    };
+    const blockMove = (path: string, kind: IndexOmission['kind']) => {
+      if (!blockers.has(path)) { memory.add(128 + 4 * path.length); blockers.set(path, Object.freeze({ path, kind })); }
     };
     const deadline = Date.now() + this.limits.scanMs;
     const check = () => {
       if (signal.aborted) throw abortError(signal);
-      if (Date.now() > deadline) throw new VaultError('capacity');
+      if (Date.now() > deadline) throw this.failure('scan_timeout', 'index_refresh', 'The local vault index scan timed out.');
     };
     let count = 0;
     try {
       memory.add(256);
       if (previous && paths) {
         for (const note of previous.notes) if (untouched(note.path)) addNote(note);
-        for (const path of previous.directories) if (untouched(path)) addDirectory(path);
+        const prior = this.moveEvidence.get(previous)!;
+        for (const [path, stamp] of prior.stamps) if (untouched(path)) addDirectory(path, stamp);
+        for (const entry of prior.blockers) if (untouched(entry.path)) blockMove(entry.path, entry.kind);
         for (const path of previous.attachments ?? []) if (untouched(path)) addAttachment(path);
-        for (const entry of previous.omissions) if (untouched(entry.path)) omit(entry.path, entry.kind);
+        for (const entry of previous.omissions) if (untouched(entry.path)) omit(entry.path, entry.kind, entry.boundary);
       }
       const frontier = starts.map(path => ({ path, allowAbsent: !!paths }));
       let frontierBytes = frontier.reduce((bytes, { path }) => bytes + 2 * path.length + 128, 0);
@@ -185,10 +252,11 @@ export class FilesystemIndex {
           check(); this.watch(lane, path, pinned, info);
         })) {
           check();
-          if (++count > this.limits.entries) throw new VaultError('capacity');
-          if (entry.kind === 'directory') addDirectory(path);
+          if (++count > this.limits.entries) throw this.failure('entry_cap', 'index_refresh', 'The local vault index scan reached its entry cap.');
+          if (entry.kind === 'directory') addDirectory(path, entry.stamp);
           else if (entry.kind === 'attachment') addAttachment(entry.path);
-          else if (entry.kind === 'unsupported') omit(entry.path, entry.scope);
+          else if (entry.kind === 'unsupported') omit(entry.path, entry.scope, 'boundary' in entry ? entry.boundary : undefined);
+          else if (entry.kind === 'move_blocker') blockMove(entry.path, entry.scope);
           else if (entry.kind === 'child') {
             frontierBytes += 2 * entry.path.length + 128;
             if (frontierBytes > 2 * 1024 * 1024) throw new VaultError('capacity');
@@ -220,7 +288,8 @@ export class FilesystemIndex {
           }
         }
       }
-      if (notes.length + directories.size + attachments.size + omissions.size > this.limits.entries) throw new VaultError('capacity');
+      if (notes.length + directories.size + attachments.size + omissions.size > this.limits.entries)
+        throw this.failure('entry_cap', 'index_refresh', 'The local vault index reached its entry cap.');
       await authorize(signal); check();
       notes.sort((a, b) => a.path < b.path ? -1 : a.path === b.path ? 0 : 1);
       const warnings = new Set<string>();
@@ -230,9 +299,20 @@ export class FilesystemIndex {
       // Retain only the full-mirror lookup. Nested vault lookups are request scoped.
       memory.add(allPaths.reduce((bytes, path) => bytes + 256 + 4 * path.length, 0));
       const links = new VaultLinks(allPaths, '', notes);
-      return { view: Object.freeze({ notes: Object.freeze(notes), attachments: Object.freeze([...attachments]),
+      const view = Object.freeze({ notes: Object.freeze(notes), attachments: Object.freeze([...attachments]),
         links: (root: string) => root ? new VaultLinks(allPaths, root, notes) : links, directories: Object.freeze([...directories]),
-        omissions: Object.freeze([...omissions.values()]) }), memory, release: memory.release,
+        omissions: Object.freeze([...omissions.values()]) });
+      const markers = new Set([...directories].filter(path => isVaultMarker(path) && !inVaultConfig(path))
+        .map(path => path === '.obsidian' ? '' : path.slice(0, -'/.obsidian'.length)));
+      const roots = [...markers].filter(path => {
+        while (path) {
+          path = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+          if (markers.has(path)) return false;
+        }
+        return true;
+      }).sort();
+      this.moveEvidence.set(view, { stamps, roots: Object.freeze(roots), blockers: Object.freeze([...blockers.values()]) });
+      return { view, memory, release: memory.release,
         published: () => {
           for (const path of lane.watches.keys()) if (!directories.has(path)) this.unwatch(lane, path);
           for (const warning of warnings) if (!lane.warnings.has(warning)) this.diagnose('index_refresh', warning);

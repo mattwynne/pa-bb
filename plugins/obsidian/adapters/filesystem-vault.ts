@@ -81,7 +81,7 @@ export class FilesystemVault {
   vaultRoots(id: string, revision: number) {
     return this.access(id, revision, async root => {
       const result = await this.files.vaultRoots(root);
-      if (result.incomplete) this.diagnose('filesystem', 'unavailable');
+      if (result.incomplete) this.diagnose('filesystem', result.warnings[0] ?? 'unavailable');
       return result;
     });
   }
@@ -214,22 +214,36 @@ export class FilesystemVault {
     }
   }
 
-  listProjectMove(input: Parameters<NonNullable<VaultFiles['listProjectMove']>>[0]) {
+  listProjectMove(...[input, indexed]: Parameters<NonNullable<VaultFiles['listProjectMove']>>) {
     return this.access(input.mirrorId, input.revision, async root => {
       if (input.directory) {
+        const inventory = async () => {
+          if (!indexed) return this.files.list(root, true, input.root, true);
+          const { lease, signal } = indexed;
+          await lease.checkMembership(signal, root);
+          const { view } = lease;
+          const scope = input.root ?? '';
+          const within = (path: string) => !scope || path === scope || path.startsWith(scope + '/');
+          const missing = [...lease.blockers, ...view.omissions].find(({ path }) => within(path) || !path || scope.startsWith(path + '/'));
+          if (missing) {
+            throw new VaultError('index_incomplete', `The vault index has incomplete coverage at ${missing.path.slice(0, 1024) || 'the mirror root'}. Inspect unsupported entries or conflict copies before preparing another move.`);
+          }
+          return { paths: view.notes.filter(note => within(note.path)).map(note => note.path),
+            attachments: (view.attachments ?? []).filter(within).sort(), incomplete: false, warnings: [] };
+        };
         if (input.afterMove) {
           if (await this.files.entry(root, input.path) || !(await this.files.entry(root, input.destination))?.isDirectory())
             throw new VaultError('conflict', 'A folder endpoint changed after the move.');
-          return this.files.list(root, true, input.root, true);
+          return inventory();
         }
         const rows = await this.ledger.load();
         this.ledger.assertNoOverlap(rows.filter(row => row.operationId !== input.operationId), input.mirrorId, [input.path, input.destination]);
         const { evidence: folderEvidence } = await this.inspectFolderMove(root, input);
-        return { ...await this.files.list(root, true, input.root, true), folderEvidence };
+        return { ...await inventory(), folderEvidence };
       }
       if (!input.afterMove) await this.inspectProjectMove(root, input);
       return this.files.list(root, true, input.root);
-    });
+    }, indexed?.signal);
   }
 
   private async inspectFolderMove(root: string, input: MoveEndpoints) {

@@ -3,9 +3,14 @@ import { VaultError, type Metadata } from './ports.ts';
 
 type Frozen<T> = T extends object ? { readonly [K in keyof T]: Frozen<T[K]> } : T;
 export type IndexedNote = Frozen<{ path: string; hash: string; readAt: string; properties: Record<string, unknown>; linkData?: ParsedLinks; propertyWarning?: 'properties_unsupported'; metadata?: Omit<Metadata, 'properties'>; metadataWarning?: 'parser_limit' }>;
-export type IndexOmission = Readonly<{ path: string; kind: 'note' | 'tree' }>;
+export type IndexOmission = Readonly<{ path: string; kind: 'note' | 'tree'; boundary?: true }>;
 export type IndexView = Readonly<{ notes: readonly IndexedNote[]; attachments?: readonly string[]; links?: (root: string) => VaultLinks; directories: readonly string[]; omissions: readonly IndexOmission[] }>;
 export type IndexLease = { readonly view: IndexView; check(signal?: AbortSignal): Promise<void>; assertValid(): void; assertUnchanged?(): void; close(): void };
+export type MoveIndexLease = IndexLease & {
+  readonly roots: readonly string[];
+  readonly blockers: readonly IndexOmission[];
+  checkMembership(signal: AbortSignal, directory?: string): Promise<void>;
+};
 export type IndexGeneration = { view: IndexView; memory?: IndexReservation; published?(): void; release(): void };
 type Refresh = (previous: IndexView | undefined, paths: ReadonlySet<string> | null, signal: AbortSignal) => Promise<IndexGeneration>;
 
@@ -68,10 +73,14 @@ export class VaultIndex {
       if (!this.controller.signal.aborted && (this.paths.size || this.full)) this.run();
     });
   }
-  async acquire(signal?: AbortSignal): Promise<IndexLease> {
+  async acquire(signal?: AbortSignal, settle = false): Promise<IndexLease> {
     const cancellation = signal ? AbortSignal.any([this.controller.signal, signal]) : this.controller.signal;
     if (cancellation.aborted) throw abortError(cancellation);
     if (!this.current && !this.active && !this.failure) this.hint();
+    if (settle) {
+      if (this.debounce) { clearTimeout(this.debounce); this.debounce = undefined; this.run(); }
+      while (this.active) await untilAborted(this.active, cancellation);
+    }
     if (!this.current && this.active) await untilAborted(this.active, cancellation);
     if (cancellation.aborted) throw abortError(cancellation);
     if (this.failure) throw this.failure;

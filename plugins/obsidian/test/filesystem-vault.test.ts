@@ -124,11 +124,13 @@ async function standaloneFolder(t: TestContext) {
       await mkdir(join(root, path), { recursive: true });
     for (const [path, body] of Object.entries(folderNotes)) await writeFile(join(root, path), body);
     await writeFile(join(root, folderRequest.path, 'Nested/Diagram.png'), diagram);
-  }, undefined, null);
+  });
 }
 
 test('standalone folder preview and apply preserve the full tree and repair two explicit mirror-prefixed backlinks', async t => {
   const f = await standaloneFolder(t);
+  const list = t.mock.method(LocalNotes.prototype, 'list', async () => { throw new Error('Unexpected live vault listing'); });
+  const roots = t.mock.method(LocalNotes.prototype, 'vaultRoots', async () => { throw new Error('Unexpected live vault root walk'); });
   const companion = join(f.directory, 'Life/Archive/Companion.md');
   const source = join(f.directory, folderRequest.path), destination = join(f.directory, folderRequest.destination);
   const originalCompanion = await stat(companion), originalFolder = await stat(source);
@@ -153,6 +155,10 @@ test('standalone folder preview and apply preserve the full tree and repair two 
   assert.equal(moved.operationId, preview.previewId);
   assert.equal(moved.outcome, 'moved_supported_links_updated');
   assert.deepEqual(moved.verification, { state: 'verified', paths: [] });
+  assert.equal(list.mock.callCount(), 0);
+  assert.equal(roots.mock.callCount(), 0);
+  list.mock.restore();
+  roots.mock.restore();
   assert.deepEqual(moved.folder, { from: folderRequest.path, to: folderRequest.destination });
   assert.equal((await stat(destination)).ino, originalFolder.ino);
   assert.equal((await stat(join(destination, 'Nested/Diagram.png'))).ino, originalImage.ino);
@@ -196,10 +202,14 @@ test('folder preview reports occupancy, overlap, incomplete coverage and an unre
   assert.match(occupied.nextAction, /occupied/);
   await rm(full(folderRequest.destination), { recursive: true });
   await symlink('README.md', full('Life/private-symlink'));
-  const incomplete = await f.tool('preview_folder_move', folderRequest, 'unavailable');
+  const incomplete = await f.tool('preview_folder_move', folderRequest, 'index_incomplete');
   assert.match(incomplete.nextAction, /Life\/private-symlink/);
   assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /private-symlink/);
   await unlink(full('Life/private-symlink'));
+  await writeFile(full('Life/README.md.icloud-conflict1'), 'synthetic');
+  await f.tool('preview_folder_move', folderRequest, 'index_incomplete');
+  assert.match(JSON.stringify(f.harness.inspection.logEntries), /Obsidian filesystem index_incomplete/);
+  await unlink(full('Life/README.md.icloud-conflict1'));
   await writeFile(full('Life/ZZ.md'), '[[Life/Active/Workshop/Absent]]');
   const blocked = await f.tool('preview_folder_move', folderRequest, 'ambiguous_link');
   assert.equal(blocked.location.path, 'Life/ZZ.md');

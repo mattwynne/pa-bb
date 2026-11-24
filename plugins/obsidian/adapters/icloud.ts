@@ -264,6 +264,10 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     if (!this.filesystem) throw new VaultError('source_unavailable');
     return this.filesystem.index.acquire(id, revision, signal);
   }
+  indexForFolderMove(id: string, revision: number, signal: AbortSignal) {
+    if (!this.filesystem) throw new VaultError('source_unavailable');
+    return this.filesystem.index.acquireForMove(id, revision, signal);
+  }
   async search(input: import('../core/ports.ts').SearchRequest, signal?: AbortSignal): Promise<import('../core/ports.ts').SearchBatch> {
     return this.route(input.mirrorId, files => files.search(input, signal), () => this.legacySearch(input, signal));
   }
@@ -312,8 +316,8 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   inspect(mirrorId: string, revision: number, path: string) {
     return this.route(mirrorId, files => files.inspect(mirrorId, revision, path), () => this.request('noteInspectConflict', { mirrorId, revision, path }, false));
   }
-  listProjectMove(input: Parameters<NonNullable<VaultFiles['listProjectMove']>>[0]) {
-    return this.route(input.mirrorId, files => files.listProjectMove(input), () => this.listLegacyProjectMove(input));
+  listProjectMove(...[input, indexed]: Parameters<NonNullable<VaultFiles['listProjectMove']>>) {
+    return this.route(input.mirrorId, files => files.listProjectMove(input, indexed), () => this.listLegacyProjectMove(input));
   }
 
   private async listLegacyProjectMove(input: Parameters<NonNullable<VaultFiles['listProjectMove']>>[0]) {

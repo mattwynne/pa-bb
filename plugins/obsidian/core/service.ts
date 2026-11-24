@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import { checkIndexedInventoryRoot, indexedChildren, indexedInventoryRows, indexedProperties, projectFields, targetQuery, targetEvidence, targetCoverageIncomplete, within, InventoryBatchRefusal, INVENTORY_BATCH_MAX_BYTES } from './inventory-evidence.ts';
 import type { InventoryBatchRequest, InventoryBatchRow } from '../contract.ts';
-import type { IndexLease, IndexView } from './vault-index.ts';
+import type { IndexLease, IndexView, MoveIndexLease } from './vault-index.ts';
 import { linkReference, parseLinks, VaultLinks, vaultRootFor, type IndexedLink, type LinkResolution, type LinkSource } from './vault-links.ts';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
@@ -792,7 +792,8 @@ export class Obsidian {
     const unsupportedPath = [input.path, input.destination].find(path => /[#|\[\]<>?%]/.test(path));
     if (unsupportedPath) throw new MoveLinkError({ reason: 'path_characters', path: unsupportedPath });
     const { revision, catalog } = await this.source(input.vaultId);
-    const previewRequest = directory ? JSON.stringify([reader, input.vaultId, revision, input.path, input.destination]) : '';
+    const useMoveIndex = directory && projectAreaRoute(catalog, input.vaultId) === 'index';
+    const previewRequest = directory ? JSON.stringify([reader, input.vaultId, revision, input.path, input.destination, !!useMoveIndex]) : '';
     const preview = directory && input.operationId ? this.folderPreviews.get(input.operationId) : undefined;
     if (directory) {
       if (!input.dryRun) {
@@ -818,58 +819,72 @@ export class Obsidian {
       if (signal?.aborted) throw new VaultError('cancelled', 'Move stopped before writing. Link discovery was cancelled.');
       if (preview && preview.expires <= this.clock()) throw new VaultError('conflict', 'The folder move preview expired. Prepare a fresh preview.');
       if (deadline.aborted || this.clock() - started >= MOVE_SCAN_LIMITS.milliseconds) {
-        refuse('capacity', 'Link discovery reached its 20-second time limit before checking the entire vault.');
+        if (!directory) refuse('capacity', 'Link discovery reached its 20-second time limit before checking the entire vault.');
+        this.diagnose('move_preflight', 'scan_timeout');
+        throw new VaultError('scan_timeout', 'Move stopped before writing. Link discovery reached its 20-second time limit.', true);
       }
     };
-    const roots = async () => {
-      const result = await this.files.vaultRoots(input.vaultId, revision);
-      check();
-      if (result.incomplete) refuse('unavailable', 'The selected vault boundary could not be verified.');
-      return result.roots;
-    };
-    const observedRoots = await roots();
-    const sourceRoot = vaultRootFor(input.path, observedRoots);
-    if (input.root && observedRoots.length && input.root !== sourceRoot)
-      throw new VaultError('conflict', 'Move stopped before writing. The requested root does not match the source Obsidian vault.');
-    const root = input.root ?? sourceRoot;
-    const checkRoot = (current: readonly string[]) => {
-      if (directory && current.some(entry => entry &&
-        [input.path, input.destination].some(path => path === entry || entry.startsWith(path + '/'))))
-        throw new VaultError('conflict', 'A folder endpoint is or contains an Obsidian vault boundary.');
-      if (vaultRootFor(input.path, current) !== vaultRootFor(input.path, observedRoots) ||
-        vaultRootFor(input.destination, current) !== vaultRootFor(input.destination, observedRoots) ||
-        vaultRootFor(input.path, current) !== vaultRootFor(input.destination, current)) {
-        throw new VaultError('conflict', 'Move stopped before writing. The endpoints must remain in the same Obsidian vault.');
-      }
-    };
-    checkRoot(observedRoots);
-    const projectInput = { mirrorId: input.vaultId, revision, path: input.path, destination: input.destination,
-      project: input.project, root: root || undefined, ...(directory ? { directory, operationId: input.operationId } : {}) };
-    const readForMove = (path: string) => this.files.readForMove
-      ? this.files.readForMove(input.vaultId, revision, path, scanSignal)
-      : this.files.read(input.vaultId, revision, path);
-    const list = async () => {
-      check();
-      const listed = usesFolderInventory
-        ? await this.files.listProjectMove!(projectInput)
-        : { ...await this.linkInventory(input.vaultId, revision, root), folderEvidence: undefined };
-      check();
-      if (listed.warnings.includes('scan_limit')) refuse('capacity', 'The vault listing reached its scan limit before link discovery could finish.');
-      if (listed.incomplete || listed.warnings.length) refuse('unavailable', 'The vault listing was incomplete or contained unsupported entries. Check vault access before attempting the move again.');
-      if (listed.paths.length > MOVE_SCAN_LIMITS.notes) refuse('capacity', `Link discovery is limited to ${MOVE_SCAN_LIMITS.notes} notes in the vault.`);
-      if (new Set(listed.paths).size !== listed.paths.length) refuse('unavailable', 'The vault listing contained duplicate paths.');
-      return listed;
-    };
-    const { paths: listed, attachments, folderEvidence } = await list();
-    if (directory && !folderEvidence) refuse('unavailable', 'The backend could not verify the folder tree.');
-    const inventory = new Set(listed);
-    const planner = createMovePlanner(inventory, input.path, input.destination, this.parser, input.project, attachments, root, directory);
+    let moveIndex: MoveIndexLease | undefined;
     let lease: IndexLease | undefined;
     try {
+      if (useMoveIndex) {
+        if (!this.files.indexForFolderMove) throw new VaultError('unsupported');
+        moveIndex = await this.files.indexForFolderMove(input.vaultId, revision, scanSignal);
+      }
+      const roots = async () => {
+        if (moveIndex) return moveIndex.roots;
+        const result = await this.files.vaultRoots(input.vaultId, revision);
+        check();
+        if (directory && result.warnings?.includes('entry_cap'))
+          throw new VaultError('entry_cap', 'The vault boundary scan reached its entry cap.', true);
+        if (directory && result.warnings?.includes('scan_timeout'))
+          throw new VaultError('scan_timeout', 'The vault boundary scan timed out.', true);
+        if (result.incomplete) refuse('unavailable', 'The selected vault boundary could not be verified.');
+        return result.roots;
+      };
+      const observedRoots = await roots();
+      const sourceRoot = vaultRootFor(input.path, observedRoots);
+      if (input.root && observedRoots.length && input.root !== sourceRoot)
+        throw new VaultError('conflict', 'Move stopped before writing. The requested root does not match the source Obsidian vault.');
+      const root = input.root ?? sourceRoot;
+      const checkRoot = (current: readonly string[]) => {
+        if (directory && current.some(entry => entry &&
+          [input.path, input.destination].some(path => path === entry || entry.startsWith(path + '/'))))
+          throw new VaultError('conflict', 'A folder endpoint is or contains an Obsidian vault boundary.');
+        if (vaultRootFor(input.path, current) !== vaultRootFor(input.path, observedRoots) ||
+          vaultRootFor(input.destination, current) !== vaultRootFor(input.destination, observedRoots) ||
+          vaultRootFor(input.path, current) !== vaultRootFor(input.destination, current)) {
+          throw new VaultError('conflict', 'Move stopped before writing. The endpoints must remain in the same Obsidian vault.');
+        }
+      };
+      checkRoot(observedRoots);
+      const projectInput = { mirrorId: input.vaultId, revision, path: input.path, destination: input.destination,
+        project: input.project, root: root || undefined, ...(directory ? { directory, operationId: input.operationId } : {}) };
+      const readForMove = (path: string) => this.files.readForMove
+        ? this.files.readForMove(input.vaultId, revision, path, scanSignal)
+        : this.files.read(input.vaultId, revision, path);
+      const list = async () => {
+        check();
+        const listed = usesFolderInventory
+          ? await this.files.listProjectMove!(projectInput, moveIndex && { lease: moveIndex, signal: scanSignal })
+          : { ...await this.linkInventory(input.vaultId, revision, root), folderEvidence: undefined };
+        check();
+        if (listed.warnings.includes('entry_cap')) throw new VaultError('entry_cap', 'The vault listing reached its entry cap.');
+        if (listed.warnings.includes('scan_timeout')) throw new VaultError('scan_timeout', 'The vault listing timed out.');
+        if (listed.warnings.includes('scan_limit')) refuse('capacity', 'The vault listing reached its scan limit before link discovery could finish.');
+        if (listed.incomplete || listed.warnings.length) refuse('unavailable', 'The vault listing was incomplete or contained unsupported entries. Check vault access before attempting the move again.');
+        if (listed.paths.length > MOVE_SCAN_LIMITS.notes) refuse('capacity', `Link discovery is limited to ${MOVE_SCAN_LIMITS.notes} notes in the vault.`);
+        if (new Set(listed.paths).size !== listed.paths.length) refuse('unavailable', 'The vault listing contained duplicate paths.');
+        return listed;
+      };
+      const { paths: listed, attachments, folderEvidence } = await list();
+      if (directory && !folderEvidence) refuse('unavailable', 'The backend could not verify the folder tree.');
+      const inventory = new Set(listed);
+      const planner = createMovePlanner(inventory, input.path, input.destination, this.parser, input.project, attachments, root, directory);
       if (!directory && this.files.index && projectAreaRoute(catalog, input.vaultId) === 'index') {
         lease = await this.files.index(input.vaultId, revision, scanSignal);
       }
-      const indexed = lease?.view.links?.(root);
+      const indexed = (moveIndex ?? lease)?.view.links?.(root);
       const originalHashes = new Map<string, string>();
       const blockerSamples: MoveLinkError[] = [];
       const firstByReason = new Map<MoveLinkError['location']['reason'], MoveLinkError>();
@@ -957,7 +972,7 @@ export class Obsidian {
         }
         await checkMembership();
         await lease?.check(scanSignal);
-        const assertPlan = () => { lease?.assertUnchanged?.(); check(); };
+        const assertPlan = () => { (moveIndex ?? lease)?.assertUnchanged?.(); check(); };
         assertPlan();
         return assertPlan;
       };
@@ -1056,7 +1071,9 @@ export class Obsidian {
         }
       } catch (e) {
         if (!(e instanceof VaultError && e.diagnosticReported)) this.diagnose('tool', e instanceof VaultError ? e.category : 'unavailable');
-        if (!dispatched || (planRefused && e instanceof VaultError && e.category !== 'uncertain') || (!physicalVerified && usesFolderInventory && e instanceof VaultError && ['conflict', 'unsupported', 'invalid_path', 'operation_expired', 'cancelled'].includes(e.category))) {
+        const folderRefusal = usesFolderInventory && e instanceof VaultError &&
+          ['conflict', 'unsupported', 'invalid_path', 'operation_expired', 'cancelled', 'entry_cap', 'scan_timeout'].includes(e.category);
+        if (!dispatched || (planRefused && e instanceof VaultError && e.category !== 'uncertain') || (!physicalVerified && folderRefusal)) {
           record.refused = true;
           if (directory && e instanceof VaultError) refusal = { category: e.category, nextAction: e.nextAction };
         }
@@ -1069,8 +1086,10 @@ export class Obsidian {
           const destinationHashes = new Map<string, string>();
           for (const [path, hash] of originalHashes) destinationHashes.set(planner.moves.get(path) ?? path, hash);
           for (const repair of plan) destinationHashes.set(repair.path, repair.hash);
+          moveIndex?.close();
+          moveIndex = undefined;
           record.verification = await this.verifyMovedLinks(projectInput, destinationHashes,
-            new Set(attachments.map(path => planner.moves.get(path) ?? path)), vaultRootFor(input.destination, observedRoots), signal);
+            new Set(attachments.map(path => planner.moves.get(path) ?? path)), vaultRootFor(input.destination, observedRoots), signal, !!useMoveIndex);
         }
         if (record.refused || record.verification) await updateRecord();
         const status = await this.moveStatus({ vaultId: input.vaultId, operationId });
@@ -1085,22 +1104,29 @@ export class Obsidian {
       } finally {
         this.enteredMoves.delete(operationId);
       }
-    } finally { lease?.close(); }
+    } catch (error) {
+      if (scanSignal.aborted && !(error instanceof VaultError && error.diagnosticReported)) check();
+      throw error;
+    } finally { lease?.close(); moveIndex?.close(); }
   }
 
   private async verifyMovedLinks(input: Parameters<NonNullable<VaultFiles['listProjectMove']>>[0],
-    expected: ReadonlyMap<string, string>, attachments: ReadonlySet<string>, observedRoot: string, signal?: AbortSignal): Promise<NonNullable<MoveRecord['verification']>> {
+    expected: ReadonlyMap<string, string>, attachments: ReadonlySet<string>, observedRoot: string, signal?: AbortSignal, useMoveIndex = false): Promise<NonNullable<MoveRecord['verification']>> {
     const deadline = AbortSignal.timeout(MOVE_SCAN_LIMITS.milliseconds);
     const check = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    let lease: MoveIndexLease | undefined;
     try {
+      if (useMoveIndex) lease = await this.files.indexForFolderMove!(input.mirrorId, input.revision, check);
       const inventory = async () => {
-        const roots = await this.files.vaultRoots(input.mirrorId, input.revision);
-        if (roots.incomplete || vaultRootFor(input.destination, roots.roots) !== observedRoot) throw new VaultError('unavailable');
-        const listed = input.project || input.directory ? await this.files.listProjectMove!({ ...input, afterMove: true }) :
+        const roots = lease ? { roots: lease.roots, incomplete: false, warnings: [] } : await this.files.vaultRoots(input.mirrorId, input.revision);
+        if (roots.incomplete || vaultRootFor(input.destination, roots.roots) !== observedRoot)
+          throw new VaultError(roots.warnings?.[0] ?? 'unavailable', undefined, !!roots.warnings?.length);
+        const listed = input.project || input.directory ? await this.files.listProjectMove!({ ...input, afterMove: true }, lease && { lease, signal: check }) :
           await this.linkInventory(input.mirrorId, input.revision, input.root ?? '');
         check.throwIfAborted();
         this.check(input.mirrorId, input.revision);
-        if (listed.incomplete || listed.warnings.length) throw new VaultError('unavailable');
+        if (listed.incomplete || listed.warnings.length)
+          throw new VaultError(listed.warnings.find(warning => warning === 'entry_cap' || warning === 'scan_timeout') ?? 'unavailable');
         const differences = (paths: string[], prior: ReadonlySet<string> | ReadonlyMap<string, string>) => {
           const now = new Set(paths);
           return paths.filter(path => !prior.has(path)).concat([...prior.keys()].filter(path => !now.has(path)));
@@ -1132,11 +1158,13 @@ export class Obsidian {
         return { state: 'note_changed', paths: changes.slice(0, 8) };
       }
       const final = await inventory();
+      lease?.assertUnchanged?.();
       return final.changes.length ? inventoryChanged(final.changes) : { state: 'verified', paths: [] };
     } catch (error) {
-      if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose('move_verification', 'unavailable');
-      return { state: 'unavailable', paths: [] };
-    }
+      const category = signal?.aborted ? 'cancelled' : deadline.aborted ? 'scan_timeout' : error instanceof VaultError ? error.category : 'unavailable';
+      if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose('move_verification', category);
+      return { state: 'unavailable', paths: [], ...(input.directory ? { category } : {}) };
+    } finally { lease?.close(); }
   }
 
   private async pending(vaultId: string, path: string, operationId: string, revision: number, kind: 'save' | 'resolution') {
