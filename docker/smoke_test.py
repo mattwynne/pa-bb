@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
 
 REGISTRATION_COMPLETE = 'PA plugins registered. Connect accounts in BB settings.'
@@ -294,10 +295,15 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         count = SmokeTest(args.image).run()
+        script = Path(__file__).with_name('smoke_obsidian_desktop.sh')
+        subprocess.run(['bash', str(script), args.image], check=True, timeout=270)
     except SmokeError as error:
         print(f'Smoke test failed: {error}', file=sys.stderr)
         return 1
-    print(f'Smoke test passed: healthy, registration complete, {count} expected plugins verified; note search and email archive verified; cleaned up.')
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f'Obsidian Desktop smoke test failed ({type(error).__name__}).', file=sys.stderr)
+        return 1
+    print(f'Smoke test passed: healthy, registration complete, {count} expected plugins verified; note search, Obsidian Desktop and email archive verified; cleaned up.')
     return 0
 
 
