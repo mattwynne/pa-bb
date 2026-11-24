@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { createFakePluginHost, makeThreadResponse } from '@get-bb/plugin-sdk/testing';
 import { plugin } from '../server.ts';
+import { projectChanges } from '../core/project-changes.ts';
 
 const source = 'one', owner = 'Projects/Example.md', done = 'Projects/Done/Example.md';
 const area = 'Areas/Work/Example.md';
@@ -16,7 +17,8 @@ async function setup(paired = false) {
   const meta = { project: { source, id: owner }, other: 'unchanged' };
   const history: Array<{ method: string; input: any }> = [];
   const moves = new Map<string, Receipt>();
-  const saves = new Map<string, string>();
+  const saves = new Map<string, { outcome: string; path: string; before: object; after: object }>();
+  let lostProperty: string | undefined;
   let lostMove: string | undefined, loseThreads = false, archiveFails = false, hideReceipt = false;
   let writes = 0, archived = false;
   const fixture = createFakePluginHost({
@@ -38,7 +40,7 @@ async function setup(paired = false) {
         if (method === 'noteEvidence') {
           const note = docs.get(input.path);
           assert.ok(note, 'Note exists');
-          return { hash: digest(note), properties: structuredClone(note), receipt: saves.get(input.operationId) ?? null };
+          return { hash: digest(note), properties: structuredClone(note), receipt: saves.get(input.operationId)?.outcome ?? null };
         }
         if (method === 'writeProperties') {
           const note = docs.get(input.path);
@@ -46,11 +48,16 @@ async function setup(paired = false) {
           const operationId = input.operationId ?? randomUUID();
           assert.ok(!saves.has(operationId));
           const outcome = input.expectedHash === digest(note) ? 'saved_locally_pending_sync' : 'not_saved';
+          const next = { ...note };
           if (outcome === 'saved_locally_pending_sync') {
-            Object.assign(note, input.set);
-            for (const key of input.remove ?? []) delete note[key];
+            Object.assign(next, input.set);
+            for (const key of input.remove ?? []) delete next[key];
+            docs.set(input.path, next);
           }
-          saves.set(operationId, outcome);
+          saves.set(operationId, { outcome, path: input.path, before: note, after: next });
+          if (lostProperty && outcome === 'saved_locally_pending_sync' &&
+              (Object.hasOwn(input.set ?? {}, lostProperty) || input.remove?.includes(lostProperty)))
+            throw new Error('PRIVATE_LOST_SAVE_REPLY');
           return { operationId, outcome };
         }
         if (method === 'movePath') {
@@ -76,7 +83,12 @@ async function setup(paired = false) {
           const receipt = moves.get(input.operationId);
           if (receipt && hideReceipt) throw new Error('PRIVATE_RECEIPT_UNAVAILABLE');
           if (!receipt || !receipt.identity || receipt.outcome !== 'moved_locally_pending_sync') return receipt ?? null;
-          return { ...receipt, outcome: docs.get(receipt.destination) === receipt.identity && !docs.has(receipt.path)
+          let current = receipt.identity;
+          for (const save of saves.values()) {
+            if (save.outcome === 'saved_locally_pending_sync' && save.path === receipt.destination && save.before === current)
+              current = save.after;
+          }
+          return { ...receipt, outcome: docs.get(receipt.destination) === current && !docs.has(receipt.path)
             ? receipt.outcome : 'uncertain' };
         }
         assert.fail('Unexpected RPC ' + method);
@@ -104,6 +116,7 @@ async function setup(paired = false) {
   return {
     handles, docs, folders, meta, history, moves, writes: () => writes, archived: () => archived,
     loseMove: (kind: string) => { lostMove = kind; },
+    losePropertySave: (key: string) => { lostProperty = key; },
     hideReceipt: (value: boolean) => { hideReceipt = value; },
     loseThreadWrite: () => { loseThreads = true; },
     failArchive: (value: boolean) => { archiveFails = value; },
@@ -173,11 +186,16 @@ test('a historical paired plan is inspected only through its original move recei
   f.docs.delete(owner);
   f.folders.delete(owner.slice(0, -3)); f.folders.add(done.slice(0, -3));
   f.moves.set(planId, { vaultId: source, path: owner, destination: done, operationId: planId,
-    outcome: 'moved_locally_pending_sync', legacy: { paired: true, outcome: 'moved_supported_links_updated' } });
+    outcome: 'moved_locally_pending_sync', legacy: { paired: true, expectedHash: digest({ title: 'Example' }), outcome: 'moved_supported_links_updated' } });
   const config = { vaultId: source, projectsFolder: 'Projects', areasFolder: 'Areas' };
   f.handles.host.bb.storage.database().prepare('INSERT INTO project_change_plans (id,created,plan) VALUES (?,?,?)')
     .run(planId, Date.now(), JSON.stringify({ config, source, id: owner, owner, destination: done,
       expectedHash: digest({ title: 'Example' }), project: 'paired', status: 'done', originalArea: area, threads: ['linked'] }));
+  const receipt = f.moves.get(planId)!;
+  f.moves.set(planId, { ...receipt, legacy: { paired: true, expectedHash: digest({ wrong: true }), outcome: 'moved_supported_links_updated' } });
+  await f.tool('gtd_check_project_change', { planId, finishLinks: true }, true);
+  assert.equal(f.writes(), 0);
+  f.moves.set(planId, receipt);
   const result = await f.tool('gtd_check_project_change', { planId, finishLinks: true });
   assert.equal(result.state, 'links_verified');
   assert.equal(f.meta.project.id, done);
@@ -218,6 +236,49 @@ test('deferral moves directly, verifies the date, and uses the current ID for la
   assert.equal(changed.dateVerified, true);
   assert.equal(f.docs.get(result.id)!['defer-until'], '2026-12-02');
   assert.equal(f.history.filter(call => call.method === 'movePath').length, 1);
+});
+
+test('a saved deferral date survives reply loss and reload after replacing the moved file', async t => {
+  const f = await setup();
+  t.after(() => f.handles.host.harness.lifecycle.dispose());
+  f.losePropertySave('defer-until');
+  const first = await f.tool('gtd_defer_project', { id: owner, deferUntil: '2026-12-01' });
+  assert.equal(first.state, 'date_unconfirmed');
+  assert.equal(f.docs.get(first.id)!['defer-until'], '2026-12-01');
+  const move = f.moves.get(first.moveOperationId);
+  assert.notEqual(f.docs.get(first.id), move?.identity);
+  await f.reload();
+  const result = await f.tool('gtd_defer_project', { id: owner, deferUntil: '2026-12-01' });
+  assert.equal(result.state, 'deferred');
+  assert.equal(result.dateVerified, true);
+  assert.equal(f.history.filter(call => call.method === 'movePath').length, 1);
+  assert.equal(f.history.filter(call => call.method === 'writeProperties' && call.input.set?.['defer-until']).length, 1);
+  f.docs.set(first.id, { ...f.docs.get(first.id)! });
+  const replaced = await f.tool('gtd_defer_project', { id: owner, deferUntil: '2026-12-01' });
+  assert.equal(replaced.dateVerified, undefined);
+  assert.notEqual(replaced.state, 'deferred');
+});
+
+test('automatic reactivation settles a saved date removal across reload without reissuing the write', async t => {
+  const f = await setup();
+  t.after(() => f.handles.host.harness.lifecycle.dispose());
+  const deferred = 'Projects/Deferred/Example.md', active = 'Projects/Active/Example.md';
+  f.docs.delete(owner);
+  f.docs.set(deferred, { area, 'defer-until': '2026-11-24' });
+  f.meta.project.id = deferred;
+  f.losePropertySave('defer-until');
+  const run = () => projectChanges(f.handles.host.bb,
+    async () => ({ vaultId: source, projectsFolder: 'Projects', areasFolder: 'Areas', automaticReactivation: true }),
+    () => Date.parse('2026-11-24T16:00:00Z')).reactivate(new AbortController().signal, true);
+  await run();
+  assert.equal(f.meta.project.id, active);
+  assert.equal(Object.hasOwn(f.docs.get(active)!, 'defer-until'), false);
+  assert.ok(f.handles.host.bb.storage.database().prepare('SELECT 1 FROM project_reactivations').get());
+  await f.reload();
+  await run();
+  assert.equal(f.handles.host.bb.storage.database().prepare('SELECT 1 FROM project_reactivations').get(), undefined);
+  assert.equal(f.history.filter(call => call.method === 'movePath').length, 1);
+  assert.equal(f.history.filter(call => call.method === 'writeProperties' && call.input.remove?.includes('defer-until')).length, 1);
 });
 
 test('panel completion archives the verified linked thread and can finish after an archive failure', async t => {

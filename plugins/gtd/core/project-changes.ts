@@ -73,6 +73,8 @@ const moveReceipt = z.object({
   outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']),
   legacy: z.object({
     paired: z.boolean(),
+    expectedHash: hash.optional(),
+    root: relativeFolder.optional(),
     outcome: moveOutcome,
   }).optional(),
 });
@@ -334,9 +336,19 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       : await rpc('moveReceipt', { vaultId: plan.source, operationId }, signal);
     const receipt = moveReceipt.nullable().parse(result);
     if (receipt && (receipt.operationId !== operationId || receipt.vaultId !== plan.source ||
-        receipt.path !== path || receipt.destination !== destination))
+        receipt.path !== path || receipt.destination !== destination || (plan.direct && receipt.legacy)))
       refuse('The stored move receipt does not match this project change.');
+    if (receipt && !plan.direct && plan.project && (receipt.legacy?.paired !== (plan.project === 'paired') ||
+        receipt.legacy.expectedHash !== plan.expectedHash ||
+        (receipt.legacy.root ?? '') !== plan.config.vaultId.split('/').slice(1).join('/')))
+      refuse('The earlier move receipt does not match the recorded project change.');
     return receipt;
+  }
+  async function confirmMoveDestination(planId: string, signal: AbortSignal) {
+    const { plan, move_op } = storedPlan(planId, true);
+    const operation = plan.direct || plan.project ? planId : move_op;
+    if (!plan.destination || !operation) return false;
+    return (await moveRecord(plan, operation, plan.owner, plan.destination, signal))?.outcome === 'moved_locally_pending_sync';
   }
   async function advanceMove(planId: string, signal: AbortSignal, startNote: boolean, beforeWrite?: () => Promise<void>) {
     if (active.has(planId)) refuse('A project change is already in use.');
@@ -385,6 +397,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         await confirmArea(s, plan.originalArea, signal);
       }
       await verifyBeforeWrite();
+      if (!await confirmMoveDestination(planId, signal)) return;
       plan.areaOperation = operationId();
       recordPlan(planId, plan);
       await writeProperties(plan.source, destination, current.hash, { set: { area: plan.originalArea } }, signal, plan.areaOperation);
@@ -394,8 +407,8 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
   }
   async function check(input: z.infer<typeof checkInput>, signal: AbortSignal, recovering = false, beforeWrite?: () => Promise<void>) {
     if (input.finishLinks) {
-      const { plan } = storedPlan(input.planId, recovering);
-      if (input.receipt && (input.receipt.operationId !== input.planId || input.receipt.vaultId !== plan.source ||
+      const { plan, move_op } = storedPlan(input.planId, recovering);
+      if (input.receipt && (input.receipt.operationId !== (plan.direct || plan.project ? input.planId : move_op ?? input.receipt.operationId) || input.receipt.vaultId !== plan.source ||
           input.receipt.path !== plan.owner || input.receipt.destination !== plan.destination))
         refuse('The receipt does not match this project plan.');
       await advanceMove(input.planId, signal, false, beforeWrite);
@@ -435,8 +448,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       ) : undefined;
       const moveOutcome = outcomeFor(receipt);
       if (receipt?.outcome !== 'moved_locally_pending_sync' ||
-          (p.folderOperation && folderReceipt?.outcome !== 'moved_locally_pending_sync') ||
-          (!p.direct && p.project === 'paired' && receipt.legacy?.paired !== true)) return {
+          (p.folderOperation && folderReceipt?.outcome !== 'moved_locally_pending_sync')) return {
         state: 'move_not_verified', operationId: operationId ?? null,
         folderOperationId: p.folderOperation ?? null,
         moveOutcome: receipt?.outcome === 'moved_locally_pending_sync' ? 'project_move_partial' as const : moveOutcome,
@@ -669,6 +681,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       return e.entries.has(folder) && posix.dirname(folder) === s.projects &&
         posix.basename(folder).toLowerCase() === 'deferred';
     };
+    const confirmsDestination = () => !request.movePlan ? true : confirmMoveDestination(request.movePlan, signal);
     const saveRequest = (r: Deferral) => db.prepare(`INSERT INTO project_deferrals
       (scope, owner, destination, created, move_plan, complete, request) VALUES (?,?,?,?,?,?,?)
       ON CONFLICT(scope,owner) DO UPDATE SET destination=excluded.destination, created=excluded.created,
@@ -691,7 +704,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         request = JSON.parse(old.request) as Deferral;
         if (!observed.e.owners.has(request.destination) || !inDeferred(request.destination, observed.e))
           return refuse('The earlier destination is no longer in Deferred. List projects for its current ID.');
-        if (request.date === deferUntil && (await dateEvidence(request.destination)).matches) {
+        if (request.date === deferUntil && (await dateEvidence(request.destination)).matches && await confirmsDestination()) {
           await unchanged(s.config);
           return { state: request.completed, id: request.destination, deferUntil, dateVerified: true, moveOperationId: request.movePlan };
         }
@@ -754,6 +767,8 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       if (!e.owners.has(request.destination) || !inDeferred(request.destination, e))
         return partial('destination_unconfirmed', 'Confirm the exact landing note in Deferred, then retry the same deferral.');
       const observed = await dateEvidence(request.destination, request.dateAttempt);
+      if (!await confirmsDestination())
+        return partial('destination_unconfirmed', 'The moved note could not be confirmed at its destination. Inspect it before changing the date.');
       await unchanged(s.config);
       if (request.date !== deferUntil) {
         if (request.dateAttempt && (!observed.receipt || observed.receipt === 'uncertain'))
@@ -778,7 +793,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
           saveRequest(request);
           return failed;
         }
-        if (!(await dateEvidence(request.destination, request.dateAttempt)).matches)
+        if (!(await dateEvidence(request.destination, request.dateAttempt)).matches || !await confirmsDestination())
           return partial('date_unconfirmed', 'Inspect the date save receipt and the current defer-until field before updating it.');
         await unchanged(s.config);
       }
@@ -851,6 +866,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
 
         stage = 'cleanup_unconfirmed';
         const current = await evidence(request.destination, request.cleanupId);
+        if (!await confirmMoveDestination(operation.planId, signal)) return fail(stage, request.planId);
         // A changed field belongs to the later edit. A confirmed receipt also
         // settles an earlier cleanup even if a date has since been added.
         if (!current.present || current.date !== request.date || current.receipt === savedLocally)
@@ -868,7 +884,8 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
           return fail(stage, request.planId);
         }
         const after = await evidence(request.destination, request.cleanupId);
-        if (after.present && after.date === request.date && after.receipt !== savedLocally)
+        if ((after.present && after.date === request.date && after.receipt !== savedLocally) ||
+            !await confirmMoveDestination(operation.planId, signal))
           return fail(stage, request.planId);
         finish(request);
       } catch {
