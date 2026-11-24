@@ -1,9 +1,12 @@
+import { isDeepStrictEqual } from 'node:util';
 import { attentionSnapshot, emptyAttention, loadAttention, verifiedDate, DAY } from './attention.ts';
 import { CloudError, category, evidence, emptyState, activity } from './ports.ts';
 import type { CloudProvider, StateRepository, State, CloudFolder, Mirror, SyncProgress, ProgressReporter, Diagnose, Failure, FailureEvidence, Blocker } from './ports.ts';
 import { progressSnapshot } from './progress.ts';
 import { SyncDiagnostics } from './diagnostics.ts';
 import type { RunHistoryRepository, HistoryInput } from './diagnostics.ts';
+import { maintenanceRecord } from './maintenance.ts';
+import type { MaintenanceRecord } from './maintenance.ts';
 
 class RunStartError extends CloudError {
   constructor() { super('unavailable'); }
@@ -26,6 +29,9 @@ export class ICloudSync {
   private current: Promise<unknown> | null = null;
   private discovered = new Map<string, CloudFolder>();
   private history: SyncDiagnostics;
+  private maintenanceWriting = false;
+  private maintenanceUncertain = false;
+  private connectionRestorePending = false;
   constructor(private provider: CloudProvider, private repository: StateRepository,
     private clock: () => string, private id: () => string,
     private diagnose: Diagnose, history?: RunHistoryRepository, elapsed = () => performance.now()) {
@@ -33,6 +39,11 @@ export class ICloudSync {
   }
   async start() {
     this.state = await this.repository.load() ?? emptyState();
+    if (this.state.maintenance !== undefined) {
+      const parsed = maintenanceRecord.safeParse(this.state.maintenance);
+      if (!parsed.success) throw new CloudError('unavailable');
+      this.state.maintenance = parsed.data;
+    }
     this.state.lastSignInCompletedAt = verifiedDate(this.state.lastSignInCompletedAt, Date.parse(this.clock()));
     this.state.attentionState = loadAttention(this.state.attentionState, Date.parse(this.clock()));
     await this.history.start();
@@ -53,7 +64,10 @@ export class ICloudSync {
     // Remote Apple listing must not hold startup or ordinary local note admission.
   }
   restoreConnection() {
-    if (this.state.connected) setImmediate(() => {
+    if (!this.state.connected) return;
+    this.connectionRestorePending = true;
+    setImmediate(() => {
+      this.connectionRestorePending = false;
       if (this.stopped) return;
       void this.exclusive(async () => {
         try { await this.provider.verifyConnection(); this.connectionCheck = 'verified'; }
@@ -65,11 +79,77 @@ export class ICloudSync {
       }).catch(error => this.diagnose('restore_connection', category(error), { evidence: evidence(error) }));
     });
   }
-  status() { return { connected: this.state.connected, challenge: this.state.challenge, connectionCheck: this.connectionCheck, lastSignInCompletedAt: verifiedDate(this.state.lastSignInCompletedAt, Date.parse(this.clock())), attention: this.attention(), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), completingInitial: this.completingInitial === mirror.id, retryPending: this.state.connected && mirror.enabled && mirror.initialized && mirror.phase === 'failed' && mirror.blocker === null, recovering: mirror.phase === 'running' && mirror.failure !== null, progress: mirror.phase === 'running' || this.completingInitial === mirror.id ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
-  activity() { return { busy: this.stopped || this.busy || this.controlsPending > 0, admissionPaused: this.state.mirrors.every(m => !m.enabled || m.phase === 'retained') }; }
+  status() { return { connected: this.state.connected, challenge: this.state.challenge, connectionCheck: this.connectionCheck, lastSignInCompletedAt: verifiedDate(this.state.lastSignInCompletedAt, Date.parse(this.clock())), attention: this.attention(), mirrors: this.state.mirrors.map(mirror => ({ ...structuredClone(mirror), completingInitial: this.completingInitial === mirror.id, retryPending: !this.maintenanceHeld && this.state.connected && mirror.enabled && mirror.initialized && mirror.phase === 'failed' && mirror.blocker === null, recovering: mirror.phase === 'running' && mirror.failure !== null, progress: mirror.phase === 'running' || this.completingInitial === mirror.id ? structuredClone(this.progress.get(mirror.id) ?? activity('checking')) : null })) }; }
+  activity() { return { busy: this.stopped || this.busy || this.controlsPending > 0 || this.maintenanceWriting || this.connectionRestorePending, admissionPaused: this.maintenanceHeld || this.state.mirrors.every(m => !m.enabled || m.phase === 'retained') }; }
+  get maintenanceHeld() { return this.maintenanceWriting || this.maintenanceUncertain || !!this.state.maintenance?.hold; }
+  maintenanceStatus() {
+    const hold = this.state.maintenance?.hold;
+    return {
+      runId: hold?.runId ?? null,
+      previouslyEnabled: hold?.enabledIds.length ?? 0,
+      lastRestore: this.state.maintenance?.lastRestore ?? null,
+      persistence: this.maintenanceUncertain ? 'unconfirmed' as const : this.maintenanceWriting ? 'writing' as const : 'confirmed' as const,
+    };
+  }
+  pauseMaintenance(runId: string) {
+    const previous = this.state.maintenance;
+    if (this.maintenanceUncertain) throw new CloudError('unavailable');
+    if (previous?.hold?.runId === runId) return;
+    if (this.maintenanceHeld || previous?.lastRestore?.runId === runId) throw new CloudError('busy');
+    const enabledIds = this.state.mirrors.filter(mirror => mirror.enabled && mirror.phase !== 'retained').map(mirror => mirror.id);
+    return this.saveMaintenance({ hold: { runId, enabledIds }, lastRestore: previous?.lastRestore ?? null });
+  }
+  restoreMaintenance(runId: string, canRestore: (mirror: Mirror) => boolean) {
+    const previous = this.state.maintenance;
+    if (this.maintenanceUncertain) throw new CloudError('unavailable');
+    if (!previous?.hold && previous?.lastRestore?.runId === runId) return;
+    if (previous?.hold?.runId !== runId || this.activity().busy) throw new CloudError('busy');
+    const ownedIds = new Set(previous.hold.enabledIds);
+    const restored = this.state.mirrors.filter(mirror => ownedIds.has(mirror.id) && mirror.enabled &&
+      mirror.phase !== 'retained' && mirror.phase !== 'failed' && mirror.failure === null && mirror.blocker === null &&
+      this.state.connected && canRestore(mirror));
+    const restoredIds = new Set(restored.map(mirror => mirror.id));
+    // The hold overrides scheduling without erasing the user's enablement or
+    // hiding an in-flight failure. Close ineligible folders before lifting it.
+    const close = (state: State) => {
+      for (const mirror of state.mirrors) {
+        if (mirror.phase === 'retained' || restoredIds.has(mirror.id) || !mirror.enabled) continue;
+        this.pauseMirror(mirror);
+      }
+    };
+    return this.saveMaintenance({ hold: null, lastRestore: { runId, restored: restored.length, leftPaused: ownedIds.size - restored.length } }, close);
+  }
+  private async saveMaintenance(record: MaintenanceRecord, apply: (state: State) => void = () => {}) {
+    if (!maintenanceRecord.safeParse(record).success) throw new CloudError('unavailable');
+    this.maintenanceWriting = true;
+    const task = this.saving.catch(() => {}).then(async () => {
+      const previous = this.state.maintenance;
+      const next = structuredClone(this.state);
+      next.maintenance = record;
+      apply(next);
+      try { await this.repository.save(next); }
+      catch {
+        // The write may have committed before the error. Read back within the
+        // same save queue before allowing any other state snapshot to persist.
+        this.diagnose('maintenance_write', 'unavailable');
+        const persisted = await this.repository.load().then(state => state ? state.maintenance : null, () => null);
+        if (!isDeepStrictEqual(persisted, record)) {
+          this.maintenanceUncertain = persisted === null || !isDeepStrictEqual(persisted, previous);
+          throw new CloudError('unavailable');
+        }
+      }
+      this.state.maintenance = record;
+      apply(this.state);
+    });
+    this.saving = task;
+    try { await task; } finally { this.maintenanceWriting = false; }
+  }
   diagnostics(query: HistoryInput = {}) { return this.history.snapshot(query); }
   private save() {
-    const task = this.saving.catch(() => {}).then(() => this.repository.save(structuredClone(this.state)));
+    const task = this.saving.catch(() => {}).then(() => {
+      if (this.maintenanceUncertain) throw new CloudError('unavailable');
+      return this.repository.save(structuredClone(this.state));
+    });
     this.saving = task; return task;
   }
   private saveRunStart(mirror: Mirror) {
@@ -77,6 +157,7 @@ export class ICloudSync {
     // writes take their snapshots after this step, so a failed preflight cannot
     // leak a phantom running phase into a Pause or attention save.
     const task = this.saving.catch(() => {}).then(async () => {
+      if (this.maintenanceUncertain) throw new CloudError('unavailable');
       const snapshot = structuredClone(this.state);
       snapshot.mirrors.find(item => item.id === mirror.id)!.phase = 'running';
       await this.repository.save(snapshot);
@@ -295,10 +376,14 @@ export class ICloudSync {
   }
   pause(id: string) {
     return this.control(async () => {
-      const mirror = this.folder(id); mirror.enabled = false;
-      if (!['running', 'failed', 'retained'].includes(mirror.phase)) mirror.phase = 'paused';
+      if (this.maintenanceUncertain) throw new CloudError('unavailable');
+      this.pauseMirror(this.folder(id));
       await this.save(); return this.status();
     });
+  }
+  private pauseMirror(mirror: Mirror) {
+    mirror.enabled = false;
+    if (!['running', 'failed', 'retained'].includes(mirror.phase)) mirror.phase = 'paused';
   }
   rebuild(id: string) {
     return this.exclusive(async () => {
@@ -313,15 +398,16 @@ export class ICloudSync {
     }, true);
   }
   async tick(targets?: ReadonlySet<string>, allowed = () => true) {
-    if (this.stopped || !this.state.connected || !allowed()) return true;
+    const admitted = () => !this.maintenanceHeld && allowed();
+    if (this.stopped || !this.state.connected || !admitted()) return true;
     // A change hint can wait for a turn already in flight. The minute poll
     // always returns immediately when another operation owns the service.
     if (targets && (this.busy || this.controlsPending)) await Promise.allSettled([this.current, this.controls]);
-    if (this.stopped || !this.state.connected || !allowed()) return true;
+    if (this.stopped || !this.state.connected || !admitted()) return true;
     if (this.busy || this.controlsPending) return false;
     return this.exclusive(async () => {
       for (const mirror of this.state.mirrors) {
-        if (!this.state.connected || this.stopped || !allowed()) break;
+        if (!this.state.connected || this.stopped || !admitted()) break;
         if (targets && !targets.has(mirror.id)) continue;
         if (targets && (!mirror.initialized || mirror.phase !== 'ready')) continue;
         if (mirror.enabled && mirror.blocker === null && (mirror.phase === 'ready' || mirror.phase === 'failed')) {

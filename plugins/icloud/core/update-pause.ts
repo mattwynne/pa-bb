@@ -27,10 +27,17 @@ export class UpdatePause {
     const task = this.queue.then(() => { this.active(); return operation(); });
     this.queue = task.catch(() => {}); return task;
   }
-  assertUserCanStartSync() { this.active(); if (this.held) throw new CloudError('busy'); }
+  assertUserCanStartSync() { this.active(); if (this.held || this.sync.maintenanceHeld) throw new CloudError('busy'); }
+  localMaintenance<T>(signal: AbortSignal | undefined, operation: () => T | Promise<T>) {
+    return this.serial(async () => {
+      if (signal?.aborted || this.held) throw new CloudError('busy');
+      return operation();
+    });
+  }
   async stop() { this.stopped = true; await this.queue; }
   pause(jobId: string) {
     return this.serial(async () => {
+      if (this.sync.maintenanceHeld) throw new CloudError('busy');
       if (this.record && this.record.jobId !== jobId) throw new CloudError('busy');
       if (!this.record) { this.manualRecovery = false; this.record = { jobId, ownedIds: [] }; await this.save(); }
       // Hold admission even if a native run is still draining. The updater may
@@ -71,6 +78,7 @@ export class UpdatePause {
   }
   disconnect() {
     return this.serial(async () => {
+      if (this.sync.maintenanceHeld) throw new CloudError('busy');
       // Disconnect revokes every updater-owned resume, even across reconnect.
       if (this.record) { this.record.ownedIds = []; await this.save(); }
       await this.sync.disconnect();

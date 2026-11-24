@@ -8,6 +8,23 @@ bb plugin install icloud@pa-for-bb
 
 Follow the [setup and recovery guide](docs/setup.md). No folder syncs until **Enable sync** is confirmed. Use a disposable folder for the first live test. Photos and whole-Drive selection are not offered.
 
+## Local-path maintenance
+
+`bb icloud maintenance status --json` reports whether a maintenance hold
+has closed admission and whether admitted work has drained. For an authorized
+window, use `maintenance pause` and `maintenance restore` with the same
+fresh `--run-id` UUID. The [maintenance skill](skills/icloud-maintenance/SKILL.md)
+describes the run, drain checks and recovery.
+
+For other PA plugins, put rollout controls on BB's existing authorized CLI
+surface and reuse the plugin's own admission and recovery state. Persist a
+single run identity with the prior enablement, serialize competing controls,
+and report the admission fence separately from work already in flight. Keep
+status read-only and bounded. On restore, recheck eligibility, write the
+receipt with the state change, and use read-back to reconcile an uncertain
+result. Exercise cancellation, concurrent requests and recovery using
+generated fixtures before using a new control on live data.
+
 ## Read-only child enumeration
 
 `noteChildren` is restricted to the host-verified Obsidian caller and negotiated source revision. It enumerates only immediate directories and Markdown files in one exact relative folder through `NoteRuntime.access`; configuration/removal is checked again before publication. Directory handles are pinned and every traversed component is opened no-follow. It includes empty and attachment-only directories without reading note bytes. Each call visits at most 5,000 entries, returns at most 512 KiB of entry data, and has a two-second scan budget. Access failures, symlinks, cancellation and limits return incomplete coverage, not a confirmed zero. No filesystem root, sync change, note write or retained cursor is exposed.
@@ -122,7 +139,7 @@ Two transfers/checkers, 4 MiB buffers, an 8 MiB/s bandwidth limit, a 256 MiB Go 
 
 Folder browsing and selection remain available during background sync. Enabling another folder during a run queues its preparation for the worker's next turn; it never starts a second concurrent sync. During background sync, **Pause** saves immediately, lets the current run finish, and prevents further runs without clearing failures or recovery state.
 
-For maintenance, read `status.maintenance`: `admissionPaused` means all folder scheduling is disabled; `active` includes native turns, queued/local note operations, searches and overlay maintenance; `ready` requires paused admission and no active work. The settings view distinguishes draining from idle. This is a momentary observation, not a reservation or a promise that another client cannot start local work. Stop other note-writing clients through their existing controls before checking; do not reload while work is draining. There is no new polling loop, timeout-triggered cancellation or automatic resume. Native shutdown can interrupt a sync if invoked before it finishes.
+The read-only `status.maintenance` RPC reports whether all folder scheduling is paused by folder settings or a maintenance hold. Its `active` field covers native turns, queued and local note operations, searches and overlay maintenance. `ready` requires paused admission and idle work. Check the CLI status for a matching durable hold, and use existing controls for other note-writing clients. Native shutdown can interrupt work that is still draining.
 
 Pause/resume preserve an established baseline. Disconnect removes stored password/session credentials and pauses syncing without removing local folders or legacy recovery copies; it does not revoke Apple device trust. The encrypted account binding remains so retained local files cannot accidentally be sent to a different Apple account. To use another account, an operator must separately archive/reset the installation rather than mixing mirrors.
 

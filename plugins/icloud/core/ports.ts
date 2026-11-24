@@ -1,4 +1,5 @@
 import type { AttentionState } from './attention.ts';
+import type { MaintenanceRecord } from './maintenance.ts';
 // Domain ports: no command flags, config keys, remote syntax or raw errors.
 export const FAILURES = ['unavailable', 'authentication', 'provider_rejected', 'configuration', 'capacity', 'interrupted', 'sync_failed', 'source_changed', 'busy', 'invalid_selection', 'recovery_required', 'unknown'] as const;
 export type Failure = typeof FAILURES[number];
@@ -38,7 +39,7 @@ export type TransferProgress = { bytes: number; totalBytes: number | null; files
 export type SyncProgress = TransferProgress & { stage: SyncStage; reusedFiles?: number };
 export type ProgressReporter = (progress: SyncProgress) => void;
 export const activity = (stage: SyncStage): SyncProgress => ({ stage, bytes: 0, totalBytes: null, files: 0, totalFiles: null });
-export type State = { connected: boolean; challenge: Challenge | null; mirrors: Mirror[]; lastSignInCompletedAt?: string | null; attentionState?: AttentionState };
+export type State = { connected: boolean; challenge: Challenge | null; mirrors: Mirror[]; lastSignInCompletedAt?: string | null; attentionState?: AttentionState; maintenance?: MaintenanceRecord };
 export interface CloudProvider {
   checkAvailability(): Promise<void>;
   verifyConnection(): Promise<void>;

@@ -15,7 +15,8 @@
       "icon": "Cloud"
     },
     "server": "./server.ts",
-    "app": "./app.tsx"
+    "app": "./app.tsx",
+    "skills": ["skills"]
   },
   "dependencies": {
     "zod": "4.6.7"

@@ -529,12 +529,16 @@ export class NoteRuntime {
     setImmediate(() => {
       this.maintenanceScheduled = false;
       if (!this.ready || this.closed || this.storageBlocked) return;
+      let more = false;
       this.maintenance = this.overlay.maintain(64).then(result => {
-        if (result.examined === 64) setImmediate(() => this.scheduleMaintenance());
+        more = result.examined === 64;
       }).catch(error => {
         this.storageBlocked = true;
         this.diagnose('note_maintenance', error instanceof NoteError ? error.category : 'unavailable');
-      }).finally(() => { this.maintenance = null; });
+      }).finally(() => {
+        this.maintenance = null;
+        if (more) this.scheduleMaintenance();
+      });
     });
   }
   wake() {
@@ -577,6 +581,10 @@ export class NoteRuntime {
   activity() {
     return { nativeRunning: this.nativeRunning, localOperations: this.entered.size, turnsPending: this.turnsPending,
       busy: this.closed || !this.ready || this.search.active || this.nativeRunning || this.entered.size > 0 || this.turnsPending > 0 || this.directoryReads.size > 0 || this.moving || this.wakeScheduled || this.maintenanceScheduled || this.maintenance !== null };
+  }
+  canRestoreScheduling(id: string) {
+    return this.ready && !this.closed && !this.storageBlocked && !this.blocked.has(id) &&
+      !this.nativeBlocked.has(id) && !this.moves.blocked(id) && !this.overlay.hasUnresolvedJournals(id);
   }
   pendingAgeMs(id: string) { return this.overlay.pendingAgeMs(id); }
   applicationBlocker(id: string) { return this.mirror(id)?.blocker === 'rebuild' || this.nativeBlocked.get(id) === 'uncertain' ? 'application_uncertain' as const : this.nativeBlocked.has(id) ? 'native_recovery' as const : null; }

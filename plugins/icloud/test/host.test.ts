@@ -11,7 +11,7 @@ import { diagnosticsSchema } from '../core/diagnostics.ts';
 import { CloudError, activity } from '../core/ports.ts';
 import type { CloudFolder } from '../core/ports.ts';
 const setup = async () => {
-  const host = createFakePluginHost({ pluginId: 'icloud' }); const provider = new FakeCloudProvider(); const repository = new MemoryState();
+  const host = createFakePluginHost({ pluginId: 'icloud', agentSkillIds: ['icloud-maintenance'] }); const provider = new FakeCloudProvider(); const repository = new MemoryState();
   await plugin(host.bb, { provider, repository }); return { ...host, provider, repository };
 };
 test('first run registers only an inventory tool and a durable one-minute schedule', async () => {
@@ -19,6 +19,7 @@ test('first run registers only an inventory tool and a durable one-minute schedu
   try {
     const configuration = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
     assert.deepEqual(configuration.tools.map(t => t.name), ['icloud_list_local_folders']);
+    assert.deepEqual(configuration.skills, ['icloud-maintenance']);
     assert.equal(statusSchema.parse(await harness.behavior.callRpc('status', null)).connected, false);
     assert.equal(provider.prepared + provider.synced, 0);
     assert.equal(harness.inspection.registrations.schedules[0].name, 'selected-folder-sync');
