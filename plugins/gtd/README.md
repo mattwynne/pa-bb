@@ -2,6 +2,8 @@
 
 Browse personal areas, projects and linked BB conversations, independently of BB coding projects. The first backend uses a connected Obsidian vault. Inventories remain read-only; requested display-title renames use Obsidian's version-checked editor. GTD does not connect to iCloud itself.
 
+See the [GTD vision](docs/vision.md) for the interface direction and research behind it.
+
 ## Setup
 
 1. Connect a vault in Obsidian settings.
