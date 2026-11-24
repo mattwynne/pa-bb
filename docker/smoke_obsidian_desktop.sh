@@ -6,11 +6,13 @@ if [[ $# -lt 1 || $# -gt 2 ]]; then
   exit 2
 fi
 image=$1
+staging=$(mktemp -d)
+trap 'rm -rf -- "$staging"' EXIT
+profile=$staging/seccomp.json
+python3 "$(dirname -- "${BASH_SOURCE[0]}")/obsidian_desktop_seccomp.py" > "$profile"
 if [[ $# == 2 ]]; then
   bundle_directory=$(realpath -e -- "$2")
 else
-  staging=$(mktemp -d)
-  trap 'rm -rf -- "$staging"' EXIT
   archive=$staging/desktop.tar.gz
   curl -fsSL --retry 2 --retry-max-time 120 --max-time 90 -o "$archive" \
     https://github.com/obsidianmd/obsidian-releases/releases/download/v1.15.1/obsidian-1.15.1.tar.gz
@@ -24,7 +26,7 @@ fi
 test -x "$bundle_directory/obsidian" && test -x "$bundle_directory/obsidian-cli" || exit 2
 
 docker run --rm --pull never -i --init --platform linux/amd64 --network none --shm-size=1g \
-  --cap-drop ALL --security-opt no-new-privileges --no-healthcheck \
+  --cap-drop ALL --security-opt no-new-privileges --security-opt "seccomp=$profile" --no-healthcheck \
   --read-only --tmpfs /tmp:mode=1777 --tmpfs /home/bb --workdir /tmp \
   --mount "type=bind,src=$bundle_directory,dst=/opt/obsidian,readonly" \
   --entrypoint /usr/bin/timeout "$image" -k 5s 45s /bin/bash -se <<'SH'
@@ -33,8 +35,10 @@ bundle=/opt/obsidian
 for binary in "$bundle"/{obsidian,obsidian-cli,chrome-sandbox,chrome_crashpad_handler,*.so*} \
     "$bundle"/resources/app.asar.unpacked/node_modules/*/*.node; do
   libs=$(ldd "$binary")
-  printf '%s\n' "$libs"
-  if grep -q 'not found' <<<"$libs"; then exit 1; fi
+  if grep -q 'not found' <<<"$libs"; then
+    printf '%s\n%s\n' "$binary" "$libs" >&2
+    exit 1
+  fi
 done
 umask 077
 scratch=$(mktemp -d)

@@ -130,10 +130,14 @@ libraries and resources.
 
 #### Smoke-test on the target Docker machine
 
-Use the same image and security policy as the intended BB container. This
-example runs as the image's `bb` user under Docker's normal profiles with all
-capabilities dropped and no-new-privileges. It uses a disposable profile,
-socket and vault with no network access.
+Use the same image and security policy as the intended BB container. Docker's
+default seccomp profile blocks namespace creation for the Chromium sandbox.
+The smoke test uses the pinned Docker profile with the three namespace calls
+needed for that sandbox, following the
+[Playwright Docker setup](https://playwright.dev/docs/docker#crawling-and-scraping).
+It runs as the image's `bb` user with all capabilities dropped and
+no-new-privileges, using a disposable profile, socket and vault with no network
+access.
 
 ```sh
 bash docker/smoke_obsidian_desktop.sh pa-bb "$PWD/obsidian-1.15.1-amd64"
@@ -142,6 +146,10 @@ bash docker/smoke_obsidian_desktop.sh pa-bb "$PWD/obsidian-1.15.1-amd64"
 #### Enable in BB
 
 Enable only after the smoke test passes under the intended security policy.
+Generate the same profile with
+`python3 docker/obsidian_desktop_seccomp.py > obsidian-desktop-seccomp.json`
+and pass `--security-opt seccomp=obsidian-desktop-seccomp.json` to the BB
+container that runs Desktop.
 Select a trusted vault with no filesystem links (symbolic or hard links) or
 nested mounts exposing files from outside the vault. Desktop can write vault
 settings when it opens that vault.
