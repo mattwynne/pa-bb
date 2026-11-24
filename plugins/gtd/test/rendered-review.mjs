@@ -52,7 +52,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions'];
   const reviewedModes = process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
@@ -61,7 +61,7 @@ try {
     const errors = []; const consoleErrors = []; page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     let title = 'Learn woodworking', area = 'Learning', creations = 0;
     const projectChanges = [], areaCreations = [];
-    let assignedArea = 'Areas/Learning.md', projectStatus = 'active';
+    let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
     const renames = [];
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
     const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
@@ -86,8 +86,15 @@ try {
       ];
       await route.fulfill({ response, json: value });
     });
-    await page.route(/\/api\/v1\/threads\?.*archived=true/, route =>
-      route.fulfill({ json: [thread('fixture3', 'proj_personal', 'Archived rehearsal', 300, 400)] }));
+    await page.route(/\/api\/v1\/threads\?.*archived=true/, route => {
+      const params = new URL(route.request().url()).searchParams;
+      if (Number(params.get('offset')) > 0) return route.fulfill({ json: [thread('fixture4', 'proj_personal', 'Earlier rehearsal', 10, 20)] });
+      const archived = [thread('fixture3', 'proj_personal', 'Archived rehearsal', 300, 400)];
+      if (mode === 'browser-flow') for (let i = 1; i < Number(params.get('limit')); i++) {
+        archived.push(thread(`old${i}`, 'proj_personal', `Unlinked archived ${i}`, 30, 40));
+      }
+      return route.fulfill({ json: archived });
+    });
     await page.route(/\/api\/v1\/threads\/fixture1(?:\?|$)/, route =>
       route.fulfill({ json: thread('fixture1', 'proj_personal', 'Choose tools', 100) }));
     await page.route(/\/api\/v1\/threads\/fixture1\/timeline(?:\?|$)/, route =>
@@ -97,16 +104,31 @@ try {
         pendingTodos: null, goal: null, providerCommands: null, sessionOptions: null, modelFallback: null,
         timelinePage: { returnedSegmentCount: 0, olderCursor: null, historySnapshot: 'fixture', olderRowsSourceSeqEnd: null },
       } }));
-    await page.route('**/api/v1/threads/plugin-metadata', route => route.fulfill({ json: { threads: ['fixture1', 'fixture2'].map(threadId => ({ threadId, metadata: associations.has(threadId) ? { project: associations.get(threadId) } : {} })) } }));
+    associations.set('fixture3', ref);
+    associations.set('fixture4', ref);
+    await page.route('**/api/v1/threads/plugin-metadata', route => route.fulfill({
+      json: { threads: route.request().postDataJSON().threadIds.map(threadId => ({
+        threadId, metadata: associations.has(threadId) ? { project: associations.get(threadId) } : {},
+      })) },
+    }));
     await page.route('**/api/v1/plugins/gtd/rpc/**', async route => {
       const method = new URL(route.request().url()).pathname.split('/').at(-1), input = route.request().postDataJSON();
       if (mode === 'loading') { await new Promise(r => setTimeout(r, 15000)); if (page.isClosed()) return; }
       if (mode === 'error') return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic failure' } } });
       let result;
       if (method === 'browseInventory') {
-        const projects = mode === 'empty' ? [] : [{ id: ref.id, title, status: projectStatus, areaId: assignedArea }];
+        const projects = mode === 'empty' ? [] : [{ id: projectId, title, status: projectStatus, areaId: assignedArea }];
         const areas = [{ id: 'Areas/Learning.md', title: area }];
-        if (mode === 'project-actions') areas.push({ id: 'Areas/Home.md', title: 'Home' });
+        if (mode === 'empty') areas.length = 0;
+        if (mode === 'project-actions' || mode === 'browser-flow') areas.push({ id: 'Areas/Home.md', title: 'Home' });
+        if (mode === 'browser-flow') {
+          areas.push({ id: 'Areas/Empty #50% 木/', title: 'Empty Area' });
+          projects.push(
+            { id: 'Projects/Someday/Bench.md', title: 'Build a bench', status: 'someday', areaId: assignedArea },
+            { id: 'Projects/Done/Hammer.md', title: 'Find a hammer', status: 'done', areaId: 'Areas/Home.md' },
+            { id: 'Projects/Deferred/Plane.md', title: 'Restore a plane', status: 'deferred', areaId: assignedArea },
+          );
+        }
         if (mode === 'area-boundary') {
           projects[0].areaId = 'Areas/Learning/Example Committee/Meeting.md';
           areas.push(...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` })));
@@ -134,6 +156,7 @@ try {
           result = { state: 'assigned', message: 'Project assigned locally. iCloud sync is pending.' };
         } else {
           projectStatus = 'done';
+          projectId = 'Projects/Done/Woodworking.md';
           result = { state: 'done', message: 'Project moved to Done locally and all linked threads archived.' };
         }
       }
@@ -142,7 +165,7 @@ try {
     });
     await page.goto(base);
     const skip = page.getByRole('button', { name: 'Skip setup', exact: true });
-    const entry = page.getByRole('button', { name: /^Personal GTD projects(?: \(.*\))?$/ });
+    const entry = page.getByRole('button', { name: /^GTD(?: \(.*\))?$/ });
     const toggle = page.getByRole('button', { name: /Show sidebar|Open sidebar|Toggle sidebar/i }).first();
     const openSidebar = async () => {
       if (width === 390) {
@@ -205,30 +228,118 @@ try {
       }
       await openSidebar();
       await entry.click();
-      await page.waitForURL('**/plugins/gtd/projects');
+      await page.waitForURL('**/plugins/gtd/areas');
       await nav.waitFor();
     } catch (error) {
       await page.screenshot({ path: join(artifacts, `host-failure-${width}.png`) });
       console.error('Host diagnostics:', errors, consoleErrors, await page.locator('body').innerText());
       throw error;
     }
-    if (mode === 'normal') {
-      await nav.getByRole('button', { name: 'Learn woodworking', exact: true }).waitFor();
-      await nav.getByRole('link').filter({ hasText: 'Choose tools' }).waitFor();
-      assert.equal(await nav.getByRole('link').count(), 2);
-      const plus = nav.getByRole('button', { name: 'New thread for Learn woodworking' }); await page.keyboard.press('Tab'); await plus.focus();
-      await page.screenshot({ path: join(artifacts, `focus-${width}.png`) });
+    const heading = name => nav.getByRole('heading', { name, exact: true, level: 1 });
+    const link = name => nav.getByRole('link', { name, exact: typeof name === 'string' });
+    const filter = nav.getByText('Filter', { exact: true });
+    const areaPicker = nav.getByRole('combobox', { name: 'Area', exact: true });
+    const areaLinks = nav.getByRole('navigation', { name: 'Switch Area' });
+    const switchArea = async name => {
+      await areaPicker.or(areaLinks).filter({ visible: true }).waitFor();
+      if (await areaPicker.isVisible()) await areaPicker.selectOption({ label: name });
+      else await areaLinks.getByRole('link', { name, exact: true }).click();
+      await heading(name).waitFor();
+    };
+    const openLearning = async () => {
+      const learning = link('Learning');
+      await learning.focus();
+      await page.keyboard.press('Enter');
+      await heading('Learning').waitFor();
+    };
+    if (mode === 'browser-flow') {
+      await heading('Areas').waitFor();
+      await page.screenshot({ path: join(artifacts, `areas-index-${width}.png`) });
+      const emptyHref = await link('Empty Area').getAttribute('href');
+      await openLearning();
+      const areaUrl = page.url();
+      assert.equal(await heading('Learning').evaluate(el => el.matches(':focus')), true);
+      assert.equal(await areaPicker.isVisible(), width === 390);
+      assert.equal(await areaLinks.isVisible(), width === 1280);
+      await link('Learn woodworking').waitFor();
+      await page.screenshot({ path: join(artifacts, `area-home-${width}.png`) });
+      await filter.focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await nav.getByRole('radio', { name: 'Active' }).isChecked(), true);
+      await page.keyboard.press('Tab');
+      assert.equal(await nav.getByRole('radio', { name: 'Active' }).evaluate(el => el.matches(':focus-visible')), true);
+      await page.keyboard.press('ArrowRight');
+      await link('Build a bench').waitFor();
+      assert.equal(await link('Learn woodworking').isVisible(), false);
+      await page.keyboard.press('Escape');
+      assert.equal(await filter.evaluate(el => el.matches(':focus')), true);
+      await switchArea('Home');
+      await nav.getByText('No someday projects in this Area.').waitFor();
+      await filter.click();
+      assert.equal(await nav.getByRole('radio', { name: 'Someday' }).isChecked(), true);
+      await nav.getByRole('radio', { name: 'Done' }).click();
+      await link('Find a hammer').waitFor();
+      await nav.getByRole('radio', { name: 'All' }).click();
+      await page.keyboard.press('Escape');
+      await switchArea('Learning');
+      await link(/Restore a plane Deferred/).waitFor();
+      await filter.click();
+      assert.equal(await nav.getByRole('radio', { name: 'All' }).isChecked(), true);
+      await page.screenshot({ path: join(artifacts, `project-filter-${width}.png`) });
+      await page.keyboard.press('Escape');
+      const project = link(/Learn woodworking Active/);
+      const projectHref = await project.getAttribute('href');
+      assert.match(projectHref, /^\/plugins\/gtd\/projects\/[^/]+$/);
+      await project.focus();
+      await page.keyboard.press('Enter');
+      await heading('Learn woodworking').waitFor();
+      await link('Choose tools').waitFor();
+      assert.equal(await link('Archived rehearsal').isVisible(), false);
+      await filter.focus();
+      await page.keyboard.press('Enter');
+      const active = nav.getByRole('checkbox', { name: 'Active' });
+      const archived = nav.getByRole('checkbox', { name: 'Archived' });
+      assert.equal(await active.isChecked(), true);
+      assert.equal(await active.isDisabled(), true);
+      await page.keyboard.press('Tab');
+      assert.equal(await archived.evaluate(el => el.matches(':focus-visible')), true);
+      await page.keyboard.press('Space');
+      await link('Archived rehearsal').waitFor();
+      await link('Choose tools').waitFor();
+      await page.screenshot({ path: join(artifacts, `thread-filter-${width}.png`) });
+      await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Space');
+      assert.equal(await archived.isDisabled(), true);
+      assert.equal(await link('Choose tools').isVisible(), false);
+      await page.keyboard.press('Escape');
+      assert.equal(await filter.evaluate(el => el.matches(':focus')), true);
+      await nav.getByRole('button', { name: 'Show more archived threads' }).click();
+      await link('Earlier rehearsal').waitFor();
+      await page.screenshot({ path: join(artifacts, `project-archived-${width}.png`) });
+      await page.goBack();
+      await page.waitForURL(areaUrl);
+      await heading('Learning').waitFor();
+      await link(/Restore a plane Deferred/).waitFor();
+      await page.goForward();
+      await heading('Learn woodworking').waitFor();
+      await nav.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Learning' }).click();
+      await heading('Learning').waitFor();
+      await page.goto(new URL(projectHref, base).href);
+      await heading('Learn woodworking').waitFor();
+      await link('Choose tools').waitFor();
+      await page.goto(new URL(emptyHref, base).href);
+      await heading('Empty Area').waitFor();
+      await nav.getByText('No projects in this Area yet.').waitFor();
+      await page.goto(`${base}/plugins/gtd/projects`);
+      await heading('Areas').waitFor();
+      await link('Empty Area').waitFor();
+    } else if (mode === 'normal') {
+      await openLearning();
+      const plus = nav.getByRole('button', { name: 'New thread for Learn woodworking' });
+      await page.keyboard.press('Tab'); await plus.focus();
       assert.notEqual(await plus.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
       if (width === 390) assert.ok(await plus.evaluate(el => el.getBoundingClientRect().height >= 44));
-      await page.screenshot({ path: join(artifacts, `hierarchy-${width}.png`) });
-      await nav.getByRole('button', { name: 'Actions for Choose tools' }).focus();
-      await page.keyboard.press('Enter');
-      await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
-      const nativeInput = page.getByRole('textbox', { name: 'Thread name' });
-      await nativeInput.waitFor();
-      await page.screenshot({ path: join(artifacts, `host-rename-${width}.png`) });
-      await page.keyboard.press('Escape');
-      await nativeInput.waitFor({ state: 'hidden' });
+      await page.screenshot({ path: join(artifacts, `focus-${width}.png`) });
       for (const [kind, name, replacement] of [['area', 'Learning', 'Skills'], ['project', 'Learn woodworking', 'Woodwork']]) {
         const trigger = nav.getByLabel(`Actions for ${kind} ${name}`);
         const dialog = nav.getByRole('dialog', { name: `Rename ${kind}` });
@@ -263,40 +374,58 @@ try {
         await openEditor();
         await page.keyboard.insertText(replacement);
         await page.keyboard.press('Enter');
-        await nav.getByRole('button', { name: replacement, exact: true }).waitFor();
+        await (kind === 'area' ? heading(replacement) : link(replacement)).waitFor();
         const updatedTrigger = nav.getByLabel(`Actions for ${kind} ${replacement}`);
         await updatedTrigger.waitFor();
         assert.equal(await updatedTrigger.evaluate(el => el.matches(':focus')), true);
       }
       assert.deepEqual(renames, [{ source: ref.source, id: 'Areas/Learning.md', title: 'Skills' }, { ...ref, title: 'Woodwork' }]);
-      assert.equal(await nav.getByRole('link').count(), 2);
+      await link('Woodwork').click();
+      const projectUrl = page.url();
+      await heading('Woodwork').waitFor();
+      await link('Choose tools').waitFor();
+      await nav.getByRole('button', { name: 'Actions for Choose tools' }).focus();
+      await page.keyboard.press('Enter');
+      await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
+      const nativeInput = page.getByRole('textbox', { name: 'Thread name' });
+      await nativeInput.waitFor();
+      await page.screenshot({ path: join(artifacts, `host-rename-${width}.png`) });
+      await page.keyboard.press('Escape');
+      await nativeInput.waitFor({ state: 'hidden' });
       // Native thread action submenu is the association/reassignment/unlink surface.
       await nav.getByRole('button', { name: 'Actions for Choose tools' }).click();
       await page.getByRole('menuitem', { name: /GTD project/ }).click();
       await page.getByRole('menuitem', { name: 'No GTD project', exact: true }).waitFor();
       await page.screenshot({ path: join(artifacts, `association-${width}.png`) });
       await page.getByRole('menuitem', { name: 'No GTD project', exact: true }).click();
+      await link('Choose tools').waitFor({ state: 'hidden' });
+      await nav.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Areas' }).click();
+      await heading('Areas').waitFor();
+      await nav.getByText('Thread associations', { exact: true }).click();
       await nav.getByText('Unassigned threads (1)', { exact: true }).waitFor();
       await nav.getByText('Unassigned threads (1)', { exact: true }).click();
       await nav.getByRole('button', { name: 'Actions for Choose tools' }).click();
       await page.getByRole('menuitem', { name: /GTD project/ }).click();
       await page.getByRole('menuitem', { name: 'Woodwork', exact: true }).click();
       await nav.getByText('Unassigned threads (0)', { exact: true }).waitFor();
-      await nav.getByRole('link', { name: 'Choose tools', exact: true }).click();
+      await link('Skills').click();
+      await link('Woodwork').click();
+      await link('Choose tools').click();
       await page.waitForURL('**/threads/fixture1');
       await page.getByTestId('app-page-header-content-row').getByText('Choose tools', { exact: true }).waitFor();
       await nav.waitFor({ state: 'hidden' });
       await openSidebar();
       await assertSavedSort();
-      await entry.click();
-      await nav.getByRole('button', { name: 'Woodwork', exact: true }).waitFor();
+      await page.goto(projectUrl);
+      await heading('Woodwork').waitFor();
       await page.reload();
-      await nav.getByRole('button', { name: 'Woodwork', exact: true }).waitFor();
+      await heading('Woodwork').waitFor();
       const create = nav.getByRole('button', { name: 'New thread for Woodwork' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
       await page.waitForURL('**/threads/fixture1');
       assert.equal(creations, 1);
     } else if (mode === 'project-actions') {
-      const project = nav.getByRole('button', { name: title, exact: true });
+      await openLearning();
+      const project = link(title);
       const menu = nav.getByLabel(`Actions for project ${title}`);
       const activate = async name => {
         await menu.focus();
@@ -305,10 +434,8 @@ try {
         await page.keyboard.press('Enter');
       };
       await project.waitFor();
-      const home = nav.getByRole('button', { name: 'Home', exact: true });
-      await home.waitFor();
       if (width === 1280) {
-        await project.locator('..').dragTo(home);
+        await project.locator('..').dragTo(areaLinks.getByRole('link', { name: 'Home', exact: true }));
       } else {
         await activate('Move to Area…');
         const dialog = nav.getByRole('dialog', { name: 'Move to Area' });
@@ -317,6 +444,7 @@ try {
       }
       await nav.getByText('Project assigned locally. iCloud sync is pending.').waitFor();
       assert.deepEqual(projectChanges, [{ kind: 'area', areaPath: 'Areas/Home.md' }]);
+      await switchArea('Home');
       await project.waitFor();
       await activate('Mark as done');
       const confirm = nav.getByRole('dialog', { name: 'Mark as done' });
@@ -325,39 +453,39 @@ try {
       await confirm.getByRole('button', { name: 'Mark as done', exact: true }).click();
       await nav.getByText('Project moved to Done locally and all linked threads archived.').waitFor();
       assert.deepEqual(projectChanges.at(-1), { kind: 'done' });
+      await switchArea('Learning');
       await nav.getByRole('button', { name: 'New thread for Area Learning' }).click();
       await page.waitForURL('**/threads/fixture1');
       assert.equal(areaCreations[0].id, 'Areas/Learning.md');
     } else if (mode === 'relationships') {
-      await nav.getByRole('button', { name: 'Learning', exact: true }).waitFor();
-      await nav.getByRole('button', { name: 'Learn woodworking', exact: true }).waitFor();
-      await nav.getByRole('button', { name: 'Unassigned area', exact: true }).waitFor();
-      await nav.getByRole('button', { name: 'Unresolved project', exact: true }).waitFor();
-      await nav.getByRole('button', { name: 'New thread for Learn woodworking' }).focus();
+      await openLearning();
+      await link('Learn woodworking').waitFor();
+      await switchArea('Unassigned area');
+      await link('Unresolved project').waitFor();
     } else if (mode === 'area-boundary') {
-      await nav.getByRole('button', { name: 'Learning', exact: true }).waitFor();
-      await nav.getByRole('button', { name: 'Learn woodworking', exact: true }).waitFor();
-      const empty = nav.getByRole('button', { name: 'Empty Area 0', exact: true }); await empty.waitFor();
-      assert.equal(await empty.getAttribute('aria-expanded'), 'false');
-      const status = nav.getByRole('combobox', { name: 'Project status' });
-      assert.equal(await status.inputValue(), 'active');
-      await empty.focus();
-      await page.screenshot({ path: join(artifacts, `areas-active-${width}.png`) });
-      await page.keyboard.press('Enter');
-      assert.equal(await empty.getAttribute('aria-expanded'), 'true');
-      await status.selectOption('done');
-      await nav.getByText('No matching projects').waitFor();
-      assert.equal(await nav.getByRole('button', { name: /^Empty Area \d$/ }).count(), 8);
+      await openLearning();
+      await link('Learn woodworking').waitFor();
+      await switchArea('Empty Area 0');
+      await nav.getByText('No projects in this Area yet.').waitFor();
+      if (await areaPicker.isVisible()) await areaPicker.selectOption({ label: 'All areas' });
+      else await areaLinks.getByRole('link', { name: 'All areas' }).click();
+      await heading('Areas').waitFor();
+      assert.equal(await nav.getByRole('link', { name: /^Empty Area \d$/ }).count(), 8);
     } else if (mode === 'malformed') {
       await nav.getByText('Some projects or Areas could not be loaded. Inventory totals are unconfirmed.').waitFor();
       const details = nav.getByText('Notes with invalid frontmatter');
       await details.focus();
       await page.keyboard.press('Enter');
       await nav.getByText('Projects/Broken.md', { exact: true }).waitFor();
-    } else if (mode === 'empty') await nav.getByText('No matching projects').waitFor();
+    } else if (mode === 'empty') await nav.getByText('No Areas yet.').waitFor();
     else if (mode === 'error') await nav.getByRole('alert').waitFor();
     else if (mode === 'loading') await nav.getByText('Loading GTD…').waitFor();
-    else await nav.getByText('Unavailable project (2)', { exact: true }).waitFor();
+    else {
+      await nav.getByText('Thread associations', { exact: true }).click();
+      await nav.getByText('Unavailable project (2)', { exact: true }).waitFor();
+      await page.goto(`${base}/plugins/gtd/projects/${Buffer.from(JSON.stringify([ref.source, 'Projects/Deleted.md'])).toString('base64url')}`);
+      await nav.getByText('This project is unavailable in the current inventory.').waitFor();
+    }
     assert.equal(await nav.evaluate(el => el.scrollWidth > el.clientWidth), false);
     assert.deepEqual(errors, []);
     await page.screenshot({ path: join(artifacts, `${mode}-${width}.png`) });

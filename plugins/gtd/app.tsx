@@ -1,8 +1,9 @@
-import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { definePluginApp, useRpc, useSdk, useBbNavigate, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { definePluginApp, useRpc, useSdk, useBbNavigate, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginNavPanelProps, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
 import { rpcContract, reference } from './contract.ts';
 import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
+import { areasIndex, panelHref, readRoute, recordDestination, unassignedArea, type Destination, type PanelPath } from './app-routes.ts';
 import './app.css';
 const key = (source: string, id: string) => JSON.stringify([source, id]);
 let inventoryRevision = 0;
@@ -11,8 +12,8 @@ function refreshInventory(fresh = false) {
   window.dispatchEvent(new CustomEvent('gtd:inventory', { detail: fresh }));
 }
 
-type InventoryState = { projects: Project[]; areas: Area[]; source: string; revision: number; error: string; partial: boolean; malformedFrontmatter: string[] };
-const emptyInventory: InventoryState = { projects: [], areas: [], source: '', revision: -1, error: '', partial: false, malformedFrontmatter: [] };
+type InventoryState = { projects: Project[]; areas: Area[]; source: string; revision: number; error: string; projectsPartial: boolean; areasPartial: boolean; malformedFrontmatter: string[] };
+const emptyInventory: InventoryState = { projects: [], areas: [], source: '', revision: -1, error: '', projectsPartial: false, areasPartial: false, malformedFrontmatter: [] };
 type InventoryRpc = ReturnType<typeof useRpc<typeof rpcContract>>;
 type InventoryResponse = Awaited<ReturnType<typeof browseInventory>>;
 type Pending<T> = { promise: Promise<T>; users: number };
@@ -56,7 +57,7 @@ function useInventory(includeAreas: boolean, enabled = true) {
       void promise.then(({ projects, areas }) => {
         if (alive) set({
           projects: projects.projects, areas: includeAreas ? areas?.areas ?? [] : [], source: projects.source.id, revision, error: '',
-          partial: !projects.complete || (includeAreas && !areas?.complete),
+          projectsPartial: !projects.complete, areasPartial: includeAreas && !areas?.complete,
           malformedFrontmatter: [...new Set([...(projects.malformedFrontmatter ?? []), ...(includeAreas ? areas?.malformedFrontmatter ?? [] : [])])],
         });
       }, () => {
@@ -113,10 +114,7 @@ function useLinks(ids: Iterable<string>) {
 }
 type RenameTarget = { kind: 'area' | 'project'; source: string; id: string; title: string };
 const renameKey = ({ kind, source, id }: RenameTarget) => JSON.stringify([kind, source, id]);
-function RowActions({ target, disabled, onRename, actions = [] }: {
-  target: RenameTarget; disabled: boolean; onRename: (target: RenameTarget, trigger: HTMLElement) => void;
-  actions?: { label: string; run: (trigger: HTMLElement) => void }[];
-}) {
+function useDisclosure() {
   const menu = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
@@ -133,24 +131,33 @@ function RowActions({ target, disabled, onRename, actions = [] }: {
     details.open = false;
     trigger.current?.focus();
   };
-  return <details className="gtd-menu" ref={menu}
-    onToggle={event => setOpen(event.currentTarget.open)}
-    onBlur={event => {
+  const detailsProps: React.ComponentPropsWithRef<'details'> = { ref: menu,
+    onToggle: event => setOpen(event.currentTarget.open),
+    onBlur: event => {
       const details = event.currentTarget;
       if (details.open && !details.contains(event.relatedTarget)) details.open = false;
-    }}
-    onKeyDown={event => {
+    },
+    onKeyDown: event => {
       if (event.key !== 'Escape' || !event.currentTarget.open) return;
       event.preventDefault();
       event.stopPropagation();
       closeAndFocus(event.currentTarget);
-    }}>
+    },
+  };
+  return { detailsProps, trigger, close: () => { if (menu.current) closeAndFocus(menu.current); } };
+}
+function RowActions({ target, disabled, onRename, actions = [] }: {
+  target: RenameTarget; disabled: boolean; onRename: (target: RenameTarget, trigger: HTMLElement) => void;
+  actions?: { label: string; run: (trigger: HTMLElement) => void }[];
+}) {
+  const { detailsProps, trigger, close } = useDisclosure();
+  return <details className="gtd-menu" {...detailsProps}>
     <summary className="gtd-row-action" ref={trigger} data-gtd-rename={renameKey(target)} aria-label={`Actions for ${target.kind} ${target.title}`}><Icon name="MoreHorizontal" aria-hidden="true" /></summary>
     <div className="gtd-menu-items">
       {[{ label: 'Rename', run: (trigger: HTMLElement) => onRename(target, trigger) }, ...actions].map(action =>
         <button key={action.label} disabled={disabled} onClick={() => {
-          if (!menu.current || !trigger.current) return;
-          closeAndFocus(menu.current);
+          if (!trigger.current) return;
+          close();
           action.run(trigger.current);
         }}>{action.label}</button>)}
     </div>
@@ -227,27 +234,174 @@ function ProjectActionDialog({ action, project, areas, onClose }: {
     </form>
   </dialog>;
 }
-function Group({ title, children, actions, initialOpen = true, kind = 'section', headingProps }: {
-  title: string; children: React.ReactNode; actions?: React.ReactNode; initialOpen?: boolean;
-  kind?: 'section' | 'project'; headingProps?: React.HTMLAttributes<HTMLDivElement>;
-}) {
-  const [open, setOpen] = useState(initialOpen);
-  return <div className="gtd-group"><div {...headingProps} className={`gtd-group-heading ${headingProps?.className ?? ''}`}><button className={`gtd-collapse gtd-label gtd-label--${kind}`} aria-expanded={open} onClick={() => setOpen(!open)}><Icon name={open ? 'ChevronDown' : 'ChevronRight'} aria-hidden="true" /> {title}</button>{actions}</div>{open && <div className="gtd-indent">{children}</div>}</div>;
+function PanelLink({ destination, onClick, ...props }: React.ComponentPropsWithoutRef<'a'> & { destination: Destination }) {
+  const navigate = useBbNavigate();
+  return <a {...props} href={panelHref(destination)} onClick={event => {
+    onClick?.(event);
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (props['aria-current'] !== 'page') navigate.toPluginPanel(destination.panel, { subPath: destination.subPath });
+  }} />;
 }
-function ThreadRow({ thread }: { thread: PluginSidebarThread }) {
+
+function ThreadRow({ thread, showArchived }: { thread: PluginSidebarThread; showArchived?: boolean }) {
   const navigate = useBbNavigate(); const split = useSplit(thread.id);
   const target = { ...thread, environment: thread.environment?.id ? { id: thread.environment.id, path: thread.environment.path } : null };
   return <ThreadContextMenu thread={target}><div className="gtd-thread">
     <a href={thread.href} {...split.splitProps} onClick={event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate.toThread(thread.id); }}>
       <StatusGlyph indicator={thread.indicator} /><ThreadTitle threadId={thread.id} />
-    </a><ThreadMenu thread={target} trigger={({ className, ...props }) => <button {...props} className={className ? `gtd-row-action ${className}` : 'gtd-row-action'} aria-label={`Actions for ${thread.displayTitle}`}><Icon name="MoreHorizontal" aria-hidden="true" /></button>} />
+    </a>
+    {showArchived && thread.isArchived && <span className="gtd-row-status">Archived</span>}
+    <ThreadMenu thread={target} trigger={({ className, ...props }) => <button {...props} className={className ? `gtd-row-action ${className}` : 'gtd-row-action'} aria-label={`Actions for ${thread.displayTitle}`}><Icon name="MoreHorizontal" aria-hidden="true" /></button>} />
   </div></ThreadContextMenu>;
 }
-function GtdPanel() {
-  const inventory = useInventory(true); const rpc = useRpc<typeof rpcContract>(); const navigate = useBbNavigate(); const sidebar = useThreads();
-  const threads = sidebar.threads.filter(t => !t.isHidden && !t.isArchived);
-  const { links, error: linkError, loading: linksLoading } = useLinks(threads.map(t => t.id));
-  const [status, setStatus] = useState('active');
+
+const projectStatuses = { active: 'Active', someday: 'Someday', done: 'Done', all: 'All' } as const;
+type ProjectFilter = keyof typeof projectStatuses;
+// Keep the filter when BB unmounts the Areas panel to show a project or thread.
+let lastProjectFilter: ProjectFilter = 'active';
+const threadStatuses = ['active', 'archived'] as const;
+type ThreadFilter = typeof threadStatuses[number];
+const projectThreadFilters = new Map<string, ThreadFilter[]>();
+
+function FilterBar({ title, label, children }: { title: string; label: string; children: React.ReactNode }) {
+  const { detailsProps, trigger } = useDisclosure();
+  return <div className="gtd-list-bar">
+    <h2>{title}</h2>
+    <details className="gtd-menu gtd-filter" {...detailsProps}>
+      <summary ref={trigger}><Icon name="SlidersHorizontal" aria-hidden="true" />Filter</summary>
+      <div className="gtd-menu-items" role="group" aria-label={label}>{children}</div>
+    </details>
+  </div>;
+}
+
+function FilterOption({ type, name, label, checked, disabled, onChange }: {
+  type: 'radio' | 'checkbox'; name?: string; label: string; checked: boolean; disabled?: boolean; onChange: () => void;
+}) {
+  return <label title={disabled ? 'Keep at least one filter selected' : undefined}>
+    <input type={type} name={name} checked={checked} disabled={disabled} onChange={onChange} />
+    {label}{checked && <Icon name="Check" aria-hidden="true" />}
+  </label>;
+}
+
+function ThreadList({ threads, showArchived }: { threads: PluginSidebarThread[]; showArchived?: boolean }) {
+  return <ul className="gtd-rows">{threads.map(thread => <li key={thread.id}><ThreadRow thread={thread} showArchived={showArchived} /></li>)}</ul>;
+}
+
+function useThreadRoster(filters?: ThreadFilter[]) {
+  const sidebar = useThreads(filters && { experimental_lifecycles: filters });
+  const threads = sidebar.threads.filter(thread => !thread.isHidden && (filters?.includes(thread.isArchived ? 'archived' : 'active') ?? !thread.isArchived));
+  return { sidebar, threads, ...useLinks(threads.map(thread => thread.id)) };
+}
+
+function ThreadReadStatus({ loading, error }: { loading: boolean; error: boolean }) {
+  return <>
+    {loading && <p role="status">Loading linked threads…</p>}
+    {error && <p role="alert">Linked threads could not load. Refresh GTD or reload BB to try again.</p>}
+  </>;
+}
+
+function LinkedThreads({ kind, id, source }: { kind: 'area' | 'project'; id: string; source: string }) {
+  const identity = key(source, id);
+  const [selected, setSelected] = useState<ThreadFilter[]>(() => kind === 'project' ? projectThreadFilters.get(identity) ?? ['active'] : ['active']);
+  const { sidebar, threads, links, loading, error } = useThreadRoster(selected);
+  const archived = sidebar.experimental_archived;
+  const matching = loading || error ? [] : threads.filter(thread => {
+    const project = links[thread.id]?.project;
+    // A project association takes precedence over a direct Area association.
+    const stored = kind === 'project' ? project : project === undefined ? links[thread.id]?.area : undefined;
+    const ref = reference.safeParse(stored).data;
+    return ref?.source === source && ref.id === id;
+  }).sort((left, right) => Number(left.isArchived) - Number(right.isArchived));
+  const pending = sidebar.status === 'loading' || archived?.status === 'loading' || loading;
+  const failed = sidebar.status === 'error' || archived?.status === 'error' || error;
+  if (kind === 'area' && !pending && !failed && !matching.length) return null;
+  const toggle = (status: ThreadFilter) => {
+    const next = selected.includes(status) ? selected.filter(value => value !== status) : [...selected, status];
+    if (next.length) {
+      projectThreadFilters.set(identity, next);
+      setSelected(next);
+    }
+  };
+  return <section className="gtd-linked">
+    {kind === 'project' ? <FilterBar title="Linked threads" label="Thread status">
+      {threadStatuses.map(status => <FilterOption key={status} type="checkbox" label={status === 'active' ? 'Active' : 'Archived'}
+        checked={selected.includes(status)} disabled={selected.length === 1 && selected.includes(status)} onChange={() => toggle(status)} />)}
+    </FilterBar> : <h2>Area threads</h2>}
+    <ThreadReadStatus loading={pending} error={failed} />
+    {!!matching.length && <ThreadList threads={matching} showArchived={selected.length > 1} />}
+    {!matching.length && !pending && !failed && <p className="gtd-empty" role="status">
+      {archived?.hasNextPage ? 'No linked threads in the loaded pages.' :
+        selected.length === 1 ? `No ${selected[0]} linked threads.` : 'No linked threads.'}
+    </p>}
+    {archived?.hasNextPage && <>
+      {archived.isFetchNextPageError && <p role="alert">More archived threads could not load.</p>}
+      <button className="gtd-load-more" type="button" disabled={archived.isFetchingNextPage}
+        onClick={() => { void archived.fetchNextPage().catch(() => {}); }}>
+        {archived.isFetchingNextPage ? 'Loading more…' : archived.isFetchNextPageError ? 'Retry archived threads' : 'Show more archived threads'}
+      </button>
+    </>}
+  </section>;
+}
+
+function ThreadAssociations({ inventory }: { inventory: InventoryState }) {
+  const { sidebar, threads, links, loading, error } = useThreadRoster();
+  const pending = loading || sidebar.status === 'loading';
+  const failed = error || sidebar.status === 'error';
+  const unassigned: PluginSidebarThread[] = [], projects: PluginSidebarThread[] = [], areas: PluginSidebarThread[] = [];
+  const projectIds = new Set(inventory.projects.map(project => project.id));
+  const areaIds = new Set(inventory.areas.map(area => area.id));
+  if (!pending && !failed) for (const thread of threads) {
+    const { project, area } = links[thread.id] ?? {};
+    if (project !== undefined) {
+      const ref = reference.safeParse(project).data;
+      if (!ref || ref.source !== inventory.source || !projectIds.has(ref.id)) projects.push(thread);
+    } else if (area !== undefined) {
+      const ref = reference.safeParse(area).data;
+      if (!ref || ref.source !== inventory.source || !areaIds.has(ref.id)) areas.push(thread);
+    } else unassigned.push(thread);
+  }
+  return <>
+    <ThreadReadStatus loading={pending} error={failed} />
+    {!pending && !failed && <>
+      <details><summary>Unassigned threads ({unassigned.length})</summary><ThreadList threads={unassigned} /></details>
+      {!!areas.length && <details open><summary>Unavailable Area ({areas.length})</summary><ThreadList threads={areas} /></details>}
+      {!!projects.length && <details open><summary>Unavailable project ({projects.length})</summary>
+        <p>Use the thread menu to reassign or unlink.</p><ThreadList threads={projects} />
+      </details>}
+    </>}
+  </>;
+}
+
+function AreaPicker({ current, entries, dropProps }: {
+  current: Destination; entries: { title: string; destination: Destination; area?: Area }[];
+  dropProps: (area: Area) => React.HTMLAttributes<HTMLElement>;
+}) {
+  const navigate = useBbNavigate();
+  const path = panelHref(current);
+  return <div className="gtd-area-picker">
+    <nav className="gtd-area-links" aria-label="Switch Area">
+      {entries.map(({ title, destination, area }) => <PanelLink key={panelHref(destination)} destination={destination}
+        aria-current={panelHref(destination) === path ? 'page' : undefined} {...(area && dropProps(area))}>{title}</PanelLink>)}
+    </nav>
+    <label className="gtd-area-select">Area
+      <select value={path} onChange={event => {
+        const entry = entries.find(item => panelHref(item.destination) === event.target.value);
+        if (entry) navigate.toPluginPanel(entry.destination.panel, { subPath: entry.destination.subPath });
+      }}>
+        {entries.map(({ title, destination }) => <option key={panelHref(destination)} value={panelHref(destination)}>{title}</option>)}
+      </select>
+    </label>
+  </div>;
+}
+
+function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }) {
+  const inventory = useInventory(true);
+  const rpc = useRpc<typeof rpcContract>();
+  const navigate = useBbNavigate();
+  const statusGroup = useId();
+  const [status, setStatus] = useState(() => lastProjectFilter);
+  const [showAssociations, setShowAssociations] = useState(false);
   const [busy, setBusy] = useState(''); const busyRef = useRef(false); const [notice, setNotice] = useState('');
   const [dragged, setDragged] = useState<Project>();
   const [dropArea, setDropArea] = useState('');
@@ -259,7 +413,7 @@ function GtdPanel() {
   useLayoutEffect(() => {
     const previous = restoreAfterSave.current;
     const panel = nav.current;
-    if (!previous || !panel || busy || inventory.loading || linksLoading) return;
+    if (!previous || !panel || busy || inventory.loading) return;
     restoreAfterSave.current = undefined;
     const document = panel.ownerDocument;
     const root = panel.getRootNode();
@@ -270,7 +424,7 @@ function GtdPanel() {
     const trigger = Array.from(panel.querySelectorAll<HTMLElement>('[data-gtd-rename]'))
       .find(action => action.dataset.gtdRename === renameKey(previous.target));
     (trigger ?? refreshButton.current)?.focus();
-  }, [busy, inventory.loading, linksLoading]);
+  }, [busy, inventory.loading]);
   // Retain a request ID for the life of this action, including uncertain failures.
   const requests = useRef(new Map<string, string>());
   const run = async (id: string, task: () => Promise<void>) => { if (busyRef.current) return; busyRef.current = true; setBusy(id); setNotice(''); try { await task(); } catch { setNotice('Change not confirmed. Inspect threads or Obsidian receipts before trying again.'); } finally { busyRef.current = false; setBusy(''); } };
@@ -300,17 +454,6 @@ function GtdPanel() {
     sessionStorage.setItem(k + ':completed', String(Date.now()));
     navigate.toThread(result.threadId); linksChanged();
   });
-  const row = (t: PluginSidebarThread) => <ThreadRow key={t.id} thread={t} />;
-  const visible = inventory.projects.filter(p => status === 'all' || p.status === status);
-  const byArea = new Map<string, Project[]>();
-  const unassignedProjects: Project[] = [];
-  for (const project of visible) {
-    const area = enclosingArea(inventory.areas, project.areaId);
-    if (!area) { unassignedProjects.push(project); continue; }
-    const group = byArea.get(area.id);
-    if (group) group.push(project);
-    else byArea.set(area.id, [project]);
-  }
   const eligibleAreas = inventory.areas.filter(area => area.id.endsWith('.md') && !/[\[\]#|%]/.test(area.id));
   const eligibleIds = new Set(eligibleAreas.map(area => area.id));
   const changeProject = (project: Project, change: { kind: 'done' } | { kind: 'area'; areaPath: string }, trigger?: HTMLElement) => {
@@ -322,96 +465,146 @@ function GtdPanel() {
   };
   const clearDrag = () => { setDragged(undefined); setDropArea(''); };
 
-  const byProject = new Map(inventory.projects.map(project => [project.id, [] as PluginSidebarThread[]]));
-  const byAreaThread = new Map(inventory.areas.map(area => [area.id, [] as PluginSidebarThread[]]));
-  const unassigned: PluginSidebarThread[] = [], missing: PluginSidebarThread[] = [], missingAreas: PluginSidebarThread[] = [];
-  for (const thread of threads) {
-    const link = reference.safeParse(links[thread.id]?.project).data;
-    if (!link) {
-      const area = reference.safeParse(links[thread.id]?.area).data;
-      if (!area) { unassigned.push(thread); continue; }
-      const group = area.source === inventory.source ? byAreaThread.get(area.id) : undefined;
-      (group ?? missingAreas).push(thread);
-      continue;
+  const route = readRoute(panel, subPath);
+  const ready = !inventory.loading && !inventory.error;
+  const record = 'record' in route ? route.record : undefined;
+  const sameSource = record?.source === inventory.source;
+  const project = route.kind === 'project' && sameSource ? inventory.projects.find(item => item.id === record?.id) : undefined;
+  const area = route.kind === 'area' && sameSource ? inventory.areas.find(item => item.id === record?.id) : undefined;
+  const owningArea = project && enclosingArea(inventory.areas, project.areaId);
+  const unassigned = route.kind === 'unassigned';
+  const partial = inventory.projectsPartial || inventory.areasPartial;
+  const missing = ready && !!record && !area && !project;
+  const missingIncomplete = sameSource && (route.kind === 'area' ? inventory.areasPartial : inventory.projectsPartial);
+  const title = project?.title ?? area?.title ?? (unassigned ? 'Unassigned area' :
+    route.kind === 'index' ? 'Areas' : route.kind === 'project' ? 'Project' : route.kind === 'area' ? 'Area' : 'Page unavailable');
+  const areaDestination = (item: Area) => recordDestination('areas', inventory.source, item.id);
+  const entries = inventory.areas.map(area => ({ title: area.title, destination: areaDestination(area), area }));
+  const projectsByArea = useMemo(() => {
+    const groups = new Map<string | undefined, Project[]>();
+    for (const item of inventory.projects) {
+      const areaId = enclosingArea(inventory.areas, item.areaId)?.id;
+      const group = groups.get(areaId);
+      if (group) group.push(item);
+      else groups.set(areaId, [item]);
     }
-    const group = link.source === inventory.source ? byProject.get(link.id) : undefined;
-    if (group) group.push(thread);
-    else missing.push(thread);
-  }
-  const projectRow = (p: Project) => {
-    const linked = byProject.get(p.id) ?? [];
-    const projectNote = p.id.endsWith('.md');
-    const canDrag = projectNote && eligibleAreas.length > 0 && !busy;
-    return <Group key={p.id} title={p.title} kind="project" headingProps={{
-      draggable: canDrag,
-      className: canDrag ? 'gtd-draggable' : '',
-      onDragStart: event => {
-        if (!canDrag) return;
-        event.dataTransfer.setData(projectDragType, key(inventory.source, p.id));
-        event.dataTransfer.effectAllowed = 'move';
-        setDragged(p);
+    return groups;
+  }, [inventory.projects, inventory.areas]);
+  const unassignedProjects = projectsByArea.get(undefined) ?? [];
+  const hasUnassigned = unassigned || !!unassignedProjects.length;
+  const inArea = area ? projectsByArea.get(area.id) ?? [] : unassignedProjects;
+  const visible = inArea.filter(p => status === 'all' || p.status === status);
+  const lastPage = useRef('');
+  useLayoutEffect(() => {
+    const region = nav.current;
+    const page = panelHref({ panel, subPath });
+    if (!ready || !region || page === lastPage.current) return;
+    lastPage.current = page;
+    const root = region.getRootNode();
+    const active = root instanceof ShadowRoot ? root.activeElement : region.ownerDocument.activeElement;
+    if (!active?.closest('.gtd-area-picker') || !region.contains(active) || !active.getClientRects().length) {
+      region.querySelector('h1')?.focus({ preventScroll: true });
+      region.scrollTop = 0;
+    }
+  }, [panel, subPath, ready]);
+
+  const dropProps = (area: Area): React.HTMLAttributes<HTMLElement> => {
+    const droppedProject = !busy && eligibleIds.has(area.id) ? dragged : undefined;
+    return {
+      className: dropArea === area.id ? 'gtd-drop-target' : undefined,
+      onDragOver: event => {
+        if (!droppedProject || !event.dataTransfer.types.includes(projectDragType)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        setDropArea(area.id);
       },
-      onDragEnd: clearDrag,
-    }} actions={<>
-      <button className="gtd-row-action" aria-label={`New thread for ${p.title}`} title={`Start an AI thread for ${p.title}`} disabled={!!busy || inventory.loading} onClick={() => newThread(p, 'project')}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>
-      <RowActions target={{ ...p, kind: 'project', source: inventory.source }} disabled={!!busy || !projectNote} onRename={openEditor} actions={[
-        ...(eligibleAreas.length ? [{ label: 'Move to Area…', run: (trigger: HTMLElement) => setProjectAction({ kind: 'area', project: p, trigger }) }] : []),
-        { label: p.status === 'done' ? 'Archive linked threads' : 'Mark as done', run: trigger => setProjectAction({ kind: 'done', project: p, trigger }) },
-      ]} />
-    </>}>
-      {linked.length ? linked.map(row) : <p className="gtd-muted">No linked threads</p>}
-    </Group>;
+      onDragLeave: event => {
+        if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget))
+          setDropArea(previous => previous === area.id ? '' : previous);
+      },
+      onDrop: event => {
+        if (!droppedProject || event.dataTransfer.getData(projectDragType) !== key(inventory.source, droppedProject.id)) return;
+        event.preventDefault();
+        clearDrag();
+        if (droppedProject.areaId !== area.id) changeProject(droppedProject, { kind: 'area', areaPath: area.id });
+      },
+    };
+  };
+  const itemActions = (item: Area | Project, kind: 'area' | 'project') => {
+    const target = { ...item, kind, source: inventory.source };
+    return <>
+      <button className="gtd-row-action" aria-label={`New thread for ${kind === 'area' ? 'Area ' : ''}${item.title}`} title="New thread"
+        disabled={!!busy} onClick={() => newThread(item, kind)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>
+      <RowActions target={target} disabled={!!busy || !item.id.endsWith('.md')} onRename={openEditor} actions={'status' in item ? [
+        ...(eligibleAreas.length ? [{ label: 'Move to Area…', run: (trigger: HTMLElement) => setProjectAction({ kind: 'area', project: item, trigger }) }] : []),
+        { label: item.status === 'done' ? 'Archive linked threads' : 'Mark as done', run: trigger => setProjectAction({ kind: 'done', project: item, trigger }) },
+      ] : []} />
+    </>;
   };
   return <section className="gtd-nav" aria-label="Personal GTD projects" ref={nav}>
     <div className="gtd-content">
-      <div className="gtd-controls">
-        <label>Projects <select aria-label="Project status" value={status} onChange={e => setStatus(e.target.value)}>{['active', 'all', 'deferred', 'someday', 'done'].map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}</select></label>
-        <button ref={refreshButton} aria-label="Refresh GTD" disabled={inventory.loading} onClick={() => { refreshInventory(true); linksChanged(); }}>Refresh</button>
+      {(route.kind === 'project' || route.kind === 'invalid' || missing) && <nav className="gtd-crumbs" aria-label="Breadcrumb">
+        <PanelLink destination={areasIndex}>Areas</PanelLink>
+        {project && (owningArea || !inventory.areasPartial || !project.areaId) && <>
+          <span aria-hidden="true">/</span>
+          <PanelLink destination={owningArea ? areaDestination(owningArea) : unassignedArea}>{owningArea?.title ?? 'Unassigned area'}</PanelLink>
+        </>}
+      </nav>}
+      <div className="gtd-page-heading">
+        <h1 tabIndex={-1}>{title}</h1>
+        {area && itemActions(area, 'area')}
+        {project && itemActions(project, 'project')}
+        <button className="gtd-row-action" ref={refreshButton} aria-label="Refresh GTD" title="Refresh GTD" disabled={inventory.loading}
+          onClick={() => { refreshInventory(true); linksChanged(); }}><Icon name="RotateCcw" aria-hidden="true" /></button>
       </div>
-      {sidebar.status === 'loading' && <p role="status">Loading BB threads…</p>}
-      {sidebar.status === 'error' && <p role="alert">BB threads could not load. Reload BB to try again.</p>}
-      {(inventory.loading || linksLoading) && <p role="status">Loading GTD…</p>}
-      {(inventory.error || linkError) && <p role="alert">{inventory.error || 'Thread associations could not load. Refresh before making changes.'}</p>}
-      {inventory.partial && <p role="status">Some projects or Areas could not be loaded. Inventory totals are unconfirmed.</p>}
+      {inventory.loading && <p role="status">Loading GTD…</p>}
+      {inventory.error && <p role="alert">{inventory.error}</p>}
+      {partial && <p role="status">Some projects or Areas could not be loaded. Inventory totals are unconfirmed.</p>}
       {inventory.malformedFrontmatter.length > 0 && <details className="gtd-frontmatter-errors">
         <summary>Notes with invalid frontmatter</summary>
         <ul>{inventory.malformedFrontmatter.map(path => <li key={path}>{path}</li>)}</ul>
       </details>}
-      {!inventory.error && !inventory.loading && !linksLoading && !linkError && <>
-        {inventory.areas.map(area => {
-          const droppedProject = !busy && eligibleIds.has(area.id) ? dragged : undefined;
-          return <Group key={area.id} title={area.title} initialOpen={byArea.has(area.id) || !!byAreaThread.get(area.id)?.length} headingProps={{
-            className: dropArea === area.id ? 'gtd-drop-target' : '',
-            onDragOver: event => {
-              if (!droppedProject || !event.dataTransfer.types.includes(projectDragType)) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = 'move';
-              setDropArea(area.id);
-            },
-            onDragLeave: event => {
-              if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget))
-                setDropArea(previous => previous === area.id ? '' : previous);
-            },
-            onDrop: event => {
-              if (!droppedProject || event.dataTransfer.getData(projectDragType) !== key(inventory.source, droppedProject.id)) return;
-              event.preventDefault();
-              clearDrag();
-              if (droppedProject.areaId !== area.id) changeProject(droppedProject, { kind: 'area', areaPath: area.id });
-            },
-          }} actions={<>
-            <button className="gtd-row-action" aria-label={`New thread for Area ${area.title}`} disabled={!!busy} onClick={() => newThread(area, 'area')}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>
-            <RowActions target={{ ...area, kind: 'area', source: inventory.source }} disabled={!!busy || area.id.endsWith('/')} onRename={openEditor} />
-          </>}>
-            {byAreaThread.get(area.id)?.map(row)}
-            {byArea.get(area.id)?.map(projectRow)}
-          </Group>;
-        })}
-        {!!unassignedProjects.length && <Group title="Unassigned area">{unassignedProjects.map(projectRow)}</Group>}
-        {!visible.length && <p className="gtd-muted">No matching projects</p>}
-        <Group title={`Unassigned threads (${unassigned.length})`} initialOpen={false}>{unassigned.map(row)}</Group>
-        {!!missingAreas.length && <Group title={`Unavailable Area (${missingAreas.length})`}>{missingAreas.map(row)}</Group>}
-        {!!missing.length && <Group title={`Unavailable project (${missing.length})`}><p className="gtd-muted">Missing, deleted, or from another source. Use the thread menu to reassign or unlink.</p>{missing.map(row)}</Group>}
+      {route.kind === 'invalid' && <p className="gtd-empty">This GTD address is invalid. Open a page from Areas.</p>}
+      {missing && <p className="gtd-empty" role="status">{!sameSource ? 'This link is for a different GTD source.' : missingIncomplete ?
+        'This record could not be found in the partial inventory.' : `This ${route.kind === 'area' ? 'Area' : 'project'} is unavailable in the current inventory.`}</p>}
+      {ready && route.kind === 'index' && <>
+        {entries.length || hasUnassigned ? <ul className="gtd-rows">
+          {(hasUnassigned ? [...entries, { title: 'Unassigned area', destination: unassignedArea }] : entries).map(({ title, destination }) =>
+            <li key={panelHref(destination)}><PanelLink className="gtd-browser-link" destination={destination}>{title}<Icon name="ChevronRight" aria-hidden="true" /></PanelLink></li>)}
+        </ul> : <p className="gtd-empty">{inventory.areasPartial ? 'No Areas in the loaded inventory.' : 'No Areas yet.'}</p>}
+        <details className="gtd-associations" open={showAssociations} onToggle={event => setShowAssociations(event.currentTarget.open)}>
+          <summary>Thread associations</summary>
+          {showAssociations && <ThreadAssociations inventory={inventory} />}
+        </details>
       </>}
+      {ready && (area || unassigned) && <>
+        <AreaPicker current={area ? areaDestination(area) : unassignedArea} entries={[{ title: 'All areas', destination: areasIndex }, ...entries,
+          ...(hasUnassigned ? [{ title: 'Unassigned area', destination: unassignedArea }] : [])]} dropProps={dropProps} />
+        <FilterBar title="Projects" label="Project status">
+          {(Object.keys(projectStatuses) as ProjectFilter[]).map(value => <FilterOption key={value} type="radio" name={statusGroup}
+            label={projectStatuses[value]} checked={status === value} onChange={() => { lastProjectFilter = value; setStatus(value); }} />)}
+        </FilterBar>
+        {visible.length ? <ul className="gtd-rows">{visible.map(item => {
+          const canDrag = item.id.endsWith('.md') && eligibleAreas.length > 0 && !busy;
+          return <li key={item.id} className="gtd-project-row" draggable={canDrag}
+            onDragStart={event => {
+              if (!canDrag) return;
+              event.dataTransfer.setData(projectDragType, key(inventory.source, item.id));
+              event.dataTransfer.effectAllowed = 'move';
+              setDragged(item);
+            }} onDragEnd={clearDrag}>
+            <PanelLink className="gtd-browser-link" destination={recordDestination('projects', inventory.source, item.id)}>
+              {item.title}{status === 'all' && <span className="gtd-row-status">{item.status[0].toUpperCase() + item.status.slice(1)}</span>}
+              <Icon name="ChevronRight" aria-hidden="true" />
+            </PanelLink>
+            {itemActions(item, 'project')}
+          </li>;
+        })}</ul> : <p className="gtd-empty" role="status">{partial ? 'No matching projects in the loaded inventory.' :
+          !inArea.length ? (area ? 'No projects in this Area yet.' : 'No unassigned projects.') :
+            `No ${status} projects ${area ? 'in this Area' : 'without an Area'}.`}</p>}
+        {area && <LinkedThreads kind="area" id={area.id} source={inventory.source} />}
+      </>}
+      {project && <LinkedThreads key={key(inventory.source, project.id)} kind="project" id={project.id} source={inventory.source} />}
       {notice && <p role="status">{notice}</p>}
     </div>
     {projectAction && <ProjectActionDialog action={projectAction.kind} project={projectAction.project} areas={eligibleAreas} onClose={value => {
@@ -424,7 +617,11 @@ function GtdPanel() {
   </section>;
 }
 export default definePluginApp(app => {
-  app.slots.navPanel({ id: 'projects', path: 'projects', title: 'Personal GTD projects', icon: 'ListTodo', component: GtdPanel });
+  app.slots.navPanel({ id: 'projects', path: 'areas', title: 'GTD', icon: 'ListTodo',
+    component: props => <GtdPanel {...props} panel="areas" /> });
+  // The former project browser URL still opens the Areas index.
+  app.slots.navPanel({ id: 'project-pages', path: 'projects', title: 'GTD', icon: 'ListTodo',
+    experimental_hideFromNavigation: true, component: props => <GtdPanel {...props} panel="projects" /> });
   app.slots.experimental_threadAction({ id: 'project', title: 'GTD project', icon: 'ListTodo', group: 'organize',
     useData: ({ threadIds }) => ({ inventory: useInventory(false, threadIds.length > 0), ...useLinks(threadIds), threadIds: new Set(threadIds), rpc: useRpc<typeof rpcContract>() }),
     item: ({ thread, data }) => {
