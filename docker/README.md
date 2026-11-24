@@ -43,8 +43,8 @@ when a generated `.gitignore` excludes them. A missing match, unsupported ripgre
 or failed search blocks publication. It checks that the GTK 3 shared library
 loads. A separate smoke test downloads and verifies the pinned Obsidian Desktop
 bundle on the runner, then launches it in a fresh, network-isolated container
-under the documented security settings. The Email check verifies that running BB meets the plugin's minimum
-version, imports the same generated email twice through
+under the documented security settings. The Email check verifies that running
+BB meets the plugin's minimum version, imports the same generated email twice through
 the real MsgVault adapter, searches and reads it, and checks that a separate archive
 stays empty. No mail provider is connected. It creates and removes its own container
 and home volume, without publishing a port or using existing BB state. It does not
@@ -148,9 +148,16 @@ bash docker/smoke_obsidian_desktop.sh pa-bb "$PWD/obsidian-1.15.1-amd64"
 
 Enable only after the smoke test passes under the intended security policy.
 Generate the same profile with
-`python3 docker/obsidian_desktop_seccomp.py > obsidian-desktop-seccomp.json`
-and pass `--security-opt seccomp=obsidian-desktop-seccomp.json` to the BB
-container that runs Desktop.
+`python3 docker/obsidian_desktop_seccomp.py > obsidian-desktop-seccomp.json`.
+When starting the BB container that runs Desktop, use these flags together.
+
+```text
+--security-opt seccomp=obsidian-desktop-seccomp.json
+--security-opt no-new-privileges
+--cap-drop ALL
+```
+
+The profile applies to the whole container.
 Select a trusted vault with no filesystem links (symbolic or hard links) or
 nested mounts exposing files from outside the vault. Desktop can write vault
 settings when it opens that vault.
