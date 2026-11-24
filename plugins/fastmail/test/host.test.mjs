@@ -6,7 +6,7 @@ import { SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/clie
 
 // The built plugin runs against BB's host contract, but never contacts Fastmail.
 test('fresh provider resolutions select granted dynamic tools and hide provider metadata', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail' });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'] });
   const db = host.bb.storage.database();
   db.prepare('CREATE TABLE fastmail_oauth (id INTEGER PRIMARY KEY, value TEXT NOT NULL)').run();
   db.prepare('INSERT INTO fastmail_oauth VALUES (1, ?)').run(JSON.stringify({ tokens: { access_token: 'synthetic' } }));
@@ -61,7 +61,7 @@ test('fresh provider resolutions select granted dynamic tools and hide provider 
 });
 
 test('failure diagnostics distinguish call routes and status without leaking provider or OAuth content', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail' });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'] });
   const db = host.bb.storage.database();
   db.prepare('CREATE TABLE fastmail_oauth (id INTEGER PRIMARY KEY, value TEXT NOT NULL)').run();
   db.prepare('INSERT INTO fastmail_oauth VALUES (1, ?)').run(JSON.stringify({ tokens: { access_token: 'private-access-token' } }));
@@ -96,7 +96,7 @@ test('failure diagnostics distinguish call routes and status without leaking pro
 });
 
 test('BB remains connected after an HTTP 500 without replaying the failed tool', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail' });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'] });
   const db = host.bb.storage.database();
   db.prepare('CREATE TABLE fastmail_oauth (id INTEGER PRIMARY KEY, value TEXT NOT NULL)').run();
   db.prepare('INSERT INTO fastmail_oauth VALUES (1, ?)').run(JSON.stringify({ tokens: { access_token: 'private-token' } }));
@@ -131,7 +131,7 @@ test('BB remains connected after an HTTP 500 without replaying the failed tool',
 });
 
 test('a successful identity response without a default sender explains the blank account label', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail' });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'] });
   const db = host.bb.storage.database();
   db.prepare('CREATE TABLE fastmail_oauth (id INTEGER PRIMARY KEY, value TEXT NOT NULL)').run();
   db.prepare('INSERT INTO fastmail_oauth VALUES (1, ?)').run(JSON.stringify({ tokens: { access_token: 'private-access-token' } }));
@@ -149,7 +149,7 @@ test('a successful identity response without a default sender explains the blank
 });
 
 test('provider error results and failed catalog refresh are reported without provider text', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail' });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'] });
   const db = host.bb.storage.database();
   db.prepare('CREATE TABLE fastmail_oauth (id INTEGER PRIMARY KEY, value TEXT NOT NULL)').run();
   db.prepare('INSERT INTO fastmail_oauth VALUES (1, ?)').run(JSON.stringify({ tokens: { access_token: 'private-access-token' } }));

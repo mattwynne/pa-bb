@@ -10,7 +10,7 @@ const args = { account: 'login@example.test', emailId: 'M1', blobId: 'B1', expec
 const email = { id: 'M1', threadId: 'T1', messageId: ['synthetic@example.test'], receivedAt: '2026-01-02T12:00:00Z', attachments: [{ blobId: 'B1', name: args.expectedName, type: args.expectedMimeType, size: 4 }] };
 async function setup(root, changes = {}) {
   const calls = []; const downloads = [];
-  const host = createFakePluginHost({ pluginId: 'fastmail', settings: { jmapApiToken: 'private-token-sentinel' }, sdk: {
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'], settings: { jmapApiToken: 'private-token-sentinel' }, sdk: {
     system: { config: async () => ({ primaryHostId: 'server' }) },
     threads: { storageLocation: async value => { calls.push(value); return { hostId: changes.remote ? 'remote' : 'server', storageRootPath: root }; } },
   } });

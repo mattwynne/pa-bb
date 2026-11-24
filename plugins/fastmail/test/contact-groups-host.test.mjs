@@ -46,14 +46,14 @@ function fixture(options = {}) {
 }
 
 async function withHost(options, run) {
-  const host = createFakePluginHost({ pluginId: 'fastmail', settings });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'], settings });
   const fake = fixture(options);
   try { await plugin(host.bb, undefined, undefined, fake.fetcher); await run(host, fake); }
   finally { await host.harness.lifecycle.dispose(); }
 }
 
 test('CardDAV configuration is independent, secret, lazy, and read at each invocation', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail' });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'] });
   const fake = fixture();
   try {
     await plugin(host.bb, undefined, undefined, fake.fetcher);
@@ -149,7 +149,7 @@ test('BB errors name safe failure categories and never replay uncertain writes',
 });
 
 test('unexpected transport errors do not echo provider content', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail', settings });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'], settings });
   try {
     await plugin(host.bb, undefined, undefined, async () => { throw new Error(PRIVATE + SECRET); });
     const result = await call(host, { action: 'list' });
@@ -160,7 +160,7 @@ test('unexpected transport errors do not echo provider content', async () => {
 });
 
 test('caller cancellation is propagated to fetch but private abort reasons never reach output or logs', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail', settings });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'], settings });
   const controller = new AbortController();
   controller.abort(new Error(PRIVATE + SECRET));
   let writes = 0;

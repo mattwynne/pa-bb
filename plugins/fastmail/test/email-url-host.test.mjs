@@ -5,7 +5,7 @@ import plugin from '../dist/server.js';
 const MAIL = 'urn:ietf:params:jmap:mail';
 const email = { id: 'M1', threadId: 'T1', messageId: ['synthetic@example.test'], receivedAt: '2026-01-02T12:00:00Z' };
 async function setup(changes = {}) {
-  const h = createFakePluginHost({ pluginId: 'fastmail', settings: { jmapApiToken: 'private-token-sentinel' } });
+  const h = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'], settings: { jmapApiToken: 'private-token-sentinel' } });
   const db = h.bb.storage.database();
   db.prepare('CREATE TABLE fastmail_oauth (id INTEGER PRIMARY KEY, value TEXT NOT NULL)').run();
   db.prepare('INSERT INTO fastmail_oauth VALUES (1, ?)').run(JSON.stringify({ tokens: { access_token: 'private-mcp-sentinel' } }));

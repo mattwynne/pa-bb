@@ -5,12 +5,14 @@ import plugin from '../dist/server.js';
 
 const resolve = host => host.harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
 test('JMAP token is secret, independent of MCP, dynamically selected, and read at invocation', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail' });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'] });
   const seen = [];
   try {
     await plugin(host.bb, undefined, async (url, init) => { seen.push(init.headers.Authorization); return new Response('private provider response', { status: 401 }); });
     assert.equal(host.harness.inspection.registrations.settingsDescriptors.jmapApiToken.secret, true);
-    assert.deepEqual((await resolve(host)).tools, []);
+    const fresh = await resolve(host);
+    assert.deepEqual(fresh.tools, []);
+    assert.deepEqual(fresh.skills, ['fastmail-jmap']);
     await host.harness.behavior.setSettings({ jmapApiToken: 'private-token-one' });
     assert.deepEqual((await resolve(host)).tools.map(t => t.name), ['fastmail_update_email_labels']);
     const args = { emailIds: ['M1'], addLabels: ['Inbox'] };
@@ -31,7 +33,7 @@ test('JMAP token is secret, independent of MCP, dynamically selected, and read a
   } finally { await host.harness.lifecycle.dispose(); }
 });
 test('seeded JMAP token is selected on load and never reaches agent instructions or schema', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail', settings: { jmapApiToken: 'private-jmap-token' } });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'], settings: { jmapApiToken: 'private-jmap-token' } });
   try {
     await plugin(host.bb);
     const selected = await resolve(host);
@@ -41,7 +43,7 @@ test('seeded JMAP token is selected on load and never reaches agent instructions
   } finally { await host.harness.lifecycle.dispose(); }
 });
 test('built BB tool previews, applies, and surfaces partial verification honestly', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail', settings: { jmapApiToken: 'private-jmap-token' } });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'], settings: { jmapApiToken: 'private-jmap-token' } });
   let memberships = { screen: true }; let writes = 0; let reject = false;
   const MAIL = 'urn:ietf:params:jmap:mail';
   const fetcher = async (url, init) => {
@@ -71,7 +73,7 @@ test('built BB tool previews, applies, and surfaces partial verification honestl
   } finally { await host.harness.lifecycle.dispose(); }
 });
 test('unexpected settings/transport failures never expose raw diagnostics', async () => {
-  const host = createFakePluginHost({ pluginId: 'fastmail', settings: { jmapApiToken: 'private-jmap-token' } });
+  const host = createFakePluginHost({ pluginId: 'fastmail', agentSkillIds: ['fastmail-jmap'], settings: { jmapApiToken: 'private-jmap-token' } });
   try {
     await plugin(host.bb, undefined, async () => { throw Object.assign(new Error('private provider body private-jmap-token'), { code: 'private-untrusted-code' }); });
     const result = await host.harness.behavior.callAgentTool('fastmail_update_email_labels', { emailIds: ['M1'], addLabels: ['Inbox'] });
