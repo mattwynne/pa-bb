@@ -635,6 +635,7 @@ try {
       assert.ok(await save.isDisabled());
       await switchArea('Home');
       await standard.getByRole('alert').getByText(/Could not read the standard/).waitFor();
+      assert.equal(await standard.count(), 1, 'Switching Areas must replace the previous Standard section');
       await standard.getByRole('button', { name: 'Try again' }).click();
       await standard.getByRole('button', { name: 'Add standard' }).click();
       assert.equal(await editor.inputValue(), '');
@@ -644,6 +645,11 @@ try {
       await standard.getByText('Review household tasks weekly.', { exact: true }).waitFor();
       await switchArea('Folder');
       await standard.getByText('Add an Area note in Obsidian to set a standard.').waitFor();
+      await switchArea('Learning');
+      await standard.getByText('Edit made in Obsidian.', { exact: true }).waitFor();
+      assert.equal(await standard.count(), 1);
+      await switchArea('All areas');
+      assert.equal(await standard.count(), 0);
       assert.ok(!standardReads.includes('Areas/Folder/'));
       assert.equal(standardSaves.length, 4);
     } else if (mode === 'project-actions') {
