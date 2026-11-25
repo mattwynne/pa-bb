@@ -24,8 +24,10 @@
   border-radius: 8px;
   background: var(--muted);
 }
-.gtd-next-action p { margin: 4px 0 0; color: var(--muted-foreground); line-height: 1.5; }
-.gtd-next-action .gtd-next-action-text { font-size: 15px; color: var(--foreground); }
+.gtd-next-action > p { margin: 4px 0 0; color: var(--muted-foreground); line-height: 1.5; }
+.gtd-next-action .gtd-next-action-text { margin-top: 4px; font-size: 15px; line-height: 1.5; }
+.gtd-next-action-text p { margin: 0; }
+.gtd-next-action-text a { text-decoration: underline; }
 .gtd-list-bar { margin: 14px 0 6px; }
 .gtd-list-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .gtd-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted-foreground); }

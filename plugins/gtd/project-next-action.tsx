@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { useRpc } from '@get-bb/plugin-sdk/app';
+import { Markdown, useRpc } from '@get-bb/plugin-sdk/app';
 import { rpcContract } from './contract.ts';
 
 export function ProjectNextAction({ source, id, revision }: { source: string; id: string; revision: number }) {
@@ -22,7 +22,7 @@ export function ProjectNextAction({ source, id, revision }: { source: string; id
   return <section className="gtd-next-action" aria-labelledby={heading}>
     <h2 id={heading}>Next action</h2>
     {result === 'error' ? <p role="status">Could not load the next action. Check the project note in Obsidian.</p>
-      : result?.text ? <p className="gtd-next-action-text">{result.text}</p>
+      : result?.text ? <Markdown className="gtd-next-action-text" content={result.text} />
         : <p role="status">{result ? 'No next action recorded.' : 'Loading next action…'}</p>}
   </section>;
 }
