@@ -14,6 +14,39 @@ Coverage and resolution are separate. Invalid YAML and unavailable evidence prod
 
 For a prior move or rename, supply the kind, old ID, exact checked operation ID and baseline hash in `--renames`. A retained move receipt with its checked old hash, or a retained preview supplied as `priorPlanId` plus the matching move receipt, can establish the mapping when the destination still has that version. A checked mapping takes precedence if the old path was reused. Missing evidence leaves the relationship unresolved. A legacy reference at its current exact path is reviewed as an observed association. For any known path reuse before that review, supply historical evidence before applying; a current path alone cannot establish who occupied it previously.
 
+### Explicit review choices
+
+Build a private JSON file from the preview when the user explicitly chooses a different Area or reassigns an individual thread. Use the exact `notePath` values from the preview. Copy each project's exact raw `declaration` as `expectedDeclaration`, including array shape and link syntax. For each thread, copy the preview's source and the exact old reference ID.
+
+```json
+{
+  "areaAssignments": [
+    {
+      "projectPath": "Projects/Active/Check permits.md",
+      "expectedDeclaration": ["[[Areas/Operations/Permits]]"],
+      "targetAreaPath": "Areas/Operations.md"
+    }
+  ],
+  "threadReassignments": [
+    {
+      "threadId": "thr_example",
+      "kind": "project",
+      "expected": {"source": "example-vault", "id": "Projects/Previous name.md"},
+      "targetPath": "Projects/Active/Check permits.md"
+    }
+  ]
+}
+```
+
+Run with single-line JSON over stdin. The input limit is 16 KiB.
+
+```sh
+umask 077
+jq -c . choices.json | bb gtd migration-preview --choices-stdin --json > reviewed-preview.json
+```
+
+Use `kind: "area"` for a direct Area thread link. Both lists are optional. Every choice requires complete evidence, an exact current value, and a canonical landing note of the right kind. Use each project path or thread and kind pair once. A choice that overlaps a receipt-based mapping is rejected. The revised report distinguishes `explicit_assignment` and `explicit_reassignment` from `verified_rename`. Reassigning a thread provides no evidence for its old bookmark or other references at the same path. Those references still need their own reviewed evidence. Apply uses the stored choices from the exact revised plan and checks them against current evidence again.
+
 ## Apply and verify
 
 The first handoff is the read-only preview. A separate operator instruction is required before applying to any real vault. Review the exact plan ID, all rows and mappings, and any findings before applying. Use an exclusive window for Obsidian changes and GTD associations. GTD gates its own write surfaces and drains admitted work. BB's metadata API has no conditional-update parameter. Independent changes during this window can invalidate the preview or require reconciliation.

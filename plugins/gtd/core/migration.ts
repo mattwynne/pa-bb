@@ -4,21 +4,23 @@ import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { noteEvidence, ObsidianBackend, vaultRpc } from '../adapters/obsidian.ts';
 import { noteSaveReceipt, reference } from '../contract.ts';
 import { migrationPreview, migrationPreviewVersion, readThreadReferences, type Preview, type RenameEvidence } from './migration-preview.ts';
+import { threadChoiceKey, type MigrationChoices } from './migration-choices.ts';
 import { scopeKey, type Alias, type IdentityScope } from './identity.ts';
 
 type NoteStep = { operationId: string; savedHash?: string };
+type NoteSteps = { id?: NoteStep; area?: NoteStep };
 type Manifest = {
   preview: Omit<Preview, 'version'> & { version: number };
   renames: RenameEvidence;
-  notes: Record<string, { id?: NoteStep; area?: NoteStep }>;
+  notes: Record<string, NoteSteps>;
   threads: Record<string, 'entered' | 'verified'>;
 };
 type Run = { id: string; state: 'review' | 'applying' | 'stable'; manifest: string };
 
 const blocked = (message: string): never => { throw new Error(message); };
 export class OutdatedMigrationReview extends Error {}
-const linkKey = (link: Pick<Preview['links'][number], 'threadId' | 'kind'>) => JSON.stringify([link.threadId, link.kind]);
-const validLink = (link: Preview['links'][number]) => !!link.proposedId && (!link.decision || link.decision === 'verified_rename');
+const validLink = (link: Preview['links'][number]) => !!link.proposedId &&
+  (!link.decision || link.decision === 'verified_rename' || link.decision === 'explicit_reassignment');
 export const decisions = (preview: Pick<Preview, 'rows' | 'links' | 'renameMappings'>) =>
   preview.rows.filter(row => row.decisions.length).length +
   preview.links.filter(link => !validLink(link)).length +
@@ -55,9 +57,9 @@ export function identityMigration(bb: BbPluginApi) {
     }
     return anchored;
   }
-  async function preview(config: IdentityScope, signal: AbortSignal, renames: RenameEvidence = []) {
+  async function preview(config: IdentityScope, signal: AbortSignal, renames: RenameEvidence = [], choices?: MigrationChoices) {
     if (active(config)) return blocked('An identity migration is already applying or stable for this scope.');
-    const result = await migrationPreview(bb, config, signal, renames, priorEvidence(config, renames));
+    const result = await migrationPreview(bb, config, signal, renames, priorEvidence(config, renames), choices);
     const manifest: Manifest = { preview: result, renames, notes: {}, threads: {} };
     const id = randomUUID();
     db.prepare("INSERT INTO identity_runs VALUES (?,?,'review',?)").run(id, scopeKey(config), JSON.stringify(manifest));
@@ -89,27 +91,38 @@ export function identityMigration(bb: BbPluginApi) {
       await check();
       await adapter.checkAccess(signal);
     };
+    const verifyLinks = async (requireStable: boolean) => {
+      const actual = await readThreadReferences(bb.sdk, vaultId, signal);
+      const reviewed = new Map(preview.links.map(link => [threadChoiceKey(link), link]));
+      if (actual.warnings.length || actual.refs.length !== reviewed.size) return blocked('Thread reference coverage changed.');
+      for (const link of actual.refs) {
+        const key = threadChoiceKey(link);
+        const expected = reviewed.get(key);
+        if (!expected || link.archived !== expected.archived ||
+            (link.id !== expected.proposedId && (requireStable || link.id !== expected.id)) ||
+            (expected.decision === 'explicit_reassignment' && link.id !== expected.id && !manifest.threads[key]))
+          return blocked('A reviewed thread reference changed independently.');
+      }
+    };
     await fence();
+    if (preview.explicitChoices?.threadReassignments.length) await verifyLinks(false);
     if (run.state === 'review') {
       if (hasApplying()) return blocked('Another reviewed migration is still applying.');
-      const observed = await migrationPreview(bb, config, signal, manifest.renames, priorEvidence(config, manifest.renames));
+      const observed = await migrationPreview(bb, config, signal, manifest.renames, priorEvidence(config, manifest.renames), preview.explicitChoices);
       const ordered = (p: Manifest['preview']) => ({
         ...p, rows: [...p.rows].sort((a,b) => a.oldId.localeCompare(b.oldId)),
-        links: [...p.links].sort((a,b) => linkKey(a).localeCompare(linkKey(b))),
+        links: [...p.links].sort((a,b) => threadChoiceKey(a).localeCompare(threadChoiceKey(b))),
         bookmarks: [...p.bookmarks].sort((a,b) => a.from.localeCompare(b.from)),
       });
       if (!isDeepStrictEqual(ordered(preview), ordered(observed))) return blocked('The reviewed inventory or references changed. Review a fresh preview.');
       await fence();
       db.prepare("UPDATE identity_runs SET state='applying' WHERE id=? AND state='review'").run(id);
     }
-    for (const row of preview.rows) {
+    const reconcileNote = async (row: Preview['rows'][number], steps: NoteSteps) => {
       const path = row.notePath!;
       const fields = desired(row);
-      const steps = manifest.notes[path] ??= {};
-      let expectedHash = row.hash;
       // Validate previously completed stages against the last checked version.
       // A later property save legitimately changes the earlier stage's hash.
-      const stages = (['id', 'area'] as const).filter(field => fields[field] !== undefined);
       const entered = steps.area ? 'area' : steps.id ? 'id' : undefined;
       if (entered) {
         const step = steps[entered]!;
@@ -127,6 +140,28 @@ export function identityMigration(bb: BbPluginApi) {
           save();
         }
       }
+    };
+    if (run.state === 'applying' && preview.explicitChoices) {
+      const paths = new Set([
+        ...preview.explicitChoices.areaAssignments.flatMap(choice => [choice.projectPath, choice.targetAreaPath]),
+        ...preview.explicitChoices.threadReassignments.map(choice => choice.targetPath),
+      ]);
+      for (const row of preview.rows) {
+        if (!row.notePath || !paths.has(row.notePath)) continue;
+        const steps = manifest.notes[row.notePath] ?? {};
+        await reconcileNote(row, steps);
+        const current = await currentNote(row.notePath);
+        if (current.hash !== (steps.area?.savedHash ?? steps.id?.savedHash ?? row.hash))
+          return blocked('A note involved in an explicit choice changed during migration.');
+      }
+    }
+    for (const row of preview.rows) {
+      const path = row.notePath!;
+      const fields = desired(row);
+      const steps = manifest.notes[path] ??= {};
+      await reconcileNote(row, steps);
+      let expectedHash = row.hash;
+      const stages = (['id', 'area'] as const).filter(field => fields[field] !== undefined);
       for (const field of stages) {
         const completed = steps[field]?.savedHash;
         if (completed) { expectedHash = completed; continue; }
@@ -168,21 +203,10 @@ export function identityMigration(bb: BbPluginApi) {
           return blocked('A stable note or Area assignment is unavailable or changed.');
       }
     };
-    const verifyLinks = async (requireStable: boolean) => {
-      const actual = await readThreadReferences(bb.sdk, vaultId, signal);
-      const reviewed = new Map(preview.links.map(link => [linkKey(link), link]));
-      if (actual.warnings.length || actual.refs.length !== reviewed.size) return blocked('Thread reference coverage changed.');
-      for (const link of actual.refs) {
-        const expected = reviewed.get(linkKey(link));
-        if (!expected || link.archived !== expected.archived ||
-            (link.id !== expected.proposedId && (requireStable || link.id !== expected.id)))
-          return blocked('A reviewed thread reference changed independently.');
-      }
-    };
     await verifyInventory();
     await verifyLinks(false);
     for (const link of preview.links) {
-      const key = linkKey(link);
+      const key = threadChoiceKey(link);
       const read = async () => {
         const metadata = await bb.sdk.threads.getPluginMetadata({ threadId: link.threadId, signal });
         const ref = reference.safeParse(metadata[link.kind]).data;
@@ -191,6 +215,8 @@ export function identityMigration(bb: BbPluginApi) {
       await fence();
       const before = await read();
       if (before === link.proposedId) {
+        if (link.decision === 'explicit_reassignment' && before !== link.id && !manifest.threads[key])
+          return blocked('A reviewed thread reference changed independently.');
         manifest.threads[key] = 'verified';
         save();
         continue;

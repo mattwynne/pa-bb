@@ -22,7 +22,7 @@ async function fixture() {
   const saveReceipts = new Map<string, string>();
   const moveReceipts = new Map<string, object>();
   const writes = { notes: 0, metadata: 0, spawns: 0, moves: 0, inventories: 0 };
-  const faults = { note: false, area: false, move: false, thread: false, spawn: false, access: false };
+  const faults = { note: false, area: false, move: false, thread: false, spawn: false, access: false, partial: false };
   const creationThread = 'created';
   const sdk = {
     plugins: { callRpc: async ({method, input}: any) => {
@@ -33,7 +33,7 @@ async function fixture() {
         writes.inventories++;
         const provenance = { vaultId: source, name: 'Generated', cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null };
         const include = (path: string) => !input.folders || input.folders.some((folder: string) => path === folder || path.startsWith(folder + '/'));
-        return { source: provenance, folders: folders.filter(include), incomplete: false,
+        return { source: provenance, folders: folders.filter(include), incomplete: faults.partial && input.folders?.length !== 0,
           notes: [...docs].filter(([path]) => include(path)).map(([path, props]) => ({path,
             properties: Object.fromEntries(Object.entries(props).filter(([key]) => input.fields.includes(key))), malformed: false })) };
       }
@@ -324,4 +324,141 @@ test('stable ID validators check kind, separator, UUID version and variant', () 
       assert.ok(!stableIds[kind].safeParse(invalid).success);
     }
   }
+});
+
+const nestedArea = ['[[Areas/Administration/Records]]'];
+const movedProject = 'Projects/Inspections.md';
+const oldMissingProject = 'Projects/Retired.md';
+const explicitChoicesFixture = () => ({
+  areaAssignments: [{projectPath:oldProject,expectedDeclaration:nestedArea,targetAreaPath:oldArea}],
+  threadReassignments: [
+    {threadId:'archived-project',kind:'project',expected:{source,id:oldMissingProject},targetPath:movedProject},
+    {threadId:'archived-area',kind:'area',expected:{source,id:'Areas/Previous.md'},targetPath:oldArea},
+  ],
+});
+async function setupChoices() {
+  const f = await fixture();
+  f.docs.get(oldProject)!.area = nestedArea;
+  f.docs.set(movedProject, {});
+  f.metadata.get('archived-project')!.project = {source,id:oldMissingProject};
+  f.metadata.get('archived-area')!.area = {source,id:'Areas/Previous.md'};
+  return f;
+}
+
+test('explicit review resolves a nested Area and reassigns the specified threads without claiming bookmark lineage', async t => {
+  const f = await setupChoices();
+  t.after(() => f.host.harness.lifecycle.dispose());
+  const choices = explicitChoicesFixture();
+  const baseline = await f.preview();
+  assert.ok(baseline.decisions > 0);
+  const preview = await f.preview('--choices', JSON.stringify(choices));
+  assert.equal(preview.decisions, 0);
+  assert.deepEqual(preview.explicitChoices, choices);
+  const area = preview.rows.find((row: any) => row.notePath === oldArea);
+  const project = preview.rows.find((row: any) => row.notePath === oldProject);
+  const reassigned = preview.rows.find((row: any) => row.notePath === movedProject);
+  assert.deepEqual(project.areaDecision, {kind:'explicit_assignment',targetPath:oldArea});
+  assert.equal(project.proposedAreaId, area.proposedId);
+  for (const choice of choices.threadReassignments) {
+    const link = preview.links.find((link: any) => link.threadId === choice.threadId);
+    assert.equal(link.decision, 'explicit_reassignment');
+    assert.equal(link.targetPath, choice.targetPath);
+    assert.ok(!preview.bookmarks.some((bookmark: any) => bookmark.from === choice.expected.id && bookmark.to));
+  }
+  assert.equal(f.writes.notes + f.writes.metadata, 0);
+  await f.reload();
+  const apply = () => f.cli('migration-apply', '--plan', preview.planId);
+  f.faults.area = true;
+  assert.notEqual((await apply()).exitCode, 0);
+  await f.reload();
+  const writesBeforeResume = {...f.writes};
+  f.docs.get(movedProject)!.changed = 'Different target after interruption';
+  assert.notEqual((await apply()).exitCode, 0);
+  delete f.docs.get(movedProject)!.changed;
+  f.metadata.get('archived-project')!.project = {source,id:reassigned.proposedId};
+  assert.notEqual((await apply()).exitCode, 0);
+  f.metadata.get('archived-project')!.project = {source,id:oldMissingProject};
+  assert.equal(f.writes.notes, writesBeforeResume.notes);
+  assert.equal(f.writes.metadata, writesBeforeResume.metadata);
+  assert.equal((await apply()).exitCode, 0);
+  assert.equal(f.docs.get(oldProject)!.area, area.proposedId);
+  assert.deepEqual(f.metadata.get('archived-project'), {project:{source,id:reassigned.proposedId},unrelated:'archived'});
+  assert.deepEqual(f.metadata.get('archived-area'), {area:{source,id:area.proposedId},unrelated:'area'});
+  const result = await f.rpc('browseInventoryV2', {includeAreas:true});
+  assert.equal(result.identity, 'stable');
+  assert.ok(!result.aliases.some((bookmark: any) => bookmark.from === oldMissingProject || bookmark.from === 'Areas/Previous.md'));
+});
+
+test('explicit choices require exact current values, scope, canonical targets, unique reviews and complete coverage', async t => {
+  const f = await setupChoices();
+  t.after(() => f.host.harness.lifecycle.dispose());
+  const testInvalid = async (change: (input: ReturnType<typeof explicitChoicesFixture>) => void, diagnostic: string) => {
+    const choices = explicitChoicesFixture();
+    change(choices);
+    const result = await f.cli('migration-preview', '--json', '--choices', JSON.stringify(choices));
+    assert.notEqual(result.exitCode, 0);
+    assert.doesNotMatch(JSON.stringify(result), /Private_SENTINEL/i);
+    assert.equal(f.host.harness.inspection.logEntries.at(-1)?.message, 'GTD identity_preview choice_' + diagnostic);
+  };
+  await testInvalid(c => { c.areaAssignments[0].expectedDeclaration = ['Private_SENTINEL']; }, 'area_assignment');
+  await testInvalid(c => { c.areaAssignments[0].projectPath = movedProject; }, 'area_assignment');
+  await testInvalid(c => { c.areaAssignments[0].targetAreaPath = 'Areas/Administration/Nested.md'; }, 'area_assignment');
+  await testInvalid(c => { c.threadReassignments[0].expected.source = 'other'; }, 'thread_reassignment');
+  await testInvalid(c => { c.threadReassignments[0].threadId = 'missing'; }, 'thread_reassignment');
+  await testInvalid(c => { c.threadReassignments[0].expected.id = 'Projects/Private_SENTINEL.md'; }, 'thread_reassignment');
+  await testInvalid(c => { c.threadReassignments[0].targetPath = oldArea; }, 'thread_reassignment');
+  await testInvalid(c => { c.areaAssignments.push(c.areaAssignments[0]); }, 'duplicate');
+  await testInvalid(c => { c.threadReassignments.push({...c.threadReassignments[0], targetPath:oldProject}); }, 'duplicate');
+  f.faults.partial = true;
+  await testInvalid(() => {}, 'coverage');
+  assert.equal(f.writes.notes + f.writes.metadata, 0);
+});
+
+test('stale choice plans reject changed declarations, target versions or thread references before any external write', async t => {
+  const f = await setupChoices();
+  t.after(() => f.host.harness.lifecycle.dispose());
+  const plan = await f.preview('--choices', JSON.stringify(explicitChoicesFixture()));
+  const reject = async () => {
+    assert.notEqual((await f.cli('migration-apply', '--plan', plan.planId)).exitCode, 0);
+    assert.equal(f.writes.notes + f.writes.metadata, 0);
+    assert.equal(JSON.parse((await f.cli('migration-status', '--plan', plan.planId)).stdout!).state, 'review');
+  };
+  delete f.docs.get(oldProject)!.area;
+  await reject();
+  f.docs.get(oldProject)!.area = nestedArea;
+  f.docs.get(movedProject)!.changed = 'Independent change';
+  await reject();
+  delete f.docs.get(movedProject)!.changed;
+  delete f.metadata.get('archived-area')!.area;
+  await reject();
+});
+
+test('one thread choice does not migrate other threads or confer a bookmark alias at a reused old path', async t => {
+  const f = await setupChoices();
+  t.after(() => f.host.harness.lifecycle.dispose());
+  f.docs.set(oldMissingProject, {});
+  f.metadata.set('other-project', {project:{source,id:oldMissingProject}});
+  const preview = await f.preview('--choices', JSON.stringify(explicitChoicesFixture()));
+  assert.equal(preview.links.find((link: any) => link.threadId === 'other-project').decision, 'thread_lineage_unverified');
+  assert.deepEqual(preview.bookmarks.find((bookmark: any) => bookmark.from === oldMissingProject), {
+    kind: 'project', from: oldMissingProject, to: null, decision: 'bookmark_lineage_unverified',
+  });
+  assert.notEqual((await f.cli('migration-apply', '--plan', preview.planId)).exitCode, 0);
+  assert.equal(f.writes.notes + f.writes.metadata, 0);
+});
+
+test('a receipt-based mapping and an explicit choice for the same reference conflict', async t => {
+  const f = await setupChoices();
+  t.after(() => f.host.harness.lifecycle.dispose());
+  const operationId = randomUUID();
+  const baselineHash = hash(f.docs.get(movedProject)!);
+  f.moveReceipts.set(operationId, {vaultId:source,path:oldMissingProject,destination:movedProject,operationId,
+    outcome:'moved_locally_pending_sync',legacy:{expectedHash:baselineHash}});
+  const renames = JSON.stringify([{kind:'project',oldId:oldMissingProject,operationId,baselineHash}]);
+  const receiptOnly = await f.preview('--renames', renames);
+  assert.equal(receiptOnly.links.find((link: any) => link.threadId === 'archived-project').decision, 'verified_rename');
+  const rejected = await f.cli('migration-preview', '--renames', renames, '--choices', JSON.stringify(explicitChoicesFixture()));
+  assert.notEqual(rejected.exitCode, 0);
+  assert.equal(f.host.harness.inspection.logEntries.at(-1)?.message, 'GTD identity_preview choice_conflict');
+  assert.equal(f.writes.notes + f.writes.metadata, 0);
 });

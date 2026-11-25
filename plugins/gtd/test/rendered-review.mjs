@@ -33,6 +33,11 @@ if (native) {
 const fd = openSync(join(root, 'server.log'), 'w', 0o600);
 const server = spawn(process.execPath, [join(bb, 'server/dist/index.js')], { env, cwd: root, stdio: ['ignore', fd, fd] }); closeSync(fd);
 const cli = async (...args) => (await exec(process.execPath, [join(bb, 'host-daemon/dist/bb'), ...args], { env, cwd: root, timeout: 120000 })).stdout;
+const cliWithStdin = async (input, ...args) => {
+  const running = exec(process.execPath, [join(bb, 'host-daemon/dist/bb'), ...args], { env, cwd: root, timeout: 120000 });
+  running.child.stdin.end(input);
+  return (await running).stdout;
+};
 let browser;
 const ref = { source: 'one', id: 'Projects/Learn woodworking.md' };
 const source = { backend: 'obsidian', id: 'one', name: 'Synthetic vault', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null };
@@ -100,10 +105,15 @@ try {
   if (native) await connectSyntheticVault(pkg);
   let stableProject, stableArea;
   if (nativeStable) {
-    const report = JSON.parse(await cli('gtd', 'migration-preview', '--json'));
+    const nested = 'Areas/Learning/Old records.md';
+    await writeFile(join(vault, ref.id), projectNote('Legacy label').replace('Areas/Learning.md', nested));
+    const choices = { areaAssignments: [{projectPath:ref.id, expectedDeclaration:nested, targetAreaPath:'Areas/Learning.md'}] };
+    const report = JSON.parse(await cliWithStdin(JSON.stringify(choices) + '\n', 'gtd', 'migration-preview', '--json', '--choices-stdin'));
     assert.equal(report.coverage, 'complete');
     assert.equal(report.decisions, 0);
     assert.equal(report.links.length, 0);
+    assert.deepEqual(report.rows.find(row => row.kind === 'project').areaDecision,
+      {kind:'explicit_assignment',targetPath:'Areas/Learning.md'});
     await writeFile(join(artifacts, 'synthetic-preview.json'), JSON.stringify(report, null, 2) + '\n');
     stableProject = report.rows.find(row => row.kind === 'project').proposedId;
     stableArea = report.rows.find(row => row.kind === 'area').proposedId;

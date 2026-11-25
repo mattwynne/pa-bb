@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { reference } from '../contract.ts';
@@ -5,9 +6,11 @@ import { ObsidianBackend, noteEvidence, vaultRpc, relativeFolder, type PreviewEv
 import type { Project, Area } from './model.ts';
 
 import { canonicalIds, newStableId, stableIds, scopeKey, type IdentityScope, type Kind } from './identity.ts';
+import { InvalidMigrationChoices, threadChoiceKey, type MigrationChoices } from './migration-choices.ts';
 export { stableIds } from './identity.ts';
 export const migrationPreviewVersion = 3;
-type Row = { kind: Kind; oldId: string; notePath: string | null; proposedPath: string | null; existingId: unknown; proposedId: string | null; decisions: string[]; declaration?: unknown; legacyAreaId?: string; proposedAreaId?: string; hash?: string };
+type Row = { kind: Kind; oldId: string; notePath: string | null; proposedPath: string | null; existingId: unknown; proposedId: string | null; decisions: string[]; declaration?: unknown; legacyAreaId?: string; proposedAreaId?: string; hash?: string;
+  areaDecision?: { kind: 'explicit_assignment'; targetPath: string } };
 type Thread = { threadId: string; archived: boolean; id: string; kind: Kind };
 export const renameEvidence = z.array(z.object({
   kind: z.enum(['project', 'area']), oldId: relativeFolder, operationId: z.string().uuid(),
@@ -88,7 +91,7 @@ const receiptSchema = z.object({
   legacy: z.object({ expectedHash: noteEvidence.shape.hash.optional() }).optional(),
 });
 
-export async function migrationPreview(bb: BbPluginApi, config: IdentityScope, signal: AbortSignal, renames: RenameEvidence = [], anchored: ReadonlySet<string> = new Set()) {
+export async function migrationPreview(bb: BbPluginApi, config: IdentityScope, signal: AbortSignal, renames: RenameEvidence = [], anchored: ReadonlySet<string> = new Set(), choices?: MigrationChoices) {
   const [vaultId, ...segments] = config.vaultId.split('/'), root = segments.join('/');
   const scope = scopeKey(config);
   const evidence: PreviewEvidence = { owners: new Map(), entries: new Set() };
@@ -143,38 +146,83 @@ export async function migrationPreview(bb: BbPluginApi, config: IdentityScope, s
     renameMappings.push({ ...hint, destination: receipt?.destination ?? null, proposedId: verified ? target.proposedId : null,
       decision: verified ? 'verified_rename' : 'rename_unverified' });
   }
+  if (choices && warnings.size) throw new InvalidMigrationChoices('coverage');
+  const explicitAreas = new Map(choices?.areaAssignments.map(choice => [choice.projectPath, choice]));
+  const explicitThreads = new Map(choices?.threadReassignments.map(choice => [threadChoiceKey(choice), choice]));
+  const unverifiedPaths = new Set(choices?.threadReassignments
+    .filter(choice => !stableIds[choice.kind].safeParse(choice.expected.id).success)
+    .map(choice => aliasKey(choice.kind, choice.expected.id)));
+  const confirmed = (row: Row | undefined, path: string): row is Row & {proposedId: string; hash: string} =>
+    !!row?.proposedId && !!row.hash && row.notePath === path && !row.decisions.length;
+  const assignmentBlockers = new Set(['unresolved_declaration', 'nested_or_missing_area', 'area_needs_review']);
   for (const row of rows) {
     if (row.kind !== 'project') continue;
     const declaration = row.declaration;
     const raw = row.legacyAreaId ?? (typeof declaration === 'string' ? declaration : undefined);
     const key = raw && aliasKey('area', raw);
+    const explicit = explicitAreas.get(row.oldId);
+    if (explicit) {
+      if (key && reviewedAliases.has(key)) throw new InvalidMigrationChoices('conflict');
+      const target = byOld.get(aliasKey('area', explicit.targetAreaPath));
+      if (row.notePath !== explicit.projectPath || !row.hash || !row.proposedId ||
+          !Object.hasOwn(row, 'declaration') || !isDeepStrictEqual(declaration, explicit.expectedDeclaration) ||
+          row.decisions.some(reason => !assignmentBlockers.has(reason)) || !confirmed(target, explicit.targetAreaPath))
+        throw new InvalidMigrationChoices('area_assignment');
+      row.proposedAreaId = target.proposedId;
+      row.areaDecision = { kind:'explicit_assignment', targetPath:explicit.targetAreaPath };
+      row.decisions = [];
+      explicitAreas.delete(row.oldId);
+      continue;
+    }
+    if (key && unverifiedPaths.has(key) && !reviewedAliases.has(key)) {
+      delete row.proposedAreaId;
+      row.decisions.push('area_lineage_unverified');
+      continue;
+    }
     if (!key || !reviewedAliases.has(key)) continue;
     const target = renamed.get(key);
     if (target && target.proposedId) {
       row.proposedAreaId = target.proposedId;
-      row.decisions = row.decisions.filter(d => d !== 'unresolved_declaration' && d !== 'nested_or_missing_area' && d !== 'area_needs_review');
+      row.decisions = row.decisions.filter(reason => !assignmentBlockers.has(reason));
     } else {
       delete row.proposedAreaId;
       row.decisions.push('area_rename_unverified');
     }
   }
+  if (explicitAreas.size) throw new InvalidMigrationChoices('area_assignment');
   const links = threads.refs.map(ref => {
     const key = aliasKey(ref.kind, ref.id);
+    const threadKey = threadChoiceKey(ref);
+    const explicit = explicitThreads.get(threadKey);
+    if (explicit) {
+      if (explicit.expected.source !== vaultId || explicit.expected.id !== ref.id)
+        throw new InvalidMigrationChoices('thread_reassignment');
+      if (reviewedAliases.has(key)) throw new InvalidMigrationChoices('conflict');
+      const target = byOld.get(aliasKey(ref.kind, explicit.targetPath));
+      if (!confirmed(target, explicit.targetPath)) throw new InvalidMigrationChoices('thread_reassignment');
+      explicitThreads.delete(threadKey);
+      return { ...ref, proposedId: target.proposedId, decision: 'explicit_reassignment', targetPath: explicit.targetPath };
+    }
     const moved = renamed.get(key);
+    if (!moved && unverifiedPaths.has(key)) return { ...ref, proposedId: null, decision: 'thread_lineage_unverified' };
     const match = moved ?? (reviewedAliases.has(key) ? undefined : byOld.get(key) ?? byStable.get(key));
     return { ...ref, proposedId: match?.proposedId ?? null, decision: !match ? (reviewedAliases.has(key) ? 'rename_unverified' : 'unmatched_legacy_reference') :
       match.decisions.length ? 'owner_needs_review' : moved ? 'verified_rename' : null };
   });
+  if (explicitThreads.size) throw new InvalidMigrationChoices('thread_reassignment');
   const bookmarks = [
     ...rows.filter(row => !reviewedAliases.has(aliasKey(row.kind, row.oldId))).map(row => ({
-      kind: row.kind, from: row.oldId, to: row.decisions.length ? null : row.proposedId,
-      decision: row.decisions.length ? 'owner_needs_review' : null,
+      kind: row.kind, from: row.oldId,
+      to: row.decisions.length || unverifiedPaths.has(aliasKey(row.kind, row.oldId)) ? null : row.proposedId,
+      decision: unverifiedPaths.has(aliasKey(row.kind, row.oldId)) ? 'bookmark_lineage_unverified' :
+        row.decisions.length ? 'owner_needs_review' : null,
     })),
     ...renameMappings.map(row => ({ kind: row.kind, from: row.oldId, to: row.proposedId, decision: row.decision })),
   ];
   await adapter.checkAccess(signal);
   return { version: migrationPreviewVersion, mode: 'preview_only' as const, source: vaultId, scope: {root, projectsFolder: config.projectsFolder, areasFolder: config.areasFolder},
     coverage: warnings.size ? 'partial' as const : 'complete' as const, warnings: [...warnings], threadsExamined: threads.counts,
-    rows, links, bookmarks, renameMappings, malformedFrontmatter: [...(project.malformedFrontmatter ?? []), ...(area.malformedFrontmatter ?? [])] };
+    rows, links, bookmarks, renameMappings, ...(choices ? { explicitChoices: choices } : {}),
+    malformedFrontmatter: [...(project.malformedFrontmatter ?? []), ...(area.malformedFrontmatter ?? [])] };
 }
 export type Preview = Awaited<ReturnType<typeof migrationPreview>>;

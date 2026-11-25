@@ -42,6 +42,8 @@ Run `bb gtd migration-preview` for a read-only summary of the selected source an
 
 New proposals use `project-<guid>` and `area-<guid>`. Previously assigned underscore IDs keep their exact values. Generate a fresh preview to replace an unapplied review from the old format.
 
+Use `bb gtd migration-preview --choices-stdin --json` with single-line JSON from a private file for an explicit Area assignment or thread reassignment. See the [choice schema and examples](../../docs/plans/029-stable-gtd-identities.md#explicit-review-choices).
+
 After a separate approval, apply the reviewed plan with `bb gtd migration-apply --plan <id>`. Before starting, reconcile pending GTD changes and keep Obsidian activity and other association writers idle. Inspect progress and exact operation IDs with `bb gtd migration-status --plan <id>`. Resume the same plan after checking any uncertain receipt. See [the identity plan](../../docs/plans/029-stable-gtd-identities.md) for rename evidence and cutover requirements.
 
 After verified cutover, use `bb gtd projects --stable --json` or `bb gtd areas --stable --json` for the current identity contract. The default CLI and original inventory RPCs still return paths. BB's current pages write stable links and open legacy bookmarks with reviewed aliases. For agent-driven creation, `gtd_prepare_landing_note` supplies a file path and initial frontmatter with a new ID for one non-overwriting `obsidian_create_note` call.
