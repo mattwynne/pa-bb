@@ -13,7 +13,7 @@ function fixture() {
     source: { vaultId: 'one', name: 'Example', cloudConnected: false, enabled: false, phase: 'paused', failure: null, lastSuccess: null },
     notes: [
       note(projects + '/Example.md', { area: ['[[Finance|finance]]', '../Areas/Finance.md'] }),
-      note(projects + '/Completed/Pilot.md', { status: 'active', title: 'Example', area: 'Areas/Work/Nested' }),
+      note(projects + '/Completed/Pilot.md', { status: 'active', title: 'Legacy label', area: 'Areas/Work/Nested' }),
       note(projects + '/Example/README.md', { title: 'Support metadata', area: 'Areas/Work' }),
       note(projects + '/Notebook/README.md'),
       note(areas + '/Finance.md', { title: 'Old finance label' }),
@@ -41,6 +41,7 @@ function fixture() {
     } else {
       assert.equal(input?.metadataDepth, 2);
       assert.deepEqual(input?.metadataFolders, [projects, areas]);
+      assert.deepEqual(input?.fields, ['status', 'area']);
     }
     return page;
   } } } as unknown as BbPluginApi['sdk'];
@@ -56,7 +57,7 @@ test('one Desktop query gives note-backed project IDs, status and Area assignmen
   assert.equal(snapshot.source.sync?.phase, 'paused');
   assert.deepEqual(snapshot.projects, [
     { id: projects + '/Example.md', title: 'Example', status: 'active', areaId: areas + '/Finance.md' },
-    { id: projects + '/Completed/Pilot.md', title: 'Example', status: 'done', areaId: areas + '/Work/Nested.md' },
+    { id: projects + '/Completed/Pilot.md', title: 'Pilot', status: 'done', areaId: areas + '/Work/Nested.md' },
   ]);
   const expectedAreas = [
     { id: areas + '/Finance.md', title: 'Finance' },
@@ -126,13 +127,13 @@ test('access checks use empty authorized inventory, not source status or retaine
   await assert.rejects(f.backend.checkAccess(signal()), /invalid source/);
 });
 
-test('one landing-note layer and exact folder confinement', () => {
+test('one landing-note layer, filename labels, and exact folder confinement', () => {
   for (const path of ['../Projects/Test.md', '/Projects/Test.md', 'Projects-copy/Test.md', 'Projects/../Test.md', 'Projects/Test.txt'])
     assert.equal(projectFromNote('Projects', path, {}), 'invalid');
   for (const bad of ['Projects/', '../Projects', 'Projects//Active', 'Projects\\Active']) assert.equal(relativeFolder.safeParse(bad).success, false);
   assert.equal(projectFromNote('Projects', 'Projects/Active/Support/README.md', {}), null);
   assert.equal(projectFromNote('Projects', 'Projects/Support/README.md', {}), null);
-  assert.deepEqual(projectFromNote('Projects', 'Projects/Done.md', {}), { id: 'Projects/Done.md', title: 'Done', status: 'active' });
+  assert.deepEqual(projectFromNote('Projects', 'Projects/🪚 Done.md', { title: false }), { id: 'Projects/🪚 Done.md', title: '🪚 Done', status: 'active' });
   for (const status of ['active', 'deferred', 'someday', 'done']) {
     const path = 'Projects/' + status + '/Example.md';
     assert.deepEqual(projectFromNote('Projects', path, { status: 'unrecognized' }), { id: path, title: 'Example', status });

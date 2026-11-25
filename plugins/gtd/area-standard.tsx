@@ -97,7 +97,7 @@ export function AreaStandard({ source, id }: { source: string; id: string }) {
           {failure === 'invalid_section' && <p role="alert">Obsidian could not save this section. Check for duplicate Standard headings or headings in the draft that start a new section.</p>}
           {failure === 'not_saved' && <p role="alert">The standard was not saved. Check that the Area note is available in Obsidian.</p>}
           {failure === 'uncertain' && <p role="alert">The save is unconfirmed. Check the Obsidian receipt before trying again. Operation ID <code>{receipt}</code></p>}
-          <div className="gtd-title-actions">
+          <div className="gtd-edit-actions">
             {failure === 'changed' ? <button type="button" onClick={() => { closeEditor(); readAgain(); }}>Load current standard</button>
               : <button type="button" disabled={saving || failure === 'uncertain'} onClick={closeEditor}>Cancel</button>}
             <button type="submit" disabled={saving || draft === version.text || failure === 'changed' || failure === 'uncertain'}>

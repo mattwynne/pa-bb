@@ -1,6 +1,6 @@
 # GTD [Experimental]
 
-Browse personal Areas, projects and linked BB conversations, independently of BB coding projects. The first backend uses a connected Obsidian vault. Inventories are read-only. Project title edits use Obsidian's version-checked editor.
+Browse personal Areas, projects and linked BB conversations, independently of BB coding projects. The first backend uses a connected Obsidian vault. Inventories are read-only.
 
 See the [GTD vision](docs/vision.md) for the interface direction and research behind it.
 
@@ -18,7 +18,7 @@ Pre-selector configurations are not silently migrated: a previous selection that
 
 A project requires a Markdown landing note directly under Projects or an immediate status folder. A same-name folder can hold supporting files. A folder by itself is not a project. Files inside a supporting folder, including `README.md`, supply no project metadata.
 
-The immediate status folders are `Active`, `Deferred`, `Someday`, `Done`, and `Completed` (case-insensitive). The folder takes precedence over a note's optional `status`. For a note directly under Projects, absent status defaults to Active. The note's relative path is its ID. Its optional `title` supplies the display title, and its filename is the default. Duplicate display titles remain distinct.
+The immediate status folders are `Active`, `Deferred`, `Someday`, `Done`, and `Completed` (case-insensitive). The folder takes precedence over a note's optional `status`. For a note directly under Projects, absent status defaults to Active. The note's relative path is its ID. Its filename without `.md` supplies the project name. Projects with the same name in different status folders have distinct IDs.
 
 Areas use immediate Markdown notes and folders. The filename without `.md`, or the folder name for a folder-only Area, supplies the display name. A note and folder with the same name form one Area whose ID is the note path. Empty and attachment-only folders remain eligible. Nested notes can be Area targets without appearing as separate Areas in the index. Project landing notes with invalid YAML make the project inventory partial.
 
@@ -63,7 +63,7 @@ bb gtd areas --limit 50 --json
 bb gtd areas --cursor '<returned-cursor>' --json
 ```
 
-Agent tools include `gtd_list_projects`, `gtd_list_areas`, `gtd_rename_project`, and `gtd_create_project_thread`. The project rename tool accepts `{ source, id, title }`, using the exact listing's `source.id` and project ID. RPC methods additionally expose `associate` and `newThread` for the UI.
+Agent tools include `gtd_list_projects`, `gtd_list_areas`, and `gtd_create_project_thread`. RPC methods additionally expose `associate` and `newThread` for the UI.
 
 For a user-requested conversation in an existing project, use `gtd_create_project_thread` with `{ source, id, requestId, title?, summary? }`. Use the exact source and backend ID returned by inventory. The optional title is 1–240 characters; the optional handoff summary is 1–4000 characters. Omitting them preserves the UI's project-title and readiness-and-wait defaults. The summary is untrusted context, never authorization for notes, account actions or other work. The returned `threadId` can be linked as `@thread:<threadId>`.
 
@@ -77,7 +77,7 @@ Open **GTD** from BB’s sidebar navigation to see the Areas index. Every top-le
 
 Open a project to see its linked threads. The **Filter** menu starts with **Active** checked. Select **Archived** to include archived threads, and clear **Active** if you want to see only archived threads. Use **Show more archived threads** when there are more pages. The breadcrumb returns to the project’s Area. Thread links support BB’s ordinary menus, modifier-clicks and split drags.
 
-Area and project links use the source ID and the exact inventory record ID. Bookmarks survive display-title edits. A physical move that changes the record ID can make an older link unavailable. The former `/plugins/gtd/projects` address still opens the Areas index.
+Area and project links use the source ID and the exact inventory record ID. Renaming or moving a note can change its ID and invalidate an older bookmark. The former `/plugins/gtd/projects` address still opens the Areas index.
 
 BB’s **Automatic** thread-list setting uses its bundled list when no other replacement is installed. If you previously selected GTD explicitly as the thread-list provider, choose **Thread list (built-in)** under **Settings → Appearance → Sidebar** to restore it. BB keeps that saved provider choice until you change it.
 
@@ -87,13 +87,13 @@ GTD resolves vault-relative paths, paths relative to the project note, and uniqu
 
 For example, `area: Areas/Learning.md` in `Projects/Woodworking.md` can resolve to `areaId: Areas/Learning.md` in the returned project. The optional `areaId` output is the resolved area's backend path, not a YAML key. With a nested vault, the exact Area ID from the area listing is the full mirror-relative path. No area is guessed from a display title. For display only, an exact returned Area ID wins; otherwise a nested path below an Area's entry folder rolls up to that enclosing top-level Area (for example `Areas/Community/Committee/Meeting.md` displays beneath `Areas/Community.md` or `Areas/Community/`). This uses exact path segments, not display titles, and never rewrites note frontmatter or thread references. Unmatched/missing area IDs appear under **Unassigned area**.
 
-Use **GTD project** in any thread's ordinary menu to link, reassign or unlink it. Exactly one `{ source, id }` reference is persisted in the GTD thread metadata namespace. Other metadata, BB project membership and coding environments are untouched. Open **Thread associations** on the Areas index to find active unassigned threads and threads whose linked Area or project is unavailable. Display-title renames do not change either part of the reference. Physical path moves outside GTD are not automatically remapped.
+Use **GTD project** in any thread's ordinary menu to link, reassign or unlink it. Exactly one `{ source, id }` reference is persisted in the GTD thread metadata namespace. Other metadata, BB project membership and coding environments are untouched. Open **Thread associations** on the Areas index to find active unassigned threads and threads whose linked Area or project is unavailable. Physical path moves outside GTD are not automatically remapped.
 
 Each project row shows a **New thread** button. It creates a conversation in BB's personal project (never a new coding project), seeds its association at creation and includes bounded title/status/reference data. The initial agent instruction is to acknowledge and wait; no project task, account write, or execution of note text is authorized. Further details are obtained using the stable source/ID and ordinary source read tools.
 
 Creation uses a durable request receipt and a synchronous uniqueness claim before spawning. Replaying a completed request returns the same thread; pending/uncertain requests are not retried. The UI blocks repeated activation while pending and retains an uncertain request across browser reload in session storage. Inspect threads before explicitly starting another request after an uncertain outcome.
 
-BB's project Rename action edits the project note's `title` property through Obsidian's checked editor. Inspect the save receipt after an uncertain edit. To rename an Area, rename its note and any matching folder in Obsidian. Verify references that use the old paths after moving them.
+Rename a project or Area in Obsidian by renaming its note and any matching support folder. Verify references that use the old paths after the rename.
 
 ## Bounds and diagnostics
 
@@ -103,7 +103,7 @@ The open GTD sidebar checks for indexed changes to the configured Projects and A
 
 Pages contain at most 200 entries and 48 KB. Each inventory supports four concurrent listings. Cursors are thread-bound, are consumed once, expire after five idle minutes, and are invalid when settings change or after a reload. Access is checked on continuation.
 
-Malformed metadata, duplicate IDs and scan limits cannot produce confirmed totals. Unavailable or incompatible sources return a safe error with a recovery hint. Logs use fixed stage/category diagnostics (`GTD list`, `GTD areas`, `GTD sources`, `GTD rename`, `GTD association`, `GTD thread_create`) without note content, raw exceptions or credentials.
+Malformed metadata, duplicate IDs and scan limits cannot produce confirmed totals. Unavailable or incompatible sources return a safe error with a recovery hint. Logs use fixed stage/category diagnostics (`GTD list`, `GTD areas`, `GTD sources`, `GTD association`, `GTD thread_create`) without note content, raw exceptions or credentials.
 
 Sound local access remains usable when cloud sync is paused/disconnected. Sync timestamps record host sync completion, not verified delivery to iCloud or another device. GTD does not resume sync, repair failures, or change folder enablement.
 

@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { areaStandard, inventoryRevision, renameResult, standardSaveResult, type areaStandardInput } from '../contract.ts';
+import { areaStandard, inventoryRevision, noteSaveReceipt, standardSaveResult, type areaStandardInput } from '../contract.ts';
 import { areaSnapshotSchema, GtdError, snapshotSchema } from '../core/model.ts';
 import type { Area, AreaBackend, Project, ProjectBackend, ProjectStatus, Warning } from '../core/model.ts';
 
@@ -27,7 +27,7 @@ const inventorySchema = z.object({
 export const noteEvidence = z.object({
   hash: z.string().regex(/^[0-9a-f]{64}$/),
   properties: z.record(z.string(), z.unknown()),
-  receipt: renameResult.shape.outcome.nullable(),
+  receipt: noteSaveReceipt.shape.outcome.nullable(),
 });
 type RpcInput = Parameters<BbPluginApi['sdk']['plugins']['callRpc']>[0]['input'];
 
@@ -67,7 +67,7 @@ export function projectFromNote(folder: string, path: string, properties: Record
   if (!immediate(path, folder) && !fallback) return null;
   const status = fallback ?? (properties.status === undefined ? 'active'
     : typeof properties.status === 'string' && Object.hasOwn(aliases, properties.status) ? aliases[properties.status] : undefined);
-  const title = properties.title === undefined ? posix.basename(path, '.md') : properties.title;
+  const title = posix.basename(path).slice(0, -3);
   return status && text(title) ? { id: path, status, title: title.trim() } : 'invalid';
 }
 
@@ -122,15 +122,6 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     private preview?: PreviewEvidence) {}
 
   invalidate() { this.generation++; }
-
-  async rename(id: string, title: string, signal: AbortSignal) {
-    const folder = this.scope(this.config.folder);
-    if (!relativeFolder.safeParse(id).success || !within(id, folder) || !id.endsWith('.md')) throw new GtdError('invalid_source');
-    await this.checkAccess(signal);
-    const target = { vaultId: this.config.vaultId, path: id };
-    const { hash } = noteEvidence.parse(await vaultRpc(this.sdk, 'noteEvidence', target, signal));
-    return renameResult.parse(await vaultRpc(this.sdk, 'writeProperties', { ...target, expectedHash: hash, set: { title } }, signal));
-  }
 
   private standardTarget(source: string, id: string) {
     if (source !== this.config.vaultId || !relativeFolder.safeParse(id).success ||
@@ -193,7 +184,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         ...(projects ? {} : { folders: [areaFolder] }),
         metadataFolders: projects ? [...new Set([projectFolder, areaFolder])] : [areaFolder],
         metadataDepth: projects ? 2 : 1,
-        fields: this.preview ? ['id', 'title', 'status', 'area'] : projects ? ['title', 'status', 'area'] : [],
+        fields: this.preview ? ['id', 'status', 'area'] : projects ? ['status', 'area'] : [],
       }, signal);
       this.checkGeneration(generation, signal);
       const notes = new Set(inventory.notes.map(note => note.path));

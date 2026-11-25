@@ -6,7 +6,7 @@ import { noteEvidence, ObsidianBackend, readVaultInventory, relativeFolder, vaul
 import { readThreadReferences } from './migration-preview.ts';
 import { statuses } from './model.ts';
 import { projectActionInput, reference } from '../contract.ts';
-import { renameResult } from '../contract.ts';
+import { noteSaveReceipt } from '../contract.ts';
 import { isDeepStrictEqual } from 'node:util';
 
 export const changeNames = [
@@ -183,7 +183,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     return noteEvidence.parse(await rpc('noteEvidence', { vaultId, path, operationId }, signal));
   }
   async function writeProperties(vaultId: string, path: string, expectedHash: string, change: {set?: Record<string, string>; remove?: string[]}, signal: AbortSignal, operationId?: string) {
-    const result = renameResult.parse(await rpc('writeProperties',
+    const result = noteSaveReceipt.parse(await rpc('writeProperties',
       { vaultId, path, expectedHash, operationId, ...change }, signal));
     if (operationId && result.operationId !== operationId) refuse('Unexpected property write receipt.');
     return result.outcome;

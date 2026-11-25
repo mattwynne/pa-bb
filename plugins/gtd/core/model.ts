@@ -28,7 +28,6 @@ export type ProjectSnapshot = z.infer<typeof snapshotSchema>;
 
 /** Only this port is needed to add another backend. Core never sees vaults or YAML. */
 export interface ProjectBackend {
-  rename?(id: string, title: string, signal: AbortSignal): Promise<{ operationId: string; outcome: 'saved_locally_pending_sync' | 'not_saved' | 'uncertain' }>;
   readProjects(signal: AbortSignal): Promise<ProjectSnapshot>;
   checkAccess(signal: AbortSignal): Promise<void>;
 }

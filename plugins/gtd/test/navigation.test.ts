@@ -18,18 +18,16 @@ async function setup(initial = snapshot()) {
     },
   } });
   const dependencies = {
-    select: async () => ({ key: 'source', backend: { checkAccess: async () => {}, readProjects: async () => data, rename: async (id: string, title: string) => { data.projects.find(p => p.id === id)!.title = title; return { operationId: randomUUID(), outcome: 'saved_locally_pending_sync' as const }; } } }),
+    select: async () => ({ key: 'source', backend: { checkAccess: async () => {}, readProjects: async () => data } }),
     selectAreas: async () => ({ key: 'areas', backend: { checkAccess: async () => {}, readAreas: async () => ({ source: data.source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }], complete: true, warnings: [] }) } }),
   };
   await plugin(host.bb, dependencies);
   return { ...host, dependencies, metadata, spawns: () => spawns, fail: () => { fail = true; }, remove: () => { data.projects = []; } };
 }
-test('project renames preserve IDs, Area relationships and thread metadata', async () => {
+test('association changes preserve project records and unrelated thread metadata', async () => {
   const f = await setup(); let active = f.harness;
   try {
     await f.harness.behavior.callRpc('associate', { threadId: 't1', project: ref });
-    const result = await f.harness.behavior.callAgentTool('gtd_rename_project', { ...ref, title: 'Woodwork' });
-    assert.equal((result as any).isError, undefined);
     assert.deepEqual(f.metadata.t1, { unrelated: 'keep', project: ref }); assert.deepEqual(f.metadata.t2.project, ref);
     const projects = await f.harness.behavior.callRpc('listProjects', {}) as any; assert.equal(projects.projects[0].id, ref.id); assert.equal(projects.projects[0].areaId, 'Areas/Learning.md');
     await assert.rejects(f.harness.behavior.callRpc('associate', { threadId: 't1', project: { ...ref, source: 'other' } }));
@@ -61,19 +59,6 @@ test('uncertain creation is not retried, even after reload; diagnostics are boun
     const input = { ...ref, requestId: randomUUID() };
     await assert.rejects(f.harness.behavior.callRpc('newThread', input)); await assert.rejects(f.harness.behavior.callRpc('newThread', input)); assert.equal(f.spawns(), 1);
     const logs = JSON.stringify(f.harness.inspection.logEntries); assert.match(logs, /GTD thread_create unconfirmed/); assert.doesNotMatch(logs, /sentinel/);
-  } finally { await f.harness.lifecycle.dispose(); }
-});
-
-test('rename refuses folder-only projects and preserves their conversation references', async () => {
-  const initial = snapshot();
-  const id = 'Projects/Pilot/';
-  initial.projects = [{ id, title: 'Pilot', status: 'active' }];
-  const f = await setup(initial);
-  try {
-    await f.harness.behavior.callRpc('associate', { threadId: 't1', project: { source: 'one', id } });
-    await assert.rejects(f.harness.behavior.callRpc('renameProject', { source: 'one', id, title: 'New title' }));
-    assert.deepEqual(initial.projects, [{ id, title: 'Pilot', status: 'active' }]);
-    assert.deepEqual(f.metadata.t1.project, { source: 'one', id });
   } finally { await f.harness.lifecycle.dispose(); }
 });
 

@@ -7,10 +7,9 @@ const app = await loadPluginApp(() => import('../app.tsx'));
 const ref = { source: 'one', id: 'Projects/Woodworking.md' };
 const source = { backend: 'fake', id: 'one', name: 'Synthetic', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null };
 const project = { id: ref.id, title: 'Learn woodworking', status: 'active', areaId: 'Areas/Learning.md' };
-const saved = async () => ({ operationId: crypto.randomUUID(), outcome: 'saved_locally_pending_sync' });
 const learning = recordDestination('areas', ref.source, project.areaId);
 const woodwork = recordDestination('projects', ref.source, ref.id);
-function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }), rename = saved, destination: Destination = learning) {
+function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }), destination: Destination = learning) {
   const panel = app.navPanels.find(panel => panel.path === destination.panel)!;
   let reads = 0;
   const list = renderSlot(panel, { subPath: destination.subPath ?? '' }, {
@@ -31,7 +30,7 @@ function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }
         };
       },
       readAreaStandard: async () => ({ text: 'Practice weekly.', hash: 'a'.repeat(64) }),
-      newThread, renameProject: rename,
+      newThread,
     },
     sdk: { threads: { experimental_listPluginMetadata: async () => ({ threads: [{ threadId: 't1', metadata: { project: ref } }, { threadId: 't2', metadata: { project: ref } }] }) } },
     sidebarThreads: { status: 'ready', threads: ['t1', 't2'].map((id, i) => ({ id, projectId: 'personal', href: '/threads/' + id, displayTitle: 'Woodwork thread ' + i, title: 'Woodwork thread ' + i, titleFallback: '', indicator: 'idle', indicatorLabel: 'Idle', environment: null, isHidden: false, isArchived: false, isUnread: false, activity: {}, status: 'idle' })) as any },
@@ -51,13 +50,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   sessionStorage.clear();
 });
-function openRename(slot: ReturnType<typeof setup>, name: string) {
-  const trigger = slot.getByLabelText(`Actions for project ${name}`);
-  fireEvent.click(trigger);
-  fireEvent.click(trigger.parentElement!.querySelector('button')!);
-  const dialog = slot.getByRole('dialog', { name: 'Rename project' });
-  return { trigger, input: slot.getByRole('textbox', { name: 'Title' }) as HTMLInputElement, dialog };
-}
 test('GTD registers a navigation panel and keeps area, project and thread actions', async () => {
   expect(app.threadLists).toHaveLength(0);
   expect(app.navPanels).toMatchObject([
@@ -71,49 +63,10 @@ test('GTD registers a navigation panel and keeps area, project and thread action
   expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ method: 'toPluginPanel', path: 'projects', options: { subPath: woodwork.subPath } });
   expect(slot.getByRole('button', { name: 'New thread for Area Learning' })).toBeTruthy();
   expect(slot.queryByLabelText('Actions for area Learning')).toBeNull();
-  const { input } = openRename(slot, project.title);
-  expect(document.activeElement).toBe(input);
-  expect([input.selectionStart, input.selectionEnd]).toEqual([0, project.title.length]);
-  fireEvent.change(input, { target: { value: ' Woodwork ' } });
-  fireEvent.click(slot.getByRole('button', { name: 'Save' }));
-  await slot.findByText('Title saved locally; cloud delivery is not verified.');
-  expect(slot.inspection.rpcCalls.find(c => c.method === 'renameProject')?.input).toEqual({ ...ref, title: 'Woodwork' });
-  await vi.waitFor(() => expect(document.activeElement).toBe(slot.getByLabelText('Actions for project Learn woodworking')));
-  slot.lifecycle.unmount();
-});
-test('rename cancellation and unchanged or blank submissions leave the title alone', async () => {
-  const slot = setup();
-  await slot.findByRole('heading', { name: 'Learning' });
-  for (const action of ['escape', 'cancel', 'unchanged', 'blank']) {
-    const { trigger, input, dialog } = openRename(slot, project.title);
-    if (action === 'escape') fireEvent.keyDown(input, { key: 'Escape' });
-    else if (action === 'cancel') fireEvent.click(slot.getByRole('button', { name: 'Cancel' }));
-    else {
-      fireEvent.change(input, { target: { value: action === 'blank' ? '  ' : ` ${project.title} ` } });
-      const save = slot.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
-      if (action === 'blank') {
-        expect(save.disabled).toBe(true);
-        fireEvent.submit(dialog.querySelector('form')!);
-        expect(dialog).toBe(slot.getByRole('dialog', { name: 'Rename project' }));
-        fireEvent.keyDown(input, { key: 'Escape' });
-      } else fireEvent.click(save);
-    }
-    expect(slot.queryByRole('dialog')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-  }
-  expect(slot.inspection.rpcCalls.some(call => call.method === 'renameProject')).toBe(false);
-  slot.lifecycle.unmount();
-});
-test('an uncertain rename sends one write and shows the Obsidian receipt guidance', async () => {
-  const slot = setup('normal', undefined, async () => ({ operationId: crypto.randomUUID(), outcome: 'uncertain' }));
-  await slot.findByRole('heading', { name: 'Learning' });
-  const { input, dialog } = openRename(slot, project.title);
-  fireEvent.change(input, { target: { value: 'Woodwork' } });
-  fireEvent.submit(dialog.querySelector('form')!);
-  await slot.findByText('Save unconfirmed. Inspect Obsidian receipts before another edit.');
-  expect(slot.inspection.rpcCalls.filter(call => call.method === 'renameProject')).toMatchObject([
-    { input: { ...ref, title: 'Woodwork' } },
-  ]);
+  fireEvent.click(slot.getByLabelText(`Actions for project ${project.title}`));
+  expect(slot.getByRole('button', { name: 'Move to Area…' })).toBeTruthy();
+  expect(slot.getByRole('button', { name: 'Mark as done' })).toBeTruthy();
+  expect(slot.queryByRole('button', { name: 'Rename' })).toBeNull();
   slot.lifecycle.unmount();
 });
 test('double activation while pending creates once and navigates through BB', async () => {
@@ -202,12 +155,12 @@ test('the project menu dismisses outside and consumes Escape only while open', a
   try {
     const trigger = slot.getByLabelText('Actions for project Learn woodworking');
     const details = trigger.closest('details')!;
-    const rename = details.querySelector('button')!;
+    const action = details.querySelector('button')!;
     trigger.focus();
     fireEvent.click(trigger);
-    rename.focus();
+    action.focus();
     expect(details.open).toBe(true);
-    fireEvent.keyDown(rename, { key: 'Escape' });
+    fireEvent.keyDown(action, { key: 'Escape' });
     expect(details.open).toBe(false);
     expect(document.activeElement).toBe(trigger);
     expect(escape).not.toHaveBeenCalled();
@@ -223,7 +176,7 @@ test('the project menu dismisses outside and consumes Escape only while open', a
     trigger.focus();
     fireEvent.click(trigger);
     fireEvent(details, new Event('toggle'));
-    fireEvent.pointerDown(rename);
+    fireEvent.pointerDown(action);
     expect(details.open).toBe(true);
     fireEvent.pointerDown(outside);
     expect(details.open).toBe(false);
@@ -252,7 +205,7 @@ test('the Area filter rolls up nested projects, includes Deferred in All, and pe
   fireEvent.click(slot.getByRole('radio', { name: 'All' }));
   expect(slot.getByRole('link', { name: /Deferred tools/ })).toBeTruthy();
   slot.lifecycle.unmount();
-  const empty = setup('nested', undefined, undefined, recordDestination('areas', ref.source, 'Areas/Empty0/'));
+  const empty = setup('nested', undefined, recordDestination('areas', ref.source, 'Areas/Empty0/'));
   await empty.findByText('No projects in this Area yet.');
   fireEvent.click(empty.getByText('Filter'));
   expect((empty.getByRole('radio', { name: 'All' }) as HTMLInputElement).checked).toBe(true);
@@ -261,7 +214,7 @@ test('the Area filter rolls up nested projects, includes Deferred in All, and pe
 
 test('the index and former browser path both list Areas even if there are no projects', async () => {
   for (const destination of [areasIndex, { panel: 'projects' } as const]) {
-    const slot = setup('empty', undefined, undefined, destination);
+    const slot = setup('empty', undefined, destination);
     expect((await slot.findByRole('link', { name: 'Learning' })).getAttribute('href')).toBe(panelHref(learning));
     expect(slot.getAllByRole('link', { name: /^Empty Area \d$/ })).toHaveLength(8);
     expect(slot.queryByText('Filter')).toBeNull();
@@ -270,7 +223,7 @@ test('the index and former browser path both list Areas even if there are no pro
 });
 
 test('a project bookmark shows only the threads linked to its exact reference', async () => {
-  const slot = setup('normal', undefined, undefined, woodwork);
+  const slot = setup('normal', undefined, woodwork);
   await slot.findByRole('heading', { name: project.title });
   expect((await slot.findByRole('link', { name: 'Woodwork thread 0' })).getAttribute('href')).toBe('/threads/t1');
   expect(slot.getByRole('link', { name: 'Learning' }).getAttribute('href')).toBe(panelHref(learning));
@@ -285,7 +238,7 @@ test.each([
   ['malformed', 'one', 'This record could not be found in the partial inventory.'],
   ['normal', 'another', 'This link is for a different GTD source.'],
 ])('a %s project lookup from source %s gives the matching recovery state', async (mode, source, message) => {
-  const slot = setup(mode, undefined, undefined, recordDestination('projects', source, 'Projects/Gone.md'));
+  const slot = setup(mode, undefined, recordDestination('projects', source, 'Projects/Gone.md'));
   await slot.findByText(message);
   expect(slot.queryByRole('heading', { name: 'Linked threads' })).toBeNull();
 });

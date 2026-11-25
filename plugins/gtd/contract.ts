@@ -13,14 +13,13 @@ export const projectActionInput = reference.extend({
     z.object({ kind: z.literal('area'), areaPath: z.string().min(1).max(1024) }).strict(),
   ]),
 });
-export const renameInput = reference.extend({ title: z.string().trim().min(1).max(240).regex(/^[^\x00-\x1f\x7f]+$/) });
-export const renameResult = z.object({ operationId: z.string().uuid(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict();
+export const noteSaveReceipt = z.object({ operationId: z.string().uuid(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict();
 export const standardTextLimit = 16000;
 const standardText = z.string().max(standardTextLimit);
 const noteHash = z.string().regex(/^[0-9a-f]{64}$/);
 export const areaStandardInput = reference.extend({ text: standardText, expectedHash: noteHash, operationId: z.string().uuid() });
 export const areaStandard = z.object({ text: standardText, hash: noteHash }).strict();
-export const standardSaveResult = renameResult.extend({ reason: z.enum(['changed', 'invalid_section']).optional() });
+export const standardSaveResult = noteSaveReceipt.extend({ reason: z.enum(['changed', 'invalid_section']).optional() });
 export const inventoryRevision = z.string().regex(/^[a-f0-9-]{36}:\d{1,16}$/).nullable();
 export const rpcContract = defineRpcContract({
   inventoryRevision: { input: z.null(), output: inventoryRevision },
@@ -32,7 +31,6 @@ export const rpcContract = defineRpcContract({
   saveAreaStandard: { input: areaStandardInput, output: standardSaveResult },
   listProjects: { input: listInput, output: pageSchema },
   listAreas: { input: areaListInput, output: areaPageSchema },
-  renameProject: { input: renameInput, output: renameResult },
   associate: { input: z.object({ threadId: z.string().min(1).max(128), project: reference.nullable() }).strict(), output: z.null() },
   changeProject: { input: projectActionInput, output: z.object({
     state: z.enum(['done', 'assigned', 'partial', 'blocked', 'unconfirmed']),

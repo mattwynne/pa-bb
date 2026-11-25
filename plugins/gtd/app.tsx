@@ -200,8 +200,6 @@ function useLinks(ids: Iterable<string>) {
   return { links: state.links, error: !loading && state.error, loading,
     hasCurrentRoster: signature === state.signature && !state.error };
 }
-type RenameTarget = { source: string; id: string; title: string };
-const renameKey = ({ source, id }: RenameTarget) => key(source, id);
 function useDisclosure() {
   const menu = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
@@ -234,15 +232,15 @@ function useDisclosure() {
   };
   return { detailsProps, trigger, close: () => { if (menu.current) closeAndFocus(menu.current); } };
 }
-function RowActions({ target, disabled, onRename, actions }: {
-  target: RenameTarget; disabled: boolean; onRename: (target: RenameTarget, trigger: HTMLElement) => void;
+function RowActions({ project, source, disabled, actions }: {
+  project: Project; source: string; disabled: boolean;
   actions: { label: string; run: (trigger: HTMLElement) => void }[];
 }) {
   const { detailsProps, trigger, close } = useDisclosure();
   return <details className="gtd-menu" {...detailsProps}>
-    <summary className="gtd-row-action" ref={trigger} data-gtd-rename={renameKey(target)} aria-label={`Actions for project ${target.title}`}><Icon name="MoreHorizontal" aria-hidden="true" /></summary>
+    <summary className="gtd-row-action" ref={trigger} data-gtd-project-action={key(source, project.id)} aria-label={`Actions for project ${project.title}`}><Icon name="MoreHorizontal" aria-hidden="true" /></summary>
     <div className="gtd-menu-items">
-      {[{ label: 'Rename', run: (trigger: HTMLElement) => onRename(target, trigger) }, ...actions].map(action =>
+      {actions.map(action =>
         <button key={action.label} disabled={disabled} onClick={() => {
           if (!trigger.current) return;
           close();
@@ -250,43 +248,6 @@ function RowActions({ target, disabled, onRename, actions }: {
         }}>{action.label}</button>)}
     </div>
   </details>;
-}
-function RenameTitle({ target, onClose }: { target: RenameTarget; onClose: (title?: string) => void }) {
-  const headingId = useId();
-  const dialog = useRef<HTMLDialogElement>(null);
-  const input = useRef<HTMLInputElement>(null);
-  const [draft, setDraft] = useState(target.title);
-  const title = draft.trim();
-  useLayoutEffect(() => {
-    const element = dialog.current;
-    if (!element?.open) element?.showModal();
-    input.current?.focus();
-    input.current?.select();
-  }, []);
-  const close = (title?: string) => {
-    dialog.current?.close();
-    onClose(title);
-  };
-  return <dialog ref={dialog} className="gtd-title-editor" aria-labelledby={headingId}
-    onCancel={event => { event.preventDefault(); close(); }}
-    onKeyDown={event => {
-      if (event.key !== 'Escape' || event.nativeEvent.isComposing) return;
-      event.preventDefault();
-      event.stopPropagation();
-      close();
-    }}>
-    <form onSubmit={event => { event.preventDefault(); if (title) close(title); }}>
-      <h2 id={headingId}>Rename project</h2>
-      <label>
-        Title
-        <input ref={input} value={draft} onChange={event => setDraft(event.target.value)} autoCapitalize="sentences" autoCorrect="off" spellCheck={false} enterKeyHint="done" />
-      </label>
-      <div className="gtd-title-actions">
-        <button type="button" onClick={() => close()}>Cancel</button>
-        <button type="submit" disabled={!title}>Save</button>
-      </div>
-    </form>
-  </dialog>;
 }
 function ProjectActionDialog({ action, project, areas, onClose }: {
   action: 'done' | 'area'; project: Project; areas: Area[]; onClose: (areaPath?: string) => void;
@@ -297,7 +258,7 @@ function ProjectActionDialog({ action, project, areas, onClose }: {
   useLayoutEffect(() => { dialog.current?.showModal(); }, []);
   const close = (value?: string) => { dialog.current?.close(); onClose(value); };
   const title = action === 'area' ? 'Move to Area' : project.status === 'done' ? 'Archive linked threads' : 'Mark as done';
-  return <dialog ref={dialog} className="gtd-title-editor" aria-labelledby={headingId}
+  return <dialog ref={dialog} className="gtd-project-dialog" aria-labelledby={headingId}
     onCancel={event => { event.preventDefault(); close(); }}
     onKeyDown={event => {
       if (event.key !== 'Escape') return;
@@ -315,7 +276,7 @@ function ProjectActionDialog({ action, project, areas, onClose }: {
       </label> : <p>{project.status === 'done'
         ? `Archive all BB threads linked to “${project.title}”.`
         : `Move “${project.title}” to Done and archive all its linked BB threads.`}</p>}
-      <div className="gtd-title-actions">
+      <div className="gtd-edit-actions">
         <button type="button" onClick={() => close()} autoFocus>Cancel</button>
         <button type="submit" disabled={action === 'area' && !area}>{action === 'area' ? 'Move' : title}</button>
       </div>
@@ -502,24 +463,23 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const [dragged, setDragged] = useState<Project>();
   const [dropArea, setDropArea] = useState('');
   const [projectAction, setProjectAction] = useState<{ kind: 'done' | 'area'; project: Project; trigger: HTMLElement }>();
-  const [editor, setEditor] = useState<{ target: RenameTarget; trigger: HTMLElement }>();
   const nav = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const focused = useRef<HTMLElement>(null);
-  const restoreAfterSave = useRef<typeof editor>(undefined);
+  const restoreAfterChange = useRef<{ identity: string; trigger: HTMLElement }>(undefined);
   useLayoutEffect(() => {
-    const previous = restoreAfterSave.current;
+    const previous = restoreAfterChange.current;
     const panel = nav.current;
     if (!previous || !panel || busy || inventory.fetching) return;
-    restoreAfterSave.current = undefined;
+    restoreAfterChange.current = undefined;
     const document = panel.ownerDocument;
     const root = panel.getRootNode();
     const active = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
     if (active && active !== document.body && active !== previous.trigger) return;
     if (!active && root instanceof ShadowRoot && document.activeElement !== document.body && document.activeElement !== root.host) return;
     // An action can move its row. Find it by source and ID after the inventory settles.
-    const trigger = Array.from(panel.querySelectorAll<HTMLElement>('[data-gtd-rename]'))
-      .find(action => action.dataset.gtdRename === renameKey(previous.target));
+    const trigger = Array.from(panel.querySelectorAll<HTMLElement>('[data-gtd-project-action]'))
+      .find(action => action.dataset.gtdProjectAction === previous.identity);
     (trigger ?? heading.current)?.focus({ preventScroll: true });
   }, [busy, inventory.fetching]);
   useLayoutEffect(() => {
@@ -534,21 +494,6 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   // Retain a request ID for the life of this action, including uncertain failures.
   const requests = useRef(new Map<string, string>());
   const run = async (id: string, task: () => Promise<void>) => { if (busyRef.current) return; busyRef.current = true; setBusy(id); setNotice(''); try { await task(); } catch { setNotice('Change not confirmed. Inspect threads or Obsidian receipts before trying again.'); } finally { busyRef.current = false; setBusy(''); } };
-  const closeEditor = (title?: string) => {
-    if (!editor) return;
-    const { target: { source, id, title: original }, trigger } = editor;
-    setEditor(undefined);
-    (trigger.isConnected ? trigger : heading.current)?.focus({ preventScroll: true });
-    if (!title || title === original || busyRef.current) return;
-    restoreAfterSave.current = editor;
-    void run(id, async () => {
-      try {
-        const result = await rpc.call('renameProject', { source, id, title });
-        setNotice(result.outcome === 'saved_locally_pending_sync' ? 'Title saved locally; cloud delivery is not verified.' : 'Save unconfirmed. Inspect Obsidian receipts before another edit.');
-      } finally { refreshInventory(); }
-    });
-  };
-  const openEditor = (target: RenameTarget, trigger: HTMLElement) => setEditor({ target, trigger });
   const newThread = (item: Area | Project, kind: 'area' | 'project') => void run(item.id, async () => {
     const k = (kind === 'area' ? 'gtd-new-area:' : 'gtd-new:') + key(inventory.source, item.id);
     let requestId = requests.current.get(k) ?? sessionStorage.getItem(k);
@@ -563,7 +508,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const eligibleAreas = inventory.areas.filter(area => area.id.endsWith('.md') && !/[\[\]#|%]/.test(area.id));
   const eligibleIds = new Set(eligibleAreas.map(area => area.id));
   const changeProject = (project: Project, change: { kind: 'done' } | { kind: 'area'; areaPath: string }, trigger?: HTMLElement) => {
-    if (trigger) restoreAfterSave.current = { target: { ...project, source: inventory.source }, trigger };
+    if (trigger) restoreAfterChange.current = { identity: key(inventory.source, project.id), trigger };
     void run(project.id, async () => {
       try { setNotice((await rpc.call('changeProject', { source: inventory.source, id: project.id, change })).message); }
       finally { refreshInventory(true); linksChanged(); }
@@ -641,7 +586,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       disabled={!!busy} onClick={() => newThread(item, kind)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>;
   const projectActions = (project: Project) => <>
     {newThreadAction(project, 'project')}
-    <RowActions target={{ ...project, source: inventory.source }} disabled={!!busy || !project.id.endsWith('.md')} onRename={openEditor} actions={[
+    <RowActions project={project} source={inventory.source} disabled={!!busy || !project.id.endsWith('.md')} actions={[
       ...(eligibleAreas.length ? [{ label: 'Move to Area…', run: (trigger: HTMLElement) => setProjectAction({ kind: 'area', project, trigger }) }] : []),
       { label: project.status === 'done' ? 'Archive linked threads' : 'Mark as done', run: trigger => setProjectAction({ kind: 'done', project, trigger }) },
     ]} />
@@ -730,7 +675,6 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       (trigger.isConnected ? trigger : heading.current)?.focus({ preventScroll: true });
       if (value !== undefined) changeProject(project, kind === 'done' ? { kind } : { kind, areaPath: value }, trigger);
     }} />}
-    {editor && <RenameTitle target={editor.target} onClose={closeEditor} />}
   </section>;
 }
 export default definePluginApp(app => {

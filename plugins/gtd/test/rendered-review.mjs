@@ -33,14 +33,14 @@ const fd = openSync(join(root, 'server.log'), 'w', 0o600);
 const server = spawn(process.execPath, [join(bb, 'server/dist/index.js')], { env, cwd: root, stdio: ['ignore', fd, fd] }); closeSync(fd);
 const cli = async (...args) => (await exec(process.execPath, [join(bb, 'host-daemon/dist/bb'), ...args], { env, cwd: root, timeout: 120000 })).stdout;
 let browser;
-const ref = { source: 'one', id: 'Projects/Woodworking.md' };
+const ref = { source: 'one', id: 'Projects/Learn woodworking.md' };
 const source = { backend: 'obsidian', id: 'one', name: 'Synthetic vault', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null };
-const projectNote = title => `---\ntitle: ${title}\nstatus: active\narea: Areas/Learning.md\n---\n`;
+const projectNote = (legacyTitle, status = 'active') => `---\ntitle: ${legacyTitle}\nstatus: ${status}\narea: Areas/Learning.md\n---\n`;
 async function connectSyntheticVault(pkg) {
   for (const directory of ['.obsidian', 'Projects', 'Areas', 'Elsewhere']) await mkdir(join(vault, directory), { recursive: true });
   await writeFile(join(vault, '.obsidian/app.json'), '{"alwaysUpdateLinks":true}');
   await writeFile(join(vault, 'Areas/Learning.md'), '# Learning\n\n## Standard\n\nPractice weekly.\n');
-  await writeFile(join(vault, ref.id), projectNote('Learn woodworking'));
+  await writeFile(join(vault, ref.id), projectNote('Legacy label'));
   const fixture = join(root, 'mirror-fixture');
   await mkdir(fixture);
   await symlink(join(pkg, 'node_modules'), join(fixture, 'node_modules'));
@@ -116,7 +116,6 @@ try {
     const publish = revision => { watchRevision = `12345678-1234-4123-8123-123456789abc:${revision}`; };
     const projectChanges = [], areaCreations = [];
     let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
-    const renames = [];
     const standardSaves = [];
     let standardText = 'Practice weekly.', standardHash = 'a'.repeat(64);
     const standardReads = [];
@@ -209,11 +208,6 @@ try {
           areas: (input.input ?? input).includeAreas ? { source, areas, complete: true, warnings: [] } : null,
         };
       }
-      if (method === 'renameProject') {
-        renames.push(input);
-        title = input.title;
-        result = { operationId: '12345678-1234-4123-8123-123456789abc', outcome: 'saved_locally_pending_sync' };
-      }
       if (method === 'readAreaStandard') {
         standardReads.push(input.id);
         if (input.id === 'Areas/Home.md' && firstHomeRead) {
@@ -247,7 +241,7 @@ try {
           result = { state: 'assigned', message: 'Project assigned locally. iCloud sync is pending.' };
         } else {
           projectStatus = 'done';
-          projectId = 'Projects/Done/Woodworking.md';
+          projectId = 'Projects/Done/Learn woodworking.md';
           result = { state: 'done', message: 'Project moved to Done locally and all linked threads archived.' };
         }
       }
@@ -339,8 +333,7 @@ try {
     };
     const openLearning = async () => {
       const learning = link('Learning');
-      await learning.focus();
-      await page.keyboard.press('Enter');
+      await learning.press('Enter');
       await heading('Learning').waitFor();
     };
     if (mode === 'browser-flow') {
@@ -438,48 +431,22 @@ try {
       assert.notEqual(await plus.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
       if (width === 390) assert.ok(await plus.evaluate(el => el.getBoundingClientRect().height >= 44));
       await page.screenshot({ path: join(artifacts, `focus-${width}.png`) });
-      const name = 'Learn woodworking', replacement = 'Woodwork';
-      const trigger = nav.getByLabel(`Actions for project ${name}`);
-      const dialog = nav.getByRole('dialog', { name: 'Rename project' });
-      const input = dialog.getByRole('textbox', { name: 'Title' });
-      const openEditor = async () => {
-        await trigger.focus();
-        await page.keyboard.press('Enter');
-        const rename = trigger.locator('..').getByRole('button', { name: 'Rename' });
-        await rename.focus();
-        await page.keyboard.press('Enter');
-        await input.waitFor();
-        assert.equal(await input.evaluate(el => el.matches(':focus')), true);
-        assert.deepEqual(await input.evaluate(el => [el.value, el.selectionStart, el.selectionEnd]), [name, 0, name.length]);
-        assert.notEqual(await input.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
-      };
-      await openEditor();
-      const bounds = await dialog.boundingBox();
-      assert.ok(bounds.x >= 12 && bounds.x + bounds.width <= width - 12);
-      if (width === 390) {
-        for (const control of [input, dialog.getByRole('button', { name: 'Save' }), dialog.getByRole('button', { name: 'Cancel' })]) {
-          assert.ok((await control.boundingBox()).height >= 44);
-        }
-      }
-      await page.screenshot({ path: join(artifacts, `rename-project-${width}.png`) });
+      const projectMenu = nav.getByLabel('Actions for project Learn woodworking');
+      await projectMenu.focus();
+      await page.keyboard.press('Enter');
+      const actions = projectMenu.locator('..');
+      assert.equal(await actions.getByRole('button', { name: 'Rename', exact: true }).count(), 0);
+      const markDone = actions.getByRole('button', { name: 'Mark as done', exact: true });
+      await markDone.focus();
+      await page.keyboard.press('Enter');
+      const confirm = nav.getByRole('dialog', { name: 'Mark as done' });
+      await confirm.waitFor();
       await page.keyboard.press('Escape');
-      await dialog.waitFor({ state: 'hidden' });
-      assert.equal(await trigger.evaluate(el => el.matches(':focus')), true);
-      await openEditor();
-      await page.keyboard.press('Enter');
-      await dialog.waitFor({ state: 'hidden' });
-      assert.equal(renames.length, 0);
-      await openEditor();
-      await page.keyboard.insertText(replacement);
-      await page.keyboard.press('Enter');
-      await link(replacement).waitFor();
-      const updatedTrigger = nav.getByLabel(`Actions for project ${replacement}`);
-      await updatedTrigger.waitFor();
-      assert.equal(await updatedTrigger.evaluate(el => el.matches(':focus')), true);
-      assert.deepEqual(renames, [{ ...ref, title: 'Woodwork' }]);
-      await link('Woodwork').click();
+      await confirm.waitFor({ state: 'hidden' });
+      assert.equal(await projectMenu.evaluate(el => el.matches(':focus')), true);
+      await link('Learn woodworking').click();
       const projectUrl = page.url();
-      await heading('Woodwork').waitFor();
+      await heading('Learn woodworking').waitFor();
       await link('Choose tools').waitFor();
       await nav.getByRole('button', { name: 'Actions for Choose tools' }).focus();
       await page.keyboard.press('Enter');
@@ -503,10 +470,10 @@ try {
       await nav.getByText('Unassigned threads (1)', { exact: true }).click();
       await nav.getByRole('button', { name: 'Actions for Choose tools' }).click();
       await page.getByRole('menuitem', { name: /GTD project/ }).click();
-      await page.getByRole('menuitem', { name: 'Woodwork', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Learn woodworking', exact: true }).click();
       await nav.getByText('Unassigned threads (0)', { exact: true }).waitFor();
       await link('Learning').click();
-      await link('Woodwork').click();
+      await link('Learn woodworking').click();
       await link('Choose tools').click();
       await page.waitForURL('**/threads/fixture1');
       await page.getByTestId('app-page-header-content-row').getByText('Choose tools', { exact: true }).waitFor();
@@ -514,10 +481,10 @@ try {
       await openSidebar();
       await assertSavedSort();
       await page.goto(projectUrl);
-      await heading('Woodwork').waitFor();
+      await heading('Learn woodworking').waitFor();
       await page.reload();
-      await heading('Woodwork').waitFor();
-      const create = nav.getByRole('button', { name: 'New thread for Woodwork' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
+      await heading('Learn woodworking').waitFor();
+      const create = nav.getByRole('button', { name: 'New thread for Learn woodworking' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
       await page.waitForURL('**/threads/fixture1');
       assert.equal(creations, 1);
     } else if (native) {
@@ -525,24 +492,34 @@ try {
       await link('Learn woodworking').focus();
       await page.waitForResponse(async response =>
         response.url().endsWith('/rpc/inventoryRevision') && typeof (await response.json()).result === 'string');
+      assert.equal(await link('Legacy label').count(), 0);
+      await writeFile(join(vault, ref.id), projectNote('Edited in vault', 'someday'));
+      await link('Learn woodworking').waitFor({ state: 'hidden' });
+      assert.ok(await heading('Learning').evaluate(el => el.matches(':focus')));
+      await filter.click();
+      await nav.getByRole('radio', { name: 'Someday' }).click();
+      await page.keyboard.press('Escape');
+      await link('Learn woodworking').waitFor();
+      assert.equal(await link('Edited in vault').count(), 0);
       await writeFile(join(vault, ref.id), projectNote('Edited in vault'));
-      await link('Edited in vault').waitFor();
-      assert.ok(await link('Edited in vault').evaluate(el => el.matches(':focus')));
+      await link('Learn woodworking').waitFor({ state: 'hidden' });
+      await filter.click();
+      await nav.getByRole('radio', { name: 'Active' }).click();
+      await page.keyboard.press('Escape');
+      await link('Learn woodworking').waitFor();
       const added = join(vault, 'Projects/New.md');
       const outside = join(vault, 'Elsewhere/New.md');
       const renamed = join(vault, 'Projects/Renamed.md');
       await writeFile(added, projectNote('Created in vault'));
-      await link('Created in vault').waitFor();
+      await link('New').waitFor();
       await rename(added, outside);
-      await link('Created in vault').waitFor({ state: 'hidden' });
+      await link('New').waitFor({ state: 'hidden' });
       await rename(outside, renamed);
-      await link('Created in vault').waitFor();
-      const href = await link('Created in vault').getAttribute('href');
+      await link('Renamed').waitFor();
+      const href = await link('Renamed').getAttribute('href');
       assert.deepEqual(JSON.parse(Buffer.from(href.split('/').at(-1), 'base64url').toString()), ['one', 'Projects/Renamed.md']);
       await unlink(renamed);
-      await link('Created in vault').waitFor({ state: 'hidden' });
-      await writeFile(join(vault, ref.id), projectNote('Learn woodworking'));
-      await link('Learn woodworking').waitFor();
+      await link('Renamed').waitFor({ state: 'hidden' });
       await page.screenshot({ path: join(artifacts, `native-refresh-${width}.png`) });
       await switchArea('All areas');
       const areaNote = join(vault, 'Areas/Workshop.md');
@@ -561,8 +538,7 @@ try {
       let resume;
       heldRead = new Promise(resolve => { resume = resolve; });
       const before = inventoryReads;
-      title = 'Woodwork outside BB';
-      extraProject = { id: 'Projects/New.md', title: 'New project', status: 'active', areaId: assignedArea };
+      extraProject = { id: 'Projects/New project.md', title: 'New project', status: 'active', areaId: assignedArea };
       publish(1);
       publish(2);
       for (let attempt = 0; inventoryReads === before && attempt < 60; attempt++)
@@ -572,10 +548,9 @@ try {
       assert.ok(await existing.evaluate(el => el.matches(':focus')));
       heldRead = undefined;
       resume();
-      await link('Woodwork outside BB').waitFor();
-      assert.ok(await link('Woodwork outside BB').evaluate(el => el.matches(':focus')));
       await link('New project').waitFor();
-      extraProject = { ...extraProject, id: 'Projects/Renamed.md', title: 'Renamed project' };
+      assert.ok(await existing.evaluate(el => el.matches(':focus')));
+      extraProject = { ...extraProject, id: 'Projects/Renamed project.md', title: 'Renamed project' };
       publish(3);
       await link('Renamed project').waitFor();
       await link('New project').waitFor({ state: 'hidden' });
@@ -585,6 +560,7 @@ try {
       await link('Renamed project').waitFor({ state: 'hidden' });
       assert.ok(await heading('Learning').evaluate(el => el.matches(':focus')));
       title = 'Reconciled on focus';
+      projectId = 'Projects/Reconciled on focus.md';
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
       await link('Reconciled on focus').waitFor();
       failInventory = true;
@@ -596,6 +572,7 @@ try {
       await page.screenshot({ path: join(artifacts, `auto-refresh-retry-${width}.png`) });
       failInventory = false;
       title = 'Recovered project';
+      projectId = 'Projects/Recovered project.md';
       await page.keyboard.press('Enter');
       await link('Recovered project').waitFor();
       await retry.waitFor({ state: 'hidden' });

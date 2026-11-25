@@ -82,7 +82,7 @@
 .gtd-read-error button[aria-disabled="true"] { opacity: .6; }
 .gtd-associations summary, .gtd-frontmatter-errors summary { cursor: pointer; padding: 4px; color: var(--muted-foreground); }
 .gtd-associations > details { margin-inline-start: 12px; }
-.gtd-title-editor {
+.gtd-project-dialog {
   box-sizing: border-box;
   width: min(25rem, calc(100% - 32px));
   max-height: calc(100% - 32px);
@@ -94,28 +94,14 @@
   color: var(--popover-foreground, var(--foreground));
   box-shadow: 0 12px 32px rgb(0 0 0 / .24);
 }
-.gtd-title-editor::backdrop { background: rgb(0 0 0 / .42); }
-.gtd-title-editor form, .gtd-title-editor label { display: grid; gap: 12px; }
-.gtd-title-editor label { gap: 6px; }
-.gtd-title-editor h2 { font-size: 16px; font-weight: 600; margin: 0; }
-.gtd-title-editor input {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 36px;
-  padding: 6px 10px;
-  font: inherit;
-  color: inherit;
-  background: var(--background);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-.gtd-title-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.gtd-title-actions button { padding-inline: 12px; }
-.gtd-title-actions button[type='submit'] { color: var(--primary-foreground); background: var(--primary); }
-.gtd-title-actions button[type='submit']:hover { background: color-mix(in srgb, var(--primary) 85%, var(--background)); }
-@media (hover: none), (pointer: coarse) {
-  .gtd-title-editor input { min-height: 44px; font-size: 16px; }
-}
+.gtd-project-dialog::backdrop { background: rgb(0 0 0 / .42); }
+.gtd-project-dialog form, .gtd-project-dialog label { display: grid; gap: 12px; }
+.gtd-project-dialog label { gap: 6px; }
+.gtd-project-dialog h2 { font-size: 16px; font-weight: 600; margin: 0; }
+.gtd-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.gtd-edit-actions button { padding-inline: 12px; }
+.gtd-edit-actions button[type='submit'] { color: var(--primary-foreground); background: var(--primary); }
+.gtd-edit-actions button[type='submit']:hover { background: color-mix(in srgb, var(--primary) 85%, var(--background)); }
 @container gtd (max-width: 520px) {
   .gtd-content { padding: 14px 14px 28px; }
   .gtd-area-links { display: none; }
