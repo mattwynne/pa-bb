@@ -199,7 +199,7 @@ test('the Area filter rolls up nested projects, includes Deferred in All, and pe
   await slot.findByRole('link', { name: 'Learn woodworking' });
   expect(slot.getAllByRole('link', { name: /^Empty Area \d$/ })).toHaveLength(8);
   expect(slot.queryByRole('link', { name: 'Unassigned area' })).toBeNull();
-  fireEvent.click(slot.getByText('Filter'));
+  fireEvent.click(slot.getByLabelText('Filter by project status'));
   expect((slot.getByRole('radio', { name: 'Active' }) as HTMLInputElement).checked).toBe(true);
   expect(slot.getAllByRole('radio').map(radio => radio.parentElement!.textContent)).toEqual(['Active', 'Someday', 'Done', 'All']);
   fireEvent.click(slot.getByRole('radio', { name: 'All' }));
@@ -207,7 +207,7 @@ test('the Area filter rolls up nested projects, includes Deferred in All, and pe
   slot.lifecycle.unmount();
   const empty = setup('nested', undefined, recordDestination('areas', ref.source, 'Areas/Empty0/'));
   await empty.findByText('No projects in this Area yet.');
-  fireEvent.click(empty.getByText('Filter'));
+  fireEvent.click(empty.getByLabelText('Filter by project status'));
   expect((empty.getByRole('radio', { name: 'All' }) as HTMLInputElement).checked).toBe(true);
   fireEvent.click(empty.getByRole('radio', { name: 'Active' }));
 });
@@ -217,7 +217,7 @@ test('the index and former browser path both list Areas even if there are no pro
     const slot = setup('empty', undefined, destination);
     expect((await slot.findByRole('link', { name: 'Learning' })).getAttribute('href')).toBe(panelHref(learning));
     expect(slot.getAllByRole('link', { name: /^Empty Area \d$/ })).toHaveLength(8);
-    expect(slot.queryByText('Filter')).toBeNull();
+    expect(slot.queryByLabelText('Filter by project status')).toBeNull();
     slot.lifecycle.unmount();
   }
 });
@@ -227,7 +227,7 @@ test('a project bookmark shows only the threads linked to its exact reference', 
   await slot.findByRole('heading', { name: project.title });
   expect((await slot.findByRole('link', { name: 'Woodwork thread 0' })).getAttribute('href')).toBe('/threads/t1');
   expect(slot.getByRole('link', { name: 'Learning' }).getAttribute('href')).toBe(panelHref(learning));
-  fireEvent.click(slot.getByText('Filter'));
+  fireEvent.click(slot.getByLabelText('Filter by thread status'));
   expect((slot.getByRole('checkbox', { name: 'Active' }) as HTMLInputElement).disabled).toBe(true);
   expect((slot.getByRole('checkbox', { name: 'Archived' }) as HTMLInputElement).checked).toBe(false);
   slot.lifecycle.unmount();

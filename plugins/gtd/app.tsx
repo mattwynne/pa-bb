@@ -311,14 +311,14 @@ type ProjectFilter = keyof typeof projectStatuses;
 let lastProjectFilter: ProjectFilter = 'active';
 const threadStatuses = ['active', 'archived'] as const;
 type ThreadFilter = typeof threadStatuses[number];
-const projectThreadFilters = new Map<string, ThreadFilter[]>();
+const linkedThreadFilters = new Map<string, ThreadFilter[]>();
 
 function FilterBar({ title, label, children }: { title: string; label: string; children: React.ReactNode }) {
   const { detailsProps, trigger } = useDisclosure();
   return <div className="gtd-list-bar">
     <h2>{title}</h2>
     <details className="gtd-menu gtd-filter" {...detailsProps}>
-      <summary ref={trigger}><Icon name="SlidersHorizontal" aria-hidden="true" />Filter</summary>
+      <summary ref={trigger} aria-label={`Filter by ${label.toLowerCase()}`}><Icon name="SlidersHorizontal" aria-hidden="true" />Filter</summary>
       <div className="gtd-menu-items" role="group" aria-label={label}>{children}</div>
     </details>
   </div>;
@@ -358,7 +358,7 @@ function ThreadReadStatus({ loading, error, metadataError }: { loading: boolean;
 
 function LinkedThreads({ kind, id, source }: { kind: 'area' | 'project'; id: string; source: string }) {
   const identity = key(source, id);
-  const [selected, setSelected] = useState<ThreadFilter[]>(() => kind === 'project' ? projectThreadFilters.get(identity) ?? ['active'] : ['active']);
+  const [selected, setSelected] = useState<ThreadFilter[]>(() => linkedThreadFilters.get(identity) ?? ['active']);
   const { sidebar, threads, links, loading, error, hasCurrentRoster } = useThreadRoster(selected);
   const archived = sidebar.experimental_archived;
   const matching = !hasCurrentRoster ? [] : threads.filter(thread => {
@@ -370,19 +370,18 @@ function LinkedThreads({ kind, id, source }: { kind: 'area' | 'project'; id: str
   }).sort((left, right) => Number(left.isArchived) - Number(right.isArchived));
   const pending = sidebar.status === 'loading' || archived?.status === 'loading' || loading;
   const failed = sidebar.status === 'error' || archived?.status === 'error' || error;
-  if (kind === 'area' && !pending && !failed && !matching.length) return null;
   const toggle = (status: ThreadFilter) => {
     const next = selected.includes(status) ? selected.filter(value => value !== status) : [...selected, status];
     if (next.length) {
-      projectThreadFilters.set(identity, next);
+      linkedThreadFilters.set(identity, next);
       setSelected(next);
     }
   };
   return <section className="gtd-linked">
-    {kind === 'project' ? <FilterBar title="Linked threads" label="Thread status">
+    <FilterBar title={kind === 'area' ? 'Area threads' : 'Linked threads'} label="Thread status">
       {threadStatuses.map(status => <FilterOption key={status} type="checkbox" label={status === 'active' ? 'Active' : 'Archived'}
         checked={selected.includes(status)} disabled={selected.length === 1 && selected.includes(status)} onChange={() => toggle(status)} />)}
-    </FilterBar> : <h2>Area threads</h2>}
+    </FilterBar>
     <ThreadReadStatus loading={pending} error={failed} metadataError={error} />
     {!!matching.length && <ThreadList threads={matching} showArchived={selected.length > 1} />}
     {!matching.length && !pending && !failed && <p className="gtd-empty" role="status">
@@ -664,7 +663,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
         })}</ul> : <p className="gtd-empty" role="status">{partial ? 'No matching projects in the loaded inventory.' :
           !inArea.length ? (area ? 'No projects in this Area yet.' : 'No unassigned projects.') :
             `No ${status} projects ${area ? 'in this Area' : 'without an Area'}.`}</p>}
-        {area && <LinkedThreads kind="area" id={area.id} source={inventory.source} />}
+        {area && <LinkedThreads key={key(inventory.source, area.id)} kind="area" id={area.id} source={inventory.source} />}
       </>}
       {project && <LinkedThreads key={key(inventory.source, project.id)} kind="project" id={project.id} source={inventory.source} />}
       {notice && <p role="status">{notice}</p>}

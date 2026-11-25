@@ -141,13 +141,15 @@ try {
         thread('fixture2', value.personalProject.id, 'Practice joints', 200),
         thread('fixture1', value.personalProject.id, 'Choose tools', 100),
       ];
+      if (mode === 'browser-flow') value.personalProject.threads.push(thread('area1', value.personalProject.id, 'Practice plan', 100));
       await route.fulfill({ response, json: value });
     });
     await page.route(/\/api\/v1\/threads\?.*archived=true/, route => {
       const params = new URL(route.request().url()).searchParams;
       if (Number(params.get('offset')) > 0) return route.fulfill({ json: [thread('fixture4', 'proj_personal', 'Earlier rehearsal', 10, 20)] });
       const archived = [thread('fixture3', 'proj_personal', 'Archived rehearsal', 300, 400)];
-      if (mode === 'browser-flow') for (let i = 1; i < Number(params.get('limit')); i++) {
+      if (mode === 'browser-flow') archived.push(thread('area2', 'proj_personal', 'Past practice plan', 100, 200));
+      if (mode === 'browser-flow') for (let i = archived.length; i < Number(params.get('limit')); i++) {
         archived.push(thread(`old${i}`, 'proj_personal', `Unlinked archived ${i}`, 30, 40));
       }
       return route.fulfill({ json: archived });
@@ -165,7 +167,8 @@ try {
     associations.set('fixture4', ref);
     await page.route('**/api/v1/threads/plugin-metadata', route => route.fulfill({
       json: { threads: route.request().postDataJSON().threadIds.map(threadId => ({
-        threadId, metadata: associations.has(threadId) ? { project: associations.get(threadId) } : {},
+        threadId, metadata: ['area1', 'area2'].includes(threadId) ? { area: { source: 'one', id: 'Areas/Learning.md' } }
+          : associations.has(threadId) ? { project: associations.get(threadId) } : {},
       })) },
     }));
     await page.route('**/api/v1/plugins/gtd/rpc/**', async route => {
@@ -322,7 +325,8 @@ try {
     }
     const heading = name => nav.getByRole('heading', { name, exact: true, level: 1 });
     const link = name => nav.getByRole('link', { name, exact: typeof name === 'string' });
-    const filter = nav.getByText('Filter', { exact: true });
+    const filter = nav.getByLabel('Filter by project status', { exact: true });
+    const threadFilter = nav.getByLabel('Filter by thread status', { exact: true });
     const areaPicker = nav.getByRole('combobox', { name: 'Area', exact: true });
     const areaLinks = nav.getByRole('navigation', { name: 'Switch Area' });
     const switchArea = async name => {
@@ -346,6 +350,21 @@ try {
       assert.equal(await areaPicker.isVisible(), width === 390);
       assert.equal(await areaLinks.isVisible(), width === 1280);
       await link('Learn woodworking').waitFor();
+      await link('Practice plan').waitFor();
+      assert.equal(await link('Choose tools').isVisible(), false);
+      await threadFilter.press('Enter');
+      const active = nav.getByRole('checkbox', { name: 'Active' });
+      const archived = nav.getByRole('checkbox', { name: 'Archived' });
+      assert.equal(await active.isChecked(), true);
+      await page.keyboard.press('Tab');
+      assert.equal(await archived.evaluate(el => el.matches(':focus-visible')), true);
+      await page.keyboard.press('Space');
+      await link('Past practice plan').waitFor();
+      await link('Practice plan').waitFor();
+      await page.screenshot({ path: join(artifacts, `area-thread-filter-${width}.png`) });
+      await active.click();
+      assert.equal(await link('Practice plan').isVisible(), false);
+      await page.keyboard.press('Escape');
       await page.screenshot({ path: join(artifacts, `area-home-${width}.png`) });
       await filter.focus();
       await page.keyboard.press('Enter');
@@ -379,10 +398,7 @@ try {
       await heading('Learn woodworking').waitFor();
       await link('Choose tools').waitFor();
       assert.equal(await link('Archived rehearsal').isVisible(), false);
-      await filter.focus();
-      await page.keyboard.press('Enter');
-      const active = nav.getByRole('checkbox', { name: 'Active' });
-      const archived = nav.getByRole('checkbox', { name: 'Archived' });
+      await threadFilter.press('Enter');
       assert.equal(await active.isChecked(), true);
       assert.equal(await active.isDisabled(), true);
       await page.keyboard.press('Tab');
@@ -396,7 +412,7 @@ try {
       assert.equal(await archived.isDisabled(), true);
       assert.equal(await link('Choose tools').isVisible(), false);
       await page.keyboard.press('Escape');
-      assert.equal(await filter.evaluate(el => el.matches(':focus')), true);
+      assert.equal(await threadFilter.evaluate(el => el.matches(':focus')), true);
       await nav.getByRole('button', { name: 'Show more archived threads' }).click();
       await link('Earlier rehearsal').waitFor();
       await page.screenshot({ path: join(artifacts, `project-archived-${width}.png`) });
@@ -414,6 +430,9 @@ try {
       await page.goto(new URL(emptyHref, base).href);
       await heading('Empty Area').waitFor();
       await nav.getByText('No projects in this Area yet.').waitFor();
+      await nav.getByText('No active linked threads.').waitFor();
+      await threadFilter.click();
+      assert.equal(await archived.isEnabled(), true);
       await page.goto(`${base}/plugins/gtd/projects`);
       await heading('Areas').waitFor();
       await link('Empty Area').waitFor();
