@@ -4,9 +4,8 @@ import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema,
 import { Areas, compareAreas, normalizeAreaSnapshot } from './core/areas.ts';
 import { applyInput, browseInput, changeInput, changeNames, checkInput, deferInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
 import { renameEvidence } from './core/migration-preview.ts';
-import { identityMigration } from './core/migration.ts';
-import { stableIds, type Kind } from './core/identity.ts';
-import { randomUUID } from 'node:crypto';
+import { identityMigration, OutdatedMigrationReview } from './core/migration.ts';
+import { newStableId, stableIds, type Kind } from './core/identity.ts';
 import { areaStandardInput, rpcContract, reference, newThreadInput } from './contract.ts';
 import { threadActions } from './core/threads.ts';
 import { areaListInput, areaPageSchema } from './core/model.ts';
@@ -307,7 +306,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
           ['active', 'deferred', 'someday', 'done', 'completed'].includes(segments[0].toLowerCase())));
         if (!permitted) throw new GtdError('invalid_source');
         await backendFor(selection).checkAccess(context.signal);
-        const id = `${input.kind}_${randomUUID()}`;
+        const id = newStableId(input.kind);
         return { content: [{ type: 'text' as const, text: JSON.stringify({ vaultId, path: input.path, id, text: `---\nid: ${id}\n---\n` }) }] };
       } catch { return { isError: true, content: [{ type: 'text' as const, text: 'Choose a new landing-note path within the configured GTD folders.' }] }; }
     },
@@ -352,7 +351,11 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
         // The migration starts after draining the writes captured above.
         enteredWrites.add(task);
         try { const result = await task; return { exitCode: 0, stdout: JSON.stringify(result) }; }
-        catch {
+        catch (error) {
+          if (error instanceof OutdatedMigrationReview) {
+            bb.log.warn('GTD identity_migration outdated_review');
+            throw new PluginCliError('This migration review uses an older ID format. Run bb gtd migration-preview and review the new plan.', { code: 'outdated_review' });
+          }
           bb.log.warn('GTD identity_migration reconciliation_required');
           throw new PluginCliError('Identity migration did not complete. Inspect the reviewed plan and operation receipts before resuming the same plan.', { code: 'migration_unconfirmed' });
         } finally { enteredWrites.delete(task); applying = false; invalidate(); }

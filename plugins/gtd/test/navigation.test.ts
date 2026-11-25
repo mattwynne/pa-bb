@@ -63,7 +63,7 @@ test('uncertain creation is not retried, even after reload; diagnostics are boun
 });
 
 test('agent conversation tool is discoverable and shares UI receipts and stable association without external writes', async () => {
-  for (const id of [ref.id, 'project_7fc1cc63-1601-46fb-9def-1f148bf96a23']) {
+  for (const id of [ref.id, 'project-7fc1cc63-1601-46fb-9def-1f148bf96a23', 'project_7fc1cc63-1601-46fb-9def-1f148bf96a23']) {
     const initial = snapshot(); initial.projects = [{ id, title: "Plan next year's events", status: 'active' }];
     const f = await setup(initial); let active = f.harness;
     try {

@@ -2,11 +2,13 @@
 
 A project's filename provides its display name. Its immediate status folder controls its status. Existing root projects keep their legacy status rule. An Area landing note takes its name from its filename. Preserve the configured Projects and Areas folders and the positions of all notes and support folders.
 
-Use a lowercase UUID v4 with prefix `project_` or `area_` in each landing note's top-level `id`. Assign it once at creation or during an explicitly approved migration. GTD resolves the ID within the configured vault scope and reports the current `notePath` separately. The stable value in a project's top-level `area` is the assigned Area's ID. A supporting note does not become a landing note by declaring an ID.
+New landing-note IDs use `project-<guid>` or `area-<guid>`, with a lowercase UUID v4 as the GUID. Set the top-level `id` once at creation or during an explicitly approved migration. IDs already assigned with an underscore retain their exact values in notes, assignments, routes and thread links. GTD resolves the ID within the configured vault scope and reports the current `notePath` separately. The stable value in a project's top-level `area` is the assigned Area's ID. A supporting note does not become a landing note by declaring an ID.
 
 ## Preview
 
 Use `bb gtd migration-preview --json` in the selected source. Keep the report private. Preview reads Obsidian inventory and checked note versions, and examines active, hidden and archived BB threads for both project and direct Area associations. The only writes are reservations and the reviewed manifest in GTD's private storage. The report contains the current and proposed identity, note location, Area declaration, thread mappings and legacy route aliases derived from those rows. It cannot enumerate a user's actual browser bookmarks.
+
+A format upgrade gives unassigned legacy reservations new hyphen IDs that repeat across previews. Re-run and review previews saved before this upgrade before starting apply. An already-started apply continues from its original reviewed manifest and receipts.
 
 Coverage and resolution are separate. Invalid YAML and unavailable evidence produce partial coverage. Missing landing pages, duplicate or malformed IDs, nested Area targets, invalid declarations and unmatched historical references require review. A folder-only Area has no stable landing ID. A referenced historical project folder or supporting note is unresolved. The migration does not create notes, promote support files, move directories, or change an assignment to its enclosing Area.
 

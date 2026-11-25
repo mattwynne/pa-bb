@@ -3,12 +3,12 @@ import { isDeepStrictEqual } from 'node:util';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { noteEvidence, ObsidianBackend, vaultRpc } from '../adapters/obsidian.ts';
 import { noteSaveReceipt, reference } from '../contract.ts';
-import { migrationPreview, readThreadReferences, type Preview, type RenameEvidence } from './migration-preview.ts';
+import { migrationPreview, migrationPreviewVersion, readThreadReferences, type Preview, type RenameEvidence } from './migration-preview.ts';
 import { scopeKey, type Alias, type IdentityScope } from './identity.ts';
 
 type NoteStep = { operationId: string; savedHash?: string };
 type Manifest = {
-  preview: Preview;
+  preview: Omit<Preview, 'version'> & { version: number };
   renames: RenameEvidence;
   notes: Record<string, { id?: NoteStep; area?: NoteStep }>;
   threads: Record<string, 'entered' | 'verified'>;
@@ -16,9 +16,10 @@ type Manifest = {
 type Run = { id: string; state: 'review' | 'applying' | 'stable'; manifest: string };
 
 const blocked = (message: string): never => { throw new Error(message); };
+export class OutdatedMigrationReview extends Error {}
 const linkKey = (link: Pick<Preview['links'][number], 'threadId' | 'kind'>) => JSON.stringify([link.threadId, link.kind]);
 const validLink = (link: Preview['links'][number]) => !!link.proposedId && (!link.decision || link.decision === 'verified_rename');
-export const decisions = (preview: Preview) =>
+export const decisions = (preview: Pick<Preview, 'rows' | 'links' | 'renameMappings'>) =>
   preview.rows.filter(row => row.decisions.length).length +
   preview.links.filter(link => !validLink(link)).length +
   preview.renameMappings.filter(rename => rename.decision !== 'verified_rename').length;
@@ -68,6 +69,8 @@ export function identityMigration(bb: BbPluginApi) {
     if (run.state === 'stable') return { state: 'stable' as const };
     const manifest = JSON.parse(run.manifest) as Manifest;
     const { preview } = manifest;
+    if (run.state === 'review' && preview.version !== migrationPreviewVersion)
+      throw new OutdatedMigrationReview();
     if (preview.coverage !== 'complete' || decisions(preview)) return blocked('The preview has unresolved evidence or mappings.');
     const save = () => db.prepare('UPDATE identity_runs SET manifest=? WHERE id=?').run(JSON.stringify(manifest), id);
     const { source: vaultId, scope } = preview;
@@ -90,7 +93,7 @@ export function identityMigration(bb: BbPluginApi) {
     if (run.state === 'review') {
       if (hasApplying()) return blocked('Another reviewed migration is still applying.');
       const observed = await migrationPreview(bb, config, signal, manifest.renames, priorEvidence(config, manifest.renames));
-      const ordered = (p: Preview) => ({
+      const ordered = (p: Manifest['preview']) => ({
         ...p, rows: [...p.rows].sort((a,b) => a.oldId.localeCompare(b.oldId)),
         links: [...p.links].sort((a,b) => linkKey(a).localeCompare(linkKey(b))),
         bookmarks: [...p.bookmarks].sort((a,b) => a.from.localeCompare(b.from)),

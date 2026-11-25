@@ -1,12 +1,12 @@
-import { randomUUID } from 'node:crypto';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { reference } from '../contract.ts';
 import { ObsidianBackend, noteEvidence, vaultRpc, relativeFolder, type PreviewEvidence } from '../adapters/obsidian.ts';
 import type { Project, Area } from './model.ts';
 
-import { stableIds, scopeKey, type IdentityScope, type Kind } from './identity.ts';
+import { canonicalIds, newStableId, stableIds, scopeKey, type IdentityScope, type Kind } from './identity.ts';
 export { stableIds } from './identity.ts';
+export const migrationPreviewVersion = 3;
 type Row = { kind: Kind; oldId: string; notePath: string | null; proposedPath: string | null; existingId: unknown; proposedId: string | null; decisions: string[]; declaration?: unknown; legacyAreaId?: string; proposedAreaId?: string; hash?: string };
 type Thread = { threadId: string; archived: boolean; id: string; kind: Kind };
 export const renameEvidence = z.array(z.object({
@@ -97,10 +97,14 @@ export async function migrationPreview(bb: BbPluginApi, config: IdentityScope, s
   const threads = await readThreadReferences(bb.sdk, vaultId, signal);
   const db = bb.storage.database();
   // Reservations live in GTD storage. Preview performs no vault or BB metadata writes.
-  db.exec('CREATE TABLE IF NOT EXISTS migration_proposals_v1 (scope TEXT, kind TEXT, old_id TEXT, proposal TEXT NOT NULL UNIQUE, PRIMARY KEY(scope, kind, old_id))');
+  // Keep previous reservations available as historical evidence. The current
+  // format has its own reservations so an unassigned old proposal cannot leak into a new review.
+  db.exec('CREATE TABLE IF NOT EXISTS migration_proposals_v2 (scope TEXT, kind TEXT, old_id TEXT, proposal TEXT NOT NULL UNIQUE, PRIMARY KEY(scope, kind, old_id))');
   const rows = planRows(project.projects, area.areas, evidence, (kind,oldId) => {
-    db.prepare('INSERT OR IGNORE INTO migration_proposals_v1 VALUES (?,?,?,?)').run(scope,kind,oldId,`${kind}_${randomUUID()}`);
-    return (db.prepare('SELECT proposal FROM migration_proposals_v1 WHERE scope=? AND kind=? AND old_id=?').get(scope,kind,oldId) as {proposal: string}).proposal;
+    db.prepare('INSERT OR IGNORE INTO migration_proposals_v2 VALUES (?,?,?,?)').run(scope,kind,oldId,newStableId(kind));
+    const row = db.prepare('SELECT proposal FROM migration_proposals_v2 WHERE scope=? AND kind=? AND old_id=?')
+      .get(scope,kind,oldId) as {proposal: string} | undefined;
+    return canonicalIds[kind].parse(row?.proposal);
   });
   const warnings = new Set([...project.warnings, ...area.warnings, ...threads.warnings]);
   for (const row of rows) {
@@ -169,7 +173,7 @@ export async function migrationPreview(bb: BbPluginApi, config: IdentityScope, s
     ...renameMappings.map(row => ({ kind: row.kind, from: row.oldId, to: row.proposedId, decision: row.decision })),
   ];
   await adapter.checkAccess(signal);
-  return { version: 2 as const, mode: 'preview_only' as const, source: vaultId, scope: {root, projectsFolder: config.projectsFolder, areasFolder: config.areasFolder},
+  return { version: migrationPreviewVersion, mode: 'preview_only' as const, source: vaultId, scope: {root, projectsFolder: config.projectsFolder, areasFolder: config.areasFolder},
     coverage: warnings.size ? 'partial' as const : 'complete' as const, warnings: [...warnings], threadsExamined: threads.counts,
     rows, links, bookmarks, renameMappings, malformedFrontmatter: [...(project.malformedFrontmatter ?? []), ...(area.malformedFrontmatter ?? [])] };
 }

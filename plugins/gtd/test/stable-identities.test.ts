@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { createFakePluginHost, makeThreadResponse } from '@get-bb/plugin-sdk/testing';
 import { plugin } from '../server.ts';
-import { stableIds } from '../core/identity.ts';
+import { canonicalIds, scopeKey, stableIds } from '../core/identity.ts';
 
 const source = 'fixture';
 const oldProject = 'Projects/Renew permits.md';
@@ -160,7 +160,7 @@ test('review, interruption, cutover and replay preserve identities and relations
   const renamedProject = 'Projects/Permits renewed.md';
   f.move(oldArea, renamedArea);
   f.move(oldProject, renamedProject);
-  const newId = 'project_' + randomUUID();
+  const newId = 'project-' + randomUUID();
   f.docs.set(oldProject, {id:newId});
   const now = await f.rpc('browseInventoryV2', {includeAreas:true});
   assert.equal(now.identity, 'stable');
@@ -191,7 +191,7 @@ test('review, interruption, cutover and replay preserve identities and relations
     id: projectId, notePath: 'Projects/Done/Permits renewed.md', title:'Permits renewed', status:'done', areaId,
   });
   assert.deepEqual(f.docs.get(oldProject), {id:newId});
-  const newArea = 'area_' + randomUUID();
+  const newArea = 'area-' + randomUUID();
   f.docs.set('Areas/Gardening.md', {id:newArea});
   const assigned = await f.host.harness.behavior.callAgentTool('gtd_change_project', {source,id:projectId,areaPath:newArea});
   assert.ok(typeof assigned !== 'string' && !assigned.isError && assigned.content[0].type === 'text');
@@ -199,11 +199,13 @@ test('review, interruption, cutover and replay preserve identities and relations
   assert.equal(f.docs.get('Projects/Done/Permits renewed.md')!.area, newArea);
   const stableMs = await warmReads();
   t.diagnostic(`Generated fixture mean per inventory: legacy ${legacyMs.toFixed(2)}ms, stable ${stableMs.toFixed(2)}ms. One inventory RPC per call in each mode.`);
-  const newLanding = await f.host.harness.behavior.callAgentTool('gtd_prepare_landing_note', {kind:'area',path:'Areas/Travel.md'});
-  assert.ok(typeof newLanding !== 'string' && !newLanding.isError && newLanding.content[0].type === 'text');
-  const prepared = JSON.parse(newLanding.content[0].text);
-  assert.ok(stableIds.area.safeParse(prepared.id).success);
-  assert.equal(prepared.text, `---\nid: ${prepared.id}\n---\n`);
+  for (const [kind, path] of [['project', 'Projects/Travel.md'], ['area', 'Areas/Travel.md']] as const) {
+    const newLanding = await f.host.harness.behavior.callAgentTool('gtd_prepare_landing_note', {kind,path});
+    assert.ok(typeof newLanding !== 'string' && !newLanding.isError && newLanding.content[0].type === 'text');
+    const prepared = JSON.parse(newLanding.content[0].text);
+    assert.ok(canonicalIds[kind].safeParse(prepared.id).success);
+    assert.equal(prepared.text, `---\nid: ${prepared.id}\n---\n`);
+  }
 });
 
 test('stale previews, revoked access and independently changed links fail closed', async t => {
@@ -250,4 +252,76 @@ test('a verified rename takes precedence over an unrelated current occupant of t
   assert.notEqual(link.proposedId, replacement.proposedId);
   assert.equal(report.decisions, 0);
   assert.equal(f.writes.notes + f.writes.metadata, 0);
+});
+
+test('unassigned underscore reservations receive repeatable hyphen IDs and old reviews require a fresh plan', async t => {
+  const f = await fixture();
+  t.after(() => f.host.harness.lifecycle.dispose());
+  const db = f.host.bb.storage.database();
+  const scope = scopeKey({vaultId:source, projectsFolder:'Projects', areasFolder:'Areas'});
+  const oldIds = { project: 'project_' + randomUUID(), area: 'area_' + randomUUID() };
+  db.exec('CREATE TABLE migration_proposals_v1 (scope TEXT, kind TEXT, old_id TEXT, proposal TEXT NOT NULL UNIQUE, PRIMARY KEY(scope, kind, old_id))');
+  db.prepare('INSERT INTO migration_proposals_v1 VALUES (?,?,?,?)').run(scope, 'project', oldProject, oldIds.project);
+  db.prepare('INSERT INTO migration_proposals_v1 VALUES (?,?,?,?)').run(scope, 'area', oldArea, oldIds.area);
+  const {planId, decisions, ...preview} = await f.preview();
+  assert.equal(decisions, 0);
+  const canonical = Object.fromEntries(preview.rows.map((row: any) => [row.kind, row.proposedId]));
+  assert.ok(canonicalIds.project.safeParse(canonical.project).success);
+  assert.ok(canonicalIds.area.safeParse(canonical.area).success);
+  const oldPreview = JSON.parse(JSON.stringify(preview).replaceAll(canonical.project, oldIds.project).replaceAll(canonical.area, oldIds.area));
+  oldPreview.version = 2;
+  const oldPlanId = randomUUID();
+  db.prepare("INSERT INTO identity_runs VALUES (?,?,'review',?)").run(oldPlanId, scope,
+    JSON.stringify({preview:oldPreview, renames:[], notes:{}, threads:{}}));
+  const rejected = await f.cli('migration-apply', '--plan', oldPlanId);
+  assert.notEqual(rejected.exitCode, 0);
+  assert.match(rejected.stderr!, /Run bb gtd migration-preview/);
+  assert.ok(f.host.harness.inspection.logEntries.some(entry => entry.message === 'GTD identity_migration outdated_review'));
+  assert.deepEqual(db.prepare('SELECT proposal FROM migration_proposals_v1 ORDER BY kind').all(),
+    [{proposal:oldIds.area}, {proposal:oldIds.project}]);
+  assert.equal(f.writes.notes + f.writes.metadata, 0);
+  assert.equal(JSON.parse((await f.cli('migration-status', '--plan', oldPlanId)).stdout!).state, 'review');
+  await f.reload();
+  assert.deepEqual((await f.preview()).rows, preview.rows);
+  assert.equal((await f.cli('migration-apply', '--plan', planId)).exitCode, 0);
+  assert.equal(f.docs.get(oldProject)!.id, canonical.project);
+  assert.equal(f.docs.get(oldProject)!.area, canonical.area);
+  assert.deepEqual(f.metadata.get('archived-area')!.area, {source, id:canonical.area});
+});
+
+test('IDs already assigned with underscores keep their exact assignments, aliases, and thread links', async t => {
+  const f = await fixture();
+  t.after(() => f.host.harness.lifecycle.dispose());
+  const projectId = 'project_' + randomUUID();
+  const areaId = 'area_' + randomUUID();
+  Object.assign(f.docs.get(oldProject)!, {id:projectId, area:areaId});
+  f.docs.get(oldArea)!.id = areaId;
+  f.metadata.get('archived-project')!.project = {source,id:projectId};
+  f.metadata.get('archived-area')!.area = {source,id:areaId};
+  const plan = await f.preview();
+  assert.deepEqual(plan.rows.map((row: any) => [row.existingId, row.proposedId]), [[projectId,projectId], [areaId,areaId]]);
+  assert.equal((await f.cli('migration-apply', '--plan', plan.planId)).exitCode, 0);
+  assert.equal(f.writes.notes, 0);
+  assert.equal(f.writes.metadata, 1); // Only the active thread still holds its legacy path.
+  const current = await f.rpc('browseInventoryV2', {includeAreas:true});
+  assert.equal(current.projects.projects[0].id, projectId);
+  assert.equal(current.projects.projects[0].areaId, areaId);
+  assert.equal(current.areas.areas[0].id, areaId);
+  assert.deepEqual(current.aliases.map((entry: any) => entry.to), [projectId, areaId]);
+  const input = {source,id:areaId,requestId:randomUUID()};
+  assert.deepEqual(await f.rpc('newAreaThread', input), {threadId:f.creationThread});
+  assert.deepEqual(f.metadata.get(f.creationThread)!.area, {source,id:areaId});
+});
+
+test('stable ID validators check kind, separator, UUID version and variant', () => {
+  const guid = '11111111-1111-4111-8111-111111111111';
+  for (const kind of ['project', 'area'] as const) {
+    assert.ok(canonicalIds[kind].safeParse(kind + '-' + guid).success);
+    assert.ok(stableIds[kind].safeParse(kind + '_' + guid).success);
+    assert.ok(!canonicalIds[kind].safeParse(kind + '_' + guid).success);
+    for (const invalid of ['other-' + guid, kind + '-' + guid.slice(1), kind + '-' + guid + '-extra',
+      kind + '-' + guid.replace('-4111-', '-7111-'), kind + '-' + guid.replace('-8111-', '-0111-')]) {
+      assert.ok(!stableIds[kind].safeParse(invalid).success);
+    }
+  }
 });

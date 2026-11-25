@@ -107,6 +107,8 @@ try {
     await writeFile(join(artifacts, 'synthetic-preview.json'), JSON.stringify(report, null, 2) + '\n');
     stableProject = report.rows.find(row => row.kind === 'project').proposedId;
     stableArea = report.rows.find(row => row.kind === 'area').proposedId;
+    assert.match(stableProject, /^project-[0-9a-f-]{36}$/);
+    assert.match(stableArea, /^area-[0-9a-f-]{36}$/);
     await cli('gtd', 'migration-apply', '--plan', report.planId);
     assert.equal(JSON.parse(await cli('gtd', 'migration-status', '--plan', report.planId)).state, 'stable');
     assert.match(await readFile(join(vault, ref.id), 'utf8'), new RegExp(stableProject));
@@ -545,7 +547,7 @@ try {
         await heading('Learn woodworking').waitFor();
         await rename(join(vault, 'Areas/Learning.md'), join(vault, 'Areas/Workshop.md'));
         await rename(join(vault, ref.id), join(vault, 'Projects/New workshop.md'));
-        await writeFile(join(vault, ref.id), `---\nid: project_11111111-1111-4111-8111-111111111111\n---\n`);
+        await writeFile(join(vault, ref.id), `---\nid: project-11111111-1111-4111-8111-111111111111\n---\n`);
         await heading('New workshop').waitFor();
         const input = join(root, 'move-project.json');
         await writeFile(input, JSON.stringify({source:'one', id:stableProject, change:{kind:'done'}}));

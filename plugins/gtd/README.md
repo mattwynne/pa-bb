@@ -40,6 +40,8 @@ Missing, invalid, and future dates stay in place. For blockers, read `bb plugin 
 
 Run `bb gtd migration-preview` for a read-only summary of the selected source and observable BB metadata. To review private per-entry, Area and thread mappings, run `umask 077` before redirecting `bb gtd migration-preview --json` to a new private file. Preview keeps the current layout, reports unresolved references, and saves its reservations and plan in GTD storage.
 
+New proposals use `project-<guid>` and `area-<guid>`. Previously assigned underscore IDs keep their exact values. Generate a fresh preview to replace an unapplied review from the old format.
+
 After a separate approval, apply the reviewed plan with `bb gtd migration-apply --plan <id>`. Before starting, reconcile pending GTD changes and keep Obsidian activity and other association writers idle. Inspect progress and exact operation IDs with `bb gtd migration-status --plan <id>`. Resume the same plan after checking any uncertain receipt. See [the identity plan](../../docs/plans/029-stable-gtd-identities.md) for rename evidence and cutover requirements.
 
 After verified cutover, use `bb gtd projects --stable --json` or `bb gtd areas --stable --json` for the current identity contract. The default CLI and original inventory RPCs still return paths. BB's current pages write stable links and open legacy bookmarks with reviewed aliases. For agent-driven creation, `gtd_prepare_landing_note` supplies a file path and initial frontmatter with a new ID for one non-overwriting `obsidian_create_note` call.

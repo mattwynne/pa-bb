@@ -186,6 +186,16 @@ test('the project menu dismisses outside and consumes Escape only while open', a
   }
   slot.lifecycle.unmount();
 });
+test('bookmarks preserve both generations of stable project and Area IDs exactly', () => {
+  const guid = '7fc1cc63-1601-46fb-9def-1f148bf96a23';
+  for (const [panel, kind] of [['projects', 'project'], ['areas', 'area']] as const) {
+    for (const separator of ['-', '_']) {
+      const id = kind + separator + guid;
+      const bookmark = recordDestination(panel, ref.source, id);
+      expect(readRoute(panel, bookmark.subPath!)).toEqual({kind, record:{source:ref.source,id}});
+    }
+  }
+});
 test('exact record routes round-trip Unicode, delimiters, and source identity', () => {
   const source = 'source/ü#?%';
   const id = 'Projects/Done/家具 #100% [shop]?.md';

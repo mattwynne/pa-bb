@@ -2,7 +2,10 @@ import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { listInput, pageSchema, areaListInput, areaPageSchema, snapshotSchema, areaSnapshotSchema } from './core/model.ts';
 import { aliasSchema } from './core/identity.ts';
-export const reference = z.object({ source: z.string().min(1).max(1100), id: z.string().min(1).max(1024) }).strict();
+export const reference = z.object({
+  source: z.string().min(1).max(1100),
+  id: z.string().min(1).max(1024).describe('Exact inventory ID. New stable IDs use a hyphen after their kind prefix. Existing IDs and legacy paths are preserved verbatim.'),
+}).strict();
 export const newThreadInput = reference.extend({
   requestId: z.string().uuid().describe('Fresh UUID for this user-requested creation. Retain it for receipt inspection; never mint another ID to bypass an uncertain creation.'),
   title: z.string().trim().min(1).max(240).regex(/^[^\x00-\x1f\x7f]+$/).optional().describe('Optional conversation title; defaults to the existing project title.'),

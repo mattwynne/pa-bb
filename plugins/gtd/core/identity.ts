@@ -1,11 +1,19 @@
 import { z } from 'zod';
 
 const uuid4 = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
-export const stableIds = {
-  project: z.string().regex(new RegExp(`^project_${uuid4}$`)),
-  area: z.string().regex(new RegExp(`^area_${uuid4}$`)),
+export type Kind = 'project' | 'area';
+const idSchema = (kind: Kind, separator: '-' | '[-_]') =>
+  z.string().regex(new RegExp(`^${kind}${separator}${uuid4}$`));
+export const canonicalIds = {
+  project: idSchema('project', '-'),
+  area: idSchema('area', '-'),
 };
-export type Kind = keyof typeof stableIds;
+// Assigned IDs are immutable, including those issued before the separator changed.
+export const stableIds = {
+  project: idSchema('project', '[-_]'),
+  area: idSchema('area', '[-_]'),
+};
+export const newStableId = (kind: Kind) => `${kind}-${globalThis.crypto.randomUUID()}`;
 export type IdentityScope = { vaultId: string; projectsFolder: string; areasFolder: string };
 export const scopeKey = ({vaultId, projectsFolder, areasFolder}: IdentityScope) =>
   JSON.stringify([vaultId, projectsFolder, areasFolder]);
