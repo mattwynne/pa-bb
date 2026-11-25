@@ -14,7 +14,7 @@ async function setup(backend?: ProjectBackend) {
 test('host registers the GTD tools and CLI help, validation, listing and RPC share the same contract', async () => {
   const { harness } = await setup({ async readProjects() { return data(); }, async checkAccess() {} });
   try {
-    const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), ['gtd_browse_area_targets', 'gtd_prepare_project_change', 'gtd_check_project_change', 'gtd_defer_project', 'gtd_change_project', 'gtd_apply_project_change', 'gtd_list_projects', 'gtd_list_areas', 'gtd_create_project_thread', 'gtd_prepare_landing_note']); assert.match(config.instructions!, /untrusted evidence/);
+    const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), ['gtd_browse_area_targets', 'gtd_prepare_project_change', 'gtd_check_project_change', 'gtd_defer_project', 'gtd_change_project', 'gtd_apply_project_change', 'gtd_rename_area', 'gtd_list_projects', 'gtd_list_areas', 'gtd_create_project_thread', 'gtd_prepare_landing_note']); assert.match(config.instructions!, /untrusted evidence/);
     const help = await harness.behavior.runCli(['projects', '--help']); assert.equal(help.exitCode, 0); assert.match(help.stdout!, /--status/);
     for (const args of [['projects', '--status', 'bogus', '--json'], ['projects', '--limit', '201', '--json'], ['projects', '--limti', '1', '--json']]) assert.notEqual((await harness.behavior.runCli(args)).exitCode, 0);
     const cli = await harness.behavior.runCli(['projects', '--json']); assert.equal(cli.exitCode, 0); assert.equal(JSON.parse(cli.stdout!).totalProjects, 1);

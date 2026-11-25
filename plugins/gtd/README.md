@@ -92,7 +92,21 @@ Each project row shows a **New thread** button. It creates a conversation in BB'
 
 Creation uses a durable request receipt and a synchronous uniqueness claim before spawning. Replaying a completed request returns the same thread; pending/uncertain requests are not retried. The UI blocks repeated activation while pending and retains an uncertain request across browser reload in session storage. Inspect threads before explicitly starting another request after an uncertain outcome.
 
-Rename a project or Area in Obsidian by renaming its note and any matching support folder. Verify references that use the old paths after the rename.
+### Rename a path-based Area
+
+For an explicitly requested rename, pass the exact source and top-level Markdown Area ID from `gtd_list_areas` to `gtd_rename_area`, with the new filename including `.md`. For example, `{ "source": "vault-id", "id": "Areas/Club.md", "newFilename": "Community Club.md" }` renames the note in place. Use the full returned path ID when the selected vault has a root prefix. The tool refuses folder-only Areas, path changes, occupied destinations and other identity modes.
+
+GTD uses Obsidian's Desktop move and receipt APIs for the note and its exact same-stem support folder. Obsidian handles its supported note links. GTD checks the existing project `area` declarations, keeps links already repaired by Desktop, and saves unresolved legacy declarations against the observed note version. Assignments to nested targets follow the supporting tree. GTD also relinks the captured active and archived direct Area conversations. `renamed` confirms the move receipts, captured assignments and direct thread references at verification time. The new path is the current Area ID. Other saved URLs or bookmarks may still use the previous path. Local verification gives no cloud or device delivery guarantee.
+
+- `refused` means the note move did not proceed. Check the reported stage and any returned receipt before making a fresh request.
+- `unconfirmed` means the note move was entered and GTD lacks confirmation. Inspect the original Obsidian receipt. Repeat the exact original arguments to check progress.
+- `partial` means GTD confirmed the note move and still needs to verify or finish a later step. Check the reported stage, move operation IDs and current references. A pending assignment includes its project path and save operation ID. Repeat the exact original arguments, including the old path. GTD checks attempted moves by receipt and can start an unentered step. A definitively refused folder move or property save can receive a fresh operation after new checks.
+
+Repeating a completed request reports its recorded outcome. `historical` means the completed rename no longer describes the current paths. If the user explicitly asks for another rename using the same pair, supply a fresh UUID as `requestId` and keep it on every retry. A different UUID cannot bypass an unfinished rename.
+
+After a lost reply, a move requires its original receipt. Assignment and thread updates can be confirmed by reading the intended reference back. Independent edits can require manual reconciliation. BB thread metadata has no conditional update API. GTD serializes its own writes to the affected thread during the metadata check and update, and verifies the resulting reference. Other clients do not share that lock.
+
+For project filename changes, use Obsidian and verify path-based references after the move.
 
 ## Bounds and diagnostics
 

@@ -79,7 +79,7 @@ export function areaFromNote(folder: string, path: string): Area | 'invalid' | n
   return text(title) ? { id: path, title } : 'invalid';
 }
 
-function areaLookup(root: string, areaFolder: string, notes: Set<string>, folders: Set<string>) {
+export function areaLookup(root: string, areaFolder: string, notes: Set<string>, folders: Set<string>) {
   const names = new Map<string, string | null>();
   const add = (path: string) => {
     const key = basenameKey(path);
