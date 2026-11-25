@@ -70,3 +70,41 @@ test('the watch uses the configured scopes and redacts failed probe details', as
     assert.doesNotMatch(logs, /sentinel|Life/);
   } finally { await host.harness.lifecycle.dispose(); }
 });
+
+test('correspondence reads scoped landing-note links and looks up saved Gmail URLs', async () => {
+  const gmail = 'https://mail.google.com/mail/?authuser=person%40example.com#all/beef';
+  const fastmail = 'https://app.fastmail.com/mail/example';
+  const ref = { source: 'one', id: 'Life/Projects/Active/Launch.md' };
+  let mailReads = 0;
+  const host = createFakePluginHost({ pluginId: 'gtd', settings: {
+    vaultId: 'one/Life', projectsFolder: 'Projects', areasFolder: 'Areas',
+  }, sdk: { plugins: { callRpc: async (args: any) => {
+    if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Life' }], incomplete: false };
+    if (args.method === 'readSectionLinks') {
+      assert.equal(args.pluginId, 'obsidian');
+      assert.deepEqual(args.input, { vaultId: 'one', path: ref.id, heading: 'Correspondence' });
+      return { hash: 'a'.repeat(64), links: [
+        { title: 'Workshop', url: gmail }, { title: 'Duplicate', url: gmail }, { title: 'Venue', url: fastmail },
+      ], incomplete: false };
+    }
+    assert.equal(args.pluginId, 'google-workspace');
+    assert.equal(args.method, 'gmailConversationStatus');
+    assert.deepEqual(args.input, { url: gmail });
+    mailReads++;
+    return { status: 'ok', unread: 2, sender: null, latestAt: null };
+  } } } });
+  await plugin(host.bb);
+  try {
+    const rpc = host.harness.behavior.callRpc;
+    await assert.rejects(rpc('readCorrespondence', { ...ref, id: 'Life/Areas/Workshop.md' }));
+    assert.deepEqual(await rpc('readCorrespondence', ref), { links: [
+      { title: 'Workshop', url: gmail }, { title: 'Venue', url: fastmail },
+    ], incomplete: false });
+    assert.equal(mailReads, 0);
+    assert.deepEqual(await rpc('readCorrespondenceStatus', ref), [
+      { url: gmail, mail: { status: 'ok', unread: 2, sender: null, latestAt: null } },
+      { url: fastmail, mail: { status: 'unsupported' } },
+    ]);
+    assert.equal(mailReads, 1);
+  } finally { await host.harness.lifecycle.dispose(); }
+});

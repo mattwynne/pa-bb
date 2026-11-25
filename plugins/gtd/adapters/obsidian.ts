@@ -1,3 +1,4 @@
+import { correspondenceLinks } from '../core/correspondence.ts';
 import { posix } from 'node:path';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
@@ -138,6 +139,28 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     if (source !== this.config.vaultId || !relativeFolder.safeParse(id).success ||
         !immediate(id, this.scope(this.config.areasFolder ?? this.config.folder)) || !id.endsWith('.md')) throw new GtdError('invalid_source');
     return { vaultId: source, path: id, heading: 'Standard' };
+  }
+
+  async readCorrespondence({ source, id }: { source: string; id: string }, signal: AbortSignal) {
+    if (source !== this.config.vaultId) throw new GtdError('invalid_source');
+    let path = id;
+    if (this.identity === 'stable') {
+      const snapshot = await this.readProjects(signal);
+      const project = snapshot.projects.find(project => project.id === id);
+      if (!snapshot.complete || !project?.notePath) throw new GtdError('invalid_source');
+      path = project.notePath;
+    } else {
+      const project = projectFromNote(this.scope(this.config.folder), id, {});
+      if (!project || project === 'invalid') throw new GtdError('invalid_source');
+    }
+    const result = correspondenceLinks.extend({ hash: noteEvidence.shape.hash }).parse(
+      await vaultRpc(this.sdk, 'readSectionLinks', { vaultId: source, path, heading: 'Correspondence' }, signal),
+    );
+    if (this.identity === 'stable') {
+      const note = noteEvidence.parse(await vaultRpc(this.sdk, 'noteEvidence', { vaultId: source, path }, signal));
+      if (note.hash !== result.hash || note.properties.id !== id) throw new GtdError('invalid_source');
+    }
+    return { links: result.links, incomplete: result.incomplete };
   }
 
   async readAreaStandard({ source, id }: { source: string; id: string }, signal: AbortSignal) {

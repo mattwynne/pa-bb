@@ -2,6 +2,7 @@ import * as sdk from '@get-bb/plugin-sdk';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { emailArchiveContract, gmailArchive, MailReadError } from './email-archive.js';
+import { gmailConversationInput, gmailConversationTarget, gmailCorrespondence, gmailCorrespondenceContract } from './gmail-correspondence.js';
 import { rpcContract } from './contract.js';
 import { createWorkspace } from './core/workspace.mjs';
 import { createGoogleAuth } from './core/auth.mjs';
@@ -73,6 +74,41 @@ export default async function plugin(bb: BbPluginApi, ports: any = {}) {
       throw new Error('Gmail archive read failed. Check Google Workspace configuration.');
     }
   }
+  const readConversation = gmailCorrespondence(auth, ports.gmailFetch);
+  bb.rpc.register(gmailCorrespondenceContract, {
+    async gmailConversationStatus({ url }, context) {
+      if (context.experimental_caller.kind !== 'plugin' || context.experimental_caller.pluginId !== 'gtd') {
+        const message = 'Only GTD can request Gmail correspondence status.';
+        if (sdk.experimental_PluginRpcRefusal) throw new sdk.experimental_PluginRpcRefusal({ code: 'forbidden', message });
+        throw new Error(message);
+      }
+      const target = gmailConversationTarget(url);
+      if (!target) return { status: 'unsupported' } as const;
+      try {
+        const signal = AbortSignal.any([context.experimental_signal, lifetime.signal]);
+        const result = await readConversation(target, signal);
+        if (result.status !== 'ok') return result;
+        return { status: result.status, unread: result.unread, sender: result.sender, latestAt: result.latestAt };
+      } catch (error) {
+        diagnose('correspondence_read', error);
+        return { status: 'unavailable' } as const;
+      }
+    },
+  }, { experimental_discoverable: false });
+  bb.agents.registerTool({ name: 'gworkspace_resolve_gmail_thread_url',
+    description: 'Verify an exact Gmail thread in the selected connected mailbox and return its account-qualified conversation URL and subject. The URL contains the mailbox email address. Reads metadata only.',
+    parameters: gmailConversationInput,
+    async execute(input, context) {
+      try {
+        const result = await readConversation(input, AbortSignal.any([context.signal, lifetime.signal]));
+        if (result.status === 'ok') return { content: [{ type: 'text', text: JSON.stringify({ url: result.url, subject: result.title }) }] };
+        return { isError: true, content: [{ type: 'text', text: 'The Gmail conversation could not be verified in the selected mailbox.' }] };
+      } catch (error) {
+        diagnose('correspondence_url', error);
+        return { isError: true, content: [{ type: 'text', text: 'The Gmail conversation could not be verified. Check the mailbox connection.' }] };
+      }
+    },
+  });
   bb.rpc.register(emailArchiveContract, {
     emailArchiveAccounts: (_, context) => archiveRead(context, 'accounts', async () => (await auth.list()).map(({ subject, email }: { subject: string; email: string }) => ({ id: subject, email }))),
     emailArchivePage: ({ accountId, cursor }, context) => archiveRead(context, 'page', signal => archive.page(accountId, cursor, signal)),
@@ -125,7 +161,7 @@ export default async function plugin(bb: BbPluginApi, ports: any = {}) {
     parameters: z.object({ name: z.string().min(1), arguments: z.record(z.string(), z.unknown()) }),
     execute: ({ name, arguments: args }, ctx) => call(name, args, ctx.signal),
   });
-  bb.agents.configure(() => ({ tools: ['gworkspace_accounts', 'gworkspace_list_tools', 'gworkspace_call_tool', ...workspace.tools().filter(t => registered.has(t.name)).map(t => t.name)], skills: [] }));
+  bb.agents.configure(() => ({ tools: ['gworkspace_accounts', 'gworkspace_resolve_gmail_thread_url', 'gworkspace_list_tools', 'gworkspace_call_tool', ...workspace.tools().filter(t => registered.has(t.name)).map(t => t.name)], skills: [] }));
   bb.onDispose(async () => { lifetime.abort(); await workspace.close(); });
   // No process starts until there is a Google account to use.
   await refresh();

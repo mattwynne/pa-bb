@@ -22,7 +22,7 @@ export class MailReadError extends Error {
   }
 }
 
-async function json(response: Response, limit: number) {
+export async function readGmailJson(response: Response, limit: number) {
   const reader = response.body?.getReader();
   if (!reader) throw new MailReadError('invalid_response');
   const chunks: Uint8Array[] = [];
@@ -67,7 +67,7 @@ export function gmailArchive(access: (subject: string) => Promise<string>, reque
       const body = z.object({
         messages: z.array(z.object({ id: key })).max(25).default([]),
         nextPageToken: cursor.optional(),
-      }).parse(await json(response, 64 * 1024));
+      }).parse(await readGmailJson(response, 64 * 1024));
       return { ids: body.messages.map(message => message.id), next: body.nextPageToken ?? null };
     },
     async message(accountId: string, messageId: string, signal: AbortSignal): Promise<z.infer<typeof raw>> {
@@ -78,7 +78,7 @@ export function gmailArchive(access: (subject: string) => Promise<string>, reque
       }
       if (!response.ok) rejected(response);
       let body: unknown;
-      try { body = await json(response, maxRawChars + 64 * 1024); }
+      try { body = await readGmailJson(response, maxRawChars + 64 * 1024); }
       catch (error) {
         if (error instanceof MailReadError && error.category === 'size_limit') return { status: 'too_large' };
         throw error;

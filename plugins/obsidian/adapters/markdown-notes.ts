@@ -11,6 +11,32 @@ const MAX_BYTES = 64 * 1024; const MAX_NODES = 20000;
 const lineAt = (text: string, offset: number) => text.slice(0, offset).split('\n').length;
 const blank = (text: string) => text.replace(/[^\r\n]/g, ' ');
 const walk = (node: any, visit: (node: any, depth: number) => void, depth = 0) => { if (depth > 64) throw new VaultError('parser_limit'); visit(node, depth); for (const child of node.children ?? []) walk(child, visit, depth + 1); };
+
+/** A correspondence section consists of unordered bullets containing one inline link each. */
+export function sectionLinks(text: string) {
+  const links: { title: string; url: string }[] = [];
+  let incomplete = false;
+  for (const block of fromMarkdown(text).children) {
+    if (block.type !== 'list' || block.ordered) { incomplete = true; continue; }
+    for (const item of block.children) {
+      const paragraph = item.children[0];
+      const link = paragraph?.type === 'paragraph' ? paragraph.children[0] : undefined;
+      if (item.children.length !== 1 || paragraph?.type !== 'paragraph' || paragraph.children.length !== 1 ||
+          link?.type !== 'link' || link.children.some(part => part.type !== 'text')) {
+        incomplete = true;
+        continue;
+      }
+      const title = link.children.map(part => part.type === 'text' ? part.value : '').join('').replace(/\s+/g, ' ').trim();
+      if (links.length >= 40 || !title || title.length > 1024 || !link.url || link.url.length > 2048) {
+        incomplete = true;
+        continue;
+      }
+      links.push({ title, url: link.url });
+    }
+  }
+  return { links, incomplete };
+}
+
 function header(text: string): { start: number; end: number; closeEnd: number; yaml: string; doc: Document | null; valid: boolean } {
   const open = /^(?:\uFEFF)?---\r?\n/.exec(text);
   if (!open) return { start: 0, end: 0, closeEnd: 0, yaml: '', doc: null, valid: true };

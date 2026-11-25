@@ -120,6 +120,12 @@ Malformed metadata, duplicate IDs and scan limits cannot produce confirmed total
 
 Sound local access remains usable when cloud sync is paused/disconnected. Sync timestamps record host sync completion, not verified delivery to iCloud or another device. GTD does not resume sync, repair failures, or change folder enablement.
 
+## Email correspondence
+
+Add a `## Correspondence` section to the project landing note, with one Markdown bullet per email conversation. Use the thread subject as the link text. BB shows the saved links in note order. Exact duplicate URLs are shown once.
+
+For Gmail, use an account-qualified conversation URL. The Workspace tool `gworkspace_resolve_gmail_thread_url` verifies a thread in the selected account and returns the URL and subject. The Gmail account address is part of the link destination. Only save the URL where that address may be stored. BB reads message metadata from the connected account to show unread counts and the latest sender and date. It refreshes when the project opens, BB regains focus, or the visible page is due for a refresh. Fastmail links open in Fastmail and show unavailable status until conversation URL lookup is supported.
+
 ## Development
 
 ```sh

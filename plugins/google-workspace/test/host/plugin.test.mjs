@@ -79,7 +79,7 @@ test('tool and discovery failures produce bounded diagnostics without provider o
     assert.doesNotMatch(JSON.stringify(result), /PRIVATE_CONTENT|SECRET/);
     w.mcp.listTools = async () => { throw new Error('PRIVATE_CONTENT SECRET_REFRESH'); };
     assert.deepEqual(await w.rpc('refresh'), { ready: false });
-    assert.equal((await w.selected()).tools.length, 3, 'only generic/account tools remain after failed discovery');
+    assert.equal((await w.selected()).tools.length, 4, 'only generic/account tools remain after failed discovery');
     const logs = JSON.stringify(w.host.harness.inspection.logEntries);
     assert.match(logs, /tool_call/); assert.match(logs, /catalogue_discovery/);
     assert.doesNotMatch(logs, /PRIVATE_CONTENT|SECRET|alice@example|recipient@example/);
@@ -91,7 +91,7 @@ test('removing Workspace account disables its tools without calling other plugin
     await w.connect();
     await w.rpc('removeAccount', { subject: 'alice-id' });
     assert.deepEqual((await w.rpc('status')).accounts, []);
-    assert.equal((await w.selected()).tools.length, 3);
+    assert.equal((await w.selected()).tools.length, 4);
     assert.deepEqual(w.host.harness.sdk.callsTo('plugins.callRpc'), []);
   } finally { await w.close(); }
 });
@@ -181,5 +181,61 @@ test('Email reuses the exact Gmail connection with read-only calls and safe fail
     assert.deepEqual(accounts, []);
     await assert.rejects(call('emailArchivePage', { accountId: 'alice-id', cursor: null }), /Gmail archive read failed/);
     assert.equal(requests.length, 3);
+  } finally { await w.close(); }
+});
+
+const correspondenceUrl = 'https://mail.google.com/mail/?authuser=alice%40example.test#all/beef';
+const threadMessage = (id, labelIds) => ({
+  id: String(id), threadId: 'beef', labelIds, internalDate: String(1000 * id),
+  payload: { headers: [{ name: 'From', value: 'Sender ' + id }, { name: 'Subject', value: 'Workshop' }] },
+});
+const threadMessages = [
+  threadMessage(1, ['INBOX', 'UNREAD']), threadMessage(2, ['UNREAD', 'Label_1']), threadMessage(3, undefined),
+  threadMessage(4, ['DRAFT', 'UNREAD']), threadMessage(5, ['TRASH', 'UNREAD']), threadMessage(6, ['SPAM', 'UNREAD']),
+];
+const asThread = messages => Response.json({ id: 'beef', messages });
+const correspondenceRead = (w, url = correspondenceUrl) => w.host.harness.behavior.callRpc(
+  'gmailConversationStatus', { url }, { experimental_caller: { kind: 'plugin', pluginId: 'gtd' } },
+);
+
+test('GTD reads complete metadata for an exact Gmail conversation in its connected mailbox', async () => {
+  let calls = 0;
+  const w = await world(undefined, { gmailFetch: async (value, options) => {
+    calls++;
+    const url = new URL(value);
+    assert.equal(url.pathname, '/gmail/v1/users/me/threads/beef');
+    assert.equal(url.searchParams.get('format'), 'metadata');
+    assert.deepEqual(url.searchParams.getAll('metadataHeaders'), ['From', 'Subject']);
+    assert.equal(options.method, undefined);
+    return asThread(threadMessages);
+  } });
+  try {
+    await w.connect();
+    await assert.rejects(w.rpc('gmailConversationStatus', { url: correspondenceUrl }), /Only GTD/);
+    assert.deepEqual(await correspondenceRead(w, 'https://mail.google.com/mail/u/0/#all/beef'), { status: 'unsupported' });
+    assert.deepEqual(await correspondenceRead(w, 'https://mail.google.com/mail/?authuser=wrong%40example.test#all/beef'), { status: 'account_missing' });
+    assert.equal(calls, 0);
+    assert.deepEqual(await correspondenceRead(w), {
+      status: 'ok', unread: 2, sender: 'Sender 3', latestAt: '1970-01-01T00:00:03.000Z',
+    });
+    const resolved = await w.host.harness.behavior.callAgentTool('gworkspace_resolve_gmail_thread_url', { account: 'alice@example.test', threadId: 'beef' });
+    assert.deepEqual(JSON.parse(resolved.content[0].text), { url: correspondenceUrl, subject: 'Workshop' });
+  } finally { await w.close(); }
+});
+
+test('a Gmail metadata failure stays unknown and Retry-After suppresses repeat requests', async () => {
+  let calls = 0;
+  const w = await world(undefined, { gmailFetch: async () => {
+    calls++;
+    if (calls === 1) return asThread([{ ...threadMessages[0], internalDate: undefined, private: 'PRIVATE_SENTINEL' }]);
+    return new Response('PRIVATE_SENTINEL', { status: 429, headers: { 'Retry-After': '120' } });
+  } });
+  try {
+    await w.connect();
+    for (let i = 0; i < 3; i++) assert.deepEqual(await correspondenceRead(w), { status: 'unavailable' });
+    assert.equal(calls, 2);
+    const logs = JSON.stringify(w.host.harness.inspection.logEntries);
+    assert.match(logs, /correspondence_read/);
+    assert.doesNotMatch(logs, /PRIVATE_SENTINEL|SECRET|alice@example/);
   } finally { await w.close(); }
 });

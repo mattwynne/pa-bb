@@ -134,7 +134,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'area-standard', 'auto-refresh'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'area-standard', 'auto-refresh', 'correspondence'];
   const reviewedModes = native ? [nativeStable ? 'native-stable' : 'native-refresh'] : process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
@@ -146,6 +146,9 @@ try {
     let extraProject = null;
     const publish = revision => { watchRevision = `12345678-1234-4123-8123-123456789abc:${revision}`; };
     const projectChanges = [], areaCreations = [];
+    const gmail = 'https://mail.google.com/mail/?authuser=example%40example.com#all/beef';
+    const fastmail = 'https://app.fastmail.com/mail/example';
+    let unread = 2;
     let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
     const standardSaves = [];
     let standardText = 'Practice weekly.', standardHash = 'a'.repeat(64);
@@ -244,6 +247,16 @@ try {
           areas: (input.input ?? input).includeAreas ? { source, areas, complete: true, warnings: [] } : null,
         };
       }
+      if (method === 'readCorrespondence') result = { incomplete: false, links: mode === 'correspondence' ? [
+        { title: 'Workshop logistics', url: gmail },
+        { title: 'Venue booking', url: fastmail },
+        { title: 'Lookalike', url: 'https://mail.google.com.example/mail/example' },
+      ] : [] };
+      if (method === 'readCorrespondenceStatus') result = [
+        { url: gmail, mail: unread < 0 ? { status: 'unavailable' }
+          : { status: 'ok', unread, sender: 'Test Sender', latestAt: '2026-11-25T12:00:00.000Z' } },
+        { url: fastmail, mail: { status: 'unsupported' } },
+      ];
       if (method === 'readAreaStandard') {
         standardReads.push(input.id);
         if (input.id === 'Areas/Home.md' && firstHomeRead) {
@@ -744,6 +757,27 @@ try {
       assert.equal(await standard.count(), 0);
       assert.ok(!standardReads.includes('Areas/Folder/'));
       assert.equal(standardSaves.length, 4);
+    } else if (mode === 'correspondence') {
+      await openLearning();
+      await link(title).click();
+      const correspondence = nav.getByRole('region', { name: 'Correspondence' });
+      const workshop = correspondence.getByRole('link', { name: 'Workshop logistics' });
+      await correspondence.getByText('2 unread', { exact: true }).waitFor();
+      assert.equal(await workshop.getAttribute('href'), gmail);
+      assert.equal(await correspondence.getByRole('link', { name: 'Venue booking' }).getAttribute('href'), fastmail);
+      assert.equal(await correspondence.getByRole('link', { name: 'Lookalike' }).count(), 0);
+      await correspondence.getByText('Unread status unavailable for this link', { exact: true }).waitFor();
+      const refresh = correspondence.getByRole('button', { name: 'Refresh email' });
+      await refresh.focus();
+      await page.keyboard.press('Tab');
+      assert.ok(await workshop.evaluate(node => node === document.activeElement));
+      await page.screenshot({ path: join(artifacts, `project-correspondence-${width}.png`) });
+      unread = 0;
+      await refresh.click();
+      await correspondence.getByText('2 unread', { exact: true }).waitFor({ state: 'detached' });
+      unread = -1;
+      await refresh.click();
+      await correspondence.getByText('Unread status unavailable', { exact: true }).waitFor();
     } else if (mode === 'project-actions') {
       await openLearning();
       const project = link(title);

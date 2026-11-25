@@ -143,3 +143,17 @@
   border: 1px solid var(--border);
   border-radius: 6px;
 }
+
+.gtd-correspondence-row {
+  display: grid;
+  gap: .25rem;
+  padding: .5rem 0;
+  overflow-wrap: anywhere;
+}
+
+.gtd-correspondence-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  font-size: .875em;
+}

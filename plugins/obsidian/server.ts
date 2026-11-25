@@ -9,7 +9,7 @@ import { Admission } from './core/admission.ts';
 import type { MirrorCatalog, VaultFiles, NoteParser, StateRepository } from './core/ports.ts';
 import { ICloud } from './adapters/icloud.ts';
 import { desktopConfiguration } from './adapters/desktop-links.ts';
-import { MarkdownNotes } from './adapters/markdown-notes.ts';
+import { MarkdownNotes, sectionLinks } from './adapters/markdown-notes.ts';
 import { bbState } from './adapters/bb-state.ts';
 import { diagnosticLogger } from './adapters/diagnostic-log.ts';
 export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository }) {
@@ -49,6 +49,15 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     vaultInventory(input, context) { return evidence(() => service.vaultInventory(input, context.experimental_signal), context); },
     noteEvidence(input, context) { return evidence(() => service.noteEvidence(input, context.experimental_signal), context); },
     readNoteSection(input, context) { return evidence(() => service.readNoteSection(input, context.experimental_signal), context); },
+    readSectionLinks(input, context) {
+      const caller = context.experimental_caller;
+      if (caller.kind !== 'plugin' || caller.pluginId !== 'gtd')
+        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only GTD can request correspondence links.' });
+      return evidence(async () => {
+        const { hash, text } = await service.readNoteSection(input, context.experimental_signal);
+        return { hash, ...sectionLinks(text) };
+      }, context);
+    },
     writeNoteSection(input, context) { return evidence(() => service.writeNoteSection(input, context.experimental_signal), context); },
     writeProperties(input, context) { return evidence(() => service.writeProperties(input, context.experimental_signal), context); },
     movePath(input, context) { return evidence(() => service.movePath(input, context.experimental_signal), context); },

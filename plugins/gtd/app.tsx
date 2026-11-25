@@ -5,6 +5,7 @@ import type { Alias } from './core/identity.ts';
 import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
 import { areasIndex, panelHref, readRoute, recordDestination, unassignedArea, type Destination, type PanelPath } from './app-routes.ts';
+import { ProjectCorrespondence } from './project-correspondence.tsx';
 import { AreaStandard } from './area-standard.tsx';
 import './app.css';
 const key = (source: string, id: string) => JSON.stringify([source, id]);
@@ -682,6 +683,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
             `No ${status} projects ${area ? 'in this Area' : 'without an Area'}.`}</p>}
         {area && <LinkedThreads key={key(inventory.source, area.id)} kind="area" id={area.id} source={inventory.source} />}
       </>}
+      {project && <ProjectCorrespondence key={key(inventory.source, project.id)} source={inventory.source} id={project.id} revision={inventory.revision} />}
       {project && <LinkedThreads key={key(inventory.source, project.id)} kind="project" id={project.id} source={inventory.source} />}
       {notice && <p role="status">{notice}</p>}
     </div>

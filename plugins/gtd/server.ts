@@ -1,3 +1,4 @@
+import { lookupCorrespondence, mailStatus, uniqueCorrespondence, type MailStatus } from './core/correspondence.ts';
 import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions } from './adapters/obsidian.ts';
@@ -54,7 +55,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Each project needs a Markdown note directly in this folder or in Active, Deferred, Someday or Done. A folder with the same name can hold supporting files.', default: 'Projects', experimental_schema: relativeFolder },
     automaticReactivation: { type: 'boolean', label: 'Automatically reactivate deferred projects', description: 'Move due projects and their supporting folders to Active, with their links and conversations. Checks daily after midnight Pacific and when GTD starts.', default: false },
   });
-  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch', code: string) => {
+  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'correspondence_read' | 'correspondence_mail', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial'].includes(code) ? code : 'unknown';
     bb.log.warn(`GTD ${stage} ${safe}`);
   };
@@ -139,6 +140,33 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       diagnose('standard_read', safeError(error, signal).code);
       throw new Error('Could not read the standard. Check the Area note in Obsidian and try again.');
     }
+  };
+  const readCorrespondence = async (input: z.infer<typeof reference>, signal: AbortSignal) => {
+    try {
+      const selection = await configured('projectsFolder', false, 2);
+      const id = selection.mode === 'stable' ? stableReference(selection.config, 'project', input.id) : input.id;
+      const result = await backendFor(selection).readCorrespondence({ ...input, id }, signal);
+      if ((await configured('projectsFolder', false, 2)).key !== selection.key) throw new GtdError('source_unavailable');
+      return uniqueCorrespondence(result);
+    } catch (error) {
+      diagnose('correspondence_read', safeError(error, signal).code);
+      throw new Error('Could not read correspondence. Check the project note in Obsidian.');
+    }
+  };
+  const pendingMail = new Map<string, Promise<MailStatus>>();
+  const lookupMail = (url: string) => {
+    const existing = pendingMail.get(url);
+    if (existing) return existing;
+    if (closing || pendingMail.size >= 4) return Promise.resolve({ status: 'unavailable' } as const);
+    const lookup = bb.sdk.plugins.callRpc<MailStatus>({
+      pluginId: 'google-workspace', method: 'gmailConversationStatus', input: { url },
+      outputSchema: mailStatus, signal: AbortSignal.timeout(20_000),
+    }).catch(() => {
+      diagnose('correspondence_mail', 'source_unavailable');
+      return { status: 'unavailable' } as const;
+    }).finally(() => pendingMail.delete(url));
+    pendingMail.set(url, lookup);
+    return lookup;
   };
   const saveStandard = async (input: z.infer<typeof areaStandardInput>, signal: AbortSignal) => {
     if (closing || signal.aborted) throw new GtdError('cancelled');
@@ -277,6 +305,12 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       if (closing || context.experimental_signal.aborted) throw new GtdError('cancelled');
       try { return await withWrite(() => changes.applyFromPanel(input, context.experimental_signal)); }
       finally { invalidate(); }
+    },
+    readCorrespondence: (input, context) => readCorrespondence(input, context.experimental_signal),
+    async readCorrespondenceStatus(input, context) {
+      const signal = context.experimental_signal;
+      const { links } = await readCorrespondence(input, signal);
+      return lookupCorrespondence(links, lookupMail, signal);
     },
     readAreaStandard: (input, context) => readStandard(input, context.experimental_signal),
     saveAreaStandard: (input, context) => saveStandard(input, context.experimental_signal),

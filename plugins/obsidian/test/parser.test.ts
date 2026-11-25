@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MarkdownNotes, editText, updateProperties } from '../adapters/markdown-notes.ts';
+import { MarkdownNotes, sectionLinks, editText, updateProperties } from '../adapters/markdown-notes.ts';
 const parser = new MarkdownNotes();
 for (const eol of ['\n', '\r\n']) test(`pinned semantics retain offsets with ${JSON.stringify(eol)}`, () => {
   const text = ['---', 'aliases: [Launch, "Next step"] # keep', 'tags: [Work/Launch]', 'link: "[[Other]]"', '---', '# Launch', '> [!note]', '> - [ ] Visible #work/launch [[Other#Next]]', '- [?] Done', '`#ignored [[Hidden]]`', '%% #ignored [[Hidden]] %%', '```md', '- [ ] Not a task #ignored', '```', '<div>', '#ignored [[Hidden]]', '</div>', '', 'Paragraph ^block-id', '', '^standalone', ''].join(eol);
@@ -46,4 +46,18 @@ test('property edits preserve unrelated bytes and append to existing aliases exp
   assert.deepEqual(parser.parse(next).aliases, ['Old', 'New']);
   for (const set of [{ tags: 'not-a-list' }, { aliases: [1] }, { date: '2026-02-30' }, { time: '2026-01-01T28:30:00' }]) assert.throws(() => updateProperties(text, { set, remove: [] }));
   assert.equal(updateProperties('Body\n', { set: { title: '[[Link]]' }, remove: [] }), '---\ntitle: "[[Link]]"\n---\nBody\n');
+});
+
+test('correspondence parses single subject links and reports unsupported bullets', () => {
+  const links = sectionLinks(String.raw`- [Planning \[draft\] \*v2\*](https://mail.google.com/mail/?authuser=example%40example.com#all/beef)
+- [Fastmail](<https://app.fastmail.com/mail/example>)
+- [Extra](https://mail.google.com/mail/example) with a note
+- nested
+  - [Nested](https://mail.google.com/mail/example)
+`);
+  assert.deepEqual(links, { incomplete: true, links: [
+    { title: 'Planning [draft] *v2*', url: 'https://mail.google.com/mail/?authuser=example%40example.com#all/beef' },
+    { title: 'Fastmail', url: 'https://app.fastmail.com/mail/example' },
+  ] });
+  assert.deepEqual(sectionLinks(''), { incomplete: false, links: [] });
 });

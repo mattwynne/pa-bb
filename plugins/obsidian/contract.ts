@@ -48,6 +48,10 @@ export const rpcContract = defineRpcContract({
     input: sectionInput,
     output: z.object({ hash, text: sectionText }).strict(),
   },
+  readSectionLinks: {
+    input: sectionInput,
+    output: z.object({ hash, links: z.array(z.object({ title: z.string().min(1).max(1024), url: z.string().min(1).max(2048) })).max(40), incomplete: z.boolean() }).strict(),
+  },
   writeNoteSection: {
     input: sectionInput.extend({ expectedHash: hash, operationId, text: sectionText }),
     output: z.object({ operationId, outcome, reason: z.enum(['changed', 'invalid_section']).optional() }).strict(),
