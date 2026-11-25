@@ -676,8 +676,10 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
             `No ${status} projects ${area ? 'in this Area' : 'without an Area'}.`}</p>}
         {area && <LinkedThreads key={key(inventory.source, area.id)} kind="area" id={area.id} source={inventory.source} />}
       </>}
-      {project && <ProjectCorrespondence key={key(inventory.source, project.id)} source={inventory.source} id={project.id} revision={inventory.revision} />}
-      {project && <LinkedThreads key={key(inventory.source, project.id)} kind="project" id={project.id} source={inventory.source} />}
+      {project && <React.Fragment key={key(inventory.source, project.id)}>
+        <ProjectCorrespondence source={inventory.source} id={project.id} revision={inventory.revision} />
+        <LinkedThreads kind="project" id={project.id} source={inventory.source} />
+      </React.Fragment>}
       {notice && <p role="status">{notice}</p>}
     </div>
     {projectAction && <ProjectActionDialog action={projectAction.kind} project={projectAction.project} areas={eligibleAreas} onClose={value => {

@@ -34,7 +34,7 @@ Mailbox read state is authoritative. Count eligible messages individually and ta
 
 ## First delivery
 
-The project page shows saved links for both providers. Account-qualified Gmail links can show mailbox metadata. Area project lists show the unread and incomplete indicators for the selected filter. The scan covers up to 12 project notes and 16 distinct supported mailbox links per refresh. Fastmail conversation URL verification remains follow-on work.
+The project page shows saved links for both providers. Account-qualified Gmail links and supported Fastmail links can show mailbox metadata. Fastmail links with a single message anchor and links with a dotted thread and message anchor both use the authenticated JMAP thread for status. Rows for the same verified Fastmail thread retain the first saved title and URL. Area project lists show the unread and incomplete indicators for the selected filter. The scan covers up to 12 project notes and 16 distinct supported mailbox links per refresh.
 
 ## Implementation and acceptance
 

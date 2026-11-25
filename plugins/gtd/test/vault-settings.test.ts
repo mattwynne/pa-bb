@@ -71,9 +71,9 @@ test('the watch uses the configured scopes and redacts failed probe details', as
   } finally { await host.harness.lifecycle.dispose(); }
 });
 
-test('correspondence reads scoped landing-note links and looks up saved Gmail URLs', async () => {
+test('correspondence reads scoped landing-note links and routes saved URLs to both providers', async () => {
   const gmail = 'https://mail.google.com/mail/?authuser=person%40example.com#all/beef';
-  const fastmail = 'https://app.fastmail.com/mail/example';
+  const fastmail = 'https://app.fastmail.com/mail/Archive/S_anchor?u=1234abcd';
   const ref = { source: 'one', id: 'Life/Projects/Active/Launch.md' };
   let mailReads = 0;
   const host = createFakePluginHost({ pluginId: 'gtd', settings: {
@@ -87,11 +87,16 @@ test('correspondence reads scoped landing-note links and looks up saved Gmail UR
         { title: 'Workshop', url: gmail }, { title: 'Duplicate', url: gmail }, { title: 'Venue', url: fastmail },
       ], incomplete: false };
     }
-    assert.equal(args.pluginId, 'google-workspace');
-    assert.equal(args.method, 'gmailConversationStatus');
-    assert.deepEqual(args.input, { url: gmail });
     mailReads++;
-    return { status: 'ok', unread: 2, sender: null, latestAt: null };
+    if (args.pluginId === 'google-workspace') {
+      assert.equal(args.method, 'gmailConversationStatus');
+      assert.deepEqual(args.input, { url: gmail });
+      return { status: 'ok', unread: 2, sender: null, latestAt: null };
+    }
+    assert.equal(args.pluginId, 'fastmail');
+    assert.equal(args.method, 'fastmailConversationStatus');
+    assert.deepEqual(args.input, { url: fastmail });
+    return { status: 'ok', unread: 3, sender: null, latestAt: null, threadKey: 'a'.repeat(64) };
   } } } });
   await plugin(host.bb);
   try {
@@ -103,9 +108,9 @@ test('correspondence reads scoped landing-note links and looks up saved Gmail UR
     assert.equal(mailReads, 0);
     assert.deepEqual(await rpc('readCorrespondenceStatus', ref), [
       { url: gmail, mail: { status: 'ok', unread: 2, sender: null, latestAt: null } },
-      { url: fastmail, mail: { status: 'unsupported' } },
+      { url: fastmail, mail: { status: 'ok', unread: 3, sender: null, latestAt: null, threadKey: 'a'.repeat(64) } },
     ]);
-    assert.equal(mailReads, 1);
+    assert.equal(mailReads, 2);
   } finally { await host.harness.lifecycle.dispose(); }
 });
 
@@ -119,6 +124,7 @@ test('Area mail only reads the selected Area and status, including nested Area a
     note('Projects/Active/Unassigned.md'),
   ];
   const paths: string[] = [];
+  const fastmail = 'https://app.fastmail.com/mail/Archive/S_area?u=1234abcd';
   let incomplete = false;
   const host = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one', projectsFolder: 'Projects', areasFolder: 'Areas' },
     sdk: { plugins: { callRpc: async (args: any) => {
@@ -127,16 +133,21 @@ test('Area mail only reads the selected Area and status, including nested Area a
         source: { vaultId: 'one', name: 'Example', lastSuccess: null, cloudConnected: false, enabled: false, phase: 'paused', failure: null },
         notes, folders: ['Projects', 'Areas'], incomplete,
       };
+      if (args.pluginId === 'fastmail') {
+        assert.equal(args.method, 'fastmailConversationStatus');
+        assert.deepEqual(args.input, { url: fastmail });
+        return { status: 'ok', unread: 1, sender: null, latestAt: null, threadKey: 'b'.repeat(64) };
+      }
       assert.equal(args.method, 'readSectionLinks');
       paths.push(args.input.path);
-      return { hash: 'a'.repeat(64), links: [], incomplete: false };
+      return { hash: 'a'.repeat(64), links: args.input.path.endsWith('/Matches.md') ? [{ title: 'Area mail', url: fastmail }] : [], incomplete: false };
     } } } });
   await plugin(host.bb);
   try {
     const rpc = host.harness.behavior.callRpc;
     const area = { source: 'one', areaId: 'Areas/Learning.md', status: 'active' };
     const first = await Promise.all([rpc('readAreaMailStatus', area), rpc('readAreaMailStatus', area)]);
-    for (const rows of first) assert.deepEqual(rows, [{ id: 'Projects/Active/Matches.md', state: 'clear' }]);
+    for (const rows of first) assert.deepEqual(rows, [{ id: 'Projects/Active/Matches.md', state: 'unread' }]);
     assert.deepEqual(await rpc('readAreaMailStatus', { ...area, areaId: null }), [{ id: 'Projects/Active/Unassigned.md', state: 'clear' }]);
     await assert.rejects(rpc('readAreaMailStatus', { ...area, source: 'wrong' }));
     incomplete = true;

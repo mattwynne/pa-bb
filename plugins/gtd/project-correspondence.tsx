@@ -2,13 +2,15 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { useRpc } from '@get-bb/plugin-sdk/app';
 import type { z } from 'zod';
 import { rpcContract } from './contract.ts';
-import { mailProvider, type correspondenceLinks, type MailStatus } from './core/correspondence.ts';
+import { mailProvider, uniqueConversations, type correspondenceLinks, type MailStatus } from './core/correspondence.ts';
 
 const refreshInterval = 5 * 60_000;
 const statuses = {
   unsupported: 'Unread status unavailable for this link',
   account_missing: 'Mailbox unavailable',
+  account_mismatch: 'Link is for a different Fastmail account',
   not_found: 'Conversation not found',
+  incomplete: 'Mailbox returned incomplete conversation data',
   unavailable: 'Unread status unavailable',
 };
 
@@ -67,7 +69,7 @@ export function ProjectCorrespondence({ source, id, revision }: { source: string
     {links?.incomplete && <p role="status">Some correspondence entries could not be read. Use one subject link per bullet in Obsidian.</p>}
     {links && !links.links.length && !links.incomplete && <p>No email conversations linked.</p>}
     {!!links?.links.length && <ul className="gtd-rows">
-      {links.links.map(({ title, url }) => {
+      {uniqueConversations(links.links, mail).map(({ title, url }) => {
         const provider = mailProvider(url);
         const status = mail.get(url);
         return <li key={url} className="gtd-correspondence-row">

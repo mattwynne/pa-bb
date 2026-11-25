@@ -98,6 +98,27 @@ A login screen, HTTP 200 shell, or synthetic test is not proof that the exact
 message opened. Web routing can change independently of JMAP; re-check the
 provider mechanism and rendered target if reported links stop working.
 
+## Unread status for saved GTD links
+
+GTD accepts saved mail links with one context segment and a canonical web
+account selector. Fastmail's route decoder interprets the single component
+as an Email ID. A dotted component supplies both the Thread ID and Email ID.
+The decoder passes a lone Email ID to `goMessage`, which can open the
+conversation with that message selected. [Fastmail web client](https://app.fastmail.com/static/jmapui/517d4d6522-bde4a3017c53ae58/app/module/desktop/NewEvent.mod.js)
+
+The lookup verifies the web selector against the authenticated primary personal
+JMAP mail account. It submits the Email ID unchanged to `Email/get`, checks
+any supplied Thread ID against the returned one, and verifies through
+`Thread/get` that the exact message is in the conversation. It reads message
+and mailbox metadata for unread status. It excludes drafts and messages held
+only in Trash or Junk. The check is read-only and uses the existing JMAP
+configuration. [JMAP threads and emails](https://www.rfc-editor.org/rfc/rfc8621.html#section-3)
+
+Fastmail links that resolve to the same account and thread share an opaque
+grouping key. GTD uses the first saved title and URL for the conversation.
+Without a verified account and thread, the saved link remains openable and GTD
+reports the lookup outcome.
+
 ## Operator checks and diagnostics
 
 The read-only `resolveEmailUrl` RPC uses the exact same handler and input schema

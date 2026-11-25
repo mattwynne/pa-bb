@@ -4,8 +4,9 @@ export const correspondenceLink = z.object({ title: z.string().min(1).max(1024),
 export const correspondenceLinks = z.object({ links: z.array(correspondenceLink).max(40), incomplete: z.boolean() }).strict();
 export const mailStatus = z.discriminatedUnion('status', [
   z.object({ status: z.literal('ok'), unread: z.number().int().min(0).max(500),
-    sender: z.string().max(320).nullable(), latestAt: z.iso.datetime().nullable() }).strict(),
-  z.object({ status: z.enum(['unsupported', 'account_missing', 'not_found', 'unavailable']) }).strict(),
+    sender: z.string().max(320).nullable(), latestAt: z.iso.datetime().nullable(),
+    threadKey: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict(),
+  z.object({ status: z.enum(['unsupported', 'account_missing', 'account_mismatch', 'not_found', 'incomplete', 'unavailable']) }).strict(),
 ]);
 export const correspondenceStatus = z.array(z.object({ url: correspondenceLink.shape.url, mail: mailStatus }).strict()).max(40);
 export type MailStatus = z.infer<typeof mailStatus>;
@@ -21,7 +22,7 @@ export function mailProvider(value: string) {
   } catch { return null; }
 }
 
-const supportsMailLookup = (url: string) => mailProvider(url) === 'gmail';
+const supportsMailLookup = (url: string) => mailProvider(url) !== null;
 
 export function uniqueCorrespondence(links: z.infer<typeof correspondenceLinks>) {
   const seen = new Set<string>();
@@ -30,6 +31,17 @@ export function uniqueCorrespondence(links: z.infer<typeof correspondenceLinks>)
     seen.add(url);
     return true;
   }) };
+}
+
+export function uniqueConversations(links: z.infer<typeof correspondenceLinks>['links'], mail: ReadonlyMap<string, MailStatus>) {
+  const seen = new Set<string>();
+  return links.filter(({ url }) => {
+    const result = mail.get(url);
+    if (mailProvider(url) !== 'fastmail' || result?.status !== 'ok' || !result.threadKey) return true;
+    if (seen.has(result.threadKey)) return false;
+    seen.add(result.threadKey);
+    return true;
+  });
 }
 
 export async function lookupCorrespondence(

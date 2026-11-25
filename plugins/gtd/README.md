@@ -108,7 +108,11 @@ Sound local access remains usable when cloud sync is paused/disconnected. Sync t
 
 Add a `## Correspondence` section to the project landing note, with one Markdown bullet per email conversation. Use the thread subject as the link text. BB shows the saved links in note order. Exact duplicate URLs are shown once.
 
-For Gmail, use an account-qualified conversation URL. The Workspace tool `gworkspace_resolve_gmail_thread_url` verifies a thread in the selected account and returns the URL and subject. The Gmail account address is part of the link destination. Only save the URL where that address may be stored. BB reads message metadata from the connected account to show unread counts and the latest sender and date. It refreshes when the project opens, BB regains focus, or the visible page is due for a refresh. Fastmail links open in Fastmail and show unavailable status until conversation URL lookup is supported.
+For Gmail, use an account-qualified conversation URL. The Workspace tool `gworkspace_resolve_gmail_thread_url` verifies a thread in the selected account and returns the URL and subject. The Gmail account address is part of the link destination. Only save the URL where that address may be stored.
+
+Fastmail links with a web account selector and an exact message anchor can use the Fastmail plugin's optional JMAP mail token. BB verifies the linked message and reads its whole conversation. When several saved links resolve to the same Fastmail thread, BB shows the first saved title and URL once. Links whose threads cannot be verified stay visible with their own status. [Fastmail link verification](../fastmail/docs/email-urls.md)
+
+BB reads mailbox metadata to show unread counts and the latest sender and date. It refreshes when the project opens, BB regains focus, or the visible page is due for a refresh.
 
 Area project lists check email for the selected Area and status. Each refresh reads up to 12 project sections, three at a time, and checks up to 16 distinct supported mailbox links. **Unread email** means a mailbox confirmed at least one unread message. **Mail status incomplete** means some evidence was unavailable or skipped and no unread mail was confirmed. An empty list or a complete zero count needs no badge.
 

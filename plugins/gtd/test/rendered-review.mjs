@@ -117,7 +117,11 @@ try {
     const publish = revision => { watchRevision = `12345678-1234-4123-8123-123456789abc:${revision}`; };
     const projectChanges = [], areaCreations = [];
     const gmail = 'https://mail.google.com/mail/?authuser=example%40example.com#all/beef';
-    const fastmail = 'https://app.fastmail.com/mail/example';
+    const fastmail = 'https://app.fastmail.com/mail/Archive/S_anchor?u=1234abcd';
+    const fastmailReply = 'https://app.fastmail.com/mail/Sent/T_one.S_reply?u=1234abcd';
+    const fastmailOther = 'https://app.fastmail.com/mail/Archive/S_other?u=1234abcd';
+    const fastmailUnresolved = 'https://app.fastmail.com/mail/Archive/S_missing?u=1234abcd';
+    let heldCorrespondence, heldStatus, correspondenceReads = 0;
     let unread = 2, areaUnread = true;
     let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
     const standardSaves = [];
@@ -228,16 +232,29 @@ try {
           { id: 'Projects/Clear.md', state: 'clear' },
         ] : [];
       }
-      if (method === 'readCorrespondence') result = { incomplete: false, links: mode === 'correspondence' ? [
-        { title: 'Workshop logistics', url: gmail },
-        { title: 'Venue booking', url: fastmail },
-        { title: 'Lookalike', url: 'https://mail.google.com.example/mail/example' },
-      ] : [] };
-      if (method === 'readCorrespondenceStatus') result = [
-        { url: gmail, mail: unread < 0 ? { status: 'unavailable' }
-          : { status: 'ok', unread, sender: 'Test Sender', latestAt: '2026-11-25T12:00:00.000Z' } },
-        { url: fastmail, mail: { status: 'unsupported' } },
-      ];
+      if (method === 'readCorrespondence') {
+        correspondenceReads++;
+        await heldCorrespondence;
+        result = { incomplete: false, links: mode === 'correspondence' ? [
+          { title: 'Workshop logistics', url: gmail },
+          { title: 'Venue booking', url: fastmail },
+          { title: 'Venue reply', url: fastmailReply },
+          { title: 'Supplies', url: fastmailOther },
+          { title: 'Unresolved venue message', url: fastmailUnresolved },
+          { title: 'Lookalike', url: 'https://mail.google.com.example/mail/example' },
+        ] : [] };
+      }
+      if (method === 'readCorrespondenceStatus') {
+        await heldStatus;
+        const known = { status: 'ok', sender: 'Test Sender', latestAt: '2026-11-25T12:00:00.000Z' };
+        result = [
+          { url: gmail, mail: unread < 0 ? { status: 'unavailable' } : { ...known, unread } },
+          { url: fastmail, mail: { ...known, unread: 3, threadKey: 'a'.repeat(64) } },
+          { url: fastmailReply, mail: { ...known, unread: 3, threadKey: 'a'.repeat(64) } },
+          { url: fastmailOther, mail: { ...known, unread: 1, threadKey: 'b'.repeat(64) } },
+          { url: fastmailUnresolved, mail: { status: 'not_found' } },
+        ];
+      }
       if (method === 'readAreaStandard') {
         standardReads.push(input.id);
         if (input.id === 'Areas/Home.md' && firstHomeRead) {
@@ -714,25 +731,67 @@ try {
       assert.equal(await nav.locator('[data-mail]').count(), 0);
     } else if (mode === 'correspondence') {
       await openLearning();
+      const areaUrl = page.url();
+      await page.evaluate(() => {
+        window.duplicateCorrespondence = false;
+        new MutationObserver(() => {
+          const sections = [...document.querySelectorAll('.gtd-nav section')].filter(section =>
+            section.querySelector(':scope > div > h2')?.textContent === 'Correspondence');
+          const hrefs = sections.flatMap(section => [...section.querySelectorAll('a[href]')].map(link => link.href));
+          if (sections.length > 1 || new Set(hrefs).size !== hrefs.length) window.duplicateCorrespondence = true;
+        }).observe(document.body, { subtree: true, childList: true });
+      });
+      let showLinks, showStatus;
+      heldCorrespondence = new Promise(resolve => { showLinks = resolve; });
+      heldStatus = new Promise(resolve => { showStatus = resolve; });
       await link(title).click();
       const correspondence = nav.getByRole('region', { name: 'Correspondence' });
+      const assertSingle = async hrefs => {
+        assert.equal(await correspondence.count(), 1);
+        assert.equal(await nav.getByRole('heading', { name: 'Correspondence', exact: true }).count(), 1);
+        assert.deepEqual(await correspondence.getByRole('link').evaluateAll(links => links.map(link => link.getAttribute('href'))), hrefs);
+      };
+      await correspondence.getByText('Loading correspondence…', { exact: true }).waitFor();
+      await assertSingle([]);
+      showLinks();
+      await correspondence.getByText('Checking mail…', { exact: true }).first().waitFor();
+      await assertSingle([gmail, fastmail, fastmailReply, fastmailOther, fastmailUnresolved]);
+      showStatus();
       const workshop = correspondence.getByRole('link', { name: 'Workshop logistics' });
       await correspondence.getByText('2 unread', { exact: true }).waitFor();
+      const visibleLinks = [gmail, fastmail, fastmailOther, fastmailUnresolved];
+      await assertSingle(visibleLinks);
       assert.equal(await workshop.getAttribute('href'), gmail);
       assert.equal(await correspondence.getByRole('link', { name: 'Venue booking' }).getAttribute('href'), fastmail);
       assert.equal(await correspondence.getByRole('link', { name: 'Lookalike' }).count(), 0);
-      await correspondence.getByText('Unread status unavailable for this link', { exact: true }).waitFor();
+      assert.equal(await correspondence.getByText('3 unread', { exact: true }).count(), 1);
+      await correspondence.getByText('Conversation not found', { exact: true }).waitFor();
       const refresh = correspondence.getByRole('button', { name: 'Refresh email' });
       await refresh.focus();
       await page.keyboard.press('Tab');
       assert.ok(await workshop.evaluate(node => node === document.activeElement));
       await page.screenshot({ path: join(artifacts, `project-correspondence-${width}.png`) });
       unread = 0;
-      await refresh.click();
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
       await correspondence.getByText('2 unread', { exact: true }).waitFor({ state: 'detached' });
+      await assertSingle(visibleLinks);
       unread = -1;
       await refresh.click();
       await correspondence.getByText('Unread status unavailable', { exact: true }).waitFor();
+      await assertSingle(visibleLinks);
+      unread = 4;
+      const beforeRevision = correspondenceReads;
+      publish(1);
+      await correspondence.getByText('4 unread', { exact: true }).waitFor();
+      assert.ok(correspondenceReads > beforeRevision);
+      await assertSingle(visibleLinks);
+      await page.goBack();
+      await page.waitForURL(areaUrl);
+      await correspondence.waitFor({ state: 'detached' });
+      await link(title).click();
+      await correspondence.getByText('4 unread', { exact: true }).waitFor();
+      await assertSingle(visibleLinks);
+      assert.equal(await page.evaluate(() => window.duplicateCorrespondence), false);
     } else if (mode === 'project-actions') {
       await openLearning();
       const project = link(title);

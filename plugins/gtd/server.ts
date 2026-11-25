@@ -1,5 +1,5 @@
 import { enclosingArea } from './core/area-presentation.ts';
-import { lookupAreaCorrespondence, lookupCorrespondence, mailStatus, uniqueCorrespondence, type MailStatus } from './core/correspondence.ts';
+import { lookupAreaCorrespondence, lookupCorrespondence, mailProvider, mailStatus, uniqueCorrespondence, type MailStatus } from './core/correspondence.ts';
 import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions } from './adapters/obsidian.ts';
@@ -136,8 +136,10 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     const existing = pendingMail.get(url);
     if (existing) return existing;
     if (closing || pendingMail.size >= 4) return Promise.resolve({ status: 'unavailable' } as const);
+    const fastmail = mailProvider(url) === 'fastmail';
     const lookup = bb.sdk.plugins.callRpc<MailStatus>({
-      pluginId: 'google-workspace', method: 'gmailConversationStatus', input: { url },
+      pluginId: fastmail ? 'fastmail' : 'google-workspace',
+      method: fastmail ? 'fastmailConversationStatus' : 'gmailConversationStatus', input: { url },
       outputSchema: mailStatus, signal: AbortSignal.timeout(20_000),
     }).catch(() => {
       diagnose('correspondence_mail', 'source_unavailable');

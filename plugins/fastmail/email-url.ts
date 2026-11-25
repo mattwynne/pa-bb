@@ -93,11 +93,14 @@ export function messageWebUrl(threadId: string, emailId: string, accountId: stri
   if (url.origin !== 'https://app.fastmail.com' || url.username || url.password || url.hash) return fail('email_url_route', 'invalid_origin');
   return url.href;
 }
-export async function resolveEmailUrl(token: string | undefined, input: unknown, source: Evidence, options: {
-  fetch?: typeof fetch; signal?: AbortSignal; ensureCurrent: () => void;
-}) {
-  const parsed = emailUrlSchema.safeParse(input);
-  if (!parsed.success || source.id !== parsed.data.emailId) return fail('email_url_arguments', 'invalid_arguments');
+type ReadOptions = {
+  fetch?: typeof fetch;
+  signal?: AbortSignal;
+  ensureCurrent: () => void;
+  onBackoff?: (retryAfter: string | null) => void;
+};
+
+export async function openPrimaryMail(token: string | undefined, options: ReadOptions) {
   if (!token || token.length > 8192 || /[\x00-\x20\x7f]/.test(token)) return fail('email_url_config', 'token_missing_or_invalid');
   const signal = AbortSignal.any([AbortSignal.timeout(30_000), ...(options.signal ? [options.signal] : [])]);
   async function json(url: string, stage: string, payload?: Json): Promise<Json> {
@@ -108,7 +111,11 @@ export async function resolveEmailUrl(token: string | undefined, input: unknown,
         headers: { Authorization: `Bearer ${token}`, ...(payload ? { 'Content-Type': 'application/json' } : {}) },
         ...(payload ? { body: JSON.stringify(payload) } : {}),
       });
-      if (response.status !== 200) { void response.body?.cancel(); return fail(stage, [401, 403, 404, 429].includes(response.status) ? `http_status=${response.status}` : 'http_rejected'); }
+      if (response.status !== 200) {
+        void response.body?.cancel().catch(() => {});
+        if (response.status === 429 || response.status === 503) options.onBackoff?.(response.headers.get('retry-after'));
+        return fail(stage, [401, 403, 404, 429, 503].includes(response.status) ? `http_status=${response.status}` : 'http_rejected');
+      }
       const reader = response.body?.getReader();
       if (!reader) return fail(stage, 'invalid_response');
       const chunks: Uint8Array[] = []; let size = 0;
@@ -139,18 +146,40 @@ export async function resolveEmailUrl(token: string | undefined, input: unknown,
   // A future explicit selector must agree with the established account mapping.
   // It is never treated as a standard JMAP field or used to override that binding.
   if (session.userId !== undefined && session.userId !== userId) return fail('email_url_session', 'account_selector_mismatch');
-  const result = await json(endpoint(session.apiUrl), 'email_url_metadata', {
-    using: [CORE, MAIL], methodCalls: [['Email/get', { accountId, ids: [source.id], properties: ['id', 'threadId', 'messageId', 'receivedAt'] }, 'url']],
-  });
-  const responses = result.methodResponses;
-  if (!Array.isArray(responses) || responses.length !== 1 || !Array.isArray(responses[0]) || responses[0].length !== 3) return fail('email_url_metadata', 'invalid_response');
-  const [method, data, tag] = responses[0];
-  if (method === 'error') return fail('email_url_metadata', 'provider_rejected');
-  if (method !== 'Email/get' || tag !== 'url' || !object(data) || data.accountId !== accountId ||
-    !Array.isArray(data.list) || data.list.length !== 1 || !Array.isArray(data.notFound) || data.notFound.length) return fail('email_url_metadata', 'missing_or_mismatched_message');
+  const api = endpoint(session.apiUrl);
+  const maxObjects = session.capabilities?.[CORE]?.maxObjectsInGet;
+  return { accountId, userId, signal,
+    maxObjectsInGet: Number.isSafeInteger(maxObjects) && maxObjects > 0 ? maxObjects as number : 100,
+    async get(method: 'Email/get' | 'Mailbox/get' | 'Thread/get', args: Json, stage: string) {
+      const result = await json(api, stage, {
+        using: [CORE, MAIL], methodCalls: [[method, { ...args, accountId }, 'url']],
+      });
+      const responses = result.methodResponses;
+      if (!Array.isArray(responses) || responses.length !== 1 || !Array.isArray(responses[0]) || responses[0].length !== 3) return fail(stage, 'invalid_response');
+      const [name, data, tag] = responses[0];
+      if (name === 'error' && tag === 'url') {
+        if (object(data) && data.type === 'rateLimit') options.onBackoff?.(null);
+        return fail(stage, 'provider_rejected');
+      }
+      if (name !== method || tag !== 'url' || !object(data) || data.accountId !== accountId)
+        return fail(stage, stage === 'email_url_metadata' ? 'missing_or_mismatched_message' : 'response_mismatch');
+      return data;
+    },
+    hasAccount(id: string) { return object(session.accounts) && Object.hasOwn(session.accounts, id); },
+  };
+}
+
+export async function resolveEmailUrl(token: string | undefined, input: unknown, source: Evidence, options: ReadOptions) {
+  const parsed = emailUrlSchema.safeParse(input);
+  if (!parsed.success || source.id !== parsed.data.emailId) return fail('email_url_arguments', 'invalid_arguments');
+  const client = await openPrimaryMail(token, options);
+  const data = await client.get('Email/get', { ids: [source.id], properties: ['id', 'threadId', 'messageId', 'receivedAt'] }, 'email_url_metadata');
+  if (!Array.isArray(data.list) || data.list.length !== 1 || !Array.isArray(data.notFound) || data.notFound.length)
+    return fail('email_url_metadata', 'missing_or_mismatched_message');
   const actual = evidence(data.list[0]);
   if (!actual || !isDeepStrictEqual(actual, source)) return fail('email_url_metadata', 'source_message_mismatch');
-  signal.throwIfAborted(); options.ensureCurrent();
+  const { accountId } = client;
+  client.signal.throwIfAborted(); options.ensureCurrent();
   return { provider: 'Fastmail', emailId: actual.id, threadId: actual.threadId, accountId,
     url: messageWebUrl(actual.threadId, actual.id, accountId),
     accountMapping: 'fastmail-primary-personal-u-hex-account',
