@@ -662,6 +662,15 @@ try {
       await nav.getByRole('link', { name: 'Learning', exact: true }).click();
       await standard.getByText('Practice weekly.', { exact: true }).waitFor();
       const edit = standard.getByRole('button', { name: 'Edit standard' });
+      assert.equal(await edit.getAttribute('title'), 'Edit standard');
+      assert.equal(await edit.innerText(), '');
+      assert.ok(await edit.locator('svg').isVisible());
+      const headingBox = await standard.getByRole('heading', { name: 'Standard' }).boundingBox();
+      const editBox = await edit.boundingBox();
+      const gap = editBox.x - (headingBox.x + headingBox.width);
+      assert.ok(gap >= 0 && gap <= 8, 'Pencil belongs next to the Standard heading');
+      if (width === 390) assert.ok(editBox.width >= 44 && editBox.height >= 44);
+      await page.screenshot({ path: join(artifacts, `standard-pencil-${width}.png`) });
       const editor = standard.getByRole('textbox', { name: 'Standard' });
       const save = standard.getByRole('button', { name: 'Save', exact: true });
       await edit.focus();

@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { useRpc } from '@get-bb/plugin-sdk/app';
+import { experimental_Icon as Icon, useRpc } from '@get-bb/plugin-sdk/app';
 import { rpcContract, standardTextLimit } from './contract.ts';
 
 type Version = { text: string; hash: string };
@@ -50,6 +50,10 @@ export function AreaStandard({ source, id, hasNote }: { source: string; id: stri
     setFailure(undefined);
     setDraft(undefined);
   };
+  const openEditor = (text: string) => {
+    setNotice('');
+    setDraft(text);
+  };
   const save = async () => {
     if (!version || draft === undefined || draft === version.text || pending.current || failure === 'changed' || failure === 'uncertain') return;
     const operationId = crypto.randomUUID();
@@ -80,10 +84,10 @@ export function AreaStandard({ source, id, hasNote }: { source: string; id: stri
   return <section className="gtd-standard" aria-labelledby={label}>
     <div className="gtd-list-bar">
       <h2 id={label}>Standard</h2>
-      {version && !editing && <button type="button" ref={editButton} onClick={() => {
-        setNotice('');
-        setDraft(version.text);
-      }}>{version.text ? 'Edit standard' : 'Add standard'}</button>}
+      {version?.text && !editing && <button type="button" className="gtd-row-action" ref={editButton}
+        aria-label="Edit standard" title="Edit standard" onClick={() => openEditor(version.text)}>
+        <Icon name="Edit" aria-hidden="true" />
+      </button>}
     </div>
     {!hasNote ? <p className="gtd-standard-hint">Add an Area note in Obsidian to set a standard.</p>
       : readError ? <div>
@@ -105,7 +109,7 @@ export function AreaStandard({ source, id, hasNote }: { source: string; id: stri
             </button>
           </div>
         </form> : version.text ? <p className="gtd-standard-text">{version.text}</p>
-          : <p className="gtd-standard-hint">No standard set.</p>}
+          : <button type="button" className="gtd-standard-add" ref={editButton} onClick={() => openEditor('')}>Add standard</button>}
     {notice && <p role="status" className="gtd-standard-hint">{notice}</p>}
   </section>;
 }

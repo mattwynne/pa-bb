@@ -126,6 +126,8 @@
   .gtd-thread .gtd-row-action { opacity: 1; }
 }
 .gtd-standard { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.gtd-standard .gtd-list-bar { justify-content: flex-start; }
+.gtd-standard .gtd-standard-add { border: 0; color: var(--muted-foreground); cursor: pointer; }
 .gtd-standard p { margin: 6px 0; }
 .gtd-standard .gtd-standard-text { white-space: pre-wrap; line-height: 1.5; }
 .gtd-standard-hint { color: var(--muted-foreground); }
