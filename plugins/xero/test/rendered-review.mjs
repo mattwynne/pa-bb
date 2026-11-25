@@ -17,7 +17,7 @@ const root = await mkdtemp(join(tmpdir(), 'xero-bb-review-')), source = join(roo
 const port = Number(process.env.BB_REVIEW_PORT ?? 43028), base = `http://127.0.0.1:${port}`;
 const env = { PATH: process.env.PATH, HOME: join(root, 'home'), NODE_ENV: 'production', BB_DATA_DIR: join(root, 'data'), BB_SERVER_PORT: String(port), BB_SERVER_BIND_HOST: '127.0.0.1', BB_APP_URL: base, BB_SERVER_URL: base, BB_HOST_DAEMON_PORT: String(port + 1) };
 await mkdir(env.HOME); await mkdir(source);
-for (const file of ['package.json', 'app.tsx', 'app.css', 'contract.ts', 'connection-ui.tsx', 'connection-ui.css', 'connection.ts', 'accounting.ts', 'diagnostic.ts', 'attachment.ts', 'skills', 'references']) await cp(join(pkg, file), join(source, file), { recursive: true });
+for (const file of ['package.json', 'app.tsx', 'app.css', 'contract.ts', 'connection-ui.tsx', 'connection-ui.css', 'connection.ts', 'accounting.ts', 'diagnostic.ts', 'attachment.ts', 'api.ts', 'catalog.ts', 'permissions.ts', 'file-transfer.ts', 'upstream', 'skills', 'references']) await cp(join(pkg, file), join(source, file), { recursive: true });
 await cp(join(pkg, 'server.ts'), join(source, 'production.ts'));
 await symlink(join(pkg, 'node_modules'), join(source, 'node_modules'));
 await writeFile(join(source, 'server.ts'), `
@@ -25,14 +25,14 @@ import plugin from './production.ts';
 import { SCOPES } from './connection.ts';
 import { z } from 'zod';
 export default async bb => {
-  let mode = 'connected';
+  let mode = 'connected', grant = SCOPES.join(' ');
   await plugin(bb, { fetcher: async (url, init) => {
     if (mode === 'failure') throw new Error('SECRET_SENTINEL PRIVATE_ACCOUNT');
-    if (String(url).includes('/connect/token')) return Response.json({ access_token: 'SECRET_ACCESS', refresh_token: 'SECRET_REFRESH', expires_in: 1800, scope: SCOPES.join(' ') });
-    if (String(url).endsWith('/connections')) return Response.json(mode === 'empty' ? [] : [{ tenantId: '11111111-1111-4111-8111-111111111111', tenantName: 'Example organisation', tenantType: 'ORGANISATION' }]);
+    if (String(url).includes('/connect/token')) return Response.json({ access_token: 'SECRET_ACCESS', refresh_token: 'SECRET_REFRESH', expires_in: 1800, scope: grant });
+    if (String(url).endsWith('/connections')) return Response.json(mode === 'empty' ? [] : [{ tenantId: '11111111-1111-4111-8111-111111111111', tenantName: mode === 'practice' ? 'Example practice' : 'Example organisation', tenantType: mode === 'practice' ? 'PRACTICE' : 'ORGANISATION' }]);
     return Response.json({ Organisations: [{ Name: 'Example organisation' }] });
   } });
-  bb.rpc.register({ fixtureMode: { input: z.enum(['connected', 'failure', 'empty']), output: z.null() } }, { fixtureMode: input => { mode = input; return null; } });
+  bb.rpc.register({ fixtureMode: { input: z.enum(['connected', 'failure', 'empty', 'practice']), output: z.null() }, fixtureGrant: { input: z.string(), output: z.null() } }, { fixtureMode: input => { mode = input; return null; }, fixtureGrant: input => { grant = input; return null; } });
 };
 `);
 const fd = openSync(join(root, 'bb.log'), 'w', 0o600);
@@ -59,7 +59,7 @@ try {
   // All provider navigation is intercepted; there is never a real Xero login.
   await page.route('https://login.xero.com/**', route => {
     const u = new URL(route.request().url()), callback = new URL(u.searchParams.get('redirect_uri')); callback.searchParams.set('state', u.searchParams.get('state')); callback.searchParams.set('code', 'SECRET_CODE');
-    return route.fulfill({ contentType: 'text/html', body: '<main><h1>Synthetic Xero consent</h1><a href="' + callback.toString().replaceAll('&', '&amp;') + '">Approve example organisation</a></main>' });
+    return route.fulfill({ contentType: 'text/html', body: '<main><h1>Synthetic Xero consent</h1><a href="' + callback.toString().replaceAll('&', '&amp;') + '">Approve example connection</a></main>' });
   });
   const url = base + '/plugins/xero?configure=xero';
   const region = () => page.getByRole('region', { name: 'Xero connection' });
@@ -91,7 +91,7 @@ try {
   await cli('plugin', 'config', 'xero', 'set', 'clientSecret', 'SECRET_CLIENT');
   await page.reload(); await region().getByRole('button', { name: 'Connect Xero', exact: true }).click();
   await page.getByRole('heading', { name: 'Synthetic Xero consent' }).waitFor();
-  await page.getByRole('link', { name: 'Approve example organisation' }).click();
+  await page.getByRole('link', { name: 'Approve example connection' }).click();
   await eventually(() => rpc('status'), s => s.connected && s.organisations.length === 1);
   // Host navigation is reviewed, not assumed from the redirect header alone.
   await region().getByRole('heading', { name: 'Connected organisations' }).waitFor({ timeout: 10_000 });
@@ -99,16 +99,37 @@ try {
   await region().getByRole('button', { name: 'Check access to Example organisation' }).focus();
   await page.keyboard.press('Enter'); await region().getByText('Read verified', { exact: true }).waitFor();
   await screen('connected-narrow'); await page.setViewportSize({ width: 1280, height: 960 }); await screen('connected-desktop');
+  await cli('plugin', 'config', 'xero', 'set', 'additionalScopes', 'files');
+  await page.reload(); await region().getByRole('alert').filter({ hasText: 'not granted yet' }).waitFor();
+  assert.ok(!(await rpc('status')).scopes.includes('files'), 'Saving a scope cannot upgrade an existing grant');
+  await screen('requested-permissions-desktop'); await page.setViewportSize({ width: 390, height: 880 }); await screen('requested-permissions-narrow');
+  await rpc('fixtureGrant', (await rpc('status')).requestedScopes.join(' '));
+  await region().getByRole('button', { name: 'Reconnect', exact: true }).click();
+  await page.getByRole('link', { name: 'Approve example connection' }).click();
+  await region().getByRole('heading', { name: 'Connected organisations' }).waitFor();
+  assert.ok((await rpc('status')).scopes.includes('files')); assert.equal(await region().getByRole('alert').count(), 0);
+  const permissions = region().locator('summary').filter({ hasText: 'Access and permissions' });
+  await permissions.focus(); await page.keyboard.press('Enter'); await region().getByText('files', { exact: true }).waitFor();
+  await screen('granted-permissions-narrow'); await page.setViewportSize({ width: 1280, height: 960 }); await screen('granted-permissions-desktop');
+  await permissions.click();
   await rpc('fixtureMode', 'failure'); await region().getByRole('button', { name: 'Check access to Example organisation' }).click();
   await region().getByRole('alert').filter({ hasText: 'Could not reach Xero' }).waitFor();
   assert.equal(await region().getByRole('alert').count(), 1, 'One actionable error, not a repeated generic failure');
   await screen('error-desktop'); await page.setViewportSize({ width: 390, height: 880 }); await screen('error-narrow');
   assert.doesNotMatch(await region().innerText(), /SECRET|PRIVATE_ACCOUNT/);
   await rpc('fixtureMode', 'empty'); await region().getByRole('button', { name: 'Refresh organisations' }).click();
-  await region().getByText(/No organisations were returned/).waitFor(); await screen('empty-narrow');
+  await region().getByText(/No organisations or practices were returned/).waitFor(); await screen('empty-narrow');
   await page.setViewportSize({ width: 1280, height: 960 }); await screen('empty-desktop');
   await rpc('fixtureMode', 'connected'); await region().getByRole('button', { name: 'Refresh organisations' }).click();
   await region().getByRole('button', { name: 'Check access to Example organisation' }).waitFor();
+  await cli('plugin', 'config', 'xero', 'set', 'scopeOverride', 'offline_access practicemanager.job');
+  await rpc('fixtureGrant', 'offline_access practicemanager.job'); await rpc('fixtureMode', 'practice');
+  await page.reload(); await region().getByRole('button', { name: 'Reconnect', exact: true }).click();
+  await page.getByRole('link', { name: 'Approve example connection' }).click();
+  await region().getByRole('heading', { name: 'Connected practices' }).waitFor();
+  assert.equal(await region().getByRole('button', { name: /^Check access/ }).count(), 0);
+  assert.doesNotMatch(await region().innerText(), /Accounting read verified/);
+  await screen('practice-desktop'); await page.setViewportSize({ width: 390, height: 880 }); await screen('practice-narrow');
   let confirmed = false;
   page.once('dialog', async dialog => { assert.match(dialog.message(), /all its organisations/); confirmed = true; await dialog.accept(); });
   await region().getByRole('button', { name: 'Disconnect', exact: true }).click(); await region().getByRole('heading', { name: 'Get started' }).waitFor(); assert.ok(confirmed);

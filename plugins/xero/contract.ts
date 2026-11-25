@@ -3,8 +3,8 @@ import { z } from 'zod';
 export const rpcContract = defineRpcContract({
   status: { input: z.null(), output: z.object({
     configured: z.boolean(), connected: z.boolean(), redirectUri: z.string().nullable(), error: z.string().nullable(),
-    organisations: z.array(z.object({ tenantId: z.uuid(), tenantName: z.string(), checkedAt: z.string().nullable() })),
-    scopes: z.array(z.string()),
+    organisations: z.array(z.object({ tenantId: z.uuid(), tenantName: z.string(), tenantType: z.string(), checkedAt: z.string().nullable() })),
+    scopes: z.array(z.string()), requestedScopes: z.array(z.string()), missingScopes: z.array(z.string()), appStoreEnabled: z.boolean(),
   }) },
   beginConnect: { input: z.null(), output: z.object({ url: z.string().url() }) },
   disconnect: { input: z.null(), output: z.object({ disconnected: z.literal(true) }) },

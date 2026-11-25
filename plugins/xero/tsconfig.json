@@ -1,4 +1,4 @@
 {
-  "compilerOptions": { "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext", "jsx": "react-jsx", "strict": true, "noEmit": true, "allowImportingTsExtensions": true, "skipLibCheck": true },
+  "compilerOptions": { "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext", "jsx": "react-jsx", "strict": true, "resolveJsonModule": true, "noEmit": true, "allowImportingTsExtensions": true, "skipLibCheck": true },
   "include": ["*.ts", "*.tsx", "test/*.test.ts"]
 }

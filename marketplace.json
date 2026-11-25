@@ -8,9 +8,9 @@
     {
       "id": "xero",
       "displayName": "Xero",
-      "description": "Read accounting records and prepare requested invoices, bills, payments and source attachments, with explicit organisation selection.",
+      "description": "Discover and call Xero APIs for accounting, files, projects and more, with explicit tenant selection and guarded financial helpers.",
       "icon": "Receipt",
-      "tags": ["xero", "accounting", "invoices", "bills"],
+      "tags": ["xero", "accounting", "invoices", "bills", "files", "payroll"],
       "author": { "name": "Matt Wynne", "github": "mattwynne" },
       "source": {
         "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/xero", "ref": "main" }

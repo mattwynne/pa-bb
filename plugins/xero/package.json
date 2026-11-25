@@ -6,7 +6,7 @@
   "engines": { "node": ">=22", "bb": ">=0.50.1", "bbPluginSdk": ">=0.6.157 <1" },
   "bb": {
     "name": "Xero",
-    "description": "Look up accounting records and prepare requested invoices, bills, payments and source attachments.",
+    "description": "Discover and call Xero APIs, with explicit tenant selection and guarded financial helpers.",
     "branding": { "icon": "Receipt" },
     "server": "./server.ts",
     "app": "./app.tsx",
@@ -32,6 +32,7 @@
     "typecheck": "tsc --noEmit && bb plugin types --check",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
     "test:host": "npm run build && node --test test/host.test.mjs",
-    "test:rendered": "node test/rendered-review.mjs"
+    "test:rendered": "node test/rendered-review.mjs",
+    "catalog:update": "node scripts/update-api-catalog.mjs"
   }
 }

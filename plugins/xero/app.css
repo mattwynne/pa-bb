@@ -6,4 +6,6 @@
 .pa-xero ol a { text-decoration: underline; text-underline-offset: .15em; }
 .pa-xero .pa-connection__onboarding p { margin: .75rem 0; font-size: .875rem; line-height: 1.5; }
 .pa-xero__status:empty { display: none; }
+.pa-xero__scopes { list-style: disc; padding-left: 1.25rem; font-size: .75rem; line-height: 1.6; overflow-wrap: anywhere; }
+.pa-xero .pa-connection__disclosure p { font-size: .8rem; line-height: 1.5; }
 .pa-xero a:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
