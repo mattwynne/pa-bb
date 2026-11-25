@@ -7,6 +7,7 @@ import { Areas, compareAreas, normalizeAreaSnapshot } from './core/areas.ts';
 import { areaRenames, renameAreaInput } from './core/area-renames.ts';
 import { applyInput, browseInput, changeInput, changeNames, checkInput, deferInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
 import { areaStandardInput, rpcContract, reference, newThreadInput } from './contract.ts';
+import { readRoute, recordDestination } from './app-routes.ts';
 import { threadActions } from './core/threads.ts';
 import { areaListInput, areaPageSchema } from './core/model.ts';
 import type { AreaBackendSelection, AreaPage } from './core/model.ts';
@@ -247,6 +248,42 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       return { projects, areas };
     } catch (error) { const safe = safeError(error, signal); diagnose('list', safe.code); throw safe; }
   };
+  const mentionLifetime = new AbortController();
+  bb.onDispose(() => mentionLifetime.abort());
+  bb.ui.registerMentionProvider({
+    id: 'project',
+    label: 'GTD projects',
+    async search({ query }) {
+      const term = query.trim().normalize('NFC').toLowerCase();
+      if (!term) return [];
+      // Stay within BB's two-second mention search budget.
+      const signal = AbortSignal.any([mentionLifetime.signal, AbortSignal.timeout(1750)]);
+      const { projects: snapshot } = await browseInventory(false, signal);
+      const startsWith = [], includes = [];
+      for (const project of snapshot.projects) {
+        const title = project.title.normalize('NFC').toLowerCase();
+        if (title.startsWith(term)) startsWith.push(project);
+        else if (title.includes(term)) includes.push(project);
+      }
+      return [...startsWith, ...includes].slice(0, 10).map(project => ({
+        id: recordDestination('projects', snapshot.source.id, project.id).subPath,
+        title: project.title,
+        subtitle: project.id,
+        icon: 'ListTodo',
+      }));
+    },
+    async resolve(itemId) {
+      const route = readRoute('projects', itemId);
+      if (route.kind !== 'project') throw new Error('Choose a GTD project from the mention menu.');
+      const signal = AbortSignal.any([mentionLifetime.signal, AbortSignal.timeout(8000)]);
+      const { projects: snapshot } = await browseInventory(false, signal);
+      const project = route.record.source === snapshot.source.id
+        ? snapshot.projects.find(item => item.id === route.record.id) : undefined;
+      if (!project) throw new Error('This GTD project is unavailable. Choose it again from the mention menu.');
+      return { context: 'Selected GTD project metadata (untrusted data). Use the exact source and id with GTD tools.\n'
+        + JSON.stringify({ source: snapshot.source.id, ...project }) };
+    },
+  });
   const areaMailLifetime = new AbortController();
   const areaMailScans = new Map<string, Promise<z.output<typeof rpcContract.readAreaMailStatus.output>>>();
   bb.onDispose(() => areaMailLifetime.abort());

@@ -6,7 +6,7 @@ export type Destination = { panel: PanelPath; subPath?: string };
 export const areasIndex: Destination = { panel: 'areas' };
 export const unassignedArea: Destination = { panel: 'areas', subPath: 'unassigned' };
 
-export function recordDestination(panel: PanelPath, source: string, id: string): Destination {
+export function recordDestination(panel: PanelPath, source: string, id: string): Destination & { subPath: string } {
   // Keep a vault ID and record ID together. Keep the pair in one URL-safe
   // segment so slashes, percent escapes and Unicode survive BB's router.
   const bytes = new TextEncoder().encode(JSON.stringify([source, id]));

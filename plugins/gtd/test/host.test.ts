@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakePluginHost, makePluginAgentConfigurationContext, experimental_scanPublicSdkOnly } from '@get-bb/plugin-sdk/testing';
 import { plugin } from '../server.ts';
+import { recordDestination } from '../app-routes.ts';
 import type { ProjectBackend, ProjectSnapshot } from '../core/model.ts';
 const data = (): ProjectSnapshot => ({ source: { backend: 'fake', id: 'one', name: 'Synthetic source', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null }, projects: [{ id: 'one', title: 'Test project', status: 'active' }], complete: true, warnings: [] });
 async function setup(backend?: ProjectBackend) {
@@ -34,6 +35,36 @@ test('unconfigured, empty, partial and failing reads are distinguishable; diagno
     fail = true; const result = await host.harness.behavior.callAgentTool('gtd_list_projects', {}); assert.ok(typeof result !== 'string'); assert.equal(result.isError, true);
     const logs = JSON.stringify(host.harness.inspection.logEntries); assert.match(logs, /GTD list source_unavailable/); assert.match(logs, /GTD list partial/); assert.doesNotMatch(logs + JSON.stringify(result), /sentinel|example.test|secret-cause/);
   } finally { await host.harness.lifecycle.dispose(); }
+});
+test('project mentions rank name matches and resolve the exact available project', async () => {
+  const snapshot = data();
+  const project = { id: 'Projects/Done/Café % notes.md', title: 'Café notes', status: 'done' as const };
+  snapshot.projects = [
+    { id: 'Projects/Find café.md', title: 'Find café', status: 'active' },
+    project,
+    ...Array.from({ length: 12 }, (_, i) => ({ id: `Projects/Café ${i}.md`, title: `Visit café ${i}`, status: 'active' as const })),
+  ];
+  const { harness } = await setup({ async readProjects() { return snapshot; }, async checkAccess() {} });
+  try {
+    const [provider] = harness.inspection.registrations.mentionProviders;
+    assert.equal(provider.label, 'GTD projects');
+    assert.deepEqual(provider.triggers, ['@']);
+    const search = (query: string) => provider.search({ trigger: '@', query, projectId: null, threadId: null });
+    assert.deepEqual(await search('  '), []);
+    assert.deepEqual(await search('unknown'), []);
+    const results = await search(' CAFE\u0301 ');
+    assert.equal(results.length, 10);
+    const first = results[0];
+    assert.equal(first.title, project.title);
+    assert.equal(first.subtitle, project.id);
+    const { context } = await provider.resolve(first.id);
+    assert.deepEqual(JSON.parse(context.split('\n')[1]), { source: 'one', ...project });
+    const wrongSource = recordDestination('projects', 'other', project.id).subPath;
+    await assert.rejects(async () => provider.resolve(wrongSource), /unavailable/);
+    snapshot.projects = snapshot.projects.filter(item => item !== project);
+    await assert.rejects(async () => provider.resolve(first.id), /unavailable/);
+    await assert.rejects(async () => provider.resolve(''), /Choose a GTD project/);
+  } finally { await harness.lifecycle.dispose(); }
 });
 test('settings validation rejects traversal and survives reload; plugin imports public SDK only', async () => {
   let host = await setup();
