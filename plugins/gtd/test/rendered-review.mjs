@@ -104,7 +104,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'area-standard', 'auto-refresh', 'correspondence'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'area-standard', 'auto-refresh', 'correspondence', 'area-mail'];
   const reviewedModes = native ? ['native-refresh'] : process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
@@ -118,7 +118,7 @@ try {
     const projectChanges = [], areaCreations = [];
     const gmail = 'https://mail.google.com/mail/?authuser=example%40example.com#all/beef';
     const fastmail = 'https://app.fastmail.com/mail/example';
-    let unread = 2;
+    let unread = 2, areaUnread = true;
     let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
     const standardSaves = [];
     let standardText = 'Practice weekly.', standardHash = 'a'.repeat(64);
@@ -188,6 +188,11 @@ try {
         if (failInventory) return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic failure' } } });
         const projects = mode === 'empty' ? [] : [{ id: projectId, title, status: projectStatus, areaId: assignedArea }];
         if (extraProject) projects.push(extraProject);
+        if (mode === 'area-mail') projects.push(
+          { id: 'Projects/Unknown.md', title: 'Unknown mail', status: 'active', areaId: assignedArea },
+          { id: 'Projects/Clear.md', title: 'Read mail', status: 'active', areaId: assignedArea },
+          { id: 'Projects/Skipped.md', title: 'Skipped check', status: 'active', areaId: assignedArea },
+        );
         const areas = [{ id: 'Areas/Learning.md', title: 'Learning' }];
         if (mode === 'empty') areas.length = 0;
         if (mode === 'project-actions' || mode === 'browser-flow') areas.push({ id: 'Areas/Home.md', title: 'Home' });
@@ -214,6 +219,14 @@ try {
             ...(!complete ? { malformedFrontmatter: ['Projects/Broken.md'] } : {}) },
           areas: (input.input ?? input).includeAreas ? { source, areas, complete: true, warnings: [] } : null,
         };
+      }
+      if (method === 'readAreaMailStatus') {
+        assert.equal(input.source, 'one');
+        result = mode === 'area-mail' && input.areaId === 'Areas/Learning.md' && input.status === 'active' ? [
+          { id: projectId, state: areaUnread ? 'unread' : 'clear' },
+          { id: 'Projects/Unknown.md', state: 'incomplete' },
+          { id: 'Projects/Clear.md', state: 'clear' },
+        ] : [];
       }
       if (method === 'readCorrespondence') result = { incomplete: false, links: mode === 'correspondence' ? [
         { title: 'Workshop logistics', url: gmail },
@@ -682,6 +695,23 @@ try {
       assert.equal(await standard.count(), 0);
       assert.ok(!standardReads.includes('Areas/Folder/'));
       assert.equal(standardSaves.length, 4);
+    } else if (mode === 'area-mail') {
+      await openLearning();
+      const row = name => nav.getByRole('link', { name, exact: true }).locator('..');
+      await row(title).getByText('Unread email', { exact: true }).waitFor();
+      await row('Unknown mail').getByText('Mail status incomplete', { exact: true }).waitFor();
+      await row('Skipped check').getByText('Mail status incomplete', { exact: true }).waitFor();
+      assert.equal(await row('Read mail').locator('[data-mail]').count(), 0);
+      await link(title).focus();
+      assert.ok(await link(title).evaluate(node => node === document.activeElement));
+      await page.screenshot({ path: join(artifacts, `area-mail-badges-${width}.png`) });
+      areaUnread = false;
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await row(title).getByText('Unread email', { exact: true }).waitFor({ state: 'detached' });
+      await filter.click();
+      await nav.getByRole('radio', { name: 'Done', exact: true }).click();
+      await nav.getByText('No done projects in this Area.', { exact: true }).waitFor();
+      assert.equal(await nav.locator('[data-mail]').count(), 0);
     } else if (mode === 'correspondence') {
       await openLearning();
       await link(title).click();

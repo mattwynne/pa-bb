@@ -1,4 +1,5 @@
-import { lookupCorrespondence, mailStatus, uniqueCorrespondence, type MailStatus } from './core/correspondence.ts';
+import { enclosingArea } from './core/area-presentation.ts';
+import { lookupAreaCorrespondence, lookupCorrespondence, mailStatus, uniqueCorrespondence, type MailStatus } from './core/correspondence.ts';
 import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions } from './adapters/obsidian.ts';
@@ -51,7 +52,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Each project needs a Markdown note directly in this folder or in Active, Deferred, Someday or Done. A folder with the same name can hold supporting files.', default: 'Projects', experimental_schema: relativeFolder },
     automaticReactivation: { type: 'boolean', label: 'Automatically reactivate deferred projects', description: 'Move due projects and their supporting folders to Active, with their links and conversations. Checks daily after midnight Pacific and when GTD starts.', default: false },
   });
-  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'correspondence_read' | 'correspondence_mail', code: string) => {
+  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'correspondence_read' | 'correspondence_mail' | 'area_mail', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial'].includes(code) ? code : 'unknown';
     bb.log.warn(`GTD ${stage} ${safe}`);
   };
@@ -246,6 +247,47 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       return { projects, areas };
     } catch (error) { const safe = safeError(error, signal); diagnose('list', safe.code); throw safe; }
   };
+  const areaMailLifetime = new AbortController();
+  const areaMailScans = new Map<string, Promise<z.output<typeof rpcContract.readAreaMailStatus.output>>>();
+  bb.onDispose(() => areaMailLifetime.abort());
+  type AreaMailInput = z.input<typeof rpcContract.readAreaMailStatus.input>;
+  const scanAreaMail = async (input: AreaMailInput, selection: Awaited<ReturnType<typeof configured>>, signal: AbortSignal) => {
+    const { projects, areas } = await browseInventory(true, signal);
+    if (input.source !== projects.source.id || !areas ||
+        (input.areaId !== null && !areas.areas.some(area => area.id === input.areaId)))
+      throw new GtdError('invalid_source');
+    if (!projects.complete || !areas.complete) return [];
+    const matches = projects.projects.filter(project =>
+      (input.status === 'all' || project.status === input.status) &&
+      (enclosingArea(areas.areas, project.areaId)?.id ?? null) === input.areaId);
+    const backend = backendFor(selection);
+    const result = await lookupAreaCorrespondence(matches.map(project => project.id), async id => {
+      try { return await backend.readCorrespondence({ source: input.source, id }, signal); }
+      catch (error) {
+        const safe = safeError(error, signal);
+        if (safe.code === 'cancelled') throw safe;
+        diagnose('area_mail', safe.code);
+        return undefined;
+      }
+    }, lookupMail, signal);
+    if (closing || signal.aborted) throw new GtdError('cancelled');
+    if ((await configured('projectsFolder', true)).key !== selection.key) throw new GtdError('source_unavailable');
+    return result;
+  };
+  const readAreaMailStatus = async (input: AreaMailInput, callerSignal: AbortSignal) => {
+    callerSignal.throwIfAborted();
+    const selection = await configured('projectsFolder', true);
+    if (closing) throw new GtdError('cancelled');
+    callerSignal.throwIfAborted();
+    const key = JSON.stringify([selection.key, input.source, input.areaId, input.status]);
+    const running = areaMailScans.get(key);
+    if (running) return running;
+    if (areaMailScans.size >= 3) return [];
+    const signal = AbortSignal.any([areaMailLifetime.signal, AbortSignal.timeout(25_000)]);
+    const scan = scanAreaMail(input, selection, signal).finally(() => areaMailScans.delete(key));
+    areaMailScans.set(key, scan);
+    return scan;
+  };
   bb.rpc.register(rpcContract, {
     async inventoryRevision(_, context) {
       const signal = context.experimental_signal;
@@ -273,6 +315,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       try { return await withWrite(() => changes.applyFromPanel(input, context.experimental_signal)); }
       finally { invalidate(); }
     },
+    readAreaMailStatus: (input, context) => readAreaMailStatus(input, context.experimental_signal),
     readCorrespondence: (input, context) => readCorrespondence(input, context.experimental_signal),
     async readCorrespondenceStatus(input, context) {
       const signal = context.experimental_signal;

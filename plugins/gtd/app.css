@@ -157,3 +157,15 @@
   gap: .5rem;
   font-size: .875em;
 }
+
+.gtd-project-mail {
+  max-inline-size: 9em;
+  margin-inline: 4px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  text-align: end;
+}
+.gtd-project-mail[data-mail="unread"] {
+  color: var(--foreground);
+  font-weight: 600;
+}

@@ -110,6 +110,8 @@ Add a `## Correspondence` section to the project landing note, with one Markdown
 
 For Gmail, use an account-qualified conversation URL. The Workspace tool `gworkspace_resolve_gmail_thread_url` verifies a thread in the selected account and returns the URL and subject. The Gmail account address is part of the link destination. Only save the URL where that address may be stored. BB reads message metadata from the connected account to show unread counts and the latest sender and date. It refreshes when the project opens, BB regains focus, or the visible page is due for a refresh. Fastmail links open in Fastmail and show unavailable status until conversation URL lookup is supported.
 
+Area project lists check email for the selected Area and status. Each refresh reads up to 12 project sections, three at a time, and checks up to 16 distinct supported mailbox links. **Unread email** means a mailbox confirmed at least one unread message. **Mail status incomplete** means some evidence was unavailable or skipped and no unread mail was confirmed. An empty list or a complete zero count needs no badge.
+
 ## Development
 
 ```sh

@@ -21,6 +21,8 @@ export function mailProvider(value: string) {
   } catch { return null; }
 }
 
+const supportsMailLookup = (url: string) => mailProvider(url) === 'gmail';
+
 export function uniqueCorrespondence(links: z.infer<typeof correspondenceLinks>) {
   const seen = new Set<string>();
   return { ...links, links: links.links.filter(({ url }) => {
@@ -42,8 +44,50 @@ export async function lookupCorrespondence(
       signal.throwIfAborted();
       const index = next++;
       const { url } = links[index]!;
-      rows[index] = { url, mail: mailProvider(url) === 'gmail' ? await lookup(url) : { status: 'unsupported' } };
+      rows[index] = { url, mail: supportsMailLookup(url) ? await lookup(url) : { status: 'unsupported' } };
     }
   }));
   return rows;
+}
+
+export const areaNoteBudget = 12;
+export const areaMailBudget = 16;
+export const areaMailStatus = z.array(z.object({
+  id: z.string().min(1).max(1024),
+  state: z.enum(['unread', 'incomplete', 'clear']),
+}).strict()).max(areaNoteBudget);
+
+export async function lookupAreaCorrespondence(
+  projectIds: string[],
+  read: (id: string) => Promise<z.infer<typeof correspondenceLinks> | undefined>,
+  lookup: (url: string) => Promise<MailStatus>,
+  signal: AbortSignal,
+): Promise<z.infer<typeof areaMailStatus>> {
+  const notes = projectIds.slice(0, areaNoteBudget).map(id => ({
+    id, section: undefined as z.infer<typeof correspondenceLinks> | undefined,
+  }));
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(3, notes.length) }, async () => {
+    while (next < notes.length) {
+      signal.throwIfAborted();
+      const note = notes[next++]!;
+      note.section = await read(note.id);
+    }
+  }));
+
+  const selected = new Map<string, z.infer<typeof correspondenceLink>>();
+  for (const { section } of notes) {
+    for (const link of section?.links ?? []) {
+      if (selected.size >= areaMailBudget) break;
+      if (supportsMailLookup(link.url)) selected.set(link.url, link);
+    }
+  }
+  const status = new Map((await lookupCorrespondence([...selected.values()], lookup, signal))
+    .map(row => [row.url, row.mail]));
+  return notes.map(({ id, section }) => {
+    const results = section?.links.map(link => status.get(link.url));
+    if (results?.some(mail => mail?.status === 'ok' && mail.unread > 0)) return { id, state: 'unread' };
+    if (!section || section.incomplete || results?.some(mail => mail?.status !== 'ok')) return { id, state: 'incomplete' };
+    return { id, state: 'clear' };
+  });
 }

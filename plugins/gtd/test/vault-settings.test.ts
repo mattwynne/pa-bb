@@ -108,3 +108,39 @@ test('correspondence reads scoped landing-note links and looks up saved Gmail UR
     assert.equal(mailReads, 1);
   } finally { await host.harness.lifecycle.dispose(); }
 });
+
+test('Area mail only reads the selected Area and status, including nested Area assignments', async () => {
+  const note = (path: string, properties: Record<string, string> = {}) => ({ path, properties, malformed: false });
+  const notes = [
+    note('Areas/Learning.md'), note('Areas/Learning/Nested.md'), note('Areas/Home.md'),
+    note('Projects/Active/Matches.md', { area: 'Areas/Learning/Nested.md' }),
+    note('Projects/Active/Other.md', { area: 'Areas/Home.md' }),
+    note('Projects/Done/Finished.md', { area: 'Areas/Learning.md' }),
+    note('Projects/Active/Unassigned.md'),
+  ];
+  const paths: string[] = [];
+  let incomplete = false;
+  const host = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one', projectsFolder: 'Projects', areasFolder: 'Areas' },
+    sdk: { plugins: { callRpc: async (args: any) => {
+      if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: '', name: 'Example' }], incomplete: false };
+      if (args.method === 'vaultInventory') return {
+        source: { vaultId: 'one', name: 'Example', lastSuccess: null, cloudConnected: false, enabled: false, phase: 'paused', failure: null },
+        notes, folders: ['Projects', 'Areas'], incomplete,
+      };
+      assert.equal(args.method, 'readSectionLinks');
+      paths.push(args.input.path);
+      return { hash: 'a'.repeat(64), links: [], incomplete: false };
+    } } } });
+  await plugin(host.bb);
+  try {
+    const rpc = host.harness.behavior.callRpc;
+    const area = { source: 'one', areaId: 'Areas/Learning.md', status: 'active' };
+    const first = await Promise.all([rpc('readAreaMailStatus', area), rpc('readAreaMailStatus', area)]);
+    for (const rows of first) assert.deepEqual(rows, [{ id: 'Projects/Active/Matches.md', state: 'clear' }]);
+    assert.deepEqual(await rpc('readAreaMailStatus', { ...area, areaId: null }), [{ id: 'Projects/Active/Unassigned.md', state: 'clear' }]);
+    await assert.rejects(rpc('readAreaMailStatus', { ...area, source: 'wrong' }));
+    incomplete = true;
+    assert.deepEqual(await rpc('readAreaMailStatus', area), []);
+    assert.deepEqual(paths, ['Projects/Active/Matches.md', 'Projects/Active/Unassigned.md']);
+  } finally { await host.harness.lifecycle.dispose(); }
+});

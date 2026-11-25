@@ -5,6 +5,7 @@ import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
 import { areasIndex, panelHref, readRoute, recordDestination, unassignedArea, type Destination, type PanelPath } from './app-routes.ts';
 import { ProjectCorrespondence } from './project-correspondence.tsx';
+import { useAreaMailStatus } from './area-mail-status.ts';
 import { AreaStandard } from './area-standard.tsx';
 import './app.css';
 const key = (source: string, id: string) => JSON.stringify([source, id]);
@@ -546,6 +547,8 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const hasUnassigned = unassigned || !!unassignedProjects.length;
   const inArea = area ? projectsByArea.get(area.id) ?? [] : unassignedProjects;
   const visible = inArea.filter(p => status === 'all' || p.status === status);
+  const mailRows = useAreaMailStatus(inventory.source, area?.id ?? (unassigned ? null : undefined), status,
+    inventory.revision, visible.length > 0);
   const lastPage = useRef('');
   useLayoutEffect(() => {
     const region = nav.current;
@@ -651,6 +654,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
         </FilterBar>
         {visible.length ? <ul className="gtd-rows">{visible.map(item => {
           const canDrag = (item.id.endsWith('.md')) && eligibleAreas.length > 0 && !busy;
+          const mail = mailRows && (mailRows.get(item.id) ?? 'incomplete');
           return <li key={item.id} className="gtd-project-row" draggable={canDrag}
             onDragStart={event => {
               if (!canDrag) return;
@@ -662,6 +666,9 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
               {item.title}{status === 'all' && <span className="gtd-row-status">{item.status[0].toUpperCase() + item.status.slice(1)}</span>}
               <Icon name="ChevronRight" aria-hidden="true" />
             </PanelLink>
+            {mail && mail !== 'clear' && <span className="gtd-project-mail" data-mail={mail}>
+              {mail === 'unread' ? 'Unread email' : 'Mail status incomplete'}
+            </span>}
             {projectActions(item)}
           </li>;
         })}</ul> : <p className="gtd-empty" role="status">{partial ? 'No matching projects in the loaded inventory.' :

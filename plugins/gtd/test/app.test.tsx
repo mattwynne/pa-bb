@@ -29,6 +29,7 @@ function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }
           areas: includeAreas ? { source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }, ...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` }))], complete: true, warnings: [] } : null,
         };
       },
+      readAreaMailStatus: async () => [{ id: ref.id, state: 'clear' }],
       readAreaStandard: async () => ({ text: 'Practice weekly.', hash: 'a'.repeat(64) }),
       newThread,
     },
