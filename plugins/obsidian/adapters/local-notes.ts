@@ -213,7 +213,7 @@ export class LocalNotes {
   // Staging names are reserved in paired iCloud sync. Stage and destination
   // share a parent so publication is atomic (and creation never clobbers).
   async publish(root: string, path: string, text: string, expected: Observation | null,
-    before: (stage: Stats) => Promise<void>, check: () => Promise<void>, committed: () => void) {
+    before: (stage: Stats) => Promise<void>, check: () => Promise<void>, dispatch: () => void, committed: () => void) {
     const bytes = Buffer.from(text);
     if (bytes.length > NOTE_LIMITS.bytes || bytes.toString() !== text || text.includes('\0')) throw new VaultError('unsupported');
     const parent = await this.parent(root, path);
@@ -234,6 +234,7 @@ export class LocalNotes {
       const fresh = await this.parent(root, path);
       try {
         if (!identity(await parent.folder.stat(), await fresh.folder.stat()) || !equivalent(await this.observe(root, path), expected)) throw new VaultError('conflict');
+        dispatch();
         if (expected) await rename(stage, fresh.path);
         else await link(stage, fresh.path);
         committed();

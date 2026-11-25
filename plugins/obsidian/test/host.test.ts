@@ -6,7 +6,7 @@ import { CatalogFake, FilesFake, MemoryState, hash } from './fakes.ts';
 import { settingsSchema, tools } from '../contract.ts';
 import { VaultError, type VaultFiles } from '../core/ports.ts';
 import { MarkdownNotes } from '../adapters/markdown-notes.ts';
-const names = ['obsidian_status', 'obsidian_search_notes', 'obsidian_read_note', 'obsidian_get_note_metadata', 'obsidian_resolve_link', 'obsidian_list_tasks', 'obsidian_move_note', 'obsidian_move_folder', 'obsidian_move_status', 'obsidian_create_note', 'obsidian_edit_note', 'obsidian_update_properties'];
+const names = ['obsidian_recover_receipts', 'obsidian_status', 'obsidian_search_notes', 'obsidian_read_note', 'obsidian_get_note_metadata', 'obsidian_resolve_link', 'obsidian_list_tasks', 'obsidian_move_note', 'obsidian_move_folder', 'obsidian_move_status', 'obsidian_create_note', 'obsidian_edit_note', 'obsidian_update_properties'];
 async function setup() { const host = createFakePluginHost({ pluginId: 'obsidian', agentSkillIds: ['obsidian-links'] }); const catalog = new CatalogFake(); const files = new FilesFake(); const repository = new MemoryState(); await plugin(host.bb, { catalog, files, repository }); return { ...host, catalog, files, repository }; }
 test('registers the ordinary tools and starts with no connected vault', async () => {
   const { harness } = await setup();

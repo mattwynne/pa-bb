@@ -6,19 +6,39 @@ import { digest, equivalent, identity, LocalNotes, validateNotePath, validateRel
 import type { DirectoryGrant } from './local-notes.ts';
 import { fileIdentity, LocalReceipts } from './local-receipts.ts';
 import type { FileIdentity, LocalReceipt } from './local-receipts.ts';
+import type { RecoveryCheck, RecoveryInput } from '../core/receipt-recovery.ts';
 import type { DesktopLinks } from './desktop-links.ts';
 
 type Target = { mirrorId: string; revision: number; path: string };
 type DirectoryLookup = (mirrorId: string, revision: number, signal?: AbortSignal) => Promise<string>;
+type Mutation<T> = {
+  check: () => Promise<void>;
+  begin: (row: T) => Promise<void>;
+  dispatch: () => void;
+  committed: () => void;
+  rootIdentity: FileIdentity;
+};
+type Entry = NonNullable<ReturnType<LocalReceipts['get']>>;
+type Proof = { status: 'proven'; row: LocalReceipt; witness: string } | { status: 'review'; reason: string };
+type EvidenceToken = { operationId: string; revision: number; owner: string; check: RecoveryCheck; witness: string; expires: number };
 type Observed = Awaited<ReturnType<LocalNotes['observe']>>;
 type Copy = Awaited<ReturnType<LocalNotes['conflictCopies']>>[number];
 type Conflict = { canonical: Observed; copies: Copy[]; logical: NonNullable<Observed>; incoming: NonNullable<Observed> };
 type Token = { target: Target; root: string; identity: FileIdentity; version: string; expires: number };
 
+const review = (reason: string): Proof => ({ status: 'review', reason });
+const outcome = (row: LocalReceipt) => row.outcome === 'uncertain' ? 'unresolved' :
+  row.outcome === 'not_saved' || row.outcome === 'not_moved' ? 'not_applied' : 'applied';
+const notApplied = (row: LocalReceipt): LocalReceipt => row.kind === 'move' ? { ...row, outcome: 'not_moved' } : { ...row, outcome: 'not_saved' };
+const statWitness = (info: Stats) => [info.dev, info.ino, info.birthtimeMs, info.mtimeMs, info.ctimeMs, info.nlink];
+const matchesVersion = (info: Stats, expected: FileIdentity & { birthtime?: number }) =>
+  identity(info, expected) && info.birthtimeMs === expected.birthtime;
+
 const versionIdentity = (info: Stats) => ({ ...fileIdentity(info), birthtime: info.birthtimeMs });
 
 export class FilesystemVault {
   private files = new LocalNotes();
+  private evidenceTokens = new Map<string, EvidenceToken>();
   private tokens = new Map<string, Token>();
   constructor(private directory: DirectoryLookup, private grant: (id: string, revision: number, signal?: AbortSignal) => Promise<DirectoryGrant>,
     private ledger: LocalReceipts, private diagnose: Diagnose) {}
@@ -72,12 +92,12 @@ export class FilesystemVault {
     try {
       const row = await this.mutate<Extract<LocalReceipt, { kind: 'move' }>>(
         { mirrorId: vaultId, path, revision, ...(folder ? { directory: true as const } : {}) },
-        async (root, check, begin, changed, rootIdentity) => {
+        async (root, { check, begin, dispatch, committed, rootIdentity }) => {
           const source = await this.files.entry(root, path);
           const base = {
             kind: 'move' as const, mirrorId: vaultId, path, destination, operationId,
             hash: expectedHash ?? digest(''), root: rootIdentity, inode: fileIdentity(source ?? rootIdentity),
-            at: new Date().toISOString(), birthtime: source?.birthtimeMs, ...(folder ? { directory: true as const } : {}),
+            at: new Date().toISOString(), birthtime: source?.birthtimeMs, publication: 'desktop' as const, ...(folder ? { directory: true as const } : {}),
           };
           const verify = async () => {
             await check();
@@ -92,10 +112,13 @@ export class FilesystemVault {
           };
           await verify();
           await begin({ ...base, outcome: 'uncertain' });
-          const applied = await run(async () => { await verify(); changed(); });
+          const applied = await run(async () => { await verify(); dispatch(); committed(); });
           if (applied === false) return { ...base, outcome: 'not_moved' };
           if (!await this.moved(root, { ...base, outcome: 'uncertain' })) throw new VaultError('uncertain');
+          await this.files.syncParent(root, path);
+          await this.files.syncParent(root, destination);
           await check();
+          if (!await this.moved(root, { ...base, outcome: 'uncertain' })) throw new VaultError('uncertain');
           return { ...base, outcome: 'moved_locally_pending_sync' };
         });
       return { ...endpoints, outcome: row.outcome };
@@ -109,16 +132,14 @@ export class FilesystemVault {
 
   async moveReceipt(vaultId: string, revision: number, operationId: string): Promise<PathMoveReceipt | null> {
     return this.ledger.run(async () => {
-      const ledger = await this.ledger.load();
-      const index = ledger.findIndex(r => r.kind === 'move' && r.mirrorId === vaultId && r.operationId === operationId);
-      const row = ledger[index];
-      if (!row || row.kind !== 'move') return null;
-      let current = await this.reconcile(row, revision);
+      const entry = this.ledger.get(operationId);
+      if (!entry || entry.row.kind !== 'move' || entry.row.mirrorId !== vaultId) return null;
+      let current = await this.reconcile(entry, revision);
       if (current.kind !== 'move') return null;
       if (current.outcome === 'moved_locally_pending_sync') {
         try {
           const root = await this.directory(vaultId, revision);
-          if (!identity(current.root, await this.files.rootIdentity(root)) || !await this.moved(root, current, ledger.slice(index + 1)))
+          if (!identity(current.root, await this.files.rootIdentity(root)) || !await this.moved(root, current, this.ledger.laterSaves(vaultId, current.destination, entry.sequence)))
             current = { ...current, outcome: 'uncertain' };
         } catch { current = { ...current, outcome: 'uncertain' }; }
       }
@@ -222,8 +243,7 @@ export class FilesystemVault {
     });
   }
 
-  private mutate<T extends LocalReceipt>(target: Target & { directory?: true }, plan: (root: string, check: () => Promise<void>,
-    begin: (row: T) => Promise<void>, committed: () => void, rootIdentity: FileIdentity) => Promise<T>) {
+  private mutate<T extends LocalReceipt>(target: Target & { directory?: true }, plan: (root: string, mutation: Mutation<T>) => Promise<T>) {
     return this.ledger.run(async () => {
       const root = await this.directory(target.mirrorId, target.revision);
       let intent: T | undefined, changed = false;
@@ -235,16 +255,18 @@ export class FilesystemVault {
           if (authorized !== root || !identity(rootIdentity, await this.files.rootIdentity(root))) throw new VaultError('source_unavailable');
         };
         const begin = async (row: T) => {
-          await this.ledger.begin(row, row.kind === 'move' ? [row.path, row.destination, ...(row.tree ? [row.tree.from, row.tree.to] : [])] : [row.path]);
+          this.ledger.begin(row);
           intent = row;
         };
-        const result = await plan(root, check, begin, () => { changed = true; }, rootIdentity);
-        await this.ledger.finish(result);
+        const result = await plan(root, { check, begin, rootIdentity, dispatch: () => {
+          if (!intent) throw new VaultError('uncertain');
+          this.ledger.dispatch(intent);
+        }, committed: () => { changed = true; } });
+        this.ledger.finish(result);
         return result;
       } catch (error) {
         if (intent && !changed) {
-          const outcome = intent.kind === 'move' ? 'not_moved' : 'not_saved';
-          try { await this.ledger.finish({ ...intent, outcome } as LocalReceipt); }
+          try { this.ledger.finish(notApplied(intent)); }
           catch (stateError) { throw this.report(stateError, true); }
         }
         // Before publication a filesystem failure cannot leave a partial edit.
@@ -261,11 +283,11 @@ export class FilesystemVault {
 
   async commit(input: Parameters<VaultFiles['commit']>[0]) {
     const { mirrorId, path, operationId, expectedHash, text } = input;
-    const row = await this.mutate<Extract<LocalReceipt, { kind: 'save' }>>(input, async (root, check, begin, changed, rootIdentity) => {
+    const row = await this.mutate<Extract<LocalReceipt, { kind: 'save' }>>(input, async (root, { check, begin, dispatch, committed, rootIdentity }) => {
       const current = await this.files.observe(root, path);
       if (input.kind === 'create' ? current || expectedHash !== null : !current || current.hash !== expectedHash) throw new VaultError('conflict');
       await this.clearPath(root, path);
-      const base = { kind: 'save' as const, mirrorId, path, operationId, previousHash: expectedHash, hash: digest(text),
+      const base = { kind: 'save' as const, publication: 'atomic' as const, mirrorId, path, operationId, previousHash: expectedHash, hash: digest(text),
         root: rootIdentity, at: new Date().toISOString(), ...(current ? { previousIdentity: versionIdentity(current.info) } : {}) };
       let inode!: FileIdentity;
       let birthtime!: number;
@@ -273,7 +295,7 @@ export class FilesystemVault {
         inode = fileIdentity(stage);
         birthtime = stage.birthtimeMs;
         await begin({ ...base, inode, birthtime, outcome: 'uncertain' });
-      }, async () => { await this.clearPath(root, path); await check(); }, changed);
+      }, async () => { await this.clearPath(root, path); await check(); }, dispatch, committed);
       return { ...base, inode, birthtime, outcome: 'saved_locally_pending_sync' };
     });
     return this.saveReceipt(row);
@@ -281,11 +303,11 @@ export class FilesystemVault {
 
   async desktopCommit(input: Parameters<VaultFiles['commit']>[0], run: (before: () => Promise<void>) => Promise<unknown>) {
     const { mirrorId, path, operationId, expectedHash, text } = input;
-    const attempted = await this.mutate<Extract<LocalReceipt, { kind: 'save' }>>(input, async (root, check, begin, changed, rootIdentity) => {
+    const attempted = await this.mutate<Extract<LocalReceipt, { kind: 'save' }>>(input, async (root, { check, begin, dispatch, committed, rootIdentity }) => {
       const current = await this.files.observe(root, path);
       if (!current || current.hash !== expectedHash) throw new VaultError('conflict');
       const base = { kind: 'save' as const, mirrorId, path, operationId, previousHash: expectedHash, hash: digest(text),
-        inode: fileIdentity(current.info), root: rootIdentity, at: new Date().toISOString(), previousIdentity: versionIdentity(current.info) };
+        inode: fileIdentity(current.info), root: rootIdentity, at: new Date().toISOString(), publication: 'desktop' as const, previousIdentity: versionIdentity(current.info) };
       const verify = async () => {
         await this.clearPath(root, path);
         await check();
@@ -293,7 +315,7 @@ export class FilesystemVault {
       };
       await verify();
       await begin({ ...base, outcome: 'uncertain' });
-      const applied = await run(async () => { await verify(); changed(); });
+      const applied = await run(async () => { await verify(); dispatch(); committed(); });
       if (applied === false) return { ...base, outcome: 'not_saved' };
       const updated = await this.files.observe(root, path);
       if (!updated || updated.hash !== base.hash) throw new VaultError('uncertain');
@@ -307,17 +329,19 @@ export class FilesystemVault {
 
   async resolve(input: Resolution) {
     const { mirrorId, path, operationId, token } = input;
-    const row = await this.mutate<Extract<LocalReceipt, { kind: 'resolution' }>>(input, async (root, check, begin, changed, rootIdentity) => {
+    const row = await this.mutate<Extract<LocalReceipt, { kind: 'resolution' }>>(input, async (root, { check, begin, dispatch, committed, rootIdentity }) => {
       const conflict = await this.guardedConflict(root, input, token);
       if (input.expectedLogicalHash !== conflict.logical.hash || input.expectedIncomingHash !== conflict.incoming.hash) throw new VaultError('conflict');
       const text = input.choice === 'accept_incoming' ? conflict.incoming.text : input.choice === 'keep_local' ? conflict.logical.text : input.text;
       if (text === undefined) throw new VaultError('invalid_query');
-      const base = { kind: 'resolution' as const, mirrorId, path, operationId, choice: input.choice, hash: digest(text), root: rootIdentity, at: new Date().toISOString() };
+      const base = { kind: 'resolution' as const, publication: 'atomic' as const, mirrorId, path, operationId, choice: input.choice, hash: digest(text), root: rootIdentity, at: new Date().toISOString() };
       let inode!: FileIdentity;
+      let birthtime!: number;
       await this.files.publish(root, path, text, conflict.canonical, async stage => {
         inode = fileIdentity(stage);
-        await begin({ ...base, inode, outcome: 'uncertain' });
-      }, async () => { await this.guardedConflict(root, input, token); await check(); }, changed);
+        birthtime = stage.birthtimeMs;
+        await begin({ ...base, inode, birthtime, outcome: 'uncertain' });
+      }, async () => { await this.guardedConflict(root, input, token); await check(); }, dispatch, committed);
       const canonical = await this.files.observe(root, path);
       if (!canonical || !identity(inode, canonical.info) || canonical.hash !== base.hash) throw new VaultError('uncertain');
       const copies = await this.files.conflictCopies(root, path);
@@ -332,7 +356,7 @@ export class FilesystemVault {
       }
       this.tokens.delete(token);
       const outcome = input.choice === 'accept_incoming' ? 'adopted_content' : 'saved_locally_pending_sync';
-      return { ...base, inode, outcome };
+      return { ...base, inode, birthtime, outcome };
     });
     return { hash: row.hash, outcome: row.outcome as 'adopted_content' | 'saved_locally_pending_sync' };
   }
@@ -341,46 +365,149 @@ export class FilesystemVault {
     return { mirrorId, path, operationId, at, outcome, hash, previousHash };
   }
 
-  private async reconcile(row: LocalReceipt, revision: number): Promise<LocalReceipt> {
-    if (row.outcome !== 'uncertain') return row;
+  private checks({ row, dispatched }: Entry): RecoveryCheck[] {
+    if (row.publication && !dispatched) return ['nonpublication'];
+    if ((row.kind === 'save' && row.publication === 'desktop') || row.birthtime === undefined) return [];
+    return ['publication'];
+  }
+
+  private async prove(entry: Entry, revision: number, check: RecoveryCheck, flush = false): Promise<Proof> {
+    const { row, dispatched } = entry;
+    if (!this.checks(entry).includes(check)) return review('missing_operation_specific_evidence');
+    // Every new publication path records a dispatch event before it can take
+    // effect. An older intent cannot use the absence of that event as evidence.
+    if (check === 'nonpublication' && row.publication && !dispatched)
+      return { status: 'proven', row: notApplied(row), witness: 'before_publication_dispatch' };
     try {
       const root = await this.directory(row.mirrorId, revision);
-      if (!identity(row.root, await this.files.rootIdentity(root))) return row;
-      if (row.kind === 'move') {
-        if (!await this.moved(root, row)) return row;
-        await this.files.syncParent(root, row.path);
-        await this.files.syncParent(root, row.destination);
-        if (!identity(row.root, await this.files.rootIdentity(root)) || !await this.moved(root, row)) return row;
-        const result = { ...row, outcome: 'moved_locally_pending_sync' as const };
-        await this.ledger.finish(result);
-        return result;
-      }
-      const path = row.path;
-      const written = await this.files.observe(root, path);
-      if (!written || !identity(row.inode, written.info) || row.hash !== written.hash) return row;
-      await this.files.syncParent(root, path);
-      if (!equivalent(written, await this.files.observe(root, path))) return row;
-      if (row.kind === 'resolution' && (await this.files.conflictCopies(root, row.path)).length) return row;
-      if (!identity(row.root, await this.files.rootIdentity(root))) return row;
-      const result = row.kind === 'resolution' && row.choice === 'accept_incoming' ? { ...row, outcome: 'adopted_content' as const } :
-        { ...row, ...(row.kind === 'save' ? { birthtime: written.info.birthtimeMs } : {}), outcome: 'saved_locally_pending_sync' as const };
-      await this.ledger.finish(result);
-      return result;
+      const rootMatches = async () => identity(row.root, await this.files.rootIdentity(root)) &&
+        root === await this.directory(row.mirrorId, revision);
+      if (!await rootMatches()) return review('source_identity_changed');
+      const observe = async (): Promise<Proof> => {
+        if (row.kind === 'move') {
+          if (!await this.moved(root, row)) return review('move_endpoints_do_not_prove_publication');
+          const target = await this.files.entry(root, row.destination);
+          if (!target || !matchesVersion(target, { ...row.inode, birthtime: row.birthtime })) return review('move_endpoints_changed');
+          return { status: 'proven', row: { ...row, outcome: 'moved_locally_pending_sync' }, witness: JSON.stringify(statWitness(target)) };
+        }
+        const written = await this.files.observe(root, row.path);
+        if (!written || !identity(row.inode, written.info) || row.hash !== written.hash ||
+            (row.birthtime !== undefined && row.birthtime !== written.info.birthtimeMs)) return review('note_identity_or_contents_differ');
+        if ((await this.files.conflictCopies(root, row.path)).length)
+          return review(row.kind === 'resolution' ? 'conflict_cleanup_unconfirmed' : 'conflict_copies_present');
+        const applied = row.kind === 'resolution' && row.choice === 'accept_incoming'
+          ? { ...row, outcome: 'adopted_content' as const } : { ...row, outcome: 'saved_locally_pending_sync' as const };
+        return { status: 'proven', row: { ...applied, birthtime: written.info.birthtimeMs }, witness: JSON.stringify(statWitness(written.info)) };
+      };
+      const proof = await observe();
+      if (proof.status !== 'proven' || !flush) return proof;
+      await this.files.syncParent(root, row.path);
+      if (row.kind === 'move') await this.files.syncParent(root, row.destination);
+      if (!await rootMatches()) return review('source_identity_changed');
+      const latest = await observe();
+      return latest.status === 'proven' && latest.witness === proof.witness ? latest : review('evidence_changed');
     } catch (error) {
       if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose('filesystem', 'uncertain');
-      return row;
+      return review('local_evidence_unavailable');
     }
+  }
+
+  // Preserve exact receipt lookup for existing callers. It can confirm a local
+  // publication, using the same proof as the explicit recovery interface.
+  private async reconcile(entry: Entry, revision: number): Promise<LocalReceipt> {
+    if (entry.row.outcome !== 'uncertain') return entry.row;
+    const proof = await this.prove(entry, revision, 'publication', true);
+    if (proof.status !== 'proven') return entry.row;
+    try {
+      this.ledger.finish(proof.row);
+      return proof.row;
+    } catch {
+      this.diagnose('filesystem', 'uncertain');
+      return entry.row;
+    }
+  }
+
+  private legacyOutstanding(markers: Array<{ operationId: string }>) {
+    return markers.filter(marker => !this.ledger.get(marker.operationId));
+  }
+
+  statusPending(mirrors: string[], filter: Parameters<LocalReceipts['statusPending']>[1], markers: Array<{ operationId: string }>) {
+    return this.ledger.run(async () => ({
+      ...this.ledger.statusPending(mirrors, filter),
+      knownLegacy: markers.filter(marker => this.ledger.get(marker.operationId)).map(marker => marker.operationId),
+      settledLegacy: markers.filter(marker => {
+        const entry = this.ledger.get(marker.operationId);
+        return entry && entry.row.outcome !== 'uncertain';
+      }).map(marker => marker.operationId),
+    }));
+  }
+
+  recoveryHasWork(mirrors: string[], markers: Array<{ operationId: string }>) {
+    return this.ledger.run(async () => this.ledger.outstanding(mirrors, 1).length > 0 || this.legacyOutstanding(markers).length > 0);
+  }
+
+  recoveryPage(mirrors: string[], markers: Array<{ operationId: string }>, after?: number) {
+    return this.ledger.run(async () => {
+      const { page, nextAfter } = this.ledger.recoveryPage(mirrors, after);
+      const legacy = this.legacyOutstanding(markers);
+      return { operations: page.map(({ row }) => ({ operationId: row.operationId, kind: row.kind })),
+        nextAfter, legacyOperations: legacy.slice(0, 10).map(({ operationId }) => operationId), legacyCount: legacy.length };
+    });
+  }
+
+  async recovery(input: Exclude<RecoveryInput, { action: 'list' }>, scope: { vaultIds: string[]; revision: number },
+    owner: string, authorize: (id: string) => void) {
+    return this.ledger.run(async () => {
+      const entry = this.ledger.get(input.operationId);
+      if (!entry || !scope.vaultIds.includes(entry.row.mirrorId)) return { status: 'unknown_operation' as const };
+      const { row } = entry;
+      const operationId = row.operationId;
+      authorize(row.mirrorId);
+      if (row.outcome !== 'uncertain') return { operationId, status: outcome(row) };
+      if (input.action === 'inspect') {
+        const checks = this.checks(entry);
+        return { operationId, kind: row.kind, status: 'unresolved' as const, checks,
+          ...(checks.length ? {} : { blocker: 'missing_operation_specific_evidence' }) };
+      }
+      if (input.action === 'check') {
+        const proof = await this.prove(entry, scope.revision, input.check);
+        authorize(row.mirrorId);
+        if (proof.status !== 'proven') return { operationId, status: proof.status, blocker: proof.reason };
+        const token = randomUUID();
+        if (this.evidenceTokens.size >= 128) this.evidenceTokens.delete(this.evidenceTokens.keys().next().value!);
+        this.evidenceTokens.set(token, { operationId, revision: scope.revision, owner, check: input.check,
+          witness: proof.witness, expires: Date.now() + 5 * 60_000 });
+        return { operationId, status: 'proven' as const, outcome: outcome(proof.row), token };
+      }
+      const token = this.evidenceTokens.get(input.token);
+      if (!token || token.operationId !== operationId || token.owner !== owner || token.revision !== scope.revision ||
+          token.expires < Date.now() || input.outcome !== (token.check === 'publication' ? 'applied' : 'not_applied'))
+        return { operationId, status: 'review' as const, blocker: 'fresh_evidence_required' };
+      this.evidenceTokens.delete(input.token);
+      const proof = await this.prove(entry, scope.revision, token.check, true);
+      authorize(row.mirrorId);
+      if (proof.status !== 'proven') return { operationId, status: proof.status, blocker: proof.reason };
+      if (proof.witness !== token.witness)
+        return { operationId, status: 'review' as const, blocker: 'evidence_changed' };
+      this.ledger.finish(proof.row);
+      return { operationId, status: outcome(proof.row) };
+    });
+  }
+
+  guardLegacyWrite<T>(mirrorId: string, path: string, operationId: string, write: () => Promise<T>) {
+    return this.ledger.run(async () => {
+      if (this.ledger.get(operationId)) throw new VaultError('operation_reused');
+      this.ledger.assertFree(mirrorId, [path]);
+      return write();
+    });
   }
 
   async receipts(input: Parameters<VaultFiles['receipts']>[0]) {
     return this.ledger.run(async () => {
-      const rows = (await this.ledger.load()).filter(r => r.kind !== 'move' && r.mirrorId === input.mirrorId &&
-        (!input.path || r.path === input.path) && (!input.operationId || r.operationId === input.operationId) &&
-        (!input.since || Date.parse(r.at) >= Date.parse(input.since)))
-        .sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit);
+      const rows = this.ledger.recent(input);
       const receipts: Receipt[] = [];
       for (const row of rows) {
-        const r = input.operationId ? await this.reconcile(row, input.revision) : row;
+        const r = input.operationId ? await this.reconcile(row, input.revision) : row.row;
         if (r.kind === 'save') receipts.push({ kind: 'save', ...this.saveReceipt(r) });
         if (r.kind === 'resolution' && (r.outcome === 'adopted_content' || r.outcome === 'saved_locally_pending_sync')) {
           receipts.push({ kind: 'resolution', mirrorId: r.mirrorId, path: r.path, operationId: r.operationId, at: r.at, outcome: r.outcome, hash: r.hash });

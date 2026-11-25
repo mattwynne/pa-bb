@@ -12,6 +12,7 @@ type SourceContext = { source: Source; revision: number; catalog: Catalog };
 type ReadInput = { vaultId: string; path: string; heading?: string; blockId?: string; selector?: { version: 'incoming'; token: string }; cursor?: string };
 type ReadSession = { vaultId: string; path: string; selector?: ReadInput['selector']; reader: string; hash: string; revision: number; source: string; offset: number; warnings: string[]; started: number; touched: number };
 const validPath = (path: string, directory?: true) => { if (!path || (!directory && !path.endsWith('.md')) || path.length > 1024 || /[\\\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => !p || p === '.' || p === '..')) throw new VaultError('invalid_path'); return path; };
+const overlaps = (a: string, b: string) => a === b || a.startsWith(b + '/') || b.startsWith(a + '/');
 const lines = (text: string) => Math.max(1, text.replace(/\r?\n$/, '').split('\n').length);
 export class Obsidian {
   private state: Configuration = { revision: 0, vaultIds: [], pending: [] };
@@ -99,6 +100,15 @@ export class Obsidian {
     return { source, revision, catalog };
   }
   private check(vaultId: string, revision: number) { if (this.stopped || this.state.revision !== revision || !this.state.vaultIds.includes(vaultId)) throw new VaultError('not_connected', 'The connected vaults changed. Check Obsidian settings.'); }
+  receiptScope() {
+    this.checkRevision(this.state.revision);
+    return { vaultIds: [...this.state.vaultIds], revision: this.state.revision, pending: [...(this.state.pending ?? [])] };
+  }
+  checkReceiptScope(revision: number, vaultId?: string) {
+    this.checkRevision(revision);
+    if (vaultId) this.check(vaultId, revision);
+  }
+  finalizeReceiptMarker(operationId: string) { return this.clearPending(operationId); }
   private provenance = provenance;
   private async note(vaultId: string, path: string) {
     validPath(path); const context = await this.source(vaultId); const note = await this.files.read(vaultId, context.revision, path); this.check(vaultId, context.revision);
@@ -137,11 +147,26 @@ export class Obsidian {
     } else { const category = catalog.setup === 'incompatible' ? 'incompatible' : 'source_unavailable'; receiptFailures.push({ category }); if (input.path) conflictFailure = category; }
     this.checkRevision(revision);
     const resolved = new Set(receipts.filter(r => r.outcome !== 'uncertain').map(r => r.operationId));
-    if (resolved.size) await this.update(async () => { if (this.state.revision === revision) await this.save({ ...this.state, pending: this.state.pending?.filter(p => !resolved.has(p.operationId)) }); });
+    const limit = Math.min(input.limit ?? 20, 100);
+    const vaultIds = input.vaultId ? [input.vaultId] : this.state.vaultIds;
+    const legacyMarkers = (this.state.pending ?? []).filter(matchesPending);
+    let localPending;
+    try {
+      localPending = await this.files.statusPending?.(vaultIds, { path: input.path, operationId: input.operationId, limit }, legacyMarkers);
+      localPending?.settledLegacy.forEach(id => resolved.add(id));
+    } catch (error) {
+      receiptFailures.push({ category: error instanceof VaultError ? error.category : 'unavailable' });
+      this.diagnose('state', 'unavailable');
+    }
+    if (resolved.size && legacyMarkers.some(marker => resolved.has(marker.operationId))) await this.update(async () => { if (this.state.revision === revision) await this.save({ ...this.state, pending: this.state.pending?.filter(p => !resolved.has(p.operationId)) }); });
     this.checkRevision(revision);
-    const uncertain = (this.state.pending ?? []).filter(matchesPending);
-    const uncertainOperations = uncertain.slice(0, Math.min(input.limit ?? 20, 100));
-    return { ...(this.files.desktopStatus ? { desktop: this.files.desktopStatus() } : {}), ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount: uncertain.length, uncertainOperationsIncomplete: uncertainOperations.length < uncertain.length, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
+    const knownLocal = new Set(localPending?.knownLegacy ?? []);
+    const legacyPending = (this.state.pending ?? []).filter(row => matchesPending(row) && !knownLocal.has(row.operationId));
+    const uncertain = [...(localPending?.rows.map(({ mirrorId, operationId, path, at, kind }) =>
+      ({ vaultId: mirrorId, operationId, path, at, kind })) ?? []), ...legacyPending];
+    const uncertainOperationCount = (localPending?.count ?? 0) + legacyPending.length;
+    const uncertainOperations = uncertain.slice(0, limit);
+    return { ...(this.files.desktopStatus ? { desktop: this.files.desktopStatus() } : {}), ...(this.files.children ? { childrenAccessVersion: 1 as const } : {}), search: catalog.search ?? { version: 1 as const, available: false, reason: 'unavailable' as const }, revision, conflict, conflictFailure, setup: catalog.setup, nextAction: catalog.nextAction, vaults, eligible: catalog.compatible ? catalog.sources.filter(s => s.local.available && !this.state.vaultIds.includes(s.id)) : [], receipts: receipts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit ?? 20), receiptFailures, uncertainOperations, uncertainOperationCount, uncertainOperationsIncomplete: uncertainOperations.length < uncertainOperationCount, configurationUnconfirmed: this.state.unconfirmedRevision === revision, evidenceOnly: true as const };
   }
   private inventoryVaults(catalog: Catalog) {
     return this.state.vaultIds.map(vaultId => {
@@ -520,6 +545,7 @@ export class Obsidian {
     const { revision } = await this.source(input.vaultId);
     if (!this.files.movePath) throw new VaultError('desktop_setup');
     const operationId = input.operationId ?? this.operationId();
+    await this.update(() => this.assertLegacyFree(input.vaultId, [input.path, input.destination], revision));
     if (this.state.moves?.some(row => row.operationId === operationId)) throw new VaultError('operation_reused');
     const result = await this.files.movePath({ ...input, operationId }, revision, signal);
     try { this.check(input.vaultId, revision); }
@@ -541,10 +567,24 @@ export class Obsidian {
     return { vaultId, path, destination, operationId, outcome, legacy };
   }
 
-  private async pending(vaultId: string, path: string, operationId: string, revision: number, kind: 'save' | 'resolution') {
+  private async assertLegacyFree(vaultId: string, paths: string[], revision: number) {
+    this.check(vaultId, revision);
+    const markers = (this.state.pending ?? []).filter(row =>
+      row.vaultId === vaultId && paths.some(path => overlaps(path, row.path)));
+    if (!markers.length) return;
+    const status = await this.files.statusPending?.([vaultId], { limit: 1 }, markers);
+    const settled = new Set(status?.settledLegacy ?? []);
+    if (settled.size) await this.save({ ...this.state, pending: this.state.pending?.filter(row => !settled.has(row.operationId)) });
+    if (markers.some(row => !settled.has(row.operationId)))
+      throw new VaultError('uncertain', 'Inspect the earlier operation receipt before changing these paths.');
+  }
+  private usesLocalReceipts(vaultId: string, catalog: Catalog, native = false) {
+    return this.files.localReceiptWrites ? native || catalog.filesystem?.[vaultId] === 'ready' : undefined;
+  }
+  private async pending(vaultId: string, path: string, operationId: string, revision: number, kind: 'save' | 'resolution', local?: boolean) {
     await this.update(async () => {
-      this.check(vaultId, revision);
-      if (this.state.pending?.some(p => p.vaultId === vaultId && p.path === path)) throw new VaultError('uncertain', 'Inspect this note’s operation receipt before another change.');
+      await this.assertLegacyFree(vaultId, [path], revision);
+      if (local) return;
       if ((this.state.pending?.length ?? 0) >= 100) throw new VaultError('capacity', 'Inspect unresolved operations before preparing more writes.');
       await this.save({ ...this.state, pending: [...(this.state.pending ?? []), { operationId, vaultId, path, kind, at: new Date(this.clock()).toISOString() }] });
     });
@@ -555,7 +595,7 @@ export class Obsidian {
   private operationId() { const time = Math.floor(this.clock()).toString(16).padStart(12, '0'); return `${time.slice(0, 8)}-${time.slice(8)}-7${this.id().slice(15)}`; }
   private async write(vaultId: string, path: string, expectedHash: string | null, prepare: (text: string) => string, create = false, signal?: AbortSignal, reader = '', requestedOperationId?: string, native = false, checkedRevision?: number) {
     if (signal?.aborted) throw new VaultError('cancelled');
-    validPath(path); const { revision, source } = await this.source(vaultId);
+    validPath(path); const { revision, source, catalog } = await this.source(vaultId);
     let text = '';
     if (!create) {
       const proof = this.proofs.get(this.key(vaultId, path));
@@ -571,39 +611,43 @@ export class Obsidian {
     const removedPropertyTags = (oldTags ?? []).filter(tag => !newTags?.includes(tag));
     this.check(vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
     const operationId = requestedOperationId ?? this.operationId();
-    await this.pending(vaultId, path, operationId, revision, 'save');
+    const local = this.usesLocalReceipts(vaultId, catalog, native);
+    await this.pending(vaultId, path, operationId, revision, 'save', local);
     try {
       this.check(vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
       // The file adapter rechecks authorization immediately before local publication.
-      const input = { mirrorId: vaultId, revision, path, operationId, expectedHash, text: next, kind: create ? 'create' as const : 'replace' as const };
+      const input = { mirrorId: vaultId, revision, path, operationId, expectedHash, text: next, ...(local === undefined ? {} : { local }), kind: create ? 'create' as const : 'replace' as const };
       if (native && !this.files.desktopCommit) throw new VaultError('desktop_setup', 'Configure Desktop for these note edits.');
       const receipt = native ? await this.files.desktopCommit!(input, text, signal) : await this.files.commit(input);
-      if (receipt.outcome !== 'uncertain') await this.clearPending(operationId);
+      if (!local && receipt.outcome !== 'uncertain') await this.clearPending(operationId);
       this.proofs.delete(this.key(vaultId, path)); this.check(vaultId, revision);
       return { ...this.provenance(source, receipt.at), path, lineStart: 1, lineEnd: lines(next), operationId, receipt: { ...receipt, kind: 'save' as const }, change: { previousHash: expectedHash, hash: receipt.hash, beforeBytes: Buffer.byteLength(text), afterBytes: Buffer.byteLength(next), removedPropertyTags }, message: receipt.outcome === 'saved_locally_pending_sync' ? 'Saved locally, pending iCloud sync. This does not verify delivery to iCloud or a phone.' : 'The outcome is not a confirmed save. Inspect receipts; do not repeat the edit.' };
     } catch (e) {
-      if (e instanceof VaultError && ['busy', 'conflict', 'capacity', 'cancelled', 'invalid_path', 'unsupported', 'not_connected', 'source_unavailable', 'operation_reused', 'incompatible', 'desktop_setup'].includes(e.category)) await this.clearPending(operationId);
+      if (!local && e instanceof VaultError && ['busy', 'conflict', 'capacity', 'cancelled', 'invalid_path', 'unsupported', 'not_connected', 'source_unavailable', 'operation_reused', 'incompatible', 'desktop_setup'].includes(e.category)) await this.clearPending(operationId);
       throw e;
     }
   }
   async recover(input: { vaultId: string; path: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: Resolution['choice']; text?: string }, signal?: AbortSignal) {
     if (signal?.aborted) throw new VaultError('cancelled');
-    validPath(input.path); const { revision, source } = await this.source(input.vaultId);
+    validPath(input.path); const { revision, source, catalog } = await this.source(input.vaultId);
     if ((input.choice === 'replace') !== (input.text !== undefined)) throw new VaultError('ambiguous_edit');
     if (input.text !== undefined && this.parser.parse(input.text).warnings.includes('properties_unsupported')) throw new VaultError('properties_unsupported');
-    const operationId = this.operationId(); await this.pending(input.vaultId, input.path, operationId, revision, 'resolution');
+    const operationId = this.operationId();
+    const local = this.usesLocalReceipts(input.vaultId, catalog);
+    await this.pending(input.vaultId, input.path, operationId, revision, 'resolution', local);
     let resolved = false;
     try {
       this.check(input.vaultId, revision); if (signal?.aborted) throw new VaultError('cancelled');
-      const result = await this.files.resolve({ mirrorId: input.vaultId, revision, path: input.path, operationId, token: input.token, expectedLogicalHash: input.expectedLogicalHash, expectedIncomingHash: input.expectedIncomingHash, choice: input.choice, ...(input.text === undefined ? {} : { text: input.text }) });
+      const result = await this.files.resolve({ ...(local === undefined ? {} : { local }), mirrorId: input.vaultId, revision, path: input.path, operationId, token: input.token, expectedLogicalHash: input.expectedLogicalHash, expectedIncomingHash: input.expectedIncomingHash, choice: input.choice, ...(input.text === undefined ? {} : { text: input.text }) });
       resolved = true;
       const matches = await this.files.receipts({ mirrorId: input.vaultId, revision, path: input.path, operationId, limit: 1 });
       const receipt = matches.find((r): r is Extract<Receipt, { kind: 'resolution' }> => r.kind === 'resolution' && r.operationId === operationId && r.path === input.path);
       if (!receipt || receipt.outcome !== result.outcome || receipt.hash !== result.hash) throw new VaultError('uncertain', 'Inspect the exact resolution receipt; do not repeat the choice.');
-      await this.clearPending(operationId); this.proofs.delete(this.key(input.vaultId, input.path)); this.check(input.vaultId, revision);
+      if (!local) await this.clearPending(operationId);
+      this.proofs.delete(this.key(input.vaultId, input.path)); this.check(input.vaultId, revision);
       return { ...this.provenance(source, receipt.at), path: input.path, operationId, receipt, message: result.outcome === 'adopted_absence' ? 'Adopted incoming absence locally; no cloud deletion was requested.' : 'Resolution recorded locally; cloud delivery is not verified.' };
     } catch (e) {
-      if (!resolved && e instanceof VaultError && ['conflict', 'capacity', 'cancelled', 'invalid_path', 'unsupported', 'not_connected', 'source_unavailable', 'operation_reused', 'incompatible'].includes(e.category)) await this.clearPending(operationId);
+      if (!local && !resolved && e instanceof VaultError && ['busy', 'conflict', 'capacity', 'cancelled', 'invalid_path', 'unsupported', 'not_connected', 'source_unavailable', 'operation_reused', 'incompatible'].includes(e.category)) await this.clearPending(operationId);
       if (resolved && !(e instanceof VaultError && e.category === 'uncertain')) throw new VaultError('uncertain', 'The resolution was recorded but its receipt could not be confirmed. Inspect the exact operation ID; do not repeat it.');
       throw e;
     }

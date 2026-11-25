@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { isAbsolute, normalize } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { FilesystemVault } from './filesystem-vault.ts';
-import { LocalReceipts } from './local-receipts.ts';
+import type { LocalReceipts } from './local-receipts.ts';
+import type { PendingOperation, PendingStatus } from '../core/ports.ts';
+import type { RecoveryInput } from '../core/receipt-recovery.ts';
 import { noteRpcContract } from './icloud-note-contract.ts';
 import type { ManagedDesktop } from './desktop-install.ts';
 import { DesktopLinks, type DesktopConfiguration } from './desktop-links.ts';
@@ -24,6 +26,7 @@ const status = z.object({ search: z.unknown().optional(), mirrorAccessVersion: z
 const unavailable = (setup: string, nextAction: string): Catalog => ({ setup, nextAction, sources: [], connected: false, compatible: false });
 export class ICloud implements MirrorCatalog, VaultFiles {
   readonly desktopNoteReauthorizes = true as const;
+  readonly localReceiptWrites?: true;
   private filesystem?: FilesystemVault;
   private desktopRunner?: DesktopLinks;
   private configuration?: Configuration;
@@ -37,10 +40,11 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   private pauseStartup = false;
   private readonly installStop = new AbortController();
 
-  constructor(private sdk: BbPluginApi['sdk'], private diagnose: Diagnose, kv?: BbPluginApi['storage']['kv'],
+  constructor(private sdk: BbPluginApi['sdk'], private diagnose: Diagnose, ledger?: LocalReceipts,
     private parser: NoteParser = new MarkdownNotes(), private setup?: DesktopConfiguration, private managed?: ManagedDesktop) {
-    if (kv) {
-      this.filesystem = new FilesystemVault(this.directory.bind(this), this.directoryGrant.bind(this), new LocalReceipts(kv), diagnose);
+    if (ledger) {
+      this.localReceiptWrites = true;
+      this.filesystem = new FilesystemVault(this.directory.bind(this), this.directoryGrant.bind(this), ledger, diagnose);
       const binaries = setup?.binaries ?? managed?.binaries;
       if (binaries) this.desktopRunner = new DesktopLinks(binaries, diagnose, !!managed);
     }
@@ -461,11 +465,14 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     }
   }
 
-  private async route<T>(mirrorId: string, local: (filesystem: FilesystemVault) => Promise<T>, legacy: () => Promise<T>) {
+  private async route<T>(mirrorId: string, local: (filesystem: FilesystemVault) => Promise<T>, legacy: () => Promise<T>, expectedLocal?: boolean) {
     const catalog = await this.snapshot();
     if (!catalog.compatible) throw new VaultError(catalog.setup === 'incompatible' ? 'incompatible' : 'source_unavailable', catalog.nextAction ?? 'Check iCloud status.');
     if (!catalog.sources.find(s => s.id === mirrorId)?.local.available) throw new VaultError('source_unavailable', 'Local note access is unavailable. Check this source in iCloud settings.');
-    if (catalog.filesystem?.[mirrorId] !== 'ready') return legacy();
+    const localRoute = catalog.filesystem?.[mirrorId] === 'ready';
+    if (expectedLocal !== undefined && expectedLocal !== localRoute)
+      throw new VaultError('source_unavailable', 'Local access changed. Inspect the source before preparing a new operation.');
+    if (!localRoute) return legacy();
     if (!this.filesystem) throw new VaultError('source_unavailable');
     return local(this.filesystem);
   }
@@ -528,12 +535,39 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   inspect(mirrorId: string, revision: number, path: string) {
     return this.route(mirrorId, files => files.inspect(mirrorId, revision, path), () => this.request('noteInspectConflict', { mirrorId, revision, path }, false));
   }
+  private legacyWrite<T>(input: { mirrorId: string; path: string; operationId: string }, write: () => Promise<T>) {
+    return this.filesystem ? this.filesystem.guardLegacyWrite(input.mirrorId, input.path, input.operationId, write) : write();
+  }
+
   commit(input: Parameters<VaultFiles['commit']>[0]) {
-    return this.route(input.mirrorId, files => files.commit(input), () => this.request('noteCommit', input, true));
+    const { local, ...request } = input;
+    return this.route(input.mirrorId, files => files.commit(request), () => this.legacyWrite(request, () => this.request('noteCommit', request, true)), local);
   }
   resolve(input: Parameters<VaultFiles['resolve']>[0]) {
-    return this.route(input.mirrorId, files => files.resolve(input), () => this.request('noteResolveConflict', input, true));
+    const { local, ...request } = input;
+    return this.route(input.mirrorId, files => files.resolve(request), () => this.legacyWrite(request, () => this.request('noteResolveConflict', request, true)), local);
   }
+  async statusPending(vaultIds: string[], filter: Parameters<NonNullable<VaultFiles['statusPending']>>[1], markers: PendingOperation[]): Promise<PendingStatus> {
+    const result = await this.filesystem?.statusPending(vaultIds, filter, markers);
+    if (!result) return { rows: [], count: 0, knownLegacy: [], settledLegacy: [] };
+    return { ...result, rows: result.rows.flatMap(row => row.kind === 'move' ? [] : [row]) };
+  }
+
+  async receiptRecovery(input: RecoveryInput, scope: { vaultIds: string[]; revision: number; pending?: PendingOperation[] },
+    owner: string, authorize: (id: string) => void) {
+    if (!this.filesystem) throw new VaultError('unsupported');
+    if (input.action === 'list') return this.filesystem.recoveryPage(scope.vaultIds, scope.pending ?? [], input.after);
+    const result = await this.filesystem.recovery(input, scope, owner, authorize);
+    if (result.status === 'unknown_operation' && scope.pending?.some(row => row.operationId === input.operationId && scope.vaultIds.includes(row.vaultId)))
+      return { operationId: input.operationId, status: 'review', blocker: 'legacy_receipt_requires_exact_status' };
+    return result;
+  }
+
+  recoveryHasWork(scope: { vaultIds: string[]; pending?: PendingOperation[] }) {
+    if (!this.filesystem) throw new VaultError('unsupported');
+    return this.filesystem.recoveryHasWork(scope.vaultIds, scope.pending ?? []);
+  }
+
   async receipts(input: Parameters<VaultFiles['receipts']>[0]): ReturnType<VaultFiles['receipts']> {
     const local = await this.filesystem?.receipts(input);
     if (input.operationId && local?.known) return local.receipts;

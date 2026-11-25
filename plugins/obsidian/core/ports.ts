@@ -22,7 +22,7 @@ export type ConflictInspection = { token: string; logicalHash: string; incomingH
 export type SaveReceipt = { kind: 'save'; operationId: string; mirrorId: string; path: string; at: string; outcome: 'saved_locally_pending_sync' | 'not_saved' | 'uncertain'; hash: string; previousHash: string | null };
 export type ResolutionReceipt = { kind: 'resolution'; operationId: string; mirrorId: string; path: string; at: string; outcome: 'saved_locally_pending_sync' | 'adopted_content' | 'adopted_absence'; hash: string | null };
 export type Receipt = SaveReceipt | ResolutionReceipt;
-export type Resolution = { mirrorId: string; revision: number; path: string; operationId: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: 'keep_local' | 'accept_incoming' | 'replace'; text?: string };
+export type Resolution = { local?: boolean; mirrorId: string; revision: number; path: string; operationId: string; token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: 'keep_local' | 'accept_incoming' | 'replace'; text?: string };
 export type DesktopLinkOperation =
   | { kind: 'start' }
   | { kind: 'eval' | 'write'; code: string }
@@ -41,7 +41,16 @@ export type PathMoveReceipt = Pick<PathMove, 'vaultId' | 'path' | 'destination' 
 export type DesktopLinkTarget = { status: 'resolved' | 'ambiguous' | 'missing' | 'incomplete'; target?: string; candidates?: string[] };
 
 export type DesktopStatus = { mode: 'managed' | 'manual'; state: 'pending' | 'installing' | 'starting' | 'ready' | 'start_failed' | 'unsupported_host' | 'configuration_needed' | 'download_failed' | 'checksum_failed' | 'extract_failed' | 'storage_failed' };
+export type PendingStatus = {
+  count: number;
+  rows: Array<Pick<PendingOperation, 'path' | 'operationId' | 'at'> & { mirrorId: string; kind: 'save' | 'resolution' }>;
+  knownLegacy: string[];
+  settledLegacy: string[];
+};
 export interface VaultFiles {
+  localReceiptWrites?: true;
+  statusPending?(vaultIds: string[], filter: { path?: string; operationId?: string; limit: number }, markers: PendingOperation[]): Promise<PendingStatus>;
+
   desktopStatus?(): DesktopStatus;
   desktopConfiguration?(configuration: Configuration): void;
   // The direct adapter checks its identity-bound iCloud grant on both sides of the read.
@@ -60,7 +69,7 @@ export interface VaultFiles {
   read(vaultId: string, revision: number, path: string): Promise<CompleteNote>;
   readIncoming(vaultId: string, revision: number, path: string, token: string): Promise<IncomingRead>;
   inspect(vaultId: string, revision: number, path: string): Promise<ConflictInspection | null>;
-  commit(input: { mirrorId: string; revision: number; operationId: string; path: string; kind: 'create' | 'replace'; expectedHash: string | null; text: string }): Promise<Omit<SaveReceipt, 'kind'>>;
+  commit(input: { mirrorId: string; revision: number; operationId: string; path: string; kind: 'create' | 'replace'; local?: boolean; expectedHash: string | null; text: string }): Promise<Omit<SaveReceipt, 'kind'>>;
   resolve(input: Resolution): Promise<Pick<ResolutionReceipt, 'outcome' | 'hash'>>;
   receipts(input: { mirrorId: string; revision: number; operationId?: string; path?: string; since?: string; limit: number }): Promise<Receipt[]>;
 }

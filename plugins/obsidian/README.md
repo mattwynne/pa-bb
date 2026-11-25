@@ -42,6 +42,8 @@ recovery. Connecting a vault installs the pinned, checksum-verified Desktop and 
 - `obsidian_status` reports connected vaults, local access, sync and exact
   save or conflict evidence. `obsidian_create_note`, `obsidian_edit_note`
   and `obsidian_update_properties` use the checked behavior below.
+- `obsidian_recover_receipts` inspects and settles proven outcomes by operation
+  ID. See [receipt recovery and hourly activation](docs/receipt-recovery.md).
 
 The BB plugin interface provides generic vault inventory, checked note-property
 edits, path moves and receipts. The [GTD plugin](../gtd/README.md) interprets the
@@ -173,12 +175,11 @@ property tags are named in the change result. This does not infer vault-wide typ
 | Search and task pages | Default 20, maximum 50 rows. Up to ten one-minute result cursors, bound to the configuration and rechecked for vault access. Desktop commands cap stdout at 8 MiB and inventory at 10,000 entries. |
 | Save conflict-copy inspection | At most 10,000 siblings; larger/ambiguous sets refuse with uncertainty. This separate save-safety bound is not a search cutoff |
 | Complete-read proofs | 256 in-memory note versions, bound to the reading thread; issued only after bounded complete delivery without parser-limit warnings, invalidated on the affected note save, configuration change and restart |
-| Pending saves | 100 persisted unresolved operations |
-| Filesystem operation receipts | Up to 512 records within one 256 KiB storage entry. Confirmed records are retained for 30 days and pruned on subsequent writes. Uncertain records are retained for inspection. |
+| Filesystem operation receipts | Append-only SQLite history with an indexed unresolved projection. Unresolved operations block overlapping paths. |
+| Recovery tool | Ten local operation IDs per page. Evidence tokens expire after five minutes and are bound to the operation, configuration, and requesting thread. |
 | Legacy recovery | Existing iCloud recovery data and limits continue to apply to legacy operations. |
 
-At receipt capacity, inspect the existing operations before preparing another
-write. Receipts record past operations. Use a fresh read for current bytes.
+Receipts record past operations. Use a fresh read for current bytes.
 Use filesystem or iCloud history for previous versions of filesystem-backed
 notes when history is available.
 

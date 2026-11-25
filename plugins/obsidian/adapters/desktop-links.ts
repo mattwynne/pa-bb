@@ -216,7 +216,8 @@ export class DesktopLinks {
             if (!file || app.vault.getAbstractFileByPath(destination) || await app.vault.adapter.exists(destination) ||
                 !app.vault.getConfig("alwaysUpdateLinks")) return false;
             await app.fileManager.renameFile(file, destination);
-            return file.path === destination;
+            if (file.path !== destination) throw new Error();
+            return true;
           })()`]));
           if (value === false) dispatched = false;
           else if (value !== true) throw new VaultError('desktop_reply');

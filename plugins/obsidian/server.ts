@@ -1,4 +1,4 @@
-import { experimental_PluginRpcRefusal, type BbPluginApi } from '@get-bb/plugin-sdk';
+import { cliCommand, defineCli, experimental_PluginRpcRefusal, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { dirname, join } from 'node:path';
 import { ManagedDesktop } from './adapters/desktop-install.ts';
 import { randomUUID } from 'node:crypto';
@@ -7,6 +7,8 @@ import { Obsidian } from './core/service.ts';
 import { VaultError } from './core/ports.ts';
 import { Admission } from './core/admission.ts';
 import type { MirrorCatalog, VaultFiles, NoteParser, StateRepository } from './core/ports.ts';
+import { LocalReceipts } from './adapters/local-receipts.ts';
+import { recoveryPrompt } from './core/receipt-recovery.ts';
 import { ICloud } from './adapters/icloud.ts';
 import { desktopConfiguration } from './adapters/desktop-links.ts';
 import { MarkdownNotes, sectionLinks } from './adapters/markdown-notes.ts';
@@ -23,7 +25,10 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
   const desktop = desktopConfiguration(await settings.get());
   const managed = desktop && !desktop.binaries && !dependencies?.files
     ? new ManagedDesktop(join(dirname(bb.storage.database().name), 'desktop'), diagnose) : undefined;
-  const icloud = new ICloud(bb.sdk, diagnose, dependencies?.files ? undefined : bb.storage.kv, parser, desktop, managed);
+  let ledger;
+  try { ledger = dependencies?.files ? undefined : new LocalReceipts(bb.storage); }
+  catch { diagnose('state', 'unavailable'); throw new Error('Obsidian receipt storage could not be opened.'); }
+  const icloud = new ICloud(bb.sdk, diagnose, ledger, parser, desktop, managed);
   const service = new Obsidian(dependencies?.catalog ?? icloud, dependencies?.files ?? icloud, parser, dependencies?.repository ?? bbState(bb, diagnose), randomUUID, Date.now, diagnose);
   const admission = new Admission();
   bb.onDispose(async () => { icloud.cancelInstallation(); await admission.stop(); await service.stop(); await icloud.stop(); });
@@ -89,7 +94,35 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     async remove({ vaultId }, context) { clientOnly(context); try { await admission.run(() => service.remove(vaultId)); return await service.status(); } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Removal was not confirmed. Check again after the current operation finishes. Notes and iCloud settings were not deleted.'); } },
     async recovery(input, context) { clientOnly(context); try { const result = await admission.run(() => service.recover(input)); return { operationId: result.operationId, receipt: result.receipt, message: result.message }; } catch (error) { if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable'); throw new Error('Resolution was not confirmed. Inspect the exact operation receipt and conflict again; do not repeat it blindly.'); } },
   });
+  bb.cli.register(defineCli({ name: 'obsidian', summary: 'Obsidian receipt recovery', commands: {
+    'recovery-needed': cliCommand({ summary: 'Check for outstanding local receipts without opening any notes', async run(_, context) {
+      try {
+        const scope = service.receiptScope();
+        const hasWork = await admission.run(() => icloud.recoveryHasWork(scope));
+        service.checkReceiptScope(scope.revision);
+        if (context.signal?.aborted) throw new VaultError('cancelled');
+        return { exitCode: 0, stdout: hasWork ? 'work' : 'empty' };
+      } catch (error) {
+        if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('state', 'unavailable');
+        return { exitCode: 1, stderr: 'Could not check Obsidian receipt storage.' };
+      }
+    } }),
+    'recovery-prompt': cliCommand({ summary: 'Print the Obsidian receipt reconciliation agent prompt', run() {
+      return { exitCode: 0, stdout: recoveryPrompt };
+    } }),
+  } }));
   const handlers = {
+    obsidian_recover_receipts: async ({ request }: { request: import('./core/receipt-recovery.ts').RecoveryInput }, signal: AbortSignal, owner: string) => {
+      const scope = service.receiptScope();
+      const result = await icloud.receiptRecovery(request, scope, owner, id => {
+        if (signal.aborted) throw new VaultError('cancelled');
+        service.checkReceiptScope(scope.revision, id);
+      });
+      service.checkReceiptScope(scope.revision);
+      if ('status' in result && (result.status === 'applied' || result.status === 'not_applied') && 'operationId' in result && result.operationId &&
+          scope.pending.some(row => row.operationId === result.operationId)) await service.finalizeReceiptMarker(result.operationId);
+      return result;
+    },
     obsidian_move_note: (input: Omit<Parameters<Obsidian['movePath']>[0], 'kind'>, signal: AbortSignal) => service.movePath({ ...input, kind: 'note' }, signal),
     obsidian_move_folder: (input: Omit<Parameters<Obsidian['movePath']>[0], 'kind'>, signal: AbortSignal) => service.movePath({ ...input, kind: 'folder' }, signal),
     obsidian_move_status: service.moveReceipt.bind(service), obsidian_status: service.status.bind(service), obsidian_search_notes: service.search.bind(service),

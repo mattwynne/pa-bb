@@ -26,7 +26,7 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
       local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null } }],
   };
   const calls: Array<{ method: string; input: unknown }> = [];
-  const controls: { fallbackDirectory?: string; onLookup?: () => Promise<void>; deny?: boolean; denyGrant?: boolean; malformedGrant?: boolean; capabilityError?: unknown; capabilityReply?: unknown; afterAreaConfigure?: () => void; beforeStatus?: () => Promise<void>; failFinish?: boolean; onMoveIntent?: () => Promise<void>; onMoveSaved?: () => Promise<void> } = {};
+  const controls: { fallbackDirectory?: string; onLookup?: () => Promise<void>; deny?: boolean; denyGrant?: boolean; malformedGrant?: boolean; capabilityError?: unknown; capabilityReply?: unknown; afterAreaConfigure?: () => void; beforeStatus?: () => Promise<void>; failFinish?: boolean } = {};
   const legacyReceipts = [{
     kind: 'save', path: 'Old.md', mirrorId: 'one', operationId: randomUUID(), at: '2026-01-01T00:00:00Z',
     hash: hash('saved previously'), previousHash: null, outcome: 'saved_locally_pending_sync',
@@ -68,26 +68,17 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
       }
     },
   } } as unknown as BbPluginApi['sdk'];
-  const hostStorage = bb.storage;
-  const storage = {
-    ...hostStorage, kv: {
-      ...hostStorage.kv,
-      async set(key: string, value: unknown) {
-        if (controls.failFinish && key === 'filesystem-note-receipts' && Array.isArray(value) &&
-          value.some(row => row.outcome === 'saved_locally_pending_sync')) {
-          throw new Error(`sentinel-private-receipt ${directory}`);
-        }
-        await hostStorage.kv.set(key, value);
-        if (key === 'filesystem-note-receipts' && Array.isArray(value) &&
-          value.at(-1)?.kind === 'move' && value.at(-1)?.outcome === 'uncertain') await controls.onMoveIntent?.();
-        if (key === 'filesystem-note-receipts' && Array.isArray(value) &&
-          value.at(-1)?.kind === 'move' && value.at(-1)?.outcome === 'moved_locally_pending_sync') await controls.onMoveSaved?.();
-      },
-    },
-  };
+  const storage = bb.storage;
+  const db = storage.database();
+  db.function('synthetic_receipt_failure', () => {
+    if (controls.failFinish) throw new Error(`sentinel-private-receipt ${directory}`);
+    return null;
+  });
   await storage.kv.set('connected-vaults', { revision: 7, vaultIds: ['one'], pending: [] });
-  const start = () => plugin({ ...bb, sdk, storage });
-  await start();
+  const start = (hostApi: BbPluginApi) => plugin({ ...hostApi, sdk });
+  await start(bb);
+  db.exec(`CREATE TEMP TRIGGER synthetic_fail_terminal BEFORE INSERT ON obsidian_receipt_events
+    WHEN NEW.event = 'terminal' BEGIN SELECT synthetic_receipt_failure(); END`);
   t.after(async () => { await harness.lifecycle.dispose(); await rm(owner, { recursive: true, force: true }); });
   const tool = async (name: string, input: unknown, expectedError?: string) => {
     const r = await harness.behavior.callAgentTool(`obsidian_${name}`, input, { threadId: 'reader' });
