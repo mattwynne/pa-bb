@@ -124,6 +124,17 @@ export class LegacyMigrationBlocker extends Error {
   constructor(readonly stage: 'deferrals' | 'reactivations' | 'project_changes' | 'legacy_evidence') { super(stage); }
 }
 type StoredLegacyPlan = { id: string; plan: string; move_op: string | null; attempted: string };
+const historicalAreaPlanFields = new Set(['config', 'source', 'id', 'owner', 'expectedHash', 'areaPath', 'threads']);
+function isHistoricalAreaInstruction(row: StoredLegacyPlan, plan: Plan) {
+  // At 7335a50, Area preparation returned an independent Obsidian tool call.
+  // GTD stored only this shape and had no dispatch to reconcile for it.
+  const area = plan.areaPath;
+  const fields = Object.keys(plan);
+  return row.move_op === null && row.attempted === '[]' &&
+    (area === null || (typeof area === 'string' && area.endsWith('.md') && relativeFolder.safeParse(area).success)) &&
+    Array.isArray(plan.threads) && plan.threads.length === 0 &&
+    fields.length === historicalAreaPlanFields.size && fields.every(field => historicalAreaPlanFields.has(field));
+}
 const migrationDiagnosticLimit = 20;
 const diagnosticOperationId = (value: unknown) => z.string().uuid().safeParse(value).data ?? null;
 class ChangeError extends Error {}
@@ -1009,11 +1020,19 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
   const legacyScope = (config: Config) => JSON.stringify([config.vaultId, config.projectsFolder]);
   function pendingChangePlans(config: Config) {
     const rows = db.prepare('SELECT id,plan,move_op,attempted FROM project_change_plans ORDER BY created, id').all() as StoredLegacyPlan[];
-    return rows.flatMap(row => {
+    const candidates: {row: StoredLegacyPlan; plan: Plan}[] = [];
+    let ignoredHistoricalAreaPlans = 0;
+    for (const row of rows) {
       const plan = JSON.parse(row.plan) as Plan;
-      return isDeepStrictEqual(plan.config, config) && !plan.settled &&
-        (row.move_op || row.attempted !== '[]' || plan.noteAttempted || plan.folderAttempted || !plan.direct) ? [{row,plan}] : [];
-    });
+      if (!isDeepStrictEqual(plan.config, config) || plan.settled) continue;
+      if (isHistoricalAreaInstruction(row, plan)) {
+        ignoredHistoricalAreaPlans++;
+        continue;
+      }
+      if (row.move_op || row.attempted !== '[]' || plan.noteAttempted || plan.folderAttempted || plan.areaOperation || !plan.direct)
+        candidates.push({row,plan});
+    }
+    return {candidates, ignoredHistoricalAreaPlans};
   }
   async function inspectChangePlan(row: StoredLegacyPlan, signal: AbortSignal) {
     try {
@@ -1040,7 +1059,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       const request = JSON.parse(row.request) as Reactivation;
       return { planId:diagnosticOperationId(row.plan_id), cleanupOperationId:diagnosticOperationId(request.cleanupId) };
     });
-    const candidates = pendingChangePlans(config);
+    const {candidates, ignoredHistoricalAreaPlans} = pendingChangePlans(config);
     const projectChanges = [];
     for (const {row,plan} of candidates.slice(0, migrationDiagnosticLimit)) {
       signal.throwIfAborted();
@@ -1048,7 +1067,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         ? { ready:null, state:'not_checked', moveOutcome:null }
         : await inspectChangePlan(row, signal);
       projectChanges.push({ planId:diagnosticOperationId(row.id),
-        moveOperationId:diagnosticOperationId(plan.destination && (plan.direct || plan.project ? row.id : row.move_op)),
+        moveOperationId:diagnosticOperationId(row.move_op ?? (plan.destination && (plan.direct || plan.project) ? row.id : null)),
         folderOperationId:diagnosticOperationId(plan.folderOperation),
         propertyOperationId:diagnosticOperationId(plan.areaOperation ?? (!plan.destination && plan.noteAttempted ? row.id : null)),
         ...result });
@@ -1059,7 +1078,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       firstBlocker?.state === 'evidence_unavailable' ? 'legacy_evidence' :
       firstBlocker || candidates.length > projectChanges.length ? 'project_changes' : 'legacy_checks_passed';
     return { stage, counts:{deferrals:deferralCount, reactivations:reactivationCount, projectChanges:candidates.length},
-      limitPerCategory:migrationDiagnosticLimit, deferrals, reactivations, projectChanges };
+      ignoredHistoricalAreaPlans, limitPerCategory:migrationDiagnosticLimit, deferrals, reactivations, projectChanges };
   }
   async function checkMigrationReady(config: Config, signal: AbortSignal) {
     await unchanged(config);
@@ -1068,7 +1087,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       throw new LegacyMigrationBlocker('deferrals');
     if (db.prepare('SELECT 1 FROM project_reactivations WHERE scope=?').get(key))
       throw new LegacyMigrationBlocker('reactivations');
-    for (const {row,plan} of pendingChangePlans(config)) {
+    for (const {row,plan} of pendingChangePlans(config).candidates) {
       const result = await inspectChangePlan(row, signal);
       if (!result.ready) throw new LegacyMigrationBlocker(result.state === 'evidence_unavailable' ? 'legacy_evidence' : 'project_changes');
       recordPlan(row.id, { ...plan, settled:true });

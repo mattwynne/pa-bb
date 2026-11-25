@@ -48,6 +48,8 @@ After a separate approval, apply the reviewed plan with `bb gtd migration-apply 
 
 If apply reports a legacy preflight blocker, run `bb gtd migration-status --plan <id> --readiness`. The read-only report lists the blocking stage and up to 20 operation records per category, with total counts. Keep the output private. Inspect the listed project plans and Obsidian receipts before taking recovery action. `legacy_checks_passed` covers the legacy operation gate. Apply also rechecks the reviewed notes and thread references.
 
+The `ignoredHistoricalAreaPlans` count covers old Area-only instructions for which GTD recorded no dispatch. Those plans remain inspectable. Pending moves, property writes, deferrals and reactivations still require reconciliation.
+
 After verified cutover, use `bb gtd projects --stable --json` or `bb gtd areas --stable --json` for the current identity contract. The default CLI and original inventory RPCs still return paths. BB's current pages write stable links and open legacy bookmarks with reviewed aliases. For agent-driven creation, `gtd_prepare_landing_note` supplies a file path and initial frontmatter with a new ID for one non-overwriting `obsidian_create_note` call.
 
 ## Usage

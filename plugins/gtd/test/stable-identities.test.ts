@@ -295,6 +295,59 @@ test('migration readiness reports scoped legacy blockers and stays read-only', a
   assert.equal(f.writes.notes + f.writes.moves + f.writes.metadata + f.writes.spawns, 0);
 });
 
+test('historical Area-only instructions stay inspectable and never gate an otherwise current review', async t => {
+  const f = await fixture();
+  t.after(() => f.host.harness.lifecycle.dispose());
+  const review = await f.preview();
+  const db = f.host.bb.storage.database();
+  const insert = db.prepare('INSERT INTO project_change_plans (id,created,plan) VALUES (?,?,?)');
+  const config = {vaultId:source, projectsFolder:'Projects', areasFolder:'Areas'};
+  const historical = {config,source,id:oldProject,owner:oldProject,expectedHash:hash(f.docs.get(oldProject)!),threads:[]};
+  const planId = randomUUID();
+  insert.run(planId, 1, JSON.stringify({...historical, areaPath:null}));
+  for (let i = 0; i < 59; i++) insert.run(randomUUID(), 1, JSON.stringify({...historical,areaPath:'Areas/Former.md'}));
+  const lookup = await f.host.harness.behavior.callAgentTool('gtd_check_project_change', {planId});
+  assert.ok(typeof lookup !== 'string' && !lookup.isError && lookup.content[0].type === 'text');
+  assert.equal(JSON.parse(lookup.content[0].text).state, 'not_verified');
+  const plans = () => db.prepare('SELECT * FROM project_change_plans ORDER BY id').all();
+  const before = plans();
+  const status = await f.cli('migration-status', '--plan', review.planId, '--readiness');
+  const {readiness} = JSON.parse(status.stdout!);
+  assert.equal(readiness.stage, 'legacy_checks_passed');
+  assert.equal(readiness.ignoredHistoricalAreaPlans, 60);
+  assert.equal(readiness.counts.projectChanges, 0);
+  assert.deepEqual(plans(), before);
+  assert.equal((await f.cli('migration-apply', '--plan', review.planId)).exitCode, 0);
+  assert.deepEqual(plans(), before);
+});
+
+test('historical move plans and Area plans with dispatch evidence remain preflight blockers', async t => {
+  const f = await fixture();
+  t.after(() => f.host.harness.lifecycle.dispose());
+  const review = await f.preview();
+  const db = f.host.bb.storage.database();
+  const insert = db.prepare('INSERT INTO project_change_plans (id,created,plan,move_op,attempted) VALUES (?,?,?,?,?)');
+  const config = {vaultId:source,projectsFolder:'Projects',areasFolder:'Areas'};
+  const historical = {config,source,id:oldProject,owner:oldProject,expectedHash:hash(f.docs.get(oldProject)!),threads:[]};
+  const areaPlan = {...historical,areaPath:'Areas/Former.md'};
+  const moveId = randomUUID(), propertyId = randomUUID(), journalId = randomUUID(), threadId = randomUUID();
+  insert.run(moveId, 1, JSON.stringify({...historical,destination:'Projects/Done/Renew permits.md',status:'done'}), null, '[]');
+  insert.run(propertyId, 1, JSON.stringify({...areaPlan,noteAttempted:true}), null, '[]');
+  const journalOperationId = randomUUID();
+  insert.run(journalId, 1, JSON.stringify(areaPlan), journalOperationId, '[]');
+  insert.run(threadId, 1, JSON.stringify(areaPlan), null, '["thread-previously-attempted"]');
+  const result = await f.cli('migration-status', '--plan', review.planId, '--readiness');
+  const {readiness} = JSON.parse(result.stdout!);
+  assert.equal(readiness.stage, 'project_changes');
+  assert.equal(readiness.ignoredHistoricalAreaPlans, 0);
+  assert.equal(readiness.counts.projectChanges, 4);
+  assert.deepEqual(new Set(readiness.projectChanges.map((item: {planId:string}) => item.planId)), new Set([moveId, propertyId, journalId, threadId]));
+  assert.equal(readiness.projectChanges.find((item: {planId:string}) => item.planId === journalId).moveOperationId, journalOperationId);
+  assert.equal(readiness.projectChanges.find((item: {planId:string}) => item.planId === moveId).state, 'move_not_verified');
+  assert.equal((await f.cli('migration-apply', '--plan', review.planId)).exitCode, 1);
+  assert.equal(f.writes.notes + f.writes.moves + f.writes.metadata, 0);
+});
+
 test('a verified rename takes precedence over an unrelated current occupant of the old path', async t => {
   const f = await fixture();
   t.after(() => f.host.harness.lifecycle.dispose());
