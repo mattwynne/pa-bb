@@ -24,6 +24,7 @@ async function fixture() {
       return { source, notes:[...docs].map(([path, properties])=>({path,properties,malformed:false})),
         folders:dirs, incomplete:false };
     }
+    if (a.method === 'noteEvidence') return {hash:'1'.repeat(64), receipt:null, properties: docs.get(a.input.path)};
     assert.fail('Unexpected Obsidian call');
   }}, threads:{list:async a=>!a?.offset&&!a?.archived?[makeThreadResponse({id:'thread-1'})]:[],experimental_listPluginMetadata:async()=>({threads:[{threadId:'thread-1',metadata:structuredClone(metadata)}]}),updatePluginMetadata:async (input:any)=>{
     assert.equal(input.threadId,'thread-1'); assert.deepEqual(Object.keys(input.set),['project']);writes++;metadata.project=input.set.project;

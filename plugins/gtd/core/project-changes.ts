@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { noteEvidence, ObsidianBackend, readVaultInventory, relativeFolder, vaultOptions, type PreviewEvidence } from '../adapters/obsidian.ts';
 import { readThreadReferences } from './migration-preview.ts';
+import { stableIds } from './identity.ts';
 import { statuses } from './model.ts';
 import { projectActionInput, reference } from '../contract.ts';
 import { noteSaveReceipt } from '../contract.ts';
@@ -22,7 +23,7 @@ const moveOutcome = z.enum(['moved_locally_pending_sync', 'moved_supported_links
 type MoveOutcome = z.infer<typeof moveOutcome>;
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 export const deferInput = z.object({
-  id: relativeFolder.refine(id => id.endsWith('.md'), 'Use the exact project landing-note ID.'),
+  id: z.union([stableIds.project, relativeFolder.refine(id => id.endsWith('.md'), 'Use the exact project landing-note ID.')]),
   deferUntil: z.iso.date().refine(date => !date.startsWith('0000-'), 'Use a real calendar date in YYYY-MM-DD form.'),
 }).strict();
 const savedLocally = 'saved_locally_pending_sync';
@@ -81,7 +82,7 @@ const moveReceipt = z.object({
 const outcomeFor = (receipt: z.infer<typeof moveReceipt> | null): MoveOutcome | null =>
   receipt?.legacy?.outcome ?? receipt?.outcome ?? null;
 type Config = { vaultId: string; projectsFolder: string; areasFolder: string };
-type Reactivation = { owner: string; destination: string; date: string; planId: string; cleanupId?: string };
+type Reactivation = { stableId?: string; owner: string; destination: string; date: string; planId: string; cleanupId?: string };
 type ReactivationFailure = 'inventory_unavailable' | 'candidate_blocked' | 'move_blocked' | 'move_unconfirmed' |
   'links_pending' | 'cleanup_unconfirmed';
 const pacificCalendar = new Intl.DateTimeFormat('sv-SE', {
@@ -98,6 +99,8 @@ type Plan = {
   destination?: string;
   project?: z.infer<typeof projectMove>;
   originalArea?: string;
+  stableId?: string;
+  settled?: true;
   threads: string[];
   direct?: true;
   noteAttempted?: boolean;
@@ -108,6 +111,7 @@ type Plan = {
   status?: string;
 };
 type Deferral = {
+  stableId?: string;
   owner: string;
   destination: string;
   date: string;
@@ -125,7 +129,7 @@ export function safeChangeError(e: unknown) {
     ? e.message
     : 'Evidence unavailable or changed. Inspect the plan, note and receipts before any further write.';
 }
-export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config & { automaticReactivation?: boolean }>, reactivationClock = Date.now) {
+export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config & { automaticReactivation?: boolean; stableIdentity?: boolean }>, reactivationClock = Date.now) {
   const db = bb.storage.database();
   db.exec(
     `CREATE TABLE IF NOT EXISTS project_change_plans (id TEXT PRIMARY KEY, created INTEGER NOT NULL, plan TEXT NOT NULL, move_op TEXT, attempted TEXT NOT NULL DEFAULT '[]')`,
@@ -144,7 +148,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
   const active = new Set<string>();
   const deferring = new Set<string>();
   async function scope() {
-    const { vaultId, projectsFolder, areasFolder } = await settings();
+    const { vaultId, projectsFolder, areasFolder, stableIdentity } = await settings();
     if (vaultId === '__none__') return refuse('Choose a vault first.');
     const [source, ...rest] = vaultId.split('/');
     const root = rest.join('/');
@@ -152,6 +156,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       config: { vaultId, projectsFolder, areasFolder },
       source,
       root,
+      stableIdentity,
       areas: [root, areasFolder].filter(Boolean).join('/'),
       projects: [root, projectsFolder].filter(Boolean).join('/'),
     };
@@ -168,12 +173,12 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       signal,
       outputSchema: z.unknown(),
     });
-  async function inventory(s: Awaited<ReturnType<typeof scope>>, signal: AbortSignal) {
+  async function inventory(s: Awaited<ReturnType<typeof scope>>, signal: AbortSignal, stable = s.stableIdentity) {
     const e: PreviewEvidence = { owners: new Map(), entries: new Set() };
     const list = await new ObsidianBackend(
       bb.sdk,
       { vaultId: s.source, root: s.root, folder: s.config.projectsFolder, areasFolder: s.config.areasFolder },
-      e,
+      e, stable ? 'stable' : s.stableIdentity ? 'compatible' : 'legacy',
     ).readProjects(signal);
     if (!list.complete)
       refuse('Complete project and ownership evidence is required. No changes made.');
@@ -229,7 +234,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     const { e, rows } = observed ?? await inventory(s, signal);
     const item = rows.find((p) => p.id === input.id);
     if (!item) return refuse('Exact project not found. If already moved, inspect the original plan.');
-    const owner = item.id;
+    const owner = item.notePath ?? item.id;
     if (!owner.endsWith('.md') || !e.owners.has(owner)) refuse('A confirmed project landing note is required.');
     const p: Plan = {
       config: s.config,
@@ -239,6 +244,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       expectedHash: input.expectedHash,
       threads: [],
       direct: true,
+      ...(item.notePath ? { stableId: item.id } : {}),
     };
     // Legacy note moves also require time-ordered operation IDs.
     const now = Date.now();
@@ -247,11 +253,14 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     if (input.areaPath !== undefined) {
       p.areaPath = input.areaPath;
       if (input.areaPath !== null) {
-        if (/[\[\]#|%]/.test(input.areaPath))
-          refuse('This path contains link syntax and cannot be used as a literal Area declaration.');
-        if (!input.areaPath.startsWith(s.areas + '/') || !input.areaPath.endsWith('.md'))
-          refuse('Select an exact Markdown target under the configured Areas folder.');
-        await confirmArea(s, input.areaPath, signal);
+        if (p.stableId) await confirmStableArea(s, input.areaPath, signal);
+        else {
+          if (/[\[\]#|%]/.test(input.areaPath))
+            refuse('This path contains link syntax and cannot be used as a literal Area declaration.');
+          if (!input.areaPath.startsWith(s.areas + '/') || !input.areaPath.endsWith('.md'))
+            refuse('Select an exact Markdown target under the configured Areas folder.');
+          await confirmArea(s, input.areaPath, signal);
+        }
       }
       const props = e.owners.get(owner)!;
       if (
@@ -284,16 +293,21 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         p.relativeAreaDeclaration = declaration;
       if (e.entries.has(destinationStem) || e.entries.has(destinationStem + '.md'))
         refuse('Destination note or support folder already exists.');
-      const refs = await readThreadReferences(bb.sdk, s.source, signal);
-      if (refs.warnings.length || refs.refs.some((r) => r.id === p.destination))
-        refuse('Thread coverage is incomplete or destination already has references.');
-      p.threads = refs.refs.filter((r) => r.id === item.id).map((r) => r.threadId);
+      if (!p.stableId) {
+        const refs = await readThreadReferences(bb.sdk, s.source, signal, false);
+        if (refs.warnings.length || refs.refs.some((r) => r.id === p.destination))
+          refuse('Thread coverage is incomplete or destination already has references.');
+        p.threads = refs.refs.filter((r) => r.id === item.id).map((r) => r.threadId);
+      }
       if (!fromPanel && p.threads.length > 20) refuse('More than 20 linked conversations; manual review required.');
       if (p.project === 'paired') p.folderOperation = operationId(now);
       next = { tool: 'gtd_apply_project_change' as const, input: { planId: id } };
     }
     await unchanged(s.config);
-    db.prepare(`DELETE FROM project_change_plans WHERE created < ? AND NOT EXISTS (
+    db.prepare(`DELETE FROM project_change_plans WHERE created < ? AND (
+      json_extract(plan, '$.settled') = 1 OR (move_op IS NULL AND attempted = '[]'
+      AND json_extract(plan, '$.direct') = 1 AND NOT coalesce(json_extract(plan, '$.noteAttempted'),0) AND NOT coalesce(json_extract(plan, '$.folderAttempted'),0))
+    ) AND NOT EXISTS (
       SELECT 1 FROM project_deferrals WHERE move_plan = project_change_plans.id AND complete = 0
     ) AND NOT EXISTS (
       SELECT 1 FROM project_reactivations WHERE plan_id = project_change_plans.id
@@ -321,9 +335,12 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
   function storedPlan(planId: string, recovering = false) {
     const row = db.prepare('SELECT plan,move_op,attempted,created FROM project_change_plans WHERE id=?')
       .get(planId) as { plan: string; move_op: string | null; attempted: string; created: number } | undefined;
-    if (!row || (!recovering && row.created < Date.now() - planLifetime))
-      return refuse('Plan not found or expired. Do not repeat a prior write.');
-    return { ...row, plan: JSON.parse(row.plan) as Plan };
+    if (!row) return refuse('Plan not found. Inspect any original operation receipt.');
+    const plan = JSON.parse(row.plan) as Plan;
+    const pending = !plan.settled && (row.move_op || row.attempted !== '[]' || plan.noteAttempted || plan.folderAttempted || !plan.direct);
+    if (!recovering && !pending && row.created < Date.now() - planLifetime)
+      return refuse('Plan expired. Inspect the original operation receipt.');
+    return { ...row, plan };
   }
   function recordPlan(planId: string, plan: Plan) {
     db.prepare('UPDATE project_change_plans SET plan=? WHERE id=?').run(JSON.stringify(plan), planId);
@@ -344,10 +361,26 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       refuse('The earlier move receipt does not match the recorded project change.');
     return receipt;
   }
+  async function confirmStableArea(s: Awaited<ReturnType<typeof scope>>, id: string, signal: AbortSignal) {
+    const snapshot = await new ObsidianBackend(bb.sdk, { vaultId: s.source, root: s.root, folder: s.config.projectsFolder,
+      areasFolder: s.config.areasFolder }, undefined, 'stable').readAreas(signal);
+    const area = snapshot.areas.find(area => area.id === id);
+    if (!snapshot.complete || !area?.notePath) return refuse('The selected Area identity is unavailable.');
+    const current = await observeNote(s.source, area.notePath, signal);
+    if (current.properties.id !== id) refuse('The selected Area note changed.');
+  }
+
+  async function requireIdentity(plan: Plan, path: string, signal: AbortSignal, hash?: string) {
+    if (!plan.stableId) return;
+    const observed = await observeNote(plan.source, path, signal);
+    if (observed.properties.id !== plan.stableId || (hash && hash !== observed.hash)) refuse('The project note identity or version changed.');
+  }
+
   async function confirmMoveDestination(planId: string, signal: AbortSignal) {
     const { plan, move_op } = storedPlan(planId, true);
     const operation = plan.direct || plan.project ? planId : move_op;
     if (!plan.destination || !operation) return false;
+    await requireIdentity(plan, plan.destination, signal);
     return (await moveRecord(plan, operation, plan.owner, plan.destination, signal))?.outcome === 'moved_locally_pending_sync';
   }
   async function advanceMove(planId: string, signal: AbortSignal, startNote: boolean, beforeWrite?: () => Promise<void>) {
@@ -358,6 +391,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       if (!plan.direct || !plan.destination) return;
       await unchanged(plan.config);
       const { owner, destination } = plan;
+      if ((await scope()).stableIdentity && !plan.stableId) return refuse('Inspect this legacy receipt without finishing links after identity cutover.');
       const verifyBeforeWrite = async () => {
         await unchanged(plan.config);
         await beforeWrite?.();
@@ -365,12 +399,14 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       };
       let noteReceipt = await moveRecord(plan, planId, owner, destination, signal);
       if (!noteReceipt && startNote && !plan.noteAttempted) {
+        await requireIdentity(plan, owner, signal, plan.expectedHash);
         await verifyBeforeWrite();
         plan.noteAttempted = true;
         recordPlan(planId, plan);
         noteReceipt = await moveRecord(plan, planId, owner, destination, signal, 'note');
       }
       if (noteReceipt?.outcome !== 'moved_locally_pending_sync') return;
+      await requireIdentity(plan, destination, signal);
       if (plan.folderOperation) {
         const folderFrom = owner.slice(0, -3), folderTo = destination.slice(0, -3);
         let folderReceipt = await moveRecord(plan, plan.folderOperation, folderFrom, folderTo, signal);
@@ -420,13 +456,13 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       await unchanged(p.config);
       const s = await scope();
       if (!p.destination) {
-        const { e, rows } = await inventory(s, signal);
+        const { e, rows } = await inventory(s, signal, !!p.stableId);
         const source = rows.find((r) => r.id === p.id);
         if (input.finishLinks || input.receipt) refuse('This plan has no move.');
         const props = e.owners.get(p.owner);
         const ok =
           source &&
-          source.id === p.owner &&
+          (source.notePath ?? source.id) === p.owner &&
           props &&
           (p.areaPath === null
             ? !Object.hasOwn(props, 'area') && source.areaId === undefined
@@ -454,14 +490,14 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         moveOutcome: receipt?.outcome === 'moved_locally_pending_sync' ? 'project_move_partial' as const : moveOutcome,
         action: 'Inspect the note and folder move receipts before repeating any write.',
       };
-      const { e, rows } = await inventory(s, signal);
-      const source = rows.find((r) => r.id === p.id);
+      const { e, rows } = await inventory(s, signal, !!p.stableId);
+      const source = rows.find((r) => (r.notePath ?? r.id) === p.owner);
       const destinationId = p.destination;
-      const destination = rows.find((r) => r.id === destinationId);
+      const destination = rows.find((r) => (r.notePath ?? r.id) === destinationId && (!p.stableId || r.id === p.stableId));
       const stem = p.destination.slice(0, -3);
       const sourceFolder = p.owner.slice(0, -3);
       if (
-        source || e.entries.has(p.owner) || e.entries.has(sourceFolder) ||
+        (!p.stableId && (source || e.entries.has(p.owner) || e.entries.has(sourceFolder))) ||
         !destination ||
         destination.status !== p.status || destination.areaId !== p.originalArea ||
         e.entries.has(stem) !== (p.project === 'paired')
@@ -473,7 +509,13 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         moveOutcome: moveOutcome,
         action: 'Inspect the Obsidian move receipt and check the project inventory. For a partial or uncertain operation, do not replay.',
       };
-      const refs = await readThreadReferences(bb.sdk, s.source, signal);
+      if (p.stableId) {
+        p.settled = true;
+        recordPlan(input.planId, p);
+        return { state: 'links_verified', operationId: receipt.operationId, moveOutcome };
+      }
+      if (s.stableIdentity) return { state: 'legacy_receipt_verified', operationId: receipt.operationId, moveOutcome };
+      const refs = await readThreadReferences(bb.sdk, s.source, signal, false);
       if (refs.warnings.length) refuse('Thread coverage incomplete.');
       await unchanged(s.config);
       const ids = new Set(p.threads);
@@ -525,6 +567,10 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         )
           refuse('Thread write not verified. Inspect before continuing.');
       }
+      if (completedState === 'links_verified') {
+        p.settled = true;
+        recordPlan(input.planId, p);
+      }
       return { state: completedState, atDestination: ids.size, moveOutcome: moveOutcome, operationId: receipt.operationId };
     } finally {
       active.delete(input.planId);
@@ -534,6 +580,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     const { plan } = storedPlan(input.planId);
     const s = await scope();
     await unchanged(plan.config);
+    if (s.stableIdentity && !plan.stableId) return refuse('This legacy plan is available for receipt inspection.');
     if (!plan.direct) return check(input, signal);
     if (plan.destination) {
       await advanceMove(input.planId, signal, true).catch(() => bb.log.warn('GTD project_move reply_unconfirmed'));
@@ -545,8 +592,12 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     try {
       const { e } = await inventory(s, signal);
       if (!e.owners.has(plan.owner)) refuse('A confirmed project landing note is required.');
-      if (plan.areaPath) await confirmArea(s, plan.areaPath, signal);
+      if (plan.areaPath) {
+        if (plan.stableId) await confirmStableArea(s, plan.areaPath, signal);
+        else await confirmArea(s, plan.areaPath, signal);
+      }
       if (!plan.noteAttempted) {
+        await requireIdentity(plan, plan.owner, signal, plan.expectedHash);
         await unchanged(plan.config);
         signal.throwIfAborted();
         plan.noteAttempted = true;
@@ -563,11 +614,13 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
   }
   async function change(input: z.infer<typeof changeInput>, signal: AbortSignal) {
     const s = await scope();
-    if (s.source !== input.source || !input.id.startsWith(s.projects + '/') || !input.id.endsWith('.md'))
-      refuse('A project note in the selected Projects folder is required.');
+    if (s.source !== input.source) refuse('Wrong project source.');
     const observed = await inventory(s, signal);
-    if (!observed.e.owners.has(input.id)) refuse('Exact project not found.');
-    const { hash: expectedHash } = await observeNote(s.source, input.id, signal);
+    const item = observed.rows.find(p => p.id === input.id);
+    if (!item) return refuse('Exact project not found.');
+    const note = await observeNote(s.source, item.notePath ?? item.id, signal);
+    if (item.notePath && note.properties.id !== item.id) refuse('Project note identity changed.');
+    const { hash: expectedHash } = note;
     const checked = await prepare({ ...input, expectedHash }, signal, s, observed);
     if (!checked.next || !checked.planId) return checked;
     try {
@@ -579,7 +632,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
   }
   const panelChanges = new Map<string, symbol>();
   async function archiveConversations(source: string, id: string, signal: AbortSignal) {
-    const { refs, warnings } = await readThreadReferences(bb.sdk, source, signal);
+    const { refs, warnings } = await readThreadReferences(bb.sdk, source, signal, false);
     if (warnings.length) throw new Error('Incomplete thread listing.');
     for (const ref of refs) {
       if (ref.archived || ref.id !== id) continue;
@@ -592,7 +645,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
           !(await bb.sdk.threads.get({ threadId: ref.threadId, signal })).archivedAt)
         throw new Error('Thread archive unconfirmed.');
     }
-    const result = await readThreadReferences(bb.sdk, source, signal);
+    const result = await readThreadReferences(bb.sdk, source, signal, false);
     if (result.warnings.length || result.refs.some(ref => ref.id === id && !ref.archived))
       throw new Error('Thread archive incomplete.');
   }
@@ -607,15 +660,18 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     let moveOperation: string | undefined;
     try {
       const s = await scope();
-      if (s.source !== input.source || !input.id.startsWith(s.projects + '/') || !input.id.endsWith('.md'))
-        refuse('A project note in the selected Projects folder is required.');
-      const target = { vaultId: s.source, path: input.id };
-      const { hash: expectedHash } = await observeNote(target.vaultId, target.path, signal);
+      if (s.source !== input.source) refuse('Wrong project source.');
+      const observed = await inventory(s, signal);
+      const item = observed.rows.find(p => p.id === input.id);
+      if (!item) return refuse('Exact project not found.');
+      const note = await observeNote(s.source, item.notePath ?? item.id, signal);
+      if (item.notePath && note.properties.id !== item.id) refuse('Project note identity changed.');
+      const { hash: expectedHash } = note;
       const change = input.change;
       const plan = await prepare(prepareInput.parse({
         source: input.source, id: input.id, expectedHash,
         ...(change.kind === 'done' ? { status: 'done' } : { areaPath: change.areaPath }),
-      }), signal, s, undefined, true);
+      }), signal, s, observed, true);
       await unchanged(s.config);
       if (!plan.next) {
         if (change.kind === 'area') return { state: 'assigned' as const, message: 'Project is already assigned to this Area.' };
@@ -637,7 +693,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         return { state: 'assigned' as const, message: 'Project assigned locally. iCloud sync is pending.' };
       if (destination && result.state === 'links_verified') {
         moved = true;
-        await archiveConversations(s.source, destination, signal);
+        await archiveConversations(s.source, item.notePath ? item.id : destination, signal);
         return { state: 'done' as const, message: 'Project moved to Done locally and all linked threads archived.' };
       }
       throw new Error('Project change unconfirmed.');
@@ -658,14 +714,18 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     if (deferring.has(key)) refuse('A deferral is in progress in this Projects folder. Wait for its result before retrying.');
     deferring.add(key);
     try {
-      return await deferInScope(s, key, input, signal);
+      if (!s.stableIdentity) return await deferInScope(s, key, input, signal);
+      const {rows} = await inventory(s, signal);
+      const item = rows.find(row => row.id === input.id);
+      if (!item?.notePath) return refuse('Exact project identity not found.');
+      return await deferInScope(s, key, { ...input, id: item.notePath }, signal, item.id);
     } finally {
       deferring.delete(key);
     }
   }
 
   async function deferInScope(s: Awaited<ReturnType<typeof scope>>, key: string,
-    { id, deferUntil }: z.infer<typeof deferInput>, signal: AbortSignal) {
+    { id, deferUntil }: z.infer<typeof deferInput>, signal: AbortSignal, stableId?: string) {
     const now = Date.now();
     db.prepare('DELETE FROM project_deferrals WHERE complete = 1 AND created < ?').run(now - planLifetime);
     const pending = db.prepare(`SELECT request FROM project_deferrals WHERE scope = ? AND complete = 0
@@ -673,6 +733,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     let request: Deferral;
     const dateEvidence = async (path: string, attempt?: string) => {
       const observed = await observeNote(s.source, path, signal, attempt);
+      if (stableId && observed.properties.id !== stableId) refuse('Project note identity changed.');
       const value = observed.properties['defer-until'];
       return { ...observed, fieldHash: localFieldHash(value), matches: value === deferUntil };
     };
@@ -690,13 +751,14 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     const forgetRequest = () => db.prepare('DELETE FROM project_deferrals WHERE scope = ? AND owner = ?').run(key, request.owner);
     if (pending) {
       request = JSON.parse(pending.request) as Deferral;
+      if (request.stableId !== stableId) return refuse('A pending operation belongs to a different identity.');
       if (request.date !== deferUntil && id !== request.destination)
         return { state: 'deferral_pending', id: request.destination, deferUntil: request.date,
           moveOperationId: request.movePlan ?? null, dateOperationId: request.dateAttempt ?? null,
           action: 'Retry the original ID and date to reconcile the pending deferral. To change it, first confirm the current Deferred project ID.' };
     } else {
       const observed = await inventory(s, signal);
-      const item = observed.rows.find(p => p.id === id);
+      const item = observed.rows.find(p => (p.notePath ?? p.id) === id && (!stableId || p.id === stableId));
       if (!item) {
         const old = db.prepare('SELECT request FROM project_deferrals WHERE scope = ? AND owner = ? AND complete = 1')
           .get(key, id) as { request: string } | undefined;
@@ -712,11 +774,11 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       }
       if (!observed.e.owners.has(id)) refuse('A confirmed project landing note is required.');
       const baseline = await dateEvidence(id);
-      request = { owner: id, destination: id, date: deferUntil, fieldHash: baseline.fieldHash };
+      request = { owner: id, destination: id, date: deferUntil, fieldHash: baseline.fieldHash, ...(stableId ? { stableId } : {}) };
       if ((db.prepare('SELECT COUNT(*) AS n FROM project_deferrals WHERE complete = 0').get() as { n: number }).n >= 256)
         refuse('Deferral recovery capacity reached. Inspect unresolved deferrals before starting another.');
       if (!inDeferred(id, observed.e)) {
-        const plan = await prepare({ source: s.source, id, expectedHash: baseline.hash, status: 'deferred' }, signal, s, observed);
+        const plan = await prepare({ source: s.source, id: stableId ?? id, expectedHash: baseline.hash, status: 'deferred' }, signal, s, observed);
         if (!plan.destination || !plan.planId) return refuse('The Deferred destination is unavailable.');
         request.destination = plan.destination;
         request.movePlan = plan.planId;
@@ -732,7 +794,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
 
     let moveOutcome: MoveOutcome | null = null;
     const result = () => ({
-      id: moveOutcome === 'not_moved' ? request.owner : request.destination,
+      id: stableId ?? (moveOutcome === 'not_moved' ? request.owner : request.destination),
       deferUntil, moveOperationId: request.movePlan ?? null, moveOutcome,
     });
     const partial = (state: 'not_moved' | 'move_unconfirmed' | 'destination_unconfirmed' | 'date_unconfirmed' | 'date_changed' | 'date_not_saved', action: string) => {
@@ -866,6 +928,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
 
         stage = 'cleanup_unconfirmed';
         const current = await evidence(request.destination, request.cleanupId);
+        if (request.stableId && current.properties.id !== request.stableId) return fail(stage, request.planId);
         if (!await confirmMoveDestination(operation.planId, signal)) return fail(stage, request.planId);
         // A changed field belongs to the later edit. A confirmed receipt also
         // settles an earlier cleanup even if a date has since been added.
@@ -901,7 +964,8 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     }
     try {
       const { rows, e } = await inventory(s, signal);
-      for (const { id, status } of rows) {
+      for (const { id: identity, notePath, status } of rows) {
+        const id = notePath ?? identity;
         const folder = posix.dirname(id);
         if (status !== 'deferred' || posix.dirname(folder) !== s.projects || posix.basename(folder).toLowerCase() !== 'deferred' ||
             !e.owners.has(id) || pending.has(id)) continue;
@@ -912,12 +976,12 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
           if (!date || date > day) continue;
           const deferral = db.prepare('SELECT 1 FROM project_deferrals WHERE scope = ? AND complete = 0 AND (owner = ? OR destination = ?)').get(key, id, id);
           if (deferral) { fail('candidate_blocked'); continue; }
-          const plan = await prepare({ source: s.source, id, expectedHash: hash, status: 'active' }, signal, s);
+          const plan = await prepare({ source: s.source, id: identity, expectedHash: hash, status: 'active' }, signal, s);
           if (!plan.destination || !plan.planId) { fail('candidate_blocked'); continue; }
           await beforeWrite();
           const verified = await evidence(id);
-          if (verified.date !== date || verified.hash !== hash || date > pacificCalendar.format(reactivationClock())) continue;
-          request = { owner: id, destination: plan.destination, date, planId: plan.planId };
+          if ((notePath && verified.properties.id !== identity) || verified.date !== date || verified.hash !== hash || date > pacificCalendar.format(reactivationClock())) continue;
+          request = { owner: id, destination: plan.destination, date, planId: plan.planId, ...(notePath ? { stableId: identity } : {}) };
           save(request);
           await recover(request);
         } catch {
@@ -934,5 +998,24 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     for (const [stage, { count, operations }] of failures)
       bb.log.warn(`GTD reactivation ${stage} count=${count}${operations.length ? ` move_operations=${operations.join(',')}` : ''}`);
   }
-  return { browse, prepare, check, apply, change, defer, applyFromPanel, reactivate };
+  async function checkMigrationReady(signal: AbortSignal) {
+    const s = await scope();
+    const key = JSON.stringify([s.config.vaultId, s.config.projectsFolder]);
+    if (db.prepare('SELECT 1 FROM project_deferrals WHERE scope=? AND complete=0').get(key) ||
+        db.prepare('SELECT 1 FROM project_reactivations WHERE scope=?').get(key))
+      return refuse('Resolve pending deferral and reactivation operations before identity cutover.');
+    const rows = db.prepare('SELECT id,plan,move_op,attempted FROM project_change_plans').all() as
+      {id: string; plan: string; move_op: string | null; attempted: string}[];
+    for (const row of rows) {
+      const plan = JSON.parse(row.plan) as Plan;
+      if (!isDeepStrictEqual(plan.config, s.config) || plan.settled ||
+          !(row.move_op || row.attempted !== '[]' || plan.noteAttempted || plan.folderAttempted || !plan.direct)) continue;
+      const result = await check({planId: row.id}, signal, true);
+      if (!['verified', 'links_verified'].includes(result.state) && result.moveOutcome !== 'not_moved')
+        return refuse('Resolve pending GTD changes before identity cutover.');
+      plan.settled = true;
+      recordPlan(row.id, plan);
+    }
+  }
+  return { browse, prepare, check, apply, change, defer, applyFromPanel, reactivate, checkMigrationReady };
 }

@@ -3,6 +3,7 @@ import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { areaStandard, inventoryRevision, noteSaveReceipt, standardSaveResult, type areaStandardInput } from '../contract.ts';
 import { areaSnapshotSchema, GtdError, snapshotSchema } from '../core/model.ts';
+import { stableIds } from '../core/identity.ts';
 import type { Area, AreaBackend, Project, ProjectBackend, ProjectStatus, Warning } from '../core/model.ts';
 
 export const relativeFolder = z.string().min(1).max(1024).refine(value =>
@@ -119,22 +120,38 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
   private generation = 0;
 
   constructor(private sdk: BbPluginApi['sdk'], private config: { vaultId: string; folder: string; root?: string; areasFolder?: string },
-    private preview?: PreviewEvidence) {}
+    private preview?: PreviewEvidence, private identity: 'legacy' | 'compatible' | 'stable' = 'legacy') {}
 
   invalidate() { this.generation++; }
 
-  private standardTarget(source: string, id: string) {
+  private async standardTarget(source: string, id: string, signal: AbortSignal, expectedHash?: string) {
+    if (this.identity === 'stable') {
+      const snapshot = await this.readAreas(signal);
+      const area = snapshot.areas.find(area => area.id === id);
+      if (!snapshot.complete || source !== snapshot.source.id || !area?.notePath) throw new GtdError('invalid_source');
+      if (expectedHash) {
+        const note = noteEvidence.parse(await vaultRpc(this.sdk, 'noteEvidence', { vaultId: source, path: area.notePath }, signal));
+        if (note.properties.id !== id || note.hash !== expectedHash) throw new GtdError('invalid_source');
+      }
+      return { vaultId: source, path: area.notePath, heading: 'Standard' };
+    }
     if (source !== this.config.vaultId || !relativeFolder.safeParse(id).success ||
         !immediate(id, this.scope(this.config.areasFolder ?? this.config.folder)) || !id.endsWith('.md')) throw new GtdError('invalid_source');
     return { vaultId: source, path: id, heading: 'Standard' };
   }
 
   async readAreaStandard({ source, id }: { source: string; id: string }, signal: AbortSignal) {
-    return areaStandard.parse(await vaultRpc(this.sdk, 'readNoteSection', this.standardTarget(source, id), signal));
+    const target = await this.standardTarget(source, id, signal);
+    const result = areaStandard.parse(await vaultRpc(this.sdk, 'readNoteSection', target, signal));
+    if (this.identity === 'stable') {
+      const observed = noteEvidence.parse(await vaultRpc(this.sdk, 'noteEvidence', { vaultId: source, path: target.path }, signal));
+      if (observed.hash !== result.hash || observed.properties.id !== id) throw new GtdError('invalid_source');
+    }
+    return result;
   }
 
   async saveAreaStandard({ source, id, ...change }: z.infer<typeof areaStandardInput>, signal: AbortSignal) {
-    const result = standardSaveResult.parse(await vaultRpc(this.sdk, 'writeNoteSection', { ...this.standardTarget(source, id), ...change }, signal));
+    const result = standardSaveResult.parse(await vaultRpc(this.sdk, 'writeNoteSection', { ...await this.standardTarget(source, id, signal, change.expectedHash), ...change }, signal));
     if (result.operationId !== change.operationId) throw new Error('Obsidian returned a different operation receipt.');
     return result;
   }
@@ -184,13 +201,13 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         ...(projects ? {} : { folders: [areaFolder] }),
         metadataFolders: projects ? [...new Set([projectFolder, areaFolder])] : [areaFolder],
         metadataDepth: projects ? 2 : 1,
-        fields: this.preview ? ['id', 'status', 'area'] : projects ? ['status', 'area'] : [],
+        fields: this.preview || this.identity !== 'legacy' ? ['id', 'status', 'area'] : projects ? ['status', 'area'] : [],
       }, signal);
       this.checkGeneration(generation, signal);
       const notes = new Set(inventory.notes.map(note => note.path));
       const folders = new Set(inventory.folders);
       // Only the stable-ID preview needs to validate Area properties.
-      const invalidAreas = new Set(this.preview ? inventory.notes.filter(note => note.malformed && immediate(note.path, areaFolder)).map(note => note.path) : []);
+      const invalidAreas = new Set(this.preview || this.identity !== 'legacy' ? inventory.notes.filter(note => note.malformed && immediate(note.path, areaFolder)).map(note => note.path) : []);
       const vault = inventory.source;
       const observedAt = new Date().toISOString();
       const source = (scope: string) => ({
@@ -208,6 +225,17 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
       const projectRows: Project[] = [], areaRows: Area[] = [];
       const badProjects: string[] = [], badAreas: string[] = [];
       const resolveArea = areaLookup(root, areaFolder, notes, folders);
+      const areaIds = new Map<string, string | null>();
+      if (this.identity !== 'legacy') for (const note of inventory.notes) {
+        if (!immediate(note.path, areaFolder) || note.malformed || areaFromNote(areaFolder, note.path) === 'invalid') continue;
+        const id = stableIds.area.safeParse(note.properties.id).data;
+        if (id) areaIds.set(id, areaIds.has(id) ? null : note.path);
+      }
+      const identify = <T extends Project | Area>(item: T, kind: 'project' | 'area', props: Record<string, unknown>) => {
+        if (this.identity !== 'stable') return item;
+        const id = stableIds[kind].safeParse(props.id).data;
+        return id ? { ...item, id, notePath: item.id } : undefined;
+      };
       for (const note of inventory.notes) {
         const { path, properties, malformed } = note;
         if (projects && (immediate(path, projectFolder) || projectStatusFolder(projectFolder, path))) {
@@ -217,10 +245,18 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
             if (malformed && badProjects.length < 12) badProjects.push(path);
           } else if (project) {
             if (this.config.areasFolder && !projectWarnings.has('source_partial') && !projectWarnings.has('duplicate_id')) {
-              const areaId = resolveArea(properties.area, path);
+              const stableArea = stableIds.area.safeParse(properties.area).data;
+              const mapped = stableArea ? areaIds.get(stableArea) : undefined;
+              const areaId = this.identity === 'stable' ? (mapped ? stableArea : undefined) :
+                stableArea ? mapped ?? undefined : resolveArea(properties.area, path);
               if (areaId && !invalidAreas.has(areaId)) project.areaId = areaId;
+              if (this.identity === 'stable' && properties.area != null && !areaId &&
+                  !(typeof properties.area === 'string' && !properties.area.trim()) &&
+                  !(Array.isArray(properties.area) && !properties.area.length))
+                projectWarnings.add('invalid_area');
             }
-            projectRows.push(project);
+            const identified = identify(project, 'project', properties);
+            if (identified) projectRows.push(identified); else projectWarnings.add('invalid_project');
             this.preview?.owners.set(path, properties);
           }
         }
@@ -231,27 +267,39 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
             areaWarnings.add('invalid_area');
             if (invalidMetadata && badAreas.length < 12) badAreas.push(path);
           } else if (area) {
-            areaRows.push(area);
+            const identified = identify(area, 'area', properties);
+            if (identified) areaRows.push(identified); else areaWarnings.add('invalid_area');
             this.preview?.owners.set(path, properties);
           }
         }
       }
-      if (areas && !areaWarnings.has('source_partial')) for (const folder of folders) {
+      if (areas && this.identity !== 'stable' && !areaWarnings.has('source_partial')) for (const folder of folders) {
         if (!immediate(folder, areaFolder) || notes.has(folder + '.md')) continue;
         const title = posix.basename(folder);
         if (text(title)) areaRows.push({ id: folder + '/', title });
         else areaWarnings.add('invalid_area');
       }
+      const unique = <T extends Project | Area>(rows: T[], warnings: Set<Warning>) => {
+        const seen = new Set<string>(), duplicate = new Set<string>();
+        for (const row of rows) {
+          if (seen.has(row.id)) duplicate.add(row.id);
+          seen.add(row.id);
+        }
+        if (duplicate.size) warnings.add('duplicate_id');
+        return rows.filter(row => !duplicate.has(row.id));
+      };
+      const projectResults = this.identity === 'stable' ? unique(projectRows, projectWarnings) : projectRows;
+      const areaResults = this.identity === 'stable' ? unique(areaRows, areaWarnings) : areaRows;
       const coverage = (items: Project[] | Area[], warnings: Set<Warning>, malformed: string[]) => {
         if (items.length > 5000) warnings.add('scan_limit');
-        return { complete: !warnings.size, warnings: [...warnings].slice(0, 4),
+        return { complete: !warnings.size, warnings: [...warnings],
           ...(malformed.length ? { malformedFrontmatter: malformed } : {}) };
       };
       return {
         projects: projects ? snapshotSchema.parse({ source: source(this.config.folder),
-          ...coverage(projectRows, projectWarnings, badProjects), projects: projectRows.slice(0, 5000) }) : undefined,
+          ...coverage(projectRows, projectWarnings, badProjects), projects: projectResults.slice(0, 5000) }) : undefined,
         areas: areas ? areaSnapshotSchema.parse({ source: source(this.config.areasFolder ?? this.config.folder),
-          ...coverage(areaRows, areaWarnings, badAreas), areas: areaRows.slice(0, 5000) }) : undefined,
+          ...coverage(areaRows, areaWarnings, badAreas), areas: areaResults.slice(0, 5000) }) : undefined,
       };
     } catch (error) {
       if (signal.aborted) throw new GtdError('cancelled');

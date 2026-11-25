@@ -4,7 +4,7 @@ import { rpcContract, standardTextLimit } from './contract.ts';
 
 type Version = { text: string; hash: string };
 
-export function AreaStandard({ source, id }: { source: string; id: string }) {
+export function AreaStandard({ source, id, hasNote, paused }: { source: string; id: string; hasNote: boolean; paused: boolean }) {
   const rpc = useRpc<typeof rpcContract>();
   const client = useRef(rpc);
   client.current = rpc;
@@ -23,13 +23,13 @@ export function AreaStandard({ source, id }: { source: string; id: string }) {
   const [receipt, setReceipt] = useState('');
 
   useEffect(() => {
-    if (!id.endsWith('.md')) return;
+    if (!hasNote) return;
     let current = true;
     void client.current.call('readAreaStandard', { source, id }).then(value => {
       if (current) setVersion({ ...value, text: value.text.replace(/\r\n/g, '\n') });
     }, () => { if (current) setReadError(true); });
     return () => { current = false; };
-  }, [source, id, load]);
+  }, [source, id, hasNote, load]);
 
   const editing = draft !== undefined;
   useEffect(() => {
@@ -51,7 +51,7 @@ export function AreaStandard({ source, id }: { source: string; id: string }) {
     setDraft(undefined);
   };
   const save = async () => {
-    if (!version || draft === undefined || draft === version.text || pending.current || failure === 'changed' || failure === 'uncertain') return;
+    if (paused || !version || draft === undefined || draft === version.text || pending.current || failure === 'changed' || failure === 'uncertain') return;
     const operationId = crypto.randomUUID();
     pending.current = true;
     setSaving(true);
@@ -80,12 +80,12 @@ export function AreaStandard({ source, id }: { source: string; id: string }) {
   return <section className="gtd-standard" aria-labelledby={label}>
     <div className="gtd-list-bar">
       <h2 id={label}>Standard</h2>
-      {version && !editing && <button type="button" ref={editButton} onClick={() => {
+      {version && !editing && <button type="button" disabled={paused} ref={editButton} onClick={() => {
         setNotice('');
         setDraft(version.text);
       }}>{version.text ? 'Edit standard' : 'Add standard'}</button>}
     </div>
-    {!id.endsWith('.md') ? <p className="gtd-standard-hint">Add an Area note in Obsidian to set a standard.</p>
+    {!hasNote ? <p className="gtd-standard-hint">Add an Area note in Obsidian to set a standard.</p>
       : readError ? <div>
         <p role="alert">Could not read the standard. Check the Area note in Obsidian.</p>
         <button type="button" onClick={readAgain}>Try again</button>
@@ -100,7 +100,7 @@ export function AreaStandard({ source, id }: { source: string; id: string }) {
           <div className="gtd-edit-actions">
             {failure === 'changed' ? <button type="button" onClick={() => { closeEditor(); readAgain(); }}>Load current standard</button>
               : <button type="button" disabled={saving || failure === 'uncertain'} onClick={closeEditor}>Cancel</button>}
-            <button type="submit" disabled={saving || draft === version.text || failure === 'changed' || failure === 'uncertain'}>
+            <button type="submit" disabled={paused || saving || draft === version.text || failure === 'changed' || failure === 'uncertain'}>
               {saving ? 'Saving…' : 'Save'}
             </button>
           </div>

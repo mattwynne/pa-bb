@@ -1,6 +1,7 @@
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { listInput, pageSchema, areaListInput, areaPageSchema, snapshotSchema, areaSnapshotSchema } from './core/model.ts';
+import { aliasSchema } from './core/identity.ts';
 export const reference = z.object({ source: z.string().min(1).max(1100), id: z.string().min(1).max(1024) }).strict();
 export const newThreadInput = reference.extend({
   requestId: z.string().uuid().describe('Fresh UUID for this user-requested creation. Retain it for receipt inspection; never mint another ID to bypass an uncertain creation.'),
@@ -26,6 +27,11 @@ export const rpcContract = defineRpcContract({
   browseInventory: {
     input: z.object({ includeAreas: z.boolean(), fresh: z.boolean().optional() }).strict(),
     output: z.object({ projects: snapshotSchema, areas: areaSnapshotSchema.nullable() }).strict(),
+  },
+  browseInventoryV2: {
+    input: z.object({ includeAreas: z.boolean(), fresh: z.boolean().optional() }).strict(),
+    output: z.object({ projects: snapshotSchema, areas: areaSnapshotSchema.nullable(),
+      identity: z.enum(['legacy', 'applying', 'stable']), aliases: z.array(aliasSchema) }).strict(),
   },
   readAreaStandard: { input: reference, output: areaStandard },
   saveAreaStandard: { input: areaStandardInput, output: standardSaveResult },

@@ -7,7 +7,7 @@ export const areasIndex: Destination = { panel: 'areas' };
 export const unassignedArea: Destination = { panel: 'areas', subPath: 'unassigned' };
 
 export function recordDestination(panel: PanelPath, source: string, id: string): Destination {
-  // A vault ID and note path form the identity. Keep the pair in one URL-safe
+  // Keep a vault ID and record ID together. Keep the pair in one URL-safe
   // segment so slashes, percent escapes and Unicode survive BB's router.
   const bytes = new TextEncoder().encode(JSON.stringify([source, id]));
   const subPath = btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');

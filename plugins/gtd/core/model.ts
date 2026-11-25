@@ -6,6 +6,7 @@ export type ProjectStatus = z.infer<typeof statusSchema>;
 export const projectSchema = z.object({
   // Backend-owned identity within the selected source, not a BB project ID.
   id: z.string().min(1).max(1024),
+  notePath: z.string().min(1).max(1024).optional(),
   title: z.string().min(1).max(240),
   status: statusSchema,
   areaId: z.string().min(1).max(1024).optional(),
@@ -21,7 +22,7 @@ export const warnings = ['invalid_project', 'invalid_area', 'source_partial', 's
 export type Warning = typeof warnings[number];
 export const snapshotSchema = z.object({
   source: sourceSchema, projects: z.array(projectSchema).max(5000),
-  complete: z.boolean(), warnings: z.array(z.enum(warnings)).max(4),
+  complete: z.boolean(), warnings: z.array(z.enum(warnings)).max(warnings.length),
   malformedFrontmatter: z.array(z.string().min(1).max(1024)).max(12).optional(),
 }).strict();
 export type ProjectSnapshot = z.infer<typeof snapshotSchema>;
@@ -56,7 +57,7 @@ export type ListInput = z.infer<typeof listInput>;
 export const countsSchema = z.object({ active: z.number().int().nonnegative(), deferred: z.number().int().nonnegative(), someday: z.number().int().nonnegative(), done: z.number().int().nonnegative() }).strict();
 export const pageSchema = z.object({
   source: sourceSchema, projects: z.array(projectSchema).max(200),
-  coverage: z.enum(['complete', 'partial']), warnings: z.array(z.enum(warnings)).max(4),
+  coverage: z.enum(['complete', 'partial']), warnings: z.array(z.enum(warnings)).max(warnings.length),
   malformedFrontmatter: z.array(z.string().min(1).max(1024)).max(12).optional(),
   totalProjects: z.number().int().nonnegative().nullable(),
   matchedProjects: z.number().int().nonnegative().nullable(), counts: countsSchema.nullable(),
