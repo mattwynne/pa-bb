@@ -717,7 +717,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
             return <li key={panelHref(destination)}>
               <PanelLink className="gtd-browser-link" destination={destination} aria-label={title} aria-describedby={partial ? undefined : countId}>
                 <span>{title}</span>
-                {!partial && <span id={countId} className="gtd-area-project-count">{count} active {count === 1 ? 'project' : 'projects'}</span>}
+                {!partial && <span id={countId} className="gtd-area-project-count">{count} {count === 1 ? 'project' : 'projects'}</span>}
                 <Icon name="ChevronRight" aria-hidden="true" />
               </PanelLink>
             </li>;
