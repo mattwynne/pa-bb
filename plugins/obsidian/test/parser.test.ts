@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MarkdownNotes, sectionLinks, editText, updateProperties } from '../adapters/markdown-notes.ts';
+import { MarkdownNotes, editText, updateProperties } from '../adapters/markdown-notes.ts';
+import { sectionLinks } from '../core/section-links.ts';
 const parser = new MarkdownNotes();
 for (const eol of ['\n', '\r\n']) test(`pinned semantics retain offsets with ${JSON.stringify(eol)}`, () => {
   const text = ['---', 'aliases: [Launch, "Next step"] # keep', 'tags: [Work/Launch]', 'link: "[[Other]]"', '---', '# Launch', '> [!note]', '> - [ ] Visible #work/launch [[Other#Next]]', '- [?] Done', '`#ignored [[Hidden]]`', '%% #ignored [[Hidden]] %%', '```md', '- [ ] Not a task #ignored', '```', '<div>', '#ignored [[Hidden]]', '</div>', '', 'Paragraph ^block-id', '', '^standalone', ''].join(eol);

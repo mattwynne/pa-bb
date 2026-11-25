@@ -1,4 +1,4 @@
-import { areaMailStatus, correspondenceLinks, correspondenceStatus } from './core/correspondence.ts';
+import { areaMailStatus, correspondenceStatus, projectCorrespondence } from './core/correspondence.ts';
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { listInput, pageSchema, areaListInput, areaPageSchema, snapshotSchema, areaSnapshotSchema, statusSchema } from './core/model.ts';
@@ -44,7 +44,7 @@ export const rpcContract = defineRpcContract({
     source: reference.shape.source, areaId: reference.shape.id.nullable(),
     status: z.union([z.literal('all'), statusSchema]),
   }).strict(), output: areaMailStatus },
-  readCorrespondence: { input: reference, output: correspondenceLinks },
+  readCorrespondence: { input: reference, output: projectCorrespondence },
   readCorrespondenceStatus: { input: reference, output: correspondenceStatus },
   readNextAction: { input: reference, output: nextAction },
   readAreaStandard: { input: reference, output: noteSection },

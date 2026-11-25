@@ -1,4 +1,4 @@
-import { firstSectionTask, noteSection, replaceNoteSection } from './note-section.ts';
+import { addNoteSectionLink, firstSectionTask, moveNoteSectionLink, noteSection, replaceNoteSection } from './note-section.ts';
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
@@ -510,16 +510,28 @@ export class Obsidian {
     return { text };
   }
 
-  async writeNoteSection(input: { vaultId: string; path: string; heading: string; expectedHash: string; operationId: string; text: string }, signal?: AbortSignal) {
-    const { vaultId, path, heading, expectedHash, operationId, text } = input;
+  writeNoteSection(input: { vaultId: string; path: string; heading: string; expectedHash: string; operationId: string; text: string }, signal?: AbortSignal) {
+    return this.writeCheckedNote(input, before => replaceNoteSection(this.parser, before, input.heading, input.text), signal);
+  }
+
+  addSectionLink(input: { vaultId: string; path: string; expectedHash: string; operationId: string; heading: string; title: string; url: string }, signal?: AbortSignal) {
+    return this.writeCheckedNote(input, before => addNoteSectionLink(this.parser, before, input), signal);
+  }
+
+  moveSectionLink(input: { vaultId: string; path: string; expectedHash: string; operationId: string; from: string[]; to: string; url: string }, signal?: AbortSignal) {
+    return this.writeCheckedNote(input, before => moveNoteSectionLink(this.parser, before, input), signal);
+  }
+
+  private async writeCheckedNote({ vaultId, path, expectedHash, operationId }: {
+    vaultId: string; path: string; expectedHash: string; operationId: string;
+  }, prepare: (text: string) => string, signal?: AbortSignal) {
     let started = false;
     try {
       const version = await this.note(vaultId, path);
       if (version.note.hash !== expectedHash) return { operationId, outcome: 'not_saved' as const, reason: 'changed' as const };
       // Recheck the version in write() and in the adapter commit.
       started = true;
-      const result = await this.write(vaultId, path, expectedHash, before => replaceNoteSection(this.parser, before, heading, text),
-        false, signal, '', operationId, false, version.revision);
+      const result = await this.write(vaultId, path, expectedHash, prepare, false, signal, '', operationId, false, version.revision);
       return { operationId, outcome: result.receipt.outcome };
     } catch (error) {
       if (!(error instanceof VaultError && error.diagnosticReported)) this.diagnose('rpc', error instanceof VaultError ? error.category : 'unavailable');
