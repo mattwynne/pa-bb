@@ -529,6 +529,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const statusGroup = useId();
+  const areaCountPrefix = useId();
   const [status, setStatus] = useState(() => lastProjectFilter);
   const [showAssociations, setShowAssociations] = useState(false);
   const [busy, setBusy] = useState(''); const busyRef = useRef(false); const [notice, setNotice] = useState('');
@@ -710,8 +711,17 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
         'This record could not be found in the partial inventory.' : `This ${route.kind === 'area' ? 'Area' : 'project'} is unavailable in the current inventory.`}</p>}
       {ready && route.kind === 'index' && <>
         {entries.length || hasUnassigned ? <ul className="gtd-rows">
-          {(hasUnassigned ? [...entries, { title: 'Unassigned area', destination: unassignedArea }] : entries).map(({ title, destination }) =>
-            <li key={panelHref(destination)}><PanelLink className="gtd-browser-link" destination={destination}>{title}<Icon name="ChevronRight" aria-hidden="true" /></PanelLink></li>)}
+          {(hasUnassigned ? [...entries, { title: 'Unassigned area', destination: unassignedArea, area: undefined }] : entries).map(({ title, destination, area }, index) => {
+            const count = projectsByArea.get(area?.id)?.filter(project => project.status === 'active').length ?? 0;
+            const countId = `${areaCountPrefix}-${index}`;
+            return <li key={panelHref(destination)}>
+              <PanelLink className="gtd-browser-link" destination={destination} aria-label={title} aria-describedby={partial ? undefined : countId}>
+                <span>{title}</span>
+                {!partial && <span id={countId} className="gtd-area-project-count">{count} active {count === 1 ? 'project' : 'projects'}</span>}
+                <Icon name="ChevronRight" aria-hidden="true" />
+              </PanelLink>
+            </li>;
+          })}
         </ul> : <p className="gtd-empty">{inventory.areasPartial ? 'No Areas in the loaded inventory.' : 'No Areas yet.'}</p>}
         <details className="gtd-associations" open={showAssociations} onToggle={event => setShowAssociations(event.currentTarget.open)}>
           <summary>Thread associations</summary>

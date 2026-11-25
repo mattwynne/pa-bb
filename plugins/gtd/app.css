@@ -51,6 +51,8 @@
 .gtd-rows li + li { border-top: 1px solid var(--border); }
 .gtd-browser-link { display: flex; align-items: center; gap: 8px; padding: 8px; min-height: 42px; border-radius: 5px; font-size: 14px; }
 .gtd-browser-link > svg:last-child { margin-left: auto; color: var(--muted-foreground); }
+.gtd-area-project-count { margin-left: auto; flex: none; color: var(--muted-foreground); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gtd-browser-link > .gtd-area-project-count + svg:last-child { margin-left: 0; flex: none; }
 .gtd-project-row { display: flex; align-items: center; gap: 4px; }
 .gtd-project-row .gtd-browser-link { flex: 1; min-width: 0; }
 .gtd-project-row[draggable="true"] { cursor: grab; }

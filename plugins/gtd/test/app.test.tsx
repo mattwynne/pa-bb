@@ -24,6 +24,11 @@ function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }
           projects: { source, projects: mode === 'empty' ? [] : [
             { ...project, areaId: mode === 'nested' ? 'Areas/Learning/Committee/Meeting.md' : project.areaId },
             ...(mode === 'nested' ? [{ id: 'Projects/Deferred/Tools.md', title: 'Deferred tools', status: 'deferred', areaId: project.areaId }] : []),
+            ...(mode === 'counts' ? [
+              { ...project, areaId: 'Areas/Learning/Committee/Meeting.md', id: 'Projects/Nested.md' },
+              ...['deferred', 'someday', 'done'].map(status => ({ ...project, id: `Projects/${status}.md`, status })),
+              { id: 'Projects/Unassigned.md', title: 'Unassigned project', status: 'active' },
+            ] : []),
           ], complete: mode !== 'malformed', warnings: mode === 'malformed' ? ['invalid_project'] : [],
             ...(mode === 'malformed' ? { malformedFrontmatter: ['Projects/Broken.md'] } : {}) },
           areas: includeAreas ? { source, areas: [{ id: 'Areas/Learning.md', title: 'Learning' }, ...Array.from({ length: 8 }, (_, i) => ({ id: `Areas/Empty${i}/`, title: `Empty Area ${i}` }))], complete: true, warnings: [] } : null,
@@ -216,11 +221,25 @@ test('the Area filter rolls up nested projects, includes Deferred in All, and pe
 test('the index and former browser path both list Areas even if there are no projects', async () => {
   for (const destination of [areasIndex, { panel: 'projects' } as const]) {
     const slot = setup('empty', undefined, destination);
-    expect((await slot.findByRole('link', { name: 'Learning' })).getAttribute('href')).toBe(panelHref(learning));
-    expect(slot.getAllByRole('link', { name: /^Empty Area \d$/ })).toHaveLength(8);
+    expect((await slot.findByRole('link', { name: 'Learning', description: '0 active projects' })).getAttribute('href')).toBe(panelHref(learning));
+    expect(slot.getAllByRole('link', { name: /^Empty Area \d$/, description: '0 active projects' })).toHaveLength(8);
     expect(slot.queryByLabelText('Filter by project status')).toBeNull();
     slot.lifecycle.unmount();
   }
+});
+
+test('the Areas index counts only active projects, including nested and unassigned projects', async () => {
+  const slot = setup('counts', undefined, areasIndex);
+  expect((await slot.findByRole('link', { name: 'Learning', description: '2 active projects' })).getAttribute('href')).toBe(panelHref(learning));
+  expect(slot.getByRole('link', { name: 'Unassigned area', description: '1 active project' })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test('the Areas index omits unconfirmed counts when the inventory is partial', async () => {
+  const slot = setup('malformed', undefined, areasIndex);
+  expect(await slot.findByRole('link', { name: 'Learning' })).toBeTruthy();
+  expect(slot.queryByText(/active projects?$/)).toBeNull();
+  slot.lifecycle.unmount();
 });
 
 test('a project bookmark shows only the threads linked to its exact reference', async () => {
