@@ -46,6 +46,8 @@ Use `bb gtd migration-preview --choices-stdin --json` with single-line JSON from
 
 After a separate approval, apply the reviewed plan with `bb gtd migration-apply --plan <id>`. Before starting, reconcile pending GTD changes and keep Obsidian activity and other association writers idle. Inspect progress and exact operation IDs with `bb gtd migration-status --plan <id>`. Resume the same plan after checking any uncertain receipt. See [the identity plan](../../docs/plans/029-stable-gtd-identities.md) for rename evidence and cutover requirements.
 
+If apply reports a legacy preflight blocker, run `bb gtd migration-status --plan <id> --readiness`. The read-only report lists the blocking stage and up to 20 operation records per category, with total counts. Keep the output private. Inspect the listed project plans and Obsidian receipts before taking recovery action. `legacy_checks_passed` covers the legacy operation gate. Apply also rechecks the reviewed notes and thread references.
+
 After verified cutover, use `bb gtd projects --stable --json` or `bb gtd areas --stable --json` for the current identity contract. The default CLI and original inventory RPCs still return paths. BB's current pages write stable links and open legacy bookmarks with reviewed aliases. For agent-driven creation, `gtd_prepare_landing_note` supplies a file path and initial frontmatter with a new ID for one non-overwriting `obsidian_create_note` call.
 
 ## Usage

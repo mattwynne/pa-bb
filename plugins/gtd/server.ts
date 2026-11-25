@@ -2,10 +2,10 @@ import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb
 import { z } from 'zod';
 import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions } from './adapters/obsidian.ts';
 import { Areas, compareAreas, normalizeAreaSnapshot } from './core/areas.ts';
-import { applyInput, browseInput, changeInput, changeNames, checkInput, deferInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
+import { applyInput, browseInput, changeInput, changeNames, checkInput, deferInput, LegacyMigrationBlocker, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
 import { renameEvidence } from './core/migration-preview.ts';
 import { InvalidMigrationChoices, parseMigrationChoices } from './core/migration-choices.ts';
-import { identityMigration, OutdatedMigrationReview } from './core/migration.ts';
+import { identityMigration, MigrationPreflightError, OutdatedMigrationReview } from './core/migration.ts';
 import { newStableId, stableIds, type Kind } from './core/identity.ts';
 import { areaStandardInput, rpcContract, reference, newThreadInput } from './contract.ts';
 import { threadActions } from './core/threads.ts';
@@ -335,11 +335,25 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     } }),
     'migration-status': cliCommand({
       summary: 'Inspect private progress and operation IDs for the reviewed migration.',
-      options: { plan: { type: 'string', description: 'Exact reviewed plan ID' } },
-      async run(input) {
+      options: { plan: { type: 'string', description: 'Exact reviewed plan ID' },
+        readiness: { type: 'boolean', description: 'Read-only report of legacy operations blocking preflight. Contains private project IDs.' } },
+      async run(input, context) {
+        const config = await settings.get();
+        const {vaultId, projectsFolder, areasFolder} = config;
+        let status: ReturnType<typeof migration.receipt>;
         try {
-          return { exitCode: 0, stdout: JSON.stringify(migration.receipt(await settings.get(), z.string().uuid().parse(input.options.plan))) };
+          status = migration.receipt(config, z.string().uuid().parse(input.options.plan));
         } catch { throw new PluginCliError('No migration plan for this ID in the selected scope.', { code: 'invalid_input' }); }
+        if (!input.options.readiness) return { exitCode: 0, stdout: JSON.stringify(status) };
+        try {
+          const readiness = status.state === 'review' && migration.mode(config) === 'legacy'
+            ? await changes.migrationReadiness({vaultId, projectsFolder, areasFolder}, context.signal ?? AbortSignal.timeout(30000))
+            : { stage: 'legacy_checks_not_applicable' };
+          return { exitCode: 0, stdout: JSON.stringify({ planId:status.planId, state:status.state, readiness }) };
+        } catch {
+          bb.log.warn('GTD identity_readiness evidence_unavailable');
+          throw new PluginCliError('Legacy readiness evidence is unavailable. Check the selected scope and Obsidian access.', { code: 'readiness_unavailable' });
+        }
       },
     }),
     'migration-apply': cliCommand({
@@ -352,7 +366,15 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
           await Promise.allSettled([...enteredWrites, reactivation]);
           const config = await settings.get();
           const signal = context.signal ?? AbortSignal.timeout(120000);
-          if (migration.mode(config) === 'legacy') await changes.checkMigrationReady(signal);
+          if (migration.mode(config) === 'legacy') {
+            const {vaultId, projectsFolder, areasFolder} = config;
+            try { await changes.checkMigrationReady({vaultId, projectsFolder, areasFolder}, signal); }
+            catch (error) {
+              if (error instanceof LegacyMigrationBlocker) throw error;
+              signal.throwIfAborted();
+              throw new LegacyMigrationBlocker('legacy_evidence');
+            }
+          }
           return migration.apply(config, z.string().uuid().parse(input.options.plan), signal, async () => {
             if (closing || JSON.stringify(await settings.get()) !== JSON.stringify(config)) throw new GtdError('source_unavailable');
           });
@@ -361,6 +383,21 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
         enteredWrites.add(task);
         try { const result = await task; return { exitCode: 0, stdout: JSON.stringify(result) }; }
         catch (error) {
+          if (error instanceof LegacyMigrationBlocker) {
+            bb.log.warn(`GTD identity_migration preflight_${error.stage}`);
+            const messages = {
+              deferrals: 'Pending project deferrals need to be reconciled before cutover.',
+              reactivations: 'Pending project reactivations need to be reconciled before cutover.',
+              project_changes: 'Pending legacy project changes need to be reconciled before cutover.',
+              legacy_evidence: 'GTD could not verify the legacy operation evidence needed for cutover.',
+            };
+            throw new PluginCliError(messages[error.stage], {code: `preflight_${error.stage}`,
+              hint:'Run bb gtd migration-status --plan <id> --readiness for the private operation list.'});
+          }
+          if (error instanceof MigrationPreflightError) {
+            bb.log.warn(`GTD identity_migration preflight_${error.reason}`);
+            throw new PluginCliError(error.message, {code: `preflight_${error.reason}`});
+          }
           if (error instanceof InvalidMigrationChoices) {
             bb.log.warn(`GTD identity_migration choice_${error.reason}`);
             throw new PluginCliError(error.message, {code: `choice_${error.reason}`, hint:'Review a fresh preview and its exact references before applying.'});

@@ -4,7 +4,7 @@ import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { noteEvidence, ObsidianBackend, vaultRpc } from '../adapters/obsidian.ts';
 import { noteSaveReceipt, reference } from '../contract.ts';
 import { migrationPreview, migrationPreviewVersion, readThreadReferences, type Preview, type RenameEvidence } from './migration-preview.ts';
-import { threadChoiceKey, type MigrationChoices } from './migration-choices.ts';
+import { InvalidMigrationChoices, threadChoiceKey, type MigrationChoices } from './migration-choices.ts';
 import { scopeKey, type Alias, type IdentityScope } from './identity.ts';
 
 type NoteStep = { operationId: string; savedHash?: string };
@@ -19,6 +19,18 @@ type Run = { id: string; state: 'review' | 'applying' | 'stable'; manifest: stri
 
 const blocked = (message: string): never => { throw new Error(message); };
 export class OutdatedMigrationReview extends Error {}
+const preflightMessages = {
+  plan_scope: 'This plan is unavailable in the selected GTD scope. Check the plan ID and selected source.',
+  unresolved_review: 'This review has incomplete evidence or unresolved decisions. Inspect its preview.',
+  another_migration: 'Another migration is already applying. Inspect its operation receipts first.',
+  source_unavailable: 'GTD could not recheck the selected source. Check Obsidian access and the GTD settings.',
+  thread_evidence_changed: 'Thread reference evidence differs from the reviewed plan. Inspect the original associations.',
+  review_evidence_unavailable: 'GTD could not reread the review evidence. Check Obsidian and BB access.',
+  review_changed: 'The inventory or references differ from this review. Generate and review a fresh preview before applying.',
+};
+export class MigrationPreflightError extends Error {
+  constructor(readonly reason: keyof typeof preflightMessages) { super(preflightMessages[reason]); }
+}
 const validLink = (link: Preview['links'][number]) => !!link.proposedId &&
   (!link.decision || link.decision === 'verified_rename' || link.decision === 'explicit_reassignment');
 export const decisions = (preview: Pick<Preview, 'rows' | 'links' | 'renameMappings'>) =>
@@ -67,13 +79,13 @@ export function identityMigration(bb: BbPluginApi) {
   }
   async function apply(config: IdentityScope, id: string, signal: AbortSignal, check: () => Promise<void>) {
     const run = db.prepare('SELECT id,state,manifest FROM identity_runs WHERE id=? AND scope=?').get(id, scopeKey(config)) as Run | undefined;
-    if (!run) return blocked('The reviewed plan does not belong to the selected scope.');
+    if (!run) throw new MigrationPreflightError('plan_scope');
     if (run.state === 'stable') return { state: 'stable' as const };
     const manifest = JSON.parse(run.manifest) as Manifest;
     const { preview } = manifest;
     if (run.state === 'review' && preview.version !== migrationPreviewVersion)
       throw new OutdatedMigrationReview();
-    if (preview.coverage !== 'complete' || decisions(preview)) return blocked('The preview has unresolved evidence or mappings.');
+    if (preview.coverage !== 'complete' || decisions(preview)) throw new MigrationPreflightError('unresolved_review');
     const save = () => db.prepare('UPDATE identity_runs SET manifest=? WHERE id=?').run(JSON.stringify(manifest), id);
     const { source: vaultId, scope } = preview;
     const adapter = new ObsidianBackend(bb.sdk, { vaultId, root: scope.root, folder: scope.projectsFolder,
@@ -91,33 +103,55 @@ export function identityMigration(bb: BbPluginApi) {
       await check();
       await adapter.checkAccess(signal);
     };
-    const verifyLinks = async (requireStable: boolean) => {
+    const verifyLinks = async (requireStable: boolean, preflight = false) => {
+      const mismatch = (message: string) => {
+        if (preflight) throw new MigrationPreflightError('thread_evidence_changed');
+        return blocked(message);
+      };
       const actual = await readThreadReferences(bb.sdk, vaultId, signal);
       const reviewed = new Map(preview.links.map(link => [threadChoiceKey(link), link]));
-      if (actual.warnings.length || actual.refs.length !== reviewed.size) return blocked('Thread reference coverage changed.');
+      if (actual.warnings.length || actual.refs.length !== reviewed.size) return mismatch('Thread reference coverage changed.');
       for (const link of actual.refs) {
         const key = threadChoiceKey(link);
         const expected = reviewed.get(key);
         if (!expected || link.archived !== expected.archived ||
             (link.id !== expected.proposedId && (requireStable || link.id !== expected.id)) ||
             (expected.decision === 'explicit_reassignment' && link.id !== expected.id && !manifest.threads[key]))
-          return blocked('A reviewed thread reference changed independently.');
+          return mismatch('A reviewed thread reference changed independently.');
       }
     };
-    await fence();
-    if (preview.explicitChoices?.threadReassignments.length) await verifyLinks(false);
+    const checkSource = async () => {
+      try { await fence(); }
+      catch { signal.throwIfAborted(); throw new MigrationPreflightError('source_unavailable'); }
+    };
+    await checkSource();
     if (run.state === 'review') {
-      if (hasApplying()) return blocked('Another reviewed migration is still applying.');
-      const observed = await migrationPreview(bb, config, signal, manifest.renames, priorEvidence(config, manifest.renames), preview.explicitChoices);
+      if (hasApplying()) throw new MigrationPreflightError('another_migration');
+      if (preview.explicitChoices?.threadReassignments.length) {
+        try { await verifyLinks(false, true); }
+        catch (error) {
+          if (error instanceof MigrationPreflightError) throw error;
+          signal.throwIfAborted();
+          throw new MigrationPreflightError('review_evidence_unavailable');
+        }
+      }
+      let observed: Preview;
+      try {
+        observed = await migrationPreview(bb, config, signal, manifest.renames, priorEvidence(config, manifest.renames), preview.explicitChoices);
+      } catch (error) {
+        if (error instanceof InvalidMigrationChoices) throw error;
+        signal.throwIfAborted();
+        throw new MigrationPreflightError('review_evidence_unavailable');
+      }
       const ordered = (p: Manifest['preview']) => ({
         ...p, rows: [...p.rows].sort((a,b) => a.oldId.localeCompare(b.oldId)),
         links: [...p.links].sort((a,b) => threadChoiceKey(a).localeCompare(threadChoiceKey(b))),
         bookmarks: [...p.bookmarks].sort((a,b) => a.from.localeCompare(b.from)),
       });
-      if (!isDeepStrictEqual(ordered(preview), ordered(observed))) return blocked('The reviewed inventory or references changed. Review a fresh preview.');
-      await fence();
+      if (!isDeepStrictEqual(ordered(preview), ordered(observed))) throw new MigrationPreflightError('review_changed');
+      await checkSource();
       db.prepare("UPDATE identity_runs SET state='applying' WHERE id=? AND state='review'").run(id);
-    }
+    } else if (preview.explicitChoices?.threadReassignments.length) await verifyLinks(false);
     const reconcileNote = async (row: Preview['rows'][number], steps: NoteSteps) => {
       const path = row.notePath!;
       const fields = desired(row);

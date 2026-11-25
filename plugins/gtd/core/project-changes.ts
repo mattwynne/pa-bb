@@ -120,6 +120,12 @@ type Deferral = {
   dateAttempt?: string;
   completed?: 'deferred' | 'move_repairs_pending';
 };
+export class LegacyMigrationBlocker extends Error {
+  constructor(readonly stage: 'deferrals' | 'reactivations' | 'project_changes' | 'legacy_evidence') { super(stage); }
+}
+type StoredLegacyPlan = { id: string; plan: string; move_op: string | null; attempted: string };
+const migrationDiagnosticLimit = 20;
+const diagnosticOperationId = (value: unknown) => z.string().uuid().safeParse(value).data ?? null;
 class ChangeError extends Error {}
 const refuse = (message: string): never => {
   throw new ChangeError(message);
@@ -510,8 +516,10 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         action: 'Inspect the Obsidian move receipt and check the project inventory. For a partial or uncertain operation, do not replay.',
       };
       if (p.stableId) {
-        p.settled = true;
-        recordPlan(input.planId, p);
+        if (input.finishLinks || recovering) {
+          p.settled = true;
+          recordPlan(input.planId, p);
+        }
         return { state: 'links_verified', operationId: receipt.operationId, moveOutcome };
       }
       if (s.stableIdentity) return { state: 'legacy_receipt_verified', operationId: receipt.operationId, moveOutcome };
@@ -998,24 +1006,73 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     for (const [stage, { count, operations }] of failures)
       bb.log.warn(`GTD reactivation ${stage} count=${count}${operations.length ? ` move_operations=${operations.join(',')}` : ''}`);
   }
-  async function checkMigrationReady(signal: AbortSignal) {
-    const s = await scope();
-    const key = JSON.stringify([s.config.vaultId, s.config.projectsFolder]);
-    if (db.prepare('SELECT 1 FROM project_deferrals WHERE scope=? AND complete=0').get(key) ||
-        db.prepare('SELECT 1 FROM project_reactivations WHERE scope=?').get(key))
-      return refuse('Resolve pending deferral and reactivation operations before identity cutover.');
-    const rows = db.prepare('SELECT id,plan,move_op,attempted FROM project_change_plans').all() as
-      {id: string; plan: string; move_op: string | null; attempted: string}[];
-    for (const row of rows) {
+  const legacyScope = (config: Config) => JSON.stringify([config.vaultId, config.projectsFolder]);
+  function pendingChangePlans(config: Config) {
+    const rows = db.prepare('SELECT id,plan,move_op,attempted FROM project_change_plans ORDER BY created, id').all() as StoredLegacyPlan[];
+    return rows.flatMap(row => {
       const plan = JSON.parse(row.plan) as Plan;
-      if (!isDeepStrictEqual(plan.config, s.config) || plan.settled ||
-          !(row.move_op || row.attempted !== '[]' || plan.noteAttempted || plan.folderAttempted || !plan.direct)) continue;
-      const result = await check({planId: row.id}, signal, true);
-      if (!['verified', 'links_verified'].includes(result.state) && result.moveOutcome !== 'not_moved')
-        return refuse('Resolve pending GTD changes before identity cutover.');
-      plan.settled = true;
-      recordPlan(row.id, plan);
+      return isDeepStrictEqual(plan.config, config) && !plan.settled &&
+        (row.move_op || row.attempted !== '[]' || plan.noteAttempted || plan.folderAttempted || !plan.direct) ? [{row,plan}] : [];
+    });
+  }
+  async function inspectChangePlan(row: StoredLegacyPlan, signal: AbortSignal) {
+    try {
+      const result = await check({planId: row.id}, signal);
+      return { ready: ['verified', 'links_verified'].includes(result.state) || result.moveOutcome === 'not_moved',
+        state: result.state, moveOutcome: result.moveOutcome ?? null };
+    } catch {
+      signal.throwIfAborted();
+      return { ready: false, state: 'evidence_unavailable', moveOutcome: null };
     }
   }
-  return { browse, prepare, check, apply, change, defer, applyFromPanel, reactivate, checkMigrationReady };
+  async function migrationReadiness(config: Config, signal: AbortSignal) {
+    const key = legacyScope(config);
+    const deferralCount = (db.prepare('SELECT count(*) AS n FROM project_deferrals WHERE scope=? AND complete=0').get(key) as {n:number}).n;
+    const reactivationCount = (db.prepare('SELECT count(*) AS n FROM project_reactivations WHERE scope=?').get(key) as {n:number}).n;
+    const deferrals = (db.prepare('SELECT owner,move_plan,request FROM project_deferrals WHERE scope=? AND complete=0 ORDER BY owner LIMIT ?')
+      .all(key, migrationDiagnosticLimit) as {owner:string; move_plan:string | null; request:string}[]).map(row => {
+      const request = JSON.parse(row.request) as Deferral;
+      return { projectId:relativeFolder.safeParse(row.owner).data ?? null, deferUntil:deferInput.shape.deferUntil.safeParse(request.date).data ?? null,
+        movePlanId:diagnosticOperationId(row.move_plan), dateOperationId:diagnosticOperationId(request.dateAttempt) };
+    });
+    const reactivations = (db.prepare('SELECT plan_id,request FROM project_reactivations WHERE scope=? ORDER BY owner LIMIT ?')
+      .all(key, migrationDiagnosticLimit) as {plan_id:string; request:string}[]).map(row => {
+      const request = JSON.parse(row.request) as Reactivation;
+      return { planId:diagnosticOperationId(row.plan_id), cleanupOperationId:diagnosticOperationId(request.cleanupId) };
+    });
+    const candidates = pendingChangePlans(config);
+    const projectChanges = [];
+    for (const {row,plan} of candidates.slice(0, migrationDiagnosticLimit)) {
+      signal.throwIfAborted();
+      const result = deferralCount || reactivationCount
+        ? { ready:null, state:'not_checked', moveOutcome:null }
+        : await inspectChangePlan(row, signal);
+      projectChanges.push({ planId:diagnosticOperationId(row.id),
+        moveOperationId:diagnosticOperationId(plan.destination && (plan.direct || plan.project ? row.id : row.move_op)),
+        folderOperationId:diagnosticOperationId(plan.folderOperation),
+        propertyOperationId:diagnosticOperationId(plan.areaOperation ?? (!plan.destination && plan.noteAttempted ? row.id : null)),
+        ...result });
+    }
+    await unchanged(config);
+    const firstBlocker = projectChanges.find(item => item.ready === false);
+    const stage = deferralCount ? 'deferrals' : reactivationCount ? 'reactivations' :
+      firstBlocker?.state === 'evidence_unavailable' ? 'legacy_evidence' :
+      firstBlocker || candidates.length > projectChanges.length ? 'project_changes' : 'legacy_checks_passed';
+    return { stage, counts:{deferrals:deferralCount, reactivations:reactivationCount, projectChanges:candidates.length},
+      limitPerCategory:migrationDiagnosticLimit, deferrals, reactivations, projectChanges };
+  }
+  async function checkMigrationReady(config: Config, signal: AbortSignal) {
+    await unchanged(config);
+    const key = legacyScope(config);
+    if (db.prepare('SELECT 1 FROM project_deferrals WHERE scope=? AND complete=0').get(key))
+      throw new LegacyMigrationBlocker('deferrals');
+    if (db.prepare('SELECT 1 FROM project_reactivations WHERE scope=?').get(key))
+      throw new LegacyMigrationBlocker('reactivations');
+    for (const {row,plan} of pendingChangePlans(config)) {
+      const result = await inspectChangePlan(row, signal);
+      if (!result.ready) throw new LegacyMigrationBlocker(result.state === 'evidence_unavailable' ? 'legacy_evidence' : 'project_changes');
+      recordPlan(row.id, { ...plan, settled:true });
+    }
+  }
+  return { browse, prepare, check, apply, change, defer, applyFromPanel, reactivate, checkMigrationReady, migrationReadiness };
 }

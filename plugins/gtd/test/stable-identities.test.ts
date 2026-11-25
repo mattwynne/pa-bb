@@ -181,9 +181,15 @@ test('review, interruption, cutover and replay preserve identities and relations
   const moved = JSON.parse(move.content[0].text);
   assert.equal(moved.state, 'links_verified');
   await f.reload();
+  const moveDb = f.host.bb.storage.database();
+  const persisted = () => (moveDb.prepare('SELECT plan FROM project_change_plans WHERE id=?').get(moved.planId) as {plan:string}).plan;
+  const pendingMove = JSON.parse(persisted());
+  delete pendingMove.settled;
+  moveDb.prepare('UPDATE project_change_plans SET plan=? WHERE id=?').run(JSON.stringify(pendingMove), moved.planId);
   const recovered = await f.host.harness.behavior.callAgentTool('gtd_check_project_change', {planId:moved.planId});
   assert.ok(typeof recovered !== 'string' && !recovered.isError && recovered.content[0].type === 'text');
   assert.equal(JSON.parse(recovered.content[0].text).state, 'links_verified');
+  assert.deepEqual(JSON.parse(persisted()), pendingMove);
   assert.equal(f.writes.moves, 1);
   assert.equal(f.writes.metadata, 4);
   const after = await f.rpc('browseInventoryV2', {includeAreas:true});
@@ -214,10 +220,12 @@ test('stale previews, revoked access and independently changed links fail closed
   const stale = await f.preview();
   f.docs.get(oldProject)!.status = 'someday';
   assert.notEqual((await f.cli('migration-apply', '--plan', stale.planId)).exitCode, 0);
+  assert.equal(f.host.harness.inspection.logEntries.at(-1)?.message, 'GTD identity_migration preflight_review_changed');
   assert.equal(f.writes.notes, 0);
   const plan = await f.preview();
   f.faults.access = true;
   assert.notEqual((await f.cli('migration-apply', '--plan', plan.planId)).exitCode, 0);
+  assert.equal(f.host.harness.inspection.logEntries.at(-1)?.message, 'GTD identity_migration preflight_source_unavailable');
   assert.equal(f.writes.notes, 0);
   f.faults.access = false;
   f.faults.note = true;
@@ -225,6 +233,66 @@ test('stale previews, revoked access and independently changed links fail closed
   f.metadata.set('active-project', {project:{source,id:'Projects/Another.md'}});
   assert.notEqual((await f.cli('migration-apply', '--plan', plan.planId)).exitCode, 0);
   assert.equal(f.writes.metadata, 0);
+});
+
+test('migration readiness reports scoped legacy blockers and stays read-only', async t => {
+  const f = await fixture();
+  t.after(() => f.host.harness.lifecycle.dispose());
+  const migration = await f.preview();
+  const db = f.host.bb.storage.database();
+  const config = {vaultId:source, projectsFolder:'Projects', areasFolder:'Areas'};
+  const scope = JSON.stringify([source, 'Projects']);
+  const otherScope = JSON.stringify(['unrelated', 'Projects']);
+  const planId = randomUUID(), cleanupOperationId = randomUUID(), dateOperationId = randomUUID();
+  const deferral = db.prepare('INSERT INTO project_deferrals VALUES (?,?,?,?,?,0,?)');
+  deferral.run(scope, oldProject, oldProject, 1, null, JSON.stringify({date:'2026-11-30',dateAttempt:dateOperationId}));
+  deferral.run(otherScope, 'Projects/PRIVATE_OTHER.md', oldProject, 1, null, '{}');
+  db.prepare('INSERT INTO project_reactivations VALUES (?,?,?,?)').run(scope, oldProject, planId,
+    JSON.stringify({cleanupId:cleanupOperationId}));
+  const legacyPlan = {config,source,id:oldProject,owner:oldProject,expectedHash:hash(f.docs.get(oldProject)!),
+    areaPath:'Areas/Other.md',threads:[],direct:true,noteAttempted:true};
+  db.prepare('INSERT INTO project_change_plans (id,created,plan) VALUES (?,?,?)').run(planId, 1, JSON.stringify(legacyPlan));
+  const readiness = async () => {
+    const result = await f.cli('migration-status', '--plan', migration.planId, '--readiness');
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.doesNotMatch(result.stdout!, /PRIVATE_OTHER/);
+    const status = JSON.parse(result.stdout!);
+    assert.equal(status.state, 'review');
+    return status.readiness;
+  };
+  const assertBlocked = async (stage: string) => {
+    const result = await f.cli('migration-apply', '--plan', migration.planId);
+    assert.notEqual(result.exitCode, 0);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_|Permits|permits/);
+    assert.equal(f.host.harness.inspection.logEntries.at(-1)?.message, 'GTD identity_migration preflight_' + stage);
+  };
+  const first = await readiness();
+  assert.equal(first.stage, 'deferrals');
+  assert.deepEqual(first.counts, {deferrals:1, reactivations:1, projectChanges:1});
+  assert.deepEqual(first.deferrals, [{projectId:oldProject,deferUntil:'2026-11-30',movePlanId:null,dateOperationId}]);
+  assert.deepEqual(first.reactivations, [{planId,cleanupOperationId}]);
+  assert.equal(first.projectChanges[0].state, 'not_checked');
+  await assertBlocked('deferrals');
+  db.prepare('DELETE FROM project_deferrals WHERE scope=?').run(scope);
+  assert.equal((await readiness()).stage, 'reactivations');
+  await assertBlocked('reactivations');
+  db.prepare('DELETE FROM project_reactivations WHERE scope=?').run(scope);
+  const last = await readiness();
+  assert.equal(last.stage, 'project_changes');
+  assert.deepEqual(last.projectChanges, [{planId,moveOperationId:null,folderOperationId:null,
+    propertyOperationId:planId, ready:false,state:'not_verified',moveOutcome:null}]);
+  await assertBlocked('project_changes');
+  f.faults.access = true;
+  assert.equal((await readiness()).stage, 'legacy_evidence');
+  await assertBlocked('legacy_evidence');
+  f.faults.access = false;
+  f.docs.set('Areas/Other.md', {});
+  f.docs.get(oldProject)!.area = 'Areas/Other.md';
+  assert.equal((await readiness()).stage, 'legacy_checks_passed');
+  assert.deepEqual((db.prepare('SELECT plan FROM project_change_plans WHERE id=?').get(planId) as {plan:string}).plan, JSON.stringify(legacyPlan));
+  assert.deepEqual(JSON.parse((await f.cli('migration-status', '--plan', migration.planId)).stdout!),
+    {planId:migration.planId,state:'review',notes:{},threads:{}});
+  assert.equal(f.writes.notes + f.writes.moves + f.writes.metadata + f.writes.spawns, 0);
 });
 
 test('a verified rename takes precedence over an unrelated current occupant of the old path', async t => {

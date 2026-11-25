@@ -119,6 +119,9 @@ try {
     stableArea = report.rows.find(row => row.kind === 'area').proposedId;
     assert.match(stableProject, /^project-[0-9a-f-]{36}$/);
     assert.match(stableArea, /^area-[0-9a-f-]{36}$/);
+    const readiness = JSON.parse(await cli('gtd', 'migration-status', '--plan', report.planId, '--readiness'));
+    assert.equal(readiness.state, 'review');
+    assert.equal(readiness.readiness.stage, 'legacy_checks_passed');
     await cli('gtd', 'migration-apply', '--plan', report.planId);
     assert.equal(JSON.parse(await cli('gtd', 'migration-status', '--plan', report.planId)).state, 'stable');
     assert.match(await readFile(join(vault, ref.id), 'utf8'), new RegExp(stableProject));
