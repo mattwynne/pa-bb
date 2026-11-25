@@ -223,7 +223,9 @@ function useDisclosure() {
     onToggle: event => setOpen(event.currentTarget.open),
     onBlur: event => {
       const details = event.currentTarget;
-      if (details.open && !details.contains(event.relatedTarget)) details.open = false;
+      // A tap can blur the summary without moving focus to the tapped control.
+      // Pointer events handle clicks and taps outside the disclosure.
+      if (details.open && event.relatedTarget && !details.contains(event.relatedTarget)) details.open = false;
     },
     onKeyDown: event => {
       if (event.key !== 'Escape' || !event.currentTarget.open) return;

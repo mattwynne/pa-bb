@@ -861,8 +861,20 @@ try {
       const activate = async name => {
         await menu.focus();
         await page.keyboard.press('Enter');
-        await menu.locator('..').getByRole('button', { name, exact: true }).focus();
-        await page.keyboard.press('Enter');
+        const action = menu.locator('..').getByRole('button', { name, exact: true });
+        if (width === 390) {
+          // Safari can blur the summary without giving focus to the tapped button.
+          await action.evaluate(button => button.addEventListener('pointerdown', () => {
+            const menu = button.closest('details');
+            menu.querySelector('summary').blur();
+            window.gtdMenuStayedOpen = menu.open;
+          }, { once: true }));
+          await action.tap();
+          assert.equal(await page.evaluate(() => window.gtdMenuStayedOpen), true, 'The menu must stay open through an in-menu pointer interaction when no element receives focus');
+        } else {
+          await action.focus();
+          await page.keyboard.press('Enter');
+        }
       };
       await project.waitFor();
       if (width === 1280) {
