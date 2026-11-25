@@ -11,10 +11,27 @@ export const page = z.object({
   restart: z.boolean().optional(),
 });
 export const maxMimeBytes = 32 * 1024 * 1024;
+
+function hasBase64Alphabet(value: string): boolean {
+  // Scan directly so multi-megabyte messages don't exhaust the regex engine's stack.
+  let end = value.length;
+  if (value[end - 1] === '=') end--;
+  if (value[end - 1] === '=') end--;
+  if (end === 0) return false;
+  for (let index = 0; index < end; index++) {
+    const code = value.charCodeAt(index);
+    const isLetter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+    const isDigit = code >= 48 && code <= 57;
+    if (!isLetter && !isDigit && code !== 43 && code !== 47) return false;
+  }
+  return true;
+}
+
 export const message = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('ok'),
-    mime: z.string().min(1).max(Math.ceil(maxMimeBytes * 4 / 3) + 4).regex(/^[A-Za-z0-9+/]+={0,2}$/),
+    mime: z.string().min(1).max(Math.ceil(maxMimeBytes * 4 / 3) + 4, { abort: true })
+      .refine(hasBase64Alphabet, 'Invalid Base64 message'),
   }),
   z.object({ status: z.enum(['missing', 'too_large']) }),
 ]);
