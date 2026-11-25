@@ -596,7 +596,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focused.current = null;
     }}>
     <div className="gtd-content">
-      {(route.kind === 'project' || route.kind === 'invalid' || missing) && <nav className="gtd-crumbs" aria-label="Breadcrumb">
+      {route.kind !== 'index' && <nav className="gtd-crumbs" aria-label="Breadcrumb">
         <PanelLink destination={areasIndex}>Areas</PanelLink>
         {project && (owningArea || !inventory.areasPartial || !project.areaId) && <>
           <span aria-hidden="true">/</span>

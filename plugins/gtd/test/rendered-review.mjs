@@ -325,6 +325,8 @@ try {
     }
     const heading = name => nav.getByRole('heading', { name, exact: true, level: 1 });
     const link = name => nav.getByRole('link', { name, exact: typeof name === 'string' });
+    const breadcrumbs = nav.getByRole('navigation', { name: 'Breadcrumb' });
+    const areasCrumb = breadcrumbs.getByRole('link', { name: 'Areas', exact: true });
     const filter = nav.getByLabel('Filter by project status', { exact: true });
     const threadFilter = nav.getByLabel('Filter by thread status', { exact: true });
     const areaPicker = nav.getByRole('combobox', { name: 'Area', exact: true });
@@ -422,8 +424,11 @@ try {
       await link(/Restore a plane Deferred/).waitFor();
       await page.goForward();
       await heading('Learn woodworking').waitFor();
-      await nav.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Learning' }).click();
+      await breadcrumbs.getByRole('link', { name: 'Learning' }).click();
       await heading('Learning').waitFor();
+      await areasCrumb.press('Enter');
+      await heading('Areas').waitFor();
+      assert.equal(await breadcrumbs.count(), 0);
       await page.goto(new URL(projectHref, base).href);
       await heading('Learn woodworking').waitFor();
       await link('Choose tools').waitFor();
@@ -482,7 +487,7 @@ try {
       await page.screenshot({ path: join(artifacts, `association-${width}.png`) });
       await page.getByRole('menuitem', { name: 'No GTD project', exact: true }).click();
       await link('Choose tools').waitFor({ state: 'hidden' });
-      await nav.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Areas' }).click();
+      await areasCrumb.click();
       await heading('Areas').waitFor();
       await nav.getByText('Thread associations', { exact: true }).click();
       await nav.getByText('Unassigned threads (1)', { exact: true }).waitFor();
@@ -691,6 +696,8 @@ try {
       await link('Learn woodworking').waitFor();
       await switchArea('Unassigned area');
       await link('Unresolved project').waitFor();
+      await areasCrumb.click();
+      await heading('Areas').waitFor();
     } else if (mode === 'area-boundary') {
       await openLearning();
       await link('Learn woodworking').waitFor();
