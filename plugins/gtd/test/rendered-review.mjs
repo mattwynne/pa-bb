@@ -439,13 +439,12 @@ try {
     const areasCrumb = breadcrumbs.getByRole('link', { name: 'Areas', exact: true });
     const filter = nav.getByLabel('Filter by project status', { exact: true });
     const threadFilter = nav.getByLabel('Filter by thread status', { exact: true });
-    const areaPicker = nav.getByRole('combobox', { name: 'Area', exact: true });
-    const areaLinks = nav.getByRole('navigation', { name: 'Switch Area' });
     const switchArea = async name => {
-      await areaPicker.or(areaLinks).filter({ visible: true }).waitFor();
-      if (await areaPicker.isVisible()) await areaPicker.selectOption({ label: name });
-      else await areaLinks.getByRole('link', { name, exact: true }).click();
-      await heading(name === 'All areas' ? 'Areas' : name).waitFor();
+      await areasCrumb.press('Enter');
+      await heading('Areas').waitFor();
+      if (name === undefined) return;
+      await link(name).press('Enter');
+      await heading(name).waitFor();
     };
     const openLearning = async () => {
       const learning = link('Learning');
@@ -471,8 +470,9 @@ try {
       assert.equal((await header.boundingBox()).height, indexHeader.height);
       assert.equal((await heading('Learning').boundingBox()).y, indexTitle.y);
       assert.equal(await heading('Learning').evaluate(el => el.matches(':focus')), true);
-      assert.equal(await areaPicker.isVisible(), width === 390);
-      assert.equal(await areaLinks.isVisible(), width === 1280);
+      assert.equal(await nav.getByRole('combobox', { name: 'Area', exact: true }).count(), 0);
+      assert.equal(await nav.getByRole('navigation', { name: 'Switch Area' }).count(), 0);
+      assert.equal(await link('Home').count(), 0);
       await link('Learn woodworking').waitFor();
       await link('Practice plan').waitFor();
       assert.equal(await link('Choose tools').isVisible(), false);
@@ -572,8 +572,10 @@ try {
     } else if (mode === 'normal') {
       await openLearning();
       assert.equal(await nav.getByLabel('Actions for area Learning').count(), 0);
+      const areaThreads = nav.locator('section').filter({ has: page.getByRole('heading', { name: 'Area threads' }) });
+      const newAreaThread = areaThreads.getByRole('button', { name: 'New thread for Area Learning' });
+      await threadFilter.focus();
       await page.keyboard.press('Tab');
-      const newAreaThread = nav.getByRole('button', { name: 'New thread for Area Learning' });
       assert.equal(await newAreaThread.evaluate(el => el.matches(':focus-visible')), true);
       await page.keyboard.press('Tab');
       assert.equal(await nav.getByRole('button', { name: 'Refresh GTD' }).count(), 0);
@@ -673,7 +675,7 @@ try {
       await unlink(renamed);
       await link('Renamed').waitFor({ state: 'hidden' });
       await page.screenshot({ path: join(artifacts, `native-refresh-${width}.png`) });
-      await switchArea('All areas');
+      await switchArea();
       const areaNote = join(vault, 'Areas/Workshop.md');
       const renamedArea = join(vault, 'Areas/Studio.md');
       await writeFile(areaNote, '# Workshop');
@@ -790,7 +792,7 @@ try {
       await switchArea('Learning');
       await standard.getByText('Edit made in Obsidian.', { exact: true }).waitFor();
       assert.equal(await standard.count(), 1);
-      await switchArea('All areas');
+      await switchArea();
       assert.equal(await standard.count(), 0);
       assert.ok(!standardReads.includes('Areas/Folder/'));
       assert.equal(standardSaves.length, 4);
@@ -991,14 +993,10 @@ try {
         }
       };
       await project.waitFor();
-      if (width === 1280) {
-        await project.locator('..').dragTo(areaLinks.getByRole('link', { name: 'Home', exact: true }));
-      } else {
-        await activate('Move to Area…');
-        const dialog = nav.getByRole('dialog', { name: 'Move to Area' });
-        await dialog.getByRole('combobox', { name: 'Area' }).selectOption('Areas/Home.md');
-        await dialog.getByRole('button', { name: 'Move', exact: true }).click();
-      }
+      await activate('Move to Area…');
+      const move = nav.getByRole('dialog', { name: 'Move to Area' });
+      await move.getByRole('combobox', { name: 'Area' }).selectOption('Areas/Home.md');
+      await move.getByRole('button', { name: 'Move', exact: true }).click();
       await nav.getByText('Project assigned locally. iCloud sync is pending.').waitFor();
       assert.deepEqual(projectChanges, [{ kind: 'area', areaPath: 'Areas/Home.md' }]);
       await switchArea('Home');
@@ -1026,9 +1024,7 @@ try {
       await link('Learn woodworking').waitFor();
       await switchArea('Empty Area 0');
       await nav.getByText('No projects in this Area yet.').waitFor();
-      if (await areaPicker.isVisible()) await areaPicker.selectOption({ label: 'All areas' });
-      else await areaLinks.getByRole('link', { name: 'All areas' }).click();
-      await heading('Areas').waitFor();
+      await switchArea();
       assert.equal(await nav.getByRole('link', { name: /^Empty Area \d$/ }).count(), 8);
     } else if (mode === 'malformed') {
       await nav.getByText('Some projects or Areas could not be loaded. Inventory totals are unconfirmed.').waitFor();
