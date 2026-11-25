@@ -596,18 +596,20 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focused.current = null;
     }}>
     <div className="gtd-content">
-      {route.kind !== 'index' && <nav className="gtd-crumbs" aria-label="Breadcrumb">
-        <PanelLink destination={areasIndex}>Areas</PanelLink>
-        {project && (owningArea || !inventory.areasPartial || !project.areaId) && <>
-          <span aria-hidden="true">/</span>
-          <PanelLink destination={owningArea ? areaDestination(owningArea) : unassignedArea}>{owningArea?.title ?? 'Unassigned area'}</PanelLink>
-        </>}
-      </nav>}
-      <div className="gtd-page-heading">
-        <h1 tabIndex={-1} ref={heading}>{title}</h1>
-        {area && newThreadAction(area, 'area')}
-        {project && projectActions(project)}
-      </div>
+      <header className="gtd-page-header">
+        {route.kind !== 'index' && <nav className="gtd-crumbs" aria-label="Breadcrumb">
+          <PanelLink destination={areasIndex}>Areas</PanelLink>
+          {project && (owningArea || !inventory.areasPartial || !project.areaId) && <>
+            <span aria-hidden="true">/</span>
+            <PanelLink destination={owningArea ? areaDestination(owningArea) : unassignedArea}>{owningArea?.title ?? 'Unassigned area'}</PanelLink>
+          </>}
+        </nav>}
+        <div className="gtd-page-heading">
+          <h1 tabIndex={-1} ref={heading}>{title}</h1>
+          {area && newThreadAction(area, 'area')}
+          {project && projectActions(project)}
+        </div>
+      </header>
       {inventory.loading && <p role="status">Loading GTD…</p>}
       {(inventory.error || watchError || partial) && <div className="gtd-read-error">
         {inventory.error && <p role="alert">{inventory.error}</p>}

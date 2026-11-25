@@ -344,10 +344,15 @@ try {
     };
     if (mode === 'browser-flow') {
       await heading('Areas').waitFor();
+      const header = nav.locator('.gtd-page-header');
+      const indexHeader = await header.boundingBox();
+      const indexTitle = await heading('Areas').boundingBox();
       await page.screenshot({ path: join(artifacts, `areas-index-${width}.png`) });
       const emptyHref = await link('Empty Area').getAttribute('href');
       await openLearning();
       const areaUrl = page.url();
+      assert.equal((await header.boundingBox()).height, indexHeader.height);
+      assert.equal((await heading('Learning').boundingBox()).y, indexTitle.y);
       assert.equal(await heading('Learning').evaluate(el => el.matches(':focus')), true);
       assert.equal(await areaPicker.isVisible(), width === 390);
       assert.equal(await areaLinks.isVisible(), width === 1280);
