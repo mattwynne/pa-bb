@@ -6,7 +6,7 @@ import { plugin } from '../server.ts';
 import { CatalogFake, FilesFake, MemoryState, hash } from './fakes.ts';
 
 async function setup(count = 2) {
-  const host = createFakePluginHost({ pluginId: 'obsidian' });
+  const host = createFakePluginHost({ pluginId: 'obsidian', agentSkillIds: ['obsidian-links'] });
   const catalog = new CatalogFake(), files = new FilesFake(), repository = new MemoryState();
   const pending = Array.from({ length: count }, (_, i) => ({ operationId: randomUUID(), vaultId: 'one', path: `${'segment/'.repeat(4)}${'a'.repeat(210)}/${'b'.repeat(210)}/${'c'.repeat(210)}/${'d'.repeat(210)}/${i}.md`, at: new Date().toISOString() }));
   repository.value = { revision: 1, vaultIds: ['one'], names: { one: 'Launch' }, pending };
