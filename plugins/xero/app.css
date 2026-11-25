@@ -1,0 +1,9 @@
+.pa-xero { color: var(--foreground); }
+.pa-xero__callback { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: .5rem 0; }
+.pa-xero__callback code { min-width: 0; overflow-wrap: anywhere; user-select: all; }
+.pa-xero__note, .pa-xero__status { margin: .75rem 0; font-size: .875rem; color: var(--muted-foreground); line-height: 1.5; }
+.pa-xero ol { list-style-type: decimal; font-size: .875rem; line-height: 1.5; }
+.pa-xero ol a { text-decoration: underline; text-underline-offset: .15em; }
+.pa-xero .pa-connection__onboarding p { margin: .75rem 0; font-size: .875rem; line-height: 1.5; }
+.pa-xero__status:empty { display: none; }
+.pa-xero a:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }

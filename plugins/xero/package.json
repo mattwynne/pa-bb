@@ -1,0 +1,37 @@
+{
+  "name": "bb-plugin-xero",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22", "bb": ">=0.50.1", "bbPluginSdk": ">=0.6.157 <1" },
+  "bb": {
+    "name": "Xero",
+    "description": "Look up accounting records and prepare requested invoices, bills, payments and source attachments.",
+    "branding": { "icon": "Receipt" },
+    "server": "./server.ts",
+    "app": "./app.tsx",
+    "skills": ["skills"]
+  },
+  "dependencies": { "zod": "4.6.7" },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.157",
+    "@types/node": "22.20.5",
+    "@types/react": "19.2.7",
+    "bb-app": "0.50.1",
+    "better-sqlite3": "13.0.3",
+    "cron-parser": "5.5.0",
+    "hono": "4.13.13",
+    "playwright": "1.60.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "typescript": "5.9.3"
+  },
+  "overrides": { "bb-app": { "npm": "11.21.3" } },
+  "scripts": {
+    "build": "bb plugin build",
+    "typecheck": "tsc --noEmit && bb plugin types --check",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "test:host": "npm run build && node --test test/host.test.mjs",
+    "test:rendered": "node test/rendered-review.mjs"
+  }
+}

@@ -6,8 +6,9 @@ This is a proposed order of work, not a promise to port every PA package. The [v
 
 ## Where we are
 
-**Four independent plugins are listed in the marketplace: Google Workspace, Fastmail, iCloud folder sync, and Obsidian.** PA core is not delivered. Verification limits differ by plugin.
+**The marketplace lists Google Workspace, Fastmail, MsgVault, iCloud folder sync, Obsidian and Xero.** PA core is not delivered. Verification limits differ by plugin.
 
+- **Xero:** Accounting API reads and requested draft invoices/bills, invoice updates, same-currency payment recording and source attachments. Explicit organisation selection, exchange-rate preservation and uncertain-write handling carry forward earlier PA lessons. Generated-data core/host tests and rendered stock-BB review passed; live Xero connection and provider operations remain unverified. Final bank reconciliation stays manual. See its [guide](../plugins/xero/README.md).
 - **Google Workspace:** replaces the retired standalone Calendar and Drive plugins. The thin Workspace MCP connector exposes Drive, Docs, Sheets, Calendar and Gmail through BB-managed Google connections. Requested writes need no second PA approval. The owner reports successful use; that is not proof of every operation. See its [guide](../plugins/google-workspace/README.md) for setup and verification limits.
 - **Fastmail:** standalone official MCP connection installed, with session recovery and stable tool IDs. A [recorded BB workflow](problems/google-drive-email-attachments.md) includes a completed email-draft call, superseding the earlier blanket “no live writes” status. This is not proof of sending or every mail/calendar/contacts operation. Optional [JMAP Inbox and label updates](../plugins/fastmail/docs/jmap-labels.md) are built and synthetically tested; live JMAP writes remain unverified.
 - **iCloud:** **0.3.1** retains [continuous local note access](plans/015-icloud-continuous-note-access.md), conditional saves and per-note recovery behind native ownership. Routine sync no longer determines note availability. Both-disabled delivery preserved source choices; a normal scheduled run completed with local access/discovery retained. Sync takes no whole-folder backups. Phone round trips and real authorization-expiry recovery remain unverified.
@@ -61,7 +62,7 @@ Other candidates include PA's guarded editable saved drafts, conservative contac
 
 ### 8. Specialist integrations
 
-Consider Xero, meeting capture and transcripts, Discord, DNSimple, and other PA integrations one at a time when there is a clear BB task to serve. Keep Red Donkey accounting policy, local recorder dependencies, and other personal deployment state outside general-purpose plugins.
+Xero's initial Accounting API plugin is available; live read verification and feedback come before expanding its write surface or adding browser-based Bank Rec inspection. Consider meeting capture and transcripts, Discord, DNSimple, and other PA integrations one at a time when there is a clear BB task to serve. Keep Red Donkey accounting policy, local recorder dependencies, and other personal deployment state outside general-purpose plugins.
 
 ## Next milestones
 

@@ -16,6 +16,7 @@ For a new installation, use the [Docker quick start](#docker-quick-start) or [An
 
 | Integration | What you can do | What you need |
 | --- | --- | --- |
+| [Xero](plugins/xero/README.md) | Read accounting records, prepare requested draft invoices and bills, record same-currency payments, and attach source documents. Final reconciliation stays manual. | Your own Xero Web OAuth app. [Setup guide](plugins/xero/README.md#setup). |
 | [Google Workspace](plugins/google-workspace/README.md) | Use Drive, Docs, Sheets, Calendar and Gmail across connected Google accounts. Requested writes run without a second PA approval prompt. | Your own Google Web OAuth client and `uvx` on the BB service's PATH. [Setup guide](plugins/google-workspace/README.md#setup). |
 | [Fastmail](plugins/fastmail/README.md) | Use Fastmail's mail, calendar and contacts tools. Available actions depend on the access you grant, including write/send access if selected. An optional API token enables Inbox and label updates. | One Fastmail account. [Setup guide](plugins/fastmail/docs/setup.md). |
 | [MsgVault](plugins/email/README.md) | Archive and search selected Gmail and Fastmail accounts with MsgVault on the BB server. | Reuses Workspace Gmail and Fastmail JMAP connections. Included in Docker; otherwise requires MsgVault 0.26 and BB 0.50.1 or later on the server. |
@@ -113,6 +114,7 @@ Open the installed plugin's settings in BB and follow its setup guide. Then star
 
 - **Google setup needs your own client.** Create a Google Cloud Web OAuth client and register the callback URL shown in BB. The marketplace supplies no shared Google credentials. Workspace requests combined access to Drive, Docs, Sheets, Calendar and Gmail.
 - **Fastmail controls the granted access.** Choose the permissions at Fastmail sign-in. If the browser cannot open the final localhost redirect, paste that address into the plugin's protected field in BB—not into chat or logs.
+- **Xero needs its own connection.** Register the exact callback shown in BB on your Xero Web app, then connect and check access. Financial changes require an explicit request. This plugin does not send money or read the unreconciled bank-feed queue; cross-currency payments use a manual handoff.
 - **Write permissions differ.** Workspace and Fastmail follow the access you grant without an extra plugin-specific confirmation. Connecting an Obsidian vault grants read/write access to the **whole vault**, including hidden folders, without per-edit confirmations.
 - **Sync is not a backup.** iCloud changes and deletions can propagate both ways. An Obsidian save confirms a local save, not delivery to iCloud or another device. Use a disposable folder for your first sync test and keep separate backups.
 

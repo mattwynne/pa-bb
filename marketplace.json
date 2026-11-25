@@ -6,6 +6,17 @@
   "description": "Personal assistant integrations for BB, installed separately as needed.",
   "plugins": [
     {
+      "id": "xero",
+      "displayName": "Xero",
+      "description": "Read accounting records and prepare requested invoices, bills, payments and source attachments, with explicit organisation selection.",
+      "icon": "Receipt",
+      "tags": ["xero", "accounting", "invoices", "bills"],
+      "author": { "name": "Matt Wynne", "github": "mattwynne" },
+      "source": {
+        "git": { "url": "https://github.com/mattwynne/pa-bb.git", "subdir": "plugins/xero", "ref": "main" }
+      }
+    },
+    {
       "id": "google-workspace",
       "displayName": "Google Workspace",
       "description": "Use Drive, Docs, Sheets, Calendar and Gmail through one Google connection.",
