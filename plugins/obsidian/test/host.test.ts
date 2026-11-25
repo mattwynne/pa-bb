@@ -151,3 +151,81 @@ test('Desktop setup failure before a property write reports not saved and clears
     assert.equal(status.uncertainOperationCount, 0);
   } finally { await harness.lifecycle.dispose(); }
 });
+
+test('only GTD can atomically move a saved link, using one compare-and-swap receipt', async () => {
+  const { harness, files } = await setup();
+  const gtd = { experimental_caller: { kind: 'plugin' as const, pluginId: 'gtd' } };
+  const other = { experimental_caller: { kind: 'plugin' as const, pluginId: 'other' } };
+  const path = 'Projects/Launch.md';
+  const url = 'https://mail.google.com/mail/?authuser=example%40example.com#all/beef';
+  const bullet = `- [Proposal](${url})`;
+  const nextBullet = '- [Next](https://app.fastmail.com/mail/Inbox/S_next?u=1234abcd)';
+  const before = ['# Launch', '', '## Correspondence', '', bullet, nextBullet, '', '## Notes', '', bullet, ''].join('\r\n');
+  const after = before.replace(bullet + '\r\n', '') + '\r\n## Archived conversations\r\n\r\n' + bullet + '\r\n';
+  const { randomUUID } = await import('node:crypto');
+  const input = { vaultId: 'one', path, from: ['Active conversations', 'Correspondence'], to: 'Archived conversations',
+    url, expectedHash: hash(before), operationId: randomUUID() };
+  try {
+    await harness.behavior.callRpc('connect', { vaultId: 'one' });
+    files.notes.set('one/' + path, before);
+    await assert.rejects(harness.behavior.callRpc('moveSectionLink', input), /Only GTD/);
+    await assert.rejects(harness.behavior.callRpc('moveSectionLink', input, other), /Only GTD/);
+    assert.deepEqual(await harness.behavior.callRpc('moveSectionLink', input, gtd),
+      { operationId: input.operationId, outcome: 'saved_locally_pending_sync' });
+    assert.equal(files.notes.get('one/' + path), after);
+    assert.equal(files.saved.length, 1);
+    const stale = { ...input, operationId: randomUUID() };
+    assert.deepEqual(await harness.behavior.callRpc('moveSectionLink', stale, gtd),
+      { operationId: stale.operationId, outcome: 'not_saved', reason: 'changed' });
+    assert.equal(files.saved.length, 1);
+
+    const duplicate = [before, '## Active conversations', '', bullet, '', '## Archived conversations', '', bullet, ''].join('\r\n');
+    files.notes.set('one/' + path, duplicate);
+    const clean = { ...input, operationId: randomUUID(), expectedHash: hash(duplicate) };
+    assert.deepEqual(await harness.behavior.callRpc('moveSectionLink', clean, gtd),
+      { operationId: clean.operationId, outcome: 'saved_locally_pending_sync' });
+    assert.equal(files.notes.get('one/' + path)?.split(bullet).length, 3); // Notes and archive.
+    assert.equal(files.saved.length, 2);
+
+    const malformed = before + '\r\n## Archived conversations\r\n\r\nPrivate sentinel prose.\r\n';
+    files.notes.set('one/' + path, malformed);
+    const blocked = { ...input, operationId: randomUUID(), expectedHash: hash(malformed) };
+    assert.deepEqual(await harness.behavior.callRpc('moveSectionLink', blocked, gtd),
+      { operationId: blocked.operationId, outcome: 'not_saved', reason: 'invalid_section' });
+    assert.equal(files.notes.get('one/' + path), malformed);
+    assert.equal(files.saved.length, 2);
+    assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /sentinel|Launch\.md|example%40/);
+  } finally { await harness.lifecycle.dispose(); }
+});
+
+test('adding a section link preserves the exact URL and treats the subject as text', async () => {
+  const { harness, files } = await setup();
+  const gtd = { experimental_caller: { kind: 'plugin' as const, pluginId: 'gtd' } };
+  const path = 'Projects/Launch.md';
+  const before = '# Launch\r\n\r\n## Notes\r\n\r\nKeep this.\r\n';
+  const url = 'https://app.fastmail.com/mail/R%26D/S_email?u=1234abcd&copy;';
+  const title = 'Re: [Q4] *launch* &copy; <team> \\';
+  const { randomUUID } = await import('node:crypto');
+  const input = { vaultId: 'one', path, heading: 'Active conversations', url, title,
+    expectedHash: hash(before), operationId: randomUUID() };
+  try {
+    await harness.behavior.callRpc('connect', { vaultId: 'one' });
+    files.notes.set('one/' + path, before);
+    await assert.rejects(harness.behavior.callRpc('addSectionLink', input), /Only GTD/);
+    assert.deepEqual(await harness.behavior.callRpc('addSectionLink', input, gtd),
+      { operationId: input.operationId, outcome: 'saved_locally_pending_sync' });
+    const after = files.notes.get('one/' + path)!;
+    assert.ok(after.startsWith(before + '\r\n## Active conversations\r\n'));
+    assert.deepEqual(await harness.behavior.callRpc('readSectionLinks', {
+      vaultId: 'one', path, heading: input.heading,
+    }, gtd), { hash: hash(after), links: [{ title, url }], incomplete: false });
+    const stale = { ...input, operationId: randomUUID() };
+    assert.deepEqual(await harness.behavior.callRpc('addSectionLink', stale, gtd),
+      { operationId: stale.operationId, outcome: 'not_saved', reason: 'changed' });
+    const duplicate = { ...input, operationId: randomUUID(), expectedHash: hash(after) };
+    assert.deepEqual(await harness.behavior.callRpc('addSectionLink', duplicate, gtd),
+      { operationId: duplicate.operationId, outcome: 'not_saved', reason: 'invalid_section' });
+    assert.equal(files.notes.get('one/' + path), after);
+    assert.equal(files.saved.length, 1);
+  } finally { await harness.lifecycle.dispose(); }
+});

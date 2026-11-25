@@ -1,14 +1,17 @@
 import { z } from 'zod';
 
 export const correspondenceLink = z.object({ title: z.string().min(1).max(1024), url: z.string().min(1).max(2048) }).strict();
-export const correspondenceLinks = z.object({ links: z.array(correspondenceLink).max(40), incomplete: z.boolean() }).strict();
+export const linkLimit = 40;
+export const correspondenceLinks = z.object({ links: z.array(correspondenceLink).max(linkLimit), incomplete: z.boolean() }).strict();
+export const projectCorrespondence = z.object({ active: correspondenceLinks, archived: correspondenceLinks }).strict();
+type Section = z.infer<typeof correspondenceLinks>;
 export const mailStatus = z.discriminatedUnion('status', [
   z.object({ status: z.literal('ok'), unread: z.number().int().min(0).max(500),
     sender: z.string().max(320).nullable(), latestAt: z.iso.datetime().nullable(),
     threadKey: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict(),
   z.object({ status: z.enum(['unsupported', 'account_missing', 'account_mismatch', 'not_found', 'incomplete', 'unavailable']) }).strict(),
 ]);
-export const correspondenceStatus = z.array(z.object({ url: correspondenceLink.shape.url, mail: mailStatus }).strict()).max(40);
+export const correspondenceStatus = z.array(z.object({ url: correspondenceLink.shape.url, mail: mailStatus }).strict()).max(linkLimit);
 export type MailStatus = z.infer<typeof mailStatus>;
 
 export function mailProvider(value: string) {
@@ -24,13 +27,20 @@ export function mailProvider(value: string) {
 
 const supportsMailLookup = (url: string) => mailProvider(url) !== null;
 
-export function uniqueCorrespondence(links: z.infer<typeof correspondenceLinks>) {
+export function combineCorrespondence(active: Section, archived: Section, legacy: Section): z.infer<typeof projectCorrespondence> {
   const seen = new Set<string>();
-  return { ...links, links: links.links.filter(({ url }) => {
+  const takeUnique = (section: Section) => section.links.filter(({ url }) => {
     if (seen.has(url)) return false;
     seen.add(url);
     return true;
-  }) };
+  });
+  const activeLinks = takeUnique(active);
+  const archivedLinks = takeUnique(archived);
+  activeLinks.push(...takeUnique(legacy));
+  return {
+    active: { links: activeLinks.slice(0, linkLimit), incomplete: active.incomplete || legacy.incomplete || activeLinks.length > linkLimit },
+    archived: { links: archivedLinks, incomplete: archived.incomplete },
+  };
 }
 
 export function uniqueConversations(links: z.infer<typeof correspondenceLinks>['links'], mail: ReadonlyMap<string, MailStatus>) {

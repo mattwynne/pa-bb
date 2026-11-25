@@ -19,7 +19,8 @@ const scalarProperty = z.union([z.string(), z.number().finite(), z.boolean(), z.
 const fields = z.array(z.string().min(1).max(128)).max(16);
 const property = z.union([scalarProperty, z.array(scalarProperty).max(256)]);
 const noteInput = vault.extend({ path: consumerFolder });
-const sectionInput = noteInput.extend({ heading: z.string().min(1).max(128).regex(/^[^\x00-\x1f\x7f]+$/) });
+const sectionHeading = z.string().min(1).max(128).regex(/^[^\x00-\x1f\x7f]+$/);
+const sectionInput = noteInput.extend({ heading: sectionHeading });
 const sectionText = z.string().max(16000);
 const operationId = z.string().uuid();
 const outcome = z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']);
@@ -56,6 +57,21 @@ export const rpcContract = defineRpcContract({
   },
   writeNoteSection: {
     input: sectionInput.extend({ expectedHash: hash, operationId, text: sectionText }),
+    output: z.object({ operationId, outcome, reason: z.enum(['changed', 'invalid_section']).optional() }).strict(),
+  },
+  addSectionLink: {
+    input: sectionInput.extend({
+      expectedHash: hash, operationId,
+      title: z.string().trim().min(1).max(1024).regex(/^[^\x00-\x1f\x7f]+$/),
+      url: z.string().min(1).max(2048).regex(/^[^\s<>\\\x00-\x1f\x7f]+$/u),
+    }),
+    output: z.object({ operationId, outcome, reason: z.enum(['changed', 'invalid_section']).optional() }).strict(),
+  },
+  moveSectionLink: {
+    input: noteInput.extend({
+      expectedHash: hash, operationId, url: z.string().min(1).max(2048),
+      from: z.array(sectionHeading).min(1).max(2), to: sectionHeading,
+    }).refine(input => new Set([...input.from, input.to].map(heading => heading.toLocaleLowerCase('und'))).size === input.from.length + 1),
     output: z.object({ operationId, outcome, reason: z.enum(['changed', 'invalid_section']).optional() }).strict(),
   },
   createNote: {

@@ -1,25 +1,28 @@
 # Email correspondence for GTD projects
 
-GTD project pages should link to related Fastmail and Gmail conversations and show which ones have unread messages. Obsidian owns the correspondence list. The connected mailbox owns read and unread state.
+GTD project pages link to related Fastmail and Gmail conversations and show unread messages for active conversations. Obsidian owns the project lists. The connected mailbox owns read and unread state.
 
 ## Project note
 
-Use a `## Correspondence` section on the project's Obsidian landing note. Store one Markdown bullet per conversation. Use the conversation's subject as the link text and its provider's conversation URL as the destination.
+Use `## Active conversations` for current work and `## Archived conversations` for reference on the project's Obsidian landing note. Store one Markdown bullet per conversation. Use the conversation's subject as the link text and its provider's conversation URL as the destination.
 
 ~~~markdown
-## Correspondence
+## Active conversations
 
 - [Workshop logistics](<conversation-url>)
-- [Venue booking confirmation](<conversation-url>)
+
+## Archived conversations
+
+- [Previous venue booking](<conversation-url>)
 ~~~
 
 Use the same format for Fastmail and Gmail. Preserve the note's list order and use the saved URL unchanged when opening a conversation. The list travels with the landing note when the project moves. Existing links to specific messages can serve as references where they already appear. Add an existing conversation to the list once its conversation URL has been verified.
 
 ## BB display
 
-Add **Correspondence** to the project page alongside the existing list of BB threads. Each row shows the saved subject as a link and, when available, the latest sender and message date. Show **2 unread** when two eligible messages are unread.
+The project page displays **Correspondence** alongside BB threads. Active conversations show the saved subject as a link and, when available, unread count, latest sender and message date. Archived conversations appear in a collapsed list of saved links. Older `## Correspondence` notes contribute to the active list unless the exact URL already appears in either explicit section.
 
-Refresh on opening a project, returning to the BB window, and periodically while the GTD page is visible. Share in-flight lookups across views, limit concurrency, and respect provider backoff. After the project page works, add an Area-list indicator. Show **Unread email** if at least one conversation has confirmed unread mail. Show **Mail status incomplete** if counts are missing and none of the confirmed counts are positive. Scanning the Area list requires reading correspondence sections across projects, so establish a bounded read strategy before adding the indicator.
+Refresh on opening a project, returning to the BB window, and periodically while the GTD page is visible. Share in-flight lookups across views and limit concurrency. The Area-list indicator shows **Unread email** when an active conversation has confirmed unread mail. It shows **Mail status incomplete** when evidence is missing and none of the confirmed counts are positive.
 
 Display supported saved links immediately. If a mailbox is disconnected, a conversation can't be resolved, or a refresh fails, keep the link usable and indicate the reason that mail status is unavailable. Show available results when only some lookups succeed. After a failed refresh, clear the unread count and label any retained sender and date with the last successful check time.
 

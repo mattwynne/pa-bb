@@ -75,18 +75,26 @@ test('the watch uses the configured scopes and redacts failed probe details', as
 test('correspondence reads scoped landing-note links and routes saved URLs to both providers', async () => {
   const gmail = 'https://mail.google.com/mail/?authuser=person%40example.com#all/beef';
   const fastmail = 'https://app.fastmail.com/mail/Archive/S_anchor?u=1234abcd';
+  const archivedMail = gmail.replace('beef', 'abba');
   const ref = { source: 'one', id: 'Life/Projects/Active/Launch.md' };
   let mailReads = 0;
+  let noteChanged = false;
   const host = createFakePluginHost({ pluginId: 'gtd', settings: {
     vaultId: 'one/Life', projectsFolder: 'Projects', areasFolder: 'Areas',
   }, sdk: { plugins: { callRpc: async (args: any) => {
     if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Life' }], incomplete: false };
     if (args.method === 'readSectionLinks') {
       assert.equal(args.pluginId, 'obsidian');
-      assert.deepEqual(args.input, { vaultId: 'one', path: ref.id, heading: 'Correspondence' });
-      return { hash: 'a'.repeat(64), links: [
-        { title: 'Workshop', url: gmail }, { title: 'Duplicate', url: gmail }, { title: 'Venue', url: fastmail },
-      ], incomplete: false };
+      assert.equal(args.input.vaultId, 'one');
+      assert.equal(args.input.path, ref.id);
+      const lists = {
+        'Active conversations': [{ title: 'Workshop', url: gmail }],
+        'Archived conversations': [{ title: 'Earlier booking', url: archivedMail }, { title: 'Duplicate', url: gmail }],
+        Correspondence: [{ title: 'Duplicate', url: gmail }, { title: 'Old booking', url: archivedMail }, { title: 'Venue', url: fastmail }],
+      };
+      const heading = args.input.heading as keyof typeof lists;
+      assert.ok(Object.hasOwn(lists, heading));
+      return { hash: (noteChanged && heading === 'Correspondence' ? 'b' : 'a').repeat(64), links: lists[heading], incomplete: false };
     }
     mailReads++;
     if (args.pluginId === 'google-workspace') {
@@ -103,14 +111,18 @@ test('correspondence reads scoped landing-note links and routes saved URLs to bo
   try {
     const rpc = host.harness.behavior.callRpc;
     await assert.rejects(rpc('readCorrespondence', { ...ref, id: 'Life/Areas/Workshop.md' }));
-    assert.deepEqual(await rpc('readCorrespondence', ref), { links: [
-      { title: 'Workshop', url: gmail }, { title: 'Venue', url: fastmail },
-    ], incomplete: false });
+    assert.deepEqual(await rpc('readCorrespondence', ref), {
+      active: { links: [{ title: 'Workshop', url: gmail }, { title: 'Venue', url: fastmail }], incomplete: false },
+      archived: { links: [{ title: 'Earlier booking', url: archivedMail }], incomplete: false },
+    });
     assert.equal(mailReads, 0);
     assert.deepEqual(await rpc('readCorrespondenceStatus', ref), [
       { url: gmail, mail: { status: 'ok', unread: 2, sender: null, latestAt: null } },
       { url: fastmail, mail: { status: 'ok', unread: 3, sender: null, latestAt: null, threadKey: 'a'.repeat(64) } },
     ]);
+    assert.equal(mailReads, 2);
+    noteChanged = true;
+    await assert.rejects(rpc('readCorrespondenceStatus', ref), /Could not read correspondence/);
     assert.equal(mailReads, 2);
   } finally { await host.harness.lifecycle.dispose(); }
 });
@@ -141,7 +153,9 @@ test('Area mail only reads the selected Area and status, including nested Area a
       }
       assert.equal(args.method, 'readSectionLinks');
       paths.push(args.input.path);
-      return { hash: 'a'.repeat(64), links: args.input.path.endsWith('/Matches.md') ? [{ title: 'Area mail', url: fastmail }] : [], incomplete: false };
+      const active = args.input.path.endsWith('/Matches.md') && args.input.heading === 'Correspondence';
+      const archived = args.input.path.endsWith('/Unassigned.md') && args.input.heading === 'Archived conversations';
+      return { hash: 'a'.repeat(64), links: active || archived ? [{ title: 'Area mail', url: fastmail }] : [], incomplete: false };
     } } } });
   await plugin(host.bb);
   try {
@@ -153,9 +167,137 @@ test('Area mail only reads the selected Area and status, including nested Area a
     await assert.rejects(rpc('readAreaMailStatus', { ...area, source: 'wrong' }));
     incomplete = true;
     assert.deepEqual(await rpc('readAreaMailStatus', area), []);
-    assert.deepEqual(paths, ['Projects/Active/Matches.md', 'Projects/Active/Unassigned.md']);
+    assert.deepEqual(paths, [...Array(3).fill('Projects/Active/Matches.md'), ...Array(3).fill('Projects/Active/Unassigned.md')]);
   } finally { await host.harness.lifecycle.dispose(); }
 });
+
+test('agent correspondence tools page saved links, open exact URLs, and archive with checked receipts', async () => {
+  const ref = { source: 'one', id: 'Projects/Active/Launch.md' };
+  const url = 'https://mail.google.com/mail/?authuser=person%40example.com#all/beef';
+  const workshop = { title: 'Workshop', url };
+  const unsupported = { title: 'Lookalike', url: 'https://mail.google.com.example/mail/example' };
+  let active = [workshop, unsupported, ...Array.from({ length: 9 }, (_, i) => ({ title: `Link ${i}`, url: url.replace('beef', `abc${i}`) }))];
+  const archived: typeof active = [];
+  let hash = 'a'.repeat(64);
+  let loseReceipt = true;
+  const operations: string[] = [];
+  const host = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one' }, sdk: { plugins: { callRpc: async (args: any) => {
+    if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: '', name: 'Vault' }], incomplete: false };
+    assert.equal(args.pluginId, 'obsidian');
+    assert.equal(args.input.path, ref.id);
+    if (args.method === 'readSectionLinks') return { hash, incomplete: false, links: args.input.heading === 'Active conversations' ? active
+      : args.input.heading === 'Archived conversations' ? archived : [] };
+    assert.equal(args.method, 'moveSectionLink');
+    const { operationId } = args.input;
+    assert.deepEqual(args.input, { vaultId: 'one', path: ref.id, from: ['Active conversations', 'Correspondence'], to: 'Archived conversations',
+      url, expectedHash: hash, operationId });
+    operations.push(operationId);
+    if (loseReceipt) throw new Error('private sentinel ' + url);
+    active = active.filter(link => link.url !== url);
+    archived.push(workshop);
+    hash = 'b'.repeat(64);
+    return { operationId, outcome: 'saved_locally_pending_sync' };
+  } } } });
+  await plugin(host.bb);
+  try {
+    const run = async (name: string, input: unknown, isError?: true) => {
+      const result = await host.harness.behavior.callAgentTool('gtd_' + name, input);
+      assert.ok(typeof result !== 'string');
+      assert.equal(result.isError, isError);
+      const content = result.content[0];
+      assert.equal(content?.type, 'text');
+      return JSON.parse(content.text);
+    };
+    const page = await run('list_correspondence', ref);
+    const [first, second] = page.conversations;
+    assert.deepEqual({ title: first.title, status: first.status, provider: first.provider }, { title: 'Workshop', status: 'active', provider: 'gmail' });
+    assert.equal(page.nextOffset, 10);
+    const continuation = { ...ref, offset: page.nextOffset, version: page.version };
+    assert.equal((await run('list_correspondence', continuation)).conversations.length, 1);
+    assert.deepEqual(await run('open_correspondence', { ...ref, conversationId: first.conversationId }),
+      { title: 'Workshop', href: url, status: 'active', provider: 'gmail' });
+    assert.equal((await run('open_correspondence', { ...ref, conversationId: second.conversationId }, true)).code, 'unsupported');
+
+    const operationId = '12345678-1234-4123-8123-123456789abc';
+    const input = { ...ref, conversationId: first.conversationId, operationId };
+    const uncertain = await run('archive_correspondence', input, true);
+    assert.equal(uncertain.state, 'uncertain');
+    assert.equal(uncertain.operationId, operationId);
+    assert.deepEqual(operations, [operationId]);
+    assert.doesNotMatch(JSON.stringify(uncertain) + JSON.stringify(host.harness.inspection.logEntries), /sentinel|person%40|Launch\.md/);
+
+    loseReceipt = false;
+    const confirmed = await run('archive_correspondence', { ...input, operationId: '12345678-1234-4123-8123-123456789def' });
+    assert.equal(confirmed.state, 'archived');
+    assert.equal(confirmed.outcome, 'saved_locally_pending_sync');
+    assert.deepEqual(await run('archive_correspondence', input), { state: 'already_archived' });
+    assert.equal(operations.length, 2);
+    assert.equal((await run('list_correspondence', continuation, true)).code, 'changed');
+    const filtered = await run('list_correspondence', { ...ref, status: 'archived' });
+    assert.deepEqual(filtered.conversations, [{ ...first, status: 'archived' }]);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+test('adding correspondence verifies the provider and files an exact link once under the requested status', async () => {
+  const ref = { source: 'one', id: 'Projects/Active/Launch.md' };
+  const gmail = 'https://mail.google.com/mail/?authuser=person%40example.com#all/beef';
+  const fastmail = 'https://app.fastmail.com/mail/Archive/S_anchor?u=1234abcd';
+  const badAccount = gmail.replace('person', 'other');
+  let hash = 'a'.repeat(64);
+  const sections = new Map<string, { title: string; url: string }[]>();
+  const verified: string[] = [];
+  const writes: Array<{ heading: string; url: string }> = [];
+  const host = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one' }, sdk: { plugins: { callRpc: async (args: any) => {
+    if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: '', name: 'Vault' }], incomplete: false };
+    if (args.method === 'gmailConversationStatus' || args.method === 'fastmailConversationStatus') {
+      const { url } = args.input;
+      assert.equal(args.pluginId, url === fastmail ? 'fastmail' : 'google-workspace');
+      verified.push(url);
+      return url === badAccount ? { status: 'account_missing' } : { status: 'ok', unread: 0, sender: null, latestAt: null };
+    }
+    assert.equal(args.pluginId, 'obsidian');
+    assert.equal(args.input.vaultId, ref.source);
+    assert.equal(args.input.path, ref.id);
+    const { heading, title, url, operationId } = args.input;
+    const links = sections.get(heading) ?? [];
+    if (args.method === 'readSectionLinks') return { hash, links, incomplete: false };
+    assert.equal(args.method, 'addSectionLink');
+    assert.equal(args.input.expectedHash, hash);
+    writes.push({ heading, url });
+    sections.set(heading, [...links, { title, url }]);
+    hash = (writes.length === 1 ? 'b' : 'c').repeat(64);
+    return { operationId, outcome: 'saved_locally_pending_sync' };
+  } } } });
+  await plugin(host.bb);
+  try {
+    const add = async (url: string, index: number, status?: 'active' | 'archived', isError?: true) => {
+      const operationId = `12345678-1234-4123-8123-123456789ab${index}`;
+      const result = await host.harness.behavior.callAgentTool('gtd_add_correspondence', { ...ref, url, title: 'Re: [Launch] *plan*', status, operationId });
+      assert.ok(typeof result !== 'string');
+      assert.equal(result.isError, isError);
+      const content = result.content[0];
+      assert.equal(content?.type, 'text');
+      return JSON.parse(content.text);
+    };
+    const rejected = await add(badAccount, 1, undefined, true);
+    assert.equal(rejected.code, 'mail_unverified');
+    assert.equal(rejected.mailStatus, 'account_missing');
+    assert.equal((await add('https://mail.google.com.example/mail/Inbox/', 2, undefined, true)).code, 'unsupported');
+    assert.equal(writes.length, 0);
+    const active = await add(gmail, 3);
+    assert.equal(active.state, 'added');
+    assert.equal(active.status, 'active');
+    assert.deepEqual(await add(gmail, 4, 'archived'), { state: 'already_linked', status: 'active', conversationId: active.conversationId });
+    const archived = await add(fastmail, 5, 'archived');
+    assert.equal(archived.state, 'added');
+    assert.equal(archived.status, 'archived');
+    assert.deepEqual(verified, [badAccount, gmail, fastmail]);
+    assert.deepEqual(writes, [{ heading: 'Active conversations', url: gmail }, { heading: 'Archived conversations', url: fastmail }]);
+    const listing = await host.harness.behavior.callRpc('readCorrespondence', ref);
+    assert.deepEqual(listing, { active: { links: sections.get('Active conversations'), incomplete: false },
+      archived: { links: sections.get('Archived conversations'), incomplete: false } });
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+
 test('creating a project uses the exact selected Area and never retries an uncertain save', async () => {
   const folder = 'Life/Areas/Hands-on #50%/';
   const area = 'Life/Areas/Learning.md';

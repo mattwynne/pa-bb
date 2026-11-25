@@ -112,15 +112,21 @@ Sound local access remains usable when cloud sync is paused/disconnected. Sync t
 
 ## Email correspondence
 
-Add a `## Correspondence` section to the project landing note, with one Markdown bullet per email conversation. Use the thread subject as the link text. BB shows the saved links in note order. Exact duplicate URLs are shown once.
+Add `## Active conversations` and `## Archived conversations` to the project landing note, with one Markdown bullet per email conversation. Use the thread subject as the link text. Move a bullet between sections in Obsidian when its project relevance changes. Archived conversations stay accessible in a collapsed list on the project page.
+
+BB also reads older `## Correspondence` sections as active. BB preserves the order within each section and shows each exact URL once. An explicit Active or Archived entry takes precedence over a legacy entry. If both explicit lists include a URL, Active takes precedence.
+
+Agents can attach a verified Fastmail or Gmail link with `gtd_add_correspondence`. Supply the exact project reference, email subject, URL and a fresh operation UUID. New links go under Active conversations by default. Pass `status: archived` to file a link for reference. Adding an exact URL already in the project returns its existing status.
+
+Use `gtd_list_correspondence` to list saved links and `gtd_open_correspondence` to return an exact saved URL. On request, `gtd_archive_correspondence` moves a saved link to the archived section in one Obsidian save. Attachment and archive use Obsidian's `addSectionLink` and `moveSectionLink` RPCs. If a save is uncertain, inspect the Obsidian receipt using the operation ID before attempting another edit.
 
 For Gmail, use an account-qualified conversation URL. The Workspace tool `gworkspace_resolve_gmail_thread_url` verifies a thread in the selected account and returns the URL and subject. The Gmail account address is part of the link destination. Only save the URL where that address may be stored.
 
-Fastmail links with a web account selector and an exact message anchor can use the Fastmail plugin's optional JMAP mail token. BB verifies the linked message and reads its whole conversation. When several saved links resolve to the same Fastmail thread, BB shows the first saved title and URL once. Links whose threads cannot be verified stay visible with their own status. [Fastmail link verification](../fastmail/docs/email-urls.md)
+Fastmail links with a web account selector and an exact message anchor can use the Fastmail plugin's optional JMAP mail token. BB verifies the linked message and reads its whole conversation. When several active links resolve to the same Fastmail thread, BB shows the first saved title and URL once. Links whose threads cannot be verified stay visible with their own status. [Fastmail link verification](../fastmail/docs/email-urls.md)
 
-BB reads mailbox metadata to show unread counts and the latest sender and date. It refreshes when the project opens, BB regains focus, or the visible page is due for a refresh.
+BB reads mailbox metadata for active conversations to show unread counts and the latest sender and date. It refreshes when the project opens, BB regains focus, or the visible page is due for a refresh. Moving a link changes its project status independently of its mailbox status.
 
-Area project lists check email for the selected Area and status. Each refresh reads up to 12 project sections, three at a time, and checks up to 16 distinct supported mailbox links. **Unread email** means a mailbox confirmed at least one unread message. **Mail status incomplete** means some evidence was unavailable or skipped and no unread mail was confirmed. An empty list or a complete zero count needs no badge.
+Area project lists check active conversations for the selected Area and status. Each refresh reads up to 12 project notes, three at a time, and checks up to 16 distinct supported mailbox links. **Unread email** means a mailbox confirmed at least one unread message. **Mail status incomplete** means some evidence was unavailable or skipped and no unread mail was confirmed. An empty list or a complete zero count needs no badge.
 
 ## Development
 

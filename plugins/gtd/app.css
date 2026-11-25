@@ -170,6 +170,16 @@
   border-radius: 6px;
 }
 
+.gtd-correspondence-heading { margin: 8px 0 6px; font-size: 13px; font-weight: 600; }
+.gtd-correspondence-archive { margin-top: 6px; }
+.gtd-correspondence-archive summary {
+  min-height: var(--gtd-action-size);
+  align-content: center;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
 .gtd-correspondence-row {
   display: grid;
   gap: .25rem;

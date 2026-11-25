@@ -1,4 +1,5 @@
-import { correspondenceLinks } from '../core/correspondence.ts';
+import { combineCorrespondence, correspondenceLinks } from '../core/correspondence.ts';
+import type { CorrespondenceWrite } from '../core/correspondence-tools.ts';
 import { posix } from 'node:path';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
@@ -185,11 +186,31 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     return nextAction.parse(await vaultRpc(this.sdk, 'readSectionTask', this.projectSection(source, id, 'TODO'), signal));
   }
 
-  async readCorrespondence({ source, id }: { source: string; id: string }, signal: AbortSignal) {
-    const result = correspondenceLinks.extend({ hash: noteEvidence.shape.hash }).parse(
-      await vaultRpc(this.sdk, 'readSectionLinks', this.projectSection(source, id, 'Correspondence'), signal),
-    );
-    return { links: result.links, incomplete: result.incomplete };
+  async readCorrespondenceVersion({ source, id }: { source: string; id: string }, signal: AbortSignal) {
+    const section = correspondenceLinks.extend({ hash: noteEvidence.shape.hash });
+    const read = async (heading: string) => section.parse(
+      await vaultRpc(this.sdk, 'readSectionLinks', this.projectSection(source, id, heading), signal));
+    const active = await read('Active conversations');
+    const archived = await read('Archived conversations');
+    const legacy = await read('Correspondence');
+    if (active.hash !== archived.hash || active.hash !== legacy.hash) throw new GtdError('source_unavailable');
+    return { hash: active.hash, correspondence: combineCorrespondence(active, archived, legacy) };
+  }
+
+  async readCorrespondence(input: { source: string; id: string }, signal: AbortSignal) {
+    return (await this.readCorrespondenceVersion(input, signal)).correspondence;
+  }
+
+  async writeCorrespondence(input: CorrespondenceWrite, signal: AbortSignal) {
+    const { kind, source, id, url, expectedHash, operationId } = input;
+    const heading = kind === 'archive' || input.status === 'archived' ? 'Archived conversations' : 'Active conversations';
+    const target = this.projectSection(source, id, heading);
+    const base = { vaultId: target.vaultId, path: target.path, expectedHash, operationId, url };
+    const receipt = noteSaveReceipt.extend({ reason: z.enum(['changed', 'invalid_section']).optional() });
+    if (kind === 'archive') return receipt.parse(await vaultRpc(this.sdk, 'moveSectionLink', {
+      ...base, from: ['Active conversations', 'Correspondence'], to: heading,
+    }, signal));
+    return receipt.parse(await vaultRpc(this.sdk, 'addSectionLink', { ...base, heading, title: input.title }, signal));
   }
 
   async readAreaStandard({ source, id }: { source: string; id: string }, signal: AbortSignal) {

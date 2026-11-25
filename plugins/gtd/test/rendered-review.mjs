@@ -126,7 +126,9 @@ try {
     const fastmailReply = 'https://app.fastmail.com/mail/Sent/T_one.S_reply?u=1234abcd';
     const fastmailOther = 'https://app.fastmail.com/mail/Archive/S_other?u=1234abcd';
     const fastmailUnresolved = 'https://app.fastmail.com/mail/Archive/S_missing?u=1234abcd';
+    const archivedMail = 'https://mail.google.com/mail/?authuser=example%40example.com#all/abba';
     let heldCorrespondence, heldStatus, correspondenceReads = 0;
+    let workshopArchived = false;
     let nextAction = null, heldNextAction, failNextAction = false;
     let unread = 2, areaUnread = true;
     let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
@@ -256,20 +258,26 @@ try {
       if (method === 'readCorrespondence') {
         correspondenceReads++;
         await heldCorrespondence;
-        result = { incomplete: false, links: mode === 'correspondence' ? [
-          { title: 'Workshop logistics', url: gmail },
-          { title: 'Venue booking', url: fastmail },
-          { title: 'Venue reply', url: fastmailReply },
-          { title: 'Supplies', url: fastmailOther },
-          { title: 'Unresolved venue message', url: fastmailUnresolved },
-          { title: 'Lookalike', url: 'https://mail.google.com.example/mail/example' },
-        ] : [] };
+        const workshop = { title: 'Workshop logistics', url: gmail };
+        result = {
+          active: { incomplete: false, links: mode === 'correspondence' ? [
+            ...(workshopArchived ? [] : [workshop]),
+            { title: 'Venue booking', url: fastmail },
+            { title: 'Venue reply', url: fastmailReply },
+            { title: 'Supplies', url: fastmailOther },
+            { title: 'Unresolved venue message', url: fastmailUnresolved },
+            { title: 'Lookalike', url: 'https://mail.google.com.example/mail/example' },
+          ] : [] },
+          archived: { incomplete: false, links: mode === 'correspondence' ? [
+            { title: 'Previous booking', url: archivedMail }, ...(workshopArchived ? [workshop] : []),
+          ] : [] },
+        };
       }
       if (method === 'readCorrespondenceStatus') {
         await heldStatus;
         const known = { status: 'ok', sender: 'Test Sender', latestAt: '2026-11-25T12:00:00.000Z' };
         result = [
-          { url: gmail, mail: unread < 0 ? { status: 'unavailable' } : { ...known, unread } },
+          ...(workshopArchived ? [] : [{ url: gmail, mail: unread < 0 ? { status: 'unavailable' } : { ...known, unread } }]),
           { url: fastmail, mail: { ...known, unread: 3, threadKey: 'a'.repeat(64) } },
           { url: fastmailReply, mail: { ...known, unread: 3, threadKey: 'a'.repeat(64) } },
           { url: fastmailOther, mail: { ...known, unread: 1, threadKey: 'b'.repeat(64) } },
@@ -828,6 +836,7 @@ try {
       await correspondence.getByText('Checking mail…', { exact: true }).first().waitFor();
       await assertSingle([gmail, fastmail, fastmailReply, fastmailOther, fastmailUnresolved]);
       showStatus();
+      await correspondence.getByRole('heading', { name: 'Active conversations' }).waitFor();
       const workshop = correspondence.getByRole('link', { name: 'Workshop logistics' });
       await correspondence.getByText('2 unread', { exact: true }).waitFor();
       const visibleLinks = [gmail, fastmail, fastmailOther, fastmailUnresolved];
@@ -841,7 +850,21 @@ try {
       await refresh.focus();
       await page.keyboard.press('Tab');
       assert.ok(await workshop.evaluate(node => node === document.activeElement));
+      const archive = correspondence.locator('details');
+      const summary = archive.locator('summary');
+      assert.equal(await summary.innerText(), 'Archived conversations (1)');
+      const previous = archive.getByRole('link', { name: 'Previous booking' });
+      assert.equal(await previous.isVisible(), false);
+      await summary.focus();
+      await page.keyboard.press('Enter');
+      await previous.waitFor();
+      await page.keyboard.press('Tab');
+      assert.ok(await previous.evaluate(node => node === document.activeElement));
+      assert.equal(await previous.getAttribute('href'), archivedMail);
+      assert.equal(await archive.locator('.gtd-correspondence-detail').count(), 0);
+      assert.ok(await correspondence.evaluate(node => node.scrollWidth === node.clientWidth));
       await page.screenshot({ path: join(artifacts, `project-correspondence-${width}.png`) });
+      await summary.click();
       unread = 0;
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
       await correspondence.getByText('2 unread', { exact: true }).waitFor({ state: 'detached' });
@@ -862,6 +885,13 @@ try {
       await link(title).click();
       await correspondence.getByText('4 unread', { exact: true }).waitFor();
       await assertSingle(visibleLinks);
+      workshopArchived = true;
+      publish(2);
+      await summary.getByText('Archived conversations (2)', { exact: true }).waitFor();
+      await assertSingle(visibleLinks.slice(1));
+      assert.equal(await correspondence.getByText('4 unread', { exact: true }).count(), 0);
+      await summary.click();
+      await archive.getByRole('link', { name: 'Workshop logistics' }).waitFor();
       assert.equal(await page.evaluate(() => window.duplicateCorrespondence), false);
     } else if (mode === 'create-project') {
       await openLearning();

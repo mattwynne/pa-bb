@@ -11,7 +11,8 @@ import { LocalReceipts } from './adapters/local-receipts.ts';
 import { recoveryPrompt } from './core/receipt-recovery.ts';
 import { ICloud } from './adapters/icloud.ts';
 import { desktopConfiguration } from './adapters/desktop-links.ts';
-import { MarkdownNotes, sectionLinks } from './adapters/markdown-notes.ts';
+import { MarkdownNotes } from './adapters/markdown-notes.ts';
+import { sectionLinks } from './core/section-links.ts';
 import { bbState } from './adapters/bb-state.ts';
 import { diagnosticLogger } from './adapters/diagnostic-log.ts';
 export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository }) {
@@ -70,6 +71,18 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       }, context);
     },
     writeNoteSection(input, context) { return evidence(() => service.writeNoteSection(input, context.experimental_signal), context); },
+    addSectionLink(input, context) {
+      const caller = context.experimental_caller;
+      if (caller.kind !== 'plugin' || caller.pluginId !== 'gtd')
+        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only GTD can add a correspondence link.' });
+      return evidence(() => service.addSectionLink(input, context.experimental_signal), context);
+    },
+    moveSectionLink(input, context) {
+      const caller = context.experimental_caller;
+      if (caller.kind !== 'plugin' || caller.pluginId !== 'gtd')
+        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only GTD can move a correspondence link.' });
+      return evidence(() => service.moveSectionLink(input, context.experimental_signal), context);
+    },
     createNote(input, context) {
       return evidence(async () => {
         const { operationId } = input;
