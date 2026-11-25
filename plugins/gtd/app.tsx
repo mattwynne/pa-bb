@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { definePluginApp, useRpc, useSdk, useBbNavigate, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginNavPanelProps, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
+import { definePluginApp, useRpc, useSdk, useBbNavigate, useRealtimeConnectionState, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginNavPanelProps, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
 import { rpcContract, reference } from './contract.ts';
 import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
@@ -62,7 +62,10 @@ function useInventory(includeAreas: boolean, enabled = true) {
           malformedFrontmatter: [...new Set([...(projects.malformedFrontmatter ?? []), ...(includeAreas ? areas?.malformedFrontmatter ?? [] : [])])],
         });
       }, () => {
-        if (alive) set({ ...emptyInventory, revision, error: 'GTD could not load. Check its vault settings, then refresh.' });
+        if (alive) set(previous => ({
+          ...previous, revision, error: previous.source ? 'GTD could not refresh. Showing the last loaded inventory.'
+            : 'GTD could not load. Check its vault settings and try again.',
+        }));
       });
     };
     if (includeAreas) load();
@@ -71,8 +74,91 @@ function useInventory(includeAreas: boolean, enabled = true) {
     else timer = setTimeout(load, 0);
     return () => { alive = false; release?.(); if (timer !== undefined) clearTimeout(timer); };
   }, [enabled, includeAreas, revision, fresh]);
-  const loading = !enabled || revision !== state.revision;
-  return { ...(loading ? emptyInventory : state), loading };
+  const fetching = enabled && revision !== state.revision;
+  return { ...(enabled ? state : emptyInventory), fetching, loading: !enabled || (fetching && !state.source && !state.error) };
+}
+
+function useAutomaticInventoryRefresh(busy: boolean, fetching: boolean) {
+  const rpc = useRpc<typeof rpcContract>();
+  const client = useRef(rpc);
+  client.current = rpc;
+  const connection = useRealtimeConnectionState();
+  const connectedBefore = useRef(false);
+  const reconcileThreadLinks = useRef(false);
+  const [queued, queue] = useState(false);
+  const [watchError, setWatchError] = useState(false);
+  const retryWatch = useRef<() => void>(undefined);
+
+  useEffect(() => {
+    if (!queued || busy || fetching) return;
+    const timer = setTimeout(() => {
+      queue(false);
+      refreshInventory(true);
+      if (reconcileThreadLinks.current) {
+        reconcileThreadLinks.current = false;
+        linksChanged();
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [queued, busy, fetching]);
+
+  useEffect(() => {
+    if (connection !== 'connected') return;
+    if (connectedBefore.current) {
+      reconcileThreadLinks.current = true;
+      queue(true);
+    }
+    connectedBefore.current = true;
+  }, [connection]);
+
+  useEffect(() => {
+    let disposed = false, checking = false, failed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let previous: string | undefined;
+    const check = async () => {
+      if (disposed || checking || document.visibilityState === 'hidden') return;
+      checking = true;
+      try {
+        const revision = await client.current.call('inventoryRevision', null);
+        if (!disposed && revision !== null) {
+          if (failed || revision !== previous) queue(true);
+          previous = revision;
+          failed = false;
+          setWatchError(false);
+        }
+      } catch {
+        if (!disposed) {
+          failed = true;
+          setWatchError(true);
+        }
+      } finally {
+        checking = false;
+        if (!disposed) timer = setTimeout(check, failed ? 10000 : 2000);
+      }
+    };
+    const reconcile = () => {
+      if (document.visibilityState === 'hidden') return;
+      reconcileThreadLinks.current = true;
+      queue(true);
+      probe();
+    };
+    const probe = () => {
+      clearTimeout(timer);
+      void check();
+    };
+    retryWatch.current = probe;
+    window.addEventListener('focus', reconcile);
+    document.addEventListener('visibilitychange', reconcile);
+    void check();
+    return () => {
+      disposed = true;
+      retryWatch.current = undefined;
+      clearTimeout(timer);
+      window.removeEventListener('focus', reconcile);
+      document.removeEventListener('visibilitychange', reconcile);
+    };
+  }, []);
+  return { watchError, retryWatch };
 }
 
 const projectDragType = 'application/x-bb-gtd-project';
@@ -111,7 +197,8 @@ function useLinks(ids: Iterable<string>) {
     return () => { alive = false; release(); };
   }, [signature, revision]);
   const loading = signature !== state.signature || revision !== state.revision;
-  return { links: state.links, error: !loading && state.error, loading };
+  return { links: state.links, error: !loading && state.error, loading,
+    hasCurrentRoster: signature === state.signature && !state.error };
 }
 type RenameTarget = { source: string; id: string; title: string };
 const renameKey = ({ source, id }: RenameTarget) => key(source, id);
@@ -295,19 +382,25 @@ function useThreadRoster(filters?: ThreadFilter[]) {
   return { sidebar, threads, ...useLinks(threads.map(thread => thread.id)) };
 }
 
-function ThreadReadStatus({ loading, error }: { loading: boolean; error: boolean }) {
+function ThreadReadStatus({ loading, error, metadataError }: { loading: boolean; error: boolean; metadataError: boolean }) {
   return <>
     {loading && <p role="status">Loading linked threads…</p>}
-    {error && <p role="alert">Linked threads could not load. Refresh GTD or reload BB to try again.</p>}
+    {error && <div className="gtd-read-error">
+      <p role="alert">{metadataError ? 'Linked threads could not load.' : 'Linked threads could not load. Reload BB to try again.'}</p>
+      {metadataError && <button type="button" onClick={event => {
+        event.currentTarget.closest('.gtd-nav')?.querySelector('h1')?.focus({ preventScroll: true });
+        linksChanged();
+      }}>Retry linked threads</button>}
+    </div>}
   </>;
 }
 
 function LinkedThreads({ kind, id, source }: { kind: 'area' | 'project'; id: string; source: string }) {
   const identity = key(source, id);
   const [selected, setSelected] = useState<ThreadFilter[]>(() => kind === 'project' ? projectThreadFilters.get(identity) ?? ['active'] : ['active']);
-  const { sidebar, threads, links, loading, error } = useThreadRoster(selected);
+  const { sidebar, threads, links, loading, error, hasCurrentRoster } = useThreadRoster(selected);
   const archived = sidebar.experimental_archived;
-  const matching = loading || error ? [] : threads.filter(thread => {
+  const matching = !hasCurrentRoster ? [] : threads.filter(thread => {
     const project = links[thread.id]?.project;
     // A project association takes precedence over a direct Area association.
     const stored = kind === 'project' ? project : project === undefined ? links[thread.id]?.area : undefined;
@@ -329,7 +422,7 @@ function LinkedThreads({ kind, id, source }: { kind: 'area' | 'project'; id: str
       {threadStatuses.map(status => <FilterOption key={status} type="checkbox" label={status === 'active' ? 'Active' : 'Archived'}
         checked={selected.includes(status)} disabled={selected.length === 1 && selected.includes(status)} onChange={() => toggle(status)} />)}
     </FilterBar> : <h2>Area threads</h2>}
-    <ThreadReadStatus loading={pending} error={failed} />
+    <ThreadReadStatus loading={pending} error={failed} metadataError={error} />
     {!!matching.length && <ThreadList threads={matching} showArchived={selected.length > 1} />}
     {!matching.length && !pending && !failed && <p className="gtd-empty" role="status">
       {archived?.hasNextPage ? 'No linked threads in the loaded pages.' :
@@ -346,13 +439,14 @@ function LinkedThreads({ kind, id, source }: { kind: 'area' | 'project'; id: str
 }
 
 function ThreadAssociations({ inventory }: { inventory: InventoryState }) {
-  const { sidebar, threads, links, loading, error } = useThreadRoster();
+  const { sidebar, threads, links, loading, error, hasCurrentRoster } = useThreadRoster();
   const pending = loading || sidebar.status === 'loading';
   const failed = error || sidebar.status === 'error';
   const unassigned: PluginSidebarThread[] = [], projects: PluginSidebarThread[] = [], areas: PluginSidebarThread[] = [];
   const projectIds = new Set(inventory.projects.map(project => project.id));
   const areaIds = new Set(inventory.areas.map(area => area.id));
-  if (!pending && !failed) for (const thread of threads) {
+  const showAssociations = sidebar.status === 'ready' && hasCurrentRoster;
+  if (showAssociations) for (const thread of threads) {
     const { project, area } = links[thread.id] ?? {};
     if (project !== undefined) {
       const ref = reference.safeParse(project).data;
@@ -363,8 +457,8 @@ function ThreadAssociations({ inventory }: { inventory: InventoryState }) {
     } else unassigned.push(thread);
   }
   return <>
-    <ThreadReadStatus loading={pending} error={failed} />
-    {!pending && !failed && <>
+    <ThreadReadStatus loading={pending} error={failed} metadataError={error} />
+    {showAssociations && <>
       <details><summary>Unassigned threads ({unassigned.length})</summary><ThreadList threads={unassigned} /></details>
       {!!areas.length && <details open><summary>Unavailable Area ({areas.length})</summary><ThreadList threads={areas} /></details>}
       {!!projects.length && <details open><summary>Unavailable project ({projects.length})</summary>
@@ -404,28 +498,39 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const [status, setStatus] = useState(() => lastProjectFilter);
   const [showAssociations, setShowAssociations] = useState(false);
   const [busy, setBusy] = useState(''); const busyRef = useRef(false); const [notice, setNotice] = useState('');
+  const { watchError, retryWatch } = useAutomaticInventoryRefresh(!!busy, inventory.fetching);
   const [dragged, setDragged] = useState<Project>();
   const [dropArea, setDropArea] = useState('');
   const [projectAction, setProjectAction] = useState<{ kind: 'done' | 'area'; project: Project; trigger: HTMLElement }>();
   const [editor, setEditor] = useState<{ target: RenameTarget; trigger: HTMLElement }>();
   const nav = useRef<HTMLElement>(null);
-  const refreshButton = useRef<HTMLButtonElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const focused = useRef<HTMLElement>(null);
   const restoreAfterSave = useRef<typeof editor>(undefined);
   useLayoutEffect(() => {
     const previous = restoreAfterSave.current;
     const panel = nav.current;
-    if (!previous || !panel || busy || inventory.loading) return;
+    if (!previous || !panel || busy || inventory.fetching) return;
     restoreAfterSave.current = undefined;
     const document = panel.ownerDocument;
     const root = panel.getRootNode();
     const active = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
     if (active && active !== document.body && active !== previous.trigger) return;
     if (!active && root instanceof ShadowRoot && document.activeElement !== document.body && document.activeElement !== root.host) return;
-    // Inventory refresh replaces the row. Find its action by source and ID, even after its label changes.
+    // An action can move its row. Find it by source and ID after the inventory settles.
     const trigger = Array.from(panel.querySelectorAll<HTMLElement>('[data-gtd-rename]'))
       .find(action => action.dataset.gtdRename === renameKey(previous.target));
-    (trigger ?? refreshButton.current)?.focus();
-  }, [busy, inventory.loading]);
+    (trigger ?? heading.current)?.focus({ preventScroll: true });
+  }, [busy, inventory.fetching]);
+  useLayoutEffect(() => {
+    const panel = nav.current, previous = focused.current;
+    if (!panel || !previous || previous.isConnected) return;
+    focused.current = null;
+    const document = panel.ownerDocument, root = panel.getRootNode();
+    if (document.activeElement === document.body ||
+        (root instanceof ShadowRoot && document.activeElement === root.host && !root.activeElement))
+      heading.current?.focus({ preventScroll: true });
+  }, [inventory.revision]);
   // Retain a request ID for the life of this action, including uncertain failures.
   const requests = useRef(new Map<string, string>());
   const run = async (id: string, task: () => Promise<void>) => { if (busyRef.current) return; busyRef.current = true; setBusy(id); setNotice(''); try { await task(); } catch { setNotice('Change not confirmed. Inspect threads or Obsidian receipts before trying again.'); } finally { busyRef.current = false; setBusy(''); } };
@@ -433,7 +538,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
     if (!editor) return;
     const { target: { source, id, title: original }, trigger } = editor;
     setEditor(undefined);
-    (trigger.isConnected ? trigger : refreshButton.current)?.focus();
+    (trigger.isConnected ? trigger : heading.current)?.focus({ preventScroll: true });
     if (!title || title === original || busyRef.current) return;
     restoreAfterSave.current = editor;
     void run(id, async () => {
@@ -467,7 +572,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const clearDrag = () => { setDragged(undefined); setDropArea(''); };
 
   const route = readRoute(panel, subPath);
-  const ready = !inventory.loading && !inventory.error;
+  const ready = !!inventory.source;
   const record = 'record' in route ? route.record : undefined;
   const sameSource = record?.source === inventory.source;
   const project = route.kind === 'project' && sameSource ? inventory.projects.find(item => item.id === record?.id) : undefined;
@@ -475,7 +580,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const owningArea = project && enclosingArea(inventory.areas, project.areaId);
   const unassigned = route.kind === 'unassigned';
   const partial = inventory.projectsPartial || inventory.areasPartial;
-  const missing = ready && !!record && !area && !project;
+  const missing = ready && !inventory.error && !!record && !area && !project;
   const missingIncomplete = sameSource && (route.kind === 'area' ? inventory.areasPartial : inventory.projectsPartial);
   const title = project?.title ?? area?.title ?? (unassigned ? 'Unassigned area' :
     route.kind === 'index' ? 'Areas' : route.kind === 'project' ? 'Project' : route.kind === 'area' ? 'Area' : 'Page unavailable');
@@ -541,7 +646,11 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       { label: project.status === 'done' ? 'Archive linked threads' : 'Mark as done', run: trigger => setProjectAction({ kind: 'done', project, trigger }) },
     ]} />
   </>;
-  return <section className="gtd-nav" aria-label="Personal GTD projects" ref={nav}>
+  return <section className="gtd-nav" aria-label="Personal GTD projects" ref={nav}
+    onFocusCapture={event => { focused.current = event.target as HTMLElement; }}
+    onBlurCapture={event => {
+      if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focused.current = null;
+    }}>
     <div className="gtd-content">
       {(route.kind === 'project' || route.kind === 'invalid' || missing) && <nav className="gtd-crumbs" aria-label="Breadcrumb">
         <PanelLink destination={areasIndex}>Areas</PanelLink>
@@ -551,15 +660,22 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
         </>}
       </nav>}
       <div className="gtd-page-heading">
-        <h1 tabIndex={-1}>{title}</h1>
+        <h1 tabIndex={-1} ref={heading}>{title}</h1>
         {area && newThreadAction(area, 'area')}
         {project && projectActions(project)}
-        <button className="gtd-row-action" ref={refreshButton} aria-label="Refresh GTD" title="Refresh GTD" disabled={inventory.loading}
-          onClick={() => { refreshInventory(true); linksChanged(); }}><Icon name="RotateCcw" aria-hidden="true" /></button>
       </div>
       {inventory.loading && <p role="status">Loading GTD…</p>}
-      {inventory.error && <p role="alert">{inventory.error}</p>}
-      {partial && <p role="status">Some projects or Areas could not be loaded. Inventory totals are unconfirmed.</p>}
+      {(inventory.error || watchError || partial) && <div className="gtd-read-error">
+        {inventory.error && <p role="alert">{inventory.error}</p>}
+        {watchError && !inventory.error && <p role="status">GTD could not check for vault changes.</p>}
+        {partial && <p role="status">Some projects or Areas could not be loaded. Inventory totals are unconfirmed.</p>}
+        <button type="button" aria-label="Retry GTD inventory" aria-disabled={inventory.fetching} onClick={() => {
+          if (inventory.fetching) return;
+          heading.current?.focus({ preventScroll: true });
+          if (watchError) retryWatch.current?.();
+          refreshInventory(true);
+        }}>Retry</button>
+      </div>}
       {inventory.malformedFrontmatter.length > 0 && <details className="gtd-frontmatter-errors">
         <summary>Notes with invalid frontmatter</summary>
         <ul>{inventory.malformedFrontmatter.map(path => <li key={path}>{path}</li>)}</ul>
@@ -611,7 +727,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
     {projectAction && <ProjectActionDialog action={projectAction.kind} project={projectAction.project} areas={eligibleAreas} onClose={value => {
       const { kind, project, trigger } = projectAction;
       setProjectAction(undefined);
-      (trigger.isConnected ? trigger : refreshButton.current)?.focus();
+      (trigger.isConnected ? trigger : heading.current)?.focus({ preventScroll: true });
       if (value !== undefined) changeProject(project, kind === 'done' ? { kind } : { kind, areaPath: value }, trigger);
     }} />}
     {editor && <RenameTitle target={editor.target} onClose={closeEditor} />}
@@ -638,7 +754,7 @@ export default definePluginApp(app => {
         ? projects.find(project => project.id === association.id)
         : undefined;
       const linkStatus = linksLoading ? 'Loading thread association…'
-        : linkError ? 'Thread association could not load. Refresh GTD to try again.' : '';
+        : linkError ? 'Thread association could not load.' : '';
       const projectStatus = inventory.loading ? 'Loading GTD projects…' : inventory.error;
       const status = [linkStatus, projectStatus].filter(Boolean).join(' ')
         || (association && !current ? 'The linked GTD project is unavailable.' : '');
@@ -653,8 +769,14 @@ export default definePluginApp(app => {
         label: 'GTD project',
         icon: 'ListTodo',
         detail: status || current?.title || 'No GTD project',
-        choices: { items, hint: status || 'Changes only the personal GTD association.' },
+        choices: { items: data.error || inventory.error ? [{ id: 'retry', label: 'Retry GTD', selected: false, disabled: false }, ...items] : items,
+          hint: status || 'Changes only the personal GTD association.' },
         run: async ({ value }) => {
+          if (value === 'retry' && (data.error || inventory.error)) {
+            if (data.error) linksChanged();
+            if (inventory.error) refreshInventory(true);
+            return;
+          }
           const choice = items.find(item => item.id === value);
           if (!choice || choice.disabled) throw new Error('This GTD association choice is unavailable.');
           await data.rpc.call('associate', { threadId: thread.id, project: choice.project });

@@ -21,7 +21,9 @@ const noteHash = z.string().regex(/^[0-9a-f]{64}$/);
 export const areaStandardInput = reference.extend({ text: standardText, expectedHash: noteHash, operationId: z.string().uuid() });
 export const areaStandard = z.object({ text: standardText, hash: noteHash }).strict();
 export const standardSaveResult = renameResult.extend({ reason: z.enum(['changed', 'invalid_section']).optional() });
+export const inventoryRevision = z.string().regex(/^[a-f0-9-]{36}:\d{1,16}$/).nullable();
 export const rpcContract = defineRpcContract({
+  inventoryRevision: { input: z.null(), output: inventoryRevision },
   browseInventory: {
     input: z.object({ includeAreas: z.boolean(), fresh: z.boolean().optional() }).strict(),
     output: z.object({ projects: snapshotSchema, areas: areaSnapshotSchema.nullable() }).strict(),

@@ -12,11 +12,14 @@ const learning = recordDestination('areas', ref.source, project.areaId);
 const woodwork = recordDestination('projects', ref.source, ref.id);
 function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }), rename = saved, destination: Destination = learning) {
   const panel = app.navPanels.find(panel => panel.path === destination.panel)!;
+  let reads = 0;
   const list = renderSlot(panel, { subPath: destination.subPath ?? '' }, {
     rpc: {
+      inventoryRevision: async () => null,
       browseInventory: async (input: unknown) => {
         const { includeAreas } = input as { includeAreas: boolean };
-        if (mode === 'error') throw new Error('synthetic');
+        reads++;
+        if (mode === 'error' || (mode === 'recover' && reads === 1)) throw new Error('synthetic');
         if (mode === 'loading') await new Promise(() => {});
         return {
           projects: { source, projects: mode === 'empty' ? [] : [
@@ -147,10 +150,16 @@ test.each([
   { threadRequested: false, message: 'Loading thread association…' },
   { linksError: true, message: 'Thread association could not load' },
   { stored: { id: ref.id }, message: 'Thread association could not load' },
-])('thread menu shows unknown metadata as $message and rejects every choice', async ({ message, ...state }) => {
+])('thread menu shows unknown metadata as $message and blocks association changes', async ({ message, ...state }) => {
   const { action, call, run } = associationAction(state);
   expect(action.choices?.hint).toContain(message);
   for (const choice of action.choices!.items) {
+    if (choice.id === 'retry') {
+      expect(state.linksError).toBe(true);
+      expect(choice.disabled).toBe(false);
+      await run(choice.id);
+      continue;
+    }
     expect(choice).toMatchObject({ disabled: true, selected: false });
     await expect(run(choice.id)).rejects.toThrow('choice is unavailable');
   }
@@ -162,7 +171,10 @@ test.each([
 ])('thread menu can unlink a known association while inventory shows $message', async ({ message, ...state }) => {
   const { action, call, run } = associationAction({ ...state, stored: ref });
   expect(action.choices?.hint).toContain(message);
-  expect(action.choices?.items).toMatchObject([{ id: 'unlink', selected: false, disabled: false }]);
+  expect(action.choices?.items).toMatchObject([
+    ...(state.inventoryError ? [{ id: 'retry', disabled: false }] : []),
+    { id: 'unlink', selected: false, disabled: false },
+  ]);
   await expect(run(`project:${project.id}`)).rejects.toThrow('choice is unavailable');
   await run('unlink');
   expect(call).toHaveBeenCalledExactlyOnceWith('associate', { threadId: 't1', project: null });
@@ -184,7 +196,7 @@ test('thread association choices reflect the exact source and only accept listed
 test('the project menu dismisses outside and consumes Escape only while open', async () => {
   const slot = setup();
   await slot.findByRole('link', { name: 'Learn woodworking' });
-  const outside = slot.getByRole('button', { name: 'Refresh GTD' });
+  const outside = slot.getByRole('button', { name: 'New thread for Area Learning' });
   const escape = vi.fn();
   document.addEventListener('keydown', escape);
   try {
@@ -286,12 +298,27 @@ for (const mode of ['empty', 'loading', 'error']) test(`${mode} is distinct and 
   slot.lifecycle.unmount();
 });
 
-test('manual Refresh starts one fresh combined request and hides previous rows until it returns', async () => {
+test('Retry recovers an initial inventory failure and moves focus into the page', async () => {
+  const slot = setup('recover');
+  const retry = await slot.findByRole('button', { name: 'Retry GTD inventory' });
+  retry.focus();
+  fireEvent.click(retry);
+  await slot.findByRole('heading', { name: 'Learning' });
+  expect(document.activeElement).toBe(slot.getByRole('heading', { name: 'Learning' }));
+  expect(slot.queryByRole('button', { name: /Retry GTD|Refresh GTD/ })).toBeNull();
+  expect(slot.inspection.rpcCalls.filter(call => call.method === 'browseInventory').map(call => call.input)).toEqual([
+    { includeAreas: true }, { includeAreas: true, fresh: true },
+  ]);
+  slot.lifecycle.unmount();
+});
+
+test('reconnect reconciles the inventory once while preserving rows', async () => {
   const slot = setup();
   await slot.findByRole('heading', { name: 'Learning' });
-  fireEvent.click(slot.getByRole('button', { name: 'Refresh GTD' }));
-  expect(slot.queryByRole('heading', { name: 'Learning' })).toBeNull();
-  await slot.findByRole('heading', { name: 'Learning' });
+  await slot.behavior.setRealtimeConnectionState('reconnecting');
+  await slot.behavior.setRealtimeConnectionState('connected');
+  expect(slot.getByRole('link', { name: 'Learn woodworking' })).toBeTruthy();
+  await vi.waitFor(() => expect(slot.inspection.rpcCalls.filter(call => call.method === 'browseInventory')).toHaveLength(2));
   expect(slot.inspection.rpcCalls.filter(call => call.method === 'browseInventory').map(call => [call.method, call.input])).toEqual([
     ['browseInventory', { includeAreas: true }],
     ['browseInventory', { includeAreas: true, fresh: true }],

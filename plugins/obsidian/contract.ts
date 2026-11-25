@@ -30,6 +30,10 @@ const moveOutput = moveInput.pick({ vaultId: true, path: true, destination: true
   outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']),
 });
 export const rpcContract = defineRpcContract({
+  inventoryRevision: {
+    input: vault.extend({ folders: z.array(consumerFolder).min(1).max(2) }),
+    output: z.string().regex(/^[a-f0-9-]{36}:\d{1,16}$/).nullable(),
+  },
   vaultInventory: {
     input: vault.extend({ root: z.union([z.literal(''), consumerFolder]), folders: z.array(consumerFolder).max(16).optional(), metadataFolders: z.array(consumerFolder).max(16).optional(), metadataDepth: z.number().int().min(1).max(16).optional(), fields }),
     output: z.object({

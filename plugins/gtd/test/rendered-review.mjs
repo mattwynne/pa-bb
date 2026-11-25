@@ -5,7 +5,7 @@ import { makeThreadResponse } from '@get-bb/plugin-sdk/testing';
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { copyFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { copyFile, lstat, mkdtemp, mkdir, rename, symlink, unlink, writeFile, rm } from 'node:fs/promises';
 import { openSync, closeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -21,12 +21,62 @@ const artifacts = process.env.BB_REVIEW_ARTIFACTS ?? await mkdtemp(join(tmpdir()
 await mkdir(join(root, 'home')); await mkdir(artifacts, { recursive: true });
 const base = `http://127.0.0.1:${port}`;
 const env = { PATH: process.env.PATH, HOME: join(root, 'home'), NODE_ENV: 'production', BB_DATA_DIR: join(root, 'data'), BB_SERVER_PORT: String(port), BB_SERVER_BIND_HOST: '127.0.0.1', BB_SERVER_URL: base, BB_HOST_DAEMON_PORT: String(port + 1) };
+const native = process.env.BB_REVIEW_MODE === 'native-refresh';
+const vault = join(root, 'synthetic-vault');
+if (native) {
+  assert.ok(process.env.PA_OBSIDIAN_TEST_DESKTOP && process.env.PA_OBSIDIAN_TEST_CLI);
+  env.PA_OBSIDIAN_DESKTOP = process.env.PA_OBSIDIAN_TEST_DESKTOP;
+  env.PA_OBSIDIAN_CLI = process.env.PA_OBSIDIAN_TEST_CLI;
+  env.PA_OBSIDIAN_DESKTOP_VAULT_ID = 'one';
+}
 const fd = openSync(join(root, 'server.log'), 'w', 0o600);
 const server = spawn(process.execPath, [join(bb, 'server/dist/index.js')], { env, cwd: root, stdio: ['ignore', fd, fd] }); closeSync(fd);
 const cli = async (...args) => (await exec(process.execPath, [join(bb, 'host-daemon/dist/bb'), ...args], { env, cwd: root, timeout: 120000 })).stdout;
 let browser;
 const ref = { source: 'one', id: 'Projects/Woodworking.md' };
 const source = { backend: 'obsidian', id: 'one', name: 'Synthetic vault', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null };
+const projectNote = title => `---\ntitle: ${title}\nstatus: active\narea: Areas/Learning.md\n---\n`;
+async function connectSyntheticVault(pkg) {
+  for (const directory of ['.obsidian', 'Projects', 'Areas', 'Elsewhere']) await mkdir(join(vault, directory), { recursive: true });
+  await writeFile(join(vault, '.obsidian/app.json'), '{"alwaysUpdateLinks":true}');
+  await writeFile(join(vault, 'Areas/Learning.md'), '# Learning\n\n## Standard\n\nPractice weekly.\n');
+  await writeFile(join(vault, ref.id), projectNote('Learn woodworking'));
+  const fixture = join(root, 'mirror-fixture');
+  await mkdir(fixture);
+  await symlink(join(pkg, 'node_modules'), join(fixture, 'node_modules'));
+  await writeFile(join(fixture, 'package.json'), JSON.stringify({
+    name: 'bb-plugin-icloud', version: '0.0.1', type: 'module',
+    engines: { node: '>=22', bb: '>=0.50', bbPluginSdk: '>=0.6.157 <1' },
+    bb: { name: 'Synthetic mirror', description: 'Grants local access to the disposable fixture vault.',
+      branding: { icon: 'Cloud' }, server: './server.js' },
+  }));
+  const stat = await lstat(vault, { bigint: true });
+  const directory = { directory: vault };
+  const replies = {
+    status: { noteAccessVersion: 2, mirrorAccessVersion: 3, available: true, connected: false, challenge: null, mirrors: [{
+      id: 'one', folder: { name: 'Synthetic vault' }, initialized: true, enabled: false, phase: 'paused', lastSuccess: null, failure: null, filesystem: 'ready',
+      local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null },
+    }] },
+    mirrorDirectoryGrant: { ...directory, rootDev: String(stat.dev), rootIno: String(stat.ino) }, mirrorDirectory: directory,
+    noteReceipts: { ok: true, value: [] },
+  };
+  await writeFile(join(fixture, 'server.js'), `
+import { defineRpcContract } from '@get-bb/plugin-sdk';
+import { z } from 'zod';
+export default function (bb) {
+  const replies = ${JSON.stringify(replies)};
+  const handlers = { ...Object.fromEntries(Object.keys(replies).map(name => [name, () => replies[name]])),
+    noteConfigure: input => ({ ok: true, value: { revision: input.revision } }) };
+  const contract = defineRpcContract(Object.fromEntries(Object.keys(handlers).map(name => [name, { input: z.unknown(), output: z.unknown() }])));
+  bb.rpc.register(contract, handlers);
+}`);
+  await cli('plugin', 'install', fixture, '--yes', '--json');
+  const input = join(root, 'connect.json');
+  await writeFile(input, '{"vaultId":"one"}');
+  await cli('plugin', 'rpc', 'call', 'obsidian', 'connect', '--input-file', input, '--json');
+  await cli('plugin', 'reload', 'gtd', '--json');
+  await cli('plugin', 'config', 'gtd', 'set', 'vaultId', 'one');
+}
 try {
   let ready = false; for (let i = 0; i < 100; i++) { assert.equal(server.exitCode, null); try { ready = (await fetch(base)).ok; } catch {} if (ready) break; await new Promise(r => setTimeout(r, 100)); } assert.ok(ready);
   const pkg = resolve(fileURLToPath(new URL('../', import.meta.url)));
@@ -45,6 +95,7 @@ try {
   assert.ok(unconfigured, 'Harmless GTD read must fail honestly before vault selection');
   assert.match(await cli('plugin', 'logs', 'gtd', '-n', '5'), /GTD list unconfigured/);
   console.log('Runtime checks: Obsidian status and property-write caller refusal, GTD unconfigured guard and bounded diagnostic verified.');
+  if (native) await connectSyntheticVault(pkg);
   // The disposable host has no coding agent to complete first-run onboarding.
   await cli('settings', 'general', 'onboardingCompletedAt', new Date().toISOString());
   const setPreference = (key, value) => cli('settings', 'ui', 'set', key, value);
@@ -52,14 +103,17 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'area-standard'];
-  const reviewedModes = process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'area-standard', 'auto-refresh'];
+  const reviewedModes = native ? ['native-refresh'] : process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
     page.setDefaultTimeout(12000);
     const errors = []; const consoleErrors = []; page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     let title = 'Learn woodworking', creations = 0;
+    let watchRevision = null, inventoryReads = 0, heldRead, failInventory = false;
+    let extraProject = null;
+    const publish = revision => { watchRevision = `12345678-1234-4123-8123-123456789abc:${revision}`; };
     const projectChanges = [], areaCreations = [];
     let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
     const renames = [];
@@ -116,12 +170,18 @@ try {
       })) },
     }));
     await page.route('**/api/v1/plugins/gtd/rpc/**', async route => {
+      if (native) return route.continue();
       const method = new URL(route.request().url()).pathname.split('/').at(-1), input = route.request().postDataJSON();
+      if (method === 'inventoryRevision') return route.fulfill({ json: { ok: true, result: watchRevision } });
       if (mode === 'loading') { await new Promise(r => setTimeout(r, 15000)); if (page.isClosed()) return; }
       if (mode === 'error') return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic failure' } } });
       let result;
       if (method === 'browseInventory') {
+        inventoryReads++;
+        await heldRead;
+        if (failInventory) return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic failure' } } });
         const projects = mode === 'empty' ? [] : [{ id: projectId, title, status: projectStatus, areaId: assignedArea }];
+        if (extraProject) projects.push(extraProject);
         const areas = [{ id: 'Areas/Learning.md', title: 'Learning' }];
         if (mode === 'empty') areas.length = 0;
         if (mode === 'project-actions' || mode === 'browser-flow') areas.push({ id: 'Areas/Home.md', title: 'Home' });
@@ -275,7 +335,7 @@ try {
       await areaPicker.or(areaLinks).filter({ visible: true }).waitFor();
       if (await areaPicker.isVisible()) await areaPicker.selectOption({ label: name });
       else await areaLinks.getByRole('link', { name, exact: true }).click();
-      await heading(name).waitFor();
+      await heading(name === 'All areas' ? 'Areas' : name).waitFor();
     };
     const openLearning = async () => {
       const learning = link('Learning');
@@ -371,7 +431,8 @@ try {
       const newAreaThread = nav.getByRole('button', { name: 'New thread for Area Learning' });
       assert.equal(await newAreaThread.evaluate(el => el.matches(':focus-visible')), true);
       await page.keyboard.press('Tab');
-      assert.equal(await nav.getByRole('button', { name: 'Refresh GTD' }).evaluate(el => el.matches(':focus')), true);
+      assert.equal(await nav.getByRole('button', { name: 'Refresh GTD' }).count(), 0);
+      assert.equal(await newAreaThread.evaluate(el => el.matches(':focus')), false);
       const plus = nav.getByRole('button', { name: 'New thread for Learn woodworking' });
       await page.keyboard.press('Tab'); await plus.focus();
       assert.notEqual(await plus.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
@@ -459,6 +520,87 @@ try {
       const create = nav.getByRole('button', { name: 'New thread for Woodwork' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
       await page.waitForURL('**/threads/fixture1');
       assert.equal(creations, 1);
+    } else if (native) {
+      await openLearning();
+      await link('Learn woodworking').focus();
+      await page.waitForResponse(async response =>
+        response.url().endsWith('/rpc/inventoryRevision') && typeof (await response.json()).result === 'string');
+      await writeFile(join(vault, ref.id), projectNote('Edited in vault'));
+      await link('Edited in vault').waitFor();
+      assert.ok(await link('Edited in vault').evaluate(el => el.matches(':focus')));
+      const added = join(vault, 'Projects/New.md');
+      const outside = join(vault, 'Elsewhere/New.md');
+      const renamed = join(vault, 'Projects/Renamed.md');
+      await writeFile(added, projectNote('Created in vault'));
+      await link('Created in vault').waitFor();
+      await rename(added, outside);
+      await link('Created in vault').waitFor({ state: 'hidden' });
+      await rename(outside, renamed);
+      await link('Created in vault').waitFor();
+      const href = await link('Created in vault').getAttribute('href');
+      assert.deepEqual(JSON.parse(Buffer.from(href.split('/').at(-1), 'base64url').toString()), ['one', 'Projects/Renamed.md']);
+      await unlink(renamed);
+      await link('Created in vault').waitFor({ state: 'hidden' });
+      await writeFile(join(vault, ref.id), projectNote('Learn woodworking'));
+      await link('Learn woodworking').waitFor();
+      await page.screenshot({ path: join(artifacts, `native-refresh-${width}.png`) });
+      await switchArea('All areas');
+      const areaNote = join(vault, 'Areas/Workshop.md');
+      const renamedArea = join(vault, 'Areas/Studio.md');
+      await writeFile(areaNote, '# Workshop');
+      await link('Workshop').waitFor();
+      await rename(areaNote, renamedArea);
+      await link('Studio').waitFor();
+      await link('Workshop').waitFor({ state: 'hidden' });
+      await unlink(renamedArea);
+      await link('Studio').waitFor({ state: 'hidden' });
+    } else if (mode === 'auto-refresh') {
+      await openLearning();
+      const existing = link('Learn woodworking');
+      await existing.focus();
+      let resume;
+      heldRead = new Promise(resolve => { resume = resolve; });
+      const before = inventoryReads;
+      title = 'Woodwork outside BB';
+      extraProject = { id: 'Projects/New.md', title: 'New project', status: 'active', areaId: assignedArea };
+      publish(1);
+      publish(2);
+      for (let attempt = 0; inventoryReads === before && attempt < 60; attempt++)
+        await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(inventoryReads, before + 1);
+      assert.ok(await existing.isVisible());
+      assert.ok(await existing.evaluate(el => el.matches(':focus')));
+      heldRead = undefined;
+      resume();
+      await link('Woodwork outside BB').waitFor();
+      assert.ok(await link('Woodwork outside BB').evaluate(el => el.matches(':focus')));
+      await link('New project').waitFor();
+      extraProject = { ...extraProject, id: 'Projects/Renamed.md', title: 'Renamed project' };
+      publish(3);
+      await link('Renamed project').waitFor();
+      await link('New project').waitFor({ state: 'hidden' });
+      extraProject = null;
+      await link('Renamed project').focus();
+      publish(4);
+      await link('Renamed project').waitFor({ state: 'hidden' });
+      assert.ok(await heading('Learning').evaluate(el => el.matches(':focus')));
+      title = 'Reconciled on focus';
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await link('Reconciled on focus').waitFor();
+      failInventory = true;
+      publish(5);
+      const retry = nav.getByRole('button', { name: 'Retry GTD inventory' });
+      await retry.waitFor();
+      assert.ok(await link('Reconciled on focus').isVisible());
+      await retry.focus();
+      await page.screenshot({ path: join(artifacts, `auto-refresh-retry-${width}.png`) });
+      failInventory = false;
+      title = 'Recovered project';
+      await page.keyboard.press('Enter');
+      await link('Recovered project').waitFor();
+      await retry.waitFor({ state: 'hidden' });
+      assert.ok(await heading('Learning').evaluate(el => el.matches(':focus')));
+      await page.screenshot({ path: join(artifacts, `auto-refresh-${width}.png`) });
     } else if (mode === 'area-standard') {
       const standard = nav.getByRole('region', { name: 'Standard' });
       await nav.getByRole('link', { name: 'Learning', exact: true }).click();

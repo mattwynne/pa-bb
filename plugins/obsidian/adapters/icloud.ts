@@ -1,11 +1,13 @@
 import { type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { isAbsolute, normalize } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { FilesystemVault } from './filesystem-vault.ts';
 import { LocalReceipts } from './local-receipts.ts';
 import { noteRpcContract } from './icloud-note-contract.ts';
 import type { ManagedDesktop } from './desktop-install.ts';
 import { DesktopLinks, type DesktopConfiguration } from './desktop-links.ts';
+import { inventoryWatchProbe } from './desktop-inventory-watch.ts';
 import { VaultError } from '../core/ports.ts';
 import type { DesktopStatus, MirrorCatalog, VaultFiles, Diagnose, Catalog, Configuration, DesktopLinkOperation, InventoryInput, Inventory, NoteParser, PathMove } from '../core/ports.ts';
 import { validateRelativePath, validateNotePath } from './local-notes.ts';
@@ -232,6 +234,13 @@ export class ICloud implements MirrorCatalog, VaultFiles {
       target: z.string().optional(), candidates: z.array(z.string()).max(20).optional() }))
       .length(links.length).parse(output).map(res => ({ status: res.status,
         ...(res.target ? { target: inMirror(res.target) } : {}), ...(res.candidates ? { candidates: res.candidates.map(inMirror) } : {}) }));
+  }
+
+  async inventoryRevision(vaultId: string, folders: string[], revision: number, signal?: AbortSignal) {
+    const { relative, run } = await this.desktopAccess(vaultId, revision, signal);
+    const scope = [...new Set(folders.map(relative))].sort();
+    const value = await run({ kind: 'eval', code: inventoryWatchProbe(scope, randomUUID()) });
+    return z.object({ revision: z.string().regex(/^[a-f0-9-]{36}:\d{1,16}$/).nullable() }).strict().parse(value).revision;
   }
 
   async vaultInventory(input: InventoryInput, revision: number, signal?: AbortSignal): Promise<Inventory> {

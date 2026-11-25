@@ -50,7 +50,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Each project needs a Markdown note directly in this folder or in Active, Deferred, Someday or Done. A folder with the same name can hold supporting files.', default: 'Projects', experimental_schema: relativeFolder },
     automaticReactivation: { type: 'boolean', label: 'Automatically reactivate deferred projects', description: 'Move due projects and their supporting folders to Active, with their links and conversations. Checks daily after midnight Pacific and when GTD starts.', default: false },
   });
-  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save', code: string) => {
+  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial'].includes(code) ? code : 'unknown';
     bb.log.warn(`GTD ${stage} ${safe}`);
   };
@@ -216,6 +216,20 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     } catch (error) { const safe = safeError(error, signal); diagnose('list', safe.code); throw safe; }
   };
   bb.rpc.register(rpcContract, {
+    async inventoryRevision(_, context) {
+      const signal = context.experimental_signal;
+      try {
+        const { config, key } = await configured('projectsFolder', true);
+        const revision = await backendFor(config, key).inventoryRevision(signal);
+        if ((await configured('projectsFolder', true)).key !== key) throw new GtdError('source_unavailable');
+        return revision;
+      } catch (error) {
+        const safe = safeError(error, signal);
+        if (safe.code === 'unconfigured') return null;
+        if (safe.code !== 'cancelled') diagnose('watch', safe.code);
+        throw safe;
+      }
+    },
     browseInventory: (input, context) => browseInventory(input.includeAreas, context.experimental_signal),
     associate: (input, context) => threads.associate(input, context.experimental_signal),
     newThread: (input, context) => threads.newThread(input, context.experimental_signal),

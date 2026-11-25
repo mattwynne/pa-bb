@@ -181,6 +181,17 @@ export class Obsidian {
     const { id: vaultId, name, lastSuccess, cloudConnected, enabled, phase, failure } = source;
     return { ...result, source: { vaultId, name, lastSuccess, cloudConnected, enabled, phase, failure } };
   }
+  async inventoryRevision(input: { vaultId: string; folders: string[] }, signal?: AbortSignal) {
+    const revision = this.state.revision;
+    this.check(input.vaultId, revision);
+    const probe = this.files.inventoryRevision?.bind(this.files);
+    if (!probe) throw new VaultError('desktop_setup');
+    if (this.confirmedRevision !== revision) await this.source(input.vaultId, { signal });
+    const token = await probe(input.vaultId, input.folders, revision, signal);
+    this.check(input.vaultId, revision);
+    if (signal?.aborted) throw new VaultError('cancelled');
+    return token;
+  }
   async listChildren(input: { vaultId: string; folder: string }, signal?: AbortSignal) {
     validPath(input.folder, true);
     const inventory = await this.vaultInventory({ vaultId: input.vaultId, root: input.folder, fields: [] }, signal);

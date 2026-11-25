@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { areaStandard, renameResult, standardSaveResult, type areaStandardInput } from '../contract.ts';
+import { areaStandard, inventoryRevision, renameResult, standardSaveResult, type areaStandardInput } from '../contract.ts';
 import { areaSnapshotSchema, GtdError, snapshotSchema } from '../core/model.ts';
 import type { Area, AreaBackend, Project, ProjectBackend, ProjectStatus, Warning } from '../core/model.ts';
 
@@ -149,6 +149,11 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
   }
 
   private scope(folder: string) { return [this.config.root, folder].filter(Boolean).join('/'); }
+
+  async inventoryRevision(signal: AbortSignal) {
+    const folders = [...new Set([this.scope(this.config.folder), this.scope(this.config.areasFolder ?? this.config.folder)])];
+    return inventoryRevision.parse(await vaultRpc(this.sdk, 'inventoryRevision', { vaultId: this.config.vaultId, folders }, signal));
+  }
 
   async checkAccess(signal: AbortSignal) {
     const generation = this.generation;

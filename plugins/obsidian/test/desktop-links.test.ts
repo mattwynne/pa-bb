@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
@@ -133,7 +133,7 @@ test('normal tools use native Desktop against a disposable vault', {
     return row;
   };
   const caller = { experimental_caller: { kind: 'plugin' as const, pluginId: 'inventory-test' } };
-  const vaultInventory = async () => harness.behavior.callRpc('vaultInventory', { vaultId: id, root: '', fields: ['status'] }, caller) as Promise<any>;
+  const vaultInventory = async () => harness.behavior.callRpc('vaultInventory', { vaultId: id, root: '', fields: ['status', 'title'] }, caller) as Promise<any>;
   const first = await tool('read_note', { path: 'Active/Target.md' });
   assert.equal(first.text, original);
   assert.equal(first.hash, createHash('sha256').update(original).digest('hex'));
@@ -147,6 +147,38 @@ test('normal tools use native Desktop against a disposable vault', {
   assert.equal(configureCount, 1, 'unchanged configuration is already confirmed');
   assert.equal(scoped.notes.find((row: any) => row.path === 'Active/Support/Nested/Deep.md').malformed, false);
   assert.equal(scoped.incomplete, false);
+  const watchInput = { vaultId: id, folders: ['Active', 'Done'] };
+  await assert.rejects(harness.behavior.callRpc('inventoryRevision', watchInput, caller), /Only GTD/);
+  const probe = () => harness.behavior.callRpc('inventoryRevision', watchInput, {
+    experimental_caller: { kind: 'plugin', pluginId: 'gtd' },
+  }) as Promise<string | null>;
+  let revision = await probe();
+  assert.match(revision ?? '', /^[a-f0-9-]{36}:0$/);
+  const observed = async () => {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const next = await probe();
+      if (next && next !== revision) { revision = next; return; }
+      await delay(100);
+    }
+    assert.fail('Desktop did not publish an indexed inventory change');
+  };
+  const added = join(root, 'Active/Watched.md');
+  await writeFile(added, '---\nstatus: active\ntitle: Before\n---\n# Watched\n');
+  await observed();
+  assert.equal((await vaultInventory()).notes.find((note: any) => note.path === 'Active/Watched.md')?.properties.status, 'active');
+  await writeFile(added, '---\nstatus: active\ntitle: After\n---\n# Watched\n');
+  await observed();
+  assert.equal((await vaultInventory()).notes.find((note: any) => note.path === 'Active/Watched.md')?.properties.title, 'After');
+  await rename(added, join(root, 'Elsewhere/Watched.md'));
+  await observed();
+  assert.equal((await vaultInventory()).notes.some((note: any) => note.path === 'Active/Watched.md'), false);
+  const returned = join(root, 'Done/Renamed.md');
+  await rename(join(root, 'Elsewhere/Watched.md'), returned);
+  await observed();
+  assert.equal((await vaultInventory()).notes.find((note: any) => note.path === 'Done/Renamed.md')?.properties.title, 'After');
+  await unlink(returned);
+  await observed();
+  assert.equal((await vaultInventory()).notes.some((note: any) => note.path === 'Done/Renamed.md'), false);
   await rename(join(root, 'Active/Support/Visible.md'), join(root, 'Active/Support/Arrived.md'));
   const refreshed = await harness.behavior.callRpc('vaultInventory',
     { vaultId: id, root: '', metadataFolders: ['Active'], metadataDepth: 2, fields: ['status'] }, caller) as typeof admitted;

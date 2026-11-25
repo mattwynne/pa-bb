@@ -44,3 +44,29 @@ test('vault selector offers discovered roots, scopes folders relative to the vau
     assert.notEqual(missing.exitCode, 0); assert.match(missing.stdout!, /source_unavailable/);
   } finally { await host.harness.lifecycle.dispose(); }
 });
+
+test('the watch uses the configured scopes and redacts failed probe details', async () => {
+  const revision = '12345678-1234-4123-8123-123456789abc:10';
+  let available = true;
+  const host = createFakePluginHost({ pluginId: 'gtd', settings: {
+    vaultId: 'one/Life', projectsFolder: 'Work/Projects', areasFolder: 'Areas',
+  }, sdk: { plugins: { callRpc: async (args: any) => {
+    if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Life' }], incomplete: false };
+    assert.equal(args.method, 'inventoryRevision');
+    assert.deepEqual(args.input, { vaultId: 'one', folders: ['Life/Work/Projects', 'Life/Areas'] });
+    if (!available) throw new Error('sentinel-private-watch-path');
+    return revision;
+  } } } });
+  await plugin(host.bb);
+  try {
+    assert.equal(await host.harness.behavior.callRpc('inventoryRevision', null), revision);
+    available = false;
+    await assert.rejects(host.harness.behavior.callRpc('inventoryRevision', null), error => {
+      assert.doesNotMatch(String(error), /sentinel/);
+      return true;
+    });
+    const logs = JSON.stringify(host.harness.inspection.logEntries);
+    assert.match(logs, /GTD watch/);
+    assert.doesNotMatch(logs, /sentinel|Life/);
+  } finally { await host.harness.lifecycle.dispose(); }
+});

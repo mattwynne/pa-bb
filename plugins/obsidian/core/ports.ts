@@ -51,6 +51,7 @@ export interface VaultFiles {
   desktopTargets?(vaultId: string, revision: number, path: string, links: string[], signal?: AbortSignal): Promise<DesktopLinkTarget[]>;
   desktop?(vaultId: string, revision: number, operation: DesktopLinkOperation, signal?: AbortSignal): Promise<unknown>;
   vaultInventory?(input: InventoryInput, revision: number, signal?: AbortSignal): Promise<Inventory>;
+  inventoryRevision?(vaultId: string, folders: string[], revision: number, signal?: AbortSignal): Promise<string | null>;
   movePath?(input: PathMove, revision: number, signal?: AbortSignal): Promise<PathMoveReceipt>;
   moveReceipt?(vaultId: string, revision: number, operationId: string): Promise<PathMoveReceipt | null>;
   configure(configuration: Configuration): Promise<void>;
