@@ -1,6 +1,6 @@
 ---
 name: icloud-maintenance
-description: Inspect or, with user authorization, pause and drain iCloud work for a BB local-path plugin rollout and restore eligible prior scheduling.
+description: Inspect iCloud maintenance status or run an authorized pause, drain, and restore window for iCloud runtime changes or work requiring exclusive mirror access.
 ---
 
 # iCloud maintenance
@@ -8,6 +8,11 @@ description: Inspect or, with user authorization, pause and drain iCloud work fo
 Use `bb icloud maintenance status --json` for a read-only snapshot. It reports
 admission, active work, persistence, the current run, and the latest restore
 receipt. The JSON contains operation UUIDs and aggregate counts.
+
+Use a maintenance window when reloading iCloud’s file-writing runtime or
+when a change requires exclusive mirror access. For routine GTD and Obsidian
+reloads that use the existing mirror access and save paths, use those
+plugins’ shutdown drains and keep iCloud sync running.
 
 1. For a user-authorized maintenance window, generate and keep a fresh UUID.
    Run `bb icloud maintenance pause --run-id <uuid> --json`. Use the normal
