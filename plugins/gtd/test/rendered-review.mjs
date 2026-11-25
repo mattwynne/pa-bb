@@ -91,6 +91,10 @@ try {
   let refused = false;
   try { await cli('plugin', 'rpc', 'call', 'obsidian', 'writeProperties', '--input-file', refusedInput, '--json'); } catch (error) { refused = /forbidden/.test(error.stdout ?? ''); }
   assert.ok(refused, 'Checked property bridge must refuse ordinary clients before note access');
+  await writeFile(refusedInput, JSON.stringify({ vaultId: 'one', path: 'Projects/Woodworking.md',
+    operationId: '12345678-1234-4123-8123-123456789abc', text: '# Synthetic' }), { mode: 0o600 });
+  await assert.rejects(cli('plugin', 'rpc', 'call', 'obsidian', 'createNote', '--input-file', refusedInput, '--json'),
+    error => /forbidden/.test(error.stdout ?? ''));
   let unconfigured = false;
   try { await cli('gtd', 'projects', '--json'); } catch (error) { unconfigured = /unconfigured/.test(error.stdout ?? ''); }
   assert.ok(unconfigured, 'Harmless GTD read must fail honestly before vault selection');
@@ -104,7 +108,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'area-standard', 'auto-refresh', 'correspondence', 'area-mail'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'auto-refresh', 'correspondence', 'area-mail'];
   const reviewedModes = native ? ['native-refresh'] : process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
@@ -116,6 +120,7 @@ try {
     let extraProject = null;
     const publish = revision => { watchRevision = `12345678-1234-4123-8123-123456789abc:${revision}`; };
     const projectChanges = [], areaCreations = [];
+    const projectCreations = [];
     const gmail = 'https://mail.google.com/mail/?authuser=example%40example.com#all/beef';
     const fastmail = 'https://app.fastmail.com/mail/Archive/S_anchor?u=1234abcd';
     const fastmailReply = 'https://app.fastmail.com/mail/Sent/T_one.S_reply?u=1234abcd';
@@ -201,6 +206,7 @@ try {
         if (mode === 'empty') areas.length = 0;
         if (mode === 'project-actions' || mode === 'browser-flow') areas.push({ id: 'Areas/Home.md', title: 'Home' });
         if (mode === 'area-standard') areas.push({ id: 'Areas/Home.md', title: 'Home' }, { id: 'Areas/Folder/', title: 'Folder' });
+        if (mode === 'create-project') areas.push({ id: 'Areas/Folder/', title: 'Folder' });
         if (mode === 'browser-flow') {
           areas.push({ id: 'Areas/Empty #50% 木/', title: 'Empty Area' });
           projects.push(
@@ -231,6 +237,15 @@ try {
           { id: 'Projects/Unknown.md', state: 'incomplete' },
           { id: 'Projects/Clear.md', state: 'clear' },
         ] : [];
+      }
+      if (method === 'createProject') {
+        projectCreations.push(input);
+        if (input.name === 'Uncertain') result = { state: 'uncertain' };
+        else if (input.name === 'Existing') result = { state: 'exists' };
+        else {
+          extraProject = { id: `Projects/${input.name}.md`, title: input.name, status: 'active', areaId: input.id };
+          result = { state: 'created', id: extraProject.id };
+        }
       }
       if (method === 'readCorrespondence') {
         correspondenceReads++;
@@ -801,6 +816,44 @@ try {
       await correspondence.getByText('4 unread', { exact: true }).waitFor();
       await assertSingle(visibleLinks);
       assert.equal(await page.evaluate(() => window.duplicateCorrespondence), false);
+    } else if (mode === 'create-project') {
+      await openLearning();
+      await switchArea('Folder');
+      await nav.getByText('No projects in this Area yet.').waitFor();
+      const add = nav.getByRole('button', { name: 'Add project', exact: true });
+      const dialog = nav.getByRole('dialog', { name: 'Add project' });
+      const name = dialog.getByRole('textbox', { name: 'Project name' });
+      const create = dialog.getByRole('button', { name: 'Create project' });
+      await add.focus();
+      await page.keyboard.press('Enter');
+      await name.waitFor();
+      assert.ok(await name.evaluate(element => element.getRootNode().activeElement === element));
+      assert.ok(await create.isDisabled());
+      await name.fill('../Invalid');
+      assert.ok(await create.isDisabled());
+      await page.keyboard.press('Escape');
+      assert.ok(await add.evaluate(element => element.getRootNode().activeElement === element));
+      await add.click();
+      await name.fill('Existing');
+      await create.click();
+      const alert = dialog.getByRole('alert');
+      await alert.waitFor();
+      assert.match(await alert.innerText(), /already in use/);
+      await name.fill('Build a shelf');
+      await page.screenshot({ path: join(artifacts, `create-project-dialog-${width}.png`) });
+      await page.keyboard.press('Enter');
+      await dialog.waitFor({ state: 'hidden' });
+      await link('Build a shelf').waitFor();
+      assert.deepEqual(projectCreations.map(({ source, id, name }) => [source, id, name]),
+        [['one', 'Areas/Folder/', 'Existing'], ['one', 'Areas/Folder/', 'Build a shelf']]);
+      await add.click();
+      await name.fill('Uncertain');
+      await create.click();
+      await alert.waitFor();
+      assert.match(await alert.innerText(), new RegExp(projectCreations[2].operationId));
+      assert.equal(await create.count(), 0);
+      await page.screenshot({ path: join(artifacts, `create-project-unconfirmed-${width}.png`) });
+      await dialog.getByRole('button', { name: 'Close' }).click();
     } else if (mode === 'project-actions') {
       await openLearning();
       const project = link(title);

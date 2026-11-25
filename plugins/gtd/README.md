@@ -58,6 +58,8 @@ Follow every `nextCursor` with the same filter (or omit the filter on continuati
 
 Open **GTD** from BB’s sidebar navigation to see the Areas index. Every top-level Area, including empty Areas, has its own page. Switch Areas with links in wide panes or the Area picker in narrow panes. The Projects filter starts on **Active** and carries across Areas. It also offers **Someday**, **Done**, and **All**, which includes deferred projects.
 
+On an Area page, choose **Add project**, enter a name, and choose **Create project**. GTD saves an active Markdown note directly in the configured Projects folder with the selected Area path in its `area` property. The name becomes the filename. If a save is unconfirmed, check the project list and the Obsidian receipt using the operation ID shown in the dialog.
+
 In the BB composer, type `@` and part of a name to find **GTD projects** and **GTD Areas**, including folder-only Areas. A mention gives the agent the item's exact reference as context. Ask BB to open the mentioned item in GTD to get a one-click link. The read-only `gtd_resolve_detail_link` tool verifies the kind, source and ID against the configured inventory and returns the canonical same-app detail link.
 
 Opening a detail page directly from a native mention pill requires BB core support. The smallest extension would let a mention provider supply a structured, plugin-owned panel destination with the result, let BB validate it against that plugin's registered panels and retain it with the mention, and have BB use it for click and keyboard activation.

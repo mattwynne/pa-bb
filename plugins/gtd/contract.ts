@@ -18,6 +18,14 @@ export const projectActionInput = reference.extend({
   ]),
 });
 export const noteSaveReceipt = z.object({ operationId: z.string().uuid(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict();
+export const projectName = z.string().trim().min(1).max(240).refine(value =>
+  !value.startsWith('.') && !/[<>:"/\\|?*#\[\]\x00-\x1f\x7f]/.test(value) &&
+  new TextEncoder().encode(value).length <= 252, 'Use a valid Obsidian filename.');
+export const createProjectInput = reference.extend({ name: projectName, operationId: z.string().uuid() });
+export const createProjectResult = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('created'), id: reference.shape.id }).strict(),
+  z.object({ state: z.enum(['exists', 'blocked', 'uncertain']) }).strict(),
+]);
 export const standardTextLimit = 16000;
 const standardText = z.string().max(standardTextLimit);
 const noteHash = z.string().regex(/^[0-9a-f]{64}$/);
@@ -41,6 +49,7 @@ export const rpcContract = defineRpcContract({
   saveAreaStandard: { input: areaStandardInput, output: standardSaveResult },
   listProjects: { input: listInput, output: pageSchema },
   listAreas: { input: areaListInput, output: areaPageSchema },
+  createProject: { input: createProjectInput, output: createProjectResult },
   associate: { input: z.object({ threadId: z.string().min(1).max(128), project: reference.nullable() }).strict(), output: z.null() },
   changeProject: { input: projectActionInput, output: z.object({
     state: z.enum(['done', 'assigned', 'partial', 'blocked', 'unconfirmed']),

@@ -19,6 +19,7 @@
 }
 .gtd-page-heading { grid-row: 2; min-height: var(--gtd-action-size); }
 .gtd-list-bar { margin: 14px 0 6px; }
+.gtd-list-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .gtd-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted-foreground); }
 .gtd-crumbs a { padding: var(--gtd-crumb-padding) 4px; margin-left: -4px; border-radius: 4px; }
 .gtd-area-links { display: flex; flex-wrap: wrap; width: fit-content; gap: 3px; border: 1px solid var(--border); background: var(--muted); border-radius: 6px; padding: 3px; }
@@ -113,6 +114,17 @@
 .gtd-project-dialog form, .gtd-project-dialog label { display: grid; gap: 12px; }
 .gtd-project-dialog label { gap: 6px; }
 .gtd-project-dialog h2 { font-size: 16px; font-weight: 600; margin: 0; }
+.gtd-project-dialog input {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+}
+.gtd-create-description { margin: 0; overflow-wrap: anywhere; }
 .gtd-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .gtd-edit-actions button { padding-inline: 12px; }
 .gtd-edit-actions button[type='submit'] { color: var(--primary-foreground); background: var(--primary); }

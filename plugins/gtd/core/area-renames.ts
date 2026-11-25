@@ -62,7 +62,7 @@ export function areaRenames(bb: BbPluginApi, settings: () => Promise<Scope>) {
     finally { for (const key of keys) held.delete(key); }
   }
   const areaKey = (vault: string, path: string) => JSON.stringify([vault, pathKey(path)]);
-  const withAreaThread = <T>(ref: { source: string; id: string }, action: () => Promise<T>) =>
+  const withArea = <T>(ref: { source: string; id: string }, action: () => Promise<T>) =>
     withKeys(active, [areaKey(ref.source, ref.id)], action);
   const withThread = <T>(threadId: string, action: () => Promise<T>) => withKeys(threadWrites, [threadId], action);
 
@@ -348,5 +348,5 @@ export function areaRenames(bb: BbPluginApi, settings: () => Promise<Scope>) {
         'Evidence is unavailable. Inspect any returned operation IDs and repeat the same request to check the recorded steps.');
     }
   }
-  return { rename, withAreaThread, withThread };
+  return { rename, withArea, withThread };
 }

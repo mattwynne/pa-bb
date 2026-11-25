@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { plugin } from '../server.ts';
 
@@ -153,5 +154,42 @@ test('Area mail only reads the selected Area and status, including nested Area a
     incomplete = true;
     assert.deepEqual(await rpc('readAreaMailStatus', area), []);
     assert.deepEqual(paths, ['Projects/Active/Matches.md', 'Projects/Active/Unassigned.md']);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+test('creating a project uses the exact selected Area and never retries an uncertain save', async () => {
+  const folder = 'Life/Areas/Hands-on #50%/';
+  const area = 'Life/Areas/Learning.md';
+  const source = { vaultId: 'one', name: 'Example', lastSuccess: null, cloudConnected: false, enabled: false, phase: 'paused', failure: null };
+  const notes = [{ path: area, properties: {}, malformed: false }];
+  const writes: unknown[] = [];
+  const host = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one/Life' },
+    sdk: { plugins: { callRpc: async (args: any) => {
+      if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Example' }], incomplete: false };
+      if (args.method === 'vaultInventory') return { source, notes, folders: ['Life/Projects', 'Life/Areas', folder.slice(0, -1)], incomplete: false };
+      assert.equal(args.method, 'createNote');
+      writes.push(args.input);
+      if (args.input.path.endsWith('/Uncertain.md')) throw new Error('private provider content');
+      notes.push({ path: args.input.path, properties: { area: args.input.path.endsWith('/Café.md') ? folder : area }, malformed: false });
+      return { operationId: args.input.operationId, outcome: 'saved_locally_pending_sync' };
+    } } } });
+  await plugin(host.bb);
+  try {
+    const rpc = host.harness.behavior.callRpc;
+    const input = { source: 'one', id: folder, name: ' Café ', operationId: randomUUID() };
+    const path = 'Life/Projects/Café.md';
+    assert.deepEqual(await rpc('createProject', input), { state: 'created', id: path });
+    assert.deepEqual(writes, [{ vaultId: 'one', path, operationId: input.operationId, text: `---\narea: ${JSON.stringify(folder)}\n---\n` }]);
+    const browse = await rpc('browseInventory', { includeAreas: true }) as { projects: { projects: unknown[] } };
+    assert.deepEqual(browse.projects.projects, [{ id: path, title: 'Café', status: 'active', areaId: folder }]);
+    assert.deepEqual(await rpc('createProject', { ...input, id: area, operationId: randomUUID() }), { state: 'exists' });
+    assert.deepEqual(await rpc('createProject', { ...input, id: 'Life/Areas/Missing.md' }), { state: 'blocked' });
+    await assert.rejects(rpc('createProject', { ...input, name: '../outside' }));
+    assert.equal(writes.length, 1);
+
+    assert.deepEqual(await rpc('createProject', { ...input, id: area, name: 'Uncertain', operationId: randomUUID() }), { state: 'uncertain' });
+    assert.equal(writes.length, 2);
+    const logs = JSON.stringify(host.harness.inspection.logEntries);
+    assert.match(logs, /GTD project_create uncertain/);
+    assert.doesNotMatch(logs, /private provider content|Life\/Areas/);
   } finally { await host.harness.lifecycle.dispose(); }
 });

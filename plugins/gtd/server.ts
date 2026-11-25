@@ -6,7 +6,7 @@ import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema,
 import { Areas, compareAreas, normalizeAreaSnapshot } from './core/areas.ts';
 import { areaRenames, renameAreaInput } from './core/area-renames.ts';
 import { applyInput, browseInput, changeInput, changeNames, checkInput, deferInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
-import { areaStandardInput, rpcContract, reference, newThreadInput } from './contract.ts';
+import { areaStandardInput, rpcContract, reference, newThreadInput, type createProjectInput } from './contract.ts';
 import { panelHref, readRoute, recordDestination, type PanelPath } from './app-routes.ts';
 import { threadActions } from './core/threads.ts';
 import { areaListInput, areaPageSchema } from './core/model.ts';
@@ -53,7 +53,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Each project needs a Markdown note directly in this folder or in Active, Deferred, Someday or Done. A folder with the same name can hold supporting files.', default: 'Projects', experimental_schema: relativeFolder },
     automaticReactivation: { type: 'boolean', label: 'Automatically reactivate deferred projects', description: 'Move due projects and their supporting folders to Active, with their links and conversations. Checks daily after midnight Pacific and when GTD starts.', default: false },
   });
-  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'correspondence_read' | 'correspondence_mail' | 'area_mail', code: string) => {
+  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'correspondence_read' | 'correspondence_mail' | 'area_mail' | 'project_create', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial'].includes(code) ? code : 'unknown';
     bb.log.warn(`GTD ${stage} ${safe}`);
   };
@@ -97,6 +97,22 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     enteredWrites.add(task);
     try { return await task; } finally { enteredWrites.delete(task); }
   }
+  const createProject = (input: z.infer<typeof createProjectInput>, signal: AbortSignal) => withWrite(async () => {
+    try {
+      const selection = await configured('projectsFolder', true);
+      const result = await renames.withArea(input, () => backendFor(selection).createProject(input, signal, async () => {
+        const latest = await configured('projectsFolder', true);
+        if (closing || signal.aborted) throw new GtdError('cancelled');
+        if (selection.key !== latest.key) throw new GtdError('invalid_source');
+      }));
+      if (result.state === 'uncertain' || result.state === 'blocked') bb.log.warn(`GTD project_create ${result.state}`);
+      if (result.state === 'uncertain' || result.state === 'created') invalidate();
+      return result;
+    } catch (error) {
+      diagnose('project_create', safeError(error, signal).code);
+      return { state: 'blocked' } as const;
+    }
+  });
   const listAreas = async (input: z.infer<typeof areaListInput>, signal: AbortSignal, owner: string) => {
     try {
       const result = areaPageSchema.parse(await areas.list(input, signal, owner));
@@ -396,7 +412,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     },
     associate: (input, context) => withWrite(() => renames.withThread(input.threadId, () => threads.associate(input, context.experimental_signal))),
     newThread: (input, context) => withWrite(() => threads.newThread(input, context.experimental_signal)),
-    newAreaThread: (input, context) => withWrite(() => renames.withAreaThread(input, () => threads.newThread(input, context.experimental_signal, 'area'))),
+    newAreaThread: (input, context) => withWrite(() => renames.withArea(input, () => threads.newThread(input, context.experimental_signal, 'area'))),
     async changeProject(input, context) {
       if (closing || context.experimental_signal.aborted) throw new GtdError('cancelled');
       try { return await withWrite(() => changes.applyFromPanel(input, context.experimental_signal)); }
@@ -411,6 +427,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     },
     readAreaStandard: (input, context) => readStandard(input, context.experimental_signal),
     saveAreaStandard: (input, context) => saveStandard(input, context.experimental_signal),
+    createProject: (input, context) => createProject(input, context.experimental_signal),
     listAreas: (input, context) => listAreas(input, context.experimental_signal, 'rpc'),
     listProjects: (input, context) => list(input, context.experimental_signal, 'rpc'),
   });

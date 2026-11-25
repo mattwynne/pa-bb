@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { definePluginApp, useRpc, useSdk, useBbNavigate, useRealtimeConnectionState, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginNavPanelProps, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
-import { rpcContract, reference } from './contract.ts';
+import { rpcContract, reference, projectName } from './contract.ts';
 import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
 import { areasIndex, panelHref, readRoute, recordDestination, unassignedArea, type Destination, type PanelPath } from './app-routes.ts';
@@ -251,6 +251,72 @@ function RowActions({ project, source, disabled, actions }: {
     </div>
   </details>;
 }
+function CreateProjectDialog({ area, source, onClose }: {
+  area: Area; source: string; onClose: (created: boolean) => void;
+}) {
+  const rpc = useRpc<typeof rpcContract>();
+  const headingId = useId();
+  const descriptionId = useId();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const saving = useRef(false);
+  const [pending, setPending] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState('');
+  const [unconfirmed, setUnconfirmed] = useState(false);
+  const name = projectName.safeParse(draft);
+  useLayoutEffect(() => { dialog.current?.showModal(); input.current?.focus(); }, []);
+  const close = (created = false) => {
+    if (saving.current) return;
+    dialog.current?.close();
+    onClose(created);
+  };
+  const submit = async () => {
+    if (!name.success || saving.current || unconfirmed) return;
+    const operationId = crypto.randomUUID();
+    saving.current = true;
+    setPending(true);
+    setError('');
+    const result = await rpc.call('createProject', { source, id: area.id, name: name.data, operationId })
+      .catch(() => ({ state: 'uncertain' } as const));
+    saving.current = false;
+    setPending(false);
+    if (result.state === 'created') {
+      close(true);
+    } else if (result.state === 'uncertain') {
+      setUnconfirmed(true);
+      setError(`Obsidian could not confirm the save. Check the project list and the Obsidian receipt before trying again. Operation ID ${operationId}.`);
+    } else {
+      setError(result.state === 'exists' ? 'This name is already in use in Projects. Choose a different name.'
+        : 'The project could not be saved. Check the Area and vault status, then try again.');
+      input.current?.focus();
+    }
+  };
+  return <dialog ref={dialog} className="gtd-project-dialog" aria-labelledby={headingId} aria-describedby={descriptionId}
+    onCancel={event => { event.preventDefault(); close(); }}
+    onKeyDown={event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    }}>
+    <form onSubmit={event => { event.preventDefault(); void submit(); }}>
+      <h2 id={headingId}>Add project</h2>
+      <p id={descriptionId} className="gtd-create-description">Create an active project in {area.title}.</p>
+      <label>Project name
+        <input ref={input} value={draft} maxLength={240} readOnly={pending || unconfirmed}
+          onChange={event => { setDraft(event.target.value); setError(''); }} enterKeyHint="done" />
+      </label>
+      {draft.trim() && !name.success && <p className="gtd-create-description">Use a valid Obsidian filename.</p>}
+      {error && <p className="gtd-create-description" role="alert">{error}</p>}
+      {pending && <p className="gtd-create-description" role="status">Saving in Obsidian…</p>}
+      <div className="gtd-edit-actions">
+        <button type="button" disabled={pending} onClick={() => close()}>{unconfirmed ? 'Close' : 'Cancel'}</button>
+        {!unconfirmed && <button type="submit" disabled={!name.success || pending}>Create project</button>}
+      </div>
+    </form>
+  </dialog>;
+}
 function ProjectActionDialog({ action, project, areas, onClose }: {
   action: 'done' | 'area'; project: Project; areas: Area[]; onClose: (areaPath?: string) => void;
 }) {
@@ -315,14 +381,17 @@ const threadStatuses = ['active', 'archived'] as const;
 type ThreadFilter = typeof threadStatuses[number];
 const linkedThreadFilters = new Map<string, ThreadFilter[]>();
 
-function FilterBar({ title, label, children }: { title: string; label: string; children: React.ReactNode }) {
+function FilterBar({ title, label, action, children }: { title: string; label: string; action?: React.ReactNode; children: React.ReactNode }) {
   const { detailsProps, trigger } = useDisclosure();
   return <div className="gtd-list-bar">
     <h2>{title}</h2>
-    <details className="gtd-menu gtd-filter" {...detailsProps}>
-      <summary ref={trigger} aria-label={`Filter by ${label.toLowerCase()}`}><Icon name="SlidersHorizontal" aria-hidden="true" />Filter</summary>
-      <div className="gtd-menu-items" role="group" aria-label={label}>{children}</div>
-    </details>
+    <div className="gtd-list-actions">
+      <details className="gtd-menu gtd-filter" {...detailsProps}>
+        <summary ref={trigger} aria-label={`Filter by ${label.toLowerCase()}`}><Icon name="SlidersHorizontal" aria-hidden="true" />Filter</summary>
+        <div className="gtd-menu-items" role="group" aria-label={label}>{children}</div>
+      </details>
+      {action}
+    </div>
   </div>;
 }
 
@@ -464,6 +533,8 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const [dragged, setDragged] = useState<Project>();
   const [dropArea, setDropArea] = useState('');
   const [projectAction, setProjectAction] = useState<{ kind: 'done' | 'area'; project: Project; trigger: HTMLElement }>();
+  const [createTarget, setCreateTarget] = useState<string>();
+  const addProject = useRef<HTMLButtonElement>(null);
   const nav = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const focused = useRef<HTMLElement>(null);
@@ -648,7 +719,8 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
         <AreaPicker current={area ? areaDestination(area) : unassignedArea} entries={[{ title: 'All areas', destination: areasIndex }, ...entries,
           ...(hasUnassigned ? [{ title: 'Unassigned area', destination: unassignedArea }] : [])]} dropProps={dropProps} />
         {area && <AreaStandard key={`standard:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} hasNote={area.id.endsWith('.md')} />}
-        <FilterBar title="Projects" label="Project status">
+        <FilterBar title="Projects" label="Project status" action={area && <button ref={addProject} type="button" disabled={!!busy || !!inventory.error}
+          onClick={() => setCreateTarget(key(inventory.source, area.id))}>Add project</button>}>
           {(Object.keys(projectStatuses) as ProjectFilter[]).map(value => <FilterOption key={value} type="radio" name={statusGroup}
             label={projectStatuses[value]} checked={status === value} onChange={() => { lastProjectFilter = value; setStatus(value); }} />)}
         </FilterBar>
@@ -682,6 +754,15 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       </React.Fragment>}
       {notice && <p role="status">{notice}</p>}
     </div>
+    {area && createTarget === key(inventory.source, area.id) && <CreateProjectDialog area={area} source={inventory.source} onClose={created => {
+      setCreateTarget(undefined);
+      addProject.current?.focus({ preventScroll: true });
+      if (created) {
+        if (status !== 'active' && status !== 'all') { lastProjectFilter = 'active'; setStatus('active'); }
+        setNotice('Project created in Obsidian.');
+        refreshInventory(true);
+      }
+    }} />}
     {projectAction && <ProjectActionDialog action={projectAction.kind} project={projectAction.project} areas={eligibleAreas} onClose={value => {
       const { kind, project, trigger } = projectAction;
       setProjectAction(undefined);

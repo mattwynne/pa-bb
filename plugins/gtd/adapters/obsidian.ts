@@ -2,7 +2,7 @@ import { correspondenceLinks } from '../core/correspondence.ts';
 import { posix } from 'node:path';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { areaStandard, inventoryRevision, noteSaveReceipt, standardSaveResult, type areaStandardInput } from '../contract.ts';
+import { areaStandard, inventoryRevision, noteSaveReceipt, standardSaveResult, type areaStandardInput, type createProjectInput, type createProjectResult } from '../contract.ts';
 import { areaSnapshotSchema, GtdError, snapshotSchema } from '../core/model.ts';
 import type { Area, AreaBackend, Project, ProjectBackend, ProjectStatus, Warning } from '../core/model.ts';
 
@@ -93,6 +93,13 @@ export function areaLookup(root: string, areaFolder: string, notes: Set<string>,
     let resolved: string | undefined;
     for (const ref of refs) {
       if (typeof ref !== 'string' || !ref.trim() || ref.length > 1024 || ref.startsWith('!')) return;
+      const directory = ref.slice(0, -1);
+      if (within(ref, areaFolder) && (notes.has(ref) ||
+          (ref.endsWith('/') && folders.has(directory) && !notes.has(directory + '.md')))) {
+        if (resolved && resolved !== ref) return;
+        resolved = ref;
+        continue;
+      }
       let target: string;
       try { target = decodeURIComponent(ref.trim().replace(/^\[\[/, '').replace(/\]\]$/, '').split('|')[0]); }
       catch { return; }
@@ -123,6 +130,43 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     private evidence?: ProjectEvidence) {}
 
   invalidate() { this.generation++; }
+
+  async createProject(input: z.infer<typeof createProjectInput>, signal: AbortSignal, beforeSave: () => Promise<void>): Promise<z.infer<typeof createProjectResult>> {
+    const { vaultId, root = '', areasFolder, folder } = this.config;
+    if (input.source !== vaultId || !areasFolder) throw new GtdError('invalid_source');
+    const areaFolder = this.scope(areasFolder);
+    const projectFolder = this.scope(folder);
+    const areaPath = input.id.replace(/\/$/, '');
+    if (!relativeFolder.safeParse(areaPath).success || !immediate(areaPath, areaFolder)) throw new GtdError('invalid_source');
+    const id = `${projectFolder}/${input.name}.md`;
+    if (!relativeFolder.safeParse(id).success) throw new GtdError('invalid_source');
+    const generation = this.generation;
+    const inventory = await readVaultInventory(this.sdk, {
+      vaultId, root, folders: [...new Set([areaFolder, projectFolder])],
+      metadataFolders: [areaFolder], metadataDepth: 1, fields: ['area'],
+    }, signal);
+    const notes = new Set(inventory.notes.map(note => note.path));
+    const folders = new Set(inventory.folders);
+    if (inventory.incomplete || !folders.has(projectFolder) ||
+        (input.id.endsWith('/') ? !folders.has(areaPath) || notes.has(areaPath + '.md')
+          : !areaPath.endsWith('.md') || !inventory.notes.some(note => note.path === areaPath && !note.malformed)) ||
+        areaLookup(root, areaFolder, notes, folders)(input.id, id) !== input.id) throw new GtdError('invalid_source');
+    if (notes.has(id) || folders.has(id)) return { state: 'exists' };
+
+    await beforeSave();
+    this.checkGeneration(generation, signal);
+    try {
+      const result = noteSaveReceipt.extend({ reason: z.literal('conflict').optional() }).parse(await vaultRpc(this.sdk, 'createNote', {
+        vaultId, path: id, operationId: input.operationId,
+        text: `---\narea: ${JSON.stringify(input.id)}\n---\n`,
+      }, signal));
+      if (result.operationId !== input.operationId || result.outcome === 'uncertain') return { state: 'uncertain' };
+      if (result.outcome === 'not_saved') return { state: result.reason === 'conflict' ? 'exists' : 'blocked' };
+      return { state: 'created', id };
+    } catch {
+      return { state: 'uncertain' };
+    }
+  }
 
   private standardTarget(source: string, id: string) {
     if (source !== this.config.vaultId || !relativeFolder.safeParse(id).success ||

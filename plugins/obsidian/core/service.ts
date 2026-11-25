@@ -608,7 +608,7 @@ export class Obsidian {
       throw e;
     }
   }
-  create(input: { vaultId: string; path: string; text: string }, signal?: AbortSignal) { return this.write(input.vaultId, input.path, null, () => input.text, true, signal); }
+  create(input: { vaultId: string; path: string; text: string; operationId?: string }, signal?: AbortSignal) { return this.write(input.vaultId, input.path, null, () => input.text, true, signal, undefined, input.operationId); }
   edit(input: { vaultId: string; path: string; expectedHash?: string; resolution?: { token: string; expectedLogicalHash: string; expectedIncomingHash: string | null; choice: Resolution['choice']; text?: string }; append?: string; replacements?: Array<{ oldText: string; newText: string }>; task?: { line: number; marker: string } }, signal?: AbortSignal, reader = '') {
     if (input.resolution) { if (input.expectedHash !== undefined || input.append !== undefined || input.replacements !== undefined || input.task !== undefined) throw new VaultError('ambiguous_edit'); return this.recover({ vaultId: input.vaultId, path: input.path, ...input.resolution }, signal); }
     if (!input.expectedHash) throw new VaultError('complete_read_required');

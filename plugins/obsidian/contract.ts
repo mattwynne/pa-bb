@@ -56,6 +56,10 @@ export const rpcContract = defineRpcContract({
     input: sectionInput.extend({ expectedHash: hash, operationId, text: sectionText }),
     output: z.object({ operationId, outcome, reason: z.enum(['changed', 'invalid_section']).optional() }).strict(),
   },
+  createNote: {
+    input: noteInput.extend({ operationId, text: z.string().max(64000) }),
+    output: z.object({ operationId, outcome, reason: z.literal('conflict').optional() }).strict(),
+  },
   writeProperties: {
     input: noteInput.extend({ expectedHash: hash.optional(), operationId: operationId.optional(), set: z.record(z.string().min(1).max(128), property).optional(), remove: fields.optional() }),
     output: z.object({ operationId, outcome }).strict(),

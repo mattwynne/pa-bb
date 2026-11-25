@@ -58,6 +58,7 @@ For `unconfirmed` or `partial`, keep the move operation IDs, inspect Obsidian's 
 
 ## Navigation, titles and linked threads
 
+- From an Area page, **Add project** creates an active project linked to that Area. The name becomes the Markdown filename in the configured Projects folder. If GTD shows an unconfirmed save, use the displayed operation ID to inspect the Obsidian receipt before retrying.
 - Type `@` followed by part of a name in the BB composer and choose a result under **GTD projects** or **GTD Areas**. Mentions supply context only. BB gives the agent the exact source and ID, including folder-only Area IDs. If an item moved, choose it again.
 - When asked to open an item in GTD, call `gtd_resolve_detail_link` with `kind` (`project` or `area`), `source` and `id` from the mention or inventory. Use the returned `href` unchanged as the Markdown link destination. If the tool cannot verify the reference, report that or look up the current item in GTD.
 - Open **Personal GTD projects** from BB’s sidebar navigation. It defaults to active projects and the status selector includes other statuses. If the retired GTD thread-list provider was explicitly selected, choose **Thread list (built-in)** in **Settings → Appearance → Sidebar**.

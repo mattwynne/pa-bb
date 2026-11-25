@@ -59,6 +59,22 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       }, context);
     },
     writeNoteSection(input, context) { return evidence(() => service.writeNoteSection(input, context.experimental_signal), context); },
+    createNote(input, context) {
+      return evidence(async () => {
+        const { operationId } = input;
+        try {
+          const { receipt } = await service.create(input, context.experimental_signal);
+          return { operationId, outcome: receipt.outcome };
+        } catch (error) {
+          const category = error instanceof VaultError ? error.category : 'unavailable';
+          if (!(error instanceof VaultError && error.diagnosticReported)) diagnose('rpc', category);
+          if (category === 'conflict') return { operationId, outcome: 'not_saved' as const, reason: 'conflict' as const };
+          if (['busy', 'capacity', 'cancelled', 'invalid_path', 'unsupported', 'not_connected', 'source_unavailable', 'properties_unsupported'].includes(category))
+            return { operationId, outcome: 'not_saved' as const };
+          return { operationId, outcome: 'uncertain' as const };
+        }
+      }, context);
+    },
     writeProperties(input, context) { return evidence(() => service.writeProperties(input, context.experimental_signal), context); },
     movePath(input, context) { return evidence(() => service.movePath(input, context.experimental_signal), context); },
     moveReceipt(input, context) { return evidence(() => service.moveReceipt(input), context); },

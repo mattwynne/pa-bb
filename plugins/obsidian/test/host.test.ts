@@ -30,6 +30,25 @@ test('tools create, read, edit and update properties without a confirmation', as
     assert.match(files.notes.get('one/Meeting.md')!, /status: "done"\r\n/); assert.match(files.notes.get('one/Meeting.md')!, /Decision\r\n/);
   } finally { await harness.lifecycle.dispose(); }
 });
+test('plugin note creation preserves existing notes and attributes the local receipt', async () => {
+  const { harness, files } = await setup();
+  try {
+    const context = { experimental_caller: { kind: 'plugin' as const, pluginId: 'gtd' } };
+    const input = { vaultId: 'one', path: 'Projects/New.md', text: '---\narea: "Areas/Learning.md"\n---\n',
+      operationId: '12345678-1234-4123-8123-123456789abc' };
+    await harness.behavior.callRpc('connect', { vaultId: 'one' });
+    await assert.rejects(harness.behavior.callRpc('createNote', input), /Only BB plugins/);
+    assert.equal(files.notes.has('one/Projects/New.md'), false);
+    assert.deepEqual(await harness.behavior.callRpc('createNote', input, context),
+      { operationId: input.operationId, outcome: 'saved_locally_pending_sync' });
+    const duplicate = { ...input, text: 'Do not replace', operationId: '12345678-1234-4123-8123-123456789def' };
+    assert.deepEqual(await harness.behavior.callRpc('createNote', duplicate, context),
+      { operationId: duplicate.operationId, outcome: 'not_saved', reason: 'conflict' });
+    assert.equal(files.notes.get('one/Projects/New.md'), input.text);
+    assert.equal(files.saved.find(receipt => receipt.operationId === input.operationId)?.path, input.path);
+  } finally { await harness.lifecycle.dispose(); }
+});
+
 test('handled tool failures and partial scans diagnose safely without private error details', async () => {
   const { harness, files } = await setup();
   try {
