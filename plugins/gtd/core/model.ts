@@ -6,7 +6,6 @@ export type ProjectStatus = z.infer<typeof statusSchema>;
 export const projectSchema = z.object({
   // Backend-owned identity within the selected source, not a BB project ID.
   id: z.string().min(1).max(1024),
-  notePath: z.string().min(1).max(1024).optional(),
   title: z.string().min(1).max(240),
   status: statusSchema,
   areaId: z.string().min(1).max(1024).optional(),

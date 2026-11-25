@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { areaFromNote, areaLookup, noteEvidence, projectFromNote, readVaultInventory, relativeFolder, vaultIdSchema, vaultRpc } from '../adapters/obsidian.ts';
 import { noteSaveReceipt, reference } from '../contract.ts';
-import { readThreadReferences } from './migration-preview.ts';
+import { readThreadReferences } from './thread-references.ts';
 
 export const renameAreaInput = reference.extend({
   source: vaultIdSchema,
@@ -17,7 +17,10 @@ export const renameAreaInput = reference.extend({
   requestId: z.string().uuid().optional().describe('Use a fresh UUID for a separately requested rename that reuses a previously completed path pair. Keep it on every retry.'),
 }).strict();
 type Input = z.infer<typeof renameAreaInput>;
-type Scope = { vaultId: string; projectsFolder: string; areasFolder: string; identity: 'legacy' | 'applying' | 'stable' };
+type Scope = { vaultId: string; projectsFolder: string; areasFolder: string };
+// Match the serialized recovery scope of requests admitted before path-only GTD.
+const storedScope = ({vaultId, projectsFolder, areasFolder}: Scope) =>
+  JSON.stringify({vaultId, projectsFolder, areasFolder, identity: 'legacy'});
 type Move = { operationId: string; path: string; destination: string; attempted?: true; confirmed?: true };
 type Assignment = { path: string; declaration: string | string[]; target: string; operationId?: string };
 type Plan = { note: Move; hash: string; folder?: Move; descendants: string[]; assignments: Assignment[]; threads: string[]; threadAttempts: string[] };
@@ -83,17 +86,16 @@ export function areaRenames(bb: BbPluginApi, settings: () => Promise<Scope>) {
         const root = parts.join('/');
         const areas = [root, scope.areasFolder].filter(Boolean).join('/');
         const projects = [root, scope.projectsFolder].filter(Boolean).join('/');
-        requireEvidence(scope.identity === 'legacy', stage, 'Area rename requires path identities. Check the configured GTD identity mode.');
         const area = areaFromNote(areas, id);
         requireEvidence(selected === vaultId && area && area !== 'invalid' &&
           relativeFolder.safeParse(destination).success && pathKey(id) !== pathKey(destination) &&
           !within(projects, stem(id)) && !within(projects, stem(destination)) &&
           projectFromNote(projects, id, {}) === 'invalid' && projectFromNote(projects, destination, {}) === 'invalid', stage,
         'Choose an exact top-level Area note and a distinct filename in its configured Areas folder.');
-        const scopeKey = JSON.stringify(scope);
+        const scopeKey = storedScope(scope);
         const checkScope = async () => {
           signal.throwIfAborted();
-          requireEvidence(JSON.stringify(await settings()) === scopeKey, 'configuration', 'The GTD source or identity mode changed. Check settings before continuing.');
+          requireEvidence(storedScope(await settings()) === scopeKey, 'configuration', 'The GTD source or identity mode changed. Check settings before continuing.');
           signal.throwIfAborted();
         };
         const key = [vaultId, id, destination, input.requestId ?? ''] as const;

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { createFakePluginHost, makeThreadResponse } from '@get-bb/plugin-sdk/testing';
 import { plugin } from '../server.ts';
-import { areaRenames } from '../core/area-renames.ts';
 
 const source = 'fixture';
 const id = 'Areas/Club.md', destination = 'Areas/Community Club.md';
@@ -195,6 +194,10 @@ test('recovers a lost note reply after reload and a lost folder reply without re
   f.state.receiptHidden = true;
   const entered = await f.rename();
   assert.equal(entered.state, 'unconfirmed');
+  const stored = f.handles.host.bb.storage.database().prepare('SELECT scope FROM area_renames WHERE source = ?').get(id);
+  assert.deepEqual(stored, {scope: JSON.stringify({
+    vaultId: source, projectsFolder: 'Projects', areasFolder: 'Areas', identity: 'legacy',
+  })});
   const logs = JSON.stringify(f.handles.host.harness.inspection.logEntries);
   assert.match(logs, /GTD area_rename note_move unconfirmed/);
   assert.doesNotMatch(logs, /PRIVATE_RENAME_PROVIDER_SENTINEL|Areas\/Club/);
@@ -315,13 +318,4 @@ test('serializes overlapping requests while a different Area can proceed', async
     assert.equal((await f.rename({source, id: 'Areas/Elsewhere.md', newFilename: 'Separate.md'})).state, 'renamed');
   } finally { release(); }
   assert.equal((await original).state, 'renamed');
-});
-
-test('refuses non-path identity modes before Obsidian or thread access', async t => {
-  for (const identity of ['stable', 'applying'] as const) {
-    const f = createFakePluginHost({ pluginId: 'gtd' });
-    t.after(() => f.harness.lifecycle.dispose());
-    const api = areaRenames(f.bb, async () => ({ vaultId: source, projectsFolder: 'Projects', areasFolder: 'Areas', identity }));
-    assert.equal((await api.rename(input, new AbortController().signal)).state, 'refused');
-  }
 });

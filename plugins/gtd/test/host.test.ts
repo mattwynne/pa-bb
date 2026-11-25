@@ -14,7 +14,7 @@ async function setup(backend?: ProjectBackend) {
 test('host registers the GTD tools and CLI help, validation, listing and RPC share the same contract', async () => {
   const { harness } = await setup({ async readProjects() { return data(); }, async checkAccess() {} });
   try {
-    const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), ['gtd_browse_area_targets', 'gtd_prepare_project_change', 'gtd_check_project_change', 'gtd_defer_project', 'gtd_change_project', 'gtd_apply_project_change', 'gtd_rename_area', 'gtd_list_projects', 'gtd_list_areas', 'gtd_create_project_thread', 'gtd_prepare_landing_note']); assert.match(config.instructions!, /untrusted evidence/);
+    const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), ['gtd_browse_area_targets', 'gtd_prepare_project_change', 'gtd_check_project_change', 'gtd_defer_project', 'gtd_change_project', 'gtd_apply_project_change', 'gtd_rename_area', 'gtd_list_projects', 'gtd_list_areas', 'gtd_create_project_thread']); assert.match(config.instructions!, /untrusted evidence/);
     const help = await harness.behavior.runCli(['projects', '--help']); assert.equal(help.exitCode, 0); assert.match(help.stdout!, /--status/);
     for (const args of [['projects', '--status', 'bogus', '--json'], ['projects', '--limit', '201', '--json'], ['projects', '--limti', '1', '--json']]) assert.notEqual((await harness.behavior.runCli(args)).exitCode, 0);
     const cli = await harness.behavior.runCli(['projects', '--json']); assert.equal(cli.exitCode, 0); assert.equal(JSON.parse(cli.stdout!).totalProjects, 1);
@@ -47,4 +47,19 @@ test('settings validation rejects traversal and survives reload; plugin imports 
   const scan = await experimental_scanPublicSdkOnly(new URL('../', import.meta.url).pathname, { allow: [/^react$/, /^@testing-library\/react$/, /^playwright$/, /^@get-bb\/plugin-sdk\/testing$/] });
   assert.deepEqual(scan.violations, []);
   assert.deepEqual(scan.privateDependencies, []);
+});
+
+test('reload leaves historical identity records intact and removes the rollout commands', async () => {
+  let host = await setup();
+  try {
+    const db = host.bb.storage.database();
+    db.exec(`CREATE TABLE identity_runs (id TEXT PRIMARY KEY, scope TEXT NOT NULL, state TEXT NOT NULL, manifest TEXT NOT NULL);
+      CREATE UNIQUE INDEX identity_active_scope ON identity_runs(scope) WHERE state != 'review';`);
+    db.prepare('INSERT INTO identity_runs VALUES (?, ?, ?, ?)').run('prior-review', 'synthetic', 'review', '{"notes":{},"threads":{}}');
+    const records = db.prepare('SELECT * FROM identity_runs').all();
+    host = await host.harness.lifecycle.reload(plugin);
+    assert.deepEqual(host.bb.storage.database().prepare('SELECT * FROM identity_runs').all(), records);
+    const help = await host.harness.behavior.runCli(['--help']);
+    assert.doesNotMatch(help.stdout!, /migration-(?:preview|apply|status)/);
+  } finally { await host.harness.lifecycle.dispose(); }
 });

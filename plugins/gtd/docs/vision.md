@@ -10,7 +10,7 @@ The first interface should make it easy to find a project and get back to a conv
 - **An Area page** lists its projects. Wide panes show Area links and narrow panes use the native Area picker. The project filter starts on **Active**, offers **Someday**, **Done**, and **All**, and keeps its selection when switching Areas. **All** includes deferred projects.
 - **A project page** shows the project title and its linked BB threads. The filter uses BB's separate **Active** and **Archived** checks. Active is selected initially. Either or both groups can be shown. The breadcrumb leads back to the Area, and each row opens the original BB thread.
 
-Use links for Area and project pages so they can be bookmarked and support browser history. Resolve them through the inventory's existing source and record identity. The [stable identity plan](../../../docs/plans/029-stable-gtd-identities.md) covers durable identity across vault moves. Keep partial inventory and unavailable records visible as such. The [plugin README](../README.md) documents the current Obsidian conventions, project changes, and thread associations.
+Use links for Area and project pages so they can be bookmarked and support browser history. Resolve them through the inventory's existing source and record identity. Record IDs use paths. Keep partial inventory and unavailable records visible as such. The [plugin README](../README.md) documents the current Obsidian conventions, project changes, and thread associations.
 
 ## What the research suggests
 

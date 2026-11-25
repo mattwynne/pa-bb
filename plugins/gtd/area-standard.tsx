@@ -4,7 +4,7 @@ import { rpcContract, standardTextLimit } from './contract.ts';
 
 type Version = { text: string; hash: string };
 
-export function AreaStandard({ source, id, hasNote, paused }: { source: string; id: string; hasNote: boolean; paused: boolean }) {
+export function AreaStandard({ source, id, hasNote }: { source: string; id: string; hasNote: boolean }) {
   const rpc = useRpc<typeof rpcContract>();
   const client = useRef(rpc);
   client.current = rpc;
@@ -51,7 +51,7 @@ export function AreaStandard({ source, id, hasNote, paused }: { source: string; 
     setDraft(undefined);
   };
   const save = async () => {
-    if (paused || !version || draft === undefined || draft === version.text || pending.current || failure === 'changed' || failure === 'uncertain') return;
+    if (!version || draft === undefined || draft === version.text || pending.current || failure === 'changed' || failure === 'uncertain') return;
     const operationId = crypto.randomUUID();
     pending.current = true;
     setSaving(true);
@@ -80,7 +80,7 @@ export function AreaStandard({ source, id, hasNote, paused }: { source: string; 
   return <section className="gtd-standard" aria-labelledby={label}>
     <div className="gtd-list-bar">
       <h2 id={label}>Standard</h2>
-      {version && !editing && <button type="button" disabled={paused} ref={editButton} onClick={() => {
+      {version && !editing && <button type="button" ref={editButton} onClick={() => {
         setNotice('');
         setDraft(version.text);
       }}>{version.text ? 'Edit standard' : 'Add standard'}</button>}
@@ -100,7 +100,7 @@ export function AreaStandard({ source, id, hasNote, paused }: { source: string; 
           <div className="gtd-edit-actions">
             {failure === 'changed' ? <button type="button" onClick={() => { closeEditor(); readAgain(); }}>Load current standard</button>
               : <button type="button" disabled={saving || failure === 'uncertain'} onClick={closeEditor}>Cancel</button>}
-            <button type="submit" disabled={paused || saving || draft === version.text || failure === 'changed' || failure === 'uncertain'}>
+            <button type="submit" disabled={saving || draft === version.text || failure === 'changed' || failure === 'uncertain'}>
               {saving ? 'Saving…' : 'Save'}
             </button>
           </div>

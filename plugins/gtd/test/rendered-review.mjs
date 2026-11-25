@@ -21,8 +21,7 @@ const artifacts = process.env.BB_REVIEW_ARTIFACTS ?? await mkdtemp(join(tmpdir()
 await mkdir(join(root, 'home')); await mkdir(artifacts, { recursive: true });
 const base = `http://127.0.0.1:${port}`;
 const env = { PATH: process.env.PATH, HOME: join(root, 'home'), NODE_ENV: 'production', BB_DATA_DIR: join(root, 'data'), BB_SERVER_PORT: String(port), BB_SERVER_BIND_HOST: '127.0.0.1', BB_SERVER_URL: base, BB_HOST_DAEMON_PORT: String(port + 1) };
-const nativeStable = process.env.BB_REVIEW_MODE === 'native-stable';
-const native = nativeStable || process.env.BB_REVIEW_MODE === 'native-refresh';
+const native = process.env.BB_REVIEW_MODE === 'native-refresh';
 const vault = join(root, 'synthetic-vault');
 if (native) {
   assert.ok(process.env.PA_OBSIDIAN_TEST_DESKTOP && process.env.PA_OBSIDIAN_TEST_CLI);
@@ -33,11 +32,6 @@ if (native) {
 const fd = openSync(join(root, 'server.log'), 'w', 0o600);
 const server = spawn(process.execPath, [join(bb, 'server/dist/index.js')], { env, cwd: root, stdio: ['ignore', fd, fd] }); closeSync(fd);
 const cli = async (...args) => (await exec(process.execPath, [join(bb, 'host-daemon/dist/bb'), ...args], { env, cwd: root, timeout: 120000 })).stdout;
-const cliWithStdin = async (input, ...args) => {
-  const running = exec(process.execPath, [join(bb, 'host-daemon/dist/bb'), ...args], { env, cwd: root, timeout: 120000 });
-  running.child.stdin.end(input);
-  return (await running).stdout;
-};
 let browser;
 const ref = { source: 'one', id: 'Projects/Learn woodworking.md' };
 const source = { backend: 'obsidian', id: 'one', name: 'Synthetic vault', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null };
@@ -103,30 +97,6 @@ try {
   assert.match(await cli('plugin', 'logs', 'gtd', '-n', '5'), /GTD list unconfigured/);
   console.log('Runtime checks: Obsidian status and property-write caller refusal, GTD unconfigured guard and bounded diagnostic verified.');
   if (native) await connectSyntheticVault(pkg);
-  let stableProject, stableArea;
-  if (nativeStable) {
-    const nested = 'Areas/Learning/Old records.md';
-    await writeFile(join(vault, ref.id), projectNote('Legacy label').replace('Areas/Learning.md', nested));
-    const choices = { areaAssignments: [{projectPath:ref.id, expectedDeclaration:nested, targetAreaPath:'Areas/Learning.md'}] };
-    const report = JSON.parse(await cliWithStdin(JSON.stringify(choices) + '\n', 'gtd', 'migration-preview', '--json', '--choices-stdin'));
-    assert.equal(report.coverage, 'complete');
-    assert.equal(report.decisions, 0);
-    assert.equal(report.links.length, 0);
-    assert.deepEqual(report.rows.find(row => row.kind === 'project').areaDecision,
-      {kind:'explicit_assignment',targetPath:'Areas/Learning.md'});
-    await writeFile(join(artifacts, 'synthetic-preview.json'), JSON.stringify(report, null, 2) + '\n');
-    stableProject = report.rows.find(row => row.kind === 'project').proposedId;
-    stableArea = report.rows.find(row => row.kind === 'area').proposedId;
-    assert.match(stableProject, /^project-[0-9a-f-]{36}$/);
-    assert.match(stableArea, /^area-[0-9a-f-]{36}$/);
-    const readiness = JSON.parse(await cli('gtd', 'migration-status', '--plan', report.planId, '--readiness'));
-    assert.equal(readiness.state, 'review');
-    assert.equal(readiness.readiness.stage, 'legacy_checks_passed');
-    await cli('gtd', 'migration-apply', '--plan', report.planId);
-    assert.equal(JSON.parse(await cli('gtd', 'migration-status', '--plan', report.planId)).state, 'stable');
-    assert.match(await readFile(join(vault, ref.id), 'utf8'), new RegExp(stableProject));
-    assert.match(await readFile(join(vault, ref.id), 'utf8'), new RegExp(stableArea));
-  }
   // The disposable host has no coding agent to complete first-run onboarding.
   await cli('settings', 'general', 'onboardingCompletedAt', new Date().toISOString());
   const setPreference = (key, value) => cli('settings', 'ui', 'set', key, value);
@@ -135,7 +105,7 @@ try {
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
   const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'area-standard', 'auto-refresh', 'correspondence'];
-  const reviewedModes = native ? [nativeStable ? 'native-stable' : 'native-refresh'] : process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
+  const reviewedModes = native ? ['native-refresh'] : process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
@@ -197,9 +167,8 @@ try {
         pendingTodos: null, goal: null, providerCommands: null, sessionOptions: null, modelFallback: null,
         timelinePage: { returnedSegmentCount: 0, olderCursor: null, historySnapshot: 'fixture', olderRowsSourceSeqEnd: null },
       } }));
-    associations.set('fixture3', nativeStable ? {source:'one',id:stableProject} : ref);
-    associations.set('fixture4', nativeStable ? {source:'one',id:stableProject} : ref);
-    if (nativeStable) associations.set('fixture1', {source:'one',id:stableProject});
+    associations.set('fixture3', ref);
+    associations.set('fixture4', ref);
     await page.route('**/api/v1/threads/plugin-metadata', route => route.fulfill({
       json: { threads: route.request().postDataJSON().threadIds.map(threadId => ({
         threadId, metadata: ['area1', 'area2'].includes(threadId) ? { area: { source: 'one', id: 'Areas/Learning.md' } }
@@ -213,7 +182,7 @@ try {
       if (mode === 'loading') { await new Promise(r => setTimeout(r, 15000)); if (page.isClosed()) return; }
       if (mode === 'error') return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic failure' } } });
       let result;
-      if (method === 'browseInventoryV2') {
+      if (method === 'browseInventory') {
         inventoryReads++;
         await heldRead;
         if (failInventory) return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic failure' } } });
@@ -241,7 +210,6 @@ try {
         }
         const complete = mode !== 'malformed';
         result = {
-          identity: 'legacy', aliases: [],
           projects: { source, projects, complete, warnings: complete ? [] : ['invalid_project'],
             ...(!complete ? { malformedFrontmatter: ['Projects/Broken.md'] } : {}) },
           areas: (input.input ?? input).includeAreas ? { source, areas, complete: true, warnings: [] } : null,
@@ -568,49 +536,6 @@ try {
       const create = nav.getByRole('button', { name: 'New thread for Learn woodworking' }); await create.focus(); await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
       await page.waitForURL('**/threads/fixture1');
       assert.equal(creations, 1);
-    } else if (nativeStable) {
-      const route = (panel, id) => `${base}/plugins/gtd/${panel}/${Buffer.from(JSON.stringify(['one', id])).toString('base64url')}`;
-      if (width === 1280) {
-        await page.goto(route('areas', 'Areas/Learning.md'));
-        await heading('Learning').waitFor();
-        const linkHref = await link('Learn woodworking').getAttribute('href');
-        assert.equal(new URL(linkHref, base).href, route('projects', stableProject));
-        await page.goto(route('projects', ref.id));
-        await heading('Learn woodworking').waitFor();
-        await rename(join(vault, 'Areas/Learning.md'), join(vault, 'Areas/Workshop.md'));
-        await rename(join(vault, ref.id), join(vault, 'Projects/New workshop.md'));
-        await writeFile(join(vault, ref.id), `---\nid: project-11111111-1111-4111-8111-111111111111\n---\n`);
-        await heading('New workshop').waitFor();
-        const input = join(root, 'move-project.json');
-        await writeFile(input, JSON.stringify({source:'one', id:stableProject, change:{kind:'done'}}));
-        const moved = JSON.parse(await cli('plugin', 'rpc', 'call', 'gtd', 'changeProject', '--input-file', input, '--json'));
-        if ((moved.result ?? moved).state !== 'done') {
-          console.error(await cli('plugin', 'logs', 'gtd', '-n', '10'));
-          console.error(await cli('plugin', 'logs', 'obsidian', '-n', '10'));
-          console.error('Synthetic destination exists:', await lstat(join(vault, 'Projects/Done/New workshop.md')).then(() => true, () => false));
-        }
-        assert.equal((moved.result ?? moved).state, 'done', JSON.stringify(moved));
-        assert.match(await readFile(join(vault, 'Projects/Done/New workshop.md'), 'utf8'), new RegExp(stableProject));
-      }
-      await page.goto(route('projects', stableProject));
-      await heading('New workshop').waitFor();
-      await link('Workshop').waitFor();
-      await link('Choose tools').waitFor();
-      await threadFilter.click();
-      await nav.getByRole('checkbox', {name:'Archived'}).click();
-      await page.keyboard.press('Escape');
-      await link('Archived rehearsal').waitFor();
-      await page.goto(route('projects', ref.id));
-      await heading('New workshop').waitFor();
-      await page.goto(route('areas', 'Areas/Learning.md'));
-      await heading('Workshop').waitFor();
-      await nav.getByText('Practice weekly.').waitFor();
-      await nav.getByRole('button', {name:'Edit standard'}).focus();
-      await page.keyboard.press('Enter');
-      await nav.getByRole('textbox', {name:'Standard'}).waitFor();
-      await nav.getByRole('button', {name:'Cancel'}).click();
-      await page.goto(route('areas', stableArea));
-      await heading('Workshop').waitFor();
     } else if (native) {
       await openLearning();
       await link('Learn woodworking').focus();

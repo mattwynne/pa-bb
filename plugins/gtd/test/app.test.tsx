@@ -15,13 +15,12 @@ function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }
   const list = renderSlot(panel, { subPath: destination.subPath ?? '' }, {
     rpc: {
       inventoryRevision: async () => null,
-      browseInventoryV2: async (input: unknown) => {
+      browseInventory: async (input: unknown) => {
         const { includeAreas } = input as { includeAreas: boolean };
         reads++;
         if (mode === 'error' || (mode === 'recover' && reads === 1)) throw new Error('synthetic');
         if (mode === 'loading') await new Promise(() => {});
         return {
-          identity: 'legacy', aliases: [],
           projects: { source, projects: mode === 'empty' ? [] : [
             { ...project, areaId: mode === 'nested' ? 'Areas/Learning/Committee/Meeting.md' : project.areaId },
             ...(mode === 'nested' ? [{ id: 'Projects/Deferred/Tools.md', title: 'Deferred tools', status: 'deferred', areaId: project.areaId }] : []),
@@ -186,16 +185,6 @@ test('the project menu dismisses outside and consumes Escape only while open', a
   }
   slot.lifecycle.unmount();
 });
-test('bookmarks preserve both generations of stable project and Area IDs exactly', () => {
-  const guid = '7fc1cc63-1601-46fb-9def-1f148bf96a23';
-  for (const [panel, kind] of [['projects', 'project'], ['areas', 'area']] as const) {
-    for (const separator of ['-', '_']) {
-      const id = kind + separator + guid;
-      const bookmark = recordDestination(panel, ref.source, id);
-      expect(readRoute(panel, bookmark.subPath!)).toEqual({kind, record:{source:ref.source,id}});
-    }
-  }
-});
 test('exact record routes round-trip Unicode, delimiters, and source identity', () => {
   const source = 'source/ü#?%';
   const id = 'Projects/Done/家具 #100% [shop]?.md';
@@ -270,7 +259,7 @@ test('Retry recovers an initial inventory failure and moves focus into the page'
   await slot.findByRole('heading', { name: 'Learning' });
   expect(document.activeElement).toBe(slot.getByRole('heading', { name: 'Learning' }));
   expect(slot.queryByRole('button', { name: /Retry GTD|Refresh GTD/ })).toBeNull();
-  expect(slot.inspection.rpcCalls.filter(call => call.method === 'browseInventoryV2').map(call => call.input)).toEqual([
+  expect(slot.inspection.rpcCalls.filter(call => call.method === 'browseInventory').map(call => call.input)).toEqual([
     { includeAreas: true }, { includeAreas: true, fresh: true },
   ]);
   slot.lifecycle.unmount();
@@ -282,10 +271,10 @@ test('reconnect reconciles the inventory once while preserving rows', async () =
   await slot.behavior.setRealtimeConnectionState('reconnecting');
   await slot.behavior.setRealtimeConnectionState('connected');
   expect(slot.getByRole('link', { name: 'Learn woodworking' })).toBeTruthy();
-  await vi.waitFor(() => expect(slot.inspection.rpcCalls.filter(call => call.method === 'browseInventoryV2')).toHaveLength(2));
-  expect(slot.inspection.rpcCalls.filter(call => call.method === 'browseInventoryV2').map(call => [call.method, call.input])).toEqual([
-    ['browseInventoryV2', { includeAreas: true }],
-    ['browseInventoryV2', { includeAreas: true, fresh: true }],
+  await vi.waitFor(() => expect(slot.inspection.rpcCalls.filter(call => call.method === 'browseInventory')).toHaveLength(2));
+  expect(slot.inspection.rpcCalls.filter(call => call.method === 'browseInventory').map(call => [call.method, call.input])).toEqual([
+    ['browseInventory', { includeAreas: true }],
+    ['browseInventory', { includeAreas: true, fresh: true }],
   ]);
   slot.lifecycle.unmount();
 });

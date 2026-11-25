@@ -12,21 +12,21 @@ See the [GTD vision](docs/vision.md) for the interface direction and research be
 
 The native dropdown is populated when GTD loads. After connecting another source or creating a vault, reload GTD to refresh its choices. A failed/incomplete discovery is shown explicitly; it does not clear existing configuration. Duplicate vault names include their source/path for disambiguation. `bb gtd sources --json` remains available for diagnostics and scripted configuration; its IDs are opaque selection values.
 
-Pre-selector configurations are not silently migrated: a previous selection that is not offered as a verified vault requires choosing a vault again. Existing folder values and source notes are unchanged. After selecting a nested vault, remove the old vault prefix from folder settings. Listings retain the connected source ID. Stable inventories separately report the full mirror-relative `notePath` for Obsidian tools.
+Pre-selector configurations are not silently migrated: a previous selection that is not offered as a verified vault requires choosing a vault again. Existing folder values and source notes are unchanged. After selecting a nested vault, remove the old vault prefix from folder settings. Listings retain the connected source ID. IDs use full mirror-relative paths for Obsidian tools.
 
 ## Folder conventions
 
 A project requires a Markdown landing note directly under Projects or an immediate status folder. A same-name folder can hold supporting files. A folder by itself is not a project. Files inside a supporting folder, including `README.md`, supply no project metadata.
 
-The immediate status folders are `Active`, `Deferred`, `Someday`, `Done`, and `Completed` (case-insensitive). The folder takes precedence over a note's optional `status`. For a note directly under Projects, absent status defaults to Active. The filename without `.md` supplies the project name. Legacy lists use paths as IDs. Stable lists return the project's stored ID and current `notePath`.
+The immediate status folders are `Active`, `Deferred`, `Someday`, `Done`, and `Completed` (case-insensitive). The folder takes precedence over a note's optional `status`. For a note directly under Projects, absent status defaults to Active. The filename without `.md` supplies the project name. The project ID is its exact note path.
 
-Legacy Areas use immediate Markdown notes and folders. Stable Areas have an immediate Markdown landing note with an Area ID. The filename without `.md`, or the folder name for a folder-only Area, supplies the display name. A note and folder with the same name form one Area whose ID is the note path. Empty and attachment-only folders remain eligible. Nested notes can be Area targets without appearing as separate Areas in the index. Project landing notes with invalid YAML make the project inventory partial.
+Areas use immediate Markdown notes and folders. The filename without `.md`, or the folder name for a folder-only Area, supplies the display name. A note and folder with the same name form one Area whose ID is the note path. Empty and attachment-only folders remain eligible. Nested notes can be Area targets without appearing as separate Areas in the index. Project landing notes with invalid YAML make the project inventory partial.
 
 ## Move one project or change its Area
 
-Use `gtd_change_project` with the exact source and project ID. Pass a status, an exact Area ID in `areaPath`, or `areaPath: null` to clear the assignment. In legacy mode pass the exact Area note path. `bb gtd area-targets --json` lists one level of Area note and folder paths. Pass `--folder` to descend and `--offset` for the next page.
+Use `gtd_change_project` with the exact source and project ID. Pass a status, an exact Area note path in `areaPath`, or `areaPath: null` to clear the assignment. `bb gtd area-targets --json` lists one level of Area note and folder paths. Pass `--folder` to descend and `--offset` for the next page.
 
-GTD tells Obsidian Desktop to move the landing note and any same-name support folder directly to the selected status folder. Obsidian performs native link updates. GTD uses the recorded file outcomes to reconcile the captured legacy links. Stable links keep the same ID during a move. Keep the returned plan ID. `gtd_check_project_change` checks an interrupted request and can finish unstarted companion and conversation updates after verifying the note move. See the [GTD skill](skills/gtd-projects/SKILL.md#change-one-projects-area-or-status).
+GTD tells Obsidian Desktop to move the landing note and any same-name support folder directly to the selected status folder. Obsidian performs native link updates. GTD uses the recorded file outcomes to reconcile the captured conversation links. Keep the returned plan ID. `gtd_check_project_change` checks an interrupted request and can finish unstarted companion and conversation updates after verifying the note move. See the [GTD skill](skills/gtd-projects/SKILL.md#change-one-projects-area-or-status).
 
 ## Dated project reactivation
 
@@ -35,22 +35,6 @@ Use `gtd_defer_project` to move a project to Deferred and set its landing note's
 **Automatically reactivate deferred projects** is off by default in GTD settings. When enabled, GTD checks on the first scheduler tick at or after midnight in America/Vancouver and catches up on startup. A due project moves from Deferred to Active with its same-name support folder. GTD clears the date after Obsidian verifies the move and GTD verifies the linked conversations. Both status folders must exist under Projects.
 
 Missing, invalid, and future dates stay in place. For blockers, read `bb plugin logs gtd -n 30` and `bb plugin logs obsidian -n 30`. A blocked check can retry after fifteen minutes. Interrupted work resumes from recorded operations and current evidence. If a move or repair remains uncertain, inspect the Obsidian receipt and reconcile the affected project before making another change.
-
-## Stable identity migration
-
-Run `bb gtd migration-preview` for a read-only summary of the selected source and observable BB metadata. To review private per-entry, Area and thread mappings, run `umask 077` before redirecting `bb gtd migration-preview --json` to a new private file. Preview keeps the current layout, reports unresolved references, and saves its reservations and plan in GTD storage.
-
-New proposals use `project-<guid>` and `area-<guid>`. Previously assigned underscore IDs keep their exact values. Generate a fresh preview to replace an unapplied review from the old format.
-
-Use `bb gtd migration-preview --choices-stdin --json` with single-line JSON from a private file for an explicit Area assignment or thread reassignment. See the [choice schema and examples](../../docs/plans/029-stable-gtd-identities.md#explicit-review-choices).
-
-After a separate approval, apply the reviewed plan with `bb gtd migration-apply --plan <id>`. Before starting, reconcile pending GTD changes and keep Obsidian activity and other association writers idle. Inspect progress and exact operation IDs with `bb gtd migration-status --plan <id>`. Resume the same plan after checking any uncertain receipt. See [the identity plan](../../docs/plans/029-stable-gtd-identities.md) for rename evidence and cutover requirements.
-
-If apply reports a legacy preflight blocker, run `bb gtd migration-status --plan <id> --readiness`. The read-only report lists the blocking stage and up to 20 operation records per category, with total counts. Keep the output private. Inspect the listed project plans and Obsidian receipts before taking recovery action. `legacy_checks_passed` covers the legacy operation gate. Apply also rechecks the reviewed notes and thread references.
-
-The `ignoredHistoricalAreaPlans` count covers old Area-only instructions for which GTD recorded no dispatch. Those plans remain inspectable. Pending moves, property writes, deferrals and reactivations still require reconciliation.
-
-After verified cutover, use `bb gtd projects --stable --json` or `bb gtd areas --stable --json` for the current identity contract. The default CLI and original inventory RPCs still return paths. BB's current pages write stable links and open legacy bookmarks with reviewed aliases. For agent-driven creation, `gtd_prepare_landing_note` supplies a file path and initial frontmatter with a new ID for one non-overwriting `obsidian_create_note` call.
 
 ## Usage
 
@@ -88,15 +72,15 @@ For example, `area: Areas/Learning.md` in `Projects/Woodworking.md` can resolve 
 
 Use **GTD project** in any thread's ordinary menu to link, reassign or unlink it. Exactly one `{ source, id }` reference is persisted in the GTD thread metadata namespace. Other metadata, BB project membership and coding environments are untouched. Open **Thread associations** on the Areas index to find active unassigned threads and threads whose linked Area or project is unavailable. Physical path moves outside GTD are not automatically remapped.
 
-Each project row shows a **New thread** button. It creates a conversation in BB's personal project (never a new coding project), seeds its association at creation and includes bounded title/status/reference data. The initial agent instruction is to acknowledge and wait; no project task, account write, or execution of note text is authorized. Further details are obtained using the stable source/ID and ordinary source read tools.
+Each project row shows a **New thread** button. It creates a conversation in BB's personal project (never a new coding project), seeds its association at creation and includes bounded title/status/reference data. The initial agent instruction is to acknowledge and wait; no project task, account write, or execution of note text is authorized. Further details are obtained using the source and path ID and ordinary source read tools.
 
 Creation uses a durable request receipt and a synchronous uniqueness claim before spawning. Replaying a completed request returns the same thread; pending/uncertain requests are not retried. The UI blocks repeated activation while pending and retains an uncertain request across browser reload in session storage. Inspect threads before explicitly starting another request after an uncertain outcome.
 
 ### Rename a path-based Area
 
-For an explicitly requested rename, pass the exact source and top-level Markdown Area ID from `gtd_list_areas` to `gtd_rename_area`, with the new filename including `.md`. For example, `{ "source": "vault-id", "id": "Areas/Club.md", "newFilename": "Community Club.md" }` renames the note in place. Use the full returned path ID when the selected vault has a root prefix. The tool refuses folder-only Areas, path changes, occupied destinations and other identity modes.
+For an explicitly requested rename, pass the exact source and top-level Markdown Area ID from `gtd_list_areas` to `gtd_rename_area`, with the new filename including `.md`. For example, `{ "source": "vault-id", "id": "Areas/Club.md", "newFilename": "Community Club.md" }` renames the note in place. Use the full returned path ID when the selected vault has a root prefix. The tool refuses folder-only Areas, path changes, and occupied destinations.
 
-GTD uses Obsidian's Desktop move and receipt APIs for the note and its exact same-stem support folder. Obsidian handles its supported note links. GTD checks the existing project `area` declarations, keeps links already repaired by Desktop, and saves unresolved legacy declarations against the observed note version. Assignments to nested targets follow the supporting tree. GTD also relinks the captured active and archived direct Area conversations. `renamed` confirms the move receipts, captured assignments and direct thread references at verification time. The new path is the current Area ID. Other saved URLs or bookmarks may still use the previous path. Local verification gives no cloud or device delivery guarantee.
+GTD uses Obsidian's Desktop move and receipt APIs for the note and its exact same-stem support folder. Obsidian handles its supported note links. GTD checks the existing project `area` declarations, keeps links already repaired by Desktop, and saves unresolved path declarations against the observed note version. Assignments to nested targets follow the supporting tree. GTD also relinks the captured active and archived direct Area conversations. `renamed` confirms the move receipts, captured assignments and direct thread references at verification time. The new path is the current Area ID. Other saved URLs or bookmarks may still use the previous path. Local verification gives no cloud or device delivery guarantee.
 
 - `refused` means the note move did not proceed. Check the reported stage and any returned receipt before making a fresh request.
 - `unconfirmed` means the note move was entered and GTD lacks confirmation. Inspect the original Obsidian receipt. Repeat the exact original arguments to check progress.

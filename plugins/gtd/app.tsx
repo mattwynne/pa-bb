@@ -1,7 +1,6 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { definePluginApp, useRpc, useSdk, useBbNavigate, useRealtimeConnectionState, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginNavPanelProps, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
 import { rpcContract, reference } from './contract.ts';
-import type { Alias } from './core/identity.ts';
 import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
 import { areasIndex, panelHref, readRoute, recordDestination, unassignedArea, type Destination, type PanelPath } from './app-routes.ts';
@@ -15,8 +14,8 @@ function refreshInventory(fresh = false) {
   window.dispatchEvent(new CustomEvent('gtd:inventory', { detail: fresh }));
 }
 
-type InventoryState = { identity: 'legacy' | 'applying' | 'stable'; aliases: Alias[]; projects: Project[]; areas: Area[]; source: string; revision: number; error: string; projectsPartial: boolean; areasPartial: boolean; malformedFrontmatter: string[] };
-const emptyInventory: InventoryState = { identity: 'legacy', aliases: [], projects: [], areas: [], source: '', revision: -1, error: '', projectsPartial: false, areasPartial: false, malformedFrontmatter: [] };
+type InventoryState = { projects: Project[]; areas: Area[]; source: string; revision: number; error: string; projectsPartial: boolean; areasPartial: boolean; malformedFrontmatter: string[] };
+const emptyInventory: InventoryState = { projects: [], areas: [], source: '', revision: -1, error: '', projectsPartial: false, areasPartial: false, malformedFrontmatter: [] };
 type InventoryRpc = ReturnType<typeof useRpc<typeof rpcContract>>;
 type InventoryResponse = Awaited<ReturnType<typeof browseInventory>>;
 type Pending<T> = { promise: Promise<T>; users: number };
@@ -33,7 +32,7 @@ function subscribe<T>(pending: Map<string, Pending<T>>, key: string, load: () =>
 }
 const pendingInventory = new Map<string, Pending<InventoryResponse>>();
 async function browseInventory(rpc: InventoryRpc, includeAreas: boolean, fresh: boolean) {
-  return rpc.call('browseInventoryV2', { includeAreas, ...(fresh ? { fresh } : {}) });
+  return rpc.call('browseInventory', { includeAreas, ...(fresh ? { fresh } : {}) });
 }
 
 function useInventory(includeAreas: boolean, enabled = true) {
@@ -57,9 +56,9 @@ function useInventory(includeAreas: boolean, enabled = true) {
       const requestKey = includeAreas || pendingInventory.has(panelKey) ? panelKey : `${revision}:projects`;
       const { promise, release: unsubscribe } = subscribe(pendingInventory, requestKey, () => browseInventory(client.current, includeAreas, includeAreas && fresh));
       release = unsubscribe;
-      void promise.then(({ projects, areas, identity, aliases }) => {
+      void promise.then(({ projects, areas }) => {
         if (alive) set({
-          identity, aliases, projects: projects.projects, areas: includeAreas ? areas?.areas ?? [] : [], source: projects.source.id, revision, error: '',
+          projects: projects.projects, areas: includeAreas ? areas?.areas ?? [] : [], source: projects.source.id, revision, error: '',
           projectsPartial: !projects.complete, areasPartial: includeAreas && !areas?.complete,
           malformedFrontmatter: [...new Set([...(projects.malformedFrontmatter ?? []), ...(includeAreas ? areas?.malformedFrontmatter ?? [] : [])])],
         });
@@ -494,26 +493,20 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   }, [inventory.revision]);
   // Retain a request ID for the life of this action, including uncertain failures.
   const requests = useRef(new Map<string, string>());
-  const paused = inventory.identity === 'applying';
-  useEffect(() => { if (inventory.identity === 'stable') linksChanged(); }, [inventory.identity]);
-  const run = async (id: string, task: () => Promise<void>) => { if (busyRef.current || paused) return; busyRef.current = true; setBusy(id); setNotice(''); try { await task(); } catch { setNotice('Change not confirmed. Inspect threads or Obsidian receipts before trying again.'); } finally { busyRef.current = false; setBusy(''); } };
+  const run = async (id: string, task: () => Promise<void>) => { if (busyRef.current) return; busyRef.current = true; setBusy(id); setNotice(''); try { await task(); } catch { setNotice('Change not confirmed. Inspect threads or Obsidian receipts before trying again.'); } finally { busyRef.current = false; setBusy(''); } };
   const newThread = (item: Area | Project, kind: 'area' | 'project') => void run(item.id, async () => {
     const k = (kind === 'area' ? 'gtd-new-area:' : 'gtd-new:') + key(inventory.source, item.id);
-    const legacyKeys = inventory.aliases.filter(alias => alias.kind === kind && alias.to === item.id)
-      .map(alias => (kind === 'area' ? 'gtd-new-area:' : 'gtd-new:') + key(inventory.source, alias.from));
-    const previousKey = [k, ...legacyKeys].find(candidate => sessionStorage.getItem(candidate)) ?? k;
-    let requestId = requests.current.get(k) ?? sessionStorage.getItem(previousKey);
-    const completed = Number(sessionStorage.getItem(previousKey + ':completed') ?? 0);
+    let requestId = requests.current.get(k) ?? sessionStorage.getItem(k);
+    const completed = Number(sessionStorage.getItem(k + ':completed') ?? 0);
     // Reuse a fast completion during the double-click window, even across reload.
-    if (completed && Date.now() - completed > 1000) { requests.current.delete(k); sessionStorage.removeItem(previousKey); requestId = null; }
+    if (completed && Date.now() - completed > 1000) { requests.current.delete(k); sessionStorage.removeItem(k); requestId = null; }
     if (!requestId) { requestId = crypto.randomUUID(); requests.current.set(k, requestId); sessionStorage.setItem(k, requestId); sessionStorage.removeItem(k + ':completed'); }
     sessionStorage.setItem(k, requestId);
-    if (previousKey !== k) sessionStorage.removeItem(previousKey);
     const result = await rpc.call(kind === 'area' ? 'newAreaThread' : 'newThread', { source: inventory.source, id: item.id, requestId });
     sessionStorage.setItem(k + ':completed', String(Date.now()));
     navigate.toThread(result.threadId); linksChanged();
   });
-  const eligibleAreas = inventory.areas.filter(area => area.notePath || (area.id.endsWith('.md') && !/[\[\]#|%]/.test(area.id)));
+  const eligibleAreas = inventory.areas.filter(area => (area.id.endsWith('.md') && !/[\[\]#|%]/.test(area.id)));
   const eligibleIds = new Set(eligibleAreas.map(area => area.id));
   const changeProject = (project: Project, change: { kind: 'done' } | { kind: 'area'; areaPath: string }, trigger?: HTMLElement) => {
     if (trigger) restoreAfterChange.current = { identity: key(inventory.source, project.id), trigger };
@@ -528,16 +521,10 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const ready = !!inventory.source;
   const record = 'record' in route ? route.record : undefined;
   const sameSource = record?.source === inventory.source;
-  const resolvedId = inventory.aliases.find(alias => alias.kind === route.kind && alias.from === record?.id)?.to ?? record?.id;
-  const project = route.kind === 'project' && sameSource ? inventory.projects.find(item => item.id === resolvedId) : undefined;
-  const area = route.kind === 'area' && sameSource ? inventory.areas.find(item => item.id === resolvedId) : undefined;
+  const project = route.kind === 'project' && sameSource ? inventory.projects.find(item => item.id === record?.id) : undefined;
+  const area = route.kind === 'area' && sameSource ? inventory.areas.find(item => item.id === record?.id) : undefined;
   const owningArea = project && enclosingArea(inventory.areas, project.areaId);
   const unassigned = route.kind === 'unassigned';
-  useEffect(() => {
-    if (inventory.identity !== 'applying' || inventory.fetching) return;
-    const timer = setTimeout(() => refreshInventory(true), 1500);
-    return () => clearTimeout(timer);
-  }, [inventory.identity, inventory.fetching]);
   const partial = inventory.projectsPartial || inventory.areasPartial;
   const missing = ready && !inventory.error && !!record && !area && !project;
   const missingIncomplete = sameSource && (route.kind === 'area' ? inventory.areasPartial : inventory.projectsPartial);
@@ -574,7 +561,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   }, [panel, subPath, ready]);
 
   const dropProps = (area: Area): React.HTMLAttributes<HTMLElement> => {
-    const droppedProject = !paused && !busy && eligibleIds.has(area.id) ? dragged : undefined;
+    const droppedProject = !busy && eligibleIds.has(area.id) ? dragged : undefined;
     return {
       className: dropArea === area.id ? 'gtd-drop-target' : undefined,
       onDragOver: event => {
@@ -597,10 +584,10 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   };
   const newThreadAction = (item: Area | Project, kind: 'area' | 'project') =>
     <button className="gtd-row-action" aria-label={`New thread for ${kind === 'area' ? 'Area ' : ''}${item.title}`} title="New thread"
-      disabled={paused || !!busy} onClick={() => newThread(item, kind)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>;
+      disabled={!!busy} onClick={() => newThread(item, kind)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>;
   const projectActions = (project: Project) => <>
     {newThreadAction(project, 'project')}
-    <RowActions project={project} source={inventory.source} disabled={paused || !!busy || !(project.notePath || project.id.endsWith('.md'))} actions={[
+    <RowActions project={project} source={inventory.source} disabled={!!busy || !(project.id.endsWith('.md'))} actions={[
       ...(eligibleAreas.length ? [{ label: 'Move to Area…', run: (trigger: HTMLElement) => setProjectAction({ kind: 'area', project, trigger }) }] : []),
       { label: project.status === 'done' ? 'Archive linked threads' : 'Mark as done', run: trigger => setProjectAction({ kind: 'done', project, trigger }) },
     ]} />
@@ -625,7 +612,6 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
           {project && projectActions(project)}
         </div>
       </header>
-      {paused && <p role="status">GTD changes are paused during identity migration.</p>}
       {inventory.loading && <p role="status">Loading GTD…</p>}
       {(inventory.error || watchError || partial) && <div className="gtd-read-error">
         {inventory.error && <p role="alert">{inventory.error}</p>}
@@ -658,13 +644,13 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       {ready && (area || unassigned) && <>
         <AreaPicker current={area ? areaDestination(area) : unassignedArea} entries={[{ title: 'All areas', destination: areasIndex }, ...entries,
           ...(hasUnassigned ? [{ title: 'Unassigned area', destination: unassignedArea }] : [])]} dropProps={dropProps} />
-        {area && <AreaStandard key={`standard:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} hasNote={!!area.notePath || area.id.endsWith('.md')} paused={paused} />}
+        {area && <AreaStandard key={`standard:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} hasNote={area.id.endsWith('.md')} />}
         <FilterBar title="Projects" label="Project status">
           {(Object.keys(projectStatuses) as ProjectFilter[]).map(value => <FilterOption key={value} type="radio" name={statusGroup}
             label={projectStatuses[value]} checked={status === value} onChange={() => { lastProjectFilter = value; setStatus(value); }} />)}
         </FilterBar>
         {visible.length ? <ul className="gtd-rows">{visible.map(item => {
-          const canDrag = (!!item.notePath || item.id.endsWith('.md')) && eligibleAreas.length > 0 && !busy && !paused;
+          const canDrag = (item.id.endsWith('.md')) && eligibleAreas.length > 0 && !busy;
           return <li key={item.id} className="gtd-project-row" draggable={canDrag}
             onDragStart={event => {
               if (!canDrag) return;
