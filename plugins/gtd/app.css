@@ -76,6 +76,15 @@
 .gtd-linked h2 { margin: 14px 0 6px; }
 .gtd-linked .gtd-list-bar h2 { margin: 0; }
 .gtd-empty { border-top: 1px solid var(--border); padding: 10px 0; margin: 0; color: var(--muted-foreground); }
+.gtd-thread-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 16px;
+  color: color-mix(in oklab, var(--subtle-foreground, var(--muted-foreground)) 60%, transparent);
+}
+.gtd-thread-empty svg { color: color-mix(in oklab, var(--subtle-foreground, var(--muted-foreground)) 50%, transparent); }
 .gtd-associations, .gtd-load-more { margin-top: 14px; }
 .gtd-read-error { margin-bottom: 12px; }
 .gtd-read-error p { margin-block: 0 6px; }

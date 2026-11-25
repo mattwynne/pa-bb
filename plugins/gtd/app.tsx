@@ -385,9 +385,9 @@ function LinkedThreads({ kind, id, source }: { kind: 'area' | 'project'; id: str
     </FilterBar>
     <ThreadReadStatus loading={pending} error={failed} metadataError={error} />
     {!!matching.length && <ThreadList threads={matching} showArchived={selected.length > 1} />}
-    {!matching.length && !pending && !failed && <p className="gtd-empty" role="status">
-      {archived?.hasNextPage ? 'No linked threads in the loaded pages.' :
-        selected.length === 1 ? `No ${selected[0]} linked threads.` : 'No linked threads.'}
+    {!matching.length && !pending && !failed && <p className="gtd-empty gtd-thread-empty" role="status">
+      <Icon name="MessageSquare" aria-hidden="true" />
+      {archived?.hasNextPage ? 'No threads in the loaded pages.' : 'No threads'}
     </p>}
     {archived?.hasNextPage && <>
       {archived.isFetchNextPageError && <p role="alert">More archived threads could not load.</p>}

@@ -413,6 +413,7 @@ try {
       await page.keyboard.press('Escape');
       await switchArea('Learning');
       await link(/Restore a plane Deferred/).waitFor();
+      const deferredHref = await link(/Restore a plane Deferred/).getAttribute('href');
       await filter.click();
       assert.equal(await nav.getByRole('radio', { name: 'All' }).isChecked(), true);
       await page.screenshot({ path: join(artifacts, `project-filter-${width}.png`) });
@@ -457,10 +458,15 @@ try {
       await page.goto(new URL(projectHref, base).href);
       await heading('Learn woodworking').waitFor();
       await link('Choose tools').waitFor();
+      await page.goto(new URL(deferredHref, base).href);
+      await heading('Restore a plane').waitFor();
+      await nav.getByText('No threads', { exact: true }).waitFor();
+      await page.screenshot({ path: join(artifacts, `project-empty-threads-${width}.png`) });
       await page.goto(new URL(emptyHref, base).href);
       await heading('Empty Area').waitFor();
       await nav.getByText('No projects in this Area yet.').waitFor();
-      await nav.getByText('No active linked threads.').waitFor();
+      await nav.getByText('No threads', { exact: true }).waitFor();
+      await page.screenshot({ path: join(artifacts, `area-empty-threads-${width}.png`) });
       await threadFilter.click();
       assert.equal(await archived.isEnabled(), true);
       await page.goto(`${base}/plugins/gtd/projects`);
