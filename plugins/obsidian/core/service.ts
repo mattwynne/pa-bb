@@ -1,4 +1,4 @@
-import { noteSection, replaceNoteSection } from './note-section.ts';
+import { firstSectionTask, noteSection, replaceNoteSection } from './note-section.ts';
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
@@ -499,6 +499,15 @@ export class Obsidian {
     const { text } = noteSection(this.parser, note.text, input.heading);
     if (text.length > 16000) throw new VaultError('output_limit', 'Open the section in Obsidian to read it in full.');
     return { hash: note.hash, text };
+  }
+
+  async readSectionTask(input: { vaultId: string; path: string; heading: string }, signal?: AbortSignal) {
+    if (signal?.aborted) throw new VaultError('cancelled');
+    const { note } = await this.note(input.vaultId, input.path);
+    if (signal?.aborted) throw new VaultError('cancelled');
+    const text = firstSectionTask(this.parser, note.text, input.heading);
+    if (text && text.length > 16000) throw new VaultError('output_limit', 'Open the task in Obsidian to read it in full.');
+    return { text };
   }
 
   async writeNoteSection(input: { vaultId: string; path: string; heading: string; expectedHash: string; operationId: string; text: string }, signal?: AbortSignal) {

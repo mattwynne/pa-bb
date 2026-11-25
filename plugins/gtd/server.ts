@@ -53,7 +53,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Each project needs a Markdown note directly in this folder or in Active, Deferred, Someday or Done. A folder with the same name can hold supporting files.', default: 'Projects', experimental_schema: relativeFolder },
     automaticReactivation: { type: 'boolean', label: 'Automatically reactivate deferred projects', description: 'Move due projects and their supporting folders to Active, with their links and conversations. Checks daily after midnight Pacific and when GTD starts.', default: false },
   });
-  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'correspondence_read' | 'correspondence_mail' | 'area_mail' | 'project_create', code: string) => {
+  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'next_action_read' | 'correspondence_read' | 'correspondence_mail' | 'area_mail' | 'project_create', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial'].includes(code) ? code : 'unknown';
     bb.log.warn(`GTD ${stage} ${safe}`);
   };
@@ -134,6 +134,18 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     } catch (error) {
       diagnose('standard_read', safeError(error, signal).code);
       throw new Error('Could not read the standard. Check the Area note in Obsidian and try again.');
+    }
+  };
+  const readNextAction = async (input: z.infer<typeof reference>, signal: AbortSignal) => {
+    try {
+      const selection = await configured('projectsFolder');
+      const result = await backendFor(selection).readNextAction(input, signal);
+      if ((await configured('projectsFolder')).key !== selection.key) throw new GtdError('source_unavailable');
+      return result;
+    } catch (error) {
+      const { code } = safeError(error, signal);
+      if (code !== 'cancelled') diagnose('next_action_read', code);
+      throw new Error('Could not read the next action. Check the project note in Obsidian.');
     }
   };
   const readCorrespondence = async (input: z.infer<typeof reference>, signal: AbortSignal) => {
@@ -419,6 +431,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       finally { invalidate(); }
     },
     readAreaMailStatus: (input, context) => readAreaMailStatus(input, context.experimental_signal),
+    readNextAction: (input, context) => readNextAction(input, context.experimental_signal),
     readCorrespondence: (input, context) => readCorrespondence(input, context.experimental_signal),
     async readCorrespondenceStatus(input, context) {
       const signal = context.experimental_signal;

@@ -37,6 +37,7 @@ Read [project and area practice](references/project-and-area-practice.md) when t
 - When the user asks to create a project, check the GTD Area inventory before writing the landing note. Use the Area they specify. If they leave the choice open and exactly one existing Area clearly fits the project's outcome and known context, assign it during creation. For example, a birthday project for someone known to be in the user's family belongs under an existing Family Area. If several Areas are plausible or no clear match can be verified, leave the project unassigned and say so. Honor a request to leave it unassigned.
 - Write the exact Area path from GTD inventory to the landing note's YAML `area` property. Use `area` as the sole assignment field. Verify the resolved assignment in GTD and report the Area. For an existing project, change the Area only when the user asks.
 - Preserve existing note conventions. Put outcome and completion criteria, or the area's ongoing standard, in the note body without requiring new frontmatter fields. Follow the existing status mechanism for requested status changes. When moving a note, check its path references.
+- In a project landing note, use `## TODO` for the task list. The project page displays the first unindented unchecked task in that section. Keep waiting items and conditional plans in separate sections.
 
 ## Change one project's Area or status
 

@@ -93,6 +93,35 @@ test('unconfigured, empty, partial and failing reads are distinguishable; diagno
     const logs = JSON.stringify(host.harness.inspection.logEntries); assert.match(logs, /GTD list source_unavailable/); assert.match(logs, /GTD list partial/); assert.doesNotMatch(logs + JSON.stringify(result), /sentinel|example.test|secret-cause/);
   } finally { await host.harness.lifecycle.dispose(); }
 });
+test('next action reads only the TODO section from a project landing note and safely reports read failures', async () => {
+  const project = { source: 'one', id: 'Life/Projects/Active/Build a bench.md' };
+  let text: string | null = 'Measure boards';
+  let unavailable = false;
+  const { bb, harness } = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one/Life' }, sdk: { plugins: {
+    async callRpc(args: any) {
+      if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: 'Life', name: 'Vault' }], incomplete: false };
+      assert.equal(args.method, 'readSectionTask');
+      assert.deepEqual(args.input, { vaultId: 'one', path: project.id, heading: 'TODO' });
+      if (unavailable) throw new Error('synthetic-private-note-body');
+      return { text };
+    },
+  } } });
+  await plugin(bb);
+  try {
+    assert.deepEqual(await harness.behavior.callRpc('readNextAction', project), { text: 'Measure boards' });
+    text = null;
+    assert.deepEqual(await harness.behavior.callRpc('readNextAction', project), { text: null });
+    for (const invalid of [{ ...project, source: 'different' }, { ...project, id: 'Life/Projects/Active/Build a bench/Support.md' }]) {
+      await assert.rejects(() => harness.behavior.callRpc('readNextAction', invalid), /Could not read the next action/);
+    }
+    assert.equal(harness.inspection.sdk.callsTo('plugins.callRpc').length, 3);
+    unavailable = true;
+    await assert.rejects(() => harness.behavior.callRpc('readNextAction', project), /Could not read the next action/);
+    const logs = JSON.stringify(harness.inspection.logEntries);
+    assert.match(logs, /GTD next_action_read source_unavailable/);
+    assert.doesNotMatch(logs, /synthetic-private-note-body|Build a bench/);
+  } finally { await harness.lifecycle.dispose(); }
+});
 test('project mentions rank name matches and resolve the exact available project', async () => {
   const snapshot = data();
   const project = { id: 'Projects/Done/Café % notes.md', title: 'Café notes', status: 'done' as const };

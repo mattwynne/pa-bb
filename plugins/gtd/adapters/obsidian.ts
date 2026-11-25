@@ -2,7 +2,7 @@ import { correspondenceLinks } from '../core/correspondence.ts';
 import { posix } from 'node:path';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { areaStandard, inventoryRevision, noteSaveReceipt, standardSaveResult, type areaStandardInput, type createProjectInput, type createProjectResult } from '../contract.ts';
+import { nextAction, noteSection, inventoryRevision, noteSaveReceipt, standardSaveResult, type areaStandardInput, type createProjectInput, type createProjectResult } from '../contract.ts';
 import { areaSnapshotSchema, GtdError, snapshotSchema } from '../core/model.ts';
 import type { Area, AreaBackend, Project, ProjectBackend, ProjectStatus, Warning } from '../core/model.ts';
 
@@ -174,18 +174,26 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     return { vaultId: source, path: id, heading: 'Standard' };
   }
 
-  async readCorrespondence({ source, id }: { source: string; id: string }, signal: AbortSignal) {
+  private projectSection(source: string, id: string, heading: string) {
     if (source !== this.config.vaultId) throw new GtdError('invalid_source');
     const project = projectFromNote(this.scope(this.config.folder), id, {});
     if (!project || project === 'invalid') throw new GtdError('invalid_source');
+    return { vaultId: source, path: id, heading };
+  }
+
+  async readNextAction({ source, id }: { source: string; id: string }, signal: AbortSignal) {
+    return nextAction.parse(await vaultRpc(this.sdk, 'readSectionTask', this.projectSection(source, id, 'TODO'), signal));
+  }
+
+  async readCorrespondence({ source, id }: { source: string; id: string }, signal: AbortSignal) {
     const result = correspondenceLinks.extend({ hash: noteEvidence.shape.hash }).parse(
-      await vaultRpc(this.sdk, 'readSectionLinks', { vaultId: source, path: id, heading: 'Correspondence' }, signal),
+      await vaultRpc(this.sdk, 'readSectionLinks', this.projectSection(source, id, 'Correspondence'), signal),
     );
     return { links: result.links, incomplete: result.incomplete };
   }
 
   async readAreaStandard({ source, id }: { source: string; id: string }, signal: AbortSignal) {
-    return areaStandard.parse(await vaultRpc(this.sdk, 'readNoteSection', this.standardTarget(source, id), signal));
+    return noteSection.parse(await vaultRpc(this.sdk, 'readNoteSection', this.standardTarget(source, id), signal));
   }
 
   async saveAreaStandard({ source, id, ...change }: z.infer<typeof areaStandardInput>, signal: AbortSignal) {

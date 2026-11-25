@@ -1,20 +1,34 @@
-import { VaultError, type NoteParser } from './ports.ts';
+import { VaultError, type Metadata, type NoteParser } from './ports.ts';
 
 const withoutBlankEdges = (text: string) => text.replace(/^(?:[ \t]*\r?\n)+|(?:\r?\n[ \t]*)+$/g, '');
 const lineStart = (text: string, offset: number) => offset === 0 ? 0 : text.lastIndexOf('\n', offset - 1) + 1;
 
-export function noteSection(parser: NoteParser, note: string, heading: string) {
-  const { headings, warnings } = parser.parse(note, 'section');
+function sectionRange(note: string, heading: string, { headings, warnings }: Metadata, depth?: number) {
   if (warnings.includes('properties_unsupported')) throw new VaultError('properties_unsupported');
-  const matches = headings.filter(item => item.title.toLocaleLowerCase('und') === heading.toLocaleLowerCase('und'));
+  const normalized = heading.toLocaleLowerCase('und');
+  const matches = headings.filter(item => (depth === undefined || item.depth === depth) && item.title.toLocaleLowerCase('und') === normalized);
   if (matches.length > 1) throw new VaultError('ambiguous_link', 'Keep one matching heading in the Obsidian note.');
   const match = matches[0];
-  if (!match) return { text: '', range: null };
+  if (!match) return null;
   const newline = note.indexOf('\n', match.end);
   const start = newline < 0 ? note.length : newline + 1;
   const next = headings.find(item => item.start > match.start && item.depth <= match.depth);
   const end = next ? lineStart(note, next.start) : note.length;
-  return { text: withoutBlankEdges(note.slice(start, end)), range: { start, end } };
+  return { start, end };
+}
+
+export function noteSection(parser: NoteParser, note: string, heading: string) {
+  const range = sectionRange(note, heading, parser.parse(note, 'section'));
+  return { text: range ? withoutBlankEdges(note.slice(range.start, range.end)) : '', range };
+}
+
+export function firstSectionTask(parser: NoteParser, note: string, heading: string) {
+  const parsed = parser.parse(note, 'section');
+  const range = sectionRange(note, heading, parsed, 2);
+  if (!range) return null;
+  const task = parsed.tasks.find(task => !task.complete && !!task.text.trim() && task.start >= range.start && task.end <= range.end &&
+    /^(?:[-+*]|\d{1,9}[.)])[ \t]+$/.test(note.slice(lineStart(note, task.start), task.start)));
+  return task?.text.trim() ?? null;
 }
 
 export function replaceNoteSection(parser: NoteParser, note: string, heading: string, draft: string) {

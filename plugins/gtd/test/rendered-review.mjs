@@ -108,7 +108,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'auto-refresh', 'correspondence', 'area-mail'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'auto-refresh', 'next-action', 'correspondence', 'area-mail'];
   const reviewedModes = native ? ['native-refresh'] : process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
@@ -127,6 +127,7 @@ try {
     const fastmailOther = 'https://app.fastmail.com/mail/Archive/S_other?u=1234abcd';
     const fastmailUnresolved = 'https://app.fastmail.com/mail/Archive/S_missing?u=1234abcd';
     let heldCorrespondence, heldStatus, correspondenceReads = 0;
+    let nextAction = null, heldNextAction, failNextAction = false;
     let unread = 2, areaUnread = true;
     let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
     const standardSaves = [];
@@ -246,6 +247,11 @@ try {
           extraProject = { id: `Projects/${input.name}.md`, title: input.name, status: 'active', areaId: input.id };
           result = { state: 'created', id: extraProject.id };
         }
+      }
+      if (method === 'readNextAction') {
+        await heldNextAction;
+        if (failNextAction) return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic read failure' } } });
+        result = { text: nextAction };
       }
       if (method === 'readCorrespondence') {
         correspondenceReads++;
@@ -753,6 +759,34 @@ try {
       await nav.getByRole('radio', { name: 'Done', exact: true }).click();
       await nav.getByText('No done projects in this Area.', { exact: true }).waitFor();
       assert.equal(await nav.locator('[data-mail]').count(), 0);
+    } else if (mode === 'next-action') {
+      await openLearning();
+      assert.equal(await nav.getByRole('region', { name: 'Next action' }).count(), 0);
+      let resolveNextAction;
+      heldNextAction = new Promise(resolve => { resolveNextAction = resolve; });
+      await link(title).click();
+      const action = nav.getByRole('region', { name: 'Next action' });
+      await action.getByText('Loading next action…', { exact: true }).waitFor();
+      nextAction = 'Measure the boards for the bench and mark each cut with <reference dimensions> before setting up the saw.';
+      resolveNextAction();
+      await action.getByText(nextAction, { exact: true }).waitFor();
+      const position = await action.boundingBox();
+      const projectTitle = await nav.getByRole('heading', { name: title, level: 1 }).boundingBox();
+      const correspondence = await nav.getByRole('region', { name: 'Correspondence' }).boundingBox();
+      assert.ok(position.y > projectTitle.y && position.y + position.height <= correspondence.y);
+      assert.equal(await action.locator('button, input, textarea, a, [contenteditable], [tabindex]').count(), 0);
+      assert.ok(await action.evaluate(node => node.scrollWidth === node.clientWidth));
+      await nav.getByRole('heading', { name: title, level: 1 }).focus();
+      await page.keyboard.press('Tab');
+      assert.ok(await nav.getByRole('button', { name: `New thread for ${title}` }).evaluate(node => node === document.activeElement));
+      await page.screenshot({ path: join(artifacts, `project-next-action-${width}.png`) });
+      nextAction = null;
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await action.getByText('No next action recorded.', { exact: true }).waitFor();
+      failNextAction = true;
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await action.getByText('Could not load the next action. Check the project note in Obsidian.', { exact: true }).waitFor();
+      assert.equal(await action.getByText('No next action recorded.', { exact: true }).count(), 0);
     } else if (mode === 'correspondence') {
       await openLearning();
       const areaUrl = page.url();

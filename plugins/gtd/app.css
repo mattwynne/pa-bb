@@ -18,6 +18,14 @@
   margin-bottom: 12px;
 }
 .gtd-page-heading { grid-row: 2; min-height: var(--gtd-action-size); }
+.gtd-next-action {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--muted);
+}
+.gtd-next-action p { margin: 4px 0 0; color: var(--muted-foreground); line-height: 1.5; }
+.gtd-next-action .gtd-next-action-text { font-size: 15px; color: var(--foreground); }
 .gtd-list-bar { margin: 14px 0 6px; }
 .gtd-list-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .gtd-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted-foreground); }

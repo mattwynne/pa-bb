@@ -30,7 +30,8 @@ export const standardTextLimit = 16000;
 const standardText = z.string().max(standardTextLimit);
 const noteHash = z.string().regex(/^[0-9a-f]{64}$/);
 export const areaStandardInput = reference.extend({ text: standardText, expectedHash: noteHash, operationId: z.string().uuid() });
-export const areaStandard = z.object({ text: standardText, hash: noteHash }).strict();
+export const noteSection = z.object({ text: standardText, hash: noteHash }).strict();
+export const nextAction = z.object({ text: standardText.nullable() }).strict();
 export const standardSaveResult = noteSaveReceipt.extend({ reason: z.enum(['changed', 'invalid_section']).optional() });
 export const inventoryRevision = z.string().regex(/^[a-f0-9-]{36}:\d{1,16}$/).nullable();
 export const rpcContract = defineRpcContract({
@@ -45,7 +46,8 @@ export const rpcContract = defineRpcContract({
   }).strict(), output: areaMailStatus },
   readCorrespondence: { input: reference, output: correspondenceLinks },
   readCorrespondenceStatus: { input: reference, output: correspondenceStatus },
-  readAreaStandard: { input: reference, output: areaStandard },
+  readNextAction: { input: reference, output: nextAction },
+  readAreaStandard: { input: reference, output: noteSection },
   saveAreaStandard: { input: areaStandardInput, output: standardSaveResult },
   listProjects: { input: listInput, output: pageSchema },
   listAreas: { input: areaListInput, output: areaPageSchema },

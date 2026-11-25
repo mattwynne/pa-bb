@@ -5,6 +5,7 @@ import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
 import { areasIndex, panelHref, readRoute, recordDestination, unassignedArea, type Destination, type PanelPath } from './app-routes.ts';
 import { ProjectCorrespondence } from './project-correspondence.tsx';
+import { ProjectNextAction } from './project-next-action.tsx';
 import { useAreaMailStatus } from './area-mail-status.ts';
 import { AreaStandard } from './area-standard.tsx';
 import './app.css';
@@ -751,6 +752,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
         {area && <LinkedThreads key={key(inventory.source, area.id)} kind="area" id={area.id} source={inventory.source} />}
       </>}
       {project && <React.Fragment key={key(inventory.source, project.id)}>
+        <ProjectNextAction source={inventory.source} id={project.id} revision={inventory.revision} />
         <ProjectCorrespondence source={inventory.source} id={project.id} revision={inventory.revision} />
         <LinkedThreads kind="project" id={project.id} source={inventory.source} />
       </React.Fragment>}

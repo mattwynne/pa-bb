@@ -168,6 +168,35 @@ test('uncertain receipt persistence is inspected from disk without replaying the
   assert.doesNotMatch(JSON.stringify(f.harness.inspection.logEntries), /sentinel-private/);
 });
 
+test('GTD reads only the first open task in a top-level section, even when the section is large', async t => {
+  const f = await fixture(t);
+  const target = { vaultId: 'one', path: 'Bench.md', heading: 'TODO' };
+  const file = join(f.directory, target.path);
+  const gtd = { experimental_caller: { kind: 'plugin' as const, pluginId: 'gtd' } };
+  const next = () => f.harness.behavior.callRpc('readSectionTask', target, gtd);
+  const before = [
+    '## Earlier notes', '### TODO', '- [ ] Outside the project list', '', '## TODO', '',
+    'Long background '.repeat(1050), '', '- [x] Finished', '- [-] Cancelled', '  - [ ] Nested under cancelled', '',
+    '````md', '```', '- [ ] Code example', '````', '',
+    '<!--', '- [ ] Hidden HTML draft', '-->', '', '%%', '- [ ] Hidden Obsidian draft', '%%', '',
+    '- [ ] Measure boards  ', '  Supporting detail', '- [ ] Cut boards', '', '## Waiting For', '- [ ] Delivery', '',
+  ].join('\r\n');
+  await writeFile(file, before);
+  await assert.rejects(f.harness.behavior.callRpc('readSectionTask', target, { experimental_caller: { kind: 'client' } }), /Only GTD/);
+  await assert.rejects(f.harness.behavior.callRpc('readNoteSection', target, gtd), /Keep one matching heading/);
+  assert.deepEqual(await next(), { text: 'Measure boards' });
+  assert.equal(await readFile(file, 'utf8'), before);
+  await writeFile(file, '## TODO\n' + 'Long background '.repeat(1050) + '\n\n- [ ] Measure boards\n');
+  await assert.rejects(f.harness.behavior.callRpc('readNoteSection', target, gtd), /Open the section/);
+  assert.deepEqual(await next(), { text: 'Measure boards' });
+  await writeFile(file, '## TODO\n- [x] Finished\n\n## Waiting For\n- [ ] Delivery\n');
+  assert.deepEqual(await next(), { text: null });
+  await writeFile(file, '## Notes\n### TODO\n- [ ] Note to self\n');
+  assert.deepEqual(await next(), { text: null });
+  await writeFile(file, '## TODO\n- [ ] One\n\n## TODO\n- [ ] Two\n');
+  await assert.rejects(next(), /Keep one matching heading/);
+});
+
 test('a section save preserves the rest of the Area note and checks the displayed version', async t => {
   const f = await fixture(t);
   const target = { vaultId: 'one', path: 'Learning.md', heading: 'Standard' };

@@ -54,6 +54,12 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     vaultInventory(input, context) { return evidence(() => service.vaultInventory(input, context.experimental_signal), context); },
     noteEvidence(input, context) { return evidence(() => service.noteEvidence(input, context.experimental_signal), context); },
     readNoteSection(input, context) { return evidence(() => service.readNoteSection(input, context.experimental_signal), context); },
+    readSectionTask(input, context) {
+      const caller = context.experimental_caller;
+      if (caller.kind !== 'plugin' || caller.pluginId !== 'gtd')
+        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only GTD can request the first task in a section.' });
+      return evidence(() => service.readSectionTask(input, context.experimental_signal), context);
+    },
     readSectionLinks(input, context) {
       const caller = context.experimental_caller;
       if (caller.kind !== 'plugin' || caller.pluginId !== 'gtd')
