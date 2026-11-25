@@ -108,7 +108,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'auto-refresh', 'next-action', 'correspondence', 'area-mail'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'auto-refresh', 'next-action', 'correspondence', 'area-mail', 'composer-project'];
   const reviewedModes = native ? ['native-refresh'] : process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
@@ -136,7 +136,8 @@ try {
     let homeStandard = '', firstHomeRead = true;
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
     const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
-      ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1 }),
+      ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1,
+        ...(mode === 'composer-project' && id === 'fixture2' ? { parentThreadId: 'fixture1' } : {}) }),
       activity: { activeBackgroundAgentCount: 0, activeBackgroundCommandCount: 0, activePlanModeCount: 0, activeWorkflowCount: 0 },
       queuedWork: 'none',
       hasPendingInteraction: false,
@@ -156,6 +157,7 @@ try {
         thread('fixture1', value.personalProject.id, 'Choose tools', 100),
       ];
       if (mode === 'browser-flow') value.personalProject.threads.push(thread('area1', value.personalProject.id, 'Practice plan', 100));
+      if (mode === 'composer-project') value.personalProject.threads.push(thread('unlinked', value.personalProject.id, 'Unlinked thread', 100));
       await route.fulfill({ response, json: value });
     });
     await page.route(/\/api\/v1\/threads\?.*archived=true/, route => {
@@ -170,7 +172,13 @@ try {
     });
     await page.route(/\/api\/v1\/threads\/fixture1(?:\?|$)/, route =>
       route.fulfill({ json: thread('fixture1', 'proj_personal', 'Choose tools', 100) }));
-    await page.route(/\/api\/v1\/threads\/fixture1\/timeline(?:\?|$)/, route =>
+    if (mode === 'composer-project') {
+      await page.route(/\/api\/v1\/threads\/fixture2(?:\?|$)/, route =>
+        route.fulfill({ json: thread('fixture2', 'proj_personal', 'Practice joints', 200) }));
+      await page.route(/\/api\/v1\/threads\/unlinked(?:\?|$)/, route =>
+        route.fulfill({ json: thread('unlinked', 'proj_personal', 'Unlinked thread', 100) }));
+    }
+    await page.route(/\/api\/v1\/threads\/(?:fixture1|fixture2|unlinked)\/timeline(?:\?|$)/, route =>
       route.fulfill({ json: {
         rows: [], maxSeq: 0, contextBoundarySeq: null, completedTurnDisplay: 'collapse',
         activePromptMode: null, activeThinking: null, activeWorkflows: [], activeBackgroundCommands: [],
@@ -344,6 +352,35 @@ try {
       await Promise.race([skip.waitFor(), (width === 390 ? toggle : entry).waitFor()]);
       if (await skip.isVisible()) await skip.click();
       await openSidebar();
+      if (mode === 'composer-project') {
+        const context = page.getByLabel('Thread context before sending');
+        const projectLink = context.getByRole('link', { name: 'GTD Project Learn woodworking' });
+        const projectPath = `/plugins/gtd/projects/${Buffer.from(JSON.stringify([ref.source, ref.id])).toString('base64url')}`;
+        const openThread = async (id, title) => {
+          await page.goto(`${base}/threads/${id}`);
+          await page.getByTestId('app-page-header-content-row').getByText(title, { exact: true }).waitFor();
+        };
+        await openThread('fixture1', 'Choose tools');
+        await projectLink.waitFor();
+        assert.equal(await projectLink.getAttribute('href'), projectPath);
+        await page.keyboard.press('Tab');
+        await projectLink.focus();
+        assert.equal(await projectLink.evaluate(el => el.matches(':focus-visible')), true);
+        assert.notEqual(await projectLink.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
+        await page.screenshot({ path: join(artifacts, `composer-project-${width}.png`) });
+        await page.keyboard.press('Enter');
+        await page.waitForURL(`${base}${projectPath}`);
+        await nav.getByRole('heading', { name: 'Learn woodworking', exact: true }).waitFor();
+        await openThread('fixture2', 'Practice joints');
+        await context.getByRole('link', { name: 'Choose tools' }).waitFor();
+        assert.equal(await context.getByRole('link', { name: /^GTD Project/ }).count(), 0);
+        await openThread('unlinked', 'Unlinked thread');
+        assert.equal(await context.getByRole('link', { name: /^GTD Project/ }).count(), 0);
+        assert.deepEqual(errors, []);
+        console.log(`${mode} ${width}: rendered and checked`);
+        await page.close();
+        continue;
+      }
       if (mode === 'normal') {
         await assertSavedSort();
         assert.equal(await archivedRow.count(), 0);

@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { definePluginApp, useRpc, useSdk, useBbNavigate, useRealtimeConnectionState, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, ThreadTitle, type PluginNavPanelProps, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
+import { definePluginApp, useRpc, useSdk, useBbNavigate, useRealtimeConnectionState, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, experimental_THREAD_CONTEXT_SEGMENT_GROUPS, ThreadTitle, type ExperimentalThreadContextSegmentInput, type PluginNavPanelProps, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
 import { rpcContract, reference, projectName } from './contract.ts';
 import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
@@ -362,6 +362,25 @@ function PanelLink({ destination, onClick, ...props }: React.ComponentPropsWitho
     event.preventDefault();
     if (props['aria-current'] !== 'page') navigate.toPluginPanel(destination.panel, { subPath: destination.subPath });
   }} />;
+}
+
+function useComposerProject({ threadId }: ExperimentalThreadContextSegmentInput) {
+  const { threads } = useThreads();
+  const topLevel = threads.find(thread => thread.id === threadId)?.parentThreadId === null;
+  const { links, hasCurrentRoster } = useLinks(topLevel ? [threadId] : []);
+  return topLevel && hasCurrentRoster ? reference.safeParse(links[threadId]?.project).data : undefined;
+}
+
+function ComposerProjectSummary(input: ExperimentalThreadContextSegmentInput) {
+  const project = useComposerProject(input);
+  if (!project) return null;
+  const title = project.id.split('/').at(-1)?.replace(/\.md$/, '') || project.id;
+  const label = `GTD Project ${title}`;
+  return <PanelLink className="gtd-composer-project" destination={recordDestination('projects', project.source, project.id)}
+    aria-label={label} title={label}>
+    <Icon name="ListTodo" aria-hidden="true" />
+    <span>GTD Project <span className="gtd-composer-project-title">{title}</span></span>
+  </PanelLink>;
 }
 
 function ThreadRow({ thread, showArchived }: { thread: PluginSidebarThread; showArchived?: boolean }) {
@@ -791,6 +810,10 @@ export default definePluginApp(app => {
   // The former project browser URL still opens the Areas index.
   app.slots.navPanel({ id: 'project-pages', path: 'projects', title: 'GTD', icon: 'ListTodo',
     experimental_hideFromNavigation: true, component: props => <GtdPanel {...props} panel="projects" /> });
+  app.slots.experimental_threadContextSegment({
+    id: 'gtd-project', title: 'GTD Project', group: experimental_THREAD_CONTEXT_SEGMENT_GROUPS.thread, order: 20,
+    useVisible: input => !!useComposerProject(input), summary: ComposerProjectSummary,
+  });
   app.slots.experimental_threadAction({ id: 'project', title: 'GTD project', icon: 'ListTodo', group: 'organize',
     useData: ({ threadIds }) => ({ inventory: useInventory(false, threadIds.length > 0), ...useLinks(threadIds), threadIds: new Set(threadIds), rpc: useRpc<typeof rpcContract>() }),
     item: ({ thread, data }) => {
