@@ -66,9 +66,47 @@ export function addNoteSectionLink(parser: NoteParser, note: string, input: { he
   const { links, incomplete } = sectionLinkEntries(text);
   if (incomplete || links.some(link => link.url === input.url))
     throw new VaultError('invalid_section', 'Check the existing links in Obsidian.');
-  const label = input.title.replace(/[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]/g, '\\$&');
-  const url = input.url.replaceAll('&', '\\&');
-  return appendLinkBullet(parser, note, input.heading, text, '- [' + label + '](<' + url + '>)', input.url);
+  return appendLinkBullet(parser, note, input.heading, text, linkBullet(input), input.url);
+}
+
+function linkBullet({ title, url, returnDate }: { title: string; url: string; returnDate?: string }) {
+  const label = title.replace(/[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e]/g, '\\$&');
+  return '- [' + label + '](<' + url.replaceAll('&', '\\&') + '>' + (returnDate ? ' "' + returnDate + '"' : '') + ')';
+}
+
+export type DatedLinkEdit = { from: string[]; to: string; urls: string[]; fromDated: boolean; returnDate?: string };
+
+export function editDatedNoteSectionLinks(parser: NoteParser, note: string, input: DatedLinkEdit) {
+  const newline = note.match(/\r?\n/)?.[0] ?? '\n';
+  const wanted = new Set(input.urls);
+  const found = new Map<string, { title: string; url: string }>();
+  const read = (heading: string, dated: boolean) => {
+    const { text } = noteSection(parser, note, heading);
+    const { links, incomplete } = sectionLinkEntries(text, dated);
+    if (text.length > 16000 || incomplete) throw new VaultError('invalid_section');
+    return { text, links };
+  };
+  let next = note;
+  let destination = read(input.to, !!input.returnDate);
+  for (const heading of input.from) {
+    const { text, links } = read(heading, input.fromDated);
+    const matches = links.filter(link => wanted.has(link.url));
+    if (!matches.length) continue;
+    for (const link of matches) if (!found.has(link.url)) found.set(link.url, link);
+    let remaining = text;
+    for (const { start, end } of matches.reverse()) remaining = remaining.slice(0, start) + remaining.slice(end);
+    if (heading === input.to) destination = { text: withoutBlankEdges(remaining), links: links.filter(link => !wanted.has(link.url)) };
+    else next = replaceNoteSection(parser, next, heading, remaining);
+  }
+  if (found.size !== wanted.size) throw new VaultError('invalid_section');
+  const destinationUrls = new Set(destination.links.map(link => link.url));
+  const added = [...found.values()].filter(link => !destinationUrls.has(link.url));
+  const text = [destination.text, ...added.map(link => linkBullet({ ...link, returnDate: input.returnDate }))].filter(Boolean).join(newline);
+  const parsed = sectionLinkEntries(text, !!input.returnDate);
+  if (text.length > 16000 || parsed.incomplete ||
+      input.urls.some(url => !parsed.links.some(link => link.url === url && link.returnDate === input.returnDate)))
+    throw new VaultError('invalid_section');
+  return replaceNoteSection(parser, next, input.to, text);
 }
 
 export function moveNoteSectionLink(parser: NoteParser, note: string, input: { from: string[]; to: string; url: string }) {

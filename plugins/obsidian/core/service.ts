@@ -1,4 +1,4 @@
-import { addNoteSectionLink, firstSectionTask, moveNoteSectionLink, noteSection, replaceNoteSection } from './note-section.ts';
+import { addNoteSectionLink, editDatedNoteSectionLinks, firstSectionTask, moveNoteSectionLink, noteSection, replaceNoteSection, type DatedLinkEdit } from './note-section.ts';
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { provenance } from './provenance.js';
@@ -520,6 +520,10 @@ export class Obsidian {
 
   moveSectionLink(input: { vaultId: string; path: string; expectedHash: string; operationId: string; from: string[]; to: string; url: string }, signal?: AbortSignal) {
     return this.writeCheckedNote(input, before => moveNoteSectionLink(this.parser, before, input), signal);
+  }
+
+  editDatedSectionLinks(input: { vaultId: string; path: string; expectedHash: string; operationId: string } & DatedLinkEdit, signal?: AbortSignal) {
+    return this.writeCheckedNote(input, before => editDatedNoteSectionLinks(this.parser, before, input), signal);
   }
 
   private async writeCheckedNote({ vaultId, path, expectedHash, operationId }: {

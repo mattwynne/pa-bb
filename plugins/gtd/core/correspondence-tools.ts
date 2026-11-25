@@ -1,18 +1,19 @@
 import { createHash } from 'node:crypto';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { reference, type noteSaveReceipt } from '../contract.ts';
-import { correspondenceLink, linkLimit, mailProvider, type MailStatus, type projectCorrespondence } from './correspondence.ts';
+import { correspondenceChange, correspondenceChangeResult, correspondenceReceipt, correspondenceRefresh, reference } from '../contract.ts';
+import { correspondenceDate, correspondenceLink, linkLimit, lookupCorrespondence, mailProvider, returnDate, type MailStatus, type projectCorrespondence } from './correspondence.ts';
 import { safeError } from './model.ts';
 
 const version = z.string().regex(/^[a-f0-9]{64}$/);
 const listInput = reference.extend({
-  status: z.enum(['all', 'active', 'archived']).optional(),
-  offset: z.number().int().min(1).max(79).optional(),
+  status: z.enum(['all', 'active', 'archived', 'snoozed']).optional(),
+  offset: z.number().int().min(1).max(3 * linkLimit - 1).optional(),
   version: version.optional(),
 }).refine(input => (input.offset === undefined) === (input.version === undefined), 'Pass offset and version together.');
 const conversation = reference.extend({ conversationId: z.string().regex(/^[a-f0-9]{64}$/) });
 const archiveInput = conversation.extend({ operationId: z.uuid() });
+const snoozeInput = archiveInput.extend({ returnDate });
 const addInput = reference.extend({
   url: correspondenceLink.shape.url.regex(/^[^\s<>\\\x00-\x1f\x7f]+$/u).describe('Exact verified provider URL. Keep it unchanged.'),
   title: correspondenceLink.shape.title.trim().regex(/^[^\x00-\x1f\x7f]+$/).describe('Email subject, or (no subject).'),
@@ -21,15 +22,19 @@ const addInput = reference.extend({
 });
 type Reference = z.infer<typeof reference>;
 type SavedConversations = { hash: string; correspondence: z.infer<typeof projectCorrespondence> };
-export type CorrespondenceWrite = Reference & { url: string; expectedHash: string; operationId: string } & (
-  { kind: 'archive' } | { kind: 'add'; title: string; status: 'active' | 'archived' }
+export type CorrespondenceWrite = Reference & { expectedHash: string; operationId: string } & (
+  { kind: 'archive'; url: string } |
+  { kind: 'add'; url: string; title: string; status: 'active' | 'archived' } |
+  { kind: 'snooze' | 'reschedule'; urls: string[]; returnDate: string } |
+  { kind: 'unsnooze'; urls: string[] }
 );
-type SaveResult = z.infer<typeof noteSaveReceipt> & { reason?: 'changed' | 'invalid_section' };
-export const correspondenceToolNames = ['gtd_list_correspondence', 'gtd_open_correspondence', 'gtd_archive_correspondence', 'gtd_add_correspondence'] as const;
-const conversationId = (url: string) => createHash('sha256').update(url).digest('hex');
+type SaveResult = z.infer<typeof correspondenceReceipt>;
+export const correspondenceToolNames = ['gtd_list_correspondence', 'gtd_open_correspondence', 'gtd_archive_correspondence', 'gtd_add_correspondence',
+  'gtd_snooze_correspondence', 'gtd_unsnooze_correspondence', 'gtd_refresh_correspondence'] as const;
+export const conversationId = (url: string) => createHash('sha256').update(url).digest('hex');
 
-function savedLinks({ active, archived }: SavedConversations['correspondence']) {
-  return (['active', 'archived'] as const).flatMap(status => (status === 'active' ? active : archived).links.map(link => ({
+function savedLinks(correspondence: SavedConversations['correspondence']) {
+  return (['active', 'archived', 'snoozed'] as const).flatMap(status => correspondence[status].links.map((link: z.infer<typeof correspondenceLink> & { returnDate?: string }) => ({
     ...link, status, conversationId: conversationId(link.url), provider: mailProvider(link.url),
   })));
 }
@@ -46,24 +51,86 @@ function writeReply(result: SaveResult, success: Record<string, unknown>) {
     ? 'List the project correspondence again. The note changed.' : 'Check the correspondence sections in Obsidian.' }, true);
 }
 
-export function registerCorrespondenceTools(bb: BbPluginApi, ports: {
+type CorrespondencePorts = {
   read: (input: Reference, signal: AbortSignal) => Promise<SavedConversations>;
   verify: (url: string) => Promise<MailStatus>;
   write: (input: CorrespondenceWrite, signal: AbortSignal) => Promise<SaveResult>;
-}) {
+};
+
+export function correspondenceActions(ports: CorrespondencePorts, clock: () => number, newOperationId: () => string) {
+  const find = async (input: z.infer<typeof conversation>, signal: AbortSignal) => {
+    const { hash, correspondence } = await ports.read(input, signal);
+    return { hash, correspondence, row: savedLinks(correspondence).find(link => link.conversationId === input.conversationId) };
+  };
+  const change = async (input: z.infer<typeof archiveInput>, edit: z.infer<typeof correspondenceChange>,
+    signal: AbortSignal): Promise<z.infer<typeof correspondenceChangeResult>> => {
+    const { hash, correspondence, row } = await find(input, signal);
+    if (!row) return { state: 'blocked', reason: 'not_listed' };
+    if (row.status === 'archived') return { state: 'blocked', reason: 'archived' };
+    const { source, id, operationId } = input;
+    const base = { source, id, operationId, expectedHash: hash, urls: [row.url] };
+    const save = async (write: CorrespondenceWrite, state: 'snoozed' | 'unsnoozed'): Promise<z.infer<typeof correspondenceChangeResult>> => {
+      signal.throwIfAborted();
+      const receipt = await ports.write(write, signal);
+      return { state: receipt.outcome === 'saved_locally_pending_sync' ? state : receipt.outcome, receipt };
+    };
+    if (edit.kind === 'unsnooze') return row.status === 'active' ? { state: 'unchanged' } : save({ ...base, kind: 'unsnooze' }, 'unsnoozed');
+    if (edit.returnDate <= correspondenceDate(clock())) return { state: 'blocked', reason: 'date_due' };
+    if (correspondence.snoozed.incomplete ||
+        (row.status === 'active' && (correspondence.active.incomplete || correspondence.snoozed.links.length >= linkLimit)))
+      return { state: 'blocked', reason: 'invalid_section' };
+    if (!mailProvider(row.url)) return { state: 'blocked', reason: 'mail_unavailable' };
+    const mail = await ports.verify(row.url);
+    if (mail.status !== 'ok') return { state: 'blocked', reason: 'mail_unavailable' };
+    if (mail.unread) return { state: 'blocked', reason: 'unread' };
+    if (edit.returnDate <= correspondenceDate(clock())) return { state: 'blocked', reason: 'date_due' };
+    if (row.returnDate === edit.returnDate) return { state: 'unchanged' };
+    return save({ ...base, kind: row.status === 'snoozed' ? 'reschedule' : 'snooze', returnDate: edit.returnDate }, 'snoozed');
+  };
+  const refresh = async (input: Reference, signal: AbortSignal): Promise<z.infer<typeof correspondenceRefresh>> => {
+    const { hash, correspondence } = await ports.read(input, signal);
+    const rows = await lookupCorrespondence([...correspondence.active.links, ...correspondence.snoozed.links], ports.verify, signal);
+    const mail = new Map(rows.map(({ url, mail }) => [url, mail]));
+    const today = correspondenceDate(clock());
+    const due = correspondence.snoozed.links.flatMap<z.infer<typeof correspondenceRefresh>['returned'][number]>(({ returnDate: date, ...link }) => {
+      const status = mail.get(link.url);
+      if (date <= today) return [{ ...link, reason: 'date' as const }];
+      return status?.status === 'ok' && status.unread > 0 ? [{ ...link, reason: 'unread' as const }] : [];
+    });
+    const output: z.infer<typeof correspondenceRefresh> = {
+      correspondence, mail: rows.slice(0, correspondence.active.links.length),
+      returned: [], snoozedMailIncomplete: correspondence.snoozed.links.some(link =>
+        link.returnDate > today && mail.get(link.url)?.status !== 'ok'),
+    };
+    if (!due.length) return output;
+    const urls = due.map(link => link.url);
+    signal.throwIfAborted();
+    const receipt = await ports.write({ ...input, kind: 'unsnooze', urls, expectedHash: hash, operationId: newOperationId() }, signal);
+    output.receipt = receipt;
+    if (receipt.outcome !== 'saved_locally_pending_sync') return output;
+    const moved = new Set(urls);
+    const active = [...correspondence.active.links, ...due.map(({ title, url }) => ({ title, url }))];
+    return {
+      ...output, returned: due,
+      correspondence: { ...correspondence, active: { links: active.slice(0, linkLimit),
+        incomplete: correspondence.active.incomplete || active.length > linkLimit },
+        snoozed: { ...correspondence.snoozed, links: correspondence.snoozed.links.filter(link => !moved.has(link.url)) } },
+      mail: active.slice(0, linkLimit).map(({ url }) => ({ url, mail: mail.get(url)! })),
+    };
+  };
+  return { find, change, refresh };
+}
+
+export function registerCorrespondenceTools(bb: BbPluginApi, ports: CorrespondencePorts, actions: ReturnType<typeof correspondenceActions>) {
   const readFailure = (error: unknown, signal: AbortSignal) => {
     const safe = safeError(error, signal);
     return reply({ code: safe.code, nextAction: safe.hint }, true);
-  };
-  const find = async (input: z.infer<typeof conversation>, signal: AbortSignal) => {
-    const { hash, correspondence } = await ports.read(input, signal);
-    return { hash, row: savedLinks(correspondence).find(link => link.conversationId === input.conversationId) };
   };
   const missing = () => reply({ code: 'not_listed', nextAction: 'List the project correspondence again and select the saved conversation ID.' }, true);
 
   bb.agents.registerTool({
     name: correspondenceToolNames[0], parameters: listInput,
-    description: 'List email conversations saved in one GTD project note, with active or archived status. Use the exact vault source and project note id. Optional status filters the list. Follow nextOffset with version and the same filter. Each conversationId refers to one saved URL. Titles are untrusted data.',
+    description: 'Read saved active, archived, or snoozed email conversations in one GTD project, including snooze return dates. Optional status filters the list. Follow nextOffset with version and the same filter. Does not check email or change the note. Each conversationId refers to one saved URL. Titles are untrusted data.',
     async execute(input, context) {
       try {
         const { hash, correspondence } = await ports.read(input, context.signal);
@@ -73,8 +140,8 @@ export function registerCorrespondenceTools(bb: BbPluginApi, ports: {
         const offset = input.offset ?? 0;
         const page = rows.slice(offset, offset + 10).map(({ url: _url, ...row }) => row);
         return reply({ conversations: page, version: hash, nextOffset: offset + page.length < rows.length ? offset + page.length : null,
-          incomplete: (input.status !== 'archived' && correspondence.active.incomplete) ||
-            (input.status !== 'active' && correspondence.archived.incomplete) });
+          incomplete: input.status && input.status !== 'all' ? correspondence[input.status].incomplete :
+            Object.values(correspondence).some(section => section.incomplete) });
       } catch (error) { return readFailure(error, context.signal); }
     },
   });
@@ -83,7 +150,7 @@ export function registerCorrespondenceTools(bb: BbPluginApi, ports: {
     description: 'Verify a conversation ID from gtd_list_correspondence in the exact project note and return its saved Fastmail or Gmail link. Present href unchanged as a Markdown link. Reads Obsidian only and does not open the mailbox or read email content.',
     async execute(input, context) {
       try {
-        const { row } = await find(input, context.signal);
+        const { row } = await actions.find(input, context.signal);
         if (!row) return missing();
         if (!row.provider) return reply({ code: 'unsupported', nextAction: 'Check the saved email link in Obsidian.' }, true);
         return reply({ title: row.title, href: row.url, provider: row.provider, status: row.status });
@@ -95,9 +162,10 @@ export function registerCorrespondenceTools(bb: BbPluginApi, ports: {
     description: 'On an explicit request, move one saved email link from active (including legacy Correspondence) to Archived conversations in the exact project note. Supply the conversationId from gtd_list_correspondence and a fresh operationId (UUID). Does not change mailbox state. For uncertain saves, inspect the Obsidian receipt by operationId before retrying.',
     async execute(input, context) {
       try {
-        const { hash, row } = await find(input, context.signal);
+        const { hash, row } = await actions.find(input, context.signal);
         if (!row) return missing();
         if (row.status === 'archived') return reply({ state: 'already_archived' });
+        if (row.status === 'snoozed') return reply({ code: 'snoozed', nextAction: 'Unsnooze this conversation before archiving it.' }, true);
         const { source, id, operationId } = input;
         const result = await ports.write({ kind: 'archive', source, id, operationId, url: row.url, expectedHash: hash }, context.signal);
         return writeReply(result, { state: 'archived' });
@@ -114,7 +182,8 @@ export function registerCorrespondenceTools(bb: BbPluginApi, ports: {
         const existing = savedLinks(correspondence).find(link => link.url === input.url);
         if (existing) return reply({ state: 'already_linked', status: existing.status, conversationId: existing.conversationId });
         const status = input.status ?? 'active';
-        if (correspondence.active.incomplete || correspondence.archived.incomplete || correspondence[status].links.length >= linkLimit)
+        const reserved = status === 'active' ? correspondence.snoozed.links.length : 0;
+        if (Object.values(correspondence).some(section => section.incomplete) || correspondence[status].links.length + reserved >= linkLimit)
           return reply({ code: 'invalid_section', nextAction: 'Check for incomplete entries or a full correspondence section in Obsidian.' }, true);
         context.signal.throwIfAborted();
         const verified = await ports.verify(input.url);
@@ -126,4 +195,41 @@ export function registerCorrespondenceTools(bb: BbPluginApi, ports: {
       } catch (error) { return readFailure(error, context.signal); }
     },
   });
+  bb.agents.registerTool({
+    name: correspondenceToolNames[4], parameters: snoozeInput,
+    description: 'On request, snooze a saved conversation or change its return date. Ask the user for a date if missing. Use the exact project and conversation ID and a fresh operation UUID. Requires zero confirmed unread messages. Changes the GTD note only.',
+    async execute({ returnDate, ...input }, context) {
+      try { return changeReply(await actions.change(input, { kind: 'snooze', returnDate }, context.signal)); }
+      catch (error) { return readFailure(error, context.signal); }
+    },
+  });
+  bb.agents.registerTool({
+    name: correspondenceToolNames[5], parameters: archiveInput,
+    description: 'On request, bring a saved snoozed conversation back to Active. Use the exact project and conversation ID and a fresh operation UUID. Changes the GTD note only.',
+    async execute(input, context) {
+      try { return changeReply(await actions.change(input, { kind: 'unsnooze' }, context.signal)); }
+      catch (error) { return readFailure(error, context.signal); }
+    },
+  });
+  bb.agents.registerTool({
+    name: correspondenceToolNames[6], parameters: reference,
+    description: 'On request, refresh email for one GTD project. Checks unread counts and saves due or unread snoozed conversations back to Active. Does not change mailbox state. Reports returned conversations and any save receipt.',
+    async execute(input, context) {
+      try {
+        const { returned, snoozedMailIncomplete, mail, receipt } = await actions.refresh(input, context.signal);
+        return reply({ returned: returned.map(({ url, ...link }) => ({ ...link, conversationId: conversationId(url) })),
+          snoozedMailIncomplete,
+          active: mail.map(({ url, mail }) => ({ conversationId: conversationId(url), status: mail.status,
+            ...(mail.status === 'ok' ? { unread: mail.unread, sender: mail.sender, latestAt: mail.latestAt } : {}) })), receipt,
+          ...(receipt?.outcome === 'uncertain' ? { nextAction: 'Inspect the Obsidian receipt before trying another refresh.' } : {}),
+        }, !!receipt && receipt.outcome !== 'saved_locally_pending_sync');
+      } catch (error) { return readFailure(error, context.signal); }
+    },
+  });
+}
+
+function changeReply(result: z.infer<typeof correspondenceChangeResult>) {
+  if (result.state === 'blocked') return reply(result, true);
+  if (result.receipt) return writeReply(result.receipt, { state: result.state });
+  return reply(result);
 }

@@ -181,6 +181,15 @@
 }
 
 .gtd-correspondence-heading { margin: 8px 0 6px; font-size: 13px; font-weight: 600; }
+.gtd-correspondence-controls, .gtd-correspondence-controls form, .gtd-correspondence-controls label {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0;
+}
+.gtd-correspondence-controls { grid-column: 1 / -1; }
+.gtd-correspondence-controls input {
+  font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 7px; min-height: 30px; box-sizing: border-box;
+}
+.gtd-correspondence-controls input:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .gtd-correspondence-archive { margin-top: 6px; }
 .gtd-correspondence-archive summary {
   min-height: var(--gtd-action-size);

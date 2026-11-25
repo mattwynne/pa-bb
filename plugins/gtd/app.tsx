@@ -722,7 +722,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       </>}
       {project && <React.Fragment key={key(inventory.source, project.id)}>
         <ProjectNextAction source={inventory.source} id={project.id} revision={inventory.revision} />
-        <ProjectCorrespondence source={inventory.source} id={project.id} revision={inventory.revision} />
+        <ProjectCorrespondence key={JSON.stringify([inventory.source, project.id])} source={inventory.source} id={project.id} revision={inventory.revision} />
         <LinkedThreads kind="project" id={project.id} source={inventory.source} />
       </React.Fragment>}
       {notice && <p role="status">{notice}</p>}

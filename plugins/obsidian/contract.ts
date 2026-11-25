@@ -2,6 +2,7 @@ import { recoveryInput } from './core/receipt-recovery.ts';
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { searchCapabilitySchema } from './adapters/icloud-note-contract.ts';
+import { linkReturnDate } from './core/section-links.ts';
 const source = z.object({ id: z.string(), name: z.string(), initialized: z.boolean(), enabled: z.boolean(), cloudConnected: z.boolean(), phase: z.string(), lastSuccess: z.string().nullable(), failure: z.string().nullable(), local: z.object({ available: z.boolean(), reason: z.enum(['ownership', 'recovery_required', 'source_changed']).nullable(), pendingAgeMs: z.number().int().nonnegative().nullable(), applicationBlocker: z.enum(['application_uncertain', 'native_recovery']).nullable() }).strict() }).strict();
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const receipt = z.discriminatedUnion('kind', [
@@ -52,8 +53,9 @@ export const rpcContract = defineRpcContract({
   },
   readSectionTask: { input: sectionInput, output: z.object({ text: sectionText.nullable() }).strict() },
   readSectionLinks: {
-    input: sectionInput,
-    output: z.object({ hash, links: z.array(z.object({ title: z.string().min(1).max(1024), url: z.string().min(1).max(2048) })).max(40), incomplete: z.boolean() }).strict(),
+    input: sectionInput.extend({ dated: z.literal(true).optional() }),
+    output: z.object({ hash, links: z.array(z.object({ title: z.string().min(1).max(1024), url: z.string().min(1).max(2048),
+      returnDate: linkReturnDate.optional() })).max(40), incomplete: z.boolean() }).strict(),
   },
   writeNoteSection: {
     input: sectionInput.extend({ expectedHash: hash, operationId, text: sectionText }),
@@ -72,6 +74,19 @@ export const rpcContract = defineRpcContract({
       expectedHash: hash, operationId, url: z.string().min(1).max(2048),
       from: z.array(sectionHeading).min(1).max(2), to: sectionHeading,
     }).refine(input => new Set([...input.from, input.to].map(heading => heading.toLocaleLowerCase('und'))).size === input.from.length + 1),
+    output: z.object({ operationId, outcome, reason: z.enum(['changed', 'invalid_section']).optional() }).strict(),
+  },
+  editDatedSectionLinks: {
+    input: noteInput.extend({
+      expectedHash: hash, operationId,
+      from: z.array(sectionHeading).min(1).max(2), to: sectionHeading,
+      urls: z.array(z.string().min(1).max(2048)).min(1).max(40),
+      fromDated: z.boolean(), returnDate: linkReturnDate.optional(),
+    }).refine(({ from, to, urls, fromDated, returnDate }) =>
+      new Set(urls).size === urls.length && new Set(from.map(heading => heading.toLocaleLowerCase('und'))).size === from.length &&
+      (fromDated || returnDate !== undefined) &&
+      (!from.some(heading => heading.toLocaleLowerCase('und') === to.toLocaleLowerCase('und')) ||
+        (fromDated && returnDate !== undefined && from.length === 1 && from[0] === to))),
     output: z.object({ operationId, outcome, reason: z.enum(['changed', 'invalid_section']).optional() }).strict(),
   },
   createNote: {

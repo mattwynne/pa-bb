@@ -128,6 +128,8 @@ try {
     const fastmailUnresolved = 'https://app.fastmail.com/mail/Archive/S_missing?u=1234abcd';
     const archivedMail = 'https://mail.google.com/mail/?authuser=example%40example.com#all/abba';
     let heldCorrespondence, heldStatus, correspondenceReads = 0;
+    let workshopReturnDate;
+    const snoozeDate = offset => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
     let workshopArchived = false;
     let nextAction = null, heldNextAction, failNextAction = false;
     let unread = 2, areaUnread = true;
@@ -263,13 +265,18 @@ try {
         if (failNextAction) return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic read failure' } } });
         result = { text: nextAction };
       }
-      if (method === 'readCorrespondence') {
-        correspondenceReads++;
-        await heldCorrespondence;
+      if (method === 'readCorrespondence' || method === 'refreshCorrespondence') {
+        if (method === 'readCorrespondence') {
+          correspondenceReads++;
+          await heldCorrespondence;
+        } else await heldStatus;
         const workshop = { title: 'Workshop logistics', url: gmail };
-        result = {
+        const returned = method === 'refreshCorrespondence' && workshopReturnDate && unread > 0
+          ? [{ ...workshop, reason: 'unread' }] : [];
+        if (returned.length) workshopReturnDate = undefined;
+        const correspondence = {
           active: { incomplete: false, links: mode === 'correspondence' ? [
-            ...(workshopArchived ? [] : [workshop]),
+            ...(workshopArchived || workshopReturnDate ? [] : [workshop]),
             { title: 'Venue booking', url: fastmail },
             { title: 'Venue reply', url: fastmailReply },
             { title: 'Supplies', url: fastmailOther },
@@ -279,18 +286,26 @@ try {
           archived: { incomplete: false, links: mode === 'correspondence' ? [
             { title: 'Previous booking', url: archivedMail }, ...(workshopArchived ? [workshop] : []),
           ] : [] },
+          snoozed: { incomplete: false, links: workshopReturnDate ? [{ ...workshop, returnDate: workshopReturnDate }] : [] },
         };
-      }
-      if (method === 'readCorrespondenceStatus') {
-        await heldStatus;
         const known = { status: 'ok', sender: 'Test Sender', latestAt: '2026-11-25T12:00:00.000Z' };
-        result = [
-          ...(workshopArchived ? [] : [{ url: gmail, mail: unread < 0 ? { status: 'unavailable' } : { ...known, unread } }]),
+        const mail = [
+          ...(workshopArchived || workshopReturnDate ? [] : [{ url: gmail, mail: unread < 0 ? { status: 'unavailable' } : { ...known, unread } }]),
           { url: fastmail, mail: { ...known, unread: 3, threadKey: 'a'.repeat(64) } },
           { url: fastmailReply, mail: { ...known, unread: 3, threadKey: 'a'.repeat(64) } },
           { url: fastmailOther, mail: { ...known, unread: 1, threadKey: 'b'.repeat(64) } },
           { url: fastmailUnresolved, mail: { status: 'not_found' } },
         ];
+        result = method === 'readCorrespondence' ? correspondence : { correspondence, mail, returned, snoozedMailIncomplete: false };
+      }
+      if (method === 'changeCorrespondenceSnooze') {
+        assert.equal(input.url, gmail);
+        if (input.change.kind === 'snooze' && unread > 0) result = { state: 'blocked', reason: 'unread' };
+        else {
+          workshopReturnDate = input.change.returnDate;
+          result = { state: workshopReturnDate ? 'snoozed' : 'unsnoozed',
+            receipt: { operationId: input.operationId, outcome: 'saved_locally_pending_sync' } };
+        }
       }
       if (method === 'readAreaStandard') {
         standardReads.push(input.id);
@@ -889,7 +904,7 @@ try {
       await refresh.focus();
       await page.keyboard.press('Tab');
       assert.ok(await workshop.evaluate(node => node === document.activeElement));
-      const archive = correspondence.locator('details');
+      const archive = correspondence.locator('details').filter({ hasText: 'Archived conversations' });
       const summary = archive.locator('summary');
       assert.equal(await summary.innerText(), 'Archived conversations (1)');
       const previous = archive.getByRole('link', { name: 'Previous booking' });
@@ -908,6 +923,45 @@ try {
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
       await correspondence.getByText('2 unread', { exact: true }).waitFor({ state: 'detached' });
       await assertSingle(visibleLinks);
+      const snooze = correspondence.getByRole('button', { name: 'Snooze Workshop logistics' });
+      await snooze.focus();
+      await page.keyboard.press('Enter');
+      const dateForm = correspondence.getByRole('form', { name: 'Return date for Workshop logistics' });
+      await dateForm.getByLabel('Return date').fill(snoozeDate(7));
+      await dateForm.getByRole('button', { name: 'Snooze', exact: true }).click();
+      const snoozed = correspondence.locator('details').filter({ hasText: 'Snoozed conversations' });
+      const snoozedSummary = snoozed.locator('summary');
+      await snoozedSummary.waitFor();
+      await assertSingle(visibleLinks.slice(1));
+      await snoozedSummary.focus();
+      await page.keyboard.press('Enter');
+      await snoozed.getByRole('link', { name: 'Workshop logistics' }).waitFor();
+      const changeDate = snoozed.getByRole('button', { name: 'Change return date for Workshop logistics' });
+      await changeDate.focus();
+      await page.keyboard.press('Enter');
+      await dateForm.getByLabel('Return date').fill(snoozeDate(8));
+      await dateForm.getByRole('button', { name: 'Save date' }).click();
+      await snoozed.locator(`time[datetime="${snoozeDate(8)}"]`).waitFor();
+      assert.ok(await correspondence.evaluate(node => node.scrollWidth === node.clientWidth));
+      await page.screenshot({ path: join(artifacts, `project-correspondence-snoozed-${width}.png`) });
+      unread = 2;
+      await refresh.click();
+      await snoozed.waitFor({ state: 'detached' });
+      await correspondence.getByText('1 conversation returned to Active.').waitFor();
+      await correspondence.getByText('2 unread', { exact: true }).waitFor();
+      await assertSingle(visibleLinks);
+      assert.equal(await snooze.count(), 0);
+      unread = 0;
+      await refresh.click();
+      await snooze.waitFor();
+      await snooze.click();
+      await dateForm.getByLabel('Return date').fill(snoozeDate(9));
+      await dateForm.getByRole('button', { name: 'Snooze', exact: true }).click();
+      await snoozedSummary.waitFor();
+      await snoozedSummary.click();
+      await snoozed.getByRole('button', { name: 'Unsnooze Workshop logistics' }).click();
+      await snoozed.waitFor({ state: 'detached' });
+      await workshop.waitFor();
       unread = -1;
       await refresh.click();
       await correspondence.getByText('Unread status unavailable', { exact: true }).waitFor();

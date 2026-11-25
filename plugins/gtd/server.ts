@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { enclosingArea } from './core/area-presentation.ts';
 import { lookupAreaCorrespondence, lookupCorrespondence, mailProvider, mailStatus, type MailStatus } from './core/correspondence.ts';
-import { correspondenceToolNames, registerCorrespondenceTools } from './core/correspondence-tools.ts';
+import { correspondenceActions, correspondenceToolNames, conversationId, registerCorrespondenceTools, type CorrespondenceWrite } from './core/correspondence-tools.ts';
 import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions } from './adapters/obsidian.ts';
@@ -54,7 +55,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Each project needs a Markdown note directly in this folder or in Active, Deferred, Someday or Done. A folder with the same name can hold supporting files.', default: 'Projects', experimental_schema: relativeFolder },
     automaticReactivation: { type: 'boolean', label: 'Automatically reactivate deferred projects', description: 'Move due projects and their supporting folders to Active, with their links and conversations. Checks daily after midnight Pacific and when GTD starts.', default: false },
   });
-  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'next_action_read' | 'correspondence_read' | 'correspondence_mail' | 'correspondence_archive' | 'correspondence_add' | 'area_mail' | 'project_create', code: string) => {
+  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'next_action_read' | 'correspondence_read' | 'correspondence_mail' | 'correspondence_archive' | 'correspondence_add' | 'correspondence_snooze' | 'area_mail' | 'project_create', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial',
       'changed', 'invalid_section', 'not_saved', 'uncertain'].includes(code) ? code : 'unknown';
     bb.log.warn(`GTD ${stage} ${safe}`);
@@ -183,14 +184,14 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     pendingMail.set(url, lookup);
     return lookup;
   };
-  registerCorrespondenceTools(bb, {
+  const correspondencePorts = {
     read: readCorrespondenceVersion,
     verify: lookupMail,
-    write: (input, signal) => withWrite(async () => {
+    write: (input: CorrespondenceWrite, signal: AbortSignal) => withWrite(async () => {
       const selection = await configured('projectsFolder');
       if (closing || signal.aborted) throw new GtdError('cancelled');
       const backend = backendFor(selection);
-      const stage = input.kind === 'archive' ? 'correspondence_archive' : 'correspondence_add';
+      const stage = input.kind === 'archive' ? 'correspondence_archive' : input.kind === 'add' ? 'correspondence_add' : 'correspondence_snooze';
       try {
         const result = await backend.writeCorrespondence(input, signal);
         if (result.operationId !== input.operationId) throw new Error('Obsidian returned a different operation receipt.');
@@ -200,10 +201,12 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
         const safe = safeError(error, signal);
         diagnose(stage, safe.code);
         if (safe.code === 'invalid_source') throw safe;
-        return { operationId: input.operationId, outcome: 'uncertain' };
+        return { operationId: input.operationId, outcome: 'uncertain' as const };
       } finally { invalidate(); }
     }),
-  });
+  };
+  const mailActions = correspondenceActions(correspondencePorts, reactivationClock, randomUUID);
+  registerCorrespondenceTools(bb, correspondencePorts, mailActions);
   const saveStandard = async (input: z.infer<typeof areaStandardInput>, signal: AbortSignal) => {
     if (closing || signal.aborted) throw new GtdError('cancelled');
     const task = (async () => {
@@ -461,6 +464,9 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     readAreaMailStatus: (input, context) => readAreaMailStatus(input, context.experimental_signal),
     readNextAction: (input, context) => readNextAction(input, context.experimental_signal),
     readCorrespondence: (input, context) => readCorrespondence(input, context.experimental_signal),
+    refreshCorrespondence: (input, context) => mailActions.refresh(input, context.experimental_signal),
+    changeCorrespondenceSnooze: ({ url, change, ...input }, context) =>
+      mailActions.change({ ...input, conversationId: conversationId(url) }, change, context.experimental_signal),
     async readCorrespondenceStatus(input, context) {
       const signal = context.experimental_signal;
       const { active } = await readCorrespondence(input, signal);

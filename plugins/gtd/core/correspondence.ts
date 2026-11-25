@@ -3,8 +3,21 @@ import { z } from 'zod';
 export const correspondenceLink = z.object({ title: z.string().min(1).max(1024), url: z.string().min(1).max(2048) }).strict();
 export const linkLimit = 40;
 export const correspondenceLinks = z.object({ links: z.array(correspondenceLink).max(linkLimit), incomplete: z.boolean() }).strict();
-export const projectCorrespondence = z.object({ active: correspondenceLinks, archived: correspondenceLinks }).strict();
+export const returnDate = z.iso.date().refine(date => !date.startsWith('0000-')).describe('Local calendar date in YYYY-MM-DD form. Ask the user if they did not give a date.');
+export const snoozedLinks = correspondenceLinks.extend({
+  links: z.array(correspondenceLink.extend({ returnDate })).max(linkLimit),
+});
+export const projectCorrespondence = z.object({ active: correspondenceLinks, archived: correspondenceLinks, snoozed: snoozedLinks }).strict();
+export const correspondenceSections = { active: 'Active conversations', archived: 'Archived conversations',
+  snoozed: 'Snoozed conversations', legacy: 'Correspondence' } as const;
 type Section = z.infer<typeof correspondenceLinks>;
+type SnoozedSection = z.infer<typeof snoozedLinks>;
+const historicalPacific = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Vancouver',
+  year: 'numeric', month: '2-digit', day: '2-digit' });
+const permanentPacificFrom = Date.UTC(2026, 2, 8, 10);
+export const correspondenceDate = (now: number) => now < permanentPacificFrom
+  ? historicalPacific.format(now)
+  : new Date(now - 7 * 60 * 60_000).toISOString().slice(0, 10);
 export const mailStatus = z.discriminatedUnion('status', [
   z.object({ status: z.literal('ok'), unread: z.number().int().min(0).max(500),
     sender: z.string().max(320).nullable(), latestAt: z.iso.datetime().nullable(),
@@ -27,23 +40,25 @@ export function mailProvider(value: string) {
 
 const supportsMailLookup = (url: string) => mailProvider(url) !== null;
 
-export function combineCorrespondence(active: Section, archived: Section, legacy: Section): z.infer<typeof projectCorrespondence> {
+export function combineCorrespondence(active: Section, archived: Section, legacy: Section, snoozed: SnoozedSection): z.infer<typeof projectCorrespondence> {
   const seen = new Set<string>();
-  const takeUnique = (section: Section) => section.links.filter(({ url }) => {
+  const takeUnique = <T extends { url: string }>(section: { links: T[] }) => section.links.filter(({ url }) => {
     if (seen.has(url)) return false;
     seen.add(url);
     return true;
   });
+  const snoozedLinks = takeUnique(snoozed).sort((left, right) => left.returnDate.localeCompare(right.returnDate));
   const activeLinks = takeUnique(active);
   const archivedLinks = takeUnique(archived);
   activeLinks.push(...takeUnique(legacy));
   return {
     active: { links: activeLinks.slice(0, linkLimit), incomplete: active.incomplete || legacy.incomplete || activeLinks.length > linkLimit },
     archived: { links: archivedLinks, incomplete: archived.incomplete },
+    snoozed: { links: snoozedLinks, incomplete: snoozed.incomplete },
   };
 }
 
-export function uniqueConversations(links: z.infer<typeof correspondenceLinks>['links'], mail: ReadonlyMap<string, MailStatus>) {
+export function uniqueConversations<T extends { url: string }>(links: T[], mail: ReadonlyMap<string, MailStatus>) {
   const seen = new Set<string>();
   return links.filter(({ url }) => {
     const result = mail.get(url);

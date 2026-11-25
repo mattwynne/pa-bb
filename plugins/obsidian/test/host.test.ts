@@ -229,3 +229,53 @@ test('adding a section link preserves the exact URL and treats the subject as te
     assert.equal(files.saved.length, 1);
   } finally { await harness.lifecycle.dispose(); }
 });
+
+test('dated correspondence saves both sections atomically while preserving unrelated note content', async () => {
+  const { harness, files } = await setup();
+  const { randomUUID } = await import('node:crypto');
+  const gtd = { experimental_caller: { kind: 'plugin' as const, pluginId: 'gtd' } };
+  const path = 'Projects/Launch.md';
+  const mail = 'https://mail.google.com/mail/?authuser=example%40example.com#all/beef';
+  const other = mail.replace('beef', 'face');
+  const note = ['# Launch', '', '## Correspondence', '', `- [Workshop](${mail})`, '',
+    '## Snoozed conversations', '', `- [Supplier](<${other}> "2026-12-01")`, '',
+    '## Notes', '', 'Private sentinel prose.', ''].join('\r\n');
+  const target = { vaultId: 'one', path };
+  const base = { ...target, expectedHash: hash(note), operationId: randomUUID() };
+  const snooze = { ...base, from: ['Active conversations', 'Correspondence'], to: 'Snoozed conversations', urls: [mail],
+    fromDated: false, returnDate: '2026-11-26' };
+  const read = (heading: string, dated?: true) => harness.behavior.callRpc('readSectionLinks', { ...target, heading, dated }, gtd);
+  try {
+    await harness.behavior.callRpc('connect', { vaultId: 'one' });
+    files.notes.set('one/' + path, note);
+    await assert.rejects(harness.behavior.callRpc('editDatedSectionLinks', snooze), /Only GTD/);
+    assert.deepEqual(await harness.behavior.callRpc('editDatedSectionLinks', snooze, gtd),
+      { operationId: base.operationId, outcome: 'saved_locally_pending_sync' });
+    const saved = files.notes.get('one/' + path)!;
+    assert.match(saved, /## Notes\r\n\r\nPrivate sentinel prose\.\r\n/);
+    assert.deepEqual(await read('Correspondence'), { hash: hash(saved), links: [], incomplete: false });
+    assert.deepEqual(await read('Snoozed conversations', true), { hash: hash(saved), incomplete: false,
+      links: [{ title: 'Supplier', url: other, returnDate: '2026-12-01' }, { title: 'Workshop', url: mail, returnDate: '2026-11-26' }] });
+    const update = { ...target, expectedHash: hash(saved), operationId: randomUUID(), from: ['Snoozed conversations'],
+      to: 'Snoozed conversations', urls: [mail], fromDated: true, returnDate: '2026-12-03' };
+    assert.deepEqual(await harness.behavior.callRpc('editDatedSectionLinks', update, gtd),
+      { operationId: update.operationId, outcome: 'saved_locally_pending_sync' });
+    const wake = { ...target, expectedHash: hash(files.notes.get('one/' + path)!), operationId: randomUUID(),
+      from: ['Snoozed conversations'], to: 'Active conversations', urls: [mail, other], fromDated: true };
+    const stale = { ...wake, expectedHash: hash(saved) };
+    assert.deepEqual(await harness.behavior.callRpc('editDatedSectionLinks', stale, gtd),
+      { operationId: stale.operationId, outcome: 'not_saved', reason: 'changed' });
+    const missing = { ...wake, operationId: randomUUID(), urls: [mail, 'https://example.com/missing'] };
+    assert.deepEqual(await harness.behavior.callRpc('editDatedSectionLinks', missing, gtd),
+      { operationId: missing.operationId, outcome: 'not_saved', reason: 'invalid_section' });
+    assert.equal(files.saved.length, 2);
+    assert.deepEqual(await harness.behavior.callRpc('editDatedSectionLinks', wake, gtd),
+      { operationId: wake.operationId, outcome: 'saved_locally_pending_sync' });
+    const finalHash = hash(files.notes.get('one/' + path)!);
+    assert.deepEqual(await read('Snoozed conversations', true), { hash: finalHash, links: [], incomplete: false });
+    assert.deepEqual(await read('Active conversations'), { hash: finalHash, incomplete: false,
+      links: [{ title: 'Supplier', url: other }, { title: 'Workshop', url: mail }] });
+    assert.equal(files.saved.length, 3);
+    assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /sentinel|Launch\.md|example%40/);
+  } finally { await harness.lifecycle.dispose(); }
+});
