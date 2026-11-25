@@ -1,4 +1,4 @@
-export type Category = 'configuration' | 'disconnected' | 'oauth_state' | 'authorization' | 'scope_required' | 'transport' | 'rate_limit' | 'provider_rejection' | 'provider_result' | 'response_invalid' | 'tenant_required' | 'connection_changed' | 'input' | 'verification' | 'unknown';
+export type Category = 'configuration' | 'disconnected' | 'oauth_state' | 'authorization' | 'scope_required' | 'transport' | 'rate_limit' | 'provider_rejection' | 'provider_result' | 'response_invalid' | 'tenant_required' | 'connection_changed' | 'input' | 'verification' | 'storage' | 'unknown';
 export class XeroError extends Error {
   readonly category: Category;
   readonly stage: string;

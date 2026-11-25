@@ -8,4 +8,18 @@
 .pa-xero__status:empty { display: none; }
 .pa-xero__scopes { list-style: disc; padding-left: 1.25rem; font-size: .75rem; line-height: 1.6; overflow-wrap: anywhere; }
 .pa-xero .pa-connection__disclosure p { font-size: .8rem; line-height: 1.5; }
+.pa-xero-bank-rec { margin: 1.25rem 0; padding-top: 1rem; border-top: 1px solid var(--border); }
+.pa-xero-bank-rec h3 { margin: 0 0 .5rem; font-size: 1rem; font-weight: 650; }
+.pa-xero-bank-rec h4 { margin: 1rem 0 .5rem; font-size: .875rem; font-weight: 600; }
+.pa-xero-bank-rec p, .pa-xero-bank-rec ol { margin: .5rem 0; font-size: .8rem; line-height: 1.5; }
+.pa-xero-bank-rec__label { display: grid; gap: .35rem; min-width: 0; font-size: .8rem; font-weight: 600; }
+.pa-xero-bank-rec select, .pa-xero-bank-rec input { min-width: 0; max-width: 100%; border: 1px solid var(--border); border-radius: .4rem; padding: .45rem; background: var(--background); color: var(--foreground); font: inherit; }
+.pa-xero-bank-rec select:focus-visible, .pa-xero-bank-rec input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.pa-xero-bank-rec__actions { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; margin: .75rem 0; }
+.pa-xero-bank-rec__captures { list-style: none; padding: 0; margin: .5rem 0; border: 1px solid var(--border); border-radius: .5rem; }
+.pa-xero-bank-rec__captures li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; padding: .75rem; }
+.pa-xero-bank-rec__captures li + li { border-top: 1px solid var(--border); }
+.pa-xero-bank-rec__captures li > div { display: grid; gap: .15rem; min-width: 0; overflow-wrap: anywhere; }
+.pa-xero-bank-rec__captures strong { font-size: .875rem; }
+.pa-xero-bank-rec__captures span { color: var(--muted-foreground); font-size: .75rem; }
 .pa-xero a:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }

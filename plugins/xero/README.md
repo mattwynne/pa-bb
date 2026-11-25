@@ -63,6 +63,12 @@ The general caller supports all HTTP methods, full JSON fields, XML/text bodies,
 
 Uploads use explicitly requested regular files on the BB server, not the browser computer. Downloads are saved byte-for-byte into current-thread storage on the BB server with new private filenames and SHA-256 receipts, without returning binary/base64 content to the model. Request/transfer size is bounded to 20 MiB; provider limits can be smaller. Normal tool text is bounded to 48,000 characters; use filtering, paging, schema fragments or `downloadName` rather than treating truncated output as complete.
 
+## Bank Rec browser snapshots
+
+In **Bank reconciliation snapshots**, select an organisation and download its private bookmarklet installer. Open the HTML in your normally signed-in browser, install its bookmark, and click it on Xero’s Reconcile tab to download visible statement lines as JSON. Import that JSON with the settings file picker; the assistant can list/read it by account and capture time. No automated login, browser profile, password manager or financial clicks are involved.
+
+The importer verifies account membership/currency, retains capture provenance and distinct identical rows, and recognises repeated imports without duplicating history. Captures remain separate, editable, visible-only snapshots—not a live or complete queue. Empty/unrecognised pages fail, not prove reconciliation is complete. See the [capture/import guide](references/bank-rec.md) for formats, limits, tools and privacy.
+
 ## Financial safeguards
 
 Connecting grants provider permissions, **not blanket consent to change records**. Use writes only for the user's explicit request. There is no extra plugin approval screen for an already-requested write.
@@ -85,7 +91,7 @@ Accounting `/BankTransactions` is the ledger, not the interactive unreconciled b
 - **Sign-in cancelled/expired:** reconnect. State expires after five minutes and is consumed once. If exchange succeeded but connection discovery failed, refresh connections rather than replaying the callback.
 - **Access rejected:** check granted scopes, app eligibility, country/subscription and Xero user role. Request additional permissions through Configuration and Reconnect only when intended.
 - **Client changed:** restore that client's settings or reconnect. Configuration changes invalidate pending sign-in and in-flight authorization, not silently migrate an existing grant.
-- **Disconnect:** confirms removal of locally stored login tokens/connections and pending sign-in. It leaves Xero records, documents and other integrations unchanged. Remove the app in Xero's Connected apps to revoke provider access too. See the separate billing caveat above.
+- **Disconnect:** confirms removal of locally stored login tokens/connections and pending sign-in. Imported Bank Rec snapshots are retained; reconnect to the same organisation to view/remove them. It leaves Xero records, documents and other integrations unchanged. Remove the app in Xero's Connected apps to revoke provider access too. See the separate billing caveat above.
 
 Client secrets use BB's protected settings. Login tokens and hashed short-lived OAuth state live in the plugin-owned BB database; protect and back up BB's private data directory. Refresh rotation is serialized, and stale callbacks/reads cannot resurrect a disconnected connection. Other tools' token files and browser profiles are untouched.
 
@@ -98,10 +104,11 @@ npm ci --prefix plugins/xero
 npm --prefix plugins/xero test
 npm --prefix plugins/xero run typecheck
 npm --prefix plugins/xero run test:host
+BB_REVIEW_CHROME=/path/to/chrome npm --prefix plugins/xero run test:browser
 BB_REVIEW_CHROME=/path/to/chrome npm --prefix plugins/xero run test:rendered
 node scripts/sync-connection-ui.mjs --check
 ```
 
-Generated-data tests exercise routing for all 485 catalog operations, uploads/downloads, full-field writes, XML/raw routes, grant changes, tenant selection, partial results and safe diagnostics. Host tests run built handlers through the public SDK. Rendered tests use disposable stock BB and a test-only fake provider at desktop/narrow widths with keyboard checks. Optional `BB_REVIEW_REFERENCE_PLUGIN` points to a Fastmail checkout for rendered comparison; `BB_REVIEW_ARTIFACTS` saves private local screenshots. Catalog generation is a separate reviewed development task documented in [coverage notes](references/coverage.md); installation/runtime needs neither Python nor an upstream checkout.
+Generated-data tests exercise routing for all 485 catalog operations, uploads/downloads, full-field writes, XML/raw routes, grant changes, tenant selection, partial results and safe diagnostics. Host tests run built handlers through the public SDK, including migration/state preservation, capture provenance, pagination, duplicate imports, disconnect races and storage/provider diagnostics. Browser tests execute the built handler’s bookmarklet on isolated page fixtures with network/credential/control-access guards. Rendered tests use disposable stock BB and a test-only fake provider at desktop/narrow widths with keyboard checks. Optional `BB_REVIEW_REFERENCE_PLUGIN` points to a Fastmail checkout for rendered comparison; `BB_REVIEW_ARTIFACTS` saves private local screenshots. Catalog generation is a separate reviewed development task documented in [coverage notes](references/coverage.md); installation/runtime needs neither Python nor an upstream checkout.
 
-**Verification limit:** no live Xero OAuth grant, provider read, report, upload, financial write, payroll, practice or partner operation has been verified for this plugin. Synthetic routing proves neither provider acceptance nor business outcomes. Connect the intended account and verify a harmless read before relying on it. Never perform a financial write merely to smoke-test deployment.
+**Verification limit:** no live Xero DOM variant, OAuth grant, provider read, report, upload, financial write, payroll, practice or partner operation has been verified for this plugin. Synthetic routing proves neither provider acceptance nor business outcomes. Connect the intended account and verify a harmless read before relying on it. Never perform a financial write merely to smoke-test deployment.

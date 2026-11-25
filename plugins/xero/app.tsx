@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { definePluginApp, useRpc } from '@get-bb/plugin-sdk/app';
 import type { rpcContract, Status } from './contract.ts';
 import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButton, ConnectionDisclosure, ConnectionEmpty, ConnectionFooter, ConnectionGuide, ConnectionHeading, ConnectionSetup } from './connection-ui.tsx';
+import { BankRecSettings } from './bank-rec-app.tsx';
 import './connection-ui.css';
 import './app.css';
 
@@ -26,7 +27,7 @@ export function XeroSettings() {
     catch { setError('Could not start Xero sign-in. Check the Web OAuth client, registered callback and BB address in the setup guide.'); setBusy(''); }
   }
   async function disconnect() {
-    if (!window.confirm('Disconnect this Xero login and all its organisations or practices from this BB plugin? This removes the locally stored login connection only. Xero records, source documents and other integrations remain unchanged. To revoke app access, also remove it in Xero’s Connected apps.' + (status?.appStoreEnabled ? ' App Store partner billing remains separately enabled; turn off that Configuration setting to stop new application-token requests.' : ''))) return;
+    if (!window.confirm('Disconnect this Xero login and all its organisations or practices from this BB plugin? This removes the locally stored login connection only. Imported Bank Rec snapshots are retained; reconnect to view or remove them. Xero records, source documents and other integrations remain unchanged. To revoke app access, also remove it in Xero’s Connected apps.' + (status?.appStoreEnabled ? ' App Store partner billing remains separately enabled; turn off that Configuration setting to stop new application-token requests.' : ''))) return;
     await action('Disconnecting…', () => rpc.call('disconnect', null));
   }
   async function copy() {
@@ -50,6 +51,7 @@ export function XeroSettings() {
           action={org.tenantType === 'PRACTICE' ? undefined : <ConnectionButton disabled={Boolean(busy)} aria-label={`Check access to ${org.tenantName}`} onClick={() => void action('Checking access…', () => rpc.call('check', { tenantId: org.tenantId }))}>Check access</ConnectionButton>} />)}</ConnectionAccounts>
           : <ConnectionEmpty>No organisations or practices were returned. Refresh connections, or Reconnect and select one in Xero.</ConnectionEmpty>}
         <p className="pa-xero__note">Reads and requested changes follow your Xero permissions. Final browser reconciliation stays in Xero.</p>
+        {status.organisations.some(org => org.tenantType === 'ORGANISATION') && <BankRecSettings organisations={status.organisations.filter(org => org.tenantType === 'ORGANISATION')} />}
         <ConnectionDisclosure summary="Access and permissions">
           <p>Granted at Xero sign-in. Permissions do not prove provider eligibility or that every operation works. To request more access, set Additional Xero OAuth scopes in Configuration and choose Reconnect.</p>
           <ul className="pa-xero__scopes">{status.scopes.map(scope => <li key={scope}><code>{scope}</code></li>)}</ul>

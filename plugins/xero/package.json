@@ -30,9 +30,11 @@
   "scripts": {
     "build": "bb plugin build",
     "typecheck": "tsc --noEmit && bb plugin types --check",
-    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
-    "test:host": "npm run build && node --test test/host.test.mjs",
+    "test": "node scripts/generate-bank-rec-source.mjs --check && node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "test:host": "npm run build && node --test test/host.test.mjs test/bank-rec-host.test.mjs",
     "test:rendered": "node test/rendered-review.mjs",
+    "bookmarklet:update": "node scripts/generate-bank-rec-source.mjs",
+    "test:browser": "npm run build && node --test test/bank-rec-browser.test.mjs",
     "catalog:update": "node scripts/update-api-catalog.mjs"
   }
 }

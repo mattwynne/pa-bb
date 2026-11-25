@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright';
+import { account as bankFixture, capture as bankCaptureFixture } from './bank-rec-fixture.mjs';
 const pkg = fileURLToPath(new URL('../', import.meta.url));
 const bb = process.env.BB_REVIEW_APP_ROOT ?? join(pkg, 'node_modules/bb-app');
 const chrome = process.env.BB_REVIEW_CHROME;
@@ -17,7 +18,7 @@ const root = await mkdtemp(join(tmpdir(), 'xero-bb-review-')), source = join(roo
 const port = Number(process.env.BB_REVIEW_PORT ?? 43028), base = `http://127.0.0.1:${port}`;
 const env = { PATH: process.env.PATH, HOME: join(root, 'home'), NODE_ENV: 'production', BB_DATA_DIR: join(root, 'data'), BB_SERVER_PORT: String(port), BB_SERVER_BIND_HOST: '127.0.0.1', BB_APP_URL: base, BB_SERVER_URL: base, BB_HOST_DAEMON_PORT: String(port + 1) };
 await mkdir(env.HOME); await mkdir(source);
-for (const file of ['package.json', 'app.tsx', 'app.css', 'contract.ts', 'connection-ui.tsx', 'connection-ui.css', 'connection.ts', 'accounting.ts', 'diagnostic.ts', 'attachment.ts', 'api.ts', 'catalog.ts', 'permissions.ts', 'file-transfer.ts', 'upstream', 'skills', 'references']) await cp(join(pkg, file), join(source, file), { recursive: true });
+for (const file of ['package.json', 'app.tsx', 'app.css', 'contract.ts', 'connection-ui.tsx', 'connection-ui.css', 'connection.ts', 'accounting.ts', 'diagnostic.ts', 'attachment.ts', 'api.ts', 'catalog.ts', 'permissions.ts', 'file-transfer.ts', 'bank-rec.ts', 'bank-rec-store.ts', 'bank-rec-app.tsx', 'bank-rec', 'upstream', 'skills', 'references']) await cp(join(pkg, file), join(source, file), { recursive: true });
 await cp(join(pkg, 'server.ts'), join(source, 'production.ts'));
 await symlink(join(pkg, 'node_modules'), join(source, 'node_modules'));
 await writeFile(join(source, 'server.ts'), `
@@ -30,6 +31,7 @@ export default async bb => {
     if (mode === 'failure') throw new Error('SECRET_SENTINEL PRIVATE_ACCOUNT');
     if (String(url).includes('/connect/token')) return Response.json({ access_token: 'SECRET_ACCESS', refresh_token: 'SECRET_REFRESH', expires_in: 1800, scope: grant });
     if (String(url).endsWith('/connections')) return Response.json(mode === 'empty' ? [] : [{ tenantId: '11111111-1111-4111-8111-111111111111', tenantName: mode === 'practice' ? 'Example practice' : 'Example organisation', tenantType: mode === 'practice' ? 'PRACTICE' : 'ORGANISATION' }]);
+    if (String(url).includes('/Accounts')) return Response.json({ Accounts: [${JSON.stringify(bankFixture)}] });
     return Response.json({ Organisations: [{ Name: 'Example organisation' }] });
   } });
   bb.rpc.register({ fixtureMode: { input: z.enum(['connected', 'failure', 'empty', 'practice']), output: z.null() }, fixtureGrant: { input: z.string(), output: z.null() } }, { fixtureMode: input => { mode = input; return null; }, fixtureGrant: input => { grant = input; return null; } });
@@ -99,6 +101,31 @@ try {
   await region().getByRole('button', { name: 'Check access to Example organisation' }).focus();
   await page.keyboard.press('Enter'); await region().getByText('Read verified', { exact: true }).waitFor();
   await screen('connected-narrow'); await page.setViewportSize({ width: 1280, height: 960 }); await screen('connected-desktop');
+  const rec = region().getByRole('region', { name: 'Bank reconciliation snapshots' });
+  await rec.getByRole('combobox', { name: 'Organisation', exact: true }).selectOption('11111111-1111-4111-8111-111111111111');
+  await rec.getByText('No snapshots imported for this organisation.', { exact: false }).waitFor(); await screen('bank-rec-empty-desktop');
+  await rec.getByRole('combobox', { name: 'Organisation', exact: true }).focus(); await page.keyboard.press('Tab');
+  assert.equal(await rec.getByRole('button', { name: 'Download bookmarklet installer' }).evaluate(el => el === document.activeElement), true);
+  await page.keyboard.press('Tab'); assert.equal(await rec.getByLabel('Import capture JSON').evaluate(el => el === document.activeElement), true);
+  const installerDownload = page.waitForEvent('download'); await rec.getByRole('button', { name: 'Download bookmarklet installer' }).click();
+  const installerFile = await installerDownload; assert.doesNotMatch(await readFile(await installerFile.path(), 'utf8'), /SECRET/);
+  await page.setViewportSize({ width: 390, height: 960 }); await rec.getByText('How to capture and import', { exact: true }).click(); await screen('bank-rec-guide-narrow');
+  await rec.getByText('How to capture and import', { exact: true }).click();
+  const file = { name: 'xero-bank-rec-example.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bankCaptureFixture())) };
+  await rec.getByLabel('Import capture JSON').setInputFiles(file); await rec.getByRole('status').filter({ hasText: 'Imported: 2 visible lines' }).waitFor();
+  await rec.getByRole('button', { name: /^Remove capture/ }).waitFor(); await screen('bank-rec-imported-narrow');
+  await rec.getByRole('button', { name: 'Refresh snapshots', exact: true }).focus(); await page.keyboard.press('Enter');
+  if (artifacts) await page.screenshot({ path: join(artifacts, 'bank-rec-imported-narrow-bottom.png') });
+  await rec.getByLabel('Import capture JSON').setInputFiles(file); await rec.getByRole('status').filter({ hasText: 'Already imported' }).waitFor(); assert.equal(await rec.getByRole('button', { name: /^Remove capture/ }).count(), 1);
+  await page.setViewportSize({ width: 1280, height: 960 }); await screen('bank-rec-imported-desktop');
+  const invalid = bankCaptureFixture(); invalid.account.CurrencyCode = 'USD';
+  await rec.getByLabel('Import capture JSON').setInputFiles({ ...file, buffer: Buffer.from(JSON.stringify(invalid)) });
+  await rec.getByRole('alert').filter({ hasText: 'captured currency differs' }).waitFor();
+  await page.setViewportSize({ width: 390, height: 960 }); await screen('bank-rec-error-narrow');
+  assert.equal(await rec.getByRole('button', { name: /^Remove capture/ }).count(), 1, 'failed import retains prior evidence');
+  page.once('dialog', dialog => dialog.dismiss()); await rec.getByRole('button', { name: /^Remove capture/ }).click(); assert.equal(await rec.getByRole('button', { name: /^Remove capture/ }).count(), 1);
+  page.once('dialog', dialog => dialog.accept()); await rec.getByRole('button', { name: /^Remove capture/ }).click(); await rec.getByText('No snapshots imported for this organisation.', { exact: false }).waitFor();
+  await rec.getByRole('combobox', { name: 'Organisation', exact: true }).selectOption('');
   await cli('plugin', 'config', 'xero', 'set', 'additionalScopes', 'files');
   await page.reload(); await region().getByRole('alert').filter({ hasText: 'not granted yet' }).waitFor();
   assert.ok(!(await rpc('status')).scopes.includes('files'), 'Saving a scope cannot upgrade an existing grant');
@@ -135,7 +162,7 @@ try {
   await region().getByRole('button', { name: 'Disconnect', exact: true }).click(); await region().getByRole('heading', { name: 'Get started' }).waitFor(); assert.ok(confirmed);
   assert.equal((await rpc('status')).connected, false);
   const logs = await cli('plugin', 'logs', 'xero', '-n', '15'); assert.match(logs, /Xero accounting_read transport/); assert.doesNotMatch(logs, /SECRET|PRIVATE_ACCOUNT/);
-  console.log('Verified real BB: first-run, pending provider consent, connected, verified read, empty, error/recovery and disconnect confirmation; desktop/narrow, keyboard activation, safe bounded logs. Synthetic provider only.');
+  console.log('Verified real BB: first-run, pending provider consent, connected, verified read, Bank Rec installer download/file import/duplicate and currency failure/local removal, empty, error/recovery and disconnect confirmation; desktop/narrow, keyboard activation, safe bounded logs. Synthetic provider only.');
 } catch (error) {
   console.error('Review artifacts and disposable data:', root);
   console.error((await readFile(join(root, 'bb.log'), 'utf8')).split('\n').slice(-12).join('\n'));

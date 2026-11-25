@@ -39,7 +39,7 @@ test('stock BB settings, protected client secret, OAuth callback and actual orga
     assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
     const status = await w.rpc('status'); assert.equal(status.connected, true); assert.equal(status.organisations[0].tenantName, 'Example organisation');
     assert.equal(status.organisations[0].checkedAt, null); assert.doesNotMatch(JSON.stringify(status), /SECRET/);
-    assert.equal((await w.selected()).tools.length, 12); assert.deepEqual((await w.selected()).skills.map(s => s.name ?? s), ['xero']);
+    assert.equal((await w.selected()).tools.length, 15); assert.deepEqual((await w.selected()).skills.map(s => s.name ?? s), ['xero']);
     await w.rpc('check', { tenantId: TENANT }); assert.ok((await w.rpc('status')).organisations[0].checkedAt);
     assert.equal(w.calls.at(-1).init.method, 'GET');
   } finally { await w.close(); }
