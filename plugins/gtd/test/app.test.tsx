@@ -221,8 +221,8 @@ test('the Area filter rolls up nested projects, includes Deferred in All, and pe
 test('the index and former browser path both list Areas even if there are no projects', async () => {
   for (const destination of [areasIndex, { panel: 'projects' } as const]) {
     const slot = setup('empty', undefined, destination);
-    expect((await slot.findByRole('link', { name: 'Learning', description: '0 active projects' })).getAttribute('href')).toBe(panelHref(learning));
-    expect(slot.getAllByRole('link', { name: /^Empty Area \d$/, description: '0 active projects' })).toHaveLength(8);
+    expect((await slot.findByRole('link', { name: 'Learning', description: '0 projects' })).getAttribute('href')).toBe(panelHref(learning));
+    expect(slot.getAllByRole('link', { name: /^Empty Area \d$/, description: '0 projects' })).toHaveLength(8);
     expect(slot.queryByLabelText('Filter by project status')).toBeNull();
     slot.lifecycle.unmount();
   }
@@ -230,15 +230,15 @@ test('the index and former browser path both list Areas even if there are no pro
 
 test('the Areas index counts only active projects, including nested and unassigned projects', async () => {
   const slot = setup('counts', undefined, areasIndex);
-  expect((await slot.findByRole('link', { name: 'Learning', description: '2 active projects' })).getAttribute('href')).toBe(panelHref(learning));
-  expect(slot.getByRole('link', { name: 'Unassigned area', description: '1 active project' })).toBeTruthy();
+  expect((await slot.findByRole('link', { name: 'Learning', description: '2 projects' })).getAttribute('href')).toBe(panelHref(learning));
+  expect(slot.getByRole('link', { name: 'Unassigned area', description: '1 project' })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
 test('the Areas index omits unconfirmed counts when the inventory is partial', async () => {
   const slot = setup('malformed', undefined, areasIndex);
   expect(await slot.findByRole('link', { name: 'Learning' })).toBeTruthy();
-  expect(slot.queryByText(/active projects?$/)).toBeNull();
+  expect(slot.queryByText(/^\d+ projects?$/)).toBeNull();
   slot.lifecycle.unmount();
 });
 

@@ -449,10 +449,10 @@ try {
       const header = nav.locator('.gtd-page-header');
       const indexHeader = await header.boundingBox();
       const indexTitle = await heading('Areas').boundingBox();
-      await link('Learning').getByText('1 active project', { exact: true }).waitFor();
-      await link('Home').getByText('0 active projects', { exact: true }).waitFor();
-      await link('Empty Area').getByText('0 active projects', { exact: true }).waitFor();
-      const count = await link('Learning').getByText('1 active project', { exact: true }).boundingBox();
+      await link('Learning').getByText('1 project', { exact: true }).waitFor();
+      await link('Home').getByText('0 projects', { exact: true }).waitFor();
+      await link('Empty Area').getByText('0 projects', { exact: true }).waitFor();
+      const count = await link('Learning').getByText('1 project', { exact: true }).boundingBox();
       const chevron = await link('Learning').locator('svg').boundingBox();
       assert.ok(Math.abs(chevron.x - count.x - count.width - 8) < 1);
       assert.ok(await nav.locator('.gtd-rows').evaluate(list => list.scrollWidth === list.clientWidth));
