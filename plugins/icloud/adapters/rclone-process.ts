@@ -269,7 +269,7 @@ export class RcloneProcess {
       const frame = JSON.stringify({ ...payload, binding: target.binding, workdir: target.workdir });
       if (Buffer.byteLength(frame) > (8 << 20)) throw new CloudError('capacity');
       const output = await this.execute(target.binary, ['bb-owned-note', operation, target.remote, ...this.flags('2', link),
-        '--retries', '1', '--low-level-retries', '1'], true, 15_000, undefined, 'generic',
+        '--retries', '1', '--low-level-retries', '1'], true, operation === 'relocate' ? 28_000 : 15_000, undefined, 'generic',
         { ownedNote: { configFd: config.fd, phaseFd: phase.fd, frame } });
       try { return JSON.parse(output) as unknown; } catch { throw new CloudError('sync_failed'); }
     } finally {

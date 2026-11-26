@@ -2376,7 +2376,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,304 @@
+@@ -0,0 +1,311 @@
 +package main
 +
 +import (
@@ -2456,6 +2456,13 @@
 +	return message.Binding != "" && message.Path != ""
 +}
 +
++func ownedNoteDeadline(operation string) time.Duration {
++	if operation == "relocate" {
++		return 24 * time.Second
++	}
++	return 12 * time.Second
++}
++
 +func init() {
 +	command := &cobra.Command{
 +		Use:    "bb-owned-note <operation> <bound-remote>",
@@ -2470,7 +2477,7 @@
 +			if !validOwnedNoteFrame(args[0], message) || (args[0] != "inspect" && args[0] != "inspect-relocation" && !ownInheritedMutationLock(message.Workdir)) {
 +				return json.NewEncoder(os.Stdout).Encode(ownedNoteReply{Outcome: "refused"})
 +			}
-+			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
++			ctx, cancel := context.WithTimeout(context.Background(), ownedNoteDeadline(args[0]))
 +			defer cancel()
 +			return json.NewEncoder(os.Stdout).Encode(applyOwnedNote(ctx, args[0], args[1], message))
 +		},
