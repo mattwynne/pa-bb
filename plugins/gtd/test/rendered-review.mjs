@@ -489,6 +489,12 @@ try {
     const areasCrumb = breadcrumbs.getByRole('link', { name: 'Areas', exact: true });
     const filter = nav.getByLabel('Filter by project status', { exact: true });
     const threadFilter = nav.getByLabel('Filter by thread status', { exact: true });
+    const selectActionFilter = async (section, name) => {
+      const trigger = section.getByLabel('Filter by action status');
+      await trigger.click();
+      await section.getByRole('radio', { name, exact: true }).click();
+      await trigger.press('Escape');
+    };
     const switchArea = async name => {
       await areasCrumb.press('Enter');
       await heading('Areas').waitFor();
@@ -836,6 +842,7 @@ try {
       assert.equal(await toggleActions.getAttribute('aria-expanded'), 'false');
       assert.equal(await add.count(), 0);
       assert.equal(await draft.count(), 0);
+      assert.equal(await actions.getByLabel('Filter by action status').count(), 0);
       assert.ok(await addProject.isVisible());
       await toggleProjects.press('Enter');
       assert.equal(await toggleProjects.getAttribute('aria-expanded'), 'false');
@@ -885,7 +892,18 @@ try {
       const bounds = await row.boundingBox();
       assert.ok(bounds);
       await row.click({ position: { x: bounds.width - 8, y: bounds.height / 2 } });
-      await actions.getByText('No actions recorded.').waitFor();
+      await actions.getByText('No open actions.').waitFor();
+      await selectActionFilter(actions, 'Done');
+      const done = actions.getByRole('checkbox', { name: 'Book the room' });
+      assert.equal(await done.isChecked(), true);
+      await done.click();
+      await actions.getByText('Book the room').waitFor({ state: 'detached' });
+      await selectActionFilter(actions, 'All');
+      await done.waitFor();
+      assert.equal(await done.isChecked(), false);
+      await actions.getByText('Book the room', { exact: true }).click();
+      await actions.locator('.gtd-action-row').filter({ hasText: 'Book the room' }).locator('input:checked').waitFor();
+      assert.ok(await done.isChecked());
       await openArea('Home');
       await actions.getByRole('status').getByText('Could not load actions. Check the Area note in Obsidian.').waitFor();
       await openArea('Folder');
@@ -1003,6 +1021,15 @@ try {
       await task.click();
       await task.waitFor({ state: 'detached' });
       assert.ok(await plan.isVisible());
+      await selectActionFilter(actions, 'Done');
+      const completed = actions.getByRole('checkbox', { name: 'Check the workbench' });
+      assert.equal(await completed.isChecked(), true);
+      assert.equal(await plan.count(), 0);
+      await selectActionFilter(actions, 'All');
+      assert.ok(await plan.isVisible());
+      assert.ok(await completed.isChecked());
+      await selectActionFilter(actions, 'Open');
+      assert.equal(await completed.count(), 0);
       const threads = nav.getByRole('region', { name: 'Threads', exact: true });
       const toggleThreads = threads.getByRole('button', { name: 'Threads', exact: true });
       const newThreadName = `New thread for ${title}`;

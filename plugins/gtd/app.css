@@ -55,7 +55,7 @@
 }
 .gtd-action-content { display: flex; align-items: flex-start; gap: 5px; min-height: 0; }
 .gtd-action-exiting { animation: gtd-action-complete 180ms ease-out both; overflow: clip; }
-.gtd-action-exiting .gtd-note-actions-text { text-decoration: line-through; }
+.gtd-action-row[data-complete] .gtd-note-actions-text { text-decoration: line-through; }
 @keyframes gtd-action-complete {
   to { opacity: 0; grid-template-rows: 0fr; }
 }

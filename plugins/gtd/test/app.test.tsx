@@ -213,9 +213,10 @@ test('the Area filter rolls up nested projects, includes Deferred in All, and pe
   expect(slot.queryAllByRole('link', { name: /^Empty Area \d$/ })).toHaveLength(0);
   expect(slot.queryByRole('link', { name: 'Unassigned area' })).toBeNull();
   fireEvent.click(slot.getByLabelText('Filter by project status'));
-  expect((slot.getByRole('radio', { name: 'Active' }) as HTMLInputElement).checked).toBe(true);
-  expect(slot.getAllByRole('radio').map(radio => radio.parentElement!.textContent)).toEqual(['Active', 'Someday', 'Done', 'All']);
-  fireEvent.click(slot.getByRole('radio', { name: 'All' }));
+  const projectFilters = within(slot.getByRole('group', { name: 'Project status' }));
+  expect((projectFilters.getByRole('radio', { name: 'Active' }) as HTMLInputElement).checked).toBe(true);
+  expect(projectFilters.getAllByRole('radio').map(radio => radio.parentElement!.textContent)).toEqual(['Active', 'Someday', 'Done', 'All']);
+  fireEvent.click(projectFilters.getByRole('radio', { name: 'All' }));
   expect(slot.getByRole('link', { name: /Deferred tools/ })).toBeTruthy();
   slot.lifecycle.unmount();
   const empty = setup('nested', undefined, recordDestination('areas', ref.source, 'Areas/Empty0/'));
