@@ -20,7 +20,7 @@ const intent = z.object({
   expected: deliveryObservation.nullable(),
   wantedHash: hash,
 }).strict();
-const stored = intent.extend({ publication: deliveryObservation.nullable(), conflictCopy: notePath.optional() }).strict();
+const stored = intent.extend({ publication: deliveryObservation.nullable(), conflictCopy: notePath.optional(), reconcileConflict: z.literal(true).optional() }).strict();
 export type DeliveryObservation = z.infer<typeof deliveryObservation>;
 export type DeliveryIntent = z.infer<typeof intent>;
 type Stored = z.infer<typeof stored>;
@@ -106,6 +106,25 @@ export class NoteDeliveryRecovery {
         throw new CloudError('recovery_required');
       if (row.conflictCopy && row.conflictCopy !== copy) throw new CloudError('source_changed');
       this.write({...row,conflictCopy:copy});
+    }).immediate();
+  }
+
+  requestConflictReconciliation(mirrorId: string, operationId: string) {
+    this.db.transaction(() => {
+      const row = this.forOperation(mirrorId,operationId);
+      if (!row.source || !row.conflictCopy || row.publication) throw new CloudError('recovery_required');
+      this.write({...row,reconcileConflict:true});
+    }).immediate();
+  }
+
+  reconciledConflict(mirrorId: string, operationId: string, queue: NoteDeliveryQueue) {
+    this.db.transaction(() => {
+      const row = this.forOperation(mirrorId,operationId);
+      if (!row.source || !row.conflictCopy || !row.reconcileConflict || row.publication) throw new CloudError('recovery_required');
+      queue.settle(mirrorId,row.path,row.operations);
+      if (row.sourceOperations) queue.settle(mirrorId,row.source,row.sourceOperations);
+      this.db.prepare('DELETE FROM icloud_delivery_head WHERE mirror = ? AND path IN (?,?)').run(mirrorId,row.source,row.path);
+      this.remove(row);
     }).immediate();
   }
 

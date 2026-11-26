@@ -15,7 +15,7 @@ import { RcloneProcess } from './rclone-process.ts';
 import type { ListingCheckers, ManagedNativeMirror } from './rclone-process.ts';
 import { NoteDeliveryQueue, noteDeliverySchema } from './note-delivery-queue.ts';
 import { NoteDeliveryRecovery, deliveryRecoverySchema, isMoveEndpoint } from './note-delivery-recovery.ts';
-import { runNoteDelivery } from './note-delivery-native.ts';
+import { NativeNoteDelivery, runNoteDelivery } from './note-delivery-native.ts';
 import { managedMirrorBinding } from './note-delivery-deployment.ts';
 import { selectedRemote } from './rclone-cloud-provider.ts';
 import { NoteSearch } from './note-search.ts';
@@ -464,7 +464,7 @@ export class NoteRuntime {
         const paths = move ? pending.filter(path => !isMoveEndpoint(move,path) && !queue.pendingPath(id,path)[0]?.source) : pending;
         const last = paths.indexOf(this.deliveryLastPath.get(id) ?? '');
         let path = paths[(last + 1) % paths.length];
-        if (move?.conflictCopy && !write) {
+        if (move?.conflictCopy && !move.reconcileConflict && !write) {
           if (!path) continue;
         } else if (move && !write) {
           const operationId = move.operations.at(-1)!;
@@ -472,7 +472,7 @@ export class NoteRuntime {
           const now = Date.now();
           // Give queued independent writes a turn before retrying a move.
           // Recovery still gets periodic turns even when other edits continue.
-          const retryInterval = paths.length ? 30_000 : 4_000;
+          const retryInterval = paths.length && !move.reconcileConflict ? 30_000 : 4_000;
           if (previous?.operationId !== operationId) this.deliveryMoveAttempt.set(id,{operationId,at:now});
           else if (now - previous.at >= retryInterval) {
             this.deliveryMoveAttempt.set(id,{operationId,at:now});
@@ -497,8 +497,27 @@ export class NoteRuntime {
   moveConflict(id: string) {
     if (!this.managedDelivery.has(id) || !this.deliveryJournal) throw new CloudError('invalid_selection');
     const move = this.deliveryJournal.pending(id,'move');
-    return move?.conflictCopy ? { outcome:'preserved' as const, source:move.source!, destination:move.path, copy:move.conflictCopy }
+    return move?.conflictCopy ? { outcome:'preserved' as const, operationId:move.operations.at(-1)!, source:move.source!, destination:move.path, copy:move.conflictCopy }
       : { outcome:'none' as const };
+  }
+
+  async reconcileMoveConflict(id: string, operationId: string) {
+    if (!this.ready || this.closed || this.deliveryBusy || this.storageBlocked) throw new CloudError('busy');
+    const target = this.managedDelivery.get(id), journal = this.deliveryJournal, queue = this.deliveryQueue;
+    const mirror = this.mirror(id);
+    const pending = journal?.pending(id,'move');
+    if (!target || !journal || !queue || !mirror?.enabled || mirror.blocker || !pending?.conflictCopy ||
+        pending.operations.at(-1) !== operationId || journal.pending(id,'write')) throw new CloudError('invalid_selection');
+    this.deliveryBusy = true;
+    try {
+      await this.local(mirror,{requireBinding:true});
+      if (this.closed || this.mirror(id)?.folder.id !== mirror.folder.id) throw new CloudError('source_changed');
+      journal.requestConflictReconciliation(id,operationId);
+      const worker = new NativeNoteDelivery(target,this.worker,journal,async () => null);
+      const outcome = await worker.requestConflictResolution(pending);
+      if (outcome === 'conflict_resolved') journal.reconciledConflict(id,operationId,queue);
+      return {outcome};
+    } finally { this.deliveryBusy = false; }
   }
 
   probeManagedBinding(id: string, binary: string) {

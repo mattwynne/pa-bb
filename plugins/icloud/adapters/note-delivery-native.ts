@@ -1,3 +1,4 @@
+import { CloudError } from '../core/ports.ts';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -14,6 +15,9 @@ const reply = z.discriminatedUnion('outcome', [
   z.strictObject({ outcome: z.literal('observed'), observation: deliveryObservation }),
   z.strictObject({ outcome: z.literal('published'), observation: deliveryObservation, sourceRetained: z.literal(true).optional() }),
   z.strictObject({ outcome: z.literal('conflict_preserved'), conflictCopy: z.string().max(1024) }),
+  z.strictObject({ outcome: z.literal('conflict_resolved') }),
+  z.strictObject({ outcome: z.literal('conflict_resolution_pending') }),
+  z.strictObject({ outcome: z.literal('conflict_paths_differ') }),
   z.strictObject({ outcome: z.literal('refused') }),
   z.strictObject({ outcome: z.literal('absent') }),
   z.strictObject({ outcome: z.literal('uncertain') }),
@@ -83,6 +87,19 @@ export class NativeNoteDelivery implements NotePublicationWorker {
     const recovered = await this.send(intent.expected ? 'recover' : 'recover-create',intent);
     return recovered.outcome === 'published' ? recovered.observation : null;
   }
+
+  private async observeConflictResolution(intent: PublicationIntent, approve: boolean) {
+    const expected = intent.expected;
+    if (!intent.source || !expected) throw new CloudError('invalid_selection');
+    return reply.parse(await this.worker.noteDeliveryCommand(this.target,
+      approve ? 'reconcile-relocation' : 'read-relocation-resolution',{
+        source:intent.source,path:intent.path,operationId:intent.operations.at(-1)!,wantedHash:intent.wantedHash,
+        expected:{documentId:expected.documentId,parentId:expected.parentId,etag:expected.etag,hash:expected.hash},
+      })).outcome;
+  }
+
+  async requestConflictResolution(intent: PublicationIntent) { return this.observeConflictResolution(intent,true); }
+  async conflictResolutionApplied(intent: PublicationIntent) { return await this.observeConflictResolution(intent,false) === 'conflict_resolved'; }
 
   async publish(intent: PublicationIntent) {
     return intent.source ? this.relocate(intent, false) : this.send(intent.expected ? 'replace' : 'create',intent);

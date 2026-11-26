@@ -760,7 +760,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_delivery_store.go
-@@ -0,0 +1,269 @@
+@@ -0,0 +1,275 @@
 +package bisync
 +
 +import (
@@ -804,14 +804,15 @@
 +}
 +
 +type bbDeliveryStore struct {
-+	Version           int
-+	Pending           *BBDeliveryIntent
-+	PendingDocument   string        `json:",omitempty"`
-+	Relocation        *BBRelocation `json:",omitempty"`
-+	Dispatched        bool
-+	AllocatedDocument string
-+	Applied           []BBDeliveryReceipt
-+	Confirmed         []BBDeliveryReceipt
++	Version             int
++	Pending             *BBDeliveryIntent
++	PendingDocument     string               `json:",omitempty"`
++	Relocation          *BBRelocation        `json:",omitempty"`
++	ReconciledConflicts []BBRelocationIntent `json:",omitempty"`
++	Dispatched          bool
++	AllocatedDocument   string
++	Applied             []BBDeliveryReceipt
++	Confirmed           []BBDeliveryReceipt
 +}
 +
 +func bbDeliveryPath(workdir string) string { return filepath.Join(workdir, "bb-delivery-v1.json") }
@@ -837,10 +838,10 @@
 +		return bbDeliveryStore{}, err
 +	}
 +	var state bbDeliveryStore
-+	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > 4) ||
++	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > 5) ||
 +		(state.Relocation != nil && (state.Version < 2 || (state.Pending != nil && state.Version < 3) ||
-+			(state.Relocation.Conflict != nil && state.Version < 4) || !state.Relocation.valid())) ||
-+		len(state.Confirmed) > bbDeliveryLimit || len(state.Applied) > bbDeliveryLimit || (state.Pending == nil && state.Dispatched) || (state.Pending != nil && !validBBDelivery(*state.Pending)) {
++			(state.Relocation.Conflict != nil && state.Version < 4) || (state.Version < 5 && state.Relocation.Conflict != nil && state.Relocation.Conflict.Approved != nil) || !state.Relocation.valid())) ||
++		len(state.Confirmed) > bbDeliveryLimit || len(state.Applied) > bbDeliveryLimit || len(state.ReconciledConflicts) > bbDeliveryLimit || (state.Version < 5 && len(state.ReconciledConflicts) > 0) || (state.Pending == nil && state.Dispatched) || (state.Pending != nil && !validBBDelivery(*state.Pending)) {
 +		return bbDeliveryStore{}, errBBInvalidDelivery
 +	}
 +	if state.Relocation != nil && state.Pending != nil {
@@ -853,6 +854,11 @@
 +		}
 +	} else if state.PendingDocument != "" {
 +		return bbDeliveryStore{}, errBBInvalidDelivery
++	}
++	for _, move := range state.ReconciledConflicts {
++		if !validBBRelocationIntent(move) {
++			return bbDeliveryStore{}, errBBInvalidDelivery
++		}
 +	}
 +	seen := map[string]bool{}
 +	for _, receipt := range state.Confirmed {
@@ -1110,7 +1116,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_local_receipt_time.go
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,85 @@
 +package bisync
 +
 +import (
@@ -1130,8 +1136,15 @@
 +// Normalize only the inode whose bytes were confirmed in iCloud. A rename or
 +// an atomic note replacement cannot redirect the timestamp change.
 +func bbConfirmLocalReceiptTime(root, relative string, digest [sha256.Size]byte, mtime time.Time, beforeTimestamp func()) error {
++	if mtime.IsZero() {
++		return errBBLocalSuperseded
++	}
++	return bbCheckLocalReceipt(root, relative, digest, &mtime, beforeTimestamp)
++}
++
++func bbCheckLocalReceipt(root, relative string, digest [sha256.Size]byte, mtime *time.Time, beforeTimestamp func()) error {
 +	if path.Clean(relative) != relative || path.IsAbs(relative) || relative == "." ||
-+		strings.HasPrefix(relative, "../") || !strings.HasSuffix(relative, ".md") || mtime.IsZero() {
++		strings.HasPrefix(relative, "../") || !strings.HasSuffix(relative, ".md") {
 +		return errBBLocalSuperseded
 +	}
 +	folder, err := unix.Open(root, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
@@ -1176,6 +1189,9 @@
 +	}
 +	if err := verify(); err != nil {
 +		return err
++	}
++	if mtime == nil {
++		return nil
 +	}
 +	if beforeTimestamp != nil {
 +		beforeTimestamp()
@@ -1277,7 +1293,7 @@
 +			return errors.New("listing requires full reconciliation")
 +		}
 +		obj, err := side.files.NewObject(ctx, name)
-+		if errors.Is(err, fs.ErrorObjectNotFound) {
++		if errors.Is(err, fs.ErrorObjectNotFound) || errors.Is(err, fs.ErrorDirNotFound) {
 +			side.listing.remove(name)
 +			continue
 +		}
@@ -1548,7 +1564,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_managed_scan.go
-@@ -0,0 +1,277 @@
+@@ -0,0 +1,303 @@
 +package bisync
 +
 +import (
@@ -1611,8 +1627,12 @@
 +	if state.Pending != nil {
 +		return ErrBBDeliveryUnsettled
 +	}
-+	if state.Relocation != nil {
-+		if err := b.holdBBRelocation(ctx, state.Relocation); err != nil {
++	var resolved *BBRelocation
++	if move := state.Relocation; move != nil {
++		if move.Conflict != nil && move.Conflict.Approved != nil && b.conflictResolutionReady(ctx, move) && b.alignConflictBaseline(move) == nil {
++			resolved = move
++			state.conflictBaselinesAdopted(move)
++		} else if err := b.holdBBRelocation(ctx, move); err != nil {
 +			return err
 +		}
 +	}
@@ -1622,7 +1642,7 @@
 +			confirmations = append(confirmations, receipt)
 +		}
 +	}
-+	if len(confirmations) == 0 {
++	if len(confirmations) == 0 && resolved == nil {
 +		return nil
 +	}
 +	pair, err := bbPairFor(b.listing1, b.listing2)
@@ -1673,6 +1693,18 @@
 +		if err != nil {
 +			return err
 +		}
++		if resolved != nil {
++			for i, name := range resolved.Intent.conflictEndpointNames() {
++				chosen := resolved.conflictSnapshots()[i]
++				if previous.isDir(name) {
++					return errBBInvalidDelivery
++				}
++				previous.remove(name)
++				if chosen.Present {
++					previous.put(name, chosen.Size, chosen.Modified, "", "", "-")
++				}
++			}
++		}
 +		for _, r := range confirmations {
 +			if r.RemovedPath != "" {
 +				if previous.isDir(r.RemovedPath) {
@@ -1714,6 +1746,16 @@
 +			if name == "" {
 +				continue
 +			}
++			if err := b.refreshPublishedPath(ctx, name); err != nil {
++				return err
++			}
++			if err := bbRefreshVersion(ctx, b.fs1, name, b.march.bbIdentities); err != nil {
++				return err
++			}
++		}
++	}
++	if resolved != nil {
++		for _, name := range resolved.Intent.conflictEndpointNames() {
 +			if err := b.refreshPublishedPath(ctx, name); err != nil {
 +				return err
 +			}
@@ -2225,7 +2267,7 @@
 +	}
 +	delete(index, path)
 +	obj, err := side.NewObject(ctx, path)
-+	if errors.Is(err, fs.ErrorObjectNotFound) {
++	if errors.Is(err, fs.ErrorObjectNotFound) || errors.Is(err, fs.ErrorDirNotFound) {
 +		return nil
 +	}
 +	if err != nil {
@@ -2417,7 +2459,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,319 @@
+@@ -0,0 +1,324 @@
 +package main
 +
 +import (
@@ -2500,7 +2542,7 @@
 +}
 +
 +func ownedNoteDeadline(operation string) time.Duration {
-+	if operation == "relocate" {
++	if operation == "relocate" || operation == "reconcile-relocation" {
 +		return 24 * time.Second
 +	}
 +	return 12 * time.Second
@@ -2534,12 +2576,17 @@
 +	if !validOwnedNoteFrame(operation, request) {
 +		return refused
 +	}
-+	if operation != "inspect" && operation != "replace" && operation != "recover" && operation != "create" && operation != "recover-create" && operation != "relocate" && operation != "binding" && operation != "inspect-relocation" {
++	if operation != "inspect" && operation != "replace" && operation != "recover" && operation != "create" && operation != "recover-create" && operation != "relocate" && operation != "binding" && operation != "inspect-relocation" && operation != "reconcile-relocation" && operation != "read-relocation-resolution" {
 +		return refused
 +	}
 +	backend, name, root, config, err := fs.ConfigFs(remote)
 +	if err != nil || name != "icloud" || root == "" || backend.Name != "iclouddrive" {
 +		return refused
++	}
++	if operation == "read-relocation-resolution" {
++		// The exact workdir and move receipt already carry the scope.
++		// Checking the durable closure record needs no provider session.
++		return applyRelocationOperation(ctx, nil, request, operation)
 +	}
 +	selected, err := backend.NewFs(ctx, name, root, config)
 +	if err != nil {
@@ -2559,8 +2606,8 @@
 +	if binding != request.Binding {
 +		return refused
 +	}
-+	if operation == "relocate" {
-+		return applyOwnedRelocation(ctx, cloud, request)
++	if operation == "relocate" || operation == "reconcile-relocation" || operation == "read-relocation-resolution" {
++		return applyRelocationOperation(ctx, cloud, request, operation)
 +	}
 +	if operation == "inspect-relocation" {
 +		if request.Source == "" || request.Expected != nil || request.OperationID != "" || request.Text != "" || request.WantedHash != "" {
@@ -2905,7 +2952,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation.go
-@@ -0,0 +1,217 @@
+@@ -0,0 +1,228 @@
 +package main
 +
 +import (
@@ -2928,6 +2975,10 @@
 +}
 +
 +func applyOwnedRelocation(ctx context.Context, cloud relocationCloud, request ownedNoteFrame) ownedNoteReply {
++	return applyRelocationOperation(ctx, cloud, request, "relocate")
++}
++
++func applyRelocationOperation(ctx context.Context, cloud relocationCloud, request ownedNoteFrame, operation string) ownedNoteReply {
 +	refused := ownedNoteReply{Outcome: "refused"}
 +	uncertain := ownedNoteReply{Outcome: "uncertain"}
 +	if request.Expected == nil || request.Source == "" || len(request.Text) > 1<<20 {
@@ -2955,6 +3006,13 @@
 +		Previous:   bisync.BBIndexedVersion{DocumentID: previous.DocumentID, ParentID: previous.ParentID, ETag: previous.ETag},
 +		SourceHash: [sha256.Size]byte(previousHash),
 +	}
++	if operation != "relocate" {
++		if len(data) != 0 || request.WantedHash == "" {
++			return refused
++		}
++		return applyConflictResolution(ctx, cloud, request.Workdir, intent, operation == "reconcile-relocation")
++	}
++
 +	sourceVersion := iclouddrive.BBNoteRevision{DriveID: previous.DocumentID, ParentID: previous.ParentID, ETag: previous.ETag, Hash: intent.SourceHash}
 +
 +	state, completed, err := bisync.BBReadRelocation(request.Workdir, intent)
@@ -3343,7 +3401,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation.go
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,284 @@
 +package bisync
 +
 +import (
@@ -3445,16 +3503,16 @@
 +	return bbCheckRelocationDisjoint(state.Relocation, intent, knownDocument)
 +}
 +
++func validBBRelocationIntent(intent BBRelocationIntent) bool {
++	return validBBDelivery(intent.BBDeliveryIntent) && intent.Create && validBBRelocationPaths(intent.Source, intent.BBDeliveryIntent) &&
++		intent.Binding != "" && len(intent.Binding) <= 512 && intent.Previous.DocumentID != "" && len(intent.Previous.DocumentID) <= 512 &&
++		intent.Previous.ParentID != "" && len(intent.Previous.ParentID) <= 512 && intent.Previous.ETag != "" && len(intent.Previous.ETag) <= 512 &&
++		intent.SourceHash != ([sha256.Size]byte{})
++}
++
 +func (r BBRelocation) valid() bool {
 +	intent := r.Intent
-+	if !validBBDelivery(intent.BBDeliveryIntent) || !intent.Create ||
-+		!validBBRelocationPaths(intent.Source, intent.BBDeliveryIntent) ||
-+		intent.Binding == "" || len(intent.Binding) > 512 ||
-+		intent.Previous.DocumentID == "" || len(intent.Previous.DocumentID) > 512 ||
-+		intent.Previous.ETag == "" || len(intent.Previous.ETag) > 512 ||
-+		intent.Previous.ParentID == "" || len(intent.Previous.ParentID) > 512 ||
-+		intent.SourceHash == ([sha256.Size]byte{}) || len(r.Allocation) > 512 ||
-+		len(r.Data) < 1 || len(r.Data) > bbDeliveryBytes ||
++	if !validBBRelocationIntent(intent) || len(r.Allocation) > 512 || len(r.Data) < 1 || len(r.Data) > bbDeliveryBytes ||
 +		sha256.Sum256(r.Data) != intent.Hash || (r.Removing && r.Destination == nil) {
 +		return false
 +	}
@@ -3516,7 +3574,8 @@
 +	used := func(r BBDeliveryReceipt) bool { return r.OperationID == intent.OperationID }
 +	canReplace := slices.ContainsFunc(state.Confirmed, func(r BBDeliveryReceipt) bool { return bbRelocationSupersedes(intent, r) })
 +	if state.Pending != nil || state.Relocation != nil || (len(state.Confirmed) >= bbDeliveryLimit && !canReplace) ||
-+		slices.ContainsFunc(state.Confirmed, related) || slices.ContainsFunc(state.Applied, used) {
++		slices.ContainsFunc(state.Confirmed, related) || slices.ContainsFunc(state.Applied, used) ||
++		slices.ContainsFunc(state.ReconciledConflicts, func(previous BBRelocationIntent) bool { return previous.OperationID == intent.OperationID }) {
 +		return ErrBBDeliveryUnsettled
 +	}
 +	// Previous binaries reject this version instead of ignoring a pending
@@ -3762,7 +3821,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation_hold_test.go
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,285 @@
 +package bisync
 +
 +import (
@@ -3805,6 +3864,17 @@
 +		}
 +	}
 +	return items, err
++}
++
++func (f *bbHeldListingFS) NewObject(ctx context.Context, name string) (fs.Object, error) {
++	object, err := f.Fs.NewObject(ctx, name)
++	if err != nil {
++		return nil, err
++	}
++	if version, ok := f.versions[name]; ok {
++		return bbHeldListingObject{object, version}, nil
++	}
++	return object, nil
 +}
 +
 +func TestBBUnconfirmedMoveProtectsBothEndpointsAndSyncsUnrelatedFiles(t *testing.T) {
@@ -3939,6 +4009,58 @@
 +		len(state.Confirmed) != 1 || state.Confirmed[0].BBDeliveryIntent != prior {
 +		t.Fatalf("unconfirmed state lost while syncing other files: %v", err)
 +	}
++
++	// The user has independently made both canonical paths agree. A later
++	// iCloud change must invalidate the choice without erasing either side.
++	const firstChoice = "Device destination the user checked"
++	const laterChoice = "A newer destination after the check"
++	const reviewedSource = "Mac continued editing old source"
++	targetVersion := BBIndexedVersion{"FILE::com.apple.CloudDocs::device-target", "FOLDER::com.apple.CloudDocs::archive", "reviewed"}
++	cloudRevisions[destination] = targetVersion
++	for _, side := range []string{cloudRoot, mirrorRoot} {
++		write(side, destination, firstChoice, later)
++		write(side, source, reviewedSource, later)
++	}
++	sourceSnapshot := BBConflictSnapshot{true, cloudRevisions[source], sha256.Sum256([]byte(reviewedSource)), int64(len(reviewedSource)), later}
++	verified := BBConflictResolution{Source: sourceSnapshot, Destination: BBConflictSnapshot{
++		true, targetVersion, sha256.Sum256([]byte(firstChoice)), int64(len(firstChoice)), later,
++	}}
++	if err := BBApproveConflictResolution(workdir, move, verified); err != nil {
++		t.Fatal(err)
++	}
++	newAt := later.Add(20 * time.Second)
++	write(cloudRoot, destination, laterChoice, newAt)
++	targetVersion.ETag = "changed-after-approval"
++	cloudRevisions[destination] = targetVersion
++	if err := BBManagedBisync(ctx, cloudSide, mirror, options, move.Binding); err != nil {
++		t.Fatal(err)
++	}
++	if done, err := BBConflictResolved(workdir, move); err != nil || done {
++		t.Fatalf("a stale approval was applied: %v", err)
++	}
++	wantOn(mirrorRoot, destination, firstChoice)
++	wantOn(cloudRoot, destination, laterChoice)
++
++	write(mirrorRoot, destination, laterChoice, newAt)
++	verified.Destination = BBConflictSnapshot{true, targetVersion, sha256.Sum256([]byte(laterChoice)), int64(len(laterChoice)), newAt}
++	if err := BBApproveConflictResolution(workdir, move, verified); err != nil {
++		t.Fatal(err)
++	}
++	if err := BBManagedBisync(ctx, cloudSide, mirror, options, move.Binding); err != nil {
++		t.Fatal(err)
++	}
++	if done, err := BBConflictResolved(workdir, move); err != nil || !done {
++		t.Fatalf("closure wasn't durably recorded: %v", err)
++	}
++	for _, side := range []string{cloudRoot, mirrorRoot} {
++		wantOn(side, destination, laterChoice)
++		wantOn(side, source, reviewedSource)
++		wantOn(side, copyIntent.Path, wanted)
++	}
++	if err := BBBeginRelocation(workdir, move, []byte(wanted)); !errors.Is(err, ErrBBDeliveryUnsettled) {
++		t.Fatalf("acknowledged conflict could reopen: %v", err)
++	}
++
 +}
 +
 +func TestBBIndependentDeliveryRetainsMoveAndBindsProviderIdentity(t *testing.T) {
@@ -3987,7 +4109,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation_conflict.go
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,75 @@
 +package bisync
 +
 +// BBRelocationConflict preserves the staged BB bytes at a deterministic
@@ -3995,6 +4117,7 @@
 +type BBRelocationConflict struct {
 +	Allocation string
 +	Copy       *BBDeliveryReceipt
++	Approved   *BBConflictResolution `json:",omitempty"`
 +}
 +
 +func (r BBRelocationIntent) ConflictIntent() BBDeliveryIntent {
@@ -4018,7 +4141,10 @@
 +		return false
 +	}
 +	if c.Copy == nil {
-+		return true
++		return c.Approved == nil
++	}
++	if c.Approved != nil && !c.Approved.valid() {
++		return false
 +	}
 +	return c.Allocation != "" && c.Copy.BBDeliveryIntent == target && c.Copy.DocumentID == c.Allocation &&
 +		c.Copy.RemovedPath == "" && !c.Copy.SourceRetained && c.Copy.ProviderID != "" && bbAllocatedDocumentID(c.Copy.ProviderID) == c.Allocation &&
@@ -4058,4 +4184,245 @@
 +		move.Conflict.Copy = &receipt
 +		return true
 +	})
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_conflict_resolution.go
+@@ -0,0 +1,69 @@
++package main
++
++import (
++	"context"
++	"errors"
++	"path/filepath"
++
++	"github.com/rclone/rclone/cmd/bisync"
++	"github.com/rclone/rclone/fs"
++)
++
++func applyConflictResolution(ctx context.Context, cloud relocationCloud, workdir string, intent bisync.BBRelocationIntent, approve bool) ownedNoteReply {
++	uncertain := ownedNoteReply{Outcome: "uncertain"}
++	done, err := bisync.BBConflictResolved(workdir, intent)
++	if err != nil {
++		return uncertain
++	}
++	if done {
++		return ownedNoteReply{Outcome: "conflict_resolved"}
++	}
++	state, _, err := bisync.BBReadRelocation(workdir, intent)
++	if err != nil || state == nil || state.Conflict == nil || state.Conflict.Copy == nil {
++		return uncertain
++	}
++	if !approve {
++		if state.Conflict.Approved == nil {
++			return uncertain
++		}
++		return ownedNoteReply{Outcome: "conflict_resolution_pending"}
++	}
++	parent := filepath.Dir(workdir)
++	if filepath.Base(parent) != "baselines" {
++		return ownedNoteReply{Outcome: "refused"}
++	}
++	local := filepath.Join(filepath.Dir(parent), "mirrors", filepath.Base(workdir))
++	read := func(name string) (bisync.BBConflictSnapshot, error) {
++		remote, err := cloud.ObserveBBCreate(ctx, name)
++		if errors.Is(err, fs.ErrorObjectNotFound) || errors.Is(err, fs.ErrorDirNotFound) {
++			return bisync.BBConflictSnapshot{}, nil
++		}
++		if err != nil {
++			return bisync.BBConflictSnapshot{}, err
++		}
++		return bisync.BBConflictSnapshot{Present: true, Version: bisync.BBIndexedVersion{DocumentID: remote.Revision.DriveID,
++			ParentID: remote.Revision.ParentID, ETag: remote.Revision.ETag}, Hash: remote.Revision.Hash, Size: remote.Size, Modified: remote.Modified}, nil
++	}
++	names := []string{intent.Source, intent.Path, intent.ConflictIntent().Path}
++	staged := make([]bisync.BBConflictSnapshot, len(names))
++	for i, name := range names {
++		snapshot, err := read(name)
++		if err != nil {
++			return uncertain
++		}
++		if err := bisync.BBVerifyConflictLocal(local, name, snapshot, false); err != nil {
++			return ownedNoteReply{Outcome: "conflict_paths_differ"}
++		}
++		staged[i] = snapshot
++	}
++	saved := state.Conflict.Copy
++	copy := staged[2]
++	if !copy.Present || copy.Version.DocumentID != saved.ProviderID || copy.Version.ParentID != saved.ProviderParentID ||
++		copy.Version.ETag != saved.ETag || copy.Hash != saved.Hash || copy.Size != saved.Size || !copy.Modified.Equal(saved.Modified) {
++		return ownedNoteReply{Outcome: "conflict_paths_differ"}
++	}
++	if err := bisync.BBApproveConflictResolution(workdir, intent, bisync.BBConflictResolution{Source: staged[0], Destination: staged[1]}); err != nil {
++		return uncertain
++	}
++	return ownedNoteReply{Outcome: "conflict_resolution_pending"}
++}
+--- /dev/null
++++ b/cmd/bisync/bb_conflict_resolution.go
+@@ -0,0 +1,166 @@
++package bisync
++
++import (
++	"context"
++	"crypto/sha256"
++	"errors"
++	"path"
++	"strings"
++	"time"
++
++	"github.com/rclone/rclone/fs"
++	"golang.org/x/sys/unix"
++)
++
++type BBConflictSnapshot struct {
++	Present  bool
++	Version  BBIndexedVersion
++	Hash     [sha256.Size]byte
++	Size     int64
++	Modified time.Time
++}
++
++type BBConflictResolution struct {
++	Source, Destination BBConflictSnapshot
++}
++
++func (s BBConflictSnapshot) valid() bool {
++	if !s.Present {
++		return s == (BBConflictSnapshot{})
++	}
++	return s.Version.DocumentID != "" && s.Version.ParentID != "" && s.Version.ETag != "" &&
++		s.Hash != ([sha256.Size]byte{}) && s.Size > 0 && s.Size <= bbDeliveryBytes && !s.Modified.IsZero()
++}
++
++func (r BBConflictResolution) valid() bool { return r.Source.valid() && r.Destination.valid() }
++
++func (r BBRelocationIntent) conflictEndpointNames() []string {
++	return []string{r.Source, r.Path, r.ConflictIntent().Path}
++}
++
++func BBConflictResolved(workdir string, intent BBRelocationIntent) (bool, error) {
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return false, err
++	}
++	for _, done := range state.ReconciledConflicts {
++		if done.OperationID == intent.OperationID {
++			if done != intent {
++				return false, errBBInvalidDelivery
++			}
++			return true, nil
++		}
++	}
++	return false, nil
++}
++
++// Approval does not change either endpoint. The next managed scan
++// revalidates all three agreed files before changing its paired baselines.
++func BBApproveConflictResolution(workdir string, intent BBRelocationIntent, resolution BBConflictResolution) error {
++	return bbChangeRelocation(workdir, intent, func(state *bbDeliveryStore, move *BBRelocation) bool {
++		if state.Pending != nil || move.Conflict == nil || move.Conflict.Copy == nil || !resolution.valid() {
++			return false
++		}
++		state.Version = 5
++		move.Conflict.Approved = &resolution
++		return true
++	})
++}
++
++func BBVerifyConflictLocal(root, relative string, snapshot BBConflictSnapshot, align bool) error {
++	if !snapshot.valid() {
++		return errBBInvalidDelivery
++	}
++	if snapshot.Present {
++		if align {
++			return bbConfirmLocalReceiptTime(root, relative, snapshot.Hash, snapshot.Modified, nil)
++		}
++		return bbCheckLocalReceipt(root, relative, snapshot.Hash, nil, nil)
++	}
++	if path.Clean(relative) != relative || relative == "." || path.IsAbs(relative) ||
++		strings.HasPrefix(relative, "../") || !strings.HasSuffix(relative, ".md") {
++		return errBBInvalidDelivery
++	}
++	fd, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
++	if err != nil {
++		return err
++	}
++	defer func() { _ = unix.Close(fd) }()
++	parts := strings.Split(relative, "/")
++	for _, part := range parts[:len(parts)-1] {
++		next, err := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
++		if errors.Is(err, unix.ENOENT) {
++			return nil
++		}
++		if err != nil {
++			return err
++		}
++		_ = unix.Close(fd)
++		fd = next
++	}
++	var st unix.Stat_t
++	if err := unix.Fstatat(fd, parts[len(parts)-1], &st, unix.AT_SYMLINK_NOFOLLOW); !errors.Is(err, unix.ENOENT) {
++		return errBBLocalSuperseded
++	}
++	return nil
++}
++
++func (r *BBRelocation) conflictSnapshots() []BBConflictSnapshot {
++	checkpoint := r.Conflict.Approved
++	copy := r.Conflict.Copy
++	saved := BBConflictSnapshot{true, BBIndexedVersion{copy.ProviderID, copy.ProviderParentID, copy.ETag}, copy.Hash, copy.Size, copy.Modified}
++	return []BBConflictSnapshot{checkpoint.Source, checkpoint.Destination, saved}
++}
++
++func (b *bisyncRun) conflictResolutionReady(ctx context.Context, move *BBRelocation) bool {
++	for i, name := range move.Intent.conflictEndpointNames() {
++		selected := move.conflictSnapshots()[i]
++		if b.aliases.Alias(name) != name || BBVerifyConflictLocal(b.fs2.Root(), name, selected, false) != nil {
++			return false
++		}
++		now, err := b.fs1.NewObject(ctx, name)
++		if !selected.Present {
++			if (!errors.Is(err, fs.ErrorObjectNotFound) && !errors.Is(err, fs.ErrorDirNotFound)) || b.march.ls1.has(name) {
++				return false
++			}
++			continue
++		}
++		if err != nil || now.Remote() != name || !b.march.ls1.has(name) {
++			return false
++		}
++		current, ok := bbCloudVersionFrom(ctx, now)
++		if !ok || b.march.bbIdentities[name].BBIndexedVersion != selected.Version || current.BBIndexedVersion != selected.Version || current.Size != selected.Size || !current.Modified.Equal(selected.Modified) {
++			return false
++		}
++	}
++	return true
++}
++
++func (b *bisyncRun) alignConflictBaseline(move *BBRelocation) error {
++	for i, name := range move.Intent.conflictEndpointNames() {
++		if err := BBVerifyConflictLocal(b.fs2.Root(), name, move.conflictSnapshots()[i], true); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++func (state *bbDeliveryStore) conflictBaselinesAdopted(move *BBRelocation) {
++	remaining := state.Confirmed[:0]
++	for _, receipt := range state.Confirmed {
++		if bbRelocationSupersedes(move.Intent, receipt) {
++			state.Applied = append(state.Applied, receipt)
++		} else {
++			remaining = append(remaining, receipt)
++		}
++	}
++	state.Confirmed = remaining
++	if len(state.Applied) > bbDeliveryLimit {
++		state.Applied = state.Applied[len(state.Applied)-bbDeliveryLimit:]
++	}
++	state.ReconciledConflicts = append(state.ReconciledConflicts, move.Intent)
++	if len(state.ReconciledConflicts) > bbDeliveryLimit {
++		state.ReconciledConflicts = state.ReconciledConflicts[len(state.ReconciledConflicts)-bbDeliveryLimit:]
++	}
++	state.Relocation = nil
 +}

@@ -16,6 +16,7 @@ export interface NotePublicationWorker {
   // Acknowledgement requires a durable publication receipt in the native
   // worker. The scan will incorporate that receipt under its mutation lock.
   reconcile(intent: PublicationIntent, publication: DeliveryObservation): Promise<void>;
+  conflictResolutionApplied?(intent: PublicationIntent): Promise<boolean>;
   acknowledgedBinding?: string;
 }
 
@@ -62,8 +63,14 @@ export class NoteDeliveryPump {
     return this.accept(replacement, published.observation);
   }
 
-  private async recover(pending: PublicationIntent & {publication:DeliveryObservation | null; conflictCopy?:string}) {
-    if (pending.conflictCopy) return 'needs_reconciliation' as const;
+  private async recover(pending: PublicationIntent & {publication:DeliveryObservation | null; conflictCopy?:string; reconcileConflict?:true}) {
+    if (pending.conflictCopy) {
+      if (pending.reconcileConflict && await this.worker.conflictResolutionApplied?.(pending)) {
+        this.journal.reconciledConflict(pending.mirrorId,pending.operations.at(-1)!,this.queue);
+        return 'delivered' as const;
+      }
+      return 'needs_reconciliation' as const;
+    }
     if (pending.publication) return this.finish(pending,pending.publication);
     const current = await this.worker.readBack(pending);
     if (!current || current.hash !== pending.wantedHash ||

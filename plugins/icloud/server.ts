@@ -153,6 +153,18 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       if (!runtime) throw new CloudError('unavailable');
       return runtime.moveConflict(id);
     },
+    async (id,operationId) => {
+      if (!runtime || sync.maintenanceHeld || updatePause.held) throw new CloudError('busy');
+      admittedWork++;
+      try {
+        const result = await runtime.reconcileMoveConflict(id,operationId);
+        if (result.outcome === 'conflict_resolution_pending') {
+          void sync.tick(new Set([id]),() => !updatePause.held)
+            .catch(error => diagnose('schedule',category(error),{evidence:evidence(error)}));
+        }
+        return result;
+      } finally { admittedWork--; }
+    },
   ));
   const admit = async <T>(operation: () => T | Promise<T>) => {
     if (sync.maintenanceHeld) throw new CloudError('busy');

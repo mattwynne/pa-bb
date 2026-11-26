@@ -401,6 +401,18 @@ test('Obsidian writes continue during a preserved move conflict and managed scan
           fs.writeFileSync(destination,input.text,{flag:'wx'});
           const observation = {...observe(),documentId:'FILE::com.apple.CloudDocs::new-note'};
           console.log(JSON.stringify({outcome:'published',observation}));
+        } else if (argv[1] === 'reconcile-relocation') {
+          assert.equal(input.source,response.path);
+          assert.equal(input.path,'Renamed.md');
+          assert.equal(input.text,undefined);
+          const receipt = require('node:path').join(workdir,'generated-closure');
+          if (fs.existsSync(receipt)) {
+            assert.equal(fs.readFileSync(receipt,'utf8'),input.operationId);
+            console.log(JSON.stringify({outcome:'conflict_resolved'}));
+          } else {
+            fs.writeFileSync(receipt,input.operationId,{flag:'wx'});
+            console.log(JSON.stringify({outcome:'conflict_resolution_pending'}));
+          }
         } else if (argv[1] === 'relocate') {
           assert.equal(input.source,response.path);
           const previous = fs.readFileSync(target);
@@ -466,7 +478,7 @@ test('Obsidian writes continue during a preserved move conflict and managed scan
     assert.equal(await readFile(join(f.remote,'generated-0','Renamed.md'),'utf8'),'Independent destination bytes');
     assert.equal(await readFile(cloud,'utf8'),incoming);
     assert.equal(await readFile(join(f.remote,'generated-0',conflictCopy),'utf8'),beforeMoving);
-    assert.deepEqual(f.runtime.moveConflict(id),{outcome:'preserved',source:relative,destination:'Renamed.md',copy:conflictCopy});
+    assert.deepEqual(f.runtime.moveConflict(id),{outcome:'preserved',operationId:moved.operationId,source:relative,destination:'Renamed.md',copy:conflictCopy});
     assert.equal(f.db.prepare('SELECT count(*) FROM icloud_delivery_move_intent').pluck().get(),1);
     const independent = 'Independent while a move is pending';
     await ledger.fs.commit({mirrorId:id,revision:1,path:'Independent.md',operationId:op(),kind:'create',expectedHash:null,text:independent});
@@ -476,6 +488,11 @@ test('Obsidian writes continue during a preserved move conflict and managed scan
     assert.equal(f.db.prepare('SELECT count(*) FROM icloud_delivery_move_intent').pluck().get(),1);
     assert.equal(f.db.prepare('SELECT count(*) FROM icloud_delivery_intent').pluck().get(),0);
     assert.equal(f.db.prepare('SELECT count(*) FROM icloud_pending_delivery').pluck().get(),2);
+    await assert.rejects(f.runtime.reconcileMoveConflict(id,op()),{category:'invalid_selection'});
+    assert.deepEqual(await f.runtime.reconcileMoveConflict(id,moved.operationId),{outcome:'conflict_resolution_pending'});
+    assert.equal(f.db.prepare('SELECT count(*) FROM icloud_delivery_move_intent').pluck().get(),1);
+    assert.deepEqual(await f.runtime.reconcileMoveConflict(id,moved.operationId),{outcome:'conflict_resolved'});
+    assert.equal(f.db.prepare('SELECT count(*) FROM icloud_pending_delivery').pluck().get(),0);
     await writeFile(gate,'1');
     await running;
   } finally { await writeFile(gate,'1').catch(()=>{}); await running?.catch(()=>{}); ledger.db.close(); await f.close(); }

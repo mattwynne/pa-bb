@@ -9,7 +9,8 @@ export function maintenanceCli(
   mutate: (action: 'pause' | 'restore', runId: string, signal?: AbortSignal) => Promise<unknown>,
   benchmark: (id: string, checkers: ListingCheckers, signal?: AbortSignal) => ReturnType<RcloneProcess['benchmarkListing']>,
   binding: (id: string, runId: string, binary: string, sha256: string, signal?: AbortSignal) => Promise<{mirrorId:string; binding:string}>,
-  moveConflict: (id: string) => {outcome:'preserved'; source:string; destination:string; copy:string} | {outcome:'none'},
+  moveConflict: (id: string) => {outcome:'preserved'; operationId:string; source:string; destination:string; copy:string} | {outcome:'none'},
+  reconcileConflict: (id:string, operationId:string) => Promise<{outcome:string}>,
 ) {
   const render = () => ({ exitCode: 0, stdout: JSON.stringify(status()) });
   const json = { type: 'boolean', description: 'Emit machine-readable errors as JSON' } as const;
@@ -51,6 +52,26 @@ export function maintenanceCli(
           if (!/^[a-zA-Z0-9-]{1,64}$/.test(id)) throw new PluginCliError('Supply an exact iCloud mirror ID.',{code:'invalid_selection'});
           try { return {exitCode:0,stdout:JSON.stringify(moveConflict(id))}; }
           catch (error) { throw new PluginCliError('Could not read a managed move conflict for this mirror.',{code:category(error)}); }
+        },
+      }),
+      'delivery reconcile-move-conflict': cliCommand({
+        summary: 'Request closure after the source, destination and saved copy agree on BB and iCloud.',
+        options: {
+          'mirror-id': {type:'string',required:true,description:'Exact managed mirror ID.'},
+          'operation-id': {type:'string',required:true,description:'Operation ID from delivery move-conflict.'},
+          json,
+        },
+        async run({options}) {
+          const id = options['mirror-id'], operation = maintenanceRunId.safeParse(options['operation-id']);
+          if (!/^[a-zA-Z0-9-]{1,64}$/.test(id) || !operation.success)
+            throw new PluginCliError('Supply an exact mirror ID and move operation UUID.',{code:'invalid_selection'});
+          try {
+            const result = await reconcileConflict(id,operation.data.toLowerCase());
+            return { exitCode:result.outcome==='conflict_resolution_pending' || result.outcome==='conflict_resolved' ? 0 : 1,
+              stdout:JSON.stringify(result) };
+          } catch (error) {
+            throw new PluginCliError('Could not verify this move conflict for closure.',{code:category(error)});
+          }
         },
       }),
       'delivery binding': cliCommand({
