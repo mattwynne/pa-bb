@@ -474,7 +474,7 @@ function LinkedThreads({ kind, id, source, action }: {
     {threadStatuses.map(status => <FilterOption key={status} type="checkbox" label={status === 'active' ? 'Active' : 'Archived'}
       checked={selected.includes(status)} disabled={selected.length === 1 && selected.includes(status)} onChange={() => toggle(status)} />)}
   </FilterControls>;
-  return <FoldableSection title={kind === 'area' ? 'Area threads' : 'Linked threads'} className="gtd-linked" tools={tools}>
+  return <FoldableSection title="Threads" tools={tools}>
     <ThreadReadStatus loading={pending} error={failed} metadataError={error} />
     {!!matching.length && <ThreadList threads={matching} showArchived={selected.length > 1} />}
     {!matching.length && !pending && !failed && <p className="gtd-empty gtd-thread-empty" role="status">
@@ -694,7 +694,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
           {showAssociations && <ThreadAssociations inventory={inventory} />}
         </details>
       </>}
-      {ready && (area || unassigned) && <>
+      {ready && (area || unassigned) && <div className="gtd-detail-sections">
         {area && <AreaStandard key={`standard:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} hasNote={area.id.endsWith('.md')} />}
         {area && <AreaActions key={`actions:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} revision={inventory.revision} />}
         <FoldableSection key={`projects:${key(inventory.source, area?.id ?? '')}`} title="Projects" tools={
@@ -723,12 +723,12 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
         </FoldableSection>
         {area && <LinkedThreads key={key(inventory.source, area.id)} kind="area" id={area.id} source={inventory.source}
           action={newThreadAction(area, 'area')} />}
-      </>}
-      {project && <React.Fragment key={key(inventory.source, project.id)}>
+      </div>}
+      {project && <div className="gtd-detail-sections" key={key(inventory.source, project.id)}>
         <ProjectNextAction source={inventory.source} id={project.id} revision={inventory.revision} />
         <ProjectCorrespondence key={JSON.stringify([inventory.source, project.id])} source={inventory.source} id={project.id} revision={inventory.revision} />
         <LinkedThreads kind="project" id={project.id} source={inventory.source} />
-      </React.Fragment>}
+      </div>}
       {notice && <p role="status">{notice}</p>}
     </div>
     {area && createTarget === key(inventory.source, area.id) && <CreateProjectDialog area={area} source={inventory.source} onClose={created => {

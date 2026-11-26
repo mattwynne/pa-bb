@@ -70,7 +70,7 @@ test('GTD registers a navigation panel and keeps area, project and thread action
   expect(projectLink.getAttribute('href')).toBe(panelHref(woodwork));
   fireEvent.click(projectLink);
   expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ method: 'toPluginPanel', path: 'projects', options: { subPath: woodwork.subPath } });
-  const threads = slot.getByRole('heading', { name: 'Area threads' }).closest('section')!;
+  const threads = slot.getByRole('region', { name: 'Threads' });
   expect(within(threads).getByRole('button', { name: 'New thread for Area Learning' })).toBeTruthy();
   expect(slot.queryByRole('navigation', { name: 'Switch Area' })).toBeNull();
   expect(slot.queryByRole('combobox', { name: 'Area' })).toBeNull();
@@ -267,7 +267,7 @@ test.each([
 ])('a %s project lookup from source %s gives the matching recovery state', async (mode, source, message) => {
   const slot = setup(mode, undefined, recordDestination('projects', source, 'Projects/Gone.md'));
   await slot.findByText(message);
-  expect(slot.queryByRole('heading', { name: 'Linked threads' })).toBeNull();
+  expect(slot.queryByRole('region', { name: 'Threads' })).toBeNull();
 });
 
 for (const mode of ['empty', 'loading', 'error']) test(`${mode} is distinct and recoverable`, async () => {

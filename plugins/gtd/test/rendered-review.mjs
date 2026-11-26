@@ -483,6 +483,11 @@ try {
       throw error;
     }
     const heading = name => nav.getByRole('heading', { name, exact: true, level: 1 });
+    const assertDividers = async sectionCount => {
+      const widths = await nav.locator('.gtd-detail-sections > section').evaluateAll(sections =>
+        sections.map(section => [getComputedStyle(section).borderBlockStartWidth, getComputedStyle(section).borderBlockEndWidth]));
+      assert.deepEqual(widths, Array.from({ length: sectionCount }, (_, i) => [i ? '1px' : '0px', '0px']));
+    };
     const link = name => nav.getByRole('link', { name, exact: typeof name === 'string' });
     const breadcrumbs = nav.getByRole('navigation', { name: 'Breadcrumb' });
     const areasCrumb = breadcrumbs.getByRole('link', { name: 'Areas', exact: true });
@@ -621,7 +626,7 @@ try {
     } else if (mode === 'normal') {
       await openLearning();
       assert.equal(await nav.getByLabel('Actions for area Learning').count(), 0);
-      const areaThreads = nav.locator('section').filter({ has: page.getByRole('heading', { name: 'Area threads' }) });
+      const areaThreads = nav.getByRole('region', { name: 'Threads', exact: true });
       const newAreaThread = areaThreads.getByRole('button', { name: 'New thread for Area Learning' });
       await threadFilter.focus();
       await page.keyboard.press('Tab');
@@ -841,15 +846,17 @@ try {
       assert.equal(await addProject.count(), 0);
       assert.equal(await projects.getByLabel('Filter by project status').count(), 0);
       assert.equal(await projects.getByRole('link').count(), 0);
-      const threads = nav.getByRole('region', { name: 'Area threads' });
-      const toggleThreads = threads.getByRole('button', { name: 'Area threads' });
+      const threads = nav.getByRole('region', { name: 'Threads', exact: true });
+      const toggleThreads = threads.getByRole('button', { name: 'Threads', exact: true });
       const addThread = threads.getByRole('button', { name: 'New thread for Area Learning' });
       const filterThreads = threads.getByLabel('Filter by thread status');
       await addThread.waitFor();
-      await toggleThreads.press('Space');
+      await toggleThreads.click();
       assert.equal(await toggleThreads.getAttribute('aria-expanded'), 'false');
+      assert.equal(await toggleThreads.evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)');
       assert.equal(await addThread.count(), 0);
       assert.equal(await filterThreads.count(), 0);
+      await assertDividers(4);
       await page.screenshot({ path: join(artifacts, `area-sections-folded-${width}.png`) });
       await toggleThreads.press('Space');
       await addThread.waitFor();
@@ -858,6 +865,7 @@ try {
       await addProject.waitFor();
       await toggleActions.press('Space');
       await draft.waitFor();
+      await assertDividers(4);
       assert.equal(await draft.inputValue(), 'Check the supplies');
       await draft.focus();
       await page.screenshot({ path: join(artifacts, `area-actions-add-${width}.png`) });
@@ -995,14 +1003,16 @@ try {
       assert.equal(await plan.count(), 0);
       await toggleAction.press('Space');
       await plan.waitFor();
-      const linked = nav.getByRole('region', { name: 'Linked threads' });
-      const toggleLinked = linked.getByRole('button', { name: 'Linked threads' });
+      const linked = nav.getByRole('region', { name: 'Threads', exact: true });
+      const toggleLinked = linked.getByRole('button', { name: 'Threads', exact: true });
       const threadFilter = linked.getByLabel('Filter by thread status');
       await threadFilter.waitFor();
       await toggleLinked.press('Enter');
       assert.equal(await threadFilter.count(), 0);
+      await assertDividers(3);
       await toggleLinked.press('Enter');
       await threadFilter.waitFor();
+      await assertDividers(3);
       assert.ok(await action.evaluate(node => node.scrollWidth === node.clientWidth));
       await nav.getByRole('heading', { name: title, level: 1 }).focus();
       await page.keyboard.press('Tab');

@@ -22,6 +22,6 @@ export function FoldableSection({ title, tools, children, className }: {
       </h2>
       {expanded && tools}
     </div>
-    <div id={content} hidden={!expanded}>{children}</div>
+    <div className="gtd-section-content" id={content} hidden={!expanded}>{children}</div>
   </section>;
 }

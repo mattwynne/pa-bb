@@ -156,7 +156,7 @@ export function ProjectCorrespondence({ source, id, revision }: { source: string
     return saved;
   };
 
-  return <FoldableSection title="Correspondence" className="gtd-linked" tools={
+  return <FoldableSection title="Correspondence" tools={
     (!!conversations?.active.links.length || !!conversations?.snoozed.links.length || readError) &&
       <button type="button" aria-disabled={busy || saving} onClick={() => refresh.current()}>Refresh email</button>
   }>
