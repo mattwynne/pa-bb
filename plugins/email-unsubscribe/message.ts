@@ -52,18 +52,19 @@ export async function renderMessage(mime: string, mailbox: string) {
   if (listHeader && !/[<>]/.test(listHeader)) headerLinks.push(...listHeader.split(/,[ \t]*(?=[a-z][a-z0-9+.-]*:)/i).map(link => link.trim()));
   const headerWeb = [...new Set(headerLinks.map(link => httpsTarget(link)?.href).filter((link): link is string => Boolean(link)))];
   const mail = unique([...new Set(headerLinks.filter(link => /^mailto:/i.test(link)))]);
-  const bodyLinks: string[] = [];
+  const htmlLinks: string[] = [];
+  const textLinks: string[] = [];
   if (message.html && message.html.length <= 256 * 1024) {
     for (const link of visible(parse(message.html)).filter(isElement)) {
       if (link.tagName !== 'a' || !unsubscribeLabel.test(label(link))) continue;
       const href = httpsTarget(attr(link, 'href') ?? '');
-      if (href) bodyLinks.push(href.href);
+      if (href) htmlLinks.push(href.href);
     }
   }
   if (message.text && message.text.length <= 256 * 1024) {
     for (const match of message.text.matchAll(/^[ \t]*(?:unsubscribe|opt[ -]?out)[ \t]*:?[ \t]*(?:\([ \t]*(https:\/\/[^<>\s)]+)[ \t]*\)|<(https:\/\/[^<>\s]+)>|(https:\/\/[^<>\s]+))[ \t]*\r?$/gim)) {
       const href = httpsTarget((match[1] ?? match[2] ?? match[3])!);
-      if (href) bodyLinks.push(href.href);
+      if (href) textLinks.push(href.href);
     }
   }
   const deliveryHeaders = message.headers.filter(item => item.key === 'delivered-to');
@@ -74,7 +75,9 @@ export async function renderMessage(mime: string, mailbox: string) {
     ? delivered?.trim().toLowerCase() === primary ? mailbox : undefined
     : to.some(address => address?.toLowerCase() === primary) ? mailbox : undefined;
   const oneClick = headerWeb.length === 1 && header('list-unsubscribe-post')?.trim() === 'List-Unsubscribe=One-Click';
-  const footerLinks = [...new Set(bodyLinks)];
+  // HTML and text are alternate presentations of the same message. Tracking
+  // providers may wrap the same footer in different URLs in each rendition.
+  const footerLinks = [...new Set(htmlLinks.length ? htmlLinks : textLinks)];
   const footer = unique(footerLinks);
   return { raw, web: unique(headerWeb) ?? (!headerWeb.length ? footer : undefined),
     footer, mail, recipient, oneClick, ambiguous: headerWeb.length > 1 || (!headerWeb.length && footerLinks.length > 1) };

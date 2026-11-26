@@ -18,8 +18,9 @@ accepted request separately from a confirmation. A receipt prevents automatic
 repeat submissions for the same account and message after an uncertain result.
 An interrupted receipt requires manual follow-up.
 
-If the one-click signature cannot be verified, the tool can follow a distinct
-unsubscribe link from the message body. It follows bounded HTTPS redirects
+If the one-click signature cannot be verified, the tool can open the unsubscribe
+link explicitly labelled in the message body as a web page. It prefers the HTML
+footer when both HTML and plain text are available. It follows bounded HTTPS redirects
 and rechecks each destination before connecting. It handles simple GET and
 POST forms when the controls and recipient are clear. A loaded page alone is
 insufficient evidence of confirmation.
@@ -36,7 +37,7 @@ The child uses BB Browser Automation in a fresh local headless session on
 the parent thread's enrolled execution host. That host needs Chrome and the
 built-in browser integration. The job ID in the child prompt expires after
 ten minutes. Only the linked child can fetch the URL and verified receiving
-address from the job. Those values can appear in the child’s tool history
+address, when available, from the job. Those values can appear in the child’s tool history
 or live preview. BB's normal browser permissions apply.
 
 The child stops for sign-in, a CAPTCHA, or a change that could affect other

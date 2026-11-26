@@ -19,7 +19,7 @@ export type Method = 'one_click' | 'web_link' | 'web_form' | 'browser' | 'mailto
 export type Status = 'confirmed' | 'request_sent' | 'needs_user' | 'unavailable' | 'unverified' | 'in_progress';
 export type Result = { status: Status; method?: Method; reason: string; draftMayRemain?: boolean; childThreadId?: string };
 type Sender = (mail: NonNullable<ReturnType<typeof mailtoRequest>>, signal: AbortSignal) => Promise<z.infer<typeof mailResultSchema>>;
-export type Browser = (url: URL, recipient: string, signal: AbortSignal) => Promise<Result>;
+export type Browser = (url: URL, recipient: string | undefined, signal: AbortSignal) => Promise<Result>;
 type Ports = {
   web: WebRequest;
   browser: Browser;
@@ -66,7 +66,7 @@ export async function unsubscribeMessage(message: NonNullable<Awaited<ReturnType
       } else {
         ports.failure(method, 'signature_unverified');
         const footer = message.footer && httpsTarget(message.footer);
-        if (!footer || footer.href === url.href)
+        if (!footer)
           return { status: 'needs_user', method, reason: 'one_click_signature_unverified' };
         rejectedHeaderUrl = url.href;
         url = footer;
@@ -78,7 +78,7 @@ export async function unsubscribeMessage(message: NonNullable<Awaited<ReturnType
     const visited = new Set([url.href]);
     while ([301, 302, 303, 307, 308].includes(page.status) && page.location && visited.size < 5) {
       const next = httpsTarget(page.location, url);
-      if (!next || visited.has(next.href) || next.href === rejectedHeaderUrl) return { status: 'needs_user', method, reason: 'unsubscribe_redirect_unavailable' };
+      if (!next || visited.has(next.href) || (next.href === rejectedHeaderUrl && message.footer !== rejectedHeaderUrl)) return { status: 'needs_user', method, reason: 'unsubscribe_redirect_unavailable' };
       visited.add(next.href);
       url = next;
       page = await ports.web(url, signal);
@@ -92,11 +92,11 @@ export async function unsubscribeMessage(message: NonNullable<Awaited<ReturnType
     const inspected = ok(page) ? inspectPage(page.html, url, message.recipient) : { kind: 'browser' as const };
     if (inspected.kind === 'confirmed') return { status: 'confirmed', method, reason: 'sender_confirmed' };
     if (inspected.kind === 'blocked') return { status: 'needs_user', method, reason: 'login_or_challenge' };
-    if (inspected.kind === 'form') {
+    if (inspected.kind === 'form' && inspected.target.href !== rejectedHeaderUrl) {
       method = 'web_form';
       const destination = new URL(inspected.target);
       if (inspected.method === 'get') destination.search = inspected.fields.toString();
-      if (destination.href === rejectedHeaderUrl) return { status: 'needs_user', method, reason: 'one_click_signature_unverified' };
+      if (destination.href === rejectedHeaderUrl) return await ports.browser(url, message.recipient, signal);
       const submitted = await ports.web(destination, signal, inspected.method === 'post' ? inspected.fields : undefined);
       if (ok(submitted) && inspectPage(submitted.html, inspected.target).kind === 'confirmed')
         return { status: 'confirmed', method, reason: 'sender_confirmed' };
@@ -110,7 +110,6 @@ export async function unsubscribeMessage(message: NonNullable<Awaited<ReturnType
       }
       return { status: 'unverified', method, reason: 'form_confirmation_missing' };
     }
-    if (!message.recipient) return { status: 'needs_user', method, reason: 'recipient_not_verified' };
     method = 'browser';
     return await ports.browser(url, message.recipient, signal);
   } catch (error) {

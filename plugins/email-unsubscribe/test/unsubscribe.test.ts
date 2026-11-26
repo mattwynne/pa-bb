@@ -152,16 +152,23 @@ test('an unverified one-click signature falls back to a distinct footer link and
   assert.equal(result.childThreadId, 'thr_example');
 });
 
-test('discovers parenthesized plain-text footer links and skips a duplicate of the failed header URL', async () => {
+test('an explicitly labelled footer may share the header URL and only opens it as a web page', async () => {
   const raw = Buffer.from(
     `From: lists@example.com\r\nTo: ${mailbox}\r\nList-Unsubscribe: <${link}>\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nNewsletter\r\nunsubscribe ( ${link} )\r\n`,
   );
   const source = await renderMessage(raw.toString('base64'), mailbox);
   assert.ok(source);
   assert.equal(source.footer, link);
-  assert.equal((await unsubscribeMessage(source, {
-    ...noBrowser, failure, verify: async () => false, web: async () => assert.fail('Do not reuse the failed header URL'),
-  }, signal)).reason, 'one_click_signature_unverified');
+  const result = await unsubscribeMessage(source, {
+    ...noBrowser, failure, verify: async () => false,
+    async web(url, _, body) {
+      assert.equal(url.href, link);
+      assert.equal(body, undefined);
+      return { status: 200, html: success };
+    },
+  }, signal);
+  assert.equal(result.method, 'web_link');
+  assert.equal(result.status, 'confirmed');
 });
 
 test('parses mixed legacy URLs while preserving commas in the token', async () => {
@@ -234,4 +241,34 @@ test('suppresses hidden confirmation text and defers ambiguous controls and chal
   assert.equal(inspectPage(form.replace('</form>', '<button>Keep subscription</button></form>'), at, mailbox).kind, 'browser');
   assert.equal(inspectPage('<form method="post"><input type="image" name="Unsubscribe"></form>', at, mailbox).kind, 'browser');
   assert.equal(inspectPage('<form method="post"><select name="scope"><option>This list only</option></select><button>Save</button></form>', at, mailbox).kind, 'browser');
+});
+
+test('uses the HTML rendition of a tracked footer and opens tokenized pages without an address', async () => {
+  const raw = Buffer.from([
+    'From: lists@example.com', 'To: alias@example.com', `List-Unsubscribe: <${link}>`,
+    'List-Unsubscribe-Post: List-Unsubscribe=One-Click', 'MIME-Version: 1.0',
+    'Content-Type: multipart/alternative; boundary=alt', '', '--alt',
+    'Content-Type: text/plain', '', 'unsubscribe ( https://track.example.com/leave )',
+    '--alt', 'Content-Type: text/html', '', `<a class="untracked" href="${link}">unsubscribe</a>`,
+    '--alt--', '',
+  ].join('\r\n'));
+  const source = await renderMessage(raw.toString('base64'), mailbox);
+  assert.ok(source);
+  assert.equal(source.footer, link);
+  assert.equal(source.recipient, undefined);
+  const result = await unsubscribeMessage(source, {
+    failure, verify: async () => false,
+    async web(url, _, body) {
+      assert.equal(url.href, link);
+      assert.equal(body, undefined);
+      return { status: 200, html: '<script></script><button>Confirm unsubscribe</button>' };
+    },
+    async browser(url, recipient) {
+      assert.equal(url.href, link);
+      assert.equal(recipient, undefined);
+      return { status: 'in_progress', method: 'browser', reason: 'browser_subthread_started' };
+    },
+  }, signal);
+  assert.equal(result.method, 'browser');
+  assert.equal(result.status, 'in_progress');
 });
