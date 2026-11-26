@@ -84,6 +84,12 @@ test('normal tools use native Desktop against a disposable vault', {
   await writeFile(join(root, '.obsidian/app.json'), '{"alwaysUpdateLinks":true}');
   const original = '\r\n# Target\r\n\r\n- [ ] item\r\n';
   await writeFile(join(root, 'Active/Target.md'), original);
+  const longPath = 'Active/Long.md';
+  const longFile = join(root, longPath);
+  const longNote = '---\r\nstatus: ready # keep this\r\nlabel: \'café\'\r\n---\r\n\r\n' +
+    'sentinel-unchanged 🌲 ' + 'a'.repeat(61_000) + '\r\n\r\n- [ ] long task\r\n';
+  assert.ok(2 * Buffer.byteLength(JSON.stringify(longNote)) > 100_000);
+  await writeFile(longFile, longNote);
   await writeFile(join(root, 'Elsewhere/Target.md'), '# Separate namesake');
   await writeFile(join(root, 'Occupied.md'), 'sentinel-occupied');
   await writeFile(join(root, 'OldFolder/Child.md'), '# Child\n');
@@ -92,8 +98,34 @@ test('normal tools use native Desktop against a disposable vault', {
   await writeFile(join(root, 'Malformed.md'), '---\nstatus: [invalid\n---\n# Malformed');
   await writeFile(join(root, 'Reference.md'), '[[Active/Target]] and [[OldFolder/Child]]\n');
   const id = 'fixture';
+  const cli = join(owner, 'observe-cli');
+  const fault = join(owner, 'next-write-fault');
+  if (!managed) await writeFile(cli, `#!${process.execPath}
+const { spawnSync } = require('node:child_process');
+const { existsSync, readFileSync, unlinkSync, appendFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+let loseReply = false;
+if (args[2]?.includes('app.vault.process(file') && args[2].includes(${JSON.stringify(longPath)})) {
+  if (Buffer.byteLength(args[2]) > 4096 || args[2].includes('sentinel-unchanged')) process.exit(2);
+  const fault = ${JSON.stringify(fault)};
+  if (existsSync(fault)) {
+    const mode = readFileSync(fault, 'utf8');
+    unlinkSync(fault);
+    if (mode === 'stale') appendFileSync(${JSON.stringify(longFile)}, 'Concurrent change.\\r\\n');
+    loseReply = mode === 'lost-reply';
+  }
+}
+const result = spawnSync(${JSON.stringify(binaries.cli)}, args);
+if (loseReply && result.status === 0) {
+  console.error('sentinel-private transport output');
+  process.exit(1);
+}
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
+process.exitCode = result.status ?? 1;
+`, { mode: 0o700 });
   const { bb, harness } = createFakePluginHost({ pluginId: 'obsidian', settings: managed ? {} : {
-    desktopBinary: binaries.desktop!, desktopCli: binaries.cli!, desktopVaultId: id,
+    desktopBinary: binaries.desktop!, desktopCli: cli, desktopVaultId: id,
   } });
   let denyGrant = false, denyAfter = Infinity, configureCount = 0, grantCount = 0;
   const sdk = { ...bb.sdk, plugins: {
@@ -124,7 +156,8 @@ test('normal tools use native Desktop against a disposable vault', {
   assert.equal(connected.desktop.mode, managed ? 'managed' : 'manual');
   const tool = async (name: string, input: object, category?: string) => {
     if (name === 'move_note' || name === 'move_folder') input = { operationId: randomUUID(), ...input };
-    const result = await harness.behavior.callAgentTool('obsidian_' + name, { vaultId: id, ...input }, { threadId: 'test' });
+    const result = await harness.behavior.callAgentTool('obsidian_' + name,
+      name === 'recover_receipts' ? input : { vaultId: id, ...input }, { threadId: 'test' });
     assert.notEqual(typeof result, 'string');
     if (typeof result === 'string') throw new Error('bad test reply');
     const row = JSON.parse((result.content[0] as { text: string }).text);
@@ -193,6 +226,9 @@ test('normal tools use native Desktop against a disposable vault', {
   const task = await tool('edit_note', { path: 'Active/Target.md', expectedHash: first.hash, task: { line: 4, marker: 'x' } });
   assert.equal(task.receipt.outcome, 'saved_locally_pending_sync');
   const updated = await tool('read_note', { path: 'Active/Target.md' });
+  await tool('update_properties', { path: 'Active/Target.md', expectedHash: updated.hash,
+    set: { status: Array(7).fill('\\'.repeat(4000)) } }, 'capacity');
+  assert.deepEqual(await readFile(join(root, 'Active/Target.md')), Buffer.from(original.replace('[ ]', '[x]')));
   const properties = await tool('update_properties', { path: 'Active/Target.md', expectedHash: updated.hash, set: { status: 'active' } });
   assert.equal(properties.receipt.outcome, 'saved_locally_pending_sync');
   assert.equal((await tool('search_notes', { pathGlob: 'Active/Target.md', properties: [{ key: 'status', equals: 'active' }], mode: 'count' })).totalMatches, 1);
@@ -220,5 +256,59 @@ test('normal tools use native Desktop against a disposable vault', {
   await tool('read_note', { path: 'Reference.md' }, 'source_unavailable');
   denyAfter = Infinity;
   assert.equal((await tool('read_note', { path: 'Reference.md' })).complete, true);
+
+  const readLong = async (expected: string) => {
+    let page = await tool('read_note', { path: longPath });
+    assert.equal(page.editReady, false);
+    assert.ok(page.nextCursor);
+    let text = page.text;
+    while (page.nextCursor) {
+      page = await tool('read_note', { path: longPath, cursor: page.nextCursor });
+      text += page.text;
+    }
+    assert.equal(page.text, '');
+    assert.equal(page.editReady, true);
+    assert.equal(text, expected);
+    return page.hash as string;
+  };
+  const firstPage = await tool('read_note', { path: longPath });
+  await tool('update_properties', { path: longPath, expectedHash: firstPage.hash,
+    set: { status: 'active' } }, 'complete_read_required');
+  const longHash = await readLong(longNote);
+  await tool('update_properties', { path: longPath, expectedHash: longHash,
+    set: { extra: Array(2).fill('b'.repeat(4000)) } }, 'parser_limit');
+  const longProperties = await tool('update_properties', { path: longPath, expectedHash: longHash, set: { status: 'active' } });
+  const changed = longNote.replace('status: ready', 'status: "active"');
+  assert.equal(longProperties.receipt.outcome, 'saved_locally_pending_sync');
+  assert.deepEqual(await readFile(longFile), Buffer.from(changed));
+  const changedHash = await readLong(changed);
+  const longTask = await tool('edit_note', { path: longPath, expectedHash: changedHash, task: { line: 8, marker: 'x' } });
+  const finished = changed.replace('[ ]', '[x]');
+  assert.equal(longTask.receipt.outcome, 'saved_locally_pending_sync');
+  assert.deepEqual(await readFile(longFile), Buffer.from(finished));
+
+  if (!managed) {
+    const patch = (expectedHash: string, status: string) => harness.behavior.callRpc('writeProperties', {
+      vaultId: id, path: longPath, expectedHash, set: { status }, operationId: randomUUID(),
+    }, { experimental_caller: { kind: 'plugin', pluginId: 'gtd' } }) as Promise<{ operationId: string; outcome: string }>;
+    await writeFile(fault, 'stale');
+    const stale = await patch(longTask.receipt.hash, 'stale edit');
+    assert.equal(stale.outcome, 'not_saved');
+    const current = finished + 'Concurrent change.\r\n';
+    assert.deepEqual(await readFile(longFile), Buffer.from(current));
+    assert.equal((await tool('recover_receipts', { request: { action: 'inspect', operationId: stale.operationId } })).status, 'not_applied');
+
+    await writeFile(fault, 'lost-reply');
+    const interrupted = await patch(await readLong(current), 'lost reply');
+    assert.equal(interrupted.outcome, 'uncertain');
+    await assert.rejects(lstat(fault), { code: 'ENOENT' });
+    const applied = current.replace('status: "active"', 'status: "lost reply"');
+    assert.deepEqual(await readFile(longFile), Buffer.from(applied));
+    assert.deepEqual(await tool('recover_receipts', { request: { action: 'inspect', operationId: interrupted.operationId } }), {
+      operationId: interrupted.operationId, kind: 'save', status: 'unresolved', checks: [], blocker: 'missing_operation_specific_evidence',
+    });
+    await tool('update_properties', { path: longPath, expectedHash: await readLong(applied), set: { status: 'retry' } }, 'busy');
+    assert.deepEqual(await readFile(longFile), Buffer.from(applied));
+  }
   assert.doesNotMatch(JSON.stringify(harness.inspection.logEntries), /sentinel/);
 });

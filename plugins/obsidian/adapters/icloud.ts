@@ -349,19 +349,26 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   }
 
   async desktopCommit(input: Parameters<VaultFiles['commit']>[0], previous: string, signal?: AbortSignal) {
-    if (Buffer.byteLength(JSON.stringify(previous) + JSON.stringify(input.text)) > 100_000)
-      throw new VaultError('capacity', 'Use a smaller note for a Desktop task or single-property edit.');
+    // Task and single-property changes are contiguous. Keep unchanged text out of argv.
+    const updated = input.text;
+    let start = 0, end = previous.length, updatedEnd = updated.length;
+    while (start < Math.min(end, updatedEnd) && previous[start] === updated[start]) start++;
+    while (end > start && updatedEnd > start && previous[end - 1] === updated[updatedEnd - 1]) {
+      end--;
+      updatedEnd--;
+    }
     const { relative, run, filesystem } = await this.desktopAccess(input.mirrorId, input.revision, signal);
-    const args = JSON.stringify({ path: relative(input.path), previous, updated: input.text });
+    const args = JSON.stringify({ path: relative(input.path), expectedHash: input.expectedHash, start, end, replacement: updated.slice(start, updatedEnd) });
     const operation = { kind: 'write' as const, code: `(async () => {
-      const {path, previous, updated} = ${args};
+      const {path, expectedHash, start, end, replacement} = ${args};
+      const {createHash} = require("node:crypto");
       const file = app.vault.getAbstractFileByPath(path);
       if (file?.extension !== "md") return false;
       const mismatch = new Error();
       try {
         await app.vault.process(file, text => {
-          if (file.path !== path || text !== previous) throw mismatch;
-          return updated;
+          if (file.path !== path || createHash("sha256").update(text, "utf8").digest("hex") !== expectedHash) throw mismatch;
+          return text.slice(0, start) + replacement + text.slice(end);
         });
         if (file.path !== path) throw new Error();
         return true;
@@ -370,6 +377,8 @@ export class ICloud implements MirrorCatalog, VaultFiles {
         throw cause;
       }
     })()` };
+    if (Buffer.byteLength('code=' + operation.code) > 100_000)
+      throw new VaultError('capacity', 'Use a smaller change for a Desktop task or single-property edit.');
     return filesystem.desktopCommit(input, before => run(operation, before));
   }
 
