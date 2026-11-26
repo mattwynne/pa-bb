@@ -1607,7 +1607,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_managed_scan.go
-@@ -0,0 +1,348 @@
+@@ -0,0 +1,347 @@
 +package bisync
 +
 +import (
@@ -1667,15 +1667,14 @@
 +	if err != nil {
 +		return err
 +	}
-+	if state.Pending != nil {
-+		return ErrBBDeliveryUnsettled
-+	}
 +	var resolved *BBRelocation
-+	if move := state.Relocation; move != nil {
-+		if move.Conflict != nil && move.Conflict.Approved != nil && b.conflictResolutionReady(ctx, move) && b.alignConflictBaseline(move) == nil {
-+			resolved = move
-+			state.conflictBaselinesAdopted(move)
-+		} else if err := b.holdBBRelocation(ctx, move); err != nil {
++	if move := state.Relocation; move != nil && move.Conflict != nil && move.Conflict.Approved != nil &&
++		b.conflictResolutionReady(ctx, move) && b.alignConflictBaseline(move) == nil {
++		resolved = move
++		state.conflictBaselinesAdopted(move)
++	}
++	if state.Pending != nil || state.Relocation != nil {
++		if err := b.holdBBPublications(ctx, state); err != nil {
 +			return err
 +		}
 +	}
@@ -3886,7 +3885,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation_hold.go
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,148 @@
 +package bisync
 +
 +import (
@@ -3899,7 +3898,7 @@
 +	"golang.org/x/text/unicode/norm"
 +)
 +
-+// During an unconfirmed move the scheduled scan retains the previous
++// During an unconfirmed publication the scheduled scan retains the previous
 +// observations of affected paths. Queue construction must never see them as
 +// differences, and the next successful scan must still compare against the
 +// original baseline.
@@ -3958,8 +3957,16 @@
 +	return retained
 +}
 +
-+func (b *bisyncRun) holdBBRelocation(ctx context.Context, move *BBRelocation) error {
++func (b *bisyncRun) holdBBPublications(ctx context.Context, state bbDeliveryStore) error {
 +	if b.march.bbIdentities == nil || b.opt.RemoveEmptyDirs || fs.GetConfig(ctx).TrackRenames {
++		return ErrBBDeliveryUnsettled
++	}
++	pending := state.Pending
++	if pending != nil && (len(state.PendingData) == 0 ||
++		(!pending.Create && state.PendingDocument == "") ||
++		(pending.Create && state.Dispatched && state.AllocatedDocument == "")) {
++		// A legacy record without matching proof cannot identify a
++		// publication that may have moved after its response was lost.
 +		return ErrBBDeliveryUnsettled
 +	}
 +	cloud, err := b.loadListing(b.listing1)
@@ -3978,9 +3985,19 @@
 +		}
 +	}
 +	held := &bbRelocationHold{files: map[string]bool{}, trees: map[string]bool{}}
-+	paths := move.heldPaths()
++	var paths []string
++	move := state.Relocation
++	if move != nil {
++		paths = append(paths, move.heldPaths()...)
++	}
++	if pending != nil {
++		paths = append(paths, pending.Path)
++	}
 +	for name, observation := range b.march.bbIdentities {
-+		if move.hasProviderDocument(observation.DocumentID) {
++		id := observation.DocumentID
++		if (move != nil && move.hasProviderDocument(id)) ||
++			(pending != nil && ((!pending.Create && id == state.PendingDocument) ||
++				(pending.Create && state.AllocatedDocument != "" && bbAllocatedDocumentID(id) == state.AllocatedDocument))) {
 +			paths = append(paths, name)
 +		}
 +	}
@@ -3998,7 +4015,7 @@
 +		}
 +	}
 +	// Retain the real provider metadata internally only long enough to
-+	// identify relocated files. Never advertise a held alias as an
++	// identify affected files. Never advertise a held alias as an
 +	// acknowledged baseline for another fast operation.
 +	for name := range b.march.bbIdentities {
 +		if held.includes(name) {
@@ -4014,12 +4031,12 @@
 +		return err
 +	}
 +	b.bbHeldRelocation = held
-+	fs.Infof(nil, "An iCloud move is awaiting verification. Unrelated paths continue through scheduled sync.")
++	fs.Infof(nil, "An iCloud publication is awaiting verification. Unrelated paths continue through scheduled sync.")
 +	return nil
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation_hold_test.go
-@@ -0,0 +1,285 @@
+@@ -0,0 +1,379 @@
 +package bisync
 +
 +import (
@@ -4303,6 +4320,100 @@
 +	pending, settled, err := BBReadRelocation(root, move)
 +	if err != nil || pending == nil || pending.Allocation != "allocated" || settled != nil {
 +		t.Fatalf("independent delivery replaced the original move: %v", err)
++	}
++}
++
++func TestBBUnconfirmedWriteHoldsItsProviderAliasWhileUnrelatedEditsSync(t *testing.T) {
++	for _, create := range []bool{false, true} {
++		name := "replacement"
++		if create {
++			name = "creation"
++		}
++		t.Run(name, func(t *testing.T) {
++			ctx := context.Background()
++			cloudRoot, mirrorRoot, workdir := t.TempDir(), t.TempDir(), t.TempDir()
++			cloud, err := local.NewFs(ctx, "local", cloudRoot, configmap.Simple{})
++			if err != nil {
++				t.Fatal(err)
++			}
++			mirror, err := local.NewFs(ctx, "local", mirrorRoot, configmap.Simple{})
++			if err != nil {
++				t.Fatal(err)
++			}
++			oldTime := time.Unix(1700000000, 0)
++			newTime := oldTime.Add(time.Minute)
++			write := func(root, name, body string, at time.Time) {
++				t.Helper()
++				file := filepath.Join(root, name)
++				if err := os.WriteFile(file, []byte(body), 0600); err != nil {
++					t.Fatal(err)
++				}
++				if err := os.Chtimes(file, at, at); err != nil {
++					t.Fatal(err)
++				}
++			}
++			const pending, alias = "Pending.md", "Renamed independently.txt"
++			const chosen, competing = "BB saved bytes", "new device bytes after rename"
++			for _, root := range []string{cloudRoot, mirrorRoot} {
++				write(root, "Inbound.md", "shared version", oldTime)
++				write(root, "Outbound.md", "shared version", oldTime)
++				if !create {
++					write(root, pending, "prior", oldTime)
++				}
++			}
++			options := Options{Resync: true, Workdir: workdir, CompareFlag: "size,modtime", CheckSync: CheckSyncTrue, MaxDelete: 50}
++			if err := Bisync(ctx, cloud, mirror, &options); err != nil {
++				t.Fatal(err)
++			}
++			options.Resync = false
++			intent := BBDeliveryIntent{"35db3a72-b0e9-4b01-bf25-c442d28e010a", pending, sha256.Sum256([]byte(chosen)), create}
++			const document = "FILE::com.apple.CloudDocs::known"
++			var known, allocation []string
++			if create {
++				allocation = []string{"known"}
++			} else {
++				known = []string{document}
++			}
++			if err := BBBeginDeliveryWithData(workdir, intent, []byte(chosen), known...); err != nil {
++				t.Fatal(err)
++			}
++			if err := BBDispatchDelivery(workdir, intent, allocation...); err != nil {
++				t.Fatal(err)
++			}
++			if !create {
++				if err := os.Remove(filepath.Join(cloudRoot, pending)); err != nil {
++					t.Fatal(err)
++				}
++			}
++			write(cloudRoot, alias, competing, newTime)
++			write(cloudRoot, "Inbound.md", "independent device edit", newTime)
++			write(mirrorRoot, "Outbound.md", "independent BB edit", newTime)
++			write(mirrorRoot, pending, chosen, newTime)
++			wrapped := &bbHeldListingFS{Fs: cloud, versions: map[string]BBIndexedVersion{
++				alias: {DocumentID: document, ParentID: "generated", ETag: "later"},
++			}}
++			if err := BBManagedBisync(ctx, wrapped, mirror, options, "generated"); err != nil {
++				t.Fatal(err)
++			}
++			checks := []struct{ root, name, want string }{
++				{mirrorRoot, pending, chosen}, {cloudRoot, alias, competing},
++				{mirrorRoot, "Inbound.md", "independent device edit"}, {cloudRoot, "Outbound.md", "independent BB edit"},
++			}
++			for _, check := range checks {
++				if got, err := os.ReadFile(filepath.Join(check.root, check.name)); err != nil || string(got) != check.want {
++					t.Fatalf("unexpected note at %s: %q %v", check.name, got, err)
++				}
++			}
++			for _, file := range []string{filepath.Join(cloudRoot, pending), filepath.Join(mirrorRoot, alias)} {
++				if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
++					t.Fatal("a held rename was synced")
++				}
++			}
++			state, err := readBBDeliveries(workdir)
++			if err != nil || state.Pending == nil || *state.Pending != intent || string(state.PendingData) != chosen {
++				t.Fatal("unrelated scan lost the frozen publication")
++			}
++		})
 +	}
 +}
 --- /dev/null
