@@ -50,6 +50,7 @@ export const actionTextLimit = 2000;
 export const actionText = z.string().trim().min(1).max(actionTextLimit).regex(/^[^\u0000-\u001f\u007f]+$/u);
 export const actionLine = z.number().int().min(1).max(standardTextLimit);
 export const actionTarget = reference.extend({ kind: z.enum(['project', 'area']) });
+const versionedAction = actionTarget.extend({ line: actionLine, version: noteHash });
 export const areaActionInput = reference.extend({
   operationId: z.uuid(),
   change: z.discriminatedUnion('operation', [
@@ -101,14 +102,25 @@ export const rpcContract = defineRpcContract({
   readNextAction: { input: reference, output: nextAction },
   readNoteActions: { input: actionTarget, output: actionsSnapshot },
   changeNoteAction: { input: noteActionInput, output: noteActionResult },
-  createProjectFromAction: {
-    input: actionTarget.extend({ line: actionLine, version: noteHash, operationId: z.uuid() }),
+  suggestActionProjectName: {
+    input: versionedAction,
     output: z.discriminatedUnion('state', [
-      z.object({ state: z.literal('converted'), id: reference.shape.id }).strict(),
+      z.object({ state: z.literal('suggested'), name: projectName }).strict(),
+      z.object({ state: z.enum(['changed', 'has_details', 'name_unavailable', 'blocked']) }).strict(),
+    ]),
+  },
+  createProjectFromAction: {
+    input: versionedAction.extend({ name: projectName, operationId: z.uuid() }),
+    output: z.discriminatedUnion('state', [
+      z.object({ state: z.literal('converted'), id: reference.shape.id, undoToken: z.uuid() }).strict(),
       z.object({ state: z.literal('action_kept'), id: reference.shape.id }).strict(),
       z.object({ state: z.literal('removal_unconfirmed'), id: reference.shape.id, operationId: z.uuid() }).strict(),
-      z.object({ state: z.enum(['changed', 'invalid_name', 'has_details', 'no_area', 'exists', 'blocked', 'uncertain']) }).strict(),
+      z.object({ state: z.enum(['changed', 'has_details', 'no_area', 'exists', 'blocked', 'uncertain']) }).strict(),
     ]),
+  },
+  undoActionProjectRemoval: {
+    input: z.object({ undoToken: z.uuid(), operationId: z.uuid() }).strict(),
+    output: z.object({ state: z.enum(['restored', 'changed', 'unavailable', 'uncertain']) }).strict(),
   },
   readAreaActions: { input: reference, output: actionsSnapshot },
   changeAreaAction: { input: areaActionInput, output: actionChangeResult },

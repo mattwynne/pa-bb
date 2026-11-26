@@ -1,6 +1,6 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
-import { actionLine, actionTarget, actionText, projectName } from '../contract.ts';
+import { actionLine, actionTarget, actionText } from '../contract.ts';
 
 const actionIdentity = actionTarget.extend({
   line: actionLine,
@@ -61,9 +61,7 @@ export function prepareActionProject(section: string, line: number) {
   const span = actionSpans(section).find(span => span.action.line === line);
   if (!span) return { state: 'changed' } as const;
   if (span.itemEnd > span.lineEnd) return { state: 'has_details' } as const;
-  const name = projectName.safeParse(span.action.text);
-  if (!name.success) return { state: 'invalid_name' } as const;
-  return { state: 'ready', name: name.data, text: removeAction(section, span) } as const;
+  return { state: 'ready', action: span.action.text, text: removeAction(section, span) } as const;
 }
 
 export function changeActions(section: string, change: ActionChange) {

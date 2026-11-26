@@ -1,8 +1,8 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { experimental_Icon as Icon, Markdown, useRpc } from '@get-bb/plugin-sdk/app';
 import { toast } from 'sonner';
 import type { z } from 'zod';
-import { actionText, actionTextLimit, rpcContract } from './contract.ts';
+import { actionText, actionTextLimit, projectName, rpcContract } from './contract.ts';
 import { FoldableSection } from './foldable-section.tsx';
 import { FilterControls, FilterOption } from './filter-controls.tsx';
 import { RowActions } from './row-actions.tsx';
@@ -24,6 +24,10 @@ export function NoteActions({ kind, source, id, revision, startingThread, startT
   const heading = useId();
   const formId = useId();
   const filterGroup = useId();
+  const projectHeading = useId();
+  const projectDescription = useId();
+  const projectDialog = useRef<HTMLDialogElement>(null);
+  const projectInput = useRef<HTMLInputElement>(null);
   const rpc = useRpc<typeof rpcContract>();
   const client = useRef(rpc);
   client.current = rpc;
@@ -42,6 +46,10 @@ export function NoteActions({ kind, source, id, revision, startingThread, startT
   const [draft, setDraft] = useState<string>();
   const [editTarget, setEditTarget] = useState<{ line: number; version: string; trigger: HTMLElement }>();
   const [pending, setPending] = useState(false);
+  const [namingProject, setNamingProject] = useState(false);
+  const [projectTarget, setProjectTarget] = useState<{ line: number; version: string; trigger: HTMLElement; draft: string }>();
+  const [projectError, setProjectError] = useState('');
+  const runRestore = useRef<(undoToken: string, event: React.MouseEvent<HTMLButtonElement>) => void>(undefined);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [uncertainId, setUncertainId] = useState('');
@@ -166,66 +174,138 @@ export function NoteActions({ kind, source, id, revision, startingThread, startT
     else if (mounted.current) void save(change);
   };
 
-  const createProject = async (line: number, version: string, trigger: HTMLElement) => {
+  useLayoutEffect(() => {
+    if (projectDialog.current && !projectDialog.current.open) {
+      projectDialog.current.showModal();
+      projectInput.current?.focus();
+      projectInput.current?.select();
+    }
+  }, [projectTarget]);
+
+  const closeProject = (trigger?: HTMLElement) => {
+    projectDialog.current?.close();
+    setProjectTarget(undefined);
+    (trigger?.isConnected ? trigger : addButton.current)?.focus();
+  };
+  const suggestProject = async (action: { line: number; text: string }, version: string, trigger: HTMLElement) => {
     if (!canWrite || editing || saving.current) return;
     saving.current = true;
     setPending(true);
+    setNamingProject(true);
     setError('');
     setNotice('');
-    const operationId = crypto.randomUUID();
+    setProjectError('');
     try {
-      const result = await client.current.call('createProjectFromAction', { kind, source, id, line, version, operationId });
-      switch (result.state) {
-        case 'converted':
-          if (document.activeElement === trigger) addButton.current?.focus();
-          setSnapshot(current => current?.version === version
-            ? { ...current, actions: current.actions.filter(action => action.line !== line) } : current);
-          setNotice('Project created. Action removed.');
-          refresh();
-          refreshProjects();
-          break;
-        case 'action_kept':
-          setError('Project created. The action could not be removed. Review the refreshed actions.');
-          refresh();
-          refreshProjects();
-          break;
-        case 'removal_unconfirmed':
-          setError('Project created. Check whether the action was removed.');
-          setUncertainId(result.operationId);
-          refreshProjects();
-          break;
-        case 'changed':
-          setError('The note changed. Review the refreshed action before creating a project.');
-          refresh();
-          break;
-        case 'invalid_name':
-          setError('Edit the action so its text can be used as an Obsidian filename.');
-          break;
-        case 'has_details':
-          setError('This action has additional lines. Move those details out of the action before creating a project.');
-          break;
-        case 'no_area':
-          setError('Assign the parent project to an Area before creating a project from this action.');
-          break;
-        case 'exists':
-          setError('A project with this name already exists.');
-          break;
-        case 'blocked':
-          setError('Could not create the project. Check the Area and project folder in Obsidian.');
-          break;
-        case 'uncertain':
-          setError('Could not confirm project creation. Check the Projects list before trying again.');
-          setUncertainId(operationId);
-          refreshProjects();
-          break;
+      const suggestion = await client.current.call('suggestActionProjectName', { kind, source, id, line: action.line, version });
+      if (suggestion.state === 'changed') {
+        setError('The note changed. Review the refreshed action before creating a project.');
+        refresh();
+        return;
       }
+      if (suggestion.state === 'has_details') {
+        setError('This action has additional lines. Move those details out of the action before creating a project.');
+        return;
+      }
+      if (suggestion.state === 'blocked') {
+        setError('Could not read the action. Check the note in Obsidian.');
+        return;
+      }
+      const fallback = projectName.safeParse(action.text);
+      if (suggestion.state === 'name_unavailable') setProjectError('The naming agent could not suggest a title. Enter a project name.');
+      setProjectTarget({ line: action.line, version, trigger,
+        draft: suggestion.state === 'suggested' ? suggestion.name : fallback.success ? fallback.data : '' });
     } catch {
-      setError('Could not confirm the conversion. Check the Projects and Actions lists before trying again.');
-      setUncertainId(operationId);
-      refreshProjects();
+      setError('Could not prepare a project title. Try again.');
     } finally {
       saving.current = false;
       setPending(false);
+      setNamingProject(false);
+    }
+  };
+
+  runRestore.current = (undoToken, event) => {
+    if (saving.current || uncertainId || projectTarget) { event.preventDefault(); return; }
+    if (!mounted.current) return;
+    saving.current = true;
+    setPending(true);
+    const operationId = crypto.randomUUID();
+    void client.current.call('undoActionProjectRemoval', { undoToken, operationId }).catch(() => ({ state: 'uncertain' } as const))
+      .then(result => {
+        if (result.state === 'restored') toast.success('Action restored');
+        else if (result.state === 'changed') toast.error('Could not restore the action because the TODO section changed.');
+        else if (result.state === 'unavailable') toast.error('Undo is no longer available.');
+        else {
+          setUncertainId(operationId);
+          toast.error('Could not confirm whether the action was restored.');
+        }
+        refresh();
+      }).finally(() => { saving.current = false; setPending(false); });
+  };
+
+  const validProjectName = projectName.safeParse(projectTarget?.draft);
+  const createProject = async () => {
+    if (!projectTarget || !validProjectName.success || saving.current) return;
+    const { line, version, trigger } = projectTarget;
+    const name = validProjectName.data;
+    saving.current = true;
+    setPending(true);
+    setProjectError('');
+    const operationId = crypto.randomUUID();
+    const result = await client.current.call('createProjectFromAction', { kind, source, id, line, version, name, operationId })
+      .catch(() => ({ state: 'uncertain' } as const));
+    saving.current = false;
+    setPending(false);
+    switch (result.state) {
+      case 'converted':
+        closeProject();
+        setSnapshot(current => current?.version === version
+          ? { ...current, actions: current.actions.filter(action => action.line !== line) } : current);
+        refresh();
+        refreshProjects();
+        if (mounted.current) undoToast.current = toast.success(`Created “${name}”`, {
+          description: 'Action removed. Undo restores the action.',
+          id: undoToast.current,
+          duration: undoToastDuration,
+          action: { label: 'Undo', onClick: event => runRestore.current?.(result.undoToken, event) },
+        });
+        break;
+      case 'action_kept':
+        closeProject(trigger);
+        setError('Project created. The action could not be removed. Review the refreshed actions.');
+        refresh();
+        refreshProjects();
+        break;
+      case 'removal_unconfirmed':
+        closeProject(trigger);
+        setError('Project created. Check whether the action was removed.');
+        setUncertainId(result.operationId);
+        refreshProjects();
+        break;
+      case 'changed':
+        closeProject(trigger);
+        setError('The note changed. Review the refreshed action before creating a project.');
+        refresh();
+        break;
+      case 'has_details':
+        closeProject(trigger);
+        setError('This action has additional lines. Move those details out of the action before creating a project.');
+        break;
+      case 'no_area':
+        setProjectError('Assign the parent project to an Area before creating a project from this action.');
+        break;
+      case 'exists':
+        setProjectError('A project with this name already exists. Choose a different name.');
+        projectInput.current?.focus();
+        break;
+      case 'blocked':
+        setProjectError('Could not create the project. Check the Area and project folder in Obsidian.');
+        break;
+      case 'uncertain':
+        closeProject(trigger);
+        setError('Could not confirm the conversion. Check the Projects and Actions lists before trying again.');
+        setUncertainId(operationId);
+        refreshProjects();
+        break;
     }
   };
 
@@ -293,7 +373,7 @@ export function NoteActions({ kind, source, id, revision, startingThread, startT
                     run: () => startThread({ line: action.line, version: snapshot.version, refresh }),
                   }, {
                     label: 'Create project', disabled: !canWrite || editing,
-                    run: trigger => void createProject(action.line, snapshot.version, trigger),
+                    run: trigger => void suggestProject(action, snapshot.version, trigger),
                   }, { label: 'Edit…', disabled: !canWrite || editing, run: trigger => {
                     setEditTarget({ line: action.line, version: snapshot.version, trigger });
                     setDraft(action.text);
@@ -305,6 +385,32 @@ export function NoteActions({ kind, source, id, revision, startingThread, startT
             })}
           </ul> : <p role="status">{empty}</p>}
     {error && <p role="alert">{error}</p>}
+    {namingProject && <p role="status">Preparing project title…</p>}
+    {projectTarget && <dialog ref={projectDialog} className="gtd-project-dialog"
+      aria-labelledby={projectHeading} aria-describedby={projectDescription}
+      onCancel={event => { event.preventDefault(); if (!saving.current) closeProject(projectTarget.trigger); }}
+      onKeyDown={event => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!saving.current) closeProject(projectTarget.trigger);
+      }}>
+      <form onSubmit={event => { event.preventDefault(); void createProject(); }}>
+        <h2 id={projectHeading}>Create project from action</h2>
+        <p id={projectDescription} className="gtd-create-description">Create a project in the same Area and remove this action.</p>
+        <label>Project name
+          <input ref={projectInput} value={projectTarget.draft} maxLength={240} readOnly={pending} enterKeyHint="done"
+            onChange={event => { setProjectTarget({ ...projectTarget, draft: event.target.value }); setProjectError(''); }} />
+        </label>
+        {projectTarget.draft.trim() && !validProjectName.success && <p className="gtd-create-description">Use a valid Obsidian filename.</p>}
+        {projectError && <p className="gtd-create-description" role="alert">{projectError}</p>}
+        {pending && <p className="gtd-create-description" role="status">Saving in Obsidian…</p>}
+        <div className="gtd-edit-actions">
+          <button type="button" disabled={pending} onClick={() => closeProject(projectTarget.trigger)}>Cancel</button>
+          <button type="submit" disabled={!validProjectName.success || pending}>Create project</button>
+        </div>
+      </form>
+    </dialog>}
     {uncertainId && <div>
       <p role="alert">Save unconfirmed. Check the refreshed list before trying again. Operation ID <code>{uncertainId}</code></p>
       <button type="button" onClick={() => { setUncertainId(''); refresh(); }}>Reload actions</button>

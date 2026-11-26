@@ -146,7 +146,9 @@ try {
       { line: 2, text: 'Book the room', complete: true },
       { line: 3, text: 'Pack the tools', complete: false },
     ];
-    let refuseAction = false, failProjectActions = false;
+    let refuseAction = false, failProjectActions = false, releaseProjectName;
+    let conversionRequests = 0, removedAction;
+    const conversionUndo = 'd4b5ed18-7bf0-42f4-9983-e6f06e9ac119';
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
     const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
       ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1,
@@ -269,18 +271,31 @@ try {
           result = { state: 'created', id: extraProject.id };
         }
       }
-      if (method === 'createProjectFromAction') {
+      if (method === 'suggestActionProjectName' || method === 'createProjectFromAction') {
         assert.equal(input.kind, 'area');
         assert.equal(input.id, assignedArea);
         assert.equal(input.version, actionVersion);
         const action = areaActions.find(action => action.line === input.line);
-        assert.equal(action?.text, 'Prepare the workshop');
-        if (refuseAction) result = { state: 'exists' };
-        else {
-          extraProject = { id: `Projects/${action.text}.md`, title: action.text, status: 'active', areaId: input.id };
+        assert.equal(action?.text, 'Prepare the [workshop](https://example.com/workshop)');
+        if (method === 'suggestActionProjectName') {
+          if (refuseAction) {
+            await new Promise(resolve => { releaseProjectName = resolve; });
+            result = { state: 'name_unavailable' };
+          } else result = { state: 'suggested', name: 'Prepare the workshop' };
+        } else {
+          ++conversionRequests;
+          assert.equal(input.name, 'Organize the workshop');
+          removedAction = action;
+          extraProject = { id: 'Projects/Organize the workshop.md', title: input.name, status: 'active', areaId: input.id };
           areaActions = areaActions.filter(item => item.line !== input.line);
-          result = { state: 'converted', id: extraProject.id };
+          result = { state: 'converted', id: extraProject.id, undoToken: conversionUndo };
         }
+      }
+      if (method === 'undoActionProjectRemoval') {
+        assert.equal(input.undoToken, conversionUndo);
+        assert.ok(removedAction);
+        areaActions.unshift(removedAction);
+        result = { state: 'restored' };
       }
       if (method === 'readNoteActions') {
         if ((mode === 'area-actions' && input.kind === 'area') || (mode === 'project-actions-list' && input.kind === 'project')) {
@@ -947,9 +962,9 @@ try {
       await actions.locator('.gtd-action-row').filter({ hasText: 'Book the room' }).locator('input:checked').waitFor();
       assert.ok(await done.isChecked());
       await add.click();
-      await draft.fill('Prepare the workshop');
+      await draft.fill('Prepare the [workshop](https://example.com/workshop)');
       await draft.press('Enter');
-      const conversionMenu = actions.getByLabel('Options for action Prepare the workshop');
+      const conversionMenu = actions.getByLabel('Options for action Prepare the [workshop](https://example.com/workshop)', { exact: true });
       const convert = conversionMenu.locator('..').getByRole('button', { name: 'Create project', exact: true });
       refuseAction = true;
       await conversionMenu.press('Enter');
@@ -958,7 +973,17 @@ try {
       assert.ok(await convert.evaluate(el => el.matches(':focus-visible')));
       await page.screenshot({ path: join(artifacts, `create-project-from-action-${width}.png`) });
       await page.keyboard.press('Enter');
-      await actions.getByRole('alert').getByText('A project with this name already exists.').waitFor();
+      await actions.getByRole('status').getByText('Preparing project title…').waitFor();
+      for (let i = 0; i < 100 && !releaseProjectName; i++) await new Promise(resolve => setTimeout(resolve, 20));
+      assert.ok(releaseProjectName);
+      releaseProjectName();
+      const dialog = nav.getByRole('dialog', { name: 'Create project from action', exact: true });
+      const projectName = dialog.getByRole('textbox', { name: 'Project name' });
+      await dialog.getByRole('alert').getByText('The naming agent could not suggest a title. Enter a project name.').waitFor();
+      assert.equal(await projectName.inputValue(), '');
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await dialog.waitFor({ state: 'detached' });
+      assert.equal(conversionRequests, 0);
       await conversionMenu.waitFor();
       refuseAction = false;
       if (width === 390) {
@@ -968,10 +993,21 @@ try {
         await conversionMenu.press('Enter');
         await convert.press('Enter');
       }
-      await actions.getByRole('status').getByText('Project created. Action removed.').waitFor();
+      await dialog.waitFor();
+      assert.equal(await projectName.inputValue(), 'Prepare the workshop');
+      assert.ok(await projectName.evaluate(el => el.matches(':focus')));
+      assert.equal(conversionRequests, 0);
+      await projectName.fill('Organize the workshop');
+      await page.screenshot({ path: join(artifacts, `confirm-project-from-action-${width}.png`) });
+      await projectName.press('Enter');
+      const conversionToast = page.locator('[data-sonner-toast]').filter({ hasText: 'Created “Organize the workshop”' });
+      await conversionToast.waitFor();
       await conversionMenu.waitFor({ state: 'detached' });
-      await projects.getByRole('link', { name: 'Prepare the workshop', exact: true }).waitFor();
+      await projects.getByRole('link', { name: 'Organize the workshop', exact: true }).waitFor();
       assert.ok(await add.evaluate(el => el.matches(':focus')));
+      await conversionToast.getByRole('button', { name: 'Undo', exact: true }).click();
+      await conversionMenu.waitFor();
+      await page.getByText('Action restored', { exact: true }).waitFor();
       await openArea('Home');
       await actions.getByRole('status').getByText('Could not load actions. Check the Area note in Obsidian.').waitFor();
       await openArea('Folder');

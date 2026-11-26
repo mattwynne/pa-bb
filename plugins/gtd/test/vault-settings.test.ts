@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
+import { createFakePluginHost, makeThreadResponse } from '@get-bb/plugin-sdk/testing';
 import { plugin } from '../server.ts';
 
 test('unoffered legacy selections fail closed during unavailable discovery rather than silently selecting a different vault', async () => {
@@ -344,17 +344,41 @@ test('creating a project uses the exact selected Area and never retries an uncer
 test('action conversion creates in the owning Area before removing the versioned action', async () => {
   const area = 'Areas/Learning.md';
   const project = 'Projects/Active/Workshop.md';
-  const projectId = 'Projects/Pack the tools.md';
+  const projectId = 'Projects/Pack workshop tools.md';
   const source = { vaultId: 'one', name: 'Example', lastSuccess: null, cloudConnected: false, enabled: false, phase: 'paused', failure: null };
   const version = 'a'.repeat(64);
-  const original = '- [ ] Pack the tools\n- [x] Book the room\n';
-  for (const scenario of ['area', 'project', 'stale', 'concurrent_edit', 'exists', 'create_uncertain', 'remove_conflict', 'remove_uncertain', 'details'] as const) {
+  const action = 'Pack the [workshop tools](https://example.com/tools)';
+  const original = `- [ ] ${action}\n- [x] Book the room\n`;
+  for (const scenario of ['area', 'project', 'stale', 'concurrent_edit', 'exists', 'create_uncertain', 'remove_conflict', 'remove_uncertain', 'details', 'bad_name', 'agent_failed', 'undo_changed'] as const) {
     const kind = scenario === 'project' ? 'project' : 'area';
     const id = kind === 'project' ? project : area;
     const writes: string[] = [];
+    const workerCalls: string[] = [];
+    const worker = makeThreadResponse({ id: 'naming-worker', status: 'idle', visibility: 'hidden' });
     let reads = 0;
+    let section = original;
     const host = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one' },
-      sdk: { plugins: { callRpc: async (args: any) => {
+      sdk: {
+        projects: { list: async () => [{ id: 'personal', kind: 'personal' }] as any },
+        threads: {
+          spawn: async args => {
+            workerCalls.push('spawn');
+            assert.equal(args.projectId, 'personal');
+            assert.equal(args.visibility, 'hidden');
+            assert.equal(args.pluginMetadata?.actionProjectNaming, true);
+            assert.ok(args.prompt?.endsWith(JSON.stringify({ action })));
+            return worker;
+          },
+          wait: async ({ threadId }) => ({ matched: true, threadId, thread: worker, target: { kind: 'status', status: 'idle' } }),
+          output: async () => {
+            workerCalls.push('output');
+            if (scenario === 'agent_failed') throw new Error('private provider content');
+            return { output: JSON.stringify({ name: scenario === 'bad_name' ? '../private provider content' : 'Pack the workshop tools' }) };
+          },
+          archive: async () => { workerCalls.push('archive'); return { ok: true }; },
+          stop: async () => { workerCalls.push('stop'); return { ok: true }; },
+        },
+        plugins: { callRpc: async (args: any) => {
         if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: '', name: 'Example' }], incomplete: false };
         if (args.method === 'vaultInventory') return { source, folders: ['Projects', 'Areas'], incomplete: false,
           notes: [{ path: area, properties: {}, malformed: false }, { path: project, properties: { area }, malformed: false },
@@ -362,8 +386,8 @@ test('action conversion creates in the owning Area before removing the versioned
         if (args.method === 'readNoteSection') {
           assert.equal(args.input.path, id);
           reads++;
-          return { text: scenario === 'details' ? '- [ ] Pack the tools\n  - Check the kit\n' : original,
-            hash: scenario === 'stale' || (scenario === 'concurrent_edit' && reads === 2) ? 'b'.repeat(64) : version };
+          return { text: scenario === 'details' ? '- [ ] Pack the tools\n  - Check the kit\n' : section,
+            hash: scenario === 'stale' || (scenario === 'concurrent_edit' && reads === 3) || section !== original ? 'b'.repeat(64) : version };
         }
         writes.push(args.method);
         const { operationId } = args.input;
@@ -374,28 +398,52 @@ test('action conversion creates in the owning Area before removing the versioned
         } else {
           assert.equal(args.method, 'writeNoteSection');
           assert.equal(args.input.path, id);
-          assert.equal(args.input.expectedHash, version);
-          assert.equal(args.input.text, '- [x] Book the room\n');
+          const restoring = section !== original;
+          assert.equal(args.input.expectedHash, restoring ? 'b'.repeat(64) : version);
+          assert.equal(args.input.text, restoring ? original : '- [x] Book the room\n');
           if (scenario === 'remove_conflict') return { operationId, outcome: 'not_saved', reason: 'changed' };
           if (scenario === 'remove_uncertain') throw new Error('private provider content');
+          section = scenario === 'undo_changed' ? '- [ ] An intervening edit' : restoring ? original : '- [x] Book the room';
         }
         return { operationId, outcome: 'saved_locally_pending_sync' };
       } } } });
     await plugin(host.bb);
     try {
-      const result = await host.harness.behavior.callRpc('createProjectFromAction', {
-        kind, source: 'one', id, line: 1, version, operationId: randomUUID(),
-      }) as { state: string; id?: string; operationId?: string };
+      const rpc = host.harness.behavior.callRpc;
+      const actionRef = { kind, source: 'one', id, line: 1, version };
+      const suggestion = await rpc('suggestActionProjectName', actionRef);
+      const nameUnavailable = scenario === 'bad_name' || scenario === 'agent_failed';
+      assert.deepEqual(suggestion, scenario === 'stale' ? { state: 'changed' } : scenario === 'details' ? { state: 'has_details' }
+        : nameUnavailable ? { state: 'name_unavailable' } : { state: 'suggested', name: 'Pack the workshop tools' });
+      assert.deepEqual(writes, []);
+      assert.deepEqual(workerCalls, scenario === 'details' || scenario === 'stale' ? [] : ['spawn', 'output', 'archive', 'stop']);
+      if (nameUnavailable) {
+        const logs = JSON.stringify(host.harness.inspection.logEntries);
+        assert.match(logs, /GTD action_project_name unavailable/);
+        assert.doesNotMatch(logs, /private provider content/);
+        continue;
+      }
+      const result = await rpc('createProjectFromAction', {
+        ...actionRef, name: 'Pack workshop tools', operationId: randomUUID(),
+      }) as { state: string; id?: string; operationId?: string; undoToken?: string };
       const expected = {
         area: 'converted', project: 'converted', stale: 'changed', concurrent_edit: 'changed',
         exists: 'exists', create_uncertain: 'uncertain', remove_conflict: 'action_kept', remove_uncertain: 'removal_unconfirmed',
-        details: 'has_details',
+        details: 'has_details', undo_changed: 'converted',
       }[scenario];
       assert.equal(result.state, expected, scenario);
       if (['converted', 'action_kept', 'removal_unconfirmed'].includes(expected)) {
         assert.equal(result.id, projectId);
         assert.deepEqual(writes, ['createNote', 'writeNoteSection']);
       } else assert.deepEqual(writes, scenario === 'create_uncertain' ? ['createNote'] : []);
+      if (expected === 'converted') {
+        const undo = { undoToken: result.undoToken, operationId: randomUUID() };
+        assert.deepEqual(await rpc('undoActionProjectRemoval', undo), { state: scenario === 'undo_changed' ? 'changed' : 'restored' });
+        assert.deepEqual(await rpc('undoActionProjectRemoval', undo), { state: 'unavailable' });
+        assert.equal(section, scenario === 'undo_changed' ? '- [ ] An intervening edit' : original);
+        assert.deepEqual(writes, scenario === 'undo_changed' ? ['createNote', 'writeNoteSection']
+          : ['createNote', 'writeNoteSection', 'writeNoteSection']);
+      }
       const logs = JSON.stringify(host.harness.inspection.logEntries);
       if (scenario === 'create_uncertain') assert.match(logs, /GTD action_project_create uncertain/);
       if (scenario === 'remove_uncertain') {
