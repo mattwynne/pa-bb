@@ -474,7 +474,7 @@ function LinkedThreads({ kind, id, source, action }: {
     {threadStatuses.map(status => <FilterOption key={status} type="checkbox" label={status === 'active' ? 'Active' : 'Archived'}
       checked={selected.includes(status)} disabled={selected.length === 1 && selected.includes(status)} onChange={() => toggle(status)} />)}
   </FilterControls>;
-  const content = <>
+  return <FoldableSection title={kind === 'area' ? 'Area threads' : 'Linked threads'} className="gtd-linked" tools={tools}>
     <ThreadReadStatus loading={pending} error={failed} metadataError={error} />
     {!!matching.length && <ThreadList threads={matching} showArchived={selected.length > 1} />}
     {!matching.length && !pending && !failed && <p className="gtd-empty gtd-thread-empty" role="status">
@@ -488,13 +488,7 @@ function LinkedThreads({ kind, id, source, action }: {
         {archived.isFetchingNextPage ? 'Loading more…' : archived.isFetchNextPageError ? 'Retry archived threads' : 'Show more archived threads'}
       </button>
     </>}
-  </>;
-  return kind === 'project'
-    ? <FoldableSection title="Linked threads" className="gtd-linked" tools={tools}>{content}</FoldableSection>
-    : <section className="gtd-linked">
-      <div className="gtd-list-bar"><h2>Area threads</h2>{tools}</div>
-      {content}
-    </section>;
+  </FoldableSection>;
 }
 
 function ThreadAssociations({ inventory }: { inventory: InventoryState }) {
