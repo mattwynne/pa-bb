@@ -60,6 +60,16 @@ const actionChangeResult = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.enum(['saved_locally_pending_sync', 'unchanged', 'uncertain']) }).strict(),
   z.object({ outcome: z.literal('not_saved'), reason: z.enum(['changed', 'invalid_section', 'missing_action', 'unavailable']).optional() }).strict(),
 ]);
+const noteActionInput = areaActionInput.extend({
+  kind: actionTarget.shape.kind,
+  change: z.discriminatedUnion('operation', [
+    ...areaActionInput.shape.change.options,
+    z.object({ operation: z.literal('undoCompletion'), line: actionLine, sectionVersion: noteHash }).strict(),
+  ]),
+});
+const noteActionResult = actionChangeResult.or(
+  z.object({ outcome: z.literal('saved_locally_pending_sync'), completionVersion: noteHash }).strict(),
+);
 const actionsSnapshot = z.object({
   version: noteHash,
   actions: z.array(z.object({ line: actionLine, text: standardText, complete: z.boolean() }).strict()),
@@ -88,7 +98,7 @@ export const rpcContract = defineRpcContract({
   },
   readNextAction: { input: reference, output: nextAction },
   readNoteActions: { input: actionTarget, output: actionsSnapshot },
-  changeNoteAction: { input: areaActionInput.extend({ kind: actionTarget.shape.kind }), output: actionChangeResult },
+  changeNoteAction: { input: noteActionInput, output: noteActionResult },
   readAreaActions: { input: reference, output: actionsSnapshot },
   changeAreaAction: { input: areaActionInput, output: actionChangeResult },
   readAreaStandard: { input: reference, output: noteSection },

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { actionCommands, registerActionTools } from './core/action-tools.ts';
 import { actionToolNames, changeActions, listActions, type ActionChange, type ActionTarget } from './core/actions.ts';
 import { enclosingArea } from './core/area-presentation.ts';
@@ -18,6 +18,10 @@ import type { AreaBackendSelection, AreaPage } from './core/model.ts';
 import { Projects, compareProjects, normalizeProjectSnapshot } from './core/projects.ts';
 import { GtdError, listInput, pageSchema, safeError, statuses } from './core/model.ts';
 import type { BackendSelection, ProjectPage } from './core/model.ts';
+
+type NoteActionChange = z.output<typeof rpcContract.changeNoteAction.input>['change'];
+type UndoCompletion = Extract<NoteActionChange, { operation: 'undoCompletion' }>;
+const actionSectionVersion = (text: string) => createHash('sha256').update(text.replace(/\r\n?/g, '\n')).digest('hex');
 
 export function formatProjects(page: ProjectPage): string {
   const out = [`${JSON.stringify(page.source.name)} — ${JSON.stringify(page.source.scope)}`, page.coverage === 'complete'
@@ -161,16 +165,18 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       const { text, hash } = await readActions(input, signal);
       return { version: hash, actions: listActions(text) };
     },
-    change: (input: ActionChange, signal: AbortSignal, requestId?: string) => withWrite(async () => {
+    change: (input: ActionChange | (ActionTarget & UndoCompletion), signal: AbortSignal,
+      requestId?: string, offerUndo = false) => withWrite(async () => {
       let operationId: string | undefined;
       try {
         const folder = actionsFolder(input.kind);
         const selection = await configured(folder);
         const backend = backendFor(selection);
         const { text, hash } = await backend.readActions(input, signal);
-        if (input.operation !== 'add' && input.version !== hash)
+        const undo = input.operation === 'undoCompletion';
+        if (undo ? input.sectionVersion !== actionSectionVersion(text) : input.operation !== 'add' && input.version !== hash)
           return { outcome: 'not_saved', reason: 'changed' } as const;
-        const updated = changeActions(text, input);
+        const updated = changeActions(text, undo ? { ...input, operation: 'edit', version: hash, complete: false } : input);
         if (updated.reason) return { outcome: 'not_saved', reason: updated.reason } as const;
         if (updated.text === text) return { outcome: 'unchanged' } as const;
         if (updated.text.length > standardTextLimit) return { outcome: 'not_saved', reason: 'invalid_section' } as const;
@@ -180,6 +186,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
         const result = await backend.writeActions(input, { text: updated.text, expectedHash: hash, operationId }, signal);
         if (result.operationId !== operationId) throw new GtdError('source_unavailable');
         if (result.outcome !== 'saved_locally_pending_sync') diagnose('actions_write', result.reason ?? result.outcome);
+        if (result.outcome === 'saved_locally_pending_sync' && offerUndo && input.operation === 'edit' && input.complete === true)
+          return { ...result, completionVersion: actionSectionVersion(updated.text) };
         return result;
       } catch (error) {
         diagnose('actions_write', safeError(error, signal).code);
@@ -196,12 +204,14 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       throw new Error(`Could not load actions. Check the ${input.kind === 'area' ? 'Area' : 'project'} note in Obsidian.`);
     }
   };
-  const changeNoteAction = async ({ operationId, change, ...input }: z.input<typeof rpcContract.changeNoteAction.input>,
-    signal: AbortSignal): Promise<z.output<typeof rpcContract.changeNoteAction.output>> => {
+  const changeNoteAction = async ({ operationId, change, ...input }: z.output<typeof rpcContract.changeNoteAction.input>,
+    signal: AbortSignal, offerUndo = true): Promise<z.output<typeof rpcContract.changeNoteAction.output>> => {
     try {
-      const result = await actionPorts.change({ ...input, ...change }, signal, operationId);
+      const result = await actionPorts.change({ ...input, ...change }, signal, operationId, offerUndo);
       const { outcome } = result;
       if (outcome === 'not_saved') return { outcome, reason: result.reason === 'nested_actions' ? 'unavailable' : result.reason };
+      if (outcome === 'saved_locally_pending_sync' && 'completionVersion' in result && result.completionVersion)
+        return { outcome, completionVersion: result.completionVersion };
       return { outcome };
     } catch {
       return { outcome: 'not_saved', reason: 'unavailable' };
@@ -534,7 +544,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     readNoteActions: (input, context) => readNoteActions(input, context.experimental_signal),
     changeNoteAction: (input, context) => changeNoteAction(input, context.experimental_signal),
     readAreaActions: (input, context) => readNoteActions({ ...input, kind: 'area' }, context.experimental_signal),
-    changeAreaAction: (input, context) => changeNoteAction({ ...input, kind: 'area' }, context.experimental_signal),
+    changeAreaAction: (input, context) => changeNoteAction({ ...input, kind: 'area' }, context.experimental_signal, false),
     readCorrespondence: (input, context) => readCorrespondence(input, context.experimental_signal),
     refreshCorrespondence: (input, context) => mailActions.refresh(input, context.experimental_signal),
     changeCorrespondenceSnooze: ({ url, change, ...input }, context) =>

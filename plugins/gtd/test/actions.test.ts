@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { plugin } from '../server.ts';
 
@@ -71,9 +71,23 @@ test('action tools and CLI share the TODO section and check its note version bef
     assert.match(sections.get(area.id)!, /^- \[ \] Check the supplies\r\n/);
     const projectList = await tool('list_actions', project);
     assert.deepEqual(await harness.behavior.callRpc('readNoteActions', project), projectList);
-    assert.deepEqual(await harness.behavior.callRpc('changeNoteAction', { ...project, operationId: '5d91bca3-8d60-455b-b87d-c48e3ea08420',
-      change: { operation: 'edit', line: 1, version: projectList.version, complete: true } }), { outcome: 'saved_locally_pending_sync' });
+    const complete = () => harness.behavior.callRpc('changeNoteAction', { ...project, operationId: randomUUID(),
+      change: { operation: 'edit', line: 1, version: version(project.id), complete: true } }) as Promise<{ outcome: string; completionVersion: string }>;
+    const completion = await complete();
+    assert.equal(completion.outcome, 'saved_locally_pending_sync');
+    assert.match(completion.completionVersion, /^[0-9a-f]{64}$/);
     assert.equal(sections.get(project.id), '- [x] Measure the boards');
+    const undo = (sectionVersion: string) => harness.behavior.callRpc('changeNoteAction', {
+      ...project, operationId: randomUUID(), change: { operation: 'undoCompletion', line: 1, sectionVersion },
+    });
+    assert.deepEqual(await undo(completion.completionVersion), { outcome: 'saved_locally_pending_sync' });
+    assert.equal(sections.get(project.id), '- [ ] Measure the boards');
+    const secondCompletion = await complete();
+    sections.set(project.id, '- [ ] Pick up the saw\n- [x] Measure the boards');
+    const writesBeforeStaleUndo = writes;
+    assert.deepEqual(await undo(secondCompletion.completionVersion), { outcome: 'not_saved', reason: 'changed' });
+    assert.equal(writes, writesBeforeStaleUndo);
+    assert.equal(sections.get(project.id), '- [ ] Pick up the saw\n- [x] Measure the boards');
     await assert.rejects(() => harness.behavior.callRpc('readNoteActions', { ...project, id: area.id }), /Could not load actions/);
     fail = true;
     assert.deepEqual(await harness.behavior.callRpc('changeAreaAction', { ...areaRef,

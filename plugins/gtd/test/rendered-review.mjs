@@ -284,7 +284,11 @@ try {
         if (refuseAction) result = { outcome: 'not_saved', reason: 'changed' };
         else {
           const { change } = input;
-          if (change.operation === 'edit') {
+          if (change.operation === 'undoCompletion') {
+            if (change.sectionVersion !== actionVersion)
+              return route.fulfill({ json: { ok: true, result: { outcome: 'not_saved', reason: 'changed' } } });
+            areaActions = areaActions.map(action => action.line === change.line ? { ...action, complete: false } : action);
+          } else if (change.operation === 'edit') {
             assert.equal(change.version, actionVersion);
             areaActions = areaActions.map(action => action.line === change.line ? { ...action, complete: change.complete } : action);
           } else {
@@ -292,7 +296,8 @@ try {
               ...areaActions.map(action => ({ ...action, line: action.line + 2 }))];
           }
           actionVersion = actionVersion === 'a'.repeat(64) ? 'b'.repeat(64) : 'a'.repeat(64);
-          result = { outcome: 'saved_locally_pending_sync' };
+          result = { outcome: 'saved_locally_pending_sync',
+            ...(change.operation === 'edit' && change.complete === true ? { completionVersion: actionVersion } : {}) };
         }
       }
       if (method === 'readCorrespondence' || method === 'refreshCorrespondence') {
@@ -815,6 +820,7 @@ try {
       await page.keyboard.press('Space');
       await actions.getByRole('alert').getByText(/Area note changed/).waitFor();
       assert.equal(await completing.isChecked(), false);
+      assert.equal(await page.getByText('Action marked done', { exact: true }).count(), 0);
       refuseAction = false;
       await completing.locator('xpath=self::*[@aria-disabled="false"]').waitFor();
       await page.keyboard.press('Space');
@@ -825,6 +831,18 @@ try {
       assert.equal(await actions.getByText('Pack the tools').count(), 0);
       assert.equal(await actions.getByText('Action completed.').count(), 0);
       assert.ok(await remaining.evaluate(el => el.matches(':focus')));
+      const completionToast = page.locator('[data-sonner-toast]').filter({ hasText: 'Action marked done' });
+      await completionToast.waitFor();
+      const undo = completionToast.getByRole('button', { name: 'Undo', exact: true });
+      await undo.waitFor();
+      await page.screenshot({ path: join(artifacts, `action-undo-${width}.png`) });
+      if (width === 390) await undo.tap();
+      else { await undo.focus(); await page.keyboard.press('Enter'); }
+      await completing.waitFor();
+      assert.equal(await completing.isChecked(), false);
+      await completing.locator('xpath=self::*[@aria-disabled="false"]').waitFor();
+      await completing.press('Space');
+      await completing.waitFor({ state: 'detached' });
       const add = actions.getByRole('button', { name: 'Add action' });
       const addProject = nav.getByRole('button', { name: 'Add project' });
       const projects = nav.getByRole('region', { name: 'Projects', exact: true });
@@ -1018,6 +1036,12 @@ try {
       await draft.press('Enter');
       const task = actions.getByText('Check the workbench', { exact: true });
       await task.waitFor();
+      await task.click();
+      await task.waitFor({ state: 'detached' });
+      const completionToast = page.locator('[data-sonner-toast]').filter({ hasText: 'Action marked done' });
+      await completionToast.getByRole('button', { name: 'Undo', exact: true }).click();
+      await task.waitFor();
+      await actions.getByRole('checkbox', { name: 'Check the workbench' }).locator('xpath=self::*[@aria-disabled="false"]').waitFor();
       await task.click();
       await task.waitFor({ state: 'detached' });
       assert.ok(await plan.isVisible());

@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { experimental_Icon as Icon, Markdown, useRpc } from '@get-bb/plugin-sdk/app';
+import { toast } from 'sonner';
 import type { z } from 'zod';
 import { actionText, actionTextLimit, rpcContract } from './contract.ts';
 import { FoldableSection } from './foldable-section.tsx';
@@ -7,6 +8,8 @@ import { FilterControls, FilterOption } from './filter-controls.tsx';
 
 type Snapshot = z.output<typeof rpcContract.readNoteActions.output>;
 type Change = z.input<typeof rpcContract.changeNoteAction.input>['change'];
+type UndoCompletion = Extract<Change, { operation: 'undoCompletion' }>;
+const undoToastDuration = 10_000;
 const actionFilters = { open: 'Open', done: 'Done', all: 'All' } as const;
 type ActionFilter = keyof typeof actionFilters;
 
@@ -22,6 +25,9 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
   const addButton = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const saving = useRef(false);
+  const mounted = useRef(false);
+  const undoToast = useRef<string | number>(undefined);
+  const runUndo = useRef<(change: UndoCompletion, event: React.MouseEvent<HTMLButtonElement>) => void>(undefined);
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [filter, setFilter] = useState<ActionFilter>('open');
   const [exiting, setExiting] = useState<{ snapshot: Snapshot; line: number }>();
@@ -33,6 +39,14 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
   const [error, setError] = useState('');
   const [uncertainId, setUncertainId] = useState('');
   const editing = draft !== undefined;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (undoToast.current !== undefined) toast.dismiss(undoToast.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasNote) return;
@@ -70,7 +84,8 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
   const canWrite = readState === 'ready' && !pending && !uncertainId && !exiting;
   const matchesFilter = (complete: boolean) => filter === 'all' || complete === (filter === 'done');
   const save = async (change: Change, checkbox?: HTMLInputElement) => {
-    if (!canWrite || saving.current) return;
+    const undo = change.operation === 'undoCompletion';
+    if ((!undo && !canWrite) || saving.current || uncertainId) return;
     saving.current = true;
     setPending(true);
     setError('');
@@ -82,7 +97,7 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
         if (change.operation === 'add') {
           closeForm();
           setNotice('Action added.');
-        } else if (snapshot && change.complete !== undefined) {
+        } else if (!undo && snapshot && change.complete !== undefined) {
           const complete = change.complete;
           if (!matchesFilter(complete)) {
             const row = checkbox?.closest('li');
@@ -98,22 +113,38 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
               action.line === change.line ? { ...action, complete } : action) } : current);
         }
         refresh();
+        if (mounted.current && change.operation === 'edit' && 'completionVersion' in result) {
+          const reverse = { operation: 'undoCompletion', line: change.line, sectionVersion: result.completionVersion } as const;
+          undoToast.current = toast.success('Action marked done', {
+            id: undoToast.current,
+            duration: undoToastDuration,
+            action: { label: 'Undo', onClick: event => runUndo.current?.(reverse, event) },
+          });
+        }
       } else if (result.outcome === 'uncertain') {
+        if (undo) toast.error('Could not confirm whether the action reopened.');
         setUncertainId(operationId);
       } else if (result.outcome === 'not_saved') {
         if (result.reason === 'changed' || result.reason === 'missing_action') {
-          setError(`The ${owner} note changed. Review the latest actions before trying again.`);
+          if (undo) toast.error('Could not undo completion because the actions changed.');
+          else setError(`The ${owner} note changed. Review the latest actions before trying again.`);
           refresh();
         } else {
-          setError('Could not save the action. Check the TODO section in Obsidian.');
+          if (undo) toast.error('Could not undo completion. Check the TODO section in Obsidian.');
+          else setError('Could not save the action. Check the TODO section in Obsidian.');
         }
       }
     } catch {
+      if (undo) toast.error('Could not confirm whether the action reopened.');
       setUncertainId(operationId);
     } finally {
       saving.current = false;
       setPending(false);
     }
+  };
+  runUndo.current = (change, event) => {
+    if (saving.current || uncertainId) event.preventDefault();
+    else if (mounted.current) void save(change);
   };
 
   const validDraft = actionText.safeParse(draft);
