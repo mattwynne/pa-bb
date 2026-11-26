@@ -478,21 +478,22 @@
 +	}
 --- a/cmd/bisync/cmd.go
 +++ b/cmd/bisync/cmd.go
-@@ -33,0 +34,7 @@
+@@ -33,0 +34,8 @@
 +	// Prototype-only in-process checkpoint, unreachable from stock CLI or RC.
 +	// No content transfer can start before it returns.
 +	beforeDeltas          func(context.Context, *bisyncRun) error
 +	bbAfterSync           func(context.Context, *bisyncRun) error
 +	bbBeforeScan          func(context.Context, *bisyncRun) error
 +	bbReadVersions        bool
++	bbMirrorBinding       string
 +	bbMutationLock        string
-@@ -119,0 +127 @@
+@@ -119,0 +128 @@
 +var bbManagedBinding string
-@@ -124,0 +133,3 @@
+@@ -124,0 +134,3 @@
 +	flags.StringVarP(cmdFlags, &bbManagedBinding, "bb-managed-binding", "", "", "Use the BB-owned two-way note sync protocol.", "")
 +	_ = cmdFlags.MarkHidden("bb-managed-binding")
 +
-@@ -195 +206,24 @@
+@@ -195 +207,24 @@
 -			err := Bisync(ctx, fs1, fs2, &opt)
 +			var err error
 +			if bbManagedBinding == "" {
@@ -898,7 +899,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_delivery_store.go
-@@ -0,0 +1,374 @@
+@@ -0,0 +1,388 @@
 +package bisync
 +
 +import (
@@ -1064,7 +1065,7 @@
 +// All delivery state transitions run while the caller owns this mirror's
 +// mutation lock. The intent is durable before any request can publish bytes.
 +func BBBeginDelivery(workdir string, intent BBDeliveryIntent, knownDocument ...string) error {
-+	return bbBeginDelivery(workdir, intent, nil, "", knownDocument)
++	return bbBeginDelivery(workdir, intent, nil, "", knownDocument, false)
 +}
 +
 +func BBBeginDeliveryWithData(workdir string, intent BBDeliveryIntent, data []byte, knownDocument ...string) error {
@@ -1072,7 +1073,7 @@
 +		(intent.Create && len(knownDocument) != 0) || (!intent.Create && (len(knownDocument) != 1 || knownDocument[0] == "" || len(knownDocument[0]) > 512)) {
 +		return errBBInvalidDelivery
 +	}
-+	return bbBeginDelivery(workdir, intent, data, "", knownDocument)
++	return bbBeginDelivery(workdir, intent, data, "", knownDocument, false)
 +}
 +
 +// BBBeginDeliveryInMovedFolder binds a new note to a known parent identity
@@ -1082,10 +1083,20 @@
 +		data == nil || len(data) > bbDeliveryBytes || sha256.Sum256(data) != intent.Hash {
 +		return errBBInvalidDelivery
 +	}
-+	return bbBeginDelivery(workdir, intent, data, parent, nil)
++	return bbBeginDelivery(workdir, intent, data, parent, nil, false)
 +}
 +
-+func bbBeginDelivery(workdir string, intent BBDeliveryIntent, data []byte, parent string, knownDocument []string) error {
++// Called only while the live transfer's journal lease is held for this
++// exact vacant name and provider parent.
++func BBBeginDeliveryInTransfer(workdir string, intent BBDeliveryIntent, data []byte, parent string) error {
++	if !intent.Create || parent == "" || len(parent) > 512 ||
++		data == nil || len(data) > bbDeliveryBytes || sha256.Sum256(data) != intent.Hash {
++		return errBBInvalidDelivery
++	}
++	return bbBeginDelivery(workdir, intent, data, parent, nil, true)
++}
++
++func bbBeginDelivery(workdir string, intent BBDeliveryIntent, data []byte, parent string, knownDocument []string, duringTransfer bool) error {
 +	if !validBBDelivery(intent) {
 +		return errBBInvalidDelivery
 +	}
@@ -1093,12 +1104,16 @@
 +	if err != nil {
 +		return err
 +	}
-+	if parent != "" && (state.FolderMove == nil || state.FolderMove.newNoteParent(intent) != parent) {
++	overlapsMove := state.FolderMove != nil && state.FolderMove.overlaps(intent.Path, knownDocument...)
++	var movedParent string
++	if overlapsMove {
++		movedParent = state.FolderMove.newNoteParent(intent)
++	}
++	if parent != "" && (!duringTransfer || overlapsMove) && movedParent != parent {
 +		return ErrBBDeliveryUnsettled
 +	}
 +	if state.Pending != nil || (state.FolderClone != nil && state.FolderClone.overlaps(intent.Path, knownDocument...)) ||
-+		(state.FolderMove != nil && state.FolderMove.overlaps(intent.Path, knownDocument...) &&
-+			parent == "" && !state.FolderMove.permitsReplacement(intent, knownDocument)) {
++		(overlapsMove && parent == "" && !state.FolderMove.permitsReplacement(intent, knownDocument)) {
 +		return ErrBBDeliveryUnsettled
 +	}
 +	if state.Relocation != nil {
@@ -1809,7 +1824,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_managed_scan.go
-@@ -0,0 +1,375 @@
+@@ -0,0 +1,376 @@
 +package bisync
 +
 +import (
@@ -1836,6 +1851,7 @@
 +	}
 +	if len(binding) == 1 && binding[0] != "" {
 +		options.bbReadVersions = true
++		options.bbMirrorBinding = binding[0]
 +	}
 +	options.bbMutationLock = filepath.Join(options.Workdir, BBMutationLockName)
 +	options.bbBeforeScan = func(ctx context.Context, b *bisyncRun) error {
@@ -2820,7 +2836,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,452 @@
+@@ -0,0 +1,468 @@
 +package main
 +
 +import (
@@ -2847,15 +2863,16 @@
 +const maxOwnedFrame = 8 << 20
 +
 +type ownedNoteFrame struct {
-+	Binding       string             `json:"binding"`
-+	Path          string             `json:"path"`
-+	Source        string             `json:"source,omitempty"`
-+	Expected      *ownedNoteVersion  `json:"expected,omitempty"`
-+	Workdir       string             `json:"workdir,omitempty"`
-+	OperationID   string             `json:"operationId,omitempty"`
-+	Text          *string            `json:"text,omitempty"`
-+	WantedHash    string             `json:"wantedHash,omitempty"`
-+	FolderEntries []ownedFolderEntry `json:"folderEntries,omitempty"`
++	Binding              string             `json:"binding"`
++	Path                 string             `json:"path"`
++	Source               string             `json:"source,omitempty"`
++	Expected             *ownedNoteVersion  `json:"expected,omitempty"`
++	Workdir              string             `json:"workdir,omitempty"`
++	OperationID          string             `json:"operationId,omitempty"`
++	Text                 *string            `json:"text,omitempty"`
++	WantedHash           string             `json:"wantedHash,omitempty"`
++	FolderEntries        []ownedFolderEntry `json:"folderEntries,omitempty"`
++	activeTransferParent string
 +}
 +
 +type ownedNoteVersion struct {
@@ -2928,7 +2945,7 @@
 +				return json.NewEncoder(os.Stdout).Encode(ownedNoteReply{Outcome: "refused"})
 +			}
 +			if args[0] != "inspect" && args[0] != "inspect-relocation" && args[0] != "inspect-folder" {
-+				release, admitted := admitOwnedMutation(args[0], message)
++				release, admitted := admitOwnedMutation(args[0], &message)
 +				if !admitted {
 +					return json.NewEncoder(os.Stdout).Encode(ownedNoteReply{Outcome: "refused"})
 +				}
@@ -3161,6 +3178,12 @@
 +	if err != nil {
 +		return refused
 +	}
++	if request.activeTransferParent != "" {
++		if expectedParent != "" && expectedParent != request.activeTransferParent {
++			return uncertain
++		}
++		expectedParent = request.activeTransferParent
++	}
 +	create := cloud.CreateBBNote
 +	if expectedParent != "" {
 +		scoped, ok := cloud.(interface {
@@ -3213,9 +3236,12 @@
 +	}
 +	if operation == "create" || stage == bisync.BBDeliveryMissing {
 +		var prepareErr error
-+		if expectedParent == "" {
++		switch {
++		case expectedParent == "":
 +			prepareErr = bisync.BBBeginDeliveryWithData(request.Workdir, intent, data)
-+		} else {
++		case request.activeTransferParent != "":
++			prepareErr = bisync.BBBeginDeliveryInTransfer(request.Workdir, intent, data, expectedParent)
++		default:
 +			prepareErr = bisync.BBBeginDeliveryInMovedFolder(request.Workdir, intent, data, expectedParent)
 +		}
 +		if prepareErr != nil {
@@ -3251,7 +3277,7 @@
 +
 +// The BB owner opens the same per-mirror mutation phase file for both
 +// its fast command and its scheduled scan. Never substitute a CLI path.
-+func admitOwnedMutation(operation string, request ownedNoteFrame) (func() error, bool) {
++func admitOwnedMutation(operation string, request *ownedNoteFrame) (func() error, bool) {
 +	workdir := request.Workdir
 +	const phaseFD = 5
 +	var stat unix.Stat_t
@@ -3269,9 +3295,15 @@
 +	if (operation == "replace" || operation == "recover") && request.Expected != nil {
 +		name, document, parent = request.Path, request.Expected.DocumentID, request.Expected.ParentID
 +	}
-+	return bisync.BBTryTransferWriteAdmission(workdir, name, document, parent, func() bool {
-+		return unix.Flock(phaseFD, unix.LOCK_EX|unix.LOCK_NB) == nil
-+	})
++	tryPrimary := func() bool { return unix.Flock(phaseFD, unix.LOCK_EX|unix.LOCK_NB) == nil }
++	if operation == "create" || operation == "recover-create" {
++		release, expectedParent, admitted := bisync.BBTryTransferCreationAdmission(workdir, request.Path, tryPrimary)
++		if admitted {
++			request.activeTransferParent = expectedParent
++		}
++		return release, admitted
++	}
++	return bisync.BBTryTransferWriteAdmission(workdir, name, document, parent, tryPrimary)
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/main.go
@@ -9719,7 +9751,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_transfer_phase.go
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,151 @@
 +package bisync
 +
 +import (
@@ -9762,8 +9794,8 @@
 +	return &bbTransferPhase{journal: journal}, nil
 +}
 +
-+func (phase *bbTransferPhase) open(workdir string, paths map[string]bbTransferIdentity) error {
-+	if phase == nil || len(paths) == 0 {
++func (phase *bbTransferPhase) open(workdir string, paths *bbTransferPlan) error {
++	if phase == nil || paths == nil || (len(paths.Replacements) == 0 && len(paths.Parents) == 0) {
 +		return nil
 +	}
 +	raw, err := json.Marshal(paths)
@@ -9816,13 +9848,30 @@
 +// mutation lock is busy, only an exact replacement listed by a live scheduled
 +// transfer may proceed. After a process crash the file can remain, but the
 +// kernel releases its lease and the scope alone authorizes no request.
-+func BBTryTransferWriteAdmission(workdir, name, document, parent string, tryPrimary func() bool) (release func() error, admitted bool) {
++func BBTryTransferWriteAdmission(workdir, name, document, parent string, tryPrimary func() bool) (func() error, bool) {
++	release, _, admitted := bbTryWriteAdmission(workdir, tryPrimary, func(plan bbTransferPlan) (string, bool) {
++		return "", name != "" && document != "" && parent != "" &&
++			plan.Replacements[name] == (bbTransferIdentity{document, parent})
++	})
++	return release, admitted
++}
++
++// The exact provider parent is returned only for a lease-scoped
++// placement. With the ordinary lock, the normal create checks apply.
++func BBTryTransferCreationAdmission(workdir, name string, tryPrimary func() bool) (func() error, string, bool) {
++	return bbTryWriteAdmission(workdir, tryPrimary, func(plan bbTransferPlan) (string, bool) {
++		parent := plan.creationParent(name)
++		return parent, parent != ""
++	})
++}
++
++func bbTryWriteAdmission(workdir string, tryPrimary func() bool, selectPath func(bbTransferPlan) (string, bool)) (release func() error, expectedParent string, admitted bool) {
 +	if tryPrimary == nil {
-+		return nil, false
++		return nil, "", false
 +	}
 +	journal, err := bbTryPhaseFile(filepath.Join(workdir, bbWriterLockName), unix.LOCK_EX)
 +	if err != nil {
-+		return nil, false
++		return nil, "", false
 +	}
 +	defer func() {
 +		if !admitted {
@@ -9830,32 +9879,33 @@
 +		}
 +	}()
 +	if tryPrimary() {
-+		return journal, true
-+	}
-+	if name == "" || document == "" || parent == "" {
-+		return nil, false
++		return journal, "", true
 +	}
 +	probe, err := bbTryPhaseFile(filepath.Join(workdir, bbTransferLeaseName), unix.LOCK_SH)
 +	if err == nil {
 +		_ = probe()
-+		return nil, false
++		return nil, "", false
 +	}
 +	if !errors.Is(err, unix.EWOULDBLOCK) {
-+		return nil, false
++		return nil, "", false
 +	}
 +	raw, err := bbReadBounded(filepath.Join(workdir, bbTransferScopeName), bbIndexLimit)
 +	if err != nil {
-+		return nil, false
++		return nil, "", false
 +	}
-+	paths := make(map[string]bbTransferIdentity)
-+	if json.Unmarshal(raw, &paths) != nil || paths[name] != (bbTransferIdentity{document, parent}) {
-+		return nil, false
++	var plan bbTransferPlan
++	if json.Unmarshal(raw, &plan) != nil {
++		return nil, "", false
 +	}
-+	return journal, true
++	expectedParent, allowed := selectPath(plan)
++	if !allowed {
++		return nil, "", false
++	}
++	return journal, expectedParent, true
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_transfer_phase_test.go
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,271 @@
 +package bisync
 +
 +import (
@@ -9882,7 +9932,7 @@
 +	}
 +	t.Cleanup(func() { _ = phase.close() })
 +	unavailable := func() bool { return false }
-+	scope := map[string]bbTransferIdentity{"Keep.md": {"document", "parent"}}
++	scope := &bbTransferPlan{Replacements: map[string]bbTransferIdentity{"Keep.md": {"document", "parent"}}}
 +	denied := func(path, document, parent string) {
 +		t.Helper()
 +		if release, admitted := BBTryTransferWriteAdmission(workdir, path, document, parent, unavailable); admitted {
@@ -10054,6 +10104,41 @@
 +	if !allowed {
 +		t.Fatal("the active queue blocked an independent replacement")
 +	}
++	if err := release(); err != nil {
++		t.Fatal(err)
++	}
++	const created = "New.md"
++	const createBody = "independent new BB note"
++	creationRelease, parent, ok := BBTryTransferCreationAdmission(workdir, created, noPrimary)
++	if !ok || parent != "binding" {
++		t.Fatalf("the active queue blocked new note admission: %q, %t", parent, ok)
++	}
++	newBody := []byte(createBody)
++	creation := BBDeliveryIntent{OperationID: "6dae1ed4-6599-478d-bfcf-a5631f5339cf", Path: created, Hash: sha256.Sum256(newBody), Create: true}
++	if err := BBBeginDeliveryInTransfer(workdir, creation, newBody, parent); err != nil {
++		_ = creationRelease()
++		t.Fatal(err)
++	}
++	if err := BBDispatchDelivery(workdir, creation, "allocated"); err != nil {
++		_ = creationRelease()
++		t.Fatal(err)
++	}
++	write(cloudRoot, created, createBody, publication)
++	write(localRoot, created, createBody, publication)
++	if err := BBResolveDelivery(workdir, creation, &BBDeliveryReceipt{
++		BBDeliveryIntent: creation, Modified: publication, Size: int64(len(newBody)),
++		ProviderID: "document-" + created, ProviderParentID: parent, ETag: publication.String(),
++	}); err != nil {
++		_ = creationRelease()
++		t.Fatal(err)
++	}
++	if err := creationRelease(); err != nil {
++		t.Fatal(err)
++	}
++	release, allowed = BBTryTransferWriteAdmission(workdir, kept, "document-"+kept, "parent", noPrimary)
++	if !allowed {
++		t.Fatal("the active queue blocked an independent replacement")
++	}
 +	body := []byte("from BB")
 +	operation := BBDeliveryIntent{OperationID: "82d7248d-d062-4f11-be5f-a6ad85024fd7", Path: kept, Hash: sha256.Sum256(body)}
 +	if err := BBBeginDeliveryWithData(workdir, operation, body, "document-"+kept); err != nil {
@@ -10077,22 +10162,24 @@
 +		t.Fatal(err)
 +	}
 +	state, err := readBBDeliveries(workdir)
-+	if err != nil || len(state.Confirmed) != 1 || state.Confirmed[0].BBDeliveryIntent != operation {
++	if err != nil || len(state.Confirmed) != 2 || state.Confirmed[0].BBDeliveryIntent != creation || state.Confirmed[1].BBDeliveryIntent != operation {
 +		t.Fatalf("later operation was consumed by the earlier scan: %+v, %v", state.Confirmed, err)
 +	}
 +	check(localRoot, prior, "from Mac!")
 +	check(cloudRoot, changed, "queued upload")
 +	check(cloudRoot, kept, "from BB")
++	check(cloudRoot, created, createBody)
 +	write(cloudRoot, kept, "Mac edit", publication.Add(time.Second))
 +	opts.TestFn = nil
 +	if err := BBManagedBisync(ctx, fs1, mirror, opts, "binding"); err != nil {
 +		t.Fatal(err)
 +	}
 +	check(localRoot, kept, "Mac edit")
++	check(localRoot, created, createBody)
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_transfer_scope.go
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,166 @@
 +package bisync
 +
 +import (
@@ -10102,6 +10189,7 @@
 +
 +	"github.com/rclone/rclone/cmd/bisync/bilib"
 +	"github.com/rclone/rclone/fs"
++	"github.com/rclone/rclone/fs/filter"
 +)
 +
 +type bbTransferIdentity struct {
@@ -10109,17 +10197,64 @@
 +	ParentID   string `json:"parentId"`
 +}
 +
++// Paths in the pending operations are excluded even when the latest
++// listing did not see an item with that name. Existing keeps new-note
++// admission to names absent from both observations made by this scan.
++type bbTransferPlan struct {
++	Replacements   map[string]bbTransferIdentity `json:"replacements,omitempty"`
++	Parents        map[string]string             `json:"parents,omitempty"`
++	Existing       map[string]bool               `json:"existing,omitempty"`
++	Blocked        map[string]bool               `json:"blocked,omitempty"`
++	BlockedParents map[string]bool               `json:"blockedParents,omitempty"`
++	HeldFiles      map[string]bool               `json:"heldFiles,omitempty"`
++	HeldTrees      map[string]bool               `json:"heldTrees,omitempty"`
++}
++
++func (plan bbTransferPlan) overlaps(name string) bool {
++	key := bbFoldPath(name)
++	if plan.BlockedParents[key] {
++		return true
++	}
++	for at := key; at != "." && at != "/"; at = path.Dir(at) {
++		if plan.Blocked[at] {
++			return true
++		}
++	}
++	return false
++}
++
++func (plan bbTransferPlan) creationParent(name string) string {
++	if !strings.HasSuffix(name, ".md") || !validBBFolderPath(name) || plan.Existing[bbFoldPath(name)] || plan.overlaps(name) {
++		return ""
++	}
++	held := bbRelocationHold{files: plan.HeldFiles, trees: plan.HeldTrees}
++	if held.includes(name) {
++		return ""
++	}
++	return plan.Parents[path.Dir(name)]
++}
++
 +// Explicit file filters and the observed aliases bound the two scheduled
 +// copy queues. Also exclude ancestors and descendants of affected paths:
 +// an entry changing between file and directory can otherwise cross the filter.
-+func (b *bisyncRun) bbTransferScope(ctx context.Context, queues ...bilib.Names) map[string]bbTransferIdentity {
++func (b *bisyncRun) bbTransferScope(ctx context.Context, queues ...bilib.Names) *bbTransferPlan {
 +	ci := fs.GetConfig(ctx)
 +	if !b.opt.bbReadVersions || b.opt.RemoveEmptyDirs || ci.TrackRenames || ci.FixCase ||
-+		len(b.march.bbIdentities) == 0 || b.march.ls2 == nil {
++		ci.BackupDir != "" || ci.Suffix != "" || b.opt.BackupDir1 != "" || b.opt.BackupDir2 != "" ||
++		filter.GetConfig(ctx).Opt.DeleteExcluded || len(b.march.bbIdentities) == 0 || b.march.ls2 == nil {
 +		return nil
 +	}
-+	dirty := make(map[string]bool)
-+	dirtyParents := make(map[string]bool)
++	scope := &bbTransferPlan{
++		Replacements:   make(map[string]bbTransferIdentity),
++		Parents:        make(map[string]string),
++		Existing:       make(map[string]bool),
++		Blocked:        make(map[string]bool),
++		BlockedParents: make(map[string]bool),
++	}
++	if b.bbHeldRelocation != nil {
++		scope.HeldFiles, scope.HeldTrees = b.bbHeldRelocation.files, b.bbHeldRelocation.trees
++	}
++	dirty, dirtyParents := scope.Blocked, scope.BlockedParents
 +	mark := func(name string) {
 +		key := bbFoldPath(name)
 +		dirty[key] = true
@@ -10175,32 +10310,45 @@
 +		seen[key] = true
 +	}
 +
-+	overlaps := func(name string) bool {
-+		key := bbFoldPath(name)
-+		if dirtyParents[key] {
-+			return true
-+		}
-+		for at := key; at != "." && at != "/"; at = path.Dir(at) {
-+			if dirty[at] {
-+				return true
++	if b.opt.bbMirrorBinding != "" {
++		scope.Parents["."] = b.opt.bbMirrorBinding
++		for _, listing := range []*fileList{b.march.ls1, b.march.ls2} {
++			if listing == nil {
++				continue
++			}
++			for _, name := range listing.list {
++				scope.Existing[bbFoldPath(name)] = true
 +			}
 +		}
-+		return false
++		for name := range b.march.bbLocalDirs {
++			scope.Existing[bbFoldPath(name)] = true
++		}
++		cloudDirs := make(map[string]int)
++		for name := range b.march.bbCloudDirs {
++			key := bbFoldPath(name)
++			cloudDirs[key]++
++			scope.Existing[key] = true
++		}
++		for name, identity := range b.march.bbDirectories {
++			if cloudDirs[bbFoldPath(name)] == 1 && identity.DocumentID != "" && validBBFolderPath(name) &&
++				b.aliases.Alias(name) == name && !b.bbHeldRelocation.includes(name) {
++				scope.Parents[name] = identity.DocumentID
++			}
++		}
 +	}
-+	scope := make(map[string]bbTransferIdentity)
 +	for name, seen := range b.march.bbIdentities {
 +		if !strings.HasSuffix(name, ".md") || !validBBFolderPath(name) || seen.DocumentID == "" || seen.ParentID == "" ||
 +			!b.march.ls2.has(name) || b.march.ls2.isDir(name) || b.aliases.Alias(name) != name ||
-+			b.bbHeldRelocation.includes(name) || overlaps(name) {
++			b.bbHeldRelocation.includes(name) || scope.overlaps(name) {
 +			continue
 +		}
-+		scope[name] = bbTransferIdentity{DocumentID: seen.DocumentID, ParentID: seen.ParentID}
++		scope.Replacements[name] = bbTransferIdentity{DocumentID: seen.DocumentID, ParentID: seen.ParentID}
 +	}
 +	return scope
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_transfer_scope_test.go
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,77 @@
 +package bisync
 +
 +import (
@@ -10209,11 +10357,12 @@
 +
 +	"github.com/rclone/rclone/cmd/bisync/bilib"
 +	"github.com/rclone/rclone/fs"
++	"github.com/rclone/rclone/fs/filter"
 +)
 +
 +func TestBBTransferScopeExcludesEveryQueuedFootprint(t *testing.T) {
 +	ctx, config := fs.AddConfig(context.Background())
-+	run := &bisyncRun{opt: &Options{bbReadVersions: true}, aliases: make(bilib.AliasMap)}
++	run := &bisyncRun{opt: &Options{bbReadVersions: true, bbMirrorBinding: "root"}, aliases: make(bilib.AliasMap)}
 +	run.march.ls2 = newFileList()
 +	run.march.bbIdentities = make(map[string]bbIndexedCloudObservation)
 +	for _, name := range []string{
@@ -10243,13 +10392,38 @@
 +	downloads.Add("Future.md/child.txt")
 +	removals.Add("Book/Delete.md")
 +	removals.Add("old.md")
++	book := BBIndexedVersion{DocumentID: "book", ParentID: "root", ETag: "stable"}
++	held := BBIndexedVersion{DocumentID: "held", ParentID: "root", ETag: "stable"}
++	run.march.bbDirectories = map[string]BBIndexedVersion{"Book": book, "Held": held}
++	run.march.bbCloudDirs = map[string]BBIndexedVersion{"Book": book, "Held": held}
++	run.march.bbLocalDirs = map[string]bool{"Book": true, "Held": true}
 +	scope := run.bbTransferScope(ctx, uploads, downloads, removals)
-+	if len(scope) != 1 || scope["Book/Keep.md"] != (bbTransferIdentity{"Book/Keep.md", "parent"}) {
++	if len(scope.Replacements) != 1 || scope.Replacements["Book/Keep.md"] != (bbTransferIdentity{"Book/Keep.md", "parent"}) {
 +		t.Fatalf("scope = %+v", scope)
++	}
++	if scope.creationParent("Book/New.md") != "book" || scope.creationParent("Root.md") != "root" {
++		t.Fatal("a safe vacancy did not retain its provider parent")
++	}
++	for _, name := range []string{"Book/KEEP.md", "book/New.md", "Held/New.md", "Missing/New.md",
++		"Book/Download.md", "future.md", "Book/Literal.txt"} {
++		if parent := scope.creationParent(name); parent != "" {
++			t.Fatalf("unsafe new path %q admitted under %q", name, parent)
++		}
 +	}
 +	config.TrackRenames = true
 +	if got := run.bbTransferScope(ctx, uploads); got != nil {
 +		t.Fatalf("tracked renames enabled a scope: %+v", got)
++	}
++	config.TrackRenames = false
++	ctx, filters := filter.AddConfig(ctx)
++	filters.Opt.DeleteExcluded = true
++	if got := run.bbTransferScope(ctx, uploads); got != nil {
++		t.Fatalf("delete-excluded enabled a scope: %+v", got)
++	}
++	filters.Opt.DeleteExcluded = false
++	run.opt.BackupDir1 = "another/folder"
++	if got := run.bbTransferScope(ctx, uploads); got != nil {
++		t.Fatalf("backup names enabled a scope: %+v", got)
 +	}
 +}
 --- /dev/null
