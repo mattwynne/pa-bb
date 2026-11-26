@@ -760,7 +760,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_delivery_store.go
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,313 @@
 +package bisync
 +
 +import (
@@ -778,7 +778,7 @@
 +
 +const bbDeliveryLimit = 256
 +const bbDeliveryBytes = 1 << 20
-+const bbDeliveryStateLimit = 3 << 20
++const bbDeliveryStateLimit = 5 << 20
 +
 +var bbOperationID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 +var ErrBBDeliveryUnsettled = errors.New("an expedited iCloud publication still needs verification")
@@ -806,6 +806,7 @@
 +type bbDeliveryStore struct {
 +	Version             int
 +	Pending             *BBDeliveryIntent
++	PendingData         []byte               `json:",omitempty"`
 +	PendingDocument     string               `json:",omitempty"`
 +	Relocation          *BBRelocation        `json:",omitempty"`
 +	ReconciledConflicts []BBRelocationIntent `json:",omitempty"`
@@ -838,10 +839,15 @@
 +		return bbDeliveryStore{}, err
 +	}
 +	var state bbDeliveryStore
-+	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > 5) ||
++	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > 6) ||
 +		(state.Relocation != nil && (state.Version < 2 || (state.Pending != nil && state.Version < 3) ||
 +			(state.Relocation.Conflict != nil && state.Version < 4) || (state.Version < 5 && state.Relocation.Conflict != nil && state.Relocation.Conflict.Approved != nil) || !state.Relocation.valid())) ||
 +		len(state.Confirmed) > bbDeliveryLimit || len(state.Applied) > bbDeliveryLimit || len(state.ReconciledConflicts) > bbDeliveryLimit || (state.Version < 5 && len(state.ReconciledConflicts) > 0) || (state.Pending == nil && state.Dispatched) || (state.Pending != nil && !validBBDelivery(*state.Pending)) {
++		return bbDeliveryStore{}, errBBInvalidDelivery
++	}
++	if len(state.PendingData) != 0 && (state.Version < 6 || state.Pending == nil ||
++		len(state.PendingData) > bbDeliveryBytes || sha256.Sum256(state.PendingData) != state.Pending.Hash ||
++		(!state.Pending.Create && state.PendingDocument == "") || (state.Pending.Create && state.PendingDocument != "")) {
 +		return bbDeliveryStore{}, errBBInvalidDelivery
 +	}
 +	if state.Relocation != nil && state.Pending != nil {
@@ -852,7 +858,7 @@
 +		if bbCheckRelocationDisjoint(state.Relocation, *state.Pending, document) != nil {
 +			return bbDeliveryStore{}, errBBInvalidDelivery
 +		}
-+	} else if state.PendingDocument != "" {
++	} else if state.PendingDocument != "" && len(state.PendingData) == 0 {
 +		return bbDeliveryStore{}, errBBInvalidDelivery
 +	}
 +	for _, move := range state.ReconciledConflicts {
@@ -890,6 +896,18 @@
 +// All delivery state transitions run while the caller owns this mirror's
 +// mutation lock. The intent is durable before any request can publish bytes.
 +func BBBeginDelivery(workdir string, intent BBDeliveryIntent, knownDocument ...string) error {
++	return bbBeginDelivery(workdir, intent, nil, knownDocument)
++}
++
++func BBBeginDeliveryWithData(workdir string, intent BBDeliveryIntent, data []byte, knownDocument ...string) error {
++	if len(data) < 1 || len(data) > bbDeliveryBytes || sha256.Sum256(data) != intent.Hash ||
++		(intent.Create && len(knownDocument) != 0) || (!intent.Create && (len(knownDocument) != 1 || knownDocument[0] == "" || len(knownDocument[0]) > 512)) {
++		return errBBInvalidDelivery
++	}
++	return bbBeginDelivery(workdir, intent, data, knownDocument)
++}
++
++func bbBeginDelivery(workdir string, intent BBDeliveryIntent, data []byte, knownDocument []string) error {
 +	if !validBBDelivery(intent) {
 +		return errBBInvalidDelivery
 +	}
@@ -920,7 +938,26 @@
 +		return ErrBBDeliveryUnsettled
 +	}
 +	state.Pending = &intent
++	if len(data) != 0 {
++		state.Version = 6
++		state.PendingData = data
++		if len(knownDocument) == 1 {
++			state.PendingDocument = knownDocument[0]
++		}
++	}
 +	return state.write(workdir)
++}
++
++// BBPendingDeliveryData accepts only the operation whose bytes were staged.
++func BBPendingDeliveryData(workdir string, intent BBDeliveryIntent) ([]byte, error) {
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return nil, err
++	}
++	if state.Pending == nil || *state.Pending != intent {
++		return nil, nil
++	}
++	return state.PendingData, nil
 +}
 +
 +// Resolve only from verified provider evidence. A definitive precondition
@@ -956,6 +993,7 @@
 +		}
 +	}
 +	state.Pending = nil
++	state.PendingData = nil
 +	state.PendingDocument = ""
 +	state.Dispatched = false
 +	state.AllocatedDocument = ""
@@ -2459,7 +2497,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,394 @@
 +package main
 +
 +import (
@@ -2619,7 +2657,7 @@
 +		}
 +		return observedOwnedNote("observed", source)
 +	}
-+	if request.Source != "" || request.WantedHash != "" {
++	if request.Source != "" || (request.WantedHash != "" && operation != "recover" && operation != "recover-create") {
 +		return refused
 +	}
 +	if operation == "inspect" {
@@ -2638,7 +2676,51 @@
 +	if operation == "create" || operation == "recover-create" {
 +		return applyOwnedCreate(ctx, cloud, operation, request)
 +	}
-+	if request.Expected == nil || len(request.Text) < 1 || len(request.Text) > 1<<20 {
++	return applyOwnedReplacement(ctx, cloud, operation, request)
++}
++
++type ownedReplacementCloud interface {
++	InspectBBNote(context.Context, string) (iclouddrive.BBNotePublication, error)
++	ReplaceBBNoteWithDispatch(context.Context, string, iclouddrive.BBNoteRevision, []byte, func() error) (iclouddrive.BBNotePublication, error)
++}
++
++type ownedCreationCloud interface {
++	ObserveBBCreate(context.Context, string) (iclouddrive.BBNotePublication, error)
++	CreateBBNote(context.Context, string, string, []byte, func(string) error) (iclouddrive.BBNotePublication, error)
++}
++
++func prepareOwnedDelivery(request ownedNoteFrame, create bool) (bisync.BBDeliveryIntent, []byte, bool) {
++	data := []byte(request.Text)
++	intent := bisync.BBDeliveryIntent{OperationID: request.OperationID, Path: request.Path, Create: create}
++	if len(data) > 1<<20 || (len(data) == 0 && request.WantedHash == "") {
++		return intent, nil, false
++	}
++	if len(data) != 0 {
++		intent.Hash = sha256.Sum256(data)
++	}
++	if request.WantedHash != "" {
++		wanted, err := hex.DecodeString(request.WantedHash)
++		if err != nil || len(wanted) != sha256.Size || (len(data) != 0 && !bytes.Equal(wanted, intent.Hash[:])) {
++			return intent, nil, false
++		}
++		copy(intent.Hash[:], wanted)
++	}
++	return intent, data, true
++}
++
++func ownedRecoveryData(request ownedNoteFrame, intent bisync.BBDeliveryIntent, fallback []byte) ([]byte, error) {
++	staged, err := bisync.BBPendingDeliveryData(request.Workdir, intent)
++	if err != nil || len(staged) != 0 {
++		return staged, err
++	}
++	return fallback, nil
++}
++
++func applyOwnedReplacement(ctx context.Context, cloud ownedReplacementCloud, operation string, request ownedNoteFrame) ownedNoteReply {
++	refused := ownedNoteReply{Outcome: "refused"}
++	uncertain := ownedNoteReply{Outcome: "uncertain"}
++	intent, data, valid := prepareOwnedDelivery(request, false)
++	if !valid || request.Expected == nil {
 +		return refused
 +	}
 +	prior := request.Expected
@@ -2648,8 +2730,6 @@
 +	}
 +	revision := iclouddrive.BBNoteRevision{DriveID: prior.DocumentID, ParentID: prior.ParentID, ETag: prior.ETag}
 +	copy(revision.Hash[:], priorHash)
-+	wanted := sha256.Sum256([]byte(request.Text))
-+	intent := bisync.BBDeliveryIntent{OperationID: request.OperationID, Path: request.Path, Hash: wanted}
 +	if err := bisync.BBCheckDeliveryDisjoint(request.Workdir, intent, revision.DriveID); err != nil {
 +		return refused
 +	}
@@ -2658,11 +2738,21 @@
 +		return uncertain
 +	}
 +	if operation == "recover" {
++		data, stageErr = ownedRecoveryData(request, intent, data)
++		if stageErr != nil {
++			return uncertain
++		}
++		if len(data) == 0 && (stage == bisync.BBDeliveryMissing || stage == bisync.BBDeliveryPrepared) {
++			if stage == bisync.BBDeliveryPrepared && bisync.BBResolveDelivery(request.Workdir, intent, nil) != nil {
++				return uncertain
++			}
++			return ownedNoteReply{Outcome: "cleared"}
++		}
 +		now, err := cloud.InspectBBNote(ctx, request.Path)
 +		if err != nil || now.Revision.DriveID != revision.DriveID || now.Revision.ParentID != revision.ParentID {
 +			return uncertain
 +		}
-+		if now.Revision.ETag != revision.ETag && now.Revision.Hash == wanted {
++		if now.Revision.ETag != revision.ETag && now.Revision.Hash == intent.Hash {
 +			if stage == bisync.BBDeliveryDispatched {
 +				if err := bisync.BBResolveDelivery(request.Workdir, intent, &bisync.BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: now.Modified, Size: now.Size, ProviderID: now.Revision.DriveID, ETag: now.Revision.ETag}); err != nil {
 +					return uncertain
@@ -2675,21 +2765,27 @@
 +		// A recovered retry is conditional on the original, freshly checked
 +		// identity, revision and bytes. Even if the first request is still
 +		// finishing remotely, only one request can use this ETag.
-+		if now.Revision.ETag != revision.ETag || now.Revision.Hash != revision.Hash ||
++		if len(data) == 0 || now.Revision.ETag != revision.ETag || now.Revision.Hash != revision.Hash ||
 +			(stage != bisync.BBDeliveryPrepared && stage != bisync.BBDeliveryDispatched && stage != bisync.BBDeliveryMissing) {
 +			return uncertain
 +		}
 +	}
 +	if operation == "replace" || stage == bisync.BBDeliveryMissing {
-+		if err := bisync.BBBeginDelivery(request.Workdir, intent, revision.DriveID); err != nil {
++		if err := bisync.BBBeginDeliveryWithData(request.Workdir, intent, data, revision.DriveID); err != nil {
 +			return refused
 +		}
 +	}
-+	published, err := cloud.ReplaceBBNoteWithDispatch(ctx, request.Path, revision, []byte(request.Text),
++	published, err := cloud.ReplaceBBNoteWithDispatch(ctx, request.Path, revision, data,
 +		func() error { return bisync.BBDispatchDelivery(request.Workdir, intent) })
 +	if errors.Is(err, api.ErrConditionalConflict) || errors.Is(err, api.ErrConditionalRefused) {
++		if stage == bisync.BBDeliveryDispatched {
++			return uncertain
++		}
 +		if err := bisync.BBResolveDelivery(request.Workdir, intent, nil); err != nil {
 +			return uncertain
++		}
++		if operation == "recover" {
++			return ownedNoteReply{Outcome: "cleared"}
 +		}
 +		return refused
 +	}
@@ -2702,14 +2798,13 @@
 +	return observedOwnedNote("published", published)
 +}
 +
-+func applyOwnedCreate(ctx context.Context, cloud *iclouddrive.Fs, operation string, request ownedNoteFrame) ownedNoteReply {
++func applyOwnedCreate(ctx context.Context, cloud ownedCreationCloud, operation string, request ownedNoteFrame) ownedNoteReply {
 +	refused := ownedNoteReply{Outcome: "refused"}
 +	uncertain := ownedNoteReply{Outcome: "uncertain"}
-+	if request.Expected != nil || len(request.Text) < 1 || len(request.Text) > 1<<20 {
++	intent, data, valid := prepareOwnedDelivery(request, true)
++	if !valid || request.Expected != nil {
 +		return refused
 +	}
-+	data := []byte(request.Text)
-+	intent := bisync.BBDeliveryIntent{OperationID: request.OperationID, Path: request.Path, Hash: sha256.Sum256(data), Create: true}
 +	if err := bisync.BBCheckDeliveryDisjoint(request.Workdir, intent); err != nil {
 +		return refused
 +	}
@@ -2718,6 +2813,16 @@
 +		return uncertain
 +	}
 +	if operation == "recover-create" {
++		data, err = ownedRecoveryData(request, intent, data)
++		if err != nil {
++			return uncertain
++		}
++		if len(data) == 0 && (stage == bisync.BBDeliveryMissing || stage == bisync.BBDeliveryPrepared) {
++			if stage == bisync.BBDeliveryPrepared && bisync.BBResolveDelivery(request.Workdir, intent, nil) != nil {
++				return uncertain
++			}
++			return ownedNoteReply{Outcome: "cleared"}
++		}
 +		current, err := cloud.ObserveBBCreate(ctx, request.Path)
 +		if err == nil && current.Revision.Hash == intent.Hash {
 +			issued, err := bisync.BBAllocatedDocument(request.Workdir, intent)
@@ -2734,12 +2839,12 @@
 +			}
 +			return observedOwnedNote("published", current)
 +		}
-+		if !errors.Is(err, fs.ErrorObjectNotFound) || (stage != bisync.BBDeliveryMissing && stage != bisync.BBDeliveryPrepared) {
++		if len(data) == 0 || !errors.Is(err, fs.ErrorObjectNotFound) || (stage != bisync.BBDeliveryMissing && stage != bisync.BBDeliveryPrepared) {
 +			return uncertain
 +		}
 +	}
 +	if operation == "create" || stage == bisync.BBDeliveryMissing {
-+		if err := bisync.BBBeginDelivery(request.Workdir, intent); err != nil {
++		if err := bisync.BBBeginDeliveryWithData(request.Workdir, intent, data); err != nil {
 +			return refused
 +		}
 +	}
@@ -2748,6 +2853,9 @@
 +	if errors.Is(err, api.ErrConditionalConflict) || errors.Is(err, api.ErrConditionalRefused) {
 +		if err := bisync.BBResolveDelivery(request.Workdir, intent, nil); err != nil {
 +			return uncertain
++		}
++		if operation == "recover-create" {
++			return ownedNoteReply{Outcome: "cleared"}
 +		}
 +		return refused
 +	}
@@ -4425,4 +4533,159 @@
 +		state.ReconciledConflicts = state.ReconciledConflicts[len(state.ReconciledConflicts)-bbDeliveryLimit:]
 +	}
 +	state.Relocation = nil
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_write_recovery_test.go
+@@ -0,0 +1,152 @@
++package main
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"testing"
++	"time"
++
++	"github.com/rclone/rclone/backend/iclouddrive"
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/cmd/bisync"
++	"github.com/rclone/rclone/fs"
++)
++
++type ownedRecoveryFixture struct {
++	current        iclouddrive.BBNotePublication
++	beforeDispatch bool
++	loseResponse   bool
++	attempts       int
++	sent           []byte
++}
++
++func (f *ownedRecoveryFixture) InspectBBNote(context.Context, string) (iclouddrive.BBNotePublication, error) {
++	if f.current.Revision.DriveID == "" {
++		return f.current, fs.ErrorObjectNotFound
++	}
++	return f.current, nil
++}
++
++func (f *ownedRecoveryFixture) ObserveBBCreate(ctx context.Context, name string) (iclouddrive.BBNotePublication, error) {
++	return f.InspectBBNote(ctx, name)
++}
++
++func (f *ownedRecoveryFixture) ReplaceBBNoteWithDispatch(_ context.Context, _ string, expected iclouddrive.BBNoteRevision, data []byte, dispatch func() error) (iclouddrive.BBNotePublication, error) {
++	if f.current.Revision != expected {
++		return iclouddrive.BBNotePublication{}, api.ErrConditionalConflict
++	}
++	return f.write(expected.DriveID, data, dispatch)
++}
++
++func (f *ownedRecoveryFixture) CreateBBNote(_ context.Context, _, _ string, data []byte, dispatch func(string) error) (iclouddrive.BBNotePublication, error) {
++	if f.current.Revision.DriveID != "" {
++		return iclouddrive.BBNotePublication{}, api.ErrConditionalConflict
++	}
++	return f.write("FILE::com.apple.CloudDocs::generated", data, func() error { return dispatch("generated") })
++}
++
++func (f *ownedRecoveryFixture) write(id string, data []byte, dispatch func() error) (iclouddrive.BBNotePublication, error) {
++	f.attempts++
++	if f.beforeDispatch {
++		f.beforeDispatch = false
++		return iclouddrive.BBNotePublication{}, api.ErrConditionalUnconfirmed
++	}
++	if err := dispatch(); err != nil {
++		return iclouddrive.BBNotePublication{}, err
++	}
++	f.sent = bytes.Clone(data)
++	f.current = iclouddrive.BBNotePublication{
++		Revision: iclouddrive.BBNoteRevision{DriveID: id, ParentID: "parent", ETag: "published", Hash: sha256.Sum256(data)},
++		Modified: time.Unix(200, 0), Size: int64(len(data)),
++	}
++	if f.loseResponse {
++		f.loseResponse = false
++		return iclouddrive.BBNotePublication{}, api.ErrConditionalUnconfirmed
++	}
++	return f.current, nil
++}
++
++func TestOwnedRecoveryUsesStagedDataWhenTheLocalNoteIsSuperseded(t *testing.T) {
++	for _, create := range []bool{false, true} {
++		for _, beforeDispatch := range []bool{false, true} {
++			name := "replace"
++			if create {
++				name = "create"
++			}
++			timing := "lost response"
++			if beforeDispatch {
++				timing = "before dispatch"
++			}
++			t.Run(name+"/"+timing, func(t *testing.T) {
++				fixture := ownedRecoveryFixture{beforeDispatch: beforeDispatch, loseResponse: !beforeDispatch}
++				request := ownedNoteFrame{Workdir: t.TempDir(), Binding: "parent", Path: "Generated.md",
++					OperationID: "40b59f60-57ab-4486-a651-8b265a4ddda3", Text: "first BB edit"}
++				apply := applyOwnedReplacement
++				recover := "recover"
++				if create {
++					recover = "recover-create"
++					apply = func(ctx context.Context, _ ownedReplacementCloud, operation string, request ownedNoteFrame) ownedNoteReply {
++						return applyOwnedCreate(ctx, &fixture, operation, request)
++					}
++				} else {
++					previousHash := sha256.Sum256([]byte("previous content"))
++					fixture.current = iclouddrive.BBNotePublication{
++						Revision: iclouddrive.BBNoteRevision{DriveID: "FILE::com.apple.CloudDocs::original", ParentID: "parent", ETag: "previous", Hash: previousHash},
++						Modified: time.Unix(100, 0), Size: 16,
++					}
++					request.Expected = &ownedNoteVersion{DocumentID: fixture.current.Revision.DriveID,
++						ParentID: "parent", ETag: "previous", Hash: hex.EncodeToString(previousHash[:])}
++				}
++				if reply := apply(context.Background(), &fixture, name, request); reply.Outcome != "uncertain" {
++					t.Fatalf("first publication = %s", reply.Outcome)
++				}
++				intent := bisync.BBDeliveryIntent{OperationID: request.OperationID, Path: request.Path,
++					Hash: sha256.Sum256([]byte(request.Text)), Create: create}
++				if data, err := bisync.BBPendingDeliveryData(request.Workdir, intent); err != nil || string(data) != request.Text {
++					t.Fatal("the uncertain publication did not retain its bytes")
++				}
++				// The next BB edit has already replaced the mirror file. The
++				// command can rely only on the durable identity and wanted hash.
++				request.WantedHash = hex.EncodeToString(intent.Hash[:])
++				request.Text = ""
++				reply := apply(context.Background(), &fixture, recover, request)
++				if reply.Outcome != "published" || reply.Observation == nil || reply.Observation.Hash != request.WantedHash {
++					t.Fatalf("hash-only recovery = %s", reply.Outcome)
++				}
++				wantCalls := 1
++				if beforeDispatch {
++					wantCalls++
++				}
++				if fixture.attempts != wantCalls || string(fixture.sent) != "first BB edit" {
++					t.Fatalf("published the wrong revision or repeated a confirmed request (%d attempts)", fixture.attempts)
++				}
++				if data, err := bisync.BBPendingDeliveryData(request.Workdir, intent); err != nil || len(data) != 0 {
++					t.Fatal("verified publication kept staging bytes")
++				}
++			})
++		}
++	}
++}
++
++func TestOwnedRecoveryClearsOnlyTheUnsentWriteWithMissingBytes(t *testing.T) {
++	request := ownedNoteFrame{Workdir: t.TempDir(), Binding: "parent", Path: "Generated.md",
++		OperationID: "40b59f60-57ab-4486-a651-8b265a4ddda3"}
++	hash := sha256.Sum256([]byte("old local edit"))
++	request.WantedHash = hex.EncodeToString(hash[:])
++	fixture := &ownedRecoveryFixture{}
++	if reply := applyOwnedCreate(context.Background(), fixture, "recover-create", request); reply.Outcome != "cleared" || fixture.attempts != 0 {
++		t.Fatal("an unsent write cannot be cleared without dispatching it")
++	}
++	intent := bisync.BBDeliveryIntent{OperationID: request.OperationID, Path: request.Path, Hash: hash, Create: true}
++	if err := bisync.BBBeginDelivery(request.Workdir, intent); err != nil {
++		t.Fatal(err)
++	}
++	if err := bisync.BBDispatchDelivery(request.Workdir, intent, "generated"); err != nil {
++		t.Fatal(err)
++	}
++	if reply := applyOwnedCreate(context.Background(), fixture, "recover-create", request); reply.Outcome != "uncertain" || fixture.attempts != 0 {
++		t.Fatal("an ambiguous legacy create cannot be cleared or replayed without evidence")
++	}
 +}

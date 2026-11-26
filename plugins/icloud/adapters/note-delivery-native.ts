@@ -4,7 +4,7 @@ import { open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { NoteDeliveryQueue, NoteDeliveryPlan } from './note-delivery-queue.ts';
-import { classifyReplacementReadback, deliveryObservation, type DeliveryObservation, type NoteDeliveryRecovery } from './note-delivery-recovery.ts';
+import { deliveryObservation, type DeliveryObservation, type NoteDeliveryRecovery } from './note-delivery-recovery.ts';
 import { NoteDeliveryPump, type NativePublicationResult, type PublicationIntent, type NotePublicationWorker } from './note-delivery-pump.ts';
 import type { ManagedNativeMirror, RcloneProcess } from './rclone-process.ts';
 
@@ -19,6 +19,7 @@ const reply = z.discriminatedUnion('outcome', [
   z.strictObject({ outcome: z.literal('conflict_resolution_pending') }),
   z.strictObject({ outcome: z.literal('conflict_paths_differ') }),
   z.strictObject({ outcome: z.literal('refused') }),
+  z.strictObject({ outcome: z.literal('cleared') }),
   z.strictObject({ outcome: z.literal('absent') }),
   z.strictObject({ outcome: z.literal('uncertain') }),
 ]);
@@ -78,14 +79,8 @@ export class NativeNoteDelivery implements NotePublicationWorker {
       const recovered = await this.relocate(intent, true);
       return recovered.outcome === 'published' ? recovered.observation : null;
     }
-    const inspected = await this.callInspect(intent.path);
-    const current = inspected.outcome === 'observed' ? inspected.observation : null;
-    if (intent.expected) {
-      const evidence = classifyReplacementReadback(intent.expected,intent.wantedHash,current);
-      if (evidence.outcome !== 'published' && evidence.outcome !== 'unchanged') return current;
-    } else if (inspected.outcome !== 'absent' && current?.hash !== intent.wantedHash) return null;
     const recovered = await this.send(intent.expected ? 'recover' : 'recover-create',intent);
-    return recovered.outcome === 'published' ? recovered.observation : null;
+    return recovered.outcome === 'published' ? recovered.observation : recovered.outcome === 'refused' ? 'cleared' as const : null;
   }
 
   private async observeConflictResolution(intent: PublicationIntent, approve: boolean) {
@@ -127,15 +122,18 @@ export class NativeNoteDelivery implements NotePublicationWorker {
   }
 
   private async send(operation: 'replace' | 'recover' | 'create' | 'recover-create', intent: PublicationIntent): Promise<NativePublicationResult> {
-    const local = await this.readLocal(intent.path);
-    if (!local || local.hash !== intent.wantedHash) return {outcome:operation === 'replace' || operation === 'create' ? 'refused' : 'uncertain'};
+    const recovery = operation === 'recover' || operation === 'recover-create';
+    const local = recovery ? await this.readLocal(intent.path).catch(() => null) : await this.readLocal(intent.path);
+    const text = local?.hash === intent.wantedHash ? local.text : undefined;
+    if (!recovery && text === undefined) return {outcome:'refused'};
     const operationId = intent.operations.at(-1)!;
     const expected = intent.expected && identity.extend({hash:z.string()}).parse({
       documentId:intent.expected.documentId,parentId:intent.expected.parentId,etag:intent.expected.etag,hash:intent.expected.hash,
     });
     const result = reply.parse(await this.worker.noteDeliveryCommand(this.target, operation,
-      {path:intent.path,operationId,...(expected ? {expected} : {}),text:local.text}));
-    if (result.outcome === 'refused') return {outcome:'refused'};
+      {path:intent.path,operationId,...(expected ? {expected} : {}),...(text !== undefined ? {text} : {}),
+        ...(recovery ? {wantedHash:intent.wantedHash} : {})}));
+    if ((!recovery && result.outcome === 'refused') || (recovery && result.outcome === 'cleared')) return {outcome:'refused'};
     if (result.outcome !== 'published') return {outcome:'uncertain'};
     this.admitted.set(operationId,result.observation);
     return result;

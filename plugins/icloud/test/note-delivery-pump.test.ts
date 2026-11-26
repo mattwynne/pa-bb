@@ -97,3 +97,38 @@ test('an unresolved move allows a disjoint write and recovers its lost reply fir
     assert.deepEqual(queue.pendingPaths(mirrorId),[]);
   } finally { db.close(); }
 });
+
+test('a cleared unsent intent keeps the queued history for the newer save', async () => {
+  const db = new Database(':memory:');
+  try {
+    noteDeliverySchema.forEach(sql => db.exec(sql));
+    db.exec(deliveryRecoverySchema);
+    const mirrorId = 'generated', path = 'Generated.md', oldId = randomUUID(), newId = randomUUID();
+    const queue = new NoteDeliveryQueue(db), journal = new NoteDeliveryRecovery(db);
+    const expected = { documentId: 'document', parentId: 'parent', etag: 'initial', hash: 'a'.repeat(64), size: 10, modifiedMs: 100 };
+    const firstHash = 'b'.repeat(64), final = { ...expected, hash: 'c'.repeat(64), etag: 'later', modifiedMs: 200 };
+    queue.stage(mirrorId, null, { changes: [], cursor: 0, hasMore: false });
+    queue.stage(mirrorId, 0, { changes: [
+      { path, operationId: oldId, sequence: 1, previousHash: expected.hash, hash: firstHash },
+      { path, operationId: newId, sequence: 2, previousHash: firstHash, hash: final.hash },
+    ], cursor: 2, hasMore: false });
+    journal.prepare({ mirrorId, path, expected, wantedHash: firstHash, operations: [oldId] });
+    const worker: import('../adapters/note-delivery-pump.ts').NotePublicationWorker = {
+      async readBack() { return 'cleared'; },
+      async prepare(id, plan) {
+        assert.equal(plan.previousHash, expected.hash);
+        assert.equal(plan.hash, final.hash);
+        assert.deepEqual(plan.operations, [oldId, newId]);
+        return { mirrorId: id, path, expected, wantedHash: plan.hash, operations: plan.operations };
+      },
+      async publish() { return { outcome: 'published', observation: final }; },
+      async reconcile() {},
+    };
+    const pump = new NoteDeliveryPump(queue, journal, worker);
+    assert.equal(await pump.deliverOne(mirrorId), 'needs_reconciliation');
+    assert.equal(journal.pending(mirrorId), null);
+    assert.equal(queue.pendingPath(mirrorId, path).length, 2);
+    assert.equal(await pump.deliverOne(mirrorId), 'delivered');
+    assert.equal(queue.pendingPath(mirrorId, path).length, 0);
+  } finally { db.close(); }
+});

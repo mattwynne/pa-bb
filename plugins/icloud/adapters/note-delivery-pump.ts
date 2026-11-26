@@ -11,7 +11,7 @@ export interface NotePublicationWorker {
   // The approved identity may only come from a prior confirmed scan/receipt.
   // Read exact local bytes and compare their hash before returning a plan.
   prepare(mirrorId: string, plan: NoteDeliveryPlan): Promise<PublicationIntent | 'already_present' | null>;
-  readBack(intent: PublicationIntent): Promise<DeliveryObservation | null>;
+  readBack(intent: PublicationIntent): Promise<DeliveryObservation | null | 'cleared'>;
   publish(intent: PublicationIntent): Promise<NativePublicationResult>;
   // Acknowledgement requires a durable publication receipt in the native
   // worker. The scan will incorporate that receipt under its mutation lock.
@@ -73,6 +73,10 @@ export class NoteDeliveryPump {
     }
     if (pending.publication) return this.finish(pending,pending.publication);
     const current = await this.worker.readBack(pending);
+    if (current === 'cleared') {
+      this.journal.refused(pending.mirrorId, pending.operations.at(-1)!);
+      return 'needs_reconciliation' as const;
+    }
     if (!current || current.hash !== pending.wantedHash ||
         (pending.expected && !pending.source && classifyReplacementReadback(pending.expected,pending.wantedHash,current).outcome !== 'published'))
       return 'needs_reconciliation' as const;
