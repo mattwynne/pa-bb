@@ -13,7 +13,7 @@
 +	o.bbParentID = item.ParentID
 --- /dev/null
 +++ b/backend/iclouddrive/bb_note_create.go
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,129 @@
 +package iclouddrive
 +
 +import (
@@ -39,6 +39,10 @@
 +}
 +
 +func (f *Fs) CreateBBNote(ctx context.Context, remote, binding string, data []byte, dispatch func(documentID string) error) (BBNotePublication, error) {
++	return f.CreateBBNoteInParent(ctx, remote, binding, "", data, dispatch)
++}
++
++func (f *Fs) CreateBBNoteInParent(ctx context.Context, remote, binding, expectedParent string, data []byte, dispatch func(documentID string) error) (BBNotePublication, error) {
 +	var output BBNotePublication
 +	placeholder := BBNoteRevision{DriveID: "scope", ParentID: "scope", ETag: "scope"}
 +	if !validBBIntent(remote, placeholder, data) || dispatch == nil {
@@ -54,7 +58,7 @@
 +		})
 +	}
 +	parent, occupied, err := resolve()
-+	if err != nil || occupied != nil {
++	if err != nil || occupied != nil || (expectedParent != "" && parent != expectedParent) {
 +		return output, api.ErrConditionalConflict
 +	}
 +	leaf := f.opt.Enc.FromStandardName(path.Base(remote))
@@ -894,7 +898,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_delivery_store.go
-@@ -0,0 +1,343 @@
+@@ -0,0 +1,370 @@
 +package bisync
 +
 +import (
@@ -916,6 +920,9 @@
 +const bbDeliveryStateLimit = 16 << 20
 +
 +var bbOperationID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
++
++const bbBoundCreationVersion = 11
++
 +var ErrBBDeliveryUnsettled = errors.New("an expedited iCloud publication still needs verification")
 +var errBBInvalidDelivery = errors.New("invalid expedited delivery record")
 +
@@ -943,6 +950,7 @@
 +	Pending             *BBDeliveryIntent
 +	PendingData         *[]byte               `json:",omitempty"`
 +	PendingDocument     string                `json:",omitempty"`
++	PendingCreateParent string                `json:",omitempty"`
 +	Relocation          *BBRelocation         `json:",omitempty"`
 +	FolderClone         *BBFolderCloneJournal `json:",omitempty"`
 +	FolderMove          *BBFolderMove         `json:",omitempty"`
@@ -977,7 +985,7 @@
 +		return bbDeliveryStore{}, err
 +	}
 +	var state bbDeliveryStore
-+	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > bbFolderCloneVersion) ||
++	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > bbBoundCreationVersion) ||
 +		(state.FolderClone != nil && (state.Version < bbFolderCloneVersion || state.FolderMove != nil ||
 +			state.Relocation != nil || !state.FolderClone.valid())) ||
 +		(state.FolderMove != nil && (state.Version < bbFolderMoveVersion || !state.FolderMove.valid())) ||
@@ -992,6 +1000,10 @@
 +		(len(*state.PendingData) == 0 && state.Version < bbEmptyNoteVersion) ||
 +		len(*state.PendingData) > bbDeliveryBytes || sha256.Sum256(*state.PendingData) != state.Pending.Hash ||
 +		(!state.Pending.Create && state.PendingDocument == "") || (state.Pending.Create && state.PendingDocument != "")) {
++		return bbDeliveryStore{}, errBBInvalidDelivery
++	}
++	if state.PendingCreateParent != "" && (state.Version < bbBoundCreationVersion || state.Pending == nil ||
++		!state.Pending.Create || state.PendingData == nil || len(state.PendingCreateParent) > 512) {
 +		return bbDeliveryStore{}, errBBInvalidDelivery
 +	}
 +	if state.Relocation != nil && state.Pending != nil {
@@ -1050,7 +1062,7 @@
 +// All delivery state transitions run while the caller owns this mirror's
 +// mutation lock. The intent is durable before any request can publish bytes.
 +func BBBeginDelivery(workdir string, intent BBDeliveryIntent, knownDocument ...string) error {
-+	return bbBeginDelivery(workdir, intent, nil, knownDocument)
++	return bbBeginDelivery(workdir, intent, nil, "", knownDocument)
 +}
 +
 +func BBBeginDeliveryWithData(workdir string, intent BBDeliveryIntent, data []byte, knownDocument ...string) error {
@@ -1058,10 +1070,20 @@
 +		(intent.Create && len(knownDocument) != 0) || (!intent.Create && (len(knownDocument) != 1 || knownDocument[0] == "" || len(knownDocument[0]) > 512)) {
 +		return errBBInvalidDelivery
 +	}
-+	return bbBeginDelivery(workdir, intent, data, knownDocument)
++	return bbBeginDelivery(workdir, intent, data, "", knownDocument)
 +}
 +
-+func bbBeginDelivery(workdir string, intent BBDeliveryIntent, data []byte, knownDocument []string) error {
++// BBBeginDeliveryInMovedFolder binds a new note to a known parent identity
++// from a confirmed folder move. Its proof survives the later baseline remap.
++func BBBeginDeliveryInMovedFolder(workdir string, intent BBDeliveryIntent, data []byte, parent string) error {
++	if !intent.Create || parent == "" || len(parent) > 512 ||
++		data == nil || len(data) > bbDeliveryBytes || sha256.Sum256(data) != intent.Hash {
++		return errBBInvalidDelivery
++	}
++	return bbBeginDelivery(workdir, intent, data, parent, nil)
++}
++
++func bbBeginDelivery(workdir string, intent BBDeliveryIntent, data []byte, parent string, knownDocument []string) error {
 +	if !validBBDelivery(intent) {
 +		return errBBInvalidDelivery
 +	}
@@ -1069,9 +1091,12 @@
 +	if err != nil {
 +		return err
 +	}
++	if parent != "" && (state.FolderMove == nil || state.FolderMove.newNoteParent(intent) != parent) {
++		return ErrBBDeliveryUnsettled
++	}
 +	if state.Pending != nil || (state.FolderClone != nil && state.FolderClone.overlaps(intent.Path, knownDocument...)) ||
 +		(state.FolderMove != nil && state.FolderMove.overlaps(intent.Path, knownDocument...) &&
-+			!state.FolderMove.permitsReplacement(intent, knownDocument)) {
++			parent == "" && !state.FolderMove.permitsReplacement(intent, knownDocument)) {
 +		return ErrBBDeliveryUnsettled
 +	}
 +	if state.Relocation != nil {
@@ -1094,6 +1119,10 @@
 +		return ErrBBDeliveryUnsettled
 +	}
 +	state.Pending = &intent
++	if parent != "" {
++		state.Version = bbBoundCreationVersion
++		state.PendingCreateParent = parent
++	}
 +	if data != nil {
 +		if state.Version < 6 {
 +			state.Version = 6
@@ -1134,6 +1163,7 @@
 +	if receipt != nil {
 +		if receipt.BBDeliveryIntent != intent || receipt.Modified.IsZero() || receipt.Size < 0 || receipt.Size > bbDeliveryBytes ||
 +			(state.PendingDocument != "" && state.PendingDocument != receipt.ProviderID) ||
++			(state.PendingCreateParent != "" && state.PendingCreateParent != receipt.ProviderParentID) ||
 +			(state.Relocation != nil && receipt.ProviderID != "" && state.Relocation.hasProviderDocument(receipt.ProviderID)) {
 +			return errBBInvalidDelivery
 +		}
@@ -1159,6 +1189,7 @@
 +	state.Pending = nil
 +	state.PendingData = nil
 +	state.PendingDocument = ""
++	state.PendingCreateParent = ""
 +	state.Dispatched = false
 +	state.AllocatedDocument = ""
 +	return state.write(workdir)
@@ -2785,7 +2816,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,427 @@
+@@ -0,0 +1,452 @@
 +package main
 +
 +import (
@@ -3122,6 +3153,22 @@
 +	if err := bisync.BBCheckDeliveryDisjoint(request.Workdir, intent); err != nil {
 +		return refused
 +	}
++	expectedParent, err := bisync.BBExpectedCreationParent(request.Workdir, request.Binding, intent)
++	if err != nil {
++		return refused
++	}
++	create := cloud.CreateBBNote
++	if expectedParent != "" {
++		scoped, ok := cloud.(interface {
++			CreateBBNoteInParent(context.Context, string, string, string, []byte, func(string) error) (iclouddrive.BBNotePublication, error)
++		})
++		if !ok {
++			return uncertain
++		}
++		create = func(ctx context.Context, path, binding string, data []byte, dispatch func(string) error) (iclouddrive.BBNotePublication, error) {
++			return scoped.CreateBBNoteInParent(ctx, path, binding, expectedParent, data, dispatch)
++		}
++	}
 +	stage, err := bisync.BBReadDeliveryStage(request.Workdir, intent)
 +	if err != nil {
 +		return uncertain
@@ -3139,13 +3186,16 @@
 +		}
 +		current, err := cloud.ObserveBBCreate(ctx, request.Path)
 +		if err == nil && current.Revision.Hash == intent.Hash {
++			if expectedParent != "" && current.Revision.ParentID != expectedParent {
++				return uncertain
++			}
 +			issued, err := bisync.BBAllocatedDocument(request.Workdir, intent)
 +			_, _, currentDocID := api.DeconstructDriveID(current.Revision.DriveID)
 +			if err != nil || currentDocID != issued {
 +				return uncertain
 +			}
 +			if stage == bisync.BBDeliveryDispatched {
-+				if err := bisync.BBResolveDelivery(request.Workdir, intent, &bisync.BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: current.Modified, Size: current.Size, ProviderID: current.Revision.DriveID, ETag: current.Revision.ETag}); err != nil {
++				if err := bisync.BBResolveDelivery(request.Workdir, intent, &bisync.BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: current.Modified, Size: current.Size, ProviderID: current.Revision.DriveID, ETag: current.Revision.ETag, ProviderParentID: current.Revision.ParentID}); err != nil {
 +					return uncertain
 +				}
 +			} else if stage != bisync.BBDeliveryRecorded && stage != bisync.BBDeliveryApplied {
@@ -3158,11 +3208,17 @@
 +		}
 +	}
 +	if operation == "create" || stage == bisync.BBDeliveryMissing {
-+		if err := bisync.BBBeginDeliveryWithData(request.Workdir, intent, data); err != nil {
++		var prepareErr error
++		if expectedParent == "" {
++			prepareErr = bisync.BBBeginDeliveryWithData(request.Workdir, intent, data)
++		} else {
++			prepareErr = bisync.BBBeginDeliveryInMovedFolder(request.Workdir, intent, data, expectedParent)
++		}
++		if prepareErr != nil {
 +			return refused
 +		}
 +	}
-+	published, err := cloud.CreateBBNote(ctx, request.Path, request.Binding, data,
++	published, err := create(ctx, request.Path, request.Binding, data,
 +		func(id string) error { return bisync.BBDispatchDelivery(request.Workdir, intent, id) })
 +	if errors.Is(err, api.ErrConditionalConflict) || errors.Is(err, api.ErrConditionalRefused) {
 +		if err := bisync.BBResolveDelivery(request.Workdir, intent, nil); err != nil {
@@ -3176,7 +3232,7 @@
 +	if err != nil {
 +		return uncertain
 +	}
-+	if err := bisync.BBResolveDelivery(request.Workdir, intent, &bisync.BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: published.Modified, Size: published.Size, ProviderID: published.Revision.DriveID, ETag: published.Revision.ETag}); err != nil {
++	if err := bisync.BBResolveDelivery(request.Workdir, intent, &bisync.BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: published.Modified, Size: published.Size, ProviderID: published.Revision.DriveID, ETag: published.Revision.ETag, ProviderParentID: published.Revision.ParentID}); err != nil {
 +		return uncertain
 +	}
 +	return observedOwnedNote("published", published)
@@ -7044,7 +7100,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_folder_move.go
-@@ -0,0 +1,354 @@
+@@ -0,0 +1,408 @@
 +package bisync
 +
 +import (
@@ -7267,6 +7323,60 @@
 +	return !intent.Create && exists && len(knownDocument) == 1 && entry.DocumentID == knownDocument[0]
 +}
 +
++func (move BBFolderMove) newNoteParent(intent BBDeliveryIntent) string {
++	if !intent.Create || move.Published == nil || !strings.HasPrefix(intent.Path, move.Intent.Path+"/") {
++		return ""
++	}
++	original := move.Intent.Source + strings.TrimPrefix(intent.Path, move.Intent.Path)
++	// A same-fold sibling might be a different spelling of a prior note
++	// rather than a new item. The full proof forbids treating it as vacant.
++	for name := range move.Intent.Entries {
++		if bbFoldPath(name) == bbFoldPath(original) {
++			return ""
++		}
++	}
++	parent := path.Dir(original)
++	entry := move.Intent.Entries[parent]
++	if !entry.Directory {
++		return ""
++	}
++	if parent == move.Intent.Source {
++		return move.Published.DocumentID
++	}
++	return move.providerFor(parent).DocumentID
++}
++
++// BBExpectedCreationParent returns the durable parent from a pending note,
++// or the exact parent a completed folder move can prove for a new note.
++// A known but unacknowledged or differently spelled move is a held scope.
++func BBExpectedCreationParent(workdir, binding string, intent BBDeliveryIntent) (string, error) {
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return "", err
++	}
++	if !intent.Create || !validBBDelivery(intent) {
++		return "", errBBInvalidDelivery
++	}
++	if state.Pending != nil && *state.Pending == intent && state.PendingCreateParent != "" {
++		return state.PendingCreateParent, nil
++	}
++	if state.FolderClone != nil && state.FolderClone.overlaps(intent.Path) {
++		return "", ErrBBDeliveryUnsettled
++	}
++	move := state.FolderMove
++	if move == nil || !move.overlaps(intent.Path) {
++		return "", nil
++	}
++	if move.Intent.Binding != binding {
++		return "", ErrBBDeliveryUnsettled
++	}
++	parent := move.newNoteParent(intent)
++	if parent == "" {
++		return "", ErrBBDeliveryUnsettled
++	}
++	return parent, nil
++}
++
 +// Folder move transitions use the same per-mirror mutation lock as note
 +// delivery and scheduled baseline installation.
 +func BBReadFolderMove(workdir, operationID string) (*BBFolderMove, error) {
@@ -7401,7 +7511,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_folder_move_test.go
-@@ -0,0 +1,427 @@
+@@ -0,0 +1,497 @@
 +package bisync
 +
 +import (
@@ -7485,6 +7595,76 @@
 +	record, err := BBReadFolderMove(workdir, intent.OperationID)
 +	if err != nil || record == nil || record.Published == nil || *record.Published != after {
 +		t.Fatalf("durable receipt = %+v, error = %v", record, err)
++	}
++}
++
++func TestBBMovedFolderCreationKeepsVerifiedParentThroughReconciliation(t *testing.T) {
++	const binding, oldPath, newPath = "binding", "old/Folder", "new/Folder"
++	root := BBIndexedVersion{DocumentID: "folder", ParentID: "old", ETag: "before"}
++	prior := BBIndexedVersion{DocumentID: "child", ParentID: "folder", ETag: "untouched"}
++	folder := BBFolderMoveIntent{
++		OperationID: "1d73db11-f4ce-4148-9081-48e27e8e1d83", Binding: binding, Source: oldPath, Path: newPath, DestinationParent: "new",
++		Entries: map[string]BBTreeIdentity{oldPath: {root, true}, oldPath + "/Existing.md": {prior, false}},
++		Hashes:  map[string][sha256.Size]byte{oldPath + "/Existing.md": sha256.Sum256([]byte("existing"))},
++	}
++	body := []byte("first BB note after move")
++	creation := BBDeliveryIntent{"1eb96515-4168-4e82-beff-574bfc347a29", newPath + "/New.md", sha256.Sum256(body), true}
++	workdir := t.TempDir()
++	if err := BBPrepareFolderMove(workdir, folder); err != nil {
++		t.Fatal(err)
++	}
++	if parent, err := BBExpectedCreationParent(workdir, binding, creation); parent != "" || !errors.Is(err, ErrBBDeliveryUnsettled) {
++		t.Fatalf("unacknowledged move provided parent %q, %v", parent, err)
++	}
++	after := BBIndexedVersion{DocumentID: root.DocumentID, ParentID: "new", ETag: "moved"}
++	if err := BBDispatchFolderMove(workdir, folder.OperationID); err != nil {
++		t.Fatal(err)
++	}
++	if err := BBConfirmFolderMove(workdir, folder.OperationID, after); err != nil {
++		t.Fatal(err)
++	}
++	if parent, err := BBExpectedCreationParent(workdir, binding, creation); parent != after.DocumentID || err != nil {
++		t.Fatalf("acknowledged move provided parent %q, %v", parent, err)
++	}
++	refused := creation
++	for _, name := range []string{newPath + "/existing.md", oldPath + "/New.md", "NEW/Folder/New.md"} {
++		refused.Path = name
++		if _, err := BBExpectedCreationParent(workdir, binding, refused); !errors.Is(err, ErrBBDeliveryUnsettled) {
++			t.Fatalf("held path %q was eligible: %v", name, err)
++		}
++	}
++	if err := BBBeginDeliveryInMovedFolder(workdir, creation, body, "same-name-replacement"); !errors.Is(err, ErrBBDeliveryUnsettled) {
++		t.Fatalf("wrong parent prepared: %v", err)
++	}
++	if err := BBBeginDeliveryInMovedFolder(workdir, creation, body, after.DocumentID); err != nil {
++		t.Fatal(err)
++	}
++	state, err := readBBDeliveries(workdir)
++	if err != nil || state.FolderMove == nil {
++		t.Fatal("missing durable move", err)
++	}
++	state.finishBBFolder(state.FolderMove, after, false)
++	if err := state.write(workdir); err != nil {
++		t.Fatal(err)
++	}
++	if parent, err := BBExpectedCreationParent(workdir, binding, creation); parent != after.DocumentID || err != nil {
++		t.Fatalf("pending creation lost its parent after remap: %q, %v", parent, err)
++	}
++	if err := BBDispatchDelivery(workdir, creation, "allocated"); err != nil {
++		t.Fatal(err)
++	}
++	receipt := BBDeliveryReceipt{BBDeliveryIntent: creation, ProviderID: "FILE::zone::allocated",
++		ProviderParentID: "same-name-replacement", ETag: "result", Modified: time.Now(), Size: int64(len(body))}
++	if err := BBResolveDelivery(workdir, creation, &receipt); !errors.Is(err, errBBInvalidDelivery) {
++		t.Fatalf("wrong parent settled: %v", err)
++	}
++	receipt.ProviderParentID = after.DocumentID
++	if err := BBResolveDelivery(workdir, creation, &receipt); err != nil {
++		t.Fatal(err)
++	}
++	state, err = readBBDeliveries(workdir)
++	if err != nil || state.Pending != nil || state.PendingCreateParent != "" || len(state.Confirmed) != 1 || state.Confirmed[0].DocumentID != "allocated" {
++		t.Fatalf("bounded receipt not recorded: %+v, %v", state, err)
 +	}
 +}
 +
