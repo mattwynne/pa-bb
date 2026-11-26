@@ -5,6 +5,7 @@ import { isAbsolute, join, normalize } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { VaultError, type Diagnose, type DesktopLinkOperation, type DesktopLinkResult } from '../core/ports.ts';
+import { z } from 'zod';
 import { validateNotePath } from './local-notes.ts';
 
 export type DesktopBinaries = { desktop: string; cli: string };
@@ -43,6 +44,11 @@ function exactNotePath(path: string) {
 export function validateDesktopOperation(operation: DesktopLinkOperation) {
   if (operation.kind === 'backlinks' || (operation.kind === 'tasks' && operation.path)) exactNotePath(operation.path!);
 }
+
+const desktopHash = z.string().regex(/^[a-f0-9]{64}$/);
+export const desktopMoveEvidence = z.strictObject({ backlinks: z.array(z.strictObject({
+  path: z.string().min(1).max(1024), previousHash: desktopHash, hash: desktopHash,
+})).max(64) });
 
 function killGroup(child: ChildProcess, signal: NodeJS.Signals) {
   if (!child.pid) return;
@@ -215,12 +221,57 @@ export class DesktopLinks {
             const file = app.vault.getAbstractFileByPath(source);
             if (!file || app.vault.getAbstractFileByPath(destination) || await app.vault.adapter.exists(destination) ||
                 !app.vault.getConfig("alwaysUpdateLinks")) return false;
-            await app.fileManager.renameFile(file, destination);
+            const { vault, metadataCache } = app;
+            const folder = Array.isArray(file.children);
+            const insideMove = path => path === source || (folder && path.startsWith(source + "/"));
+            const hash = async text => {
+              const bytes = new TextEncoder().encode(text);
+              if (bytes.length > 1024 * 1024) throw new Error();
+              const digest = await crypto.subtle.digest("SHA-256", bytes);
+              return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+            };
+            const candidates = new Map();
+            try {
+              for (let attempt = 0; attempt < 4 && !metadataCache.isCacheClean(); attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 75));
+              }
+              if (metadataCache.isCacheClean()) {
+                let bytes = 0;
+                for (const [path, links] of Object.entries(metadataCache.resolvedLinks)) {
+                  if (insideMove(path) || !Object.keys(links).some(insideMove)) continue;
+                  const note = vault.getAbstractFileByPath(path);
+                  if (note?.extension !== "md" || !note.stat || note.stat.size > 1024 * 1024) continue;
+                  bytes += note.stat.size;
+                  if (candidates.size === 64 || bytes > 4 * 1024 * 1024) break;
+                  candidates.set(path, { note, previousHash: await hash(await vault.read(note)) });
+                }
+              }
+            } catch { candidates.clear(); }
+            if (file.path !== source || vault.getAbstractFileByPath(source) !== file ||
+                vault.getAbstractFileByPath(destination) || await vault.adapter.exists(destination)) return false;
+            const modified = new Set();
+            const listener = candidates.size ? vault.on("modify", note => {
+              if (candidates.get(note.path)?.note === note) modified.add(note.path);
+            }) : undefined;
+            try {
+              await app.fileManager.renameFile(file, destination);
+            } finally {
+              if (listener) vault.offref(listener);
+            }
             if (file.path !== destination) throw new Error();
-            return true;
+            const backlinks = [];
+            for (const path of modified) {
+              const { note, previousHash } = candidates.get(path);
+              if (note.path !== path || vault.getAbstractFileByPath(path) !== note || note.stat.size > 1024 * 1024) continue;
+              try {
+                const current = await hash(await vault.read(note));
+                if (current !== previousHash) backlinks.push({ path, previousHash, hash: current });
+              } catch { /* The regular scan handles notes without exact hashes. */ }
+            }
+            return { backlinks };
           })()`]));
           if (value === false) dispatched = false;
-          else if (value !== true) throw new VaultError('desktop_reply');
+          else if (value !== true && !desktopMoveEvidence.safeParse(value).success) throw new VaultError('desktop_reply');
           break;
         }
         }

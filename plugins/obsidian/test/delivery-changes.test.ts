@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -90,6 +90,37 @@ test('delivery changes carry the canonical predecessor from resolved conflicts',
     const page = ledger.deliveryChanges(mirrorId, baseline.cursor, 4);
     assert.deepEqual(page.changes.map(({ sequence: _sequence, ...change }) => change), expected);
     assert.equal(page.hasMore, false);
+  } finally {
+    db.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a move publishes only still-verified external backlink changes in the receipt feed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bb-vault-move-delivery-'));
+  const { db, fs, ledger } = receiptsFixture(root, join(root, 'receipt.sqlite'));
+  try {
+    const vaultId = 'generated', revision = 1;
+    const baseline = ledger.deliveryChanges(vaultId, null, 8);
+    const previous = '[[Before]]', next = '[[After]]';
+    const previousHash = digest(previous), hash = digest(next);
+    await Promise.all(['Before.md', 'External.md', 'Changed again.md'].map(path => writeFile(join(root, path), previous)));
+    const operationId = randomUUID();
+    const receipt = await fs.movePath({ vaultId, path: 'Before.md', destination: 'After.md', operationId, kind: 'note' },
+      revision, async before => {
+        await before();
+        await rename(join(root, 'Before.md'), join(root, 'After.md'));
+        await writeFile(join(root, 'External.md'), next);
+        await writeFile(join(root, 'Changed again.md'), 'independent edit');
+        return { backlinks: ['External.md', 'Changed again.md', 'After.md'].map(path => ({ path, previousHash, hash })) };
+      });
+    assert.equal(receipt.outcome, 'moved_locally_pending_sync');
+    const page = ledger.deliveryChanges(vaultId, baseline.cursor, 8);
+    assert.deepEqual(page.changes.map(({ path, source, previousHash, hash }) => ({ path, source, previousHash, hash })), [
+      { path: 'After.md', source: 'Before.md', previousHash, hash: previousHash },
+      { path: 'External.md', source: undefined, previousHash, hash },
+    ]);
+    assert.equal(await readFile(join(root, 'Changed again.md'), 'utf8'), 'independent edit');
   } finally {
     db.close();
     await rm(root, { recursive: true, force: true });

@@ -234,10 +234,26 @@ process.exitCode = result.status ?? 1;
   assert.equal((await tool('search_notes', { pathGlob: 'Active/Target.md', properties: [{ key: 'status', equals: 'active' }], mode: 'count' })).totalMatches, 1);
   assert.equal((await tool('move_note', { path: 'Active/Target.md', destination: 'Occupied.md' })).outcome, 'not_moved');
   assert.equal(await readFile(join(root, 'Occupied.md'), 'utf8'), 'sentinel-occupied');
+  const delivery = (after: number | null) => harness.behavior.callRpc('deliveryChanges',
+    { vaultId: id, after, limit: 16 }, { experimental_caller: { kind: 'plugin', pluginId: 'icloud' } }) as Promise<{
+      cursor: number; changes: Array<{ path: string; source?: string; previousHash: string; hash: string }>;
+    }>;
+  const hashReference = async () => createHash('sha256').update(await readFile(join(root, 'Reference.md'))).digest('hex');
+  const beforeMoves = (await delivery(null)).cursor;
+  const originalReference = await hashReference();
   const moved = await tool('move_note', { path: 'Active/Target.md', destination: 'Done/Target.md' });
   assert.equal(moved.outcome, 'moved_locally_pending_sync');
+  const afterFileMove = await hashReference();
   const folder = await tool('move_folder', { path: 'OldFolder', destination: 'Done/NewFolder' });
   assert.equal(folder.outcome, 'moved_locally_pending_sync');
+  const afterFolderMove = await hashReference();
+  const changes = (await delivery(beforeMoves)).changes;
+  assert.deepEqual(changes.map(({ path, source }) => [path, source]), [
+    ['Done/Target.md', 'Active/Target.md'], ['Reference.md', undefined], ['Reference.md', undefined],
+  ]);
+  assert.deepEqual(changes.slice(1).map(({ previousHash, hash }) => [previousHash, hash]), [
+    [originalReference, afterFileMove], [afterFileMove, afterFolderMove],
+  ]);
   assert.match(await readFile(join(root, 'Reference.md'), 'utf8'), /\[\[Done\/Target\]\].*\[\[(?:Done\/NewFolder\/)?Child\]\]/);
   assert.equal((await tool('resolve_link', { path: 'Reference.md', link: '[[Child]]' })).target, 'Done/NewFolder/Child.md');
   const before = await tool('read_note', { path: 'Done/Target.md' });

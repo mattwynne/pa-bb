@@ -1,7 +1,7 @@
 import type { Stats } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { VaultError } from '../core/ports.ts';
-import type { Diagnose, DesktopLinkOperation, PathMove, PathMoveReceipt, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
+import type { Diagnose, DesktopLinkOperation, DesktopMoveEvidence, PathMove, PathMoveReceipt, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
 import { digest, equivalent, identity, LocalNotes, validateNotePath, validateRelativePath } from './local-notes.ts';
 import type { DirectoryGrant } from './local-notes.ts';
 import { fileIdentity, LocalReceipts } from './local-receipts.ts';
@@ -17,6 +17,7 @@ type Mutation<T> = {
   dispatch: () => void;
   committed: () => void;
   rootIdentity: FileIdentity;
+  relatedSaves: Array<Extract<LocalReceipt, { kind: 'save' }>>;
 };
 type Entry = NonNullable<ReturnType<LocalReceipts['get']>>;
 type Proof = { status: 'proven'; row: LocalReceipt; witness: string } | { status: 'review'; reason: string };
@@ -83,7 +84,7 @@ export class FilesystemVault {
     return !await this.files.entry(root, row.tree.from) && !!folder?.isDirectory() && identity(folder, row.tree.inode);
   }
 
-  async movePath(input: PathMove, revision: number, run: (before: () => Promise<void>) => Promise<unknown>): Promise<PathMoveReceipt> {
+  async movePath(input: PathMove, revision: number, run: (before: () => Promise<void>) => Promise<boolean | DesktopMoveEvidence | void>): Promise<PathMoveReceipt> {
     const { vaultId, path, destination, operationId, expectedHash, kind } = input;
     const folder = kind === 'folder';
     const changedCloudName = path.normalize('NFC').toLowerCase() !== destination.normalize('NFC').toLowerCase();
@@ -93,7 +94,7 @@ export class FilesystemVault {
     try {
       const row = await this.mutate<Extract<LocalReceipt, { kind: 'move' }>>(
         { mirrorId: vaultId, path, revision, ...(folder ? { directory: true as const } : {}) },
-        async (root, { check, begin, dispatch, committed, rootIdentity }) => {
+        async (root, { check, begin, dispatch, committed, rootIdentity, relatedSaves }) => {
           const source = await this.files.entry(root, path);
           const base = {
             kind: 'move' as const, mirrorId: vaultId, path, destination, operationId,
@@ -130,6 +131,26 @@ export class FilesystemVault {
             ? await this.files.observe(root, destination).catch(() => null) : null;
           const delivery = target && identity(base.inode, target.info) && target.info.birthtimeMs === base.birthtime && deliverySourceHash
             ? { sourceHash: deliverySourceHash, destinationHash: target.hash } : undefined;
+          if (typeof applied === 'object') {
+            const seen = new Set<string>();
+            for (const link of applied.backlinks) {
+              const note = link.path;
+              if (seen.has(note) || link.hash === link.previousHash || [path, destination].some(endpoint =>
+                note === endpoint || note.startsWith(endpoint + '/'))) continue;
+              seen.add(note);
+              try {
+                this.ledger.assertFree(vaultId, [note]);
+                const current = await this.files.observe(root, note);
+                if (!current || current.hash !== link.hash) continue;
+                await this.files.syncParent(root, note);
+                if (!equivalent(current, await this.files.observe(root, note))) continue;
+                relatedSaves.push({ ...link, kind: 'save', mirrorId: vaultId, operationId: randomUUID(), at: base.at,
+                  root: rootIdentity, inode: fileIdentity(current.info), birthtime: current.info.birthtimeMs,
+                  publication: 'desktop', outcome: 'saved_locally_pending_sync' });
+              } catch { /* The regular scan retains publication ownership when evidence changes. */ }
+            }
+            await check();
+          }
           return { ...base, ...(delivery ? { delivery } : {}), outcome: 'moved_locally_pending_sync' };
         });
       return { ...endpoints, outcome: row.outcome };
@@ -269,11 +290,12 @@ export class FilesystemVault {
           this.ledger.begin(row);
           intent = row;
         };
-        const result = await plan(root, { check, begin, rootIdentity, dispatch: () => {
+        const relatedSaves: Mutation<T>['relatedSaves'] = [];
+        const result = await plan(root, { check, begin, rootIdentity, relatedSaves, dispatch: () => {
           if (!intent) throw new VaultError('uncertain');
           this.ledger.dispatch(intent);
         }, committed: () => { changed = true; } });
-        this.ledger.finish(result);
+        this.ledger.finish(result, relatedSaves);
         return result;
       } catch (error) {
         if (intent && !changed) {

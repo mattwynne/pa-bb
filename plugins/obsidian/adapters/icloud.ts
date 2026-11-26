@@ -8,7 +8,7 @@ import type { PendingOperation, PendingStatus } from '../core/ports.ts';
 import type { RecoveryInput } from '../core/receipt-recovery.ts';
 import { noteRpcContract } from './icloud-note-contract.ts';
 import type { ManagedDesktop } from './desktop-install.ts';
-import { DesktopLinks, type DesktopConfiguration } from './desktop-links.ts';
+import { DesktopLinks, desktopMoveEvidence, type DesktopConfiguration } from './desktop-links.ts';
 import { inventoryWatchProbe } from './desktop-inventory-watch.ts';
 import { VaultError } from '../core/ports.ts';
 import type { DesktopStatus, MirrorCatalog, VaultFiles, Diagnose, Catalog, Configuration, DesktopLinkOperation, InventoryInput, Inventory, NoteParser, PathMove } from '../core/ports.ts';
@@ -383,9 +383,17 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   }
 
   async movePath(input: PathMove, revision: number, signal?: AbortSignal) {
-    const { relative, run, filesystem } = await this.desktopAccess(input.vaultId, revision, signal);
+    const { relative, inMirror, run, filesystem } = await this.desktopAccess(input.vaultId, revision, signal);
     const operation = { kind: 'move' as const, path: relative(input.path), destination: relative(input.destination) };
-    return filesystem.movePath(input, revision, before => run(operation, before));
+    return filesystem.movePath(input, revision, async before => {
+      const result = await run(operation, before);
+      if (result === false || result === true) return result;
+      const evidence = desktopMoveEvidence.parse(result);
+      return { backlinks: evidence.backlinks.flatMap(note => {
+        try { return [{ ...note, path: validateNotePath(inMirror(note.path)) }]; }
+        catch { return []; }
+      }) };
+    });
   }
 
   async moveReceipt(vaultId: string, revision: number, operationId: string) {

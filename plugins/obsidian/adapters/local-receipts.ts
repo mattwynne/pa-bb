@@ -252,11 +252,25 @@ export class LocalReceipts {
     this.append('dispatch', row);
   }
 
-  finish(row: LocalReceipt) {
+  finish(row: LocalReceipt, relatedSaves: Array<Extract<LocalReceipt, { kind: 'save' }>> = []) {
     try {
-      const entry = this.get(row.operationId);
-      if (entry?.row.outcome !== 'uncertain' || row.outcome === 'uncertain') throw new VaultError('uncertain');
-      this.append('terminal', row);
+      const complete = () => {
+        const entry = this.get(row.operationId);
+        if (entry?.row.outcome !== 'uncertain' || row.outcome === 'uncertain') throw new VaultError('uncertain');
+        this.append('terminal', row);
+      };
+      if (!relatedSaves.length) {
+        complete();
+        return;
+      }
+      this.db.transaction(() => {
+        complete();
+        for (const save of relatedSaves) {
+          this.begin({ ...save, outcome: 'uncertain' });
+          this.dispatch(save);
+          this.append('terminal', save);
+        }
+      }).immediate();
     } catch {
       throw new VaultError('uncertain', 'Inspect the exact operation receipt before making another change.');
     }
