@@ -1,11 +1,13 @@
 const kinds = ['account_missing', 'configuration', 'authorization', 'authorization_transport', 'oauth_state', 'scope_required', 'identity',
-  'runtime_missing', 'runtime_exit', 'runtime_timeout', 'provider_error', 'schema_unsupported', 'tool_unavailable'];
+  'runtime_missing', 'runtime_exit', 'runtime_timeout', 'provider_error', 'schema_unsupported', 'tool_unavailable',
+  'docs_transport', 'docs_forbidden', 'docs_not_found', 'docs_rate_limited', 'docs_invalid_response'];
 export function category(error) {
   if (kinds.includes(error?.workspaceCategory)) return error.workspaceCategory;
   if (error?.status === 401 || error?.status === 403) return 'authorization';
   if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return 'cancelled_or_timeout';
   return 'unavailable';
 }
+/** @returns {never} */
 export function fail(workspaceCategory) { throw Object.assign(new Error('Google Workspace unavailable'), { workspaceCategory }); }
 export function message(error) {
   switch (category(error)) {

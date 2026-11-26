@@ -44,6 +44,7 @@ The connector discovers schemas at runtime and registers names such as `gworkspa
 
 - `gworkspace_accounts`: list connected accounts, without tokens.
 - `gworkspace_list_tools`: inspect the discovered upstream tools and their BB-facing schemas.
+- `gworkspace_list_doc_suggestion_attributions` reads suggestion IDs, statuses and author display names using the selected connected account and an exact Google Docs document ID. Attribution is `anonymous` when Google marks the author anonymous and `unavailable` when it supplies no usable name. The account needs permission to view comments.
 - `gworkspace_call_tool`: fallback for schemas BB cannot register directly. Supply an upstream tool name and its arguments, including `account`.
 
 Drive includes file/folder discovery, creation, copying, moving, uploads/imports and sharing. Docs includes rich reading/editing, Markdown, headings, tables and formatting. Sheets includes values/formulas, formatting and structural tools. Calendar includes calendars/events and availability. Gmail includes search/read, attachments, drafts/send, labels and filters. Consult the actual discovered schemas rather than guessing parameters or claiming every Google editor feature is supported.

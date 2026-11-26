@@ -69,6 +69,85 @@ test('generic call path has the same account routing and result contract', async
     assert.equal(w.mcp.calls.at(-1).call.name, 'modify_doc_text');
   } finally { await w.close(); }
 });
+const suggestionTool = 'gworkspace_list_doc_suggestion_attributions';
+const suggestionInput = { account: 'alice@example.test', document_id: 'abc' };
+const readSuggestions = (w, input = suggestionInput) => w.host.harness.behavior.callAgentTool(suggestionTool, input);
+
+test('Docs suggestion attribution uses the selected account and returns only verified suggestion metadata', async () => {
+  let calls = 0;
+  const w = await world(undefined, { docsFetch: async (value, options) => {
+    calls++;
+    const url = new URL(value);
+    assert.equal(url.origin + url.pathname, 'https://docs.googleapis.com/v1/documents/abc');
+    assert.deepEqual(Object.fromEntries(url.searchParams), {
+      commentsViewMode: 'COMMENTS_VIEW_MODE_INCLUDED',
+      suggestionsViewMode: 'SUGGESTIONS_INLINE',
+      includeTabsContent: 'true',
+      fields: 'documentId,suggestions(suggestionId,headPost(author(displayName,anonymous)),status)',
+    });
+    assert.equal(options.method, 'GET');
+    assert.equal(options.redirect, 'error');
+    assert.equal(options.headers.Authorization, 'Bearer SECRET_ACCESS');
+    return Response.json({
+      documentId: 'abc', title: 'PRIVATE_TITLE', body: { text: 'PRIVATE_BODY' },
+      comments: [{ content: 'PRIVATE_COMMENT' }],
+      suggestions: [
+        { suggestionId: 's1', status: 'OPEN', headPost: { author: { displayName: 'Reviewer A', user: 'PRIVATE_USER' }, content: 'PRIVATE_POST' } },
+        { suggestionId: 's2', status: 'ACCEPTED', headPost: { author: { anonymous: true, displayName: 'PRIVATE_ANONYMOUS' } } },
+        { suggestionId: 's3', status: 'REJECTED', replies: [{ author: { displayName: 'PRIVATE_REPLY' } }] },
+      ],
+    });
+  } });
+  try {
+    await w.connect();
+    w.oauth.identity = async () => ({ sub: 'bob-id', email: 'bob@example.test', email_verified: true });
+    w.oauth.exchange = async () => ({ access_token: 'OTHER_ACCESS', refresh_token: 'OTHER_REFRESH', expires_in: 3600, scope: SCOPES.join(' ') });
+    await w.connect();
+    assert.ok((await w.selected()).tools.some(tool => tool.name === suggestionTool));
+    assert.equal((await readSuggestions(w, { ...suggestionInput, account: 'other@example.test' })).isError, true);
+    assert.equal(calls, 0);
+    const result = await readSuggestions(w, { ...suggestionInput, account: 'ALICE@example.test' });
+    assert.equal(calls, 1);
+    assert.deepEqual(JSON.parse(result.content[0].text), { documentId: 'abc', suggestions: [
+      { suggestionId: 's1', status: 'OPEN', authorDisplayName: 'Reviewer A', attribution: 'available' },
+      { suggestionId: 's2', status: 'ACCEPTED', authorDisplayName: null, attribution: 'anonymous' },
+      { suggestionId: 's3', status: 'REJECTED', authorDisplayName: null, attribution: 'unavailable' },
+    ] });
+  } finally { await w.close(); }
+});
+
+test('Docs suggestion errors remain distinct from an empty result and omit provider content from diagnostics', async () => {
+  let reply;
+  const w = await world(undefined, { docsFetch: async () => reply() });
+  try {
+    await w.connect();
+    const failures = [
+      [() => new Response('PRIVATE_PROVIDER', { status: 401 }), 'authorization', /Reconnect the selected account/],
+      [() => new Response('PRIVATE_PROVIDER SECRET_ACCESS', { status: 403 }), 'docs_forbidden', /permission|denied/],
+      [() => new Response('PRIVATE_PROVIDER', { status: 404 }), 'docs_not_found', /could not find/],
+      [() => new Response('PRIVATE_PROVIDER', { status: 429 }), 'docs_rate_limited', /rate-limited/],
+      [() => new Response('PRIVATE_PROVIDER', { status: 500 }), 'provider_error', /could not be verified/],
+      [() => { throw new Error('PRIVATE_TRANSPORT SECRET_ACCESS'); }, 'docs_transport', /could not be verified/],
+      [() => new Response('PRIVATE_JSON'), 'docs_invalid_response', /could not be verified/],
+      [() => Response.json({ documentId: 'PRIVATE_WRONG_DOCUMENT' }), 'docs_invalid_response', /could not be verified/],
+      [() => Response.json({ documentId: 'abc', suggestions: [{ suggestionId: 's1' }, { suggestionId: 's1' }] }), 'docs_invalid_response', /could not be verified/],
+      [() => Response.json({ documentId: 'abc', suggestions: [{ headPost: { author: { displayName: 'PRIVATE_UNVERIFIED' } } }] }), 'docs_invalid_response', /could not be verified/],
+    ];
+    for (const [providerReply, diagnostic, guidance] of failures) {
+      reply = providerReply;
+      const result = await readSuggestions(w);
+      assert.equal(result.isError, true);
+      assert.match(result.content[0].text, guidance);
+      const logs = JSON.stringify(w.host.harness.inspection.logEntries.at(-1));
+      assert.match(logs, new RegExp('docs_suggestion_read ' + diagnostic));
+      assert.doesNotMatch(logs + JSON.stringify(result), /PRIVATE_|SECRET_|alice@example/);
+    }
+    reply = () => Response.json({ documentId: 'abc' });
+    const empty = await readSuggestions(w);
+    assert.deepEqual(JSON.parse(empty.content[0].text), { documentId: 'abc', suggestions: [] });
+  } finally { await w.close(); }
+});
+
 test('tool and discovery failures produce bounded diagnostics without provider or token content', async () => {
   const w = await world();
   try {
@@ -79,7 +158,7 @@ test('tool and discovery failures produce bounded diagnostics without provider o
     assert.doesNotMatch(JSON.stringify(result), /PRIVATE_CONTENT|SECRET/);
     w.mcp.listTools = async () => { throw new Error('PRIVATE_CONTENT SECRET_REFRESH'); };
     assert.deepEqual(await w.rpc('refresh'), { ready: false });
-    assert.equal((await w.selected()).tools.length, 4, 'only generic/account tools remain after failed discovery');
+    assert.equal((await w.selected()).tools.length, 5, 'only built-in tools remain after failed discovery');
     const logs = JSON.stringify(w.host.harness.inspection.logEntries);
     assert.match(logs, /tool_call/); assert.match(logs, /catalogue_discovery/);
     assert.doesNotMatch(logs, /PRIVATE_CONTENT|SECRET|alice@example|recipient@example/);
@@ -91,7 +170,7 @@ test('removing Workspace account disables its tools without calling other plugin
     await w.connect();
     await w.rpc('removeAccount', { subject: 'alice-id' });
     assert.deepEqual((await w.rpc('status')).accounts, []);
-    assert.equal((await w.selected()).tools.length, 4);
+    assert.equal((await w.selected()).tools.length, 5);
     assert.deepEqual(w.host.harness.sdk.callsTo('plugins.callRpc'), []);
   } finally { await w.close(); }
 });
