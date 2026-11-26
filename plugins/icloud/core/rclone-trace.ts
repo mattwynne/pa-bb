@@ -18,6 +18,7 @@ export const traceEntrySchema = z.object({
     retryError: z.boolean().optional(), fatalError: z.boolean().optional(),
   }).strict().optional(),
   timeoutMs: count.optional(), outcome: z.enum(['succeeded', 'failed']).optional(),
+  checkers: z.union([z.literal(2), z.literal(4)]).optional(),
   evidence: z.enum(['command_exit', 'command_timeout', 'command_signal', 'command_start', 'command_output_limit', 'command_stopped']).optional(),
   exitCode: z.number().int().min(0).max(10).nullable().optional(),
 }).strict();

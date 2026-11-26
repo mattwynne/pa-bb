@@ -23,6 +23,8 @@ const LISTING_CONFIG_FD = 4; // fd 3 is the inherited worker lock
 export const listingCheckers = ['2', '4', '8'] as const;
 export type ListingCheckers = typeof listingCheckers[number];
 type ListingObservation = { configFd: number; signal?: AbortSignal; record: (record: unknown) => void };
+type BisyncCheckers = '2' | '4';
+type CommandObservation = { listing?: ListingObservation; bisyncCheckers?: BisyncCheckers };
 
 export function safeEnvironment(): NodeJS.ProcessEnv {
   // Never inherit provider options, credentials, proxies or BB process secrets.
@@ -200,13 +202,16 @@ export class RcloneProcess {
     this.fileWork = { controller, task };
     try { return await task; } finally { this.fileWork = null; }
   }
-  async run(args: string[], capture = false, report?: (stats: TransferProgress) => void) {
+  async run(args: string[], capture = false, report?: (stats: TransferProgress) => void, checkers: BisyncCheckers = '2') {
     await this.ensure();
     if (this.fileWork || this.stopping) throw new CloudError('busy');
     const command = args[0];
     const stats = report ? ['--use-json-log', '--stats', '1s', '--stats-log-level', 'NOTICE', '--log-level', command === 'bisync' ? 'DEBUG' : 'NOTICE'] : command === 'bisync' ? ['--use-json-log', '--log-level', 'DEBUG'] : [];
     const timeout = command === 'bisync' ? args.includes('--resync') ? COMMAND_TIMEOUTS.initialBisync : COMMAND_TIMEOUTS.bisync : command === 'lsjson' ? COMMAND_TIMEOUTS.listing : COMMAND_TIMEOUTS.transfer;
-    return this.execute(this.binary!, [...args, ...this.flags(), ...stats], capture, timeout, report, command === 'bisync' ? 'bisync' : 'generic');
+    const bisync = command === 'bisync';
+    const effectiveCheckers = bisync && !args.includes('--resync') ? checkers : '2';
+    return this.execute(this.binary!, [...args, ...this.flags(effectiveCheckers), ...stats], capture, timeout, report,
+      bisync ? 'bisync' : 'generic', bisync ? { bisyncCheckers: effectiveCheckers } : undefined);
   }
   async benchmarkListing(remote: `icloud:${string}`, checkers: ListingCheckers, signal?: AbortSignal) {
     await this.ensure();
@@ -235,12 +240,12 @@ export class RcloneProcess {
       // size refuse a source that now resolves to a file.
       const output = await this.execute(this.binary!, ['size', remote, '--json', '--disable', 'ListR',
         '--exclude', obsidianStageExclude, ...this.flags(checkers, link), '--use-json-log', '--log-level', 'DEBUG'],
-      true, LISTING_BENCHMARK_TIMEOUT_MS, undefined, 'generic', { configFd: config.fd, signal, record: record => {
+      true, LISTING_BENCHMARK_TIMEOUT_MS, undefined, 'generic', { listing: { configFd: config.fd, signal, record: record => {
         const projected = projectRcloneRecord(record);
         if (projected.event === 'retry') retryRecords++;
         if (projected.category === 'rate_limited' || projected.httpStatus === 429) rateLimitRecords++;
         if (projected.event === 'invalid_record') invalidLogRecords++;
-      } });
+      } } });
       let count: unknown;
       try { count = JSON.parse(output)?.count; } catch { throw new CloudError('sync_failed'); }
       if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) throw new CloudError('sync_failed');
@@ -253,14 +258,15 @@ export class RcloneProcess {
       if (temporary) await rmdir(temporary).catch(() => {});
     }
   }
-  private execute(binary: string, args: string[], capture: boolean, timeout: number | null, report?: (stats: TransferProgress) => void, context: 'bisync' | 'generic' = 'generic', listing?: ListingObservation): Promise<string> {
+  private execute(binary: string, args: string[], capture: boolean, timeout: number | null, report?: (stats: TransferProgress) => void, context: 'bisync' | 'generic' = 'generic', { listing, bisyncCheckers }: CommandObservation = {}): Promise<string> {
     if (this.stopping || listing?.signal?.aborted) return Promise.reject(new CloudError('interrupted', { kind: 'command_stopped' }));
     return new Promise((resolve, reject) => {
       const observer = context === 'bisync' ? new RcloneBisyncObservation() : null;
       const commandId = randomUUID(), started = performance.now();
       const elapsed = () => Math.max(0, Math.round(performance.now() - started));
       const trace = (entry: Parameters<RcloneTrace['append']>[0]) => { if (observer) this.trace.append(entry); };
-      trace({ at: new Date().toISOString(), commandId, elapsedMs: 0, event: 'command_start', ...(timeout === null ? {} : { timeoutMs: timeout }) });
+      trace({ at: new Date().toISOString(), commandId, elapsedMs: 0, event: 'command_start',
+        ...(timeout === null ? {} : { timeoutMs: timeout }), ...(bisyncCheckers ? { checkers: bisyncCheckers === '4' ? 4 : 2 } : {}) });
       const stdio: any[] = ['ignore', capture ? 'pipe' : 'ignore', report || observer || listing ? 'pipe' : 'ignore'];
       if (this.lock) stdio.push(this.lock.fd);
       if (listing) stdio.push(listing.configFd);

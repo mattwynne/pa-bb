@@ -428,14 +428,16 @@ export class NoteRuntime {
     });
   }
   idleFiles<T>(action: (signal: AbortSignal) => Promise<T>) { return this.turn(() => this.worker.withFiles(action)); }
-  private async nativeCommand(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
+  private async nativeCommand(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2], ordinaryInitialized = false) {
     for (const mirror of this.state().mirrors) if (mirror.initialized && args.includes(this.localPath(mirror)) && this.moves.blocked(mirror.id)) throw new NoteError('uncertain');
     const direct = args[0] === 'bisync' ? this.state().mirrors.find(m => this.direct.has(m.id) && this.localPath(m) === args[2]) : undefined;
     if (direct) await this.local(direct, { interrupted: direct.blocker === 'rebuild' });
     this.nativeRunning = true;
     this.nativeMirror = direct?.id;
     if (direct) this.mirrorWakeups?.suspend(direct.id);
-    try { return await this.worker.run(direct ? [...args, '--exclude', obsidianStageExclude] : args, capture, report); }
+    // Apply the measured checker increase to ordinary direct-note sync only.
+    const tuned = ordinaryInitialized && direct?.phase === 'running' && direct.blocker === null && direct.failure === null && this.members.has(direct.id);
+    try { return await this.worker.run(direct ? [...args, '--exclude', obsidianStageExclude] : args, capture, report, tuned ? '4' : '2'); }
     finally {
       this.nativeRunning = false;
       this.nativeMirror = undefined;
@@ -458,7 +460,7 @@ export class NoteRuntime {
       const eligible = id && !args.includes('--resync') ? this.overlay.beforeRun(id) : [];
       let succeeded = false;
       let commandEvidence: ReturnType<typeof evidence> = null;
-      try { const output = await this.nativeCommand(args, capture, report); succeeded = true; return output; }
+      try { const output = await this.nativeCommand(args, capture, report, !!id && !args.includes('--resync')); succeeded = true; return output; }
       catch (error) {
         commandEvidence = evidence(error);
         if (id && error instanceof CloudError && ['recovery_required', 'capacity', 'configuration', 'invalid_selection'].includes(error.category)) this.nativeBlocked.set(id, 'native_failure');

@@ -40,6 +40,25 @@ async function fixture(count = 2) {
       async close() { await runtime?.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
   } catch (error) { await runtime?.stop(); await preparer?.stop(); db.close(); await rm(root, { recursive: true, force: true }); throw error; }
 }
+test('four checkers apply only to healthy, initialized and selected direct-note bisync', { skip: !enabled, timeout: 25_000 }, async () => {
+  const f = await fixture();
+  try {
+    await f.runtime.mirrorDirectoryGrant('mirror-0', 1);
+    for (const mirror of f.state.mirrors) mirror.phase = 'running';
+    const run = (index: number) => f.runtime.run(syncArguments(`icloud:generated-${index}`,
+      join(f.workerRoot, 'mirrors', `mirror-${index}`), join(f.workerRoot, 'baselines', `mirror-${index}`), false));
+    await run(0);
+    await run(1);
+    f.state.mirrors[0].failure = 'interrupted';
+    await run(0);
+    f.state.mirrors[0].failure = null;
+    f.runtime.configure(2, ['mirror-1']);
+    await run(0);
+    const trace = await f.runtime.worker.trace.snapshot();
+    assert.deepEqual(trace.entries.filter(record => record.event === 'command_start').map(record => record.checkers),
+      [2, 2, 4, 2, 2, 2], 'initialization, legacy mirrors, recovery and unselected mirrors keep the original checker count');
+  } finally { await f.close(); }
+});
 test('child enumeration uses actual source ownership and revision admission without reading or changing notes', { skip: !enabled, timeout: 25000 }, async () => {
   const f = await fixture(1);
   try {
