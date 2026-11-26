@@ -898,7 +898,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_delivery_store.go
-@@ -0,0 +1,370 @@
+@@ -0,0 +1,374 @@
 +package bisync
 +
 +import (
@@ -922,6 +922,7 @@
 +var bbOperationID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 +
 +const bbBoundCreationVersion = 11
++const bbCloneAcknowledgementVersion = 12
 +
 +var ErrBBDeliveryUnsettled = errors.New("an expedited iCloud publication still needs verification")
 +var errBBInvalidDelivery = errors.New("invalid expedited delivery record")
@@ -985,9 +986,10 @@
 +		return bbDeliveryStore{}, err
 +	}
 +	var state bbDeliveryStore
-+	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > bbBoundCreationVersion) ||
++	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > bbCloneAcknowledgementVersion) ||
 +		(state.FolderClone != nil && (state.Version < bbFolderCloneVersion || state.FolderMove != nil ||
-+			state.Relocation != nil || !state.FolderClone.valid())) ||
++			state.Relocation != nil || !state.FolderClone.valid() ||
++			(state.FolderClone.RetireAcknowledged && state.Version < bbCloneAcknowledgementVersion))) ||
 +		(state.FolderMove != nil && (state.Version < bbFolderMoveVersion || !state.FolderMove.valid())) ||
 +		(state.Relocation != nil && (state.Version < 2 || (state.Pending != nil && state.Version < 3) ||
 +			(state.Version < 7 && BBCaseRelocation(state.Relocation.Intent.Source, state.Relocation.Intent.Path)) ||
@@ -1120,7 +1122,9 @@
 +	}
 +	state.Pending = &intent
 +	if parent != "" {
-+		state.Version = bbBoundCreationVersion
++		if state.Version < bbBoundCreationVersion {
++			state.Version = bbBoundCreationVersion
++		}
 +		state.PendingCreateParent = parent
 +	}
 +	if data != nil {
@@ -8375,7 +8379,7 @@
 +}
 --- /dev/null
 +++ b/backend/iclouddrive/bb_folder_stage.go
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,171 @@
 +package iclouddrive
 +
 +import (
@@ -8505,10 +8509,10 @@
 +// replacement. A file must keep its saved revision. A directory must match
 +// the caller's freshly verified exact identity and still be empty.
 +func (f *Fs) BBRetireCopiedFolderItem(ctx context.Context, binding string, expected BBFolderItem) error {
-+	return f.BBRetireCopiedFolderItemWithDispatch(ctx, binding, expected, nil)
++	return f.BBRetireCopiedFolderItemWithDispatch(ctx, binding, expected, nil, nil)
 +}
 +
-+func (f *Fs) BBRetireCopiedFolderItemWithDispatch(ctx context.Context, binding string, expected BBFolderItem, dispatch func() error) error {
++func (f *Fs) BBRetireCopiedFolderItemWithDispatch(ctx context.Context, binding string, expected BBFolderItem, dispatch, acknowledged func() error) error {
 +	fresh, err := f.lookupBBFolderLeaf(ctx, binding, expected.ParentID, expected.Name)
 +	if err != nil || fresh == nil || fresh.DocumentID != expected.DocumentID || fresh.ETag != expected.ETag ||
 +		fresh.Directory != expected.Directory {
@@ -8530,6 +8534,11 @@
 +	}
 +	if err := f.service.RetireBBFolderItem(ctx, *fresh.item, dispatch); err != nil {
 +		return err
++	}
++	if acknowledged != nil {
++		if err := acknowledged(); err != nil {
++			return err
++		}
 +	}
 +	siblings, err := f.BBFolderList(ctx, binding, expected.ParentID)
 +	if err != nil {
@@ -8695,7 +8704,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_folder_clone_store.go
-@@ -0,0 +1,316 @@
+@@ -0,0 +1,339 @@
 +package bisync
 +
 +import (
@@ -8720,6 +8729,7 @@
 +	Step                 int
 +	Dispatched           bool
 +	ActivationDispatched bool              `json:",omitempty"`
++	RetireAcknowledged   bool              `json:",omitempty"`
 +	Stage                *BBIndexedVersion `json:",omitempty"`
 +	Copies               map[string]BBIndexedVersion
 +	Allocation           *BBFolderCloneAllocation `json:",omitempty"`
@@ -8803,6 +8813,10 @@
 +	}
 +	if copied != len(journal.Copies) || retained != len(journal.Retained) ||
 +		sawPublish != (journal.Published != nil) {
++		return false
++	}
++	if journal.RetireAcknowledged && (!journal.Dispatched || journal.Step == len(steps) ||
++		(steps[journal.Step].action != bbCloneRetire && steps[journal.Step].action != bbCloneRetireStage)) {
 +		return false
 +	}
 +	if journal.ActivationDispatched && (journal.Allocation == nil || !journal.Dispatched) {
@@ -8889,7 +8903,7 @@
 +			return ErrBBDeliveryUnsettled
 +		}
 +	}
-+	state.FolderClone, state.Version = &journal, bbFolderCloneVersion
++	state.FolderClone, state.Version = &journal, bbCloneAcknowledgementVersion
 +	return state.write(workdir)
 +}
 +
@@ -8907,6 +8921,9 @@
 +	}
 +	if !journal.valid() {
 +		return errBBInvalidDelivery
++	}
++	if journal.RetireAcknowledged && state.Version < bbCloneAcknowledgementVersion {
++		state.Version = bbCloneAcknowledgementVersion
 +	}
 +	return state.write(workdir)
 +}
@@ -8947,6 +8964,20 @@
 +	})
 +}
 +
++// Capture Apple's explicit trash acknowledgement before the independent
++// absence read. An uncertain request never grants a case-only replacement.
++func BBRecordFolderCloneRetirement(workdir, operationID string, step int) error {
++	return updateBBFolderClone(workdir, operationID, step, func(journal *BBFolderCloneJournal) error {
++		action, _, ok := journal.Current()
++		if !ok || !journal.Dispatched || journal.RetireAcknowledged ||
++			(action != string(bbCloneRetire) && action != string(bbCloneRetireStage)) {
++			return ErrBBDeliveryUnsettled
++		}
++		journal.RetireAcknowledged = true
++		return nil
++	})
++}
++
 +// Finish a step only from exact provider read-back. For a retirement,
 +// retained means the independently changed original was left alone.
 +func BBCompleteFolderCloneStep(workdir, operationID string, step int, identity *BBIndexedVersion, retained bool) error {
@@ -8980,6 +9011,7 @@
 +		journal.Step++
 +		journal.Dispatched = false
 +		journal.ActivationDispatched = false
++		journal.RetireAcknowledged = false
 +		journal.Allocation = nil
 +		return nil
 +	})
@@ -9014,7 +9046,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_folder_clone.go
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,282 @@
 +package main
 +
 +import (
@@ -9032,7 +9064,7 @@
 +type ownedCloneMover interface {
 +	ownedCloneCloud
 +	BBMoveFolder(context.Context, iclouddrive.BBFolderItem, string) error
-+	BBRetireCopiedFolderItemWithDispatch(context.Context, string, iclouddrive.BBFolderItem, func() error) error
++	BBRetireCopiedFolderItemWithDispatch(context.Context, string, iclouddrive.BBFolderItem, func() error, func() error) error
 +}
 +
 +func cloneLocation(ctx context.Context, cloud folderProofCloud, journal *bisync.BBFolderCloneJournal, entry string, copied bool) (*iclouddrive.BBFolderItem, error) {
@@ -9137,7 +9169,7 @@
 +	if source == nil {
 +		// A lost reply cannot prove the caller removed this item. Before a
 +		// case-only publication preserve a possible independent deletion.
-+		return finish(journal.Published == nil)
++		return finish(journal.Published == nil && !journal.RetireAcknowledged)
 +	}
 +	if !source.Directory && source.ETag != intent.Entries[original].ETag {
 +		return finish(true)
@@ -9147,6 +9179,8 @@
 +	}
 +	if err := cloud.BBRetireCopiedFolderItemWithDispatch(ctx, intent.Binding, *source, func() error {
 +		return beforeCloneDispatch(ctx, record)
++	}, func() error {
++		return bisync.BBRecordFolderCloneRetirement(workdir, intent.OperationID, journal.Step)
 +	}); err != nil {
 +		if errors.Is(err, api.ErrConditionalConflict) {
 +			return finish(true)
@@ -9237,6 +9271,8 @@
 +		}
 +		if err := cloud.BBRetireCopiedFolderItemWithDispatch(ctx, intent.Binding, *folder, func() error {
 +			return beforeCloneDispatch(ctx, record)
++		}, func() error {
++			return bisync.BBRecordFolderCloneRetirement(workdir, intent.OperationID, journal.Step)
 +		}); err != nil {
 +			return err
 +		}
@@ -9485,7 +9521,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_folder_clone_test.go
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,195 @@
 +package main
 +
 +import (
@@ -9511,6 +9547,7 @@
 +	activationCount            int
 +	activationPreflightRefused bool
 +	retirementPreflightRefused bool
++	retirementReadbackLost     bool
 +	skipOneActivationPreflight bool
 +	moveCount                  int
 +	editSource                 bool
@@ -9589,7 +9626,7 @@
 +	return api.ErrConditionalUnconfirmed
 +}
 +
-+func (f *ownedCloneFixture) BBRetireCopiedFolderItemWithDispatch(_ context.Context, _ string, item iclouddrive.BBFolderItem, dispatch func() error) error {
++func (f *ownedCloneFixture) BBRetireCopiedFolderItemWithDispatch(_ context.Context, _ string, item iclouddrive.BBFolderItem, dispatch, acknowledged func() error) error {
 +	if !f.retirementPreflightRefused {
 +		f.retirementPreflightRefused = true
 +		return context.DeadlineExceeded
@@ -9603,6 +9640,13 @@
 +	f.children[item.ParentID] = slices.DeleteFunc(f.children[item.ParentID], func(sibling iclouddrive.BBFolderItem) bool {
 +		return sibling.DocumentID == item.DocumentID && sibling.ETag == item.ETag
 +	})
++	if err := acknowledged(); err != nil {
++		return err
++	}
++	if !f.retirementReadbackLost {
++		f.retirementReadbackLost = true
++		return context.DeadlineExceeded
++	}
 +	return nil
 +}
 +
@@ -9643,11 +9687,14 @@
 +			ctx := context.Background()
 +			reply := applyOwnedFolderMove(ctx, cloud, req)
 +			req.FolderEntries = nil
-+			for count := 0; reply.Outcome == "uncertain" && count < 8; count++ {
++			for count := 0; reply.Outcome == "uncertain" && count < 12; count++ {
 +				reply = applyOwnedFolderMove(ctx, cloud, req)
 +			}
 +			if (reply.Outcome == "folder_published") != trial.expectPublish || cloud.activationCount != 1 || !cloud.activationPreflightRefused || !cloud.retirementPreflightRefused {
 +				t.Fatalf("reply = %+v, activations = %d", reply, cloud.activationCount)
++			}
++			if (trial.expectPublish || trial.remove) && !cloud.retirementReadbackLost {
++				t.Fatal("the test never exercised a confirmed trash with lost read-back")
 +			}
 +			if trial.expectPublish {
 +				item, _ := cloneFolderLeaf(ctx, cloud, binding, binding, trial.target)
