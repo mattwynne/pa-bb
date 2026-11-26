@@ -8,6 +8,7 @@ export function maintenanceCli(
   status: () => object,
   mutate: (action: 'pause' | 'restore', runId: string, signal?: AbortSignal) => Promise<unknown>,
   benchmark: (id: string, checkers: ListingCheckers, signal?: AbortSignal) => ReturnType<RcloneProcess['benchmarkListing']>,
+  binding: (id: string, runId: string, binary: string, sha256: string, signal?: AbortSignal) => Promise<{mirrorId:string; binding:string}>,
 ) {
   const render = () => ({ exitCode: 0, stdout: JSON.stringify(status()) });
   const json = { type: 'boolean', description: 'Emit machine-readable errors as JSON' } as const;
@@ -38,6 +39,28 @@ export function maintenanceCli(
       'maintenance status': cliCommand({ summary: 'Read iCloud admission, drain and maintenance receipt status.', options: { json }, run: render }),
       'maintenance pause': operation('pause', 'Hold iCloud scheduling and note admission for one maintenance run.'),
       'maintenance restore': operation('restore', 'Restore eligible prior scheduling after the matching hold has drained.'),
+      'delivery binding': cliCommand({
+        summary: 'Read the provider binding for one initialized Obsidian mirror during a drained maintenance window.',
+        options: {
+          'mirror-id': { type: 'string', required: true, description: 'Exact initialized mirror ID from iCloud inventory.' },
+          'run-id': { type: 'string', required: true, description: 'Current drained maintenance run UUID.' },
+          binary: { type: 'string', required: true, description: 'Absolute path to the pinned iCloud note worker.' },
+          sha256: { type: 'string', required: true, description: 'SHA-256 of the executable.' },
+          json,
+        },
+        async run({ options }, { signal }) {
+          const id = options['mirror-id'];
+          const runId = maintenanceRunId.safeParse(options['run-id']);
+          if (!/^[a-zA-Z0-9-]{1,64}$/.test(id) || !runId.success)
+            throw new PluginCliError('Supply an exact mirror ID and a valid maintenance run UUID.', {code:'invalid_selection'});
+          try {
+            const result = await binding(id,runId.data.toLowerCase(),options.binary,options.sha256,signal);
+            return { exitCode:0,stdout:JSON.stringify(result) };
+          } catch (error) {
+            throw new PluginCliError('iCloud could not verify the selected mirror binding during this maintenance run.', {code:category(error)});
+          }
+        },
+      }),
       'benchmark listing': cliCommand({
         summary: 'Time one read-only recursive listing on an initialized mirror. Returns aggregate JSON.',
         options: {

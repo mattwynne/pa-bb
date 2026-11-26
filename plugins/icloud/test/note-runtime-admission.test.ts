@@ -373,12 +373,17 @@ test('Obsidian saves, creates, resolutions and file moves reach the managed work
         assert.ok(fs.fstatSync(4).isFile() && fs.fstatSync(5).isFile());
         const metadata = fs.readFileSync(0, 'utf8');
         const input = JSON.parse(metadata);
+        if (argv[1] === 'binding') {
+          assert.deepEqual(input,{workdir,binding:''});
+          console.log(JSON.stringify({outcome:'bound',binding:${JSON.stringify(binding)}}));
+          process.exit(0);
+        }
         assert.ok(input.path===response.path || input.path==='Second.md' || input.path==='Renamed.md');
         const destination = require('node:path').join(require('node:path').dirname(target),input.path);
         assert.equal(input.workdir,workdir);
         assert.equal(input.binding,${JSON.stringify(binding)});
-        const observe = () => {
-          const data = fs.readFileSync(destination);
+        const observe = (file = destination) => {
+          const data = fs.readFileSync(file);
           const etag = {'A':'one','A saved by BB':'two','Incoming resolution':'three','A new BB note':'first','Additional edit before move':'final'}[data.toString()];
           assert.ok(etag);
           return {...response.observation,etag,hash:crypto.createHash('sha256').update(data).digest('hex'),size:data.length};
@@ -386,6 +391,10 @@ test('Obsidian saves, creates, resolutions and file moves reach the managed work
         if (argv[1] === 'inspect') {
           if (!fs.existsSync(destination)) console.log(JSON.stringify({outcome:'absent'}));
           else console.log(JSON.stringify({outcome:'observed',observation:observe()}));
+        } else if (argv[1] === 'inspect-relocation') {
+          assert.equal(input.source,response.path);
+          assert.equal(fs.existsSync(destination),false);
+          console.log(JSON.stringify({outcome:'observed',observation:observe(target)}));
         } else if (argv[1] === 'create') {
           assert.equal(input.expected,undefined);
           assert.equal(input.text,'A new BB note');
@@ -414,6 +423,8 @@ test('Obsidian saves, creates, resolutions and file moves reach the managed work
       }
     `;
     await writeFile(binary,src,{mode:0o700}); await chmod(binary,0o700);
+    assert.deepEqual(await f.runtime.probeManagedBinding(id,binary),{mirrorId:id,binding});
+    await assert.rejects(f.runtime.probeManagedBinding('unselected-mirror',binary),{category:'invalid_selection'});
     f.runtime.configureManagedDelivery({binary,mirrors:{[id]:binding}});
     const pull = (id:string,after:number|null) => Promise.resolve(ledger.ledger.deliveryChanges(id,after,32));
     await f.runtime.deliverKnownNotes(pull,()=>true);

@@ -10,7 +10,7 @@
 +	o.bbParentID = item.ParentID
 --- /dev/null
 +++ b/backend/iclouddrive/bb_note_create.go
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,69 @@
 +package iclouddrive
 +
 +import (
@@ -28,12 +28,8 @@
 +	if !validBBIntent(remote, placeholder, []byte{1}) {
 +		return false
 +	}
-+	leaf, parent, _, err := f.FindPath(ctx, remote, false)
-+	if err != nil {
-+		return false
-+	}
-+	_, found, err := f.findLeafItem(ctx, parent, leaf)
-+	return err == nil && !found
++	_, err := f.readBBNoteItem(ctx, remote)
++	return errors.Is(err, fs.ErrorObjectNotFound)
 +}
 +
 +func (f *Fs) CreateBBNote(ctx context.Context, remote, binding string, data []byte, dispatch func(documentID string) error) (BBNotePublication, error) {
@@ -82,15 +78,11 @@
 +// Return definite absence only if the parent still resolves and has been
 +// checked; a transport error is not an absent note and cannot cause replays.
 +func (f *Fs) ObserveBBCreate(ctx context.Context, remote string) (BBNotePublication, error) {
-+	current, err := f.InspectBBNote(ctx, remote)
-+	if err != nil && f.BBNoteAbsent(ctx, remote) {
-+		return BBNotePublication{}, fs.ErrorObjectNotFound
-+	}
-+	return current, err
++	return f.InspectBBNote(ctx, remote)
 +}
 --- /dev/null
 +++ b/backend/iclouddrive/bb_note_replace.go
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,197 @@
 +package iclouddrive
 +
 +import (
@@ -104,6 +96,7 @@
 +	"time"
 +
 +	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/fs"
 +	"golang.org/x/text/unicode/norm"
 +)
 +
@@ -195,16 +188,43 @@
 +	return sameBBIdentity(base, item) && item.Etag == base.ETag && sha256.Sum256(data) == base.Hash
 +}
 +
-+func (f *Fs) readBBNoteRevision(ctx context.Context, remote string) (*api.DriveItem, []byte, error) {
++// A selected path is publishable only when its normalized name identifies
++// exactly one file. The provider has accepted occupied-name renames in tests.
++func (f *Fs) readBBNoteItem(ctx context.Context, remote string) (*api.DriveItem, error) {
 +	leaf, folder, _, err := f.FindPath(ctx, remote, false)
 +	if err != nil {
-+		return nil, nil, err
++		return nil, err
 +	}
-+	// The name and parent identity are checked again after the directory lookup.
-+	item, found, err := f.findLeafItem(ctx, folder, leaf)
-+	if err != nil || !found || item == nil || item.ParentID != folder || item.Type != "FILE" ||
-+		norm.NFC.String(item.FullName()) != norm.NFC.String(leaf) || item.Etag == "" || item.Size < 1 || item.Size > bbMarkdownLimit {
-+		return nil, nil, api.ErrConditionalConflict
++	items, err := f.listAll(ctx, folder)
++	if err != nil {
++		return nil, err
++	}
++	return bbExactNoteItem(items, leaf, folder)
++}
++
++func bbExactNoteItem(items []*api.DriveItem, leaf, parent string) (*api.DriveItem, error) {
++	leaf = norm.NFC.String(leaf)
++	var found *api.DriveItem
++	for _, item := range items {
++		if item == nil || !strings.EqualFold(norm.NFC.String(item.FullName()), leaf) {
++			continue
++		}
++		if found != nil || item.ParentID != parent || item.Type != "FILE" ||
++			norm.NFC.String(item.FullName()) != leaf || item.Etag == "" || item.Size < 1 || item.Size > bbMarkdownLimit {
++			return nil, api.ErrConditionalConflict
++		}
++		found = item
++	}
++	if found == nil {
++		return nil, fs.ErrorObjectNotFound
++	}
++	return found, nil
++}
++
++func (f *Fs) readBBNoteRevision(ctx context.Context, remote string) (*api.DriveItem, []byte, error) {
++	item, err := f.readBBNoteItem(ctx, remote)
++	if err != nil {
++		return nil, nil, err
 +	}
 +	obj, err := f.NewObjectFromDriveItem(ctx, remote, item)
 +	if err != nil {
@@ -262,14 +282,16 @@
 +}
 --- /dev/null
 +++ b/backend/iclouddrive/bb_note_replace_test.go
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,64 @@
 +package iclouddrive
 +
 +import (
 +	"crypto/sha256"
++	"errors"
 +	"testing"
 +
 +	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/fs"
 +)
 +
 +func TestBBRevisionRejectsSameNameRecreation(t *testing.T) {
@@ -304,6 +326,25 @@
 +	}
 +	if !validBBIntent("Vault/Note.md", base, bytes) {
 +		t.Fatal("valid note rejected")
++	}
++}
++
++func TestBBExactNameRefusesAmbiguousProviderListings(t *testing.T) {
++	original := &api.DriveItem{Name: "Cafe\u0301", Extension: "md", Type: "FILE", ParentID: "parent", Size: 1, Etag: "etag"}
++	if item, err := bbExactNoteItem([]*api.DriveItem{original}, "Café.md", "parent"); err != nil || item != original {
++		t.Fatalf("canonical decomposed name did not match: %v", err)
++	}
++	mixed := *original
++	mixed.Name = "CAFÉ"
++	folder := *original
++	folder.Type = "FOLDER"
++	for _, entries := range [][]*api.DriveItem{{original, original}, {original, &mixed}, {&mixed}, {&folder}} {
++		if _, err := bbExactNoteItem(entries, "Café.md", "parent"); !errors.Is(err, api.ErrConditionalConflict) {
++			t.Fatalf("collision or ambiguous version permitted: %v", err)
++		}
++	}
++	if _, err := bbExactNoteItem(nil, "Café.md", "parent"); !errors.Is(err, fs.ErrorObjectNotFound) {
++		t.Fatalf("empty parent not reported absent: %v", err)
 +	}
 +}
 --- a/cmd/bisync/operations.go
@@ -2335,7 +2376,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,304 @@
 +package main
 +
 +import (
@@ -2381,6 +2422,7 @@
 +
 +type ownedNoteReply struct {
 +	Outcome     string                `json:"outcome"`
++	Binding     string                `json:"binding,omitempty"`
 +	Observation *ownedNoteObservation `json:"observation,omitempty"`
 +}
 +
@@ -2399,10 +2441,19 @@
 +	// Decode one complete frame and refuse unknown fields or trailing input.
 +	decoder := json.NewDecoder(bytes.NewReader(raw))
 +	decoder.DisallowUnknownFields()
-+	if decoder.Decode(&message) != nil || decoder.Decode(new(any)) != io.EOF || message.Binding == "" || message.Path == "" {
++	if decoder.Decode(&message) != nil || decoder.Decode(new(any)) != io.EOF ||
++		(!validOwnedNoteFrame("binding", message) && !validOwnedNoteFrame("inspect", message)) {
 +		return ownedNoteFrame{}, api.ErrConditionalRefused
 +	}
 +	return message, nil
++}
++
++func validOwnedNoteFrame(operation string, message ownedNoteFrame) bool {
++	if operation == "binding" {
++		return message.Workdir != "" && message.Binding == "" && message.Path == "" && message.Source == "" &&
++			message.Expected == nil && message.OperationID == "" && message.Text == "" && message.WantedHash == ""
++	}
++	return message.Binding != "" && message.Path != ""
 +}
 +
 +func init() {
@@ -2416,7 +2467,7 @@
 +			if err != nil {
 +				return json.NewEncoder(os.Stdout).Encode(ownedNoteReply{Outcome: "refused"})
 +			}
-+			if args[0] != "inspect" && !ownInheritedMutationLock(message.Workdir) {
++			if !validOwnedNoteFrame(args[0], message) || (args[0] != "inspect" && args[0] != "inspect-relocation" && !ownInheritedMutationLock(message.Workdir)) {
 +				return json.NewEncoder(os.Stdout).Encode(ownedNoteReply{Outcome: "refused"})
 +			}
 +			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
@@ -2430,7 +2481,10 @@
 +func applyOwnedNote(ctx context.Context, operation, remote string, request ownedNoteFrame) ownedNoteReply {
 +	refused := ownedNoteReply{Outcome: "refused"}
 +	uncertain := ownedNoteReply{Outcome: "uncertain"}
-+	if operation != "inspect" && operation != "replace" && operation != "recover" && operation != "create" && operation != "recover-create" && operation != "relocate" {
++	if !validOwnedNoteFrame(operation, request) {
++		return refused
++	}
++	if operation != "inspect" && operation != "replace" && operation != "recover" && operation != "create" && operation != "recover-create" && operation != "relocate" && operation != "binding" && operation != "inspect-relocation" {
 +		return refused
 +	}
 +	backend, name, root, config, err := fs.ConfigFs(remote)
@@ -2446,11 +2500,27 @@
 +		return refused
 +	}
 +	binding, err := cloud.BBMirrorBinding(ctx)
-+	if err != nil || binding != request.Binding {
++	if err != nil {
++		return refused
++	}
++	if operation == "binding" {
++		return ownedNoteReply{Outcome: "bound", Binding: binding}
++	}
++	if binding != request.Binding {
 +		return refused
 +	}
 +	if operation == "relocate" {
 +		return applyOwnedRelocation(ctx, cloud, request)
++	}
++	if operation == "inspect-relocation" {
++		if request.Source == "" || request.Expected != nil || request.OperationID != "" || request.Text != "" || request.WantedHash != "" {
++			return refused
++		}
++		source, err := cloud.ObserveBBCreate(ctx, request.Source)
++		if err != nil || !cloud.BBNoteAbsent(ctx, request.Path) {
++			return refused
++		}
++		return observedOwnedNote("observed", source)
 +	}
 +	if request.Source != "" || request.WantedHash != "" {
 +		return refused
@@ -2625,7 +2695,7 @@
 +func main() { cmd.Main() }
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note_test.go
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,36 @@
 +package main
 +
 +import (
@@ -2646,6 +2716,20 @@
 +		if _, err := readOwnedNoteFrame(strings.NewReader(input)); err == nil {
 +			t.Fatal("unexpected frame was accepted")
 +		}
++	}
++}
++
++func TestBBPrivateBindingFrameCannotCarryNoteOperations(t *testing.T) {
++	binding, err := readOwnedNoteFrame(strings.NewReader(`{"workdir":"/tmp/owned","binding":""}`))
++	if err != nil || !validOwnedNoteFrame("binding", binding) || validOwnedNoteFrame("replace", binding) {
++		t.Fatal("binding request became a note operation")
++	}
++	if _, err := readOwnedNoteFrame(strings.NewReader(`{"workdir":"/tmp/owned","text":"attempted mutation"}`)); err == nil {
++		t.Fatal("binding command accepted mutation content")
++	}
++	operation, err := readOwnedNoteFrame(strings.NewReader(`{"workdir":"/tmp/owned","binding":"claimed","path":"Note.md"}`))
++	if err != nil || validOwnedNoteFrame("binding", operation) {
++		t.Fatal("ordinary note request became binding discovery")
 +	}
 +}
 --- a/cmd/bisync/deltas.go
@@ -2698,7 +2782,7 @@
 +		})
 --- /dev/null
 +++ b/backend/iclouddrive/bb_note_relocate.go
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,46 @@
 +package iclouddrive
 +
 +import (
@@ -2713,8 +2797,8 @@
 +	if !validBBIntent(remote, expected, []byte{1}) || dispatch == nil {
 +		return api.ErrConditionalRefused
 +	}
-+	current, data, err := f.readBBNoteRevision(ctx, remote)
-+	if err != nil || !bbRevisionMatches(expected, current, data) {
++	current, err := f.readBBNoteItem(ctx, remote)
++	if err != nil || !sameBBIdentity(expected, current) || current.Etag != expected.ETag {
 +		return api.ErrConditionalConflict
 +	}
 +	if err := dispatch(); err != nil {
@@ -2728,9 +2812,26 @@
 +	}
 +	return nil
 +}
++
++// CheckBBNoteVersion verifies the metadata of a revision whose content was
++// already read back. Only the identical document, parent and ETag can reuse
++// the previously verified content hash.
++func (f *Fs) CheckBBNoteVersion(ctx context.Context, remote string, recorded BBNoteRevision) (BBNotePublication, error) {
++	if !validBBIntent(remote, recorded, []byte{1}) {
++		return BBNotePublication{}, api.ErrConditionalRefused
++	}
++	item, err := f.readBBNoteItem(ctx, remote)
++	if err != nil {
++		return BBNotePublication{}, err
++	}
++	if !sameBBIdentity(recorded, item) || item.Etag != recorded.ETag {
++		return BBNotePublication{}, api.ErrConditionalConflict
++	}
++	return BBNotePublication{Revision: recorded, Modified: item.DateModified, Size: item.Size}, nil
++}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation.go
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,145 @@
 +package main
 +
 +import (
@@ -2749,6 +2850,7 @@
 +	ObserveBBCreate(context.Context, string) (iclouddrive.BBNotePublication, error)
 +	CreateBBNote(context.Context, string, string, []byte, func(string) error) (iclouddrive.BBNotePublication, error)
 +	TrashBBNote(context.Context, string, iclouddrive.BBNoteRevision, func() error) error
++	CheckBBNoteVersion(context.Context, string, iclouddrive.BBNoteRevision) (iclouddrive.BBNotePublication, error)
 +}
 +
 +func applyOwnedRelocation(ctx context.Context, cloud relocationCloud, request ownedNoteFrame) ownedNoteReply {
@@ -2844,22 +2946,24 @@
 +
 +	// Re-read the destination immediately before source removal. A verified
 +	// upload is insufficient once another client modified or replaced it.
-+	target, err = cloud.ObserveBBCreate(ctx, request.Path)
-+	if err != nil || !matchesRelocationTarget(intent, *state.Destination, target) {
-+		return uncertain
++	expectedTarget := iclouddrive.BBNoteRevision{DriveID: state.Destination.ProviderID, ParentID: state.Destination.ProviderParentID,
++		ETag: state.Destination.ETag, Hash: intent.Hash}
++	if target.Revision != expectedTarget {
++		target, err = cloud.CheckBBNoteVersion(ctx, request.Path, expectedTarget)
++		if err != nil || !matchesRelocationTarget(intent, *state.Destination, target) {
++			return uncertain
++		}
 +	}
 +	if !state.Removing {
 +		if err := cloud.TrashBBNote(ctx, request.Source, sourceVersion,
 +			func() error { return bisync.BBDispatchRelocationTrash(request.Workdir, intent) }); err != nil {
 +			return uncertain
 +		}
-+	}
-+	// An existing removal checkpoint is read-only. If the earlier request
-+	// lost its response, settle only when both exact endpoints prove it.
-+	if _, err := cloud.ObserveBBCreate(ctx, request.Source); !errors.Is(err, fs.ErrorObjectNotFound) {
++	} else if _, err := cloud.ObserveBBCreate(ctx, request.Source); !errors.Is(err, fs.ErrorObjectNotFound) {
++		// An existing removal checkpoint is read-only.
 +		return uncertain
 +	}
-+	target, err = cloud.ObserveBBCreate(ctx, request.Path)
++	target, err = cloud.CheckBBNoteVersion(ctx, request.Path, expectedTarget)
 +	if err != nil || !matchesRelocationTarget(intent, *state.Destination, target) {
 +		return uncertain
 +	}
@@ -2875,7 +2979,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation_test.go
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,159 @@
 +package main
 +
 +import (
@@ -2932,6 +3036,14 @@
 +		return absent, api.ErrConditionalUnconfirmed
 +	}
 +	return published, nil
++}
++
++func (f *relocationFake) CheckBBNoteVersion(ctx context.Context, name string, expected iclouddrive.BBNoteRevision) (iclouddrive.BBNotePublication, error) {
++	current, err := f.ObserveBBCreate(ctx, name)
++	if err != nil || current.Revision != expected {
++		return iclouddrive.BBNotePublication{}, api.ErrConditionalConflict
++	}
++	return current, nil
 +}
 +
 +func (f *relocationFake) TrashBBNote(_ context.Context, name string, expected iclouddrive.BBNoteRevision, dispatch func() error) error {

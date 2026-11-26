@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { z } from 'zod';
 import { constants, lstatSync, openSync, readFileSync, closeSync, fstatSync } from 'node:fs';
 import { open, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -15,6 +16,7 @@ import type { ListingCheckers, ManagedNativeMirror } from './rclone-process.ts';
 import { NoteDeliveryQueue, noteDeliverySchema } from './note-delivery-queue.ts';
 import { NoteDeliveryRecovery, deliveryRecoverySchema } from './note-delivery-recovery.ts';
 import { runNoteDelivery } from './note-delivery-native.ts';
+import { managedMirrorBinding } from './note-delivery-deployment.ts';
 import { selectedRemote } from './rclone-cloud-provider.ts';
 import { NoteSearch } from './note-search.ts';
 import { NoteMoves, type MoveInput } from './note-move.ts';
@@ -466,6 +468,23 @@ export class NoteRuntime {
         },path);
       }
     } finally { this.deliveryBusy = false; }
+  }
+
+  probeManagedBinding(id: string, binary: string) {
+    if (this.turnsPending || this.deliveryBusy || this.nativeRunning) throw new CloudError('busy');
+    return this.turn(async () => {
+      const mirror = this.mirror(id);
+      if (!this.ready || this.storageBlocked || !mirror?.initialized || !this.direct.has(id) || !this.members.has(id))
+        throw new CloudError('invalid_selection');
+      await this.local(mirror,{requireBinding:true});
+      const target = {binary,remote:selectedRemote(mirror),workdir:join(this.root,'baselines',id),binding:''};
+      const result = await this.worker.noteDeliveryCommand(target,'binding',{});
+      const observed = z.strictObject({outcome:z.literal('bound'),binding:managedMirrorBinding}).safeParse(result);
+      if (!observed.success || this.mirror(id)?.folder.id !== mirror.folder.id) throw new CloudError('source_changed');
+      const prior = this.managedBindings.get(id);
+      if (prior && observed.data.binding !== prior) throw new CloudError('source_changed');
+      return {mirrorId:id,binding:observed.data.binding};
+    },false);
   }
 
   benchmarkListing(mirror: Mirror, checkers: ListingCheckers, signal?: AbortSignal) {

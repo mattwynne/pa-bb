@@ -19,7 +19,7 @@ import { NoteStore, NoteError } from './adapters/note-store.ts';
 import { NoteRuntime } from './adapters/note-runtime.ts';
 import { MirrorWakeups } from './adapters/mirror-wakeups.ts';
 import { maintenanceCli } from './adapters/maintenance-cli.ts';
-import { managedDeliveryDeployment } from './adapters/note-delivery-deployment.ts';
+import { managedDeliveryDeployment, verifyManagedDeliveryBinary } from './adapters/note-delivery-deployment.ts';
 import { noteDeliveryPage } from './adapters/note-delivery-queue.ts';
 import type Database from 'better-sqlite3';
 
@@ -137,6 +137,17 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
         if (category(error) !== 'busy') diagnose('listing_benchmark', category(error), { evidence: evidence(error) });
         throw error;
       }
+    },
+    async (id, runId, binary, sha256, signal) => {
+      const snapshot = sync.maintenanceStatus();
+      if (!runtime || snapshot.runId !== runId || !maintenanceActivity().ready || updatePause.held || signal?.aborted)
+        throw new CloudError('busy');
+      admittedWork++;
+      try {
+        await verifyManagedDeliveryBinary(binary,sha256);
+        if (sync.maintenanceStatus().runId !== runId || updatePause.held || signal?.aborted) throw new CloudError('interrupted');
+        return await runtime.probeManagedBinding(id,binary);
+      } finally { admittedWork--; }
     },
   ));
   const admit = async <T>(operation: () => T | Promise<T>) => {

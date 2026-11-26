@@ -47,7 +47,9 @@ export class NativeNoteDelivery implements NotePublicationWorker {
     const source = plan.source ?? plan.path;
     if (plan.source && (plan.previousHash === null || await this.readLocal(source))) return null;
     const indexed = await readNativeIndex(this.target,source).catch(() => null);
-    const evidence = await this.callInspect(source);
+    const evidence = plan.source
+      ? reply.parse(await this.worker.noteDeliveryCommand(this.target,'inspect-relocation',{source,path:plan.path}))
+      : await this.callInspect(source);
     const current = evidence.outcome === 'observed' ? evidence.observation : null;
     if (!plan.source && current && current.hash === plan.hash && indexed && current.documentId === indexed.documentId &&
         current.parentId === indexed.parentId && current.etag === indexed.etag) return 'already_present';
@@ -57,7 +59,6 @@ export class NativeNoteDelivery implements NotePublicationWorker {
     const targets = head?.hash === plan.previousHash ? [head,indexed] : [indexed];
     if (!current || current.hash !== plan.previousHash || !targets.some(prior => prior && current.documentId === prior.documentId &&
         current.parentId === prior.parentId && current.etag === prior.etag)) return null;
-    if (plan.source && (await this.callInspect(plan.path)).outcome !== 'absent') return null;
     return { mirrorId, path:plan.path, ...(plan.source ? {source:plan.source} : {}),
       ...(plan.sourceOperations ? {sourceOperations:plan.sourceOperations} : {}),
       expected:current, wantedHash:plan.hash, operations:plan.operations };

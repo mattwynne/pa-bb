@@ -242,7 +242,7 @@ export class RcloneProcess {
       if (ordinary) this.nativeScan = null;
     }
   }
-  async noteDeliveryCommand(target: ManagedNativeMirror, operation: 'inspect' | 'replace' | 'recover' | 'create' | 'recover-create' | 'relocate', payload: Record<string, unknown>) {
+  async noteDeliveryCommand(target: ManagedNativeMirror, operation: 'inspect' | 'replace' | 'recover' | 'create' | 'recover-create' | 'relocate' | 'binding' | 'inspect-relocation', payload: Record<string, unknown>) {
     await this.ensure();
     const scan = this.nativeScan;
     const compatibleScan = scan && ((scan.managed && sameManaged(scan.managed,target)) || disjointNativeMirrors(scan,target));
