@@ -55,6 +55,7 @@ test('one Desktop query gives note-backed project IDs, status and Area assignmen
   assert.deepEqual(f.received, ['vaultInventory']);
   assert.equal(snapshot.complete, true);
   assert.equal(snapshot.source.sync?.phase, 'paused');
+  assert.deepEqual(snapshot.source.obsidian, { vault: 'Life', root: 'Life' });
   assert.deepEqual(snapshot.projects, [
     { id: projects + '/Example.md', title: 'Example', status: 'active', areaId: areas + '/Finance.md' },
     { id: projects + '/Completed/Pilot.md', title: 'Pilot', status: 'done', areaId: areas + '/Work/Nested.md' },

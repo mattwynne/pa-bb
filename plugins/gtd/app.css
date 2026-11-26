@@ -67,6 +67,7 @@
 .gtd-note-actions :is(input, button):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .gtd-note-actions [aria-disabled='true'] { opacity: .6; }
 .gtd-note-actions-text { min-width: 0; overflow-wrap: anywhere; }
+.gtd-action-content > .gtd-menu { flex: none; margin-inline-start: auto; }
 .gtd-note-actions-text a { text-decoration: underline; }
 .gtd-add-action { display: grid; gap: 8px; margin: 8px 0; }
 .gtd-add-action input {

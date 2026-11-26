@@ -1,7 +1,8 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { definePluginApp, useRpc, useSdk, useBbNavigate, useRealtimeConnectionState, experimental_useSidebarThreads as useThreads, experimental_useSidebarThreadSplit as useSplit, experimental_ThreadActionsMenu as ThreadMenu, experimental_ThreadActionsContextMenu as ThreadContextMenu, experimental_Icon as Icon, experimental_ThreadStatusGlyph as StatusGlyph, experimental_THREAD_CONTEXT_SEGMENT_GROUPS, ThreadTitle, type ExperimentalThreadContextSegmentInput, type PluginNavPanelProps, type PluginSidebarThread } from '@get-bb/plugin-sdk/app';
-import { rpcContract, reference, projectName } from './contract.ts';
-import type { Area, Project } from './core/model.ts';
+import { rpcContract, reference, projectName, type projectActionInput } from './contract.ts';
+import type { z } from 'zod';
+import type { Area, Project, ProjectSnapshot } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
 import { areasIndex, panelHref, readRoute, recordDestination, unassignedArea, type Destination, type PanelPath } from './app-routes.ts';
 import { ProjectCorrespondence } from './project-correspondence.tsx';
@@ -9,7 +10,8 @@ import { useAreaMailStatus } from './area-mail-status.ts';
 import { AreaStandard } from './area-standard.tsx';
 import { NoteActions } from './note-actions.tsx';
 import { FoldableSection } from './foldable-section.tsx';
-import { FilterControls, FilterOption, useDisclosure } from './filter-controls.tsx';
+import { FilterControls, FilterOption } from './filter-controls.tsx';
+import { RowActions, type RowAction } from './row-actions.tsx';
 import './app.css';
 const key = (source: string, id: string) => JSON.stringify([source, id]);
 let inventoryRevision = 0;
@@ -18,7 +20,7 @@ function refreshInventory(fresh = false) {
   window.dispatchEvent(new CustomEvent('gtd:inventory', { detail: fresh }));
 }
 
-type InventoryState = { projects: Project[]; areas: Area[]; source: string; revision: number; error: string; projectsPartial: boolean; areasPartial: boolean; malformedFrontmatter: string[] };
+type InventoryState = { projects: Project[]; areas: Area[]; source: string; obsidian?: ProjectSnapshot['source']['obsidian']; revision: number; error: string; projectsPartial: boolean; areasPartial: boolean; malformedFrontmatter: string[] };
 const emptyInventory: InventoryState = { projects: [], areas: [], source: '', revision: -1, error: '', projectsPartial: false, areasPartial: false, malformedFrontmatter: [] };
 type InventoryRpc = ReturnType<typeof useRpc<typeof rpcContract>>;
 type InventoryResponse = Awaited<ReturnType<typeof browseInventory>>;
@@ -63,6 +65,7 @@ function useInventory(includeAreas: boolean, enabled = true) {
       void promise.then(({ projects, areas }) => {
         if (alive) set({
           projects: projects.projects, areas: includeAreas ? areas?.areas ?? [] : [], source: projects.source.id, revision, error: '',
+          obsidian: projects.source.obsidian,
           projectsPartial: !projects.complete, areasPartial: includeAreas && !areas?.complete,
           malformedFrontmatter: [...new Set([...(projects.malformedFrontmatter ?? []), ...(includeAreas ? areas?.malformedFrontmatter ?? [] : [])])],
         });
@@ -204,23 +207,7 @@ function useLinks(ids: Iterable<string>) {
   return { links: state.links, error: !loading && state.error, loading,
     hasCurrentRoster: signature === state.signature && !state.error };
 }
-function RowActions({ project, source, disabled, actions }: {
-  project: Project; source: string; disabled: boolean;
-  actions: { label: string; run: (trigger: HTMLElement) => void }[];
-}) {
-  const { detailsProps, trigger, close } = useDisclosure();
-  return <details className="gtd-menu" {...detailsProps}>
-    <summary className="gtd-row-action" ref={trigger} data-gtd-project-action={key(source, project.id)} aria-label={`Actions for project ${project.title}`}><Icon name="MoreHorizontal" aria-hidden="true" /></summary>
-    <div className="gtd-menu-items">
-      {actions.map(action =>
-        <button key={action.label} disabled={disabled} onClick={() => {
-          if (!trigger.current) return;
-          close();
-          action.run(trigger.current);
-        }}>{action.label}</button>)}
-    </div>
-  </details>;
-}
+type ProjectChange = z.infer<typeof projectActionInput>['change'];
 function CreateProjectDialog({ area, source, onClose }: {
   area: Area; source: string; onClose: (created: boolean) => void;
 }) {
@@ -288,14 +275,17 @@ function CreateProjectDialog({ area, source, onClose }: {
   </dialog>;
 }
 function ProjectActionDialog({ action, project, areas, onClose }: {
-  action: 'done' | 'area'; project: Project; areas: Area[]; onClose: (areaPath?: string) => void;
+  action: ProjectChange['kind']; project: Project; areas: Area[]; onClose: (value?: string) => void;
 }) {
   const headingId = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const [area, selectArea] = useState('');
+  const [name, setName] = useState(project.title);
+  const validName = projectName.safeParse(name);
   useLayoutEffect(() => { dialog.current?.showModal(); }, []);
   const close = (value?: string) => { dialog.current?.close(); onClose(value); };
-  const title = action === 'area' ? 'Move to Area' : project.status === 'done' ? 'Archive linked threads' : 'Mark as done';
+  const title = action === 'rename' ? 'Rename project' : action === 'area' ? 'Move to Area' : project.status === 'done' ? 'Archive linked threads' : 'Mark as done';
+  const value = action === 'rename' ? validName.data : action === 'area' ? area || undefined : '';
   return <dialog ref={dialog} className="gtd-project-dialog" aria-labelledby={headingId}
     onCancel={event => { event.preventDefault(); close(); }}
     onKeyDown={event => {
@@ -304,19 +294,22 @@ function ProjectActionDialog({ action, project, areas, onClose }: {
       event.stopPropagation();
       close();
     }}>
-    <form onSubmit={event => { event.preventDefault(); close(action === 'area' ? area : ''); }}>
+    <form onSubmit={event => { event.preventDefault(); if (value !== undefined) close(value); }}>
       <h2 id={headingId}>{title}</h2>
       {action === 'area' ? <label>Area
         <select value={area} onChange={event => selectArea(event.target.value)}>
           <option value="">Choose an Area</option>
           {areas.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
         </select>
+      </label> : action === 'rename' ? <label>Project name
+        <input value={name} onChange={event => setName(event.target.value)} maxLength={240} autoFocus />
       </label> : <p>{project.status === 'done'
         ? `Archive all BB threads linked to “${project.title}”.`
         : `Move “${project.title}” to Done and archive all its linked BB threads.`}</p>}
+      {action === 'rename' && name.trim() && !validName.success && <p>Use a valid Obsidian filename.</p>}
       <div className="gtd-edit-actions">
-        <button type="button" onClick={() => close()} autoFocus>Cancel</button>
-        <button type="submit" disabled={action === 'area' && !area}>{action === 'area' ? 'Move' : title}</button>
+        <button type="button" onClick={() => close()} autoFocus={action !== 'rename'}>Cancel</button>
+        <button type="submit" disabled={value === undefined}>{action === 'area' ? 'Move' : action === 'rename' ? 'Rename' : title}</button>
       </div>
     </form>
   </dialog>;
@@ -477,10 +470,12 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const [showAssociations, setShowAssociations] = useState(false);
   const [busy, setBusy] = useState(''); const busyRef = useRef(false); const [notice, setNotice] = useState('');
   const { watchError, retryWatch } = useAutomaticInventoryRefresh(!!busy, inventory.fetching);
-  const [projectAction, setProjectAction] = useState<{ kind: 'done' | 'area'; project: Project; trigger: HTMLElement }>();
+  const [projectAction, setProjectAction] = useState<{ kind: ProjectChange['kind']; project: Project; trigger: HTMLElement }>();
   const [createTarget, setCreateTarget] = useState<string>();
   const addProject = useRef<HTMLButtonElement>(null);
   const nav = useRef<HTMLElement>(null);
+  const currentPage = useRef(panelHref({ panel, subPath }));
+  currentPage.current = panelHref({ panel, subPath });
   const heading = useRef<HTMLHeadingElement>(null);
   const focused = useRef<HTMLElement>(null);
   const restoreAfterChange = useRef<{ identity: string; trigger: HTMLElement }>(undefined);
@@ -524,10 +519,21 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
     navigate.toThread(result.threadId); linksChanged();
   });
   const eligibleAreas = inventory.areas.filter(area => (area.id.endsWith('.md') && !/[\[\]#|%]/.test(area.id)));
-  const changeProject = (project: Project, change: { kind: 'done' } | { kind: 'area'; areaPath: string }, trigger?: HTMLElement) => {
-    if (trigger) restoreAfterChange.current = { identity: key(inventory.source, project.id), trigger };
+  const changeProject = (project: Project, change: ProjectChange, trigger: HTMLElement) => {
+    restoreAfterChange.current = { identity: key(inventory.source, project.id), trigger };
+    const originalPage = currentPage.current;
     void run(project.id, async () => {
-      try { setNotice((await rpc.call('changeProject', { source: inventory.source, id: project.id, change })).message); }
+      try {
+        const result = await rpc.call('changeProject', { source: inventory.source, id: project.id, change });
+        setNotice(result.message);
+        if (result.state === 'renamed' && result.id !== project.id) {
+          restoreAfterChange.current = { identity: key(inventory.source, result.id), trigger };
+          if (nav.current && currentPage.current === originalPage && route.kind === 'project' && record?.id === project.id) {
+            const destination = recordDestination('projects', inventory.source, result.id);
+            navigate.toPluginPanel(destination.panel, { subPath: destination.subPath });
+          }
+        }
+      }
       finally { refreshInventory(true); linksChanged(); }
     });
   };
@@ -576,11 +582,26 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const newThreadAction = (item: Area | Project, kind: 'area' | 'project') =>
     <button className="gtd-row-action" aria-label={`New thread for ${kind === 'area' ? 'Area ' : ''}${item.title}`} title="New thread"
       disabled={!!busy} onClick={() => newThread(item, kind)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>;
-  const projectMenu = (project: Project) =>
-    <RowActions project={project} source={inventory.source} disabled={!!busy || !(project.id.endsWith('.md'))} actions={[
-      ...(eligibleAreas.length ? [{ label: 'Move to Area…', run: (trigger: HTMLElement) => setProjectAction({ kind: 'area', project, trigger }) }] : []),
-      { label: project.status === 'done' ? 'Archive linked threads' : 'Mark as done', run: trigger => setProjectAction({ kind: 'done', project, trigger }) },
+  const obsidianActions = (id: string): RowAction[] => {
+    if (!inventory.obsidian || !id.endsWith('.md')) return [];
+    const { vault, root } = inventory.obsidian;
+    const prefix = root ? `${root}/` : '';
+    if (!id.startsWith(prefix)) return [];
+    const url = `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(id.slice(prefix.length))}`;
+    return [{ label: 'Open in Obsidian', run: () => {
+      if (!navigate.openUrl(url)) setNotice('This BB client could not open the Obsidian link.');
+    } }];
+  };
+  const areaActions = area ? obsidianActions(area.id) : [];
+  const projectMenu = (project: Project) => {
+    const disabled = !!busy || !project.id.endsWith('.md');
+    return <RowActions label={`Actions for project ${project.title}`} projectKey={key(inventory.source, project.id)} actions={[
+      ...obsidianActions(project.id),
+      { label: 'Rename…', disabled, run: trigger => setProjectAction({ kind: 'rename', project, trigger }) },
+      ...(eligibleAreas.length ? [{ label: 'Move to Area…', disabled, run: (trigger: HTMLElement) => setProjectAction({ kind: 'area', project, trigger }) }] : []),
+      { label: project.status === 'done' ? 'Archive linked threads' : 'Mark as done', disabled, run: trigger => setProjectAction({ kind: 'done', project, trigger }) },
     ]} />;
+  };
   return <section className="gtd-nav" aria-label="Personal GTD projects" ref={nav}
     onFocusCapture={event => { focused.current = event.target as HTMLElement; }}
     onBlurCapture={event => {
@@ -598,6 +619,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
         <div className="gtd-page-heading">
           <h1 tabIndex={-1} ref={heading}>{title}</h1>
           {project && projectMenu(project)}
+          {area && areaActions.length > 0 && <RowActions label={`Actions for Area ${area.title}`} actions={areaActions} />}
         </div>
       </header>
       {inventory.loading && <p role="status">Loading GTD…</p>}
@@ -689,7 +711,8 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       const { kind, project, trigger } = projectAction;
       setProjectAction(undefined);
       (trigger.isConnected ? trigger : heading.current)?.focus({ preventScroll: true });
-      if (value !== undefined) changeProject(project, kind === 'done' ? { kind } : { kind, areaPath: value }, trigger);
+      if (value !== undefined) changeProject(project, kind === 'done' ? { kind }
+        : kind === 'rename' ? { kind, name: value } : { kind, areaPath: value }, trigger);
     }} />}
   </section>;
 }

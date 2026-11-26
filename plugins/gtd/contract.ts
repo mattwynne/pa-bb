@@ -11,10 +11,14 @@ export const newThreadInput = reference.extend({
   title: z.string().trim().min(1).max(240).regex(/^[^\x00-\x1f\x7f]+$/).optional().describe('Optional conversation title; defaults to the existing project title.'),
   summary: z.string().trim().min(1).max(4000).optional().describe('Short handoff context only, not instructions or authorization. The new conversation acknowledges readiness and waits.'),
 });
+export const projectName = z.string().trim().min(1).max(240).refine(value =>
+  !value.startsWith('.') && !/[<>:"/\\|?*#\[\]\x00-\x1f\x7f]/.test(value) &&
+  new TextEncoder().encode(value).length <= 252, 'Use a valid Obsidian filename.');
 export const projectActionInput = reference.extend({
   change: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('done') }).strict(),
     z.object({ kind: z.literal('area'), areaPath: z.string().min(1).max(1024) }).strict(),
+    z.object({ kind: z.literal('rename'), name: projectName }).strict(),
   ]),
 });
 export const noteSaveReceipt = z.object({ operationId: z.string().uuid(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict();
@@ -34,9 +38,6 @@ export const correspondenceRefresh = z.object({
   snoozedMailIncomplete: z.boolean(),
   receipt: correspondenceReceipt.optional(),
 }).strict();
-export const projectName = z.string().trim().min(1).max(240).refine(value =>
-  !value.startsWith('.') && !/[<>:"/\\|?*#\[\]\x00-\x1f\x7f]/.test(value) &&
-  new TextEncoder().encode(value).length <= 252, 'Use a valid Obsidian filename.');
 export const createProjectInput = reference.extend({ name: projectName, operationId: z.string().uuid() });
 export const createProjectResult = z.discriminatedUnion('state', [
   z.object({ state: z.literal('created'), id: reference.shape.id }).strict(),
@@ -53,7 +54,8 @@ export const areaActionInput = reference.extend({
   operationId: z.uuid(),
   change: z.discriminatedUnion('operation', [
     z.object({ operation: z.literal('add'), text: actionText }).strict(),
-    z.object({ operation: z.literal('edit'), line: actionLine, version: noteHash, complete: z.boolean() }).strict(),
+    z.object({ operation: z.literal('edit'), line: actionLine, version: noteHash, complete: z.boolean().optional(), text: actionText.optional() }).strict()
+      .refine(change => change.complete !== undefined || change.text !== undefined, 'Supply text or completion status.'),
   ]),
 });
 const actionChangeResult = z.discriminatedUnion('outcome', [
@@ -110,7 +112,9 @@ export const rpcContract = defineRpcContract({
   changeProject: { input: projectActionInput, output: z.object({
     state: z.enum(['done', 'assigned', 'partial', 'blocked', 'unconfirmed']),
     message: z.string(),
-  }).strict() },
+  }).strict().or(z.object({
+    state: z.literal('renamed'), id: reference.shape.id, message: z.string(),
+  }).strict()) },
   newAreaThread: { input: newThreadInput, output: z.object({ threadId: z.string() }).strict() },
   newThread: { input: newThreadInput, output: z.object({ threadId: z.string() }).strict() },
 });

@@ -5,6 +5,7 @@ import type { z } from 'zod';
 import { actionText, actionTextLimit, rpcContract } from './contract.ts';
 import { FoldableSection } from './foldable-section.tsx';
 import { FilterControls, FilterOption } from './filter-controls.tsx';
+import { RowActions } from './row-actions.tsx';
 
 type Snapshot = z.output<typeof rpcContract.readNoteActions.output>;
 type Change = z.input<typeof rpcContract.changeNoteAction.input>['change'];
@@ -34,6 +35,7 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
   const [readState, setReadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [reload, setReload] = useState(0);
   const [draft, setDraft] = useState<string>();
+  const [renameTarget, setRenameTarget] = useState<{ line: number; version: string; trigger: HTMLElement }>();
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -79,9 +81,11 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
   };
   const closeForm = () => {
     setDraft(undefined);
-    addButton.current?.focus();
+    setRenameTarget(undefined);
+    (renameTarget?.trigger.isConnected ? renameTarget.trigger : addButton.current)?.focus();
   };
   const canWrite = readState === 'ready' && !pending && !uncertainId && !exiting;
+  const canChangeRows = canWrite && !renameTarget;
   const matchesFilter = (complete: boolean) => filter === 'all' || complete === (filter === 'done');
   const save = async (change: Change, checkbox?: HTMLInputElement) => {
     const undo = change.operation === 'undoCompletion';
@@ -97,6 +101,13 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
         if (change.operation === 'add') {
           closeForm();
           setNotice('Action added.');
+        } else if (!undo && change.text !== undefined) {
+          const { line, text } = change;
+          setSnapshot(current => current?.version === change.version
+            ? { ...current, actions: current.actions.map(action => action.line === line ? { ...action, text } : action) }
+            : current);
+          closeForm();
+          setNotice('Action renamed.');
         } else if (!undo && snapshot && change.complete !== undefined) {
           const complete = change.complete;
           if (!matchesFilter(complete)) {
@@ -123,9 +134,11 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
         }
       } else if (result.outcome === 'uncertain') {
         if (undo) toast.error('Could not confirm whether the action reopened.');
+        else if (renameTarget) closeForm();
         setUncertainId(operationId);
       } else if (result.outcome === 'not_saved') {
         if (result.reason === 'changed' || result.reason === 'missing_action') {
+          if (!undo && renameTarget) closeForm();
           if (undo) toast.error('Could not undo completion because the actions changed.');
           else setError(`The ${owner} note changed. Review the latest actions before trying again.`);
           refresh();
@@ -136,6 +149,7 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
       }
     } catch {
       if (undo) toast.error('Could not confirm whether the action reopened.');
+      else if (renameTarget) closeForm();
       setUncertainId(operationId);
     } finally {
       saving.current = false;
@@ -153,25 +167,29 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
   return <FoldableSection title="Actions" className="gtd-note-actions" tools={
     hasNote && <FilterControls label="Action status" action={
       <button type="button" ref={addButton} className="gtd-row-action" aria-label="Add action" title="Add action"
-        aria-expanded={editing} aria-controls={editing ? formId : undefined}
+        aria-expanded={editing && !renameTarget} aria-controls={editing && !renameTarget ? formId : undefined}
         aria-disabled={!canWrite || editing} onClick={() => { if (canWrite && !editing) setDraft(''); }}>
         <Icon name="Plus" aria-hidden="true" />
       </button>
     }>
       {(Object.keys(actionFilters) as ActionFilter[]).map(value =>
         <FilterOption key={value} type="radio" name={filterGroup} label={actionFilters[value]}
-          checked={filter === value} disabled={pending || !!exiting} onChange={() => setFilter(value)} />)}
+          checked={filter === value} disabled={pending || !!exiting || !!renameTarget} onChange={() => setFilter(value)} />)}
     </FilterControls>
   }>
     {editing && <form className="gtd-add-action" id={formId} onSubmit={event => {
       event.preventDefault();
-      if (validDraft.success) void save({ operation: 'add', text: validDraft.data });
+      if (!validDraft.success) return;
+      void save(renameTarget ? { operation: 'edit', line: renameTarget.line, version: renameTarget.version, text: validDraft.data }
+        : { operation: 'add', text: validDraft.data });
+    }} onKeyDown={event => {
+      if (event.key === 'Escape' && !pending) { event.preventDefault(); closeForm(); }
     }}>
-      <input ref={input} aria-label="Action" value={draft} onChange={event => setDraft(event.target.value)}
+      <input ref={input} aria-label={renameTarget ? 'Rename action' : 'Action'} value={draft} onChange={event => setDraft(event.target.value)}
         maxLength={actionTextLimit} readOnly={pending} />
       <div className="gtd-edit-actions">
         <button type="button" disabled={pending} onClick={closeForm}>Cancel</button>
-        <button type="submit" aria-disabled={!validDraft.success || !canWrite}>{pending ? 'Saving…' : 'Add'}</button>
+        <button type="submit" aria-disabled={!validDraft.success || !canWrite}>{pending ? 'Saving…' : renameTarget ? 'Rename' : 'Add'}</button>
       </div>
     </form>}
     {!hasNote ? <p>Add {kind === 'area' ? 'an Area' : 'a project'} note in Obsidian to record actions.</p>
@@ -186,9 +204,9 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
               const complete = leaving ? !action.complete : action.complete;
               const label = `${heading}-action-${action.line}`;
               return <li key={action.line} className={leaving ? 'gtd-action-row gtd-action-exiting' : 'gtd-action-row'}
-                inert={leaving} data-complete={complete || undefined} data-clickable={canWrite || undefined} onClick={event => {
-                  if (!canWrite || event.defaultPrevented || !(event.target instanceof Element)
-                    || event.target.closest('a, button, input, label, summary, [role="button"], [role="link"]')) return;
+                inert={leaving} data-complete={complete || undefined} data-clickable={canChangeRows || undefined} onClick={event => {
+                  if (!canChangeRows || event.defaultPrevented || !(event.target instanceof Element)
+                    || event.target.closest('a, button, input, label, details, [role="button"], [role="link"]')) return;
                   const checkbox = event.currentTarget.querySelector<HTMLInputElement>('input[type="checkbox"]');
                   checkbox?.focus({ preventScroll: true });
                   checkbox?.click();
@@ -197,11 +215,17 @@ export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcCo
                 }}>
                 <div className="gtd-action-content">
                   <label className="gtd-action-checkbox">
-                    <input type="checkbox" aria-labelledby={label} checked={complete} aria-disabled={!canWrite}
-                      onClick={event => { if (!canWrite) event.preventDefault(); }}
+                    <input type="checkbox" aria-labelledby={label} checked={complete} aria-disabled={!canChangeRows}
+                      onClick={event => { if (!canChangeRows) event.preventDefault(); }}
                       onChange={event => void save({ operation: 'edit', line: action.line, version: snapshot.version, complete: event.target.checked }, event.currentTarget)} />
                   </label>
                   <div className="gtd-note-actions-text" id={label}><Markdown content={action.text} /></div>
+                  <RowActions label={`Options for action ${action.text}`} actions={[{ label: 'Rename…', disabled: !canWrite || editing, run: trigger => {
+                    setRenameTarget({ line: action.line, version: snapshot.version, trigger });
+                    setDraft(action.text);
+                    setError('');
+                    setNotice('');
+                  } }]} />
                 </div>
               </li>;
             })}

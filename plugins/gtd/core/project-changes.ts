@@ -223,7 +223,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       nextOffset: start + entries.length < children.length ? start + entries.length : null,
     };
   }
-  async function prepare(input: z.infer<typeof prepareInput>, signal: AbortSignal,
+  async function prepare(input: z.infer<typeof prepareInput> | (z.infer<typeof reference> & { expectedHash: string; name: string }), signal: AbortSignal,
     s?: Awaited<ReturnType<typeof scope>>, observed?: Awaited<ReturnType<typeof inventory>>, fromPanel = false) {
     s ??= await scope();
     if (input.source !== s.source) refuse('Wrong project source.');
@@ -245,7 +245,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     const now = Date.now();
     const id = operationId(now);
     let next;
-    if (input.areaPath !== undefined) {
+    if ('areaPath' in input && input.areaPath !== undefined) {
       p.areaPath = input.areaPath;
       if (input.areaPath !== null) {
         if (/[\[\]#|%]/.test(input.areaPath))
@@ -263,22 +263,28 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
         return { state: 'already_complete', owner };
       next = { tool: 'gtd_apply_project_change' as const, input: { planId: id } };
     } else {
-      const statusName = input.status![0].toUpperCase() + input.status!.slice(1);
-      const dirs = [...e.entries].filter(
-        (path) =>
-          path.startsWith(s.projects + '/') &&
-          !path.slice(s.projects.length + 1).includes('/') &&
-          [statusName.toLowerCase(), ...(input.status === 'done' ? ['completed'] : [])].includes(
-            path.slice(s.projects.length + 1).toLowerCase(),
-          ),
-      );
-      if (dirs.length === 0) refuse(`Create a ${statusName} folder directly under the configured Projects folder in Obsidian, then retry.`);
-      if (dirs.length > 1) refuse(`Resolve the duplicate ${statusName} folders under the configured Projects folder in Obsidian, then retry.`);
+      let destinationStem: string;
+      if ('name' in input) {
+        destinationStem = posix.join(posix.dirname(owner), input.name);
+        p.status = item.status;
+      } else {
+        const statusName = input.status![0].toUpperCase() + input.status!.slice(1);
+        const dirs = [...e.entries].filter(
+          (path) => path.startsWith(s.projects + '/') &&
+            !path.slice(s.projects.length + 1).includes('/') &&
+            [statusName.toLowerCase(), ...(input.status === 'done' ? ['completed'] : [])].includes(
+              path.slice(s.projects.length + 1).toLowerCase(),
+            ),
+        );
+        if (dirs.length === 0) refuse(`Create a ${statusName} folder directly under the configured Projects folder in Obsidian, then retry.`);
+        if (dirs.length > 1) refuse(`Resolve the duplicate ${statusName} folders under the configured Projects folder in Obsidian, then retry.`);
+        destinationStem = dirs[0] + '/' + posix.basename(owner, '.md');
+        p.status = input.status;
+      }
       p.project = e.entries.has(owner.slice(0, -3)) ? 'paired' : 'standalone';
-      const destinationStem = dirs[0] + '/' + posix.basename(owner, '.md');
       p.destination = destinationStem + '.md';
-      if (p.destination === owner && item.status === input.status) return { state: 'already_complete', owner };
-      p.status = input.status;
+      if (p.destination === owner && item.status === p.status) return { state: 'already_complete', owner };
+      if (!relativeFolder.safeParse(p.destination).success) refuse('Use a shorter project name.');
       p.originalArea = item.areaId;
       const declaration = e.owners.get(owner)?.area;
       if (item.areaId && (Array.isArray(declaration) ? declaration : [declaration]).some(relativeAreaReference))
@@ -626,12 +632,13 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       const note = await observeNote(s.source, item.id, signal);
       const { hash: expectedHash } = note;
       const change = input.change;
-      const plan = await prepare(prepareInput.parse({
-        source: input.source, id: input.id, expectedHash,
-        ...(change.kind === 'done' ? { status: 'done' } : { areaPath: change.areaPath }),
-      }), signal, s, observed, true);
+      const target = { source: input.source, id: input.id, expectedHash };
+      const plan = await prepare(change.kind === 'rename' ? { ...target, name: change.name }
+        : prepareInput.parse({ ...target, ...(change.kind === 'done' ? { status: 'done' } : { areaPath: change.areaPath }) }),
+      signal, s, observed, true);
       await unchanged(s.config);
       if (!plan.next) {
+        if (change.kind === 'rename') return { state: 'renamed' as const, id: input.id, message: 'The project already has this name.' };
         if (change.kind === 'area') return { state: 'assigned' as const, message: 'Project is already assigned to this Area.' };
         moved = true;
         await archiveConversations(s.source, input.id, signal);
@@ -649,7 +656,15 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       const result = await apply({ planId: plan.planId! }, signal);
       if (change.kind === 'area' && result.state === 'verified')
         return { state: 'assigned' as const, message: 'Project assigned locally. iCloud sync is pending.' };
+      if (change.kind === 'rename' && result.state === 'move_not_verified' && result.moveOutcome === 'not_moved') {
+        const { plan: refusedPlan } = storedPlan(plan.planId!, true);
+        refusedPlan.settled = true;
+        recordPlan(plan.planId!, refusedPlan);
+        bb.log.warn('GTD project_panel rename_refused');
+        return { state: 'blocked' as const, message: 'Obsidian could not rename the note. Check the project and destination name before trying again.' };
+      }
       if (destination && result.state === 'links_verified') {
+        if (change.kind === 'rename') return { state: 'renamed' as const, id: destination, message: 'Project renamed in Obsidian.' };
         moved = true;
         await archiveConversations(s.source, destination, signal);
         return { state: 'done' as const, message: 'Project moved to Done locally and all linked threads archived.' };
@@ -659,7 +674,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       bb.log.warn(`GTD project_panel ${moved ? 'archive_incomplete' : writing ? 'write_unconfirmed' : 'prepare_blocked'}`);
       if (moved) return { state: 'partial' as const, message: 'Project is in Done. Some thread archives are unconfirmed. Open Done and choose Archive linked threads to check the remaining threads.' };
       if (writing) return { state: 'unconfirmed' as const, message: moveOperation
-        ? `Project completion is unconfirmed. Inspect GTD plan and Obsidian move receipt ${moveOperation} before trying again.`
+        ? `Project ${input.change.kind === 'rename' ? 'rename' : 'completion'} is unconfirmed. Inspect GTD plan and Obsidian move receipt ${moveOperation} before trying again.`
         : 'Area assignment is unconfirmed. Inspect the project note and Obsidian receipts before trying again.' };
       return { state: 'blocked' as const, message: error instanceof ChangeError ? error.message : 'Could not prepare the project change. Refresh GTD and check Obsidian access.' };
     } finally {

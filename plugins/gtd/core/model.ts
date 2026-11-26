@@ -14,6 +14,7 @@ export type Project = z.infer<typeof projectSchema>;
 export const sourceSchema = z.object({
   backend: z.string().min(1).max(64), id: z.string().min(1).max(128),
   name: z.string().min(1).max(240), scope: z.string().min(1).max(1024),
+  obsidian: z.object({ vault: z.string().min(1).max(240), root: z.string().max(1024) }).strict().optional(),
   observedAt: z.string(), lastSuccessfulSync: z.string().nullable(),
   sync: z.object({ connected: z.boolean(), enabled: z.boolean(), phase: z.string().max(64), failure: z.string().max(128).nullable() }).strict().nullable(),
 }).strict();

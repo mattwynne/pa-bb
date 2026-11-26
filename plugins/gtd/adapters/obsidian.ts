@@ -301,8 +301,10 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
       const folders = new Set(inventory.folders);
       const vault = inventory.source;
       const observedAt = new Date().toISOString();
+      const vaultName = root.split('/').at(-1) || vault.name;
       const source = (scope: string) => ({
-        backend: 'obsidian', id: vault.vaultId, name: root.split('/').at(-1) || vault.name || 'Obsidian vault',
+        backend: 'obsidian', id: vault.vaultId, name: vaultName || 'Obsidian vault',
+        ...(vaultName ? { obsidian: { vault: vaultName, root } } : {}),
         scope, observedAt, lastSuccessfulSync: vault.lastSuccess,
         sync: { connected: vault.cloudConnected, enabled: vault.enabled, phase: vault.phase, failure: vault.failure },
       });

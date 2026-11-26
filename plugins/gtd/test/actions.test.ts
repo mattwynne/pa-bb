@@ -83,11 +83,17 @@ test('action tools and CLI share the TODO section and check its note version bef
     assert.deepEqual(await undo(completion.completionVersion), { outcome: 'saved_locally_pending_sync' });
     assert.equal(sections.get(project.id), '- [ ] Measure the boards');
     const secondCompletion = await complete();
-    sections.set(project.id, '- [ ] Pick up the saw\n- [x] Measure the boards');
+    const rename = { operation: 'edit', line: 1, text: 'Measure the oak boards', version: projectList.version };
+    const renameAction = { ...project, operationId: '001a5b25-0998-4965-9ca5-a225ce1b4a10', change: rename };
+    assert.deepEqual(await harness.behavior.callRpc('changeNoteAction', renameAction), { outcome: 'not_saved', reason: 'changed' });
+    assert.deepEqual(await harness.behavior.callRpc('changeNoteAction', {
+      ...renameAction, operationId: '07ecac7f-138c-4963-9178-8eb139ec9b90', change: { ...rename, version: version(project.id) },
+    }), { outcome: 'saved_locally_pending_sync' });
+    assert.equal(sections.get(project.id), '- [x] Measure the oak boards');
     const writesBeforeStaleUndo = writes;
     assert.deepEqual(await undo(secondCompletion.completionVersion), { outcome: 'not_saved', reason: 'changed' });
     assert.equal(writes, writesBeforeStaleUndo);
-    assert.equal(sections.get(project.id), '- [ ] Pick up the saw\n- [x] Measure the boards');
+    assert.equal(sections.get(project.id), '- [x] Measure the oak boards');
     await assert.rejects(() => harness.behavior.callRpc('readNoteActions', { ...project, id: area.id }), /Could not load actions/);
     fail = true;
     assert.deepEqual(await harness.behavior.callRpc('changeAreaAction', { ...areaRef,

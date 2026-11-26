@@ -34,7 +34,7 @@ const server = spawn(process.execPath, [join(bb, 'server/dist/index.js')], { env
 const cli = async (...args) => (await exec(process.execPath, [join(bb, 'host-daemon/dist/bb'), ...args], { env, cwd: root, timeout: 120000 })).stdout;
 let browser;
 const ref = { source: 'one', id: 'Projects/Learn woodworking.md' };
-const source = { backend: 'obsidian', id: 'one', name: 'Synthetic vault', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null };
+const source = { backend: 'obsidian', id: 'one', name: 'Synthetic vault', obsidian: { vault: 'Synthetic vault', root: '' }, scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null };
 const projectNote = (legacyTitle, status = 'active') => `---\ntitle: ${legacyTitle}\nstatus: ${status}\narea: Areas/Learning.md\n---\n`;
 async function connectSyntheticVault(pkg) {
   for (const directory of ['.obsidian', 'Projects/Done', 'Areas', 'Elsewhere']) await mkdir(join(vault, directory), { recursive: true });
@@ -290,7 +290,9 @@ try {
             areaActions = areaActions.map(action => action.line === change.line ? { ...action, complete: false } : action);
           } else if (change.operation === 'edit') {
             assert.equal(change.version, actionVersion);
-            areaActions = areaActions.map(action => action.line === change.line ? { ...action, complete: change.complete } : action);
+            areaActions = areaActions.map(action => action.line === change.line ? {
+              ...action, complete: change.complete ?? action.complete, text: change.text ?? action.text,
+            } : action);
           } else {
             areaActions = [{ line: 1, text: change.text, complete: false },
               ...areaActions.map(action => ({ ...action, line: action.line + 2 }))];
@@ -373,6 +375,10 @@ try {
         if (input.change.kind === 'area') {
           assignedArea = input.change.areaPath;
           result = { state: 'assigned', message: 'Project assigned locally. iCloud sync is pending.' };
+        } else if (input.change.kind === 'rename') {
+          title = input.change.name;
+          projectId = `${projectId.slice(0, projectId.lastIndexOf('/'))}/${title}.md`;
+          result = { state: 'renamed', id: projectId, message: 'Project renamed in Obsidian.' };
         } else {
           projectStatus = 'done';
           projectId = 'Projects/Done/Learn woodworking.md';
@@ -909,7 +915,7 @@ try {
       const row = actions.getByRole('listitem').filter({ has: page.getByRole('link', { name: 'workshop plan' }) });
       const bounds = await row.boundingBox();
       assert.ok(bounds);
-      await row.click({ position: { x: bounds.width - 8, y: bounds.height / 2 } });
+      await row.click({ position: { x: bounds.width * 0.7, y: bounds.height / 2 } });
       await actions.getByText('No open actions.').waitFor();
       await selectActionFilter(actions, 'Done');
       const done = actions.getByRole('checkbox', { name: 'Book the room' });
@@ -1049,11 +1055,23 @@ try {
       const completed = actions.getByRole('checkbox', { name: 'Check the workbench' });
       assert.equal(await completed.isChecked(), true);
       assert.equal(await plan.count(), 0);
+      const actionMenu = actions.getByLabel('Options for action Check the workbench');
+      await actionMenu.press('Enter');
+      await actionMenu.locator('..').getByRole('button', { name: 'Rename…' }).press('Enter');
+      const rename = actions.getByRole('textbox', { name: 'Rename action' });
+      assert.equal(await rename.inputValue(), 'Check the workbench');
+      assert.ok(await rename.evaluate(el => el.matches(':focus')));
+      await page.screenshot({ path: join(artifacts, `rename-action-${width}.png`) });
+      await rename.fill('Inspect the workbench');
+      await rename.press('Enter');
+      const renamed = actions.getByRole('checkbox', { name: 'Inspect the workbench' });
+      await renamed.waitFor();
+      assert.ok(await renamed.isChecked());
       await selectActionFilter(actions, 'All');
       assert.ok(await plan.isVisible());
-      assert.ok(await completed.isChecked());
+      assert.ok(await renamed.isChecked());
       await selectActionFilter(actions, 'Open');
-      assert.equal(await completed.count(), 0);
+      assert.equal(await renamed.count(), 0);
       const threads = nav.getByRole('region', { name: 'Threads', exact: true });
       const toggleThreads = threads.getByRole('button', { name: 'Threads', exact: true });
       const newThreadName = `New thread for ${title}`;
@@ -1252,6 +1270,33 @@ try {
       await openLearning();
       const project = link(title);
       const menu = nav.getByLabel(`Actions for project ${title}`);
+      const verifyObsidianLink = async (trigger, path, screenshot) => {
+        await trigger.focus();
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('Tab');
+        const action = trigger.locator('..').getByRole('button', { name: 'Open in Obsidian' });
+        assert.ok(await action.evaluate(el => el.matches(':focus')));
+        if (screenshot) await page.screenshot({ path: join(artifacts, `${screenshot}-${width}.png`) });
+        await page.keyboard.press('Escape');
+        assert.ok(await trigger.evaluate(el => el.matches(':focus')));
+        assert.equal(await action.isVisible(), false);
+        await page.keyboard.press('Enter');
+        if (width === 390) await action.tap();
+        else {
+          await page.keyboard.press('Tab');
+          await page.keyboard.press('Enter');
+        }
+        const dialog = page.getByRole('dialog', { name: 'Open this obsidian link?' });
+        await dialog.getByText(`obsidian://open?vault=Synthetic%20vault&file=${path}`, { exact: true }).waitFor();
+        await dialog.getByRole('button', { name: 'Cancel' }).click();
+        await dialog.waitFor({ state: 'hidden' });
+      };
+      await verifyObsidianLink(nav.getByLabel('Actions for Area Learning'), 'Areas%2FLearning.md', 'area-obsidian-menu');
+      await verifyObsidianLink(menu, 'Projects%2FLearn%20woodworking.md');
+      await project.click();
+      await heading(title).waitFor();
+      await verifyObsidianLink(menu, 'Projects%2FLearn%20woodworking.md', 'project-obsidian-menu');
+      await switchArea('Learning');
       const activate = async name => {
         await menu.focus();
         await page.keyboard.press('Enter');
@@ -1286,6 +1331,22 @@ try {
       await confirm.getByRole('button', { name: 'Mark as done', exact: true }).click();
       await nav.getByText('Project moved to Done locally and all linked threads archived.').waitFor();
       assert.deepEqual(projectChanges.at(-1), { kind: 'done' });
+      const projectPath = id => `/plugins/gtd/projects/${Buffer.from(JSON.stringify([ref.source, id])).toString('base64url')}`;
+      await page.goto(`${base}${projectPath(projectId)}`);
+      await heading(title).waitFor();
+      await activate('Rename…');
+      const rename = nav.getByRole('dialog', { name: 'Rename project' });
+      const name = rename.getByRole('textbox', { name: 'Project name' });
+      assert.equal(await name.inputValue(), title);
+      assert.ok(await name.evaluate(el => el.matches(':focus')));
+      await name.fill('Invalid/name');
+      assert.ok(await rename.getByRole('button', { name: 'Rename', exact: true }).isDisabled());
+      await name.fill('Practice woodworking');
+      await page.screenshot({ path: join(artifacts, `rename-project-${width}.png`) });
+      await name.press('Enter');
+      await page.waitForURL(`**${projectPath('Projects/Done/Practice woodworking.md')}`);
+      await heading('Practice woodworking').waitFor();
+      assert.deepEqual(projectChanges.at(-1), { kind: 'rename', name: 'Practice woodworking' });
       await switchArea('Learning');
       await nav.getByRole('button', { name: 'New thread for Area Learning' }).click();
       await page.waitForURL('**/threads/fixture1');

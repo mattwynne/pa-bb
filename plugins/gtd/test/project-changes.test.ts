@@ -294,3 +294,24 @@ test('panel completion archives the verified linked thread and can finish after 
   assert.equal(f.archived(), true);
   assert.doesNotMatch(JSON.stringify(f.handles.host.harness.inspection.logEntries), /PRIVATE_ARCHIVE_SENTINEL/);
 });
+
+test('panel rename preserves project status, Area, companion folder, and linked conversations', async t => {
+  const f = await setup(true);
+  t.after(() => f.handles.host.harness.lifecycle.dispose());
+  f.docs.get(owner)!.status = 'someday';
+  const renamed = 'Projects/New name.md';
+  const rename = () => f.handles.host.harness.behavior.callRpc('changeProject', {
+    source, id: owner, change: { kind: 'rename', name: 'New name' },
+  });
+  f.folders.add('Projects/New name');
+  assert.deepEqual(await rename(), { state: 'blocked', message: 'Destination note or support folder already exists.' });
+  assert.equal(f.moves.size, 0);
+  f.folders.delete('Projects/New name');
+  assert.deepEqual(await rename(), { state: 'renamed', id: renamed, message: 'Project renamed in Obsidian.' });
+  assert.equal(f.docs.has(owner), false);
+  assert.deepEqual(f.docs.get(renamed), { title: 'Example', area: '../Areas/Work/Example.md', status: 'someday' });
+  assert.equal(f.folders.has('Projects/Example'), false);
+  assert.equal(f.folders.has('Projects/New name'), true);
+  assert.deepEqual(f.meta.project, { source, id: renamed });
+  assert.equal(f.archived(), false);
+});
