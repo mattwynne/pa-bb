@@ -34,3 +34,17 @@ test('ordinary recovery verifies its exact staged version through the native wor
     assert.equal(await worker.readBack(intent), 'cleared');
   }
 });
+
+test('explicit empty text is forwarded and an empty publication can be verified', async () => {
+  const intent: PublicationIntent = { mirrorId: 'mirror', path: 'Generated.md', expected, wantedHash, operations: [operationId] };
+  const zero = { ...observed, size: 0 };
+  const worker = new NativeNoteDelivery(target, {
+    async noteDeliveryCommand(selected, operation, frame) {
+      assert.equal(selected, target);
+      assert.equal(operation, 'replace');
+      assert.equal(frame.text, '');
+      return { outcome: 'published', observation: zero };
+    },
+  }, {} as NoteDeliveryRecovery, async () => ({ hash: wantedHash, text: '' }));
+  assert.deepEqual(await worker.publish(intent), { outcome: 'published', observation: zero });
+});

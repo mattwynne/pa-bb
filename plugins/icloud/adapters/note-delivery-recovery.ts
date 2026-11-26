@@ -7,7 +7,7 @@ const hash = z.string().regex(/^[0-9a-f]{64}$/);
 const metadata = z.string().min(1).max(512);
 export const deliveryObservation = z.object({
   documentId: metadata, parentId: metadata, etag: metadata, hash,
-  modifiedMs: z.number().int().nonnegative(), size: z.number().int().min(1).max(1024 * 1024),
+  modifiedMs: z.number().int().nonnegative(), size: z.number().int().nonnegative().max(1024 * 1024),
 }).strict();
 const notePath = z.string().max(1024).endsWith('.md').refine(p =>
   !/[\\\x00-\x1f\x7f]/.test(p) && p.split('/').every(part => part && part !== '.' && part !== '..'));
