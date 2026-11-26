@@ -86,6 +86,7 @@ export class FilesystemVault {
   async movePath(input: PathMove, revision: number, run: (before: () => Promise<void>) => Promise<unknown>): Promise<PathMoveReceipt> {
     const { vaultId, path, destination, operationId, expectedHash, kind } = input;
     const folder = kind === 'folder';
+    const changedCloudName = path.normalize('NFC').toLowerCase() !== destination.normalize('NFC').toLowerCase();
     (folder ? validateRelativePath : validateNotePath)(destination);
     if (path === destination || (folder && (destination.startsWith(path + '/') || path.startsWith(destination + '/')))) throw new VaultError('invalid_path');
     const endpoints = { vaultId, path, destination, operationId };
@@ -99,13 +100,19 @@ export class FilesystemVault {
             hash: expectedHash ?? digest(''), root: rootIdentity, inode: fileIdentity(source ?? rootIdentity),
             at: new Date().toISOString(), birthtime: source?.birthtimeMs, publication: 'desktop' as const, ...(folder ? { directory: true as const } : {}),
           };
+          let deliverySourceHash: string | undefined;
           const verify = async () => {
             await check();
             const current = await this.files.entry(root, path);
             if (!source || !current || !identity(source, current) || (folder ? !current.isDirectory() : !current.isFile()) ||
               await this.files.entry(root, destination)) throw new VaultError('conflict', 'Check the source and choose an unoccupied destination.');
             if (!folder) {
-              if (expectedHash && (await this.files.observe(root, path))?.hash !== expectedHash) throw new VaultError('conflict');
+              const observed = await this.files.observe(root, path).catch(error => {
+                if (expectedHash) throw error;
+                return null;
+              });
+              if (expectedHash && observed?.hash !== expectedHash) throw new VaultError('conflict');
+              deliverySourceHash = observed && identity(source, observed.info) ? observed.hash : undefined;
               await this.clearPath(root, path);
               await this.clearPath(root, destination);
             }
@@ -119,7 +126,11 @@ export class FilesystemVault {
           await this.files.syncParent(root, destination);
           await check();
           if (!await this.moved(root, { ...base, outcome: 'uncertain' })) throw new VaultError('uncertain');
-          return { ...base, outcome: 'moved_locally_pending_sync' };
+          const target = !folder && changedCloudName && deliverySourceHash
+            ? await this.files.observe(root, destination).catch(() => null) : null;
+          const delivery = target && identity(base.inode, target.info) && target.info.birthtimeMs === base.birthtime && deliverySourceHash
+            ? { sourceHash: deliverySourceHash, destinationHash: target.hash } : undefined;
+          return { ...base, ...(delivery ? { delivery } : {}), outcome: 'moved_locally_pending_sync' };
         });
       return { ...endpoints, outcome: row.outcome };
     } catch (error) {

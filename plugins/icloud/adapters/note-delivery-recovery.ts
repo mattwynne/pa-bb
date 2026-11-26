@@ -14,7 +14,9 @@ const notePath = z.string().max(1024).endsWith('.md').refine(p =>
 const intent = z.object({
   mirrorId: z.string().regex(/^[A-Za-z0-9-]{1,64}$/),
   path: notePath,
+  source: notePath.optional(),
   operations: z.array(z.string().uuid()).min(1).max(128),
+  sourceOperations: z.array(z.string().uuid()).min(1).max(128).optional(),
   expected: deliveryObservation.nullable(),
   wantedHash: hash,
 }).strict();
@@ -56,6 +58,9 @@ export class NoteDeliveryRecovery {
 
   prepare(input: DeliveryIntent) {
     const value = stored.parse({ ...input, publication: null });
+    if ((value.sourceOperations && !value.source) ||
+        (value.source && (!value.expected || value.path.normalize('NFC').toLowerCase() === value.source.normalize('NFC').toLowerCase())))
+      throw new CloudError('source_changed');
     const write = this.db.prepare('INSERT OR IGNORE INTO icloud_delivery_intent (mirror, payload) VALUES (?, ?)');
     if (write.run(value.mirrorId, JSON.stringify(value)).changes !== 1) throw new CloudError('recovery_required');
   }
@@ -66,9 +71,11 @@ export class NoteDeliveryRecovery {
       if (row.publication) throw new CloudError('recovery_required');
       const next = deliveryObservation.parse(publication);
       if (next.hash !== row.wantedHash ||
-        (row.expected
-          ? classifyReplacementReadback(row.expected, row.wantedHash, next).outcome !== 'published'
-          : !expectedCreateDocumentId || next.documentId !== expectedCreateDocumentId)) throw new CloudError('source_changed');
+        (row.source
+          ? !row.expected || next.documentId === row.expected.documentId
+          : row.expected
+            ? classifyReplacementReadback(row.expected, row.wantedHash, next).outcome !== 'published'
+            : !expectedCreateDocumentId || next.documentId !== expectedCreateDocumentId)) throw new CloudError('source_changed');
       this.write({ ...row, publication: next });
     }).immediate();
   }
@@ -90,6 +97,8 @@ export class NoteDeliveryRecovery {
       if (row.publication?.documentId !== documentId || row.publication.etag !== etag)
         throw new CloudError('recovery_required');
       queue.settle(mirrorId, row.path, row.operations);
+      if (row.sourceOperations && row.source) queue.settle(mirrorId,row.source,row.sourceOperations);
+      if (row.source) this.db.prepare('DELETE FROM icloud_delivery_head WHERE mirror = ? AND path = ?').run(mirrorId,row.source);
       if (binding) this.db.prepare(`INSERT INTO icloud_delivery_head (mirror,path,binding,body) VALUES (?,?,?,?)
         ON CONFLICT (mirror,path) DO UPDATE SET binding=excluded.binding,body=excluded.body`)
         .run(mirrorId,row.path,binding,JSON.stringify(row.publication));

@@ -2875,7 +2875,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation_test.go
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,151 @@
 +package main
 +
 +import (
@@ -2950,7 +2950,7 @@
 +}
 +
 +func TestBBRelocationRecoversByIdentityWithoutReplaying(t *testing.T) {
-+	for _, scenario := range []string{"success", "lost create", "same bytes foreign destination", "changed destination", "lost trash", "later source edit", "occupied destination"} {
++	for _, scenario := range []string{"success", "recent source publication", "lost create", "same bytes foreign destination", "changed destination", "lost trash", "later source edit", "occupied destination"} {
 +		t.Run(scenario, func(t *testing.T) {
 +			ctx := context.Background()
 +			source := fixturePublication("original-document", "prior-version", []byte("original"))
@@ -2963,6 +2963,17 @@
 +			cloud := &relocationFake{notes: map[string]iclouddrive.BBNotePublication{"from.md": source},
 +				lostCreate: scenario == "lost create" || scenario == "same bytes foreign destination" || scenario == "changed destination",
 +				lostTrash:  scenario == "lost trash", editSource: scenario == "later source edit",
++			}
++			if scenario == "recent source publication" {
++				prior := bisync.BBDeliveryIntent{OperationID: "762407e3-1321-4b67-a506-020a1917e0ae", Path: "from.md", Hash: source.Revision.Hash}
++				if err := bisync.BBBeginDelivery(request.Workdir, prior); err != nil {
++					t.Fatal(err)
++				}
++				if err := bisync.BBResolveDelivery(request.Workdir, prior, &bisync.BBDeliveryReceipt{
++					BBDeliveryIntent: prior, Modified: source.Modified, Size: source.Size, ProviderID: source.Revision.DriveID, ETag: source.Revision.ETag,
++				}); err != nil {
++					t.Fatal(err)
++				}
 +			}
 +			if scenario == "occupied destination" {
 +				cloud.notes["to.md"] = fixturePublication("unrelated-document", "existing", []byte("Independent Mac bytes"))
@@ -2979,7 +2990,7 @@
 +			if scenario == "occupied destination" {
 +				want = "refused"
 +			}
-+			if scenario == "success" {
++			if scenario == "success" || scenario == "recent source publication" {
 +				want = "published"
 +			}
 +			if first.Outcome != want {
@@ -3018,7 +3029,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation.go
-@@ -0,0 +1,182 @@
+@@ -0,0 +1,203 @@
 +package bisync
 +
 +import (
@@ -3119,12 +3130,13 @@
 +		return errBBInvalidDelivery
 +	}
 +	related := func(r BBDeliveryReceipt) bool {
-+		return r.OperationID == intent.OperationID ||
++		return !bbRelocationSupersedes(intent, r) && (r.OperationID == intent.OperationID ||
 +			equalBBPaths(r.Path, intent.Path) || equalBBPaths(r.Path, intent.Source) ||
-+			equalBBPaths(r.RemovedPath, intent.Path) || equalBBPaths(r.RemovedPath, intent.Source)
++			equalBBPaths(r.RemovedPath, intent.Path) || equalBBPaths(r.RemovedPath, intent.Source))
 +	}
 +	used := func(r BBDeliveryReceipt) bool { return r.OperationID == intent.OperationID }
-+	if state.Pending != nil || state.Relocation != nil || len(state.Confirmed) >= bbDeliveryLimit ||
++	canReplace := slices.ContainsFunc(state.Confirmed, func(r BBDeliveryReceipt) bool { return bbRelocationSupersedes(intent, r) })
++	if state.Pending != nil || state.Relocation != nil || (len(state.Confirmed) >= bbDeliveryLimit && !canReplace) ||
 +		slices.ContainsFunc(state.Confirmed, related) || slices.ContainsFunc(state.Applied, used) {
 +		return ErrBBDeliveryUnsettled
 +	}
@@ -3133,6 +3145,13 @@
 +	state.Version = 2
 +	state.Relocation = &move
 +	return state.write(workdir)
++}
++
++// A prior publication of the exact source revision is absorbed into the
++// move. Retain that publication's evidence until source removal is proved.
++func bbRelocationSupersedes(intent BBRelocationIntent, prior BBDeliveryReceipt) bool {
++	return prior.OperationID != intent.OperationID && prior.RemovedPath == "" && prior.Path == intent.Source &&
++		prior.Hash == intent.SourceHash && prior.ProviderID == intent.Previous.DocumentID && prior.ETag == intent.Previous.ETag
 +}
 +
 +func bbChangeRelocation(workdir string, intent BBRelocationIntent, transition func(*bbDeliveryStore, *BBRelocation) bool) error {
@@ -3182,8 +3201,21 @@
 +
 +func BBFinishRelocation(workdir string, intent BBRelocationIntent) error {
 +	return bbChangeRelocation(workdir, intent, func(state *bbDeliveryStore, move *BBRelocation) bool {
-+		if !move.Removing || move.Destination == nil || len(state.Confirmed) >= bbDeliveryLimit {
++		if !move.Removing || move.Destination == nil {
 +			return false
++		}
++		state.Confirmed = slices.DeleteFunc(state.Confirmed, func(prior BBDeliveryReceipt) bool {
++			if !bbRelocationSupersedes(intent, prior) {
++				return false
++			}
++			state.Applied = append(state.Applied, prior)
++			return true
++		})
++		if len(state.Confirmed) >= bbDeliveryLimit {
++			return false
++		}
++		if len(state.Applied) > bbDeliveryLimit {
++			state.Applied = state.Applied[len(state.Applied)-bbDeliveryLimit:]
 +		}
 +		state.Confirmed = append(state.Confirmed, *move.Destination)
 +		state.Relocation = nil

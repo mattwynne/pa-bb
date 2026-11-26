@@ -1,4 +1,4 @@
-import { coalesceDelivery, type NoteDeliveryQueue } from './note-delivery-queue.ts';
+import { coalesceDelivery, type NoteDeliveryQueue, type NoteDeliveryPlan } from './note-delivery-queue.ts';
 import { classifyReplacementReadback, type DeliveryIntent, type DeliveryObservation, type NoteDeliveryRecovery } from './note-delivery-recovery.ts';
 
 export type PublicationIntent = DeliveryIntent;
@@ -10,7 +10,7 @@ export type NativePublicationResult =
 export interface NotePublicationWorker {
   // The approved identity may only come from a prior confirmed scan/receipt.
   // Read exact local bytes and compare their hash before returning a plan.
-  prepare(mirrorId: string, plan: NonNullable<ReturnType<typeof coalesceDelivery>>): Promise<PublicationIntent | 'already_present' | null>;
+  prepare(mirrorId: string, plan: NoteDeliveryPlan): Promise<PublicationIntent | 'already_present' | null>;
   readBack(intent: PublicationIntent): Promise<DeliveryObservation | null>;
   publish(intent: PublicationIntent): Promise<NativePublicationResult>;
   // Acknowledgement requires a durable publication receipt in the native
@@ -29,22 +29,31 @@ export class NoteDeliveryPump {
       if (pending.publication) return this.finish(pending,pending.publication);
       const current = await this.worker.readBack(pending);
       if (!current || current.hash !== pending.wantedHash ||
-          (pending.expected && classifyReplacementReadback(pending.expected,pending.wantedHash,current).outcome !== 'published'))
+          (pending.expected && !pending.source && classifyReplacementReadback(pending.expected,pending.wantedHash,current).outcome !== 'published'))
         return 'needs_reconciliation' as const;
       return this.accept(pending,current);
     }
 
     const queued = path === undefined ? this.queue.oldest(mirrorId) : this.queue.pendingPath(mirrorId,path);
     if (queued.length === 0) return 'idle' as const;
-    const plan = coalesceDelivery(queued);
+    let plan = coalesceDelivery(queued);
     if (!plan) return 'needs_reconciliation' as const;
+    if (plan.source) {
+      const source = this.queue.pendingPath(mirrorId,plan.source).filter(row => row.sequence < queued[0]!.sequence);
+      if (source.length) {
+        const prior = coalesceDelivery(source);
+        if (!prior || prior.source || prior.previousHash === null || prior.hash !== plan.previousHash)
+          return 'needs_reconciliation' as const;
+        plan = { ...plan, previousHash:prior.previousHash, sourceOperations:prior.operations };
+      }
+    }
     const replacement = await this.worker.prepare(mirrorId, plan);
     if (replacement === 'already_present') {
       this.queue.settle(mirrorId,plan.path,plan.operations);
       return 'delivered' as const;
     }
 
-    if (!replacement || replacement.mirrorId !== mirrorId || replacement.path !== plan.path ||
+    if (!replacement || replacement.mirrorId !== mirrorId || replacement.path !== plan.path || replacement.source !== plan.source ||
       replacement.operations.length !== plan.operations.length ||
       replacement.operations.some((operation, i) => operation !== plan.operations[i]) ||
       (replacement.expected?.hash ?? null) !== plan.previousHash || replacement.wantedHash !== plan.hash)

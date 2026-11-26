@@ -20,6 +20,7 @@ const previous = { previousHash: hash.nullable(), previousIdentity: versionIdent
 const record = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('save'), ...previous, outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict(),
   z.object({ ...base, kind: z.literal('move'), destination: base.path,
+    delivery: z.object({ sourceHash: hash, destinationHash: hash }).strict().optional(),
     directory: z.literal(true).optional(),
     tree: z.object({ from: base.path, to: base.path, inode: identity, fingerprint: hash }).strict().optional(), outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']) }).strict(),
   z.object({ ...base, kind: z.literal('resolution'), previousHash: hash.nullable().optional(), choice: z.enum(['keep_local', 'accept_incoming', 'replace']), outcome: z.enum(['saved_locally_pending_sync', 'adopted_content', 'not_saved', 'uncertain']) }).strict(),
@@ -165,13 +166,20 @@ export class LocalReceipts {
         WHERE sequence > ? AND sequence <= ? AND event = 'terminal' AND mirror = ?
           AND ((kind = 'save' AND json_extract(payload, '$.outcome') = 'saved_locally_pending_sync')
             OR (kind = 'resolution' AND json_type(payload, '$.previousHash') IS NOT NULL
-              AND json_extract(payload, '$.outcome') IN ('saved_locally_pending_sync', 'adopted_content')))
+              AND json_extract(payload, '$.outcome') IN ('saved_locally_pending_sync', 'adopted_content'))
+            OR (kind = 'move' AND json_type(payload, '$.delivery') = 'object'
+              AND json_extract(payload, '$.outcome') = 'moved_locally_pending_sync'))
         ORDER BY sequence LIMIT ?`).all(after, tail, mirrorId, limit + 1) as Array<Pick<Stored, 'sequence' | 'payload'>>;
       const hasMore = entries.length > limit;
       const page = entries.slice(0, limit);
       const changes = page.map(({ sequence, payload }) => {
         const row = record.parse(JSON.parse(payload));
-        if (row.kind === 'move' || row.previousHash === undefined) throw new VaultError('unavailable');
+        if (row.kind === 'move') {
+          if (!row.delivery || row.directory) throw new VaultError('unavailable');
+          return { sequence, operationId: row.operationId, path: row.destination, source: row.path,
+            previousHash: row.delivery.sourceHash, hash: row.delivery.destinationHash };
+        }
+        if (row.previousHash === undefined) throw new VaultError('unavailable');
         const { operationId, path, previousHash, hash } = row;
         return { sequence, operationId, path, previousHash, hash };
       });

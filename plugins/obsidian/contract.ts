@@ -37,7 +37,7 @@ export const rpcContract = defineRpcContract({
   deliveryChanges: {
     input: vault.extend({ after: deliverySequence.nullable(), limit: z.number().int().min(1).max(32) }),
     output: z.object({ cursor: deliverySequence, hasMore: z.boolean(),
-      changes: z.array(z.object({ sequence: deliverySequence, operationId, path: consumerFolder, previousHash: hash.nullable(), hash }).strict()).max(32),
+      changes: z.array(z.object({ sequence: deliverySequence, operationId, path: consumerFolder, source: consumerFolder.optional(), previousHash: hash.nullable(), hash }).strict()).max(32),
     }).strict(),
   },
   inventoryRevision: {

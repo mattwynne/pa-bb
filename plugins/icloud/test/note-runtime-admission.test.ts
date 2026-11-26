@@ -328,8 +328,8 @@ test('global 256-path admission cap applies fairly across all 20 mirrors in boun
 });
 
 
-test('Obsidian saves, creates and conflict resolutions reach the managed worker during its scan', {skip: !enabled, timeout: 30_000}, async () => {
-  const {chmod, readFile} = await import('node:fs/promises');
+test('Obsidian saves, creates, resolutions and file moves reach the managed worker during its scan', {skip: !enabled, timeout: 30_000}, async () => {
+  const {chmod, readFile, rename} = await import('node:fs/promises');
   const f = await fixture(1);
   const id = 'mirror-0', relative = 'Note.md';
   const root = join(f.workerRoot,'mirrors',id);
@@ -373,13 +373,13 @@ test('Obsidian saves, creates and conflict resolutions reach the managed worker 
         assert.ok(fs.fstatSync(4).isFile() && fs.fstatSync(5).isFile());
         const metadata = fs.readFileSync(0, 'utf8');
         const input = JSON.parse(metadata);
-        assert.ok(input.path===response.path || input.path==='Second.md');
+        assert.ok(input.path===response.path || input.path==='Second.md' || input.path==='Renamed.md');
         const destination = require('node:path').join(require('node:path').dirname(target),input.path);
         assert.equal(input.workdir,workdir);
         assert.equal(input.binding,${JSON.stringify(binding)});
         const observe = () => {
           const data = fs.readFileSync(destination);
-          const etag = {'A':'one','A saved by BB':'two','Incoming resolution':'three','A new BB note':'first'}[data.toString()];
+          const etag = {'A':'one','A saved by BB':'two','Incoming resolution':'three','A new BB note':'first','Additional edit before move':'final'}[data.toString()];
           assert.ok(etag);
           return {...response.observation,etag,hash:crypto.createHash('sha256').update(data).digest('hex'),size:data.length};
         };
@@ -391,6 +391,17 @@ test('Obsidian saves, creates and conflict resolutions reach the managed worker 
           assert.equal(input.text,'A new BB note');
           fs.writeFileSync(destination,input.text,{flag:'wx'});
           const observation = {...observe(),documentId:'FILE::com.apple.CloudDocs::new-note'};
+          console.log(JSON.stringify({outcome:'published',observation}));
+        } else if (argv[1] === 'relocate') {
+          assert.equal(input.source,response.path);
+          const previous = fs.readFileSync(target);
+          const hash = crypto.createHash('sha256').update(previous).digest('hex');
+          assert.deepEqual(input.expected, {documentId:response.observation.documentId,parentId:response.observation.parentId,etag:'three',hash});
+          assert.equal(input.text,'Additional edit before move');
+          assert.equal(input.wantedHash,crypto.createHash('sha256').update(input.text).digest('hex'));
+          fs.writeFileSync(destination,input.text,{flag:'wx'});
+          fs.unlinkSync(target);
+          const observation = {...observe(),documentId:'FILE::com.apple.CloudDocs::moved-note',etag:'moved'};
           console.log(JSON.stringify({outcome:'published',observation}));
         } else {
           assert.equal(argv[1],'replace');
@@ -431,6 +442,17 @@ test('Obsidian saves, creates and conflict resolutions reach the managed worker 
       token:conflict.token,expectedLogicalHash:conflict.logicalHash,expectedIncomingHash:conflict.incomingHash});
     await f.runtime.deliverKnownNotes(pull,()=>true);
     assert.equal(await readFile(cloud,'utf8'),incoming);
+    const beforeMoving = 'Additional edit before move';
+    await ledger.fs.commit({mirrorId:id,revision:1,path:relative,operationId:op(),kind:'replace',expectedHash:hash(incoming),text:beforeMoving});
+    const moved = await ledger.fs.movePath({vaultId:id,path:relative,destination:'Renamed.md',
+      operationId:op(),kind:'note'},1,async before => {
+      await before();
+      await rename(join(root,relative),join(root,'Renamed.md'));
+    });
+    assert.equal(moved.outcome,'moved_locally_pending_sync');
+    await f.runtime.deliverKnownNotes(pull,()=>true);
+    assert.equal(await readFile(join(f.remote,'generated-0','Renamed.md'),'utf8'),beforeMoving);
+    await assert.rejects(readFile(cloud),{code:'ENOENT'});
     assert.equal(exited,false,'the scheduled scan was still active when the remote notes changed');
     assert.equal(f.db.prepare('SELECT count(*) AS count FROM icloud_pending_delivery').pluck().get(),0);
     await writeFile(gate,'1');

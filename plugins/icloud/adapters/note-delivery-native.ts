@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import type { NoteDeliveryQueue, coalesceDelivery } from './note-delivery-queue.ts';
+import type { NoteDeliveryQueue, NoteDeliveryPlan } from './note-delivery-queue.ts';
 import { classifyReplacementReadback, deliveryObservation, type DeliveryObservation, type NoteDeliveryRecovery } from './note-delivery-recovery.ts';
 import { NoteDeliveryPump, type NativePublicationResult, type PublicationIntent, type NotePublicationWorker } from './note-delivery-pump.ts';
 import type { ManagedNativeMirror, RcloneProcess } from './rclone-process.ts';
@@ -19,7 +19,6 @@ const reply = z.discriminatedUnion('outcome', [
 ]);
 const indexLimit = 16 << 20;
 type LocalNote = { text: string; hash: string };
-type Plan = NonNullable<ReturnType<typeof coalesceDelivery>>;
 
 export async function readNativeIndex(target: ManagedNativeMirror, path: string) {
   const input = await open(join(target.workdir,'bb-cloud-note-identities-v1.json'), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -43,20 +42,25 @@ export class NativeNoteDelivery implements NotePublicationWorker {
     private readonly readLocal: (path: string) => Promise<LocalNote | null>,
   ) { this.acknowledgedBinding = target.binding; }
 
-  async prepare(mirrorId: string, plan: Plan): Promise<PublicationIntent | 'already_present' | null> {
+  async prepare(mirrorId: string, plan: NoteDeliveryPlan): Promise<PublicationIntent | 'already_present' | null> {
     if ((await this.readLocal(plan.path))?.hash !== plan.hash) return null;
-    const indexed = await readNativeIndex(this.target,plan.path).catch(() => null);
-    const evidence = await this.callInspect(plan.path);
+    const source = plan.source ?? plan.path;
+    if (plan.source && (plan.previousHash === null || await this.readLocal(source))) return null;
+    const indexed = await readNativeIndex(this.target,source).catch(() => null);
+    const evidence = await this.callInspect(source);
     const current = evidence.outcome === 'observed' ? evidence.observation : null;
-    if (current && current.hash === plan.hash && indexed && current.documentId === indexed.documentId &&
+    if (!plan.source && current && current.hash === plan.hash && indexed && current.documentId === indexed.documentId &&
         current.parentId === indexed.parentId && current.etag === indexed.etag) return 'already_present';
     if (plan.previousHash === null)
       return evidence.outcome === 'absent' ? {mirrorId,path:plan.path,expected:null,wantedHash:plan.hash,operations:plan.operations} : null;
-    const head = this.journal.head(mirrorId,plan.path,this.target.binding);
+    const head = this.journal.head(mirrorId,source,this.target.binding);
     const targets = head?.hash === plan.previousHash ? [head,indexed] : [indexed];
     if (!current || current.hash !== plan.previousHash || !targets.some(prior => prior && current.documentId === prior.documentId &&
         current.parentId === prior.parentId && current.etag === prior.etag)) return null;
-    return { mirrorId, path:plan.path, expected:current, wantedHash:plan.hash, operations:plan.operations };
+    if (plan.source && (await this.callInspect(plan.path)).outcome !== 'absent') return null;
+    return { mirrorId, path:plan.path, ...(plan.source ? {source:plan.source} : {}),
+      ...(plan.sourceOperations ? {sourceOperations:plan.sourceOperations} : {}),
+      expected:current, wantedHash:plan.hash, operations:plan.operations };
   }
 
   private async callInspect(path:string) {
@@ -64,6 +68,10 @@ export class NativeNoteDelivery implements NotePublicationWorker {
   }
 
   async readBack(intent: PublicationIntent) {
+    if (intent.source) {
+      const recovered = await this.relocate(intent, true);
+      return recovered.outcome === 'published' ? recovered.observation : null;
+    }
     const inspected = await this.callInspect(intent.path);
     const current = inspected.outcome === 'observed' ? inspected.observation : null;
     if (intent.expected) {
@@ -74,7 +82,26 @@ export class NativeNoteDelivery implements NotePublicationWorker {
     return recovered.outcome === 'published' ? recovered.observation : null;
   }
 
-  async publish(intent: PublicationIntent) { return this.send(intent.expected ? 'replace' : 'create',intent); }
+  async publish(intent: PublicationIntent) {
+    return intent.source ? this.relocate(intent, false) : this.send(intent.expected ? 'replace' : 'create',intent);
+  }
+
+  private async relocate(intent: PublicationIntent, recovering: boolean): Promise<NativePublicationResult> {
+    const expected = intent.expected;
+    if (!intent.source || !expected) return {outcome:'refused'};
+    const local = await this.readLocal(intent.path);
+    const text = local?.hash === intent.wantedHash && !await this.readLocal(intent.source) ? local.text : undefined;
+    if (!recovering && text === undefined) return {outcome:'refused'};
+    const operationId = intent.operations.at(-1)!;
+    const result = reply.parse(await this.worker.noteDeliveryCommand(this.target,'relocate',{
+      source:intent.source,path:intent.path,operationId,wantedHash:intent.wantedHash,...(text !== undefined ? {text} : {}),
+      expected:{documentId:expected.documentId,parentId:expected.parentId,etag:expected.etag,hash:expected.hash},
+    }));
+    if (result.outcome === 'refused') return {outcome:'refused'};
+    if (result.outcome !== 'published') return {outcome:'uncertain'};
+    this.admitted.set(operationId,result.observation);
+    return result;
+  }
 
   private async send(operation: 'replace' | 'recover' | 'create' | 'recover-create', intent: PublicationIntent): Promise<NativePublicationResult> {
     const local = await this.readLocal(intent.path);
