@@ -90,6 +90,7 @@ test('correspondence reads scoped landing-note links and routes saved URLs to bo
       const lists = {
         'Active conversations': [{ title: 'Workshop', url: gmail }],
         'Archived conversations': [{ title: 'Earlier booking', url: archivedMail }, { title: 'Duplicate', url: gmail }],
+        'Snoozed conversations': [],
         Correspondence: [{ title: 'Duplicate', url: gmail }, { title: 'Old booking', url: archivedMail }, { title: 'Venue', url: fastmail }],
       };
       const heading = args.input.heading as keyof typeof lists;
@@ -114,6 +115,7 @@ test('correspondence reads scoped landing-note links and routes saved URLs to bo
     assert.deepEqual(await rpc('readCorrespondence', ref), {
       active: { links: [{ title: 'Workshop', url: gmail }, { title: 'Venue', url: fastmail }], incomplete: false },
       archived: { links: [{ title: 'Earlier booking', url: archivedMail }], incomplete: false },
+      snoozed: { links: [], incomplete: false },
     });
     assert.equal(mailReads, 0);
     assert.deepEqual(await rpc('readCorrespondenceStatus', ref), [
@@ -155,7 +157,10 @@ test('Area mail only reads the selected Area and status, including nested Area a
       paths.push(args.input.path);
       const active = args.input.path.endsWith('/Matches.md') && args.input.heading === 'Correspondence';
       const archived = args.input.path.endsWith('/Unassigned.md') && args.input.heading === 'Archived conversations';
-      return { hash: 'a'.repeat(64), links: active || archived ? [{ title: 'Area mail', url: fastmail }] : [], incomplete: false };
+      const snoozed = args.input.path.endsWith('/Unassigned.md') && args.input.heading === 'Snoozed conversations';
+      const links = active || archived ? [{ title: 'Area mail', url: fastmail }] : snoozed
+        ? [{ title: 'Snoozed mail', url: fastmail.replace('S_area', 'S_snoozed'), returnDate: '2026-12-01' }] : [];
+      return { hash: 'a'.repeat(64), links, incomplete: false };
     } } } });
   await plugin(host.bb);
   try {
@@ -167,7 +172,7 @@ test('Area mail only reads the selected Area and status, including nested Area a
     await assert.rejects(rpc('readAreaMailStatus', { ...area, source: 'wrong' }));
     incomplete = true;
     assert.deepEqual(await rpc('readAreaMailStatus', area), []);
-    assert.deepEqual(paths, [...Array(3).fill('Projects/Active/Matches.md'), ...Array(3).fill('Projects/Active/Unassigned.md')]);
+    assert.deepEqual(paths, [...Array(4).fill('Projects/Active/Matches.md'), ...Array(4).fill('Projects/Active/Unassigned.md')]);
   } finally { await host.harness.lifecycle.dispose(); }
 });
 
@@ -294,7 +299,7 @@ test('adding correspondence verifies the provider and files an exact link once u
     assert.deepEqual(writes, [{ heading: 'Active conversations', url: gmail }, { heading: 'Archived conversations', url: fastmail }]);
     const listing = await host.harness.behavior.callRpc('readCorrespondence', ref);
     assert.deepEqual(listing, { active: { links: sections.get('Active conversations'), incomplete: false },
-      archived: { links: sections.get('Archived conversations'), incomplete: false } });
+      archived: { links: sections.get('Archived conversations'), incomplete: false }, snoozed: { links: [], incomplete: false } });
   } finally { await host.harness.lifecycle.dispose(); }
 });
 
@@ -333,5 +338,93 @@ test('creating a project uses the exact selected Area and never retries an uncer
     const logs = JSON.stringify(host.harness.inspection.logEntries);
     assert.match(logs, /GTD project_create uncertain/);
     assert.doesNotMatch(logs, /private provider content|Life\/Areas/);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
+
+test('snooze and refresh share agent and UI rules and persist both wake conditions', async () => {
+  const ref = { source: 'one', id: 'Projects/Active/Launch.md' };
+  const url = 'https://mail.google.com/mail/?authuser=example%40example.com#all/beef';
+  const dueUrl = url.replace('beef', 'face');
+  const workshop = { title: 'Workshop', url };
+  const due = { title: 'Follow-up', url: dueUrl, returnDate: '2026-11-26' };
+  const active = 'Active conversations', snoozed = 'Snoozed conversations';
+  const sections = new Map<string, (typeof workshop & { returnDate?: string })[]>([[active, [workshop]], [snoozed, [due]]]);
+  let hash = 'a'.repeat(64);
+  let now = Date.parse('2026-11-26T06:59:59Z'); // Still November 25 in Vancouver.
+  let unread = 1, mailReads = 0, saves = 0, loseReceipt = false;
+  const host = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one' }, sdk: { plugins: {
+    callRpc: async (args: any) => {
+      if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: '', name: 'Vault' }], incomplete: false };
+      if (args.method === 'gmailConversationStatus') {
+        mailReads++;
+        return args.input.url === dueUrl || unread < 0 ? { status: 'unavailable' }
+          : { status: 'ok', unread, sender: null, latestAt: null };
+      }
+      assert.equal(args.pluginId, 'obsidian');
+      assert.equal(args.input.path, ref.id);
+      if (args.method === 'readSectionLinks') {
+        assert.equal(!!args.input.dated, args.input.heading === snoozed);
+        return { hash, incomplete: false, links: sections.get(args.input.heading) ?? [] };
+      }
+      assert.equal(args.method, 'editDatedSectionLinks');
+      const { from, to, urls, returnDate, expectedHash, operationId } = args.input;
+      assert.equal(expectedHash, hash);
+      if (loseReceipt) throw new Error('private sentinel ' + url);
+      for (const heading of from) sections.set(heading, (sections.get(heading) ?? []).filter(link => !urls.includes(link.url)));
+      const moved = [workshop, due].filter(link => urls.includes(link.url))
+        .map(({ title, url }) => ({ title, url, ...(returnDate && { returnDate }) }));
+      sections.set(to, [...(sections.get(to) ?? []), ...moved]);
+      saves++;
+      hash = saves.toString(16).padStart(64, '0');
+      return { operationId, outcome: 'saved_locally_pending_sync' };
+    },
+  } } });
+  await plugin(host.bb, undefined, () => now);
+  try {
+    const rpc = host.harness.behavior.callRpc;
+    const agent = async (name: string, input: unknown) => {
+      const result = await host.harness.behavior.callAgentTool('gtd_' + name, input);
+      assert.ok(typeof result !== 'string' && result.content[0]?.type === 'text');
+      return JSON.parse(result.content[0].text);
+    };
+    const { conversations: [row] } = await agent('list_correspondence', { ...ref, status: 'active' });
+    const target = { ...ref, conversationId: row.conversationId };
+    const snooze = (returnDate: string) => agent('snooze_correspondence', { ...target, returnDate, operationId: randomUUID() });
+    assert.equal(mailReads, 0);
+    assert.deepEqual(await snooze('2026-11-25'), { state: 'blocked', reason: 'date_due' });
+    assert.deepEqual(await snooze('2026-11-27'), { state: 'blocked', reason: 'unread' });
+    unread = -1;
+    assert.deepEqual(await snooze('2026-11-27'), { state: 'blocked', reason: 'mail_unavailable' });
+    assert.equal(saves, 0);
+    unread = 0;
+    assert.equal((await snooze('2026-11-27')).state, 'snoozed');
+    const beforeList = mailReads;
+    const listed = await agent('list_correspondence', { ...ref, status: 'snoozed' });
+    assert.deepEqual(listed.conversations.map((item: { returnDate: string }) => item.returnDate), ['2026-11-26', '2026-11-27']);
+    assert.equal(mailReads, beforeList);
+    assert.equal((await rpc('changeCorrespondenceSnooze', { ...ref, url, operationId: randomUUID(),
+      change: { kind: 'snooze', returnDate: '2026-11-29' } }) as { state: string }).state, 'snoozed');
+    const beforeMidnight = await agent('refresh_correspondence', ref);
+    assert.deepEqual(beforeMidnight.returned, []);
+    assert.equal(beforeMidnight.snoozedMailIncomplete, true);
+    assert.deepEqual(beforeMidnight.active, []);
+    now += 1000;
+    unread = 2;
+    loseReceipt = true;
+    const uncertain = await agent('refresh_correspondence', ref);
+    assert.equal(uncertain.receipt.outcome, 'uncertain');
+    assert.deepEqual(uncertain.returned, []);
+    assert.match(uncertain.nextAction, /receipt/);
+    assert.doesNotMatch(JSON.stringify(host.harness.inspection.logEntries), /sentinel|example%40|Launch\.md/);
+    loseReceipt = false;
+    const refreshed = await rpc('refreshCorrespondence', ref) as { returned: { reason: string }[]; mail: { mail: { unread?: number } }[] };
+    assert.deepEqual(refreshed.returned.map(row => row.reason), ['date', 'unread']);
+    assert.deepEqual(refreshed.mail.map(row => row.mail.unread), [undefined, 2]);
+    assert.equal(saves, 3);
+    unread = 0;
+    assert.deepEqual((await agent('refresh_correspondence', ref)).returned, []);
+    assert.equal((await snooze('2026-11-29')).state, 'snoozed');
+    assert.equal((await agent('unsnooze_correspondence', { ...target, operationId: randomUUID() })).state, 'unsnoozed');
+    assert.equal((await agent('list_correspondence', { ...ref, status: 'snoozed' })).conversations.length, 0);
   } finally { await host.harness.lifecycle.dispose(); }
 });

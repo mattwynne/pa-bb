@@ -1,4 +1,4 @@
-import { areaMailStatus, correspondenceStatus, projectCorrespondence } from './core/correspondence.ts';
+import { areaMailStatus, correspondenceLink, correspondenceStatus, linkLimit, projectCorrespondence, returnDate } from './core/correspondence.ts';
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { listInput, pageSchema, areaListInput, areaPageSchema, snapshotSchema, areaSnapshotSchema, statusSchema } from './core/model.ts';
@@ -18,6 +18,22 @@ export const projectActionInput = reference.extend({
   ]),
 });
 export const noteSaveReceipt = z.object({ operationId: z.string().uuid(), outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict();
+export const correspondenceReceipt = noteSaveReceipt.extend({ reason: z.enum(['changed', 'invalid_section']).optional() });
+export const correspondenceChange = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('snooze'), returnDate }).strict(),
+  z.object({ kind: z.literal('unsnooze') }).strict(),
+]);
+export const correspondenceChangeResult = z.discriminatedUnion('state', [
+  z.object({ state: z.enum(['snoozed', 'unsnoozed', 'unchanged', 'not_saved', 'uncertain']), receipt: correspondenceReceipt.optional() }).strict(),
+  z.object({ state: z.literal('blocked'), reason: z.enum(['not_listed', 'archived', 'unread', 'mail_unavailable', 'invalid_section', 'date_due']) }).strict(),
+]);
+export const correspondenceRefresh = z.object({
+  correspondence: projectCorrespondence,
+  mail: correspondenceStatus,
+  returned: z.array(correspondenceLink.extend({ reason: z.enum(['date', 'unread']) })).max(linkLimit),
+  snoozedMailIncomplete: z.boolean(),
+  receipt: correspondenceReceipt.optional(),
+}).strict();
 export const projectName = z.string().trim().min(1).max(240).refine(value =>
   !value.startsWith('.') && !/[<>:"/\\|?*#\[\]\x00-\x1f\x7f]/.test(value) &&
   new TextEncoder().encode(value).length <= 252, 'Use a valid Obsidian filename.');
@@ -46,6 +62,11 @@ export const rpcContract = defineRpcContract({
   }).strict(), output: areaMailStatus },
   readCorrespondence: { input: reference, output: projectCorrespondence },
   readCorrespondenceStatus: { input: reference, output: correspondenceStatus },
+  refreshCorrespondence: { input: reference, output: correspondenceRefresh },
+  changeCorrespondenceSnooze: {
+    input: reference.extend({ url: correspondenceLink.shape.url, operationId: z.uuid(), change: correspondenceChange }),
+    output: correspondenceChangeResult,
+  },
   readNextAction: { input: reference, output: nextAction },
   readAreaStandard: { input: reference, output: noteSection },
   saveAreaStandard: { input: areaStandardInput, output: standardSaveResult },

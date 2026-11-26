@@ -67,7 +67,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
         throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only GTD can request correspondence links.' });
       return evidence(async () => {
         const { hash, text } = await service.readNoteSection(input, context.experimental_signal);
-        return { hash, ...sectionLinks(text) };
+        return { hash, ...sectionLinks(text, input.dated) };
       }, context);
     },
     writeNoteSection(input, context) { return evidence(() => service.writeNoteSection(input, context.experimental_signal), context); },
@@ -82,6 +82,12 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
       if (caller.kind !== 'plugin' || caller.pluginId !== 'gtd')
         throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only GTD can move a correspondence link.' });
       return evidence(() => service.moveSectionLink(input, context.experimental_signal), context);
+    },
+    editDatedSectionLinks(input, context) {
+      const caller = context.experimental_caller;
+      if (caller.kind !== 'plugin' || caller.pluginId !== 'gtd')
+        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only GTD can update dated correspondence links.' });
+      return evidence(() => service.editDatedSectionLinks(input, context.experimental_signal), context);
     },
     createNote(input, context) {
       return evidence(async () => {

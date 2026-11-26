@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { fireEvent, cleanup } from '@testing-library/react';
+import { fireEvent, cleanup, within } from '@testing-library/react';
 import { loadPluginApp, renderSlot } from '@get-bb/plugin-sdk/testing/app';
 import { areasIndex, panelHref, readRoute, recordDestination, type Destination } from '../app-routes.ts';
 const app = await loadPluginApp(() => import('../app.tsx'));
@@ -67,7 +67,11 @@ test('GTD registers a navigation panel and keeps area, project and thread action
   expect(projectLink.getAttribute('href')).toBe(panelHref(woodwork));
   fireEvent.click(projectLink);
   expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ method: 'toPluginPanel', path: 'projects', options: { subPath: woodwork.subPath } });
-  expect(slot.getByRole('button', { name: 'New thread for Area Learning' })).toBeTruthy();
+  const threads = slot.getByRole('heading', { name: 'Area threads' }).closest('section')!;
+  expect(within(threads).getByRole('button', { name: 'New thread for Area Learning' })).toBeTruthy();
+  expect(slot.queryByRole('navigation', { name: 'Switch Area' })).toBeNull();
+  expect(slot.queryByRole('combobox', { name: 'Area' })).toBeNull();
+  expect(slot.getByRole('link', { name: 'Areas' }).getAttribute('href')).toBe(panelHref(areasIndex));
   expect(slot.queryByLabelText('Actions for area Learning')).toBeNull();
   fireEvent.click(slot.getByLabelText(`Actions for project ${project.title}`));
   expect(slot.getByRole('button', { name: 'Move to Area…' })).toBeTruthy();
@@ -203,7 +207,7 @@ test('exact record routes round-trip Unicode, delimiters, and source identity', 
 test('the Area filter rolls up nested projects, includes Deferred in All, and persists across Area pages', async () => {
   const slot = setup('nested');
   await slot.findByRole('link', { name: 'Learn woodworking' });
-  expect(slot.getAllByRole('link', { name: /^Empty Area \d$/ })).toHaveLength(8);
+  expect(slot.queryAllByRole('link', { name: /^Empty Area \d$/ })).toHaveLength(0);
   expect(slot.queryByRole('link', { name: 'Unassigned area' })).toBeNull();
   fireEvent.click(slot.getByLabelText('Filter by project status'));
   expect((slot.getByRole('radio', { name: 'Active' }) as HTMLInputElement).checked).toBe(true);

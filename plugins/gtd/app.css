@@ -1,3 +1,22 @@
+.gtd-composer-project {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 24px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-decoration: none;
+}
+.gtd-composer-project > svg { width: 14px; height: 14px; flex: none; }
+.gtd-composer-project > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gtd-composer-project-title { color: var(--foreground); text-decoration: underline; text-underline-offset: 2px; }
+.gtd-composer-project:hover { background: var(--state-hover, var(--accent)); }
+.gtd-composer-project:focus-visible { outline: 1px solid var(--ring); outline-offset: -1px; }
+
 .gtd-nav { flex: 1; min-height: 0; min-width: 0; overflow-y: auto; container: gtd / inline-size; font-size: 13px; color: var(--foreground); }
 .gtd-content { --gtd-action-size: 30px; --gtd-crumb-padding: 4px; box-sizing: border-box; max-width: 48rem; margin-inline: auto; padding: 18px 24px 40px; overflow-wrap: anywhere; }
 .gtd-nav button, .gtd-nav select { font: inherit; color: inherit; background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 4px 7px; min-height: 30px; }
@@ -32,10 +51,6 @@
 .gtd-list-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .gtd-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted-foreground); }
 .gtd-crumbs a { padding: var(--gtd-crumb-padding) 4px; margin-left: -4px; border-radius: 4px; }
-.gtd-area-links { display: flex; flex-wrap: wrap; width: fit-content; gap: 3px; border: 1px solid var(--border); background: var(--muted); border-radius: 6px; padding: 3px; }
-.gtd-area-links a { border-radius: 5px; padding: 6px 9px; color: var(--muted-foreground); }
-.gtd-area-links a[aria-current="page"] { color: var(--foreground); background: var(--accent); font-weight: 600; }
-.gtd-area-select { display: none; }
 .gtd-menu { position: relative; }
 .gtd-menu-items { display: grid; min-width: max-content; padding: 4px; background: var(--popover); color: var(--popover-foreground, var(--foreground)); position: absolute; right: 0; z-index: 10; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 2px 8px #0003; }
 .gtd-nav .gtd-menu-items button { border: 0; text-align: start; }
@@ -55,11 +70,9 @@
 .gtd-browser-link > .gtd-area-project-count + svg:last-child { margin-left: 0; flex: none; }
 .gtd-project-row { display: flex; align-items: center; gap: 4px; }
 .gtd-project-row .gtd-browser-link { flex: 1; min-width: 0; }
-.gtd-project-row[draggable="true"] { cursor: grab; }
 .gtd-project-row .gtd-row-status { margin-left: auto; }
 .gtd-project-row .gtd-row-status + svg { margin-left: 0; }
 .gtd-row-status { color: var(--muted-foreground); font-size: 11px; }
-.gtd-drop-target { background: var(--accent); outline: 2px solid var(--ring); border-radius: 6px; }
 .gtd-nav .gtd-row-action {
   display: grid;
   place-items: center;
@@ -143,9 +156,6 @@
 .gtd-edit-actions button[type='submit']:hover { background: color-mix(in srgb, var(--primary) 85%, var(--background)); }
 @container gtd (max-width: 520px) {
   .gtd-content { --gtd-action-size: 44px; --gtd-crumb-padding: 8px; padding: 14px 14px 28px; }
-  .gtd-area-links { display: none; }
-  .gtd-area-select { display: flex; align-items: center; gap: 8px; max-width: 18rem; color: var(--muted-foreground); }
-  .gtd-area-select select { flex: 1; min-width: 0; background: var(--background); font-size: 16px; }
   .gtd-nav button, .gtd-nav select, .gtd-browser-link, .gtd-thread a, .gtd-filter summary, .gtd-filter label { min-height: 44px; }
   .gtd-thread .gtd-row-action { opacity: 1; }
 }
@@ -171,6 +181,15 @@
 }
 
 .gtd-correspondence-heading { margin: 8px 0 6px; font-size: 13px; font-weight: 600; }
+.gtd-correspondence-controls, .gtd-correspondence-controls form, .gtd-correspondence-controls label {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0;
+}
+.gtd-correspondence-controls { grid-column: 1 / -1; }
+.gtd-correspondence-controls input {
+  font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 7px; min-height: 30px; box-sizing: border-box;
+}
+.gtd-correspondence-controls input:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .gtd-correspondence-archive { margin-top: 6px; }
 .gtd-correspondence-archive summary {
   min-height: var(--gtd-action-size);

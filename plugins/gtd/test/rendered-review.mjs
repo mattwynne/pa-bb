@@ -108,7 +108,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'auto-refresh', 'next-action', 'correspondence', 'area-mail'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'auto-refresh', 'next-action', 'correspondence', 'area-mail', 'composer-project'];
   const reviewedModes = native ? ['native-refresh'] : process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
@@ -128,6 +128,8 @@ try {
     const fastmailUnresolved = 'https://app.fastmail.com/mail/Archive/S_missing?u=1234abcd';
     const archivedMail = 'https://mail.google.com/mail/?authuser=example%40example.com#all/abba';
     let heldCorrespondence, heldStatus, correspondenceReads = 0;
+    let workshopReturnDate;
+    const snoozeDate = offset => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
     let workshopArchived = false;
     let nextAction = null, heldNextAction, failNextAction = false;
     let unread = 2, areaUnread = true;
@@ -138,7 +140,8 @@ try {
     let homeStandard = '', firstHomeRead = true;
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
     const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
-      ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1 }),
+      ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1,
+        ...(mode === 'composer-project' && id === 'fixture2' ? { parentThreadId: 'fixture1' } : {}) }),
       activity: { activeBackgroundAgentCount: 0, activeBackgroundCommandCount: 0, activePlanModeCount: 0, activeWorkflowCount: 0 },
       queuedWork: 'none',
       hasPendingInteraction: false,
@@ -158,6 +161,7 @@ try {
         thread('fixture1', value.personalProject.id, 'Choose tools', 100),
       ];
       if (mode === 'browser-flow') value.personalProject.threads.push(thread('area1', value.personalProject.id, 'Practice plan', 100));
+      if (mode === 'composer-project') value.personalProject.threads.push(thread('unlinked', value.personalProject.id, 'Unlinked thread', 100));
       await route.fulfill({ response, json: value });
     });
     await page.route(/\/api\/v1\/threads\?.*archived=true/, route => {
@@ -172,7 +176,13 @@ try {
     });
     await page.route(/\/api\/v1\/threads\/fixture1(?:\?|$)/, route =>
       route.fulfill({ json: thread('fixture1', 'proj_personal', 'Choose tools', 100) }));
-    await page.route(/\/api\/v1\/threads\/fixture1\/timeline(?:\?|$)/, route =>
+    if (mode === 'composer-project') {
+      await page.route(/\/api\/v1\/threads\/fixture2(?:\?|$)/, route =>
+        route.fulfill({ json: thread('fixture2', 'proj_personal', 'Practice joints', 200) }));
+      await page.route(/\/api\/v1\/threads\/unlinked(?:\?|$)/, route =>
+        route.fulfill({ json: thread('unlinked', 'proj_personal', 'Unlinked thread', 100) }));
+    }
+    await page.route(/\/api\/v1\/threads\/(?:fixture1|fixture2|unlinked)\/timeline(?:\?|$)/, route =>
       route.fulfill({ json: {
         rows: [], maxSeq: 0, contextBoundarySeq: null, completedTurnDisplay: 'collapse',
         activePromptMode: null, activeThinking: null, activeWorkflows: [], activeBackgroundCommands: [],
@@ -255,13 +265,18 @@ try {
         if (failNextAction) return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic read failure' } } });
         result = { text: nextAction };
       }
-      if (method === 'readCorrespondence') {
-        correspondenceReads++;
-        await heldCorrespondence;
+      if (method === 'readCorrespondence' || method === 'refreshCorrespondence') {
+        if (method === 'readCorrespondence') {
+          correspondenceReads++;
+          await heldCorrespondence;
+        } else await heldStatus;
         const workshop = { title: 'Workshop logistics', url: gmail };
-        result = {
+        const returned = method === 'refreshCorrespondence' && workshopReturnDate && unread > 0
+          ? [{ ...workshop, reason: 'unread' }] : [];
+        if (returned.length) workshopReturnDate = undefined;
+        const correspondence = {
           active: { incomplete: false, links: mode === 'correspondence' ? [
-            ...(workshopArchived ? [] : [workshop]),
+            ...(workshopArchived || workshopReturnDate ? [] : [workshop]),
             { title: 'Venue booking', url: fastmail },
             { title: 'Venue reply', url: fastmailReply },
             { title: 'Supplies', url: fastmailOther },
@@ -271,18 +286,26 @@ try {
           archived: { incomplete: false, links: mode === 'correspondence' ? [
             { title: 'Previous booking', url: archivedMail }, ...(workshopArchived ? [workshop] : []),
           ] : [] },
+          snoozed: { incomplete: false, links: workshopReturnDate ? [{ ...workshop, returnDate: workshopReturnDate }] : [] },
         };
-      }
-      if (method === 'readCorrespondenceStatus') {
-        await heldStatus;
         const known = { status: 'ok', sender: 'Test Sender', latestAt: '2026-11-25T12:00:00.000Z' };
-        result = [
-          ...(workshopArchived ? [] : [{ url: gmail, mail: unread < 0 ? { status: 'unavailable' } : { ...known, unread } }]),
+        const mail = [
+          ...(workshopArchived || workshopReturnDate ? [] : [{ url: gmail, mail: unread < 0 ? { status: 'unavailable' } : { ...known, unread } }]),
           { url: fastmail, mail: { ...known, unread: 3, threadKey: 'a'.repeat(64) } },
           { url: fastmailReply, mail: { ...known, unread: 3, threadKey: 'a'.repeat(64) } },
           { url: fastmailOther, mail: { ...known, unread: 1, threadKey: 'b'.repeat(64) } },
           { url: fastmailUnresolved, mail: { status: 'not_found' } },
         ];
+        result = method === 'readCorrespondence' ? correspondence : { correspondence, mail, returned, snoozedMailIncomplete: false };
+      }
+      if (method === 'changeCorrespondenceSnooze') {
+        assert.equal(input.url, gmail);
+        if (input.change.kind === 'snooze' && unread > 0) result = { state: 'blocked', reason: 'unread' };
+        else {
+          workshopReturnDate = input.change.returnDate;
+          result = { state: workshopReturnDate ? 'snoozed' : 'unsnoozed',
+            receipt: { operationId: input.operationId, outcome: 'saved_locally_pending_sync' } };
+        }
       }
       if (method === 'readAreaStandard') {
         standardReads.push(input.id);
@@ -352,6 +375,35 @@ try {
       await Promise.race([skip.waitFor(), (width === 390 ? toggle : entry).waitFor()]);
       if (await skip.isVisible()) await skip.click();
       await openSidebar();
+      if (mode === 'composer-project') {
+        const context = page.getByLabel('Thread context before sending');
+        const projectLink = context.getByRole('link', { name: 'GTD Project Learn woodworking' });
+        const projectPath = `/plugins/gtd/projects/${Buffer.from(JSON.stringify([ref.source, ref.id])).toString('base64url')}`;
+        const openThread = async (id, title) => {
+          await page.goto(`${base}/threads/${id}`);
+          await page.getByTestId('app-page-header-content-row').getByText(title, { exact: true }).waitFor();
+        };
+        await openThread('fixture1', 'Choose tools');
+        await projectLink.waitFor();
+        assert.equal(await projectLink.getAttribute('href'), projectPath);
+        await page.keyboard.press('Tab');
+        await projectLink.focus();
+        assert.equal(await projectLink.evaluate(el => el.matches(':focus-visible')), true);
+        assert.notEqual(await projectLink.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
+        await page.screenshot({ path: join(artifacts, `composer-project-${width}.png`) });
+        await page.keyboard.press('Enter');
+        await page.waitForURL(`${base}${projectPath}`);
+        await nav.getByRole('heading', { name: 'Learn woodworking', exact: true }).waitFor();
+        await openThread('fixture2', 'Practice joints');
+        await context.getByRole('link', { name: 'Choose tools' }).waitFor();
+        assert.equal(await context.getByRole('link', { name: /^GTD Project/ }).count(), 0);
+        await openThread('unlinked', 'Unlinked thread');
+        assert.equal(await context.getByRole('link', { name: /^GTD Project/ }).count(), 0);
+        assert.deepEqual(errors, []);
+        console.log(`${mode} ${width}: rendered and checked`);
+        await page.close();
+        continue;
+      }
       if (mode === 'normal') {
         await assertSavedSort();
         assert.equal(await archivedRow.count(), 0);
@@ -402,13 +454,12 @@ try {
     const areasCrumb = breadcrumbs.getByRole('link', { name: 'Areas', exact: true });
     const filter = nav.getByLabel('Filter by project status', { exact: true });
     const threadFilter = nav.getByLabel('Filter by thread status', { exact: true });
-    const areaPicker = nav.getByRole('combobox', { name: 'Area', exact: true });
-    const areaLinks = nav.getByRole('navigation', { name: 'Switch Area' });
     const switchArea = async name => {
-      await areaPicker.or(areaLinks).filter({ visible: true }).waitFor();
-      if (await areaPicker.isVisible()) await areaPicker.selectOption({ label: name });
-      else await areaLinks.getByRole('link', { name, exact: true }).click();
-      await heading(name === 'All areas' ? 'Areas' : name).waitFor();
+      await areasCrumb.press('Enter');
+      await heading('Areas').waitFor();
+      if (name === undefined) return;
+      await link(name).press('Enter');
+      await heading(name).waitFor();
     };
     const openLearning = async () => {
       const learning = link('Learning');
@@ -434,8 +485,9 @@ try {
       assert.equal((await header.boundingBox()).height, indexHeader.height);
       assert.equal((await heading('Learning').boundingBox()).y, indexTitle.y);
       assert.equal(await heading('Learning').evaluate(el => el.matches(':focus')), true);
-      assert.equal(await areaPicker.isVisible(), width === 390);
-      assert.equal(await areaLinks.isVisible(), width === 1280);
+      assert.equal(await nav.getByRole('combobox', { name: 'Area', exact: true }).count(), 0);
+      assert.equal(await nav.getByRole('navigation', { name: 'Switch Area' }).count(), 0);
+      assert.equal(await link('Home').count(), 0);
       await link('Learn woodworking').waitFor();
       await link('Practice plan').waitFor();
       assert.equal(await link('Choose tools').isVisible(), false);
@@ -535,8 +587,10 @@ try {
     } else if (mode === 'normal') {
       await openLearning();
       assert.equal(await nav.getByLabel('Actions for area Learning').count(), 0);
+      const areaThreads = nav.locator('section').filter({ has: page.getByRole('heading', { name: 'Area threads' }) });
+      const newAreaThread = areaThreads.getByRole('button', { name: 'New thread for Area Learning' });
+      await threadFilter.focus();
       await page.keyboard.press('Tab');
-      const newAreaThread = nav.getByRole('button', { name: 'New thread for Area Learning' });
       assert.equal(await newAreaThread.evaluate(el => el.matches(':focus-visible')), true);
       await page.keyboard.press('Tab');
       assert.equal(await nav.getByRole('button', { name: 'Refresh GTD' }).count(), 0);
@@ -636,7 +690,7 @@ try {
       await unlink(renamed);
       await link('Renamed').waitFor({ state: 'hidden' });
       await page.screenshot({ path: join(artifacts, `native-refresh-${width}.png`) });
-      await switchArea('All areas');
+      await switchArea();
       const areaNote = join(vault, 'Areas/Workshop.md');
       const renamedArea = join(vault, 'Areas/Studio.md');
       await writeFile(areaNote, '# Workshop');
@@ -753,7 +807,7 @@ try {
       await switchArea('Learning');
       await standard.getByText('Edit made in Obsidian.', { exact: true }).waitFor();
       assert.equal(await standard.count(), 1);
-      await switchArea('All areas');
+      await switchArea();
       assert.equal(await standard.count(), 0);
       assert.ok(!standardReads.includes('Areas/Folder/'));
       assert.equal(standardSaves.length, 4);
@@ -850,7 +904,7 @@ try {
       await refresh.focus();
       await page.keyboard.press('Tab');
       assert.ok(await workshop.evaluate(node => node === document.activeElement));
-      const archive = correspondence.locator('details');
+      const archive = correspondence.locator('details').filter({ hasText: 'Archived conversations' });
       const summary = archive.locator('summary');
       assert.equal(await summary.innerText(), 'Archived conversations (1)');
       const previous = archive.getByRole('link', { name: 'Previous booking' });
@@ -869,6 +923,45 @@ try {
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
       await correspondence.getByText('2 unread', { exact: true }).waitFor({ state: 'detached' });
       await assertSingle(visibleLinks);
+      const snooze = correspondence.getByRole('button', { name: 'Snooze Workshop logistics' });
+      await snooze.focus();
+      await page.keyboard.press('Enter');
+      const dateForm = correspondence.getByRole('form', { name: 'Return date for Workshop logistics' });
+      await dateForm.getByLabel('Return date').fill(snoozeDate(7));
+      await dateForm.getByRole('button', { name: 'Snooze', exact: true }).click();
+      const snoozed = correspondence.locator('details').filter({ hasText: 'Snoozed conversations' });
+      const snoozedSummary = snoozed.locator('summary');
+      await snoozedSummary.waitFor();
+      await assertSingle(visibleLinks.slice(1));
+      await snoozedSummary.focus();
+      await page.keyboard.press('Enter');
+      await snoozed.getByRole('link', { name: 'Workshop logistics' }).waitFor();
+      const changeDate = snoozed.getByRole('button', { name: 'Change return date for Workshop logistics' });
+      await changeDate.focus();
+      await page.keyboard.press('Enter');
+      await dateForm.getByLabel('Return date').fill(snoozeDate(8));
+      await dateForm.getByRole('button', { name: 'Save date' }).click();
+      await snoozed.locator(`time[datetime="${snoozeDate(8)}"]`).waitFor();
+      assert.ok(await correspondence.evaluate(node => node.scrollWidth === node.clientWidth));
+      await page.screenshot({ path: join(artifacts, `project-correspondence-snoozed-${width}.png`) });
+      unread = 2;
+      await refresh.click();
+      await snoozed.waitFor({ state: 'detached' });
+      await correspondence.getByText('1 conversation returned to Active.').waitFor();
+      await correspondence.getByText('2 unread', { exact: true }).waitFor();
+      await assertSingle(visibleLinks);
+      assert.equal(await snooze.count(), 0);
+      unread = 0;
+      await refresh.click();
+      await snooze.waitFor();
+      await snooze.click();
+      await dateForm.getByLabel('Return date').fill(snoozeDate(9));
+      await dateForm.getByRole('button', { name: 'Snooze', exact: true }).click();
+      await snoozedSummary.waitFor();
+      await snoozedSummary.click();
+      await snoozed.getByRole('button', { name: 'Unsnooze Workshop logistics' }).click();
+      await snoozed.waitFor({ state: 'detached' });
+      await workshop.waitFor();
       unread = -1;
       await refresh.click();
       await correspondence.getByText('Unread status unavailable', { exact: true }).waitFor();
@@ -954,14 +1047,10 @@ try {
         }
       };
       await project.waitFor();
-      if (width === 1280) {
-        await project.locator('..').dragTo(areaLinks.getByRole('link', { name: 'Home', exact: true }));
-      } else {
-        await activate('Move to Area…');
-        const dialog = nav.getByRole('dialog', { name: 'Move to Area' });
-        await dialog.getByRole('combobox', { name: 'Area' }).selectOption('Areas/Home.md');
-        await dialog.getByRole('button', { name: 'Move', exact: true }).click();
-      }
+      await activate('Move to Area…');
+      const move = nav.getByRole('dialog', { name: 'Move to Area' });
+      await move.getByRole('combobox', { name: 'Area' }).selectOption('Areas/Home.md');
+      await move.getByRole('button', { name: 'Move', exact: true }).click();
       await nav.getByText('Project assigned locally. iCloud sync is pending.').waitFor();
       assert.deepEqual(projectChanges, [{ kind: 'area', areaPath: 'Areas/Home.md' }]);
       await switchArea('Home');
@@ -989,9 +1078,7 @@ try {
       await link('Learn woodworking').waitFor();
       await switchArea('Empty Area 0');
       await nav.getByText('No projects in this Area yet.').waitFor();
-      if (await areaPicker.isVisible()) await areaPicker.selectOption({ label: 'All areas' });
-      else await areaLinks.getByRole('link', { name: 'All areas' }).click();
-      await heading('Areas').waitFor();
+      await switchArea();
       assert.equal(await nav.getByRole('link', { name: /^Empty Area \d$/ }).count(), 8);
     } else if (mode === 'malformed') {
       await nav.getByText('Some projects or Areas could not be loaded. Inventory totals are unconfirmed.').waitFor();
