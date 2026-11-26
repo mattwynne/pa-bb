@@ -13,7 +13,7 @@
 +	o.bbParentID = item.ParentID
 --- /dev/null
 +++ b/backend/iclouddrive/bb_note_create.go
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,125 @@
 +package iclouddrive
 +
 +import (
@@ -21,9 +21,12 @@
 +	"context"
 +	"crypto/sha256"
 +	"errors"
++	"path"
++	"strings"
 +
 +	"github.com/rclone/rclone/backend/iclouddrive/api"
 +	"github.com/rclone/rclone/fs"
++	"golang.org/x/text/unicode/norm"
 +)
 +
 +func (f *Fs) BBNoteAbsent(ctx context.Context, remote string) bool {
@@ -42,13 +45,19 @@
 +		return output, api.ErrConditionalRefused
 +	}
 +	root, err := f.BBMirrorBinding(ctx)
-+	if err != nil || root != binding || !f.BBNoteAbsent(ctx, remote) {
++	if err != nil || root != binding {
 +		return output, api.ErrConditionalConflict
 +	}
-+	leaf, parent, _, err := f.FindPath(ctx, remote, false)
-+	if err != nil || api.ZoneFromDriveID(parent) != api.ZoneFromDriveID(root) {
-+		return output, api.ErrConditionalRefused
++	resolve := func() (string, *api.DriveItem, error) {
++		return bbResolveCreateTarget(root, remote, func(id string) ([]*api.DriveItem, error) {
++			return f.listAll(ctx, id)
++		})
 +	}
++	parent, occupied, err := resolve()
++	if err != nil || occupied != nil {
++		return output, api.ErrConditionalConflict
++	}
++	leaf := f.opt.Enc.FromStandardName(path.Base(remote))
 +	slot, _, err := f.service.CreateUpload(ctx, int64(len(data)), leaf, api.ZoneFromDriveID(root))
 +	if err != nil || slot == nil || slot.URL == "" || slot.DocumentID == "" {
 +		return output, api.ErrConditionalRefused
@@ -59,23 +68,70 @@
 +		return output, api.ErrConditionalRefused
 +	}
 +
-+	foundRoot, err := f.BBMirrorBinding(ctx)
-+	if err != nil || foundRoot != root || !f.BBNoteAbsent(ctx, remote) {
++	foundParent, occupied, err := resolve()
++	if err != nil || foundParent != parent || occupied != nil {
 +		return output, api.ErrConditionalConflict
++	}
++	if err := ctx.Err(); err != nil {
++		return output, api.ErrConditionalRefused
 +	}
 +	if err := dispatch(slot.DocumentID); err != nil {
 +		return output, api.ErrConditionalUnconfirmed
 +	}
-+	status, publishErr := f.service.CreateConditionalMarkdown(ctx, root, remote, slot.DocumentID, *upload.SingleFile)
++	status, publishErr := f.service.CreateConditionalMarkdown(ctx, parent, leaf, slot.DocumentID, *upload.SingleFile)
 +	if status == 409 && errors.Is(publishErr, api.ErrConditionalConflict) {
 +		return output, api.ErrConditionalConflict
 +	}
-+	item, content, err := f.readBBNoteRevision(ctx, remote)
-+	if err != nil || item.Docwsid != slot.DocumentID || item.ParentID != parent || !bytes.Equal(content, data) {
++	foundParent, item, err := resolve()
++	if err != nil || foundParent != parent || item == nil || item.Docwsid != slot.DocumentID {
++		return output, api.ErrConditionalUnconfirmed
++	}
++	content, err := f.readBBExactNoteBytes(ctx, remote, item)
++	if err != nil || !bytes.Equal(content, data) {
 +		return output, api.ErrConditionalUnconfirmed
 +	}
 +	return BBNotePublication{Revision: BBNoteRevision{item.Drivewsid, item.ParentID, item.Etag, sha256.Sum256(data)},
 +		Modified: item.DateModified, Size: item.Size}, nil
++}
++
++// Resolve through exact names from the selected root, with no directory cache.
++// The activation uses the verified parent identity and leaf separately,
++// so a same-name replacement directory cannot receive an older intent.
++func bbResolveCreateTarget(root, remote string, list func(string) ([]*api.DriveItem, error)) (string, *api.DriveItem, error) {
++	parent := root
++	parts := strings.Split(remote, "/")
++	for _, part := range parts[:len(parts)-1] {
++		items, err := list(parent)
++		if err != nil {
++			return "", nil, err
++		}
++		var selected *api.DriveItem
++		want := norm.NFC.String(part)
++		for _, item := range items {
++			if item == nil || !strings.EqualFold(norm.NFC.String(item.FullName()), want) {
++				continue
++			}
++			kind, zone, id := api.DeconstructDriveID(item.Drivewsid)
++			if selected != nil || norm.NFC.String(item.FullName()) != want || item.Type != "FOLDER" ||
++				kind != "FOLDER" || zone != api.ZoneFromDriveID(root) || id == "" || item.ParentID != parent {
++				return "", nil, api.ErrConditionalConflict
++			}
++			selected = item
++		}
++		if selected == nil {
++			return "", nil, fs.ErrorDirNotFound
++		}
++		parent = selected.Drivewsid
++	}
++	items, err := list(parent)
++	if err != nil {
++		return "", nil, err
++	}
++	item, err := bbExactNoteItem(items, parts[len(parts)-1], parent)
++	if err != nil && !errors.Is(err, fs.ErrorObjectNotFound) {
++		return "", nil, err
++	}
++	return parent, item, nil
 +}
 +
 +// Return definite absence only if the parent still resolves and has been
@@ -85,7 +141,7 @@
 +}
 --- /dev/null
 +++ b/backend/iclouddrive/bb_note_replace.go
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,205 @@
 +package iclouddrive
 +
 +import (
@@ -229,23 +285,31 @@
 +	if err != nil {
 +		return nil, nil, err
 +	}
-+	obj, err := f.NewObjectFromDriveItem(ctx, remote, item)
++	data, err := f.readBBExactNoteBytes(ctx, remote, item)
 +	if err != nil {
 +		return nil, nil, err
 +	}
++	return item, data, nil
++}
++
++func (f *Fs) readBBExactNoteBytes(ctx context.Context, remote string, item *api.DriveItem) ([]byte, error) {
++	obj, err := f.NewObjectFromDriveItem(ctx, remote, item)
++	if err != nil {
++		return nil, err
++	}
 +	stream, err := obj.Open(ctx)
 +	if err != nil {
-+		return nil, nil, err
++		return nil, err
 +	}
 +	defer stream.Close()
 +	data, err := io.ReadAll(io.LimitReader(stream, bbMarkdownLimit+1))
 +	if err != nil {
-+		return nil, nil, err
++		return nil, err
 +	}
 +	if len(data) > bbMarkdownLimit || int64(len(data)) != item.Size {
-+		return nil, nil, api.ErrConditionalUnconfirmed
++		return nil, api.ErrConditionalUnconfirmed
 +	}
-+	return item, data, nil
++	return data, nil
 +}
 +
 +// BBListedIdentity exposes the provider revision already present in the
@@ -2625,7 +2689,7 @@
 +}
 --- /dev/null
 +++ b/backend/iclouddrive/api/bb_conditional_create.go
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,93 @@
 +package api
 +
 +import (
@@ -2642,8 +2706,7 @@
 +	"github.com/rclone/rclone/lib/rest"
 +)
 +
-+// Resolve the exact relative name at publication within the bound provider
-+// root. A folder moved since staging is not an independent destination.
++// Publish an allocated note below the caller’s verified provider folder.
 +func (d *DriveService) CreateConditionalMarkdown(ctx context.Context, folder, relative, allocatedDocID string, staged SingleFileInfo) (int, error) {
 +	kind, zone, parent := DeconstructDriveID(folder)
 +	if (kind != "FOLDER" && kind != "APP_LIBRARY") || !driveIdentifier.MatchString(zone) || !driveIdentifier.MatchString(parent) ||
@@ -9904,5 +9967,48 @@
 +	config.TrackRenames = true
 +	if got := run.bbTransferScope(ctx, uploads); got != nil {
 +		t.Fatalf("tracked renames enabled a scope: %+v", got)
++	}
++}
+--- /dev/null
++++ b/backend/iclouddrive/bb_note_create_test.go
+@@ -0,0 +1,40 @@
++package iclouddrive
++
++import (
++	"errors"
++	"testing"
++
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/fs"
++)
++
++func TestBBResolveCreateTargetRequiresExactParentAndVacancy(t *testing.T) {
++	const root, old, replacement = "FOLDER::zone::root", "FOLDER::zone::old", "FOLDER::zone::replacement"
++	folder := func(name, id string) *api.DriveItem {
++		return &api.DriveItem{Name: name, Drivewsid: id, Type: "FOLDER", ParentID: root}
++	}
++	file := &api.DriveItem{Name: "Note", Extension: "md", Drivewsid: "FILE::zone::note", ParentID: replacement, Type: "FILE", Etag: "present"}
++	state := map[string][]*api.DriveItem{root: {folder("Folder", old)}}
++	resolve := func() (string, *api.DriveItem, error) {
++		return bbResolveCreateTarget(root, "Folder/Note.md", func(id string) ([]*api.DriveItem, error) { return state[id], nil })
++	}
++	parent, occupied, err := resolve()
++	if err != nil || parent != old || occupied != nil {
++		t.Fatalf("initial target = %q, %v, %v", parent, occupied, err)
++	}
++	// A fresh parent check cannot silently reuse the original spelling cache.
++	state[root] = []*api.DriveItem{folder("Renamed", old), folder("Folder", replacement)}
++	state[replacement] = []*api.DriveItem{file}
++	parent, occupied, err = resolve()
++	if err != nil || parent != replacement || occupied != file {
++		t.Fatalf("recreated target = %q, %v, %v", parent, occupied, err)
++	}
++	state[root] = append(state[root], folder("folder", "FOLDER::zone::collision"))
++	if _, _, err := resolve(); !errors.Is(err, api.ErrConditionalConflict) {
++		t.Fatalf("competing casing = %v", err)
++	}
++	state[root] = []*api.DriveItem{folder("Renamed", old)}
++	if _, _, err := resolve(); !errors.Is(err, fs.ErrorDirNotFound) {
++		t.Fatalf("moved original reported as vacant = %v", err)
 +	}
 +}
