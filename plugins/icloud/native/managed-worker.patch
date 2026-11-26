@@ -466,11 +466,22 @@
 +		}
 +	}
 +
-@@ -382,0 +425,3 @@
+@@ -359 +401,3 @@
+-		if !ds1.foundSame {
++		path1AllChanged := !ds1.foundSame && !b.onlyAcknowledgedCloneTimestamps(ds1)
++		path2AllChanged := !ds2.foundSame && !b.onlyAcknowledgedCloneTimestamps(ds2)
++		if path1AllChanged {
+@@ -362 +406 @@
+-		if !ds2.foundSame {
++		if path2AllChanged {
+@@ -365 +409 @@
+-		if !ds1.foundSame || !ds2.foundSame {
++		if path1AllChanged || path2AllChanged {
+@@ -382,0 +427,3 @@
 +		if drainErr := b.bbTransferPhase.drain(fctx, b.workDir); drainErr != nil {
 +			return errors.Join(err, drainErr)
 +		}
-@@ -458,0 +504,5 @@
+@@ -458,0 +506,5 @@
 +	if opt.bbAfterSync != nil {
 +		if err := opt.bbAfterSync(fctx, b); err != nil {
 +			return err
@@ -6978,7 +6989,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_folder_content.go
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,175 @@
 +package bisync
 +
 +import (
@@ -7060,11 +7071,31 @@
 +			change.hashes[i] = &digest
 +			change.changed[i] = recreated || digest != original
 +		}
-+		if change.changed[0] || change.changed[1] {
++		verifiedClone := len(move.Copies) > 0 && change.hashes[0] != nil && change.hashes[1] != nil
++		if change.changed[0] || change.changed[1] || verifiedClone {
 +			changes[name] = change
 +		}
 +	}
 +	return changes, nil
++}
++
++// Apple can assign a new timestamp to each staged copy. In a mirror
++// containing only the moved notes this can look like a whole-vault change.
++// Keep the safety abort for any difference beyond a verified same-content
++// clone with an exact name and a timestamp-only delta.
++func (b *bisyncRun) onlyAcknowledgedCloneTimestamps(ds *deltaSet) bool {
++	if b.bbFolderReconcile == "" || ds.oldCount == 0 || ds.oldCount != len(ds.deltas) {
++		return false
++	}
++	for name, delta := range ds.deltas {
++		change, known := b.bbFolderChanges[name]
++		if !known || delta == deltaZero || delta & ^deltaTime != 0 ||
++			change.changed[0] || change.changed[1] || change.hashes[0] == nil || change.hashes[1] == nil ||
++			*change.hashes[0] != *change.hashes[1] {
++			return false
++		}
++	}
++	return true
 +}
 +
 +func (b *bisyncRun) verifyBBFolderVersion(ctx context.Context, side fs.Fs, name string, wanted *[sha256.Size]byte) error {
@@ -7547,7 +7578,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_folder_move_test.go
-@@ -0,0 +1,497 @@
+@@ -0,0 +1,617 @@
 +package bisync
 +
 +import (
@@ -8043,6 +8074,126 @@
 +	installed, err := BBReadFolderMove(workdir, move.OperationID)
 +	if err != nil || installed == nil || !installed.BaselineInstalled {
 +		t.Fatalf("replayed state = %+v, err = %v", installed, err)
++	}
++}
++
++func TestBBOnlyVerifiedCloneTimestampsBypassAllChangedAbort(t *testing.T) {
++	original := sha256.Sum256([]byte("original"))
++	changed := sha256.Sum256([]byte("changed"))
++	move := &bisyncRun{
++		bbFolderReconcile: "known operation",
++		bbFolderChanges: map[string]bbFolderContentChange{
++			"folder/note.md":   {hashes: [2]*[sha256.Size]byte{&original, &original}},
++			"folder/asset.bin": {hashes: [2]*[sha256.Size]byte{&original, &original}},
++		},
++	}
++	observed := &deltaSet{
++		oldCount: 2,
++		deltas:   map[string]delta{"folder/note.md": deltaNewer, "folder/asset.bin": deltaOlder},
++	}
++	if !move.onlyAcknowledgedCloneTimestamps(observed) {
++		t.Fatal("proven timestamp-only differences still triggered whole-vault protection")
++	}
++	for _, change := range []delta{deltaDeleted, deltaNew, deltaLarger, deltaHash, deltaNewer | deltaLarger} {
++		observed.deltas["folder/asset.bin"] = change
++		if move.onlyAcknowledgedCloneTimestamps(observed) {
++			t.Fatalf("unsafe difference was accepted: %d", change)
++		}
++	}
++	observed.deltas["folder/asset.bin"] = deltaNewer
++	move.bbFolderChanges["folder/asset.bin"] = bbFolderContentChange{hashes: [2]*[sha256.Size]byte{&original, &changed}}
++	if move.onlyAcknowledgedCloneTimestamps(observed) {
++		t.Fatal("a changed payload bypassed whole-vault protection")
++	}
++	delete(move.bbFolderChanges, "folder/asset.bin")
++	if move.onlyAcknowledgedCloneTimestamps(observed) {
++		t.Fatal("an unproven path bypassed whole-vault protection")
++	}
++}
++
++func TestBBManagedCaseCloneReconcilesWhenEveryCloudTimestampChanged(t *testing.T) {
++	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
++	defer cancel()
++	cloudRoot, mirrorRoot, workdir := t.TempDir(), t.TempDir(), t.TempDir()
++	const source, target, binding = "Folder", "folder", "binding"
++	baseline := time.Unix(1700000000, 0)
++	contents := map[string]string{"Note.md": "same bytes", "Attachment.bin": "unchanged attachment"}
++	for _, root := range []string{cloudRoot, mirrorRoot} {
++		if err := os.Mkdir(filepath.Join(root, source), 0700); err != nil {
++			t.Fatal(err)
++		}
++		for name, body := range contents {
++			filename := filepath.Join(root, source, name)
++			if err := os.WriteFile(filename, []byte(body), 0600); err != nil {
++				t.Fatal(err)
++			}
++			if err := os.Chtimes(filename, baseline, baseline); err != nil {
++				t.Fatal(err)
++			}
++		}
++	}
++	cloudReal, err := local.NewFs(ctx, "local", cloudRoot, configmap.Simple{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	mirror, err := local.NewFs(ctx, "local", mirrorRoot, configmap.Simple{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	options := Options{Resync: true, Workdir: workdir, CompareFlag: "size,modtime", CheckSync: CheckSyncTrue, MaxDelete: 50}
++	if err := Bisync(ctx, cloudReal, mirror, &options); err != nil {
++		t.Fatal(err)
++	}
++
++	before := BBIndexedVersion{DocumentID: "original-folder", ParentID: binding, ETag: "before"}
++	published := BBIndexedVersion{DocumentID: "copied-folder", ParentID: binding, ETag: "published"}
++	intent := BBFolderMoveIntent{OperationID: "1617f294-1a70-4ca5-a592-b7325ea3ca48", Binding: binding, Source: source,
++		Path: target, DestinationParent: binding, Entries: map[string]BBTreeIdentity{source: {before, true}}, Hashes: map[string][sha256.Size]byte{}}
++	copies := map[string]BBIndexedVersion{source: published}
++	observed := map[string]BBIndexedVersion{}
++	for name, body := range contents {
++		sourceName := source + "/" + name
++		newName := target + "/" + name
++		intent.Entries[sourceName] = BBTreeIdentity{BBIndexedVersion: BBIndexedVersion{"original-" + name, before.DocumentID, "old"}}
++		intent.Hashes[sourceName] = sha256.Sum256([]byte(body))
++		copies[sourceName] = BBIndexedVersion{"new-" + name, published.DocumentID, "copied"}
++		observed[newName] = copies[sourceName]
++	}
++	state := bbDeliveryStore{Version: bbCloneAcknowledgementVersion, FolderMove: &BBFolderMove{
++		Intent: intent, Dispatched: true, Published: &published, Copies: copies,
++	}}
++	if err := state.write(workdir); err != nil {
++		t.Fatal(err)
++	}
++	for _, root := range []string{cloudRoot, mirrorRoot} {
++		if err := os.Rename(filepath.Join(root, source), filepath.Join(root, target)); err != nil {
++			t.Fatal(err)
++		}
++	}
++	for name := range contents {
++		filename := filepath.Join(cloudRoot, target, name)
++		newTime := baseline.Add(time.Minute)
++		if err := os.Chtimes(filename, newTime, newTime); err != nil {
++			t.Fatal(err)
++		}
++	}
++
++	cloud := bbHeldFolderFilesystem{&bbHeldListingFS{Fs: cloudReal, versions: observed}, map[string]BBIndexedVersion{target: published}}
++	options.Resync = false
++	if err := BBManagedBisync(ctx, &cloud, mirror, options, binding); err != nil {
++		t.Fatal(err)
++	}
++	for name, want := range contents {
++		for _, root := range []string{cloudRoot, mirrorRoot} {
++			payload, err := os.ReadFile(filepath.Join(root, target, name))
++			if err != nil || string(payload) != want {
++				t.Fatalf("reconciled %s = %q, %v", name, payload, err)
++			}
++		}
++	}
++	closed, rejected, err := BBFolderMoveOutcome(workdir, intent.OperationID, binding, source, target)
++	if err != nil || rejected || closed == nil || *closed != published {
++		t.Fatalf("folder receipt = %+v, %t, %v", closed, rejected, err)
 +	}
 +}
 --- a/cmd/bisync/resolve.go
