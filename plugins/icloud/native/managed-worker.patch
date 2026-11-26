@@ -2335,7 +2335,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,274 @@
+@@ -0,0 +1,275 @@
 +package main
 +
 +import (
@@ -2369,6 +2369,7 @@
 +	Workdir     string            `json:"workdir,omitempty"`
 +	OperationID string            `json:"operationId,omitempty"`
 +	Text        string            `json:"text,omitempty"`
++	WantedHash  string            `json:"wantedHash,omitempty"`
 +}
 +
 +type ownedNoteVersion struct {
@@ -2451,7 +2452,7 @@
 +	if operation == "relocate" {
 +		return applyOwnedRelocation(ctx, cloud, request)
 +	}
-+	if request.Source != "" {
++	if request.Source != "" || request.WantedHash != "" {
 +		return refused
 +	}
 +	if operation == "inspect" {
@@ -2729,7 +2730,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation.go
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,142 @@
 +package main
 +
 +import (
@@ -2753,7 +2754,7 @@
 +func applyOwnedRelocation(ctx context.Context, cloud relocationCloud, request ownedNoteFrame) ownedNoteReply {
 +	refused := ownedNoteReply{Outcome: "refused"}
 +	uncertain := ownedNoteReply{Outcome: "uncertain"}
-+	if request.Expected == nil || request.Source == "" || len(request.Text) < 1 || len(request.Text) > 1<<20 {
++	if request.Expected == nil || request.Source == "" || len(request.Text) > 1<<20 {
 +		return refused
 +	}
 +	previous := request.Expected
@@ -2762,8 +2763,18 @@
 +		return refused
 +	}
 +	data := []byte(request.Text)
++	wanted := sha256.Sum256(data)
++	if request.WantedHash != "" {
++		raw, err := hex.DecodeString(request.WantedHash)
++		if err != nil || len(raw) != sha256.Size || (len(data) > 0 && wanted != [sha256.Size]byte(raw)) {
++			return refused
++		}
++		wanted = [sha256.Size]byte(raw)
++	} else if len(data) == 0 {
++		return refused
++	}
 +	intent := bisync.BBRelocationIntent{
-+		BBDeliveryIntent: bisync.BBDeliveryIntent{OperationID: request.OperationID, Path: request.Path, Hash: sha256.Sum256(data), Create: true},
++		BBDeliveryIntent: bisync.BBDeliveryIntent{OperationID: request.OperationID, Path: request.Path, Hash: wanted, Create: true},
 +		Source:           request.Source, Binding: request.Binding,
 +		Previous:   bisync.BBIndexedVersion{DocumentID: previous.DocumentID, ParentID: previous.ParentID, ETag: previous.ETag},
 +		SourceHash: [sha256.Size]byte(previousHash),
@@ -2783,6 +2794,11 @@
 +		})
 +	}
 +	if state == nil {
++		// A recovery frame cannot open a new move. An operation whose
++		// local bytes vanished can only resume its exact native journal.
++		if len(data) == 0 {
++			return refused
++		}
 +		source, err := cloud.ObserveBBCreate(ctx, request.Source)
 +		if err != nil || source.Revision != sourceVersion {
 +			return refused
@@ -2859,7 +2875,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation_test.go
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,140 @@
 +package main
 +
 +import (
@@ -2951,6 +2967,13 @@
 +			if scenario == "occupied destination" {
 +				cloud.notes["to.md"] = fixturePublication("unrelated-document", "existing", []byte("Independent Mac bytes"))
 +			}
++			hashOnly := request
++			hashOnly.Text = ""
++			destinationHash := sha256.Sum256([]byte(text))
++			hashOnly.WantedHash = hex.EncodeToString(destinationHash[:])
++			if unexpected := applyOwnedRelocation(ctx, cloud, hashOnly); unexpected.Outcome != "refused" || cloud.creates != 0 {
++				t.Fatalf("hash-only frame started an unrecorded move: %+v", unexpected)
++			}
 +			first := applyOwnedRelocation(ctx, cloud, request)
 +			want := "uncertain"
 +			if scenario == "occupied destination" {
@@ -2975,7 +2998,7 @@
 +			if scenario == "changed destination" {
 +				cloud.notes["to.md"] = fixturePublication("allocated-document", "mac", []byte("Mac destination edit"))
 +			}
-+			second := applyOwnedRelocation(ctx, cloud, request)
++			second := applyOwnedRelocation(ctx, cloud, hashOnly)
 +			switch scenario {
 +			case "later source edit", "same bytes foreign destination", "changed destination", "occupied destination":
 +				if second.Outcome != want || cloud.trashes != 0 || cloud.notes["from.md"].Size == 0 {
