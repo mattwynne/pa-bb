@@ -27,9 +27,9 @@ const identityPart = z.string().min(1).max(512);
 const workerReply = z.discriminatedUnion('outcome', [
   z.strictObject({outcome:z.literal('folder_published'),folder:z.strictObject({
     source:z.strictObject({documentId:identityPart,parentId:identityPart,etag:identityPart}),
-    destinationParent:identityPart,method:z.literal('move'),
+    destinationParent:identityPart,method:z.enum(['move','copy']),
   })}),
-  z.strictObject({outcome:z.literal('folder_collision'),alternatePath:relative}),
+  z.strictObject({outcome:z.enum(['folder_collision','folder_case_conflict']),alternatePath:relative}),
   z.strictObject({outcome:z.enum(['refused','uncertain','folder_not_dispatched','folder_refused'])}),
 ]);
 type FolderMove = z.infer<typeof move>;
@@ -156,8 +156,7 @@ export async function publishQueuedFolderMove(id:string, target:ManagedNativeMir
   const {source,path,operationId} = pending;
   let folderEntries:FolderEntry[]|undefined;
   if (!pending.dispatched) {
-    // A same-name cross-parent transition keeps the original iCloud folder ID.
-    if (source.split('/').at(-1) !== path.split('/').at(-1) || source === path ||
+    if (source === path ||
       await localFolder(root,source) !== 'absent' || await localFolder(root,path) !== 'directory') {
       queue.settle(id,operationId);
       return;
@@ -178,9 +177,12 @@ export async function publishQueuedFolderMove(id:string, target:ManagedNativeMir
   }));
   if (!result.success) throw new CloudError('unavailable');
   const reply = result.data;
-  if (reply.outcome === 'folder_collision') {
+  if (reply.outcome === 'folder_collision' || reply.outcome === 'folder_case_conflict') {
     const parent = (value:string) => value.slice(0,value.lastIndexOf('/')+1);
-    if (reply.alternatePath === path || reply.alternatePath === source || parent(reply.alternatePath) !== parent(path))
+    const matchesScope = reply.outcome === 'folder_case_conflict'
+      ? reply.alternatePath === `.bb-icloud-rename-${operationId}/${path.split('/').at(-1)!}`
+      : parent(reply.alternatePath) === parent(path);
+    if (reply.alternatePath === path || reply.alternatePath === source || !matchesScope)
       throw new CloudError('source_changed');
     queue.preserveCollision(id,operationId,reply.alternatePath);
     return 'folder_collision' as const;

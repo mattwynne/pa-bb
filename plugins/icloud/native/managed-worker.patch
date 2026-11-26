@@ -814,7 +814,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_delivery_store.go
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,343 @@
 +package bisync
 +
 +import (
@@ -833,7 +833,7 @@
 +const bbDeliveryLimit = 256
 +const bbEmptyNoteVersion = 8
 +const bbDeliveryBytes = 1 << 20
-+const bbDeliveryStateLimit = 5 << 20
++const bbDeliveryStateLimit = 16 << 20
 +
 +var bbOperationID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 +var ErrBBDeliveryUnsettled = errors.New("an expedited iCloud publication still needs verification")
@@ -864,6 +864,7 @@
 +	PendingData         *[]byte               `json:",omitempty"`
 +	PendingDocument     string                `json:",omitempty"`
 +	Relocation          *BBRelocation         `json:",omitempty"`
++	FolderClone         *BBFolderCloneJournal `json:",omitempty"`
 +	FolderMove          *BBFolderMove         `json:",omitempty"`
 +	FinishedFolders     []bbFolderPublication `json:",omitempty"`
 +	ReconciledConflicts []BBRelocationIntent  `json:",omitempty"`
@@ -896,7 +897,9 @@
 +		return bbDeliveryStore{}, err
 +	}
 +	var state bbDeliveryStore
-+	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > bbFolderMoveVersion) ||
++	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > bbFolderCloneVersion) ||
++		(state.FolderClone != nil && (state.Version < bbFolderCloneVersion || state.FolderMove != nil ||
++			state.Relocation != nil || !state.FolderClone.valid())) ||
 +		(state.FolderMove != nil && (state.Version < bbFolderMoveVersion || !state.FolderMove.valid())) ||
 +		(state.Relocation != nil && (state.Version < 2 || (state.Pending != nil && state.Version < 3) ||
 +			(state.Version < 7 && BBCaseRelocation(state.Relocation.Intent.Source, state.Relocation.Intent.Path)) ||
@@ -986,8 +989,9 @@
 +	if err != nil {
 +		return err
 +	}
-+	if state.Pending != nil || (state.FolderMove != nil && state.FolderMove.overlaps(intent.Path, knownDocument...) &&
-+		!state.FolderMove.permitsReplacement(intent, knownDocument)) {
++	if state.Pending != nil || (state.FolderClone != nil && state.FolderClone.overlaps(intent.Path, knownDocument...)) ||
++		(state.FolderMove != nil && state.FolderMove.overlaps(intent.Path, knownDocument...) &&
++			!state.FolderMove.permitsReplacement(intent, knownDocument)) {
 +		return ErrBBDeliveryUnsettled
 +	}
 +	if state.Relocation != nil {
@@ -1769,7 +1773,7 @@
 +	if b.bbFolderReconcile != "" {
 +		heldState.FolderMove = nil
 +	}
-+	if heldState.Pending != nil || heldState.Relocation != nil || heldState.FolderMove != nil {
++	if heldState.Pending != nil || heldState.Relocation != nil || heldState.FolderMove != nil || heldState.FolderClone != nil {
 +		if err := b.holdBBPublications(ctx, heldState); err != nil {
 +			return err
 +		}
@@ -2594,7 +2598,7 @@
 +}
 --- /dev/null
 +++ b/backend/iclouddrive/api/bb_conditional_create.go
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,86 @@
 +package api
 +
 +import (
@@ -2606,6 +2610,7 @@
 +	"path"
 +	"strings"
 +	"time"
++	"unicode/utf8"
 +
 +	"github.com/rclone/rclone/lib/rest"
 +)
@@ -2619,6 +2624,25 @@
 +		!driveIdentifier.MatchString(allocatedDocID) || staged.Signature == "" || staged.Size < 0 || staged.Size > (1<<20) {
 +		return 0, ErrConditionalRefused
 +	}
++	return d.publishBBAllocatedFile(ctx, zone, parent, relative, allocatedDocID, staged)
++}
++
++// ActivateBBFolderFile publishes an already allocated copy at one exact
++// destination leaf. The caller owns and verifies the destination parent and
++// the allocation before this operation can publish it.
++func (d *DriveService) ActivateBBFolderFile(ctx context.Context, directoryID, leaf, allocatedDocID string, staged SingleFileInfo) (int, error) {
++	kind, zone, parent := DeconstructDriveID(directoryID)
++	if kind != "FOLDER" || !driveIdentifier.MatchString(zone) || !driveIdentifier.MatchString(parent) ||
++		leaf == "" || leaf == "." || leaf == ".." || len(leaf) > 255 || !utf8.ValidString(leaf) ||
++		strings.IndexFunc(leaf, func(r rune) bool { return r < 32 || r == 127 || r == '/' || r == '\\' }) >= 0 ||
++		!driveIdentifier.MatchString(allocatedDocID) || allocatedDocID == parent ||
++		staged.Signature == "" || staged.Size < 0 || staged.Size > (1<<30) {
++		return 0, ErrConditionalRefused
++	}
++	return d.publishBBAllocatedFile(ctx, zone, parent, leaf, allocatedDocID, staged)
++}
++
++func (d *DriveService) publishBBAllocatedFile(ctx context.Context, zone, parent, relative, allocatedDocID string, staged SingleFileInfo) (int, error) {
 +	request := NewUpdateFileInfo()
 +	request.AllowConflict = false
 +	request.CreateShortGUID = false
@@ -3890,7 +3914,7 @@
 +	if err != nil {
 +		return nil, nil, err
 +	}
-+	if state.Pending != nil || state.FolderMove != nil {
++	if state.Pending != nil || state.FolderMove != nil || state.FolderClone != nil {
 +		return nil, nil, ErrBBDeliveryUnsettled
 +	}
 +	if state.Relocation != nil {
@@ -3917,7 +3941,7 @@
 +	if err != nil {
 +		return err
 +	}
-+	if state.FolderMove != nil {
++	if state.FolderMove != nil || state.FolderClone != nil {
 +		return ErrBBDeliveryUnsettled
 +	}
 +	move := BBRelocation{Intent: intent, Data: data}
@@ -4067,7 +4091,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation_hold.go
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,199 @@
 +package bisync
 +
 +import (
@@ -4174,6 +4198,9 @@
 +		for _, entry := range folder.Intent.Entries {
 +			folderDocuments[entry.DocumentID] = true
 +		}
++		for _, entry := range folder.Copies {
++			folderDocuments[entry.DocumentID] = true
++		}
 +		for _, name := range []string{folder.Intent.Source, folder.Intent.Path} {
 +			held.trees[bbFoldPath(name)] = true
 +			held.trees[bbFoldPath(b.aliases.Alias(name))] = true
@@ -4183,6 +4210,33 @@
 +				return ErrBBDeliveryUnsettled
 +			}
 +			if folderDocuments[version.DocumentID] {
++				held.trees[bbFoldPath(name)] = true
++				held.trees[bbFoldPath(b.aliases.Alias(name))] = true
++			}
++		}
++	}
++	clone := state.FolderClone
++	var cloneDocuments map[string]bool
++	if clone != nil {
++		cloneDocuments = make(map[string]bool, len(clone.Intent.Entries)+len(clone.Copies)+1)
++		if clone.Stage != nil {
++			cloneDocuments[clone.Stage.DocumentID] = true
++		}
++		for _, entry := range clone.Intent.Entries {
++			cloneDocuments[entry.DocumentID] = true
++		}
++		for _, copy := range clone.Copies {
++			cloneDocuments[copy.DocumentID] = true
++		}
++		for _, name := range []string{clone.Intent.Source, clone.Intent.Path, clone.StageName()} {
++			held.trees[bbFoldPath(name)] = true
++			held.trees[bbFoldPath(b.aliases.Alias(name))] = true
++		}
++		for name, version := range b.march.bbCloudDirs {
++			if version.DocumentID == "" {
++				return ErrBBDeliveryUnsettled
++			}
++			if cloneDocuments[version.DocumentID] {
 +				held.trees[bbFoldPath(name)] = true
 +				held.trees[bbFoldPath(b.aliases.Alias(name))] = true
 +			}
@@ -4198,7 +4252,7 @@
 +	}
 +	for name, observation := range b.march.bbIdentities {
 +		id := observation.DocumentID
-+		if folderDocuments[id] || (move != nil && move.hasProviderDocument(id)) ||
++		if folderDocuments[id] || cloneDocuments[id] || (move != nil && move.hasProviderDocument(id)) ||
 +			(pending != nil && ((!pending.Create && id == state.PendingDocument) ||
 +				(pending.Create && state.AllocatedDocument != "" && bbAllocatedDocumentID(id) == state.AllocatedDocument))) {
 +			paths = append(paths, name)
@@ -6274,7 +6328,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_folder_move.go
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,202 @@
 +package main
 +
 +import (
@@ -6363,6 +6417,16 @@
 +	}}
 +}
 +
++func cloneFolderReply(request ownedNoteFrame, published bisync.BBIndexedVersion) ownedNoteReply {
++	method := "move"
++	if path.Base(request.Source) != path.Base(request.Path) {
++		method = "copy"
++	}
++	return ownedNoteReply{Outcome: "folder_published", Folder: &ownedFolderObservation{
++		Source: published, DestinationParent: published.ParentID, Method: method,
++	}}
++}
++
 +func applyOwnedFolderMove(ctx context.Context, cloud folderMoveCloud, request ownedNoteFrame) ownedNoteReply {
 +	refused, uncertain := ownedNoteReply{Outcome: "refused"}, ownedNoteReply{Outcome: "uncertain"}
 +	if request.OperationID == "" || request.Expected != nil || request.Text != nil || request.WantedHash != "" {
@@ -6376,9 +6440,18 @@
 +		return ownedNoteReply{Outcome: "folder_refused"}
 +	}
 +	if prior != nil {
-+		return ownedNoteReply{Outcome: "folder_published", Folder: &ownedFolderObservation{
-+			Source: *prior, DestinationParent: prior.ParentID, Method: "move",
-+		}}
++		return cloneFolderReply(request, *prior)
++	}
++	clone, err := bisync.BBReadFolderClone(request.Workdir)
++	if err != nil {
++		return uncertain
++	}
++	if clone != nil {
++		worker, ok := cloud.(ownedCloneMover)
++		if !ok {
++			return uncertain
++		}
++		return runOwnedFolderClone(ctx, worker, request)
 +	}
 +	existing, err := bisync.BBReadFolderMove(request.Workdir, request.OperationID)
 +	if err != nil {
@@ -6388,6 +6461,9 @@
 +		intent := existing.Intent
 +		if intent.Binding != request.Binding || intent.Source != request.Source || intent.Path != request.Path {
 +			return refused
++		}
++		if len(existing.Copies) > 0 && existing.Published != nil {
++			return cloneFolderReply(request, *existing.Published)
 +		}
 +		if existing.Dispatched {
 +			return observeOwnedFolderMove(ctx, cloud, existing, request.Workdir)
@@ -6402,7 +6478,7 @@
 +	inspect := request
 +	inspect.OperationID = ""
 +	reply := inspectOwnedFolder(ctx, cloud, inspect)
-+	if reply.Outcome != "folder_verified" || reply.Folder == nil || reply.Folder.Method != "move" {
++	if reply.Outcome != "folder_verified" || reply.Folder == nil {
 +		if existing != nil && bisync.BBAbortUndispatchedFolderMove(request.Workdir, request.OperationID) != nil {
 +			return uncertain
 +		}
@@ -6420,6 +6496,19 @@
 +		OperationID: request.OperationID, Binding: request.Binding, Source: request.Source, Path: request.Path,
 +		DestinationParent: folder.DestinationParent, Entries: folder.entries, Hashes: hashes,
 +	}, Dispatched: true}
++	if folder.Method == "copy" || folder.Method == "case_copy" {
++		worker, ok := cloud.(ownedCloneMover)
++		if !ok || existing != nil {
++			return refused
++		}
++		if err := bisync.BBPrepareFolderClone(request.Workdir, move.Intent); err != nil {
++			return uncertain
++		}
++		return runOwnedFolderClone(ctx, worker, request)
++	}
++	if folder.Method != "move" {
++		return refused
++	}
 +	if err := bisync.BBPrepareFolderMove(request.Workdir, move.Intent); err != nil {
 +		return uncertain
 +	}
@@ -6557,12 +6646,13 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_folder_baseline.go
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,117 @@
 +package bisync
 +
 +import (
 +	"crypto/sha256"
 +	"os"
++	"path"
 +	"strings"
 +)
 +
@@ -6571,7 +6661,7 @@
 +// normally from that shared ancestor. An occupied destination or different
 +// source shape is ambiguous and must remain held.
 +func relocateBBFolderBaseline(previous *fileList, move BBFolderMoveIntent, recordsDirectories bool) (*fileList, error) {
-+	if previous == nil || !validBBFolderMoveIntent(move) {
++	if previous == nil || !validBBFolderTransition(move, path.Base(move.Source) != path.Base(move.Path)) {
 +		return nil, errBBInvalidDelivery
 +	}
 +	source, destination := bbFoldPath(move.Source), bbFoldPath(move.Path)
@@ -6580,7 +6670,7 @@
 +	shifted := 0
 +	for _, name := range previous.list {
 +		key := bbFoldPath(name)
-+		if key == destination || strings.HasPrefix(key, destination+"/") {
++		if source != destination && (key == destination || strings.HasPrefix(key, destination+"/")) {
 +			return nil, ErrBBDeliveryUnsettled
 +		}
 +		if key != source && !strings.HasPrefix(key, source+"/") {
@@ -6728,7 +6818,7 @@
 +			}
 +			recreated := false
 +			if i == 0 {
-+				prior := move.Intent.Entries[source].BBIndexedVersion
++				prior := move.providerFor(source)
 +				observed := b.march.bbIdentities[name]
 +				if observed.DocumentID == "" {
 +					return nil, ErrBBDeliveryUnsettled
@@ -6834,7 +6924,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_folder_move.go
-@@ -0,0 +1,308 @@
+@@ -0,0 +1,354 @@
 +package bisync
 +
 +import (
@@ -6865,8 +6955,9 @@
 +type BBFolderMove struct {
 +	Intent            BBFolderMoveIntent
 +	Dispatched        bool
-+	Published         *BBIndexedVersion `json:",omitempty"`
-+	BaselineInstalled bool              `json:",omitempty"`
++	Published         *BBIndexedVersion           `json:",omitempty"`
++	BaselineInstalled bool                        `json:",omitempty"`
++	Copies            map[string]BBIndexedVersion `json:",omitempty"`
 +}
 +
 +type bbFolderPublication struct {
@@ -6881,7 +6972,8 @@
 +func (record bbFolderPublication) valid() bool {
 +	return bbOperationID.MatchString(record.OperationID) && record.Binding != "" &&
 +		validBBFolderPath(record.Source) && validBBFolderPath(record.Path) &&
-+		path.Base(record.Source) == path.Base(record.Path) && bbFoldPath(record.Source) != bbFoldPath(record.Path) &&
++		record.Source != record.Path &&
++		(bbFoldPath(record.Source) != bbFoldPath(record.Path) || path.Dir(record.Source) == path.Dir(record.Path)) &&
 +		((record.Rejected && record.Published == (BBIndexedVersion{})) ||
 +			(!record.Rejected && record.Published.DocumentID != "" && record.Published.ParentID != "" && record.Published.ETag != ""))
 +}
@@ -6913,17 +7005,24 @@
 +}
 +
 +func validBBFolderMoveIntent(intent BBFolderMoveIntent) bool {
++	return validBBFolderTransition(intent, false)
++}
++
++func validBBFolderTransition(intent BBFolderMoveIntent, clone bool) bool {
 +	if !bbOperationID.MatchString(intent.OperationID) || intent.Binding == "" || intent.DestinationParent == "" ||
-+		!validBBFolderPath(intent.Source) || !validBBFolderPath(intent.Path) || path.Base(intent.Source) != path.Base(intent.Path) ||
++		!validBBFolderPath(intent.Source) || !validBBFolderPath(intent.Path) || intent.Source == intent.Path ||
++		(!clone && path.Base(intent.Source) != path.Base(intent.Path)) ||
++		(clone && path.Base(intent.Source) == path.Base(intent.Path)) ||
 +		len(intent.Entries) == 0 || len(intent.Entries) > 10001 {
 +		return false
 +	}
 +	from, to := bbFoldPath(intent.Source), bbFoldPath(intent.Path)
-+	if from == to || strings.HasPrefix(from, to+"/") || strings.HasPrefix(to, from+"/") {
++	if (from == to && (!clone || path.Dir(intent.Source) != path.Dir(intent.Path))) ||
++		strings.HasPrefix(from, to+"/") || strings.HasPrefix(to, from+"/") {
 +		return false
 +	}
 +	root := intent.Entries[intent.Source]
-+	if !root.Directory || root.ParentID == intent.DestinationParent || root.DocumentID == intent.DestinationParent ||
++	if !root.Directory || (!clone && root.ParentID == intent.DestinationParent) || root.DocumentID == intent.DestinationParent ||
 +		root.DocumentID == intent.Binding {
 +		return false
 +	}
@@ -6960,15 +7059,44 @@
 +}
 +
 +func (move BBFolderMove) valid() bool {
-+	if !validBBFolderMoveIntent(move.Intent) {
++	cloned := len(move.Copies) > 0
++	if !validBBFolderTransition(move.Intent, cloned) {
 +		return false
 +	}
 +	if move.Published == nil {
-+		return !move.BaselineInstalled
++		return !move.BaselineInstalled && !cloned
 +	}
-+	root := move.Intent.Entries[move.Intent.Source]
-+	return move.Dispatched && move.Published.DocumentID == root.DocumentID &&
-+		move.Published.ParentID == move.Intent.DestinationParent && move.Published.ETag != ""
++	root := move.providerFor(move.Intent.Source)
++	if !move.Dispatched || !validBBCloneIdentity(*move.Published) || move.Published.DocumentID != root.DocumentID ||
++		move.Published.ParentID != move.Intent.DestinationParent {
++		return false
++	}
++	if !cloned {
++		return true
++	}
++	if len(move.Copies) != len(move.Intent.Entries) || root != *move.Published {
++		return false
++	}
++	identities := make(map[string]bool, len(move.Copies)+len(move.Intent.Entries))
++	for _, original := range move.Intent.Entries {
++		identities[original.DocumentID] = true
++	}
++	identities[move.Intent.Binding] = true
++	for name, copied := range move.Copies {
++		if _, known := move.Intent.Entries[name]; !known || !validBBCloneIdentity(copied) || identities[copied.DocumentID] ||
++			(name != move.Intent.Source && copied.ParentID != move.Copies[path.Dir(name)].DocumentID) {
++			return false
++		}
++		identities[copied.DocumentID] = true
++	}
++	return true
++}
++
++func (move BBFolderMove) providerFor(source string) BBIndexedVersion {
++	if len(move.Copies) != 0 {
++		return move.Copies[source]
++	}
++	return move.Intent.Entries[source].BBIndexedVersion
 +}
 +
 +func (move BBFolderMove) overlaps(notePath string, documents ...string) bool {
@@ -6981,6 +7109,11 @@
 +	}
 +	if len(documents) != 0 {
 +		for _, entry := range move.Intent.Entries {
++			if slices.Contains(documents, entry.DocumentID) {
++				return true
++			}
++		}
++		for _, entry := range move.Copies {
 +			if slices.Contains(documents, entry.DocumentID) {
 +				return true
 +			}
@@ -6998,7 +7131,7 @@
 +	old := move.Intent.Source + strings.TrimPrefix(target, move.Intent.Path)
 +	entry := move.Intent.Entries[old]
 +	digest, exists := move.Intent.Hashes[old]
-+	return entry.BBIndexedVersion, digest, exists && !entry.Directory && entry.DocumentID != ""
++	return move.providerFor(old), digest, exists && !entry.Directory && entry.DocumentID != ""
 +}
 +
 +func BBMovedNoteBaseline(workdir, binding, target string) (BBIndexedVersion, [sha256.Size]byte, bool) {
@@ -7045,12 +7178,15 @@
 +		}
 +		return nil
 +	}
-+	if state.Pending != nil || state.Relocation != nil || slices.ContainsFunc(state.Confirmed, func(receipt BBDeliveryReceipt) bool {
++	if state.Pending != nil || state.Relocation != nil || state.FolderClone != nil || slices.ContainsFunc(state.Confirmed, func(receipt BBDeliveryReceipt) bool {
 +		return move.overlaps(receipt.Path, receipt.ProviderID) || (receipt.RemovedPath != "" && move.overlaps(receipt.RemovedPath))
 +	}) {
 +		return ErrBBDeliveryUnsettled
 +	}
-+	state.Version, state.FolderMove = bbFolderMoveVersion, &move
++	if state.Version < bbFolderMoveVersion {
++		state.Version = bbFolderMoveVersion
++	}
++	state.FolderMove = &move
 +	return state.write(workdir)
 +}
 +
@@ -7578,3 +7714,1556 @@
 @@ -140 +140 @@
 -	if b.opt.ConflictResolve != PreferNone {
 +	if _, scoped := b.bbFolderChanges[file]; !scoped && b.opt.ConflictResolve != PreferNone {
+--- /dev/null
++++ b/backend/iclouddrive/api/bb_conditional_folder_create.go
+@@ -0,0 +1,80 @@
++package api
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"io"
++	"net/http"
++	"regexp"
++	"strings"
++	"unicode/utf8"
++
++	"github.com/rclone/rclone/lib/rest"
++)
++
++var folderReservationID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
++
++type conditionalFolderPreparation struct {
++	ClientID string `json:"clientId"`
++	Name     string `json:"name"`
++}
++
++// CreateBBFolder sends a single directory allocation for the already
++// verified parent. The worker must confirm the resulting provider identity
++// before using it. Unreported allocation never grants ownership of a name.
++func (d *DriveService) CreateBBFolder(ctx context.Context, parentID, leaf, reservation string) (string, error) {
++	kind, zone, id := DeconstructDriveID(parentID)
++	if (kind != "FOLDER" && kind != "APP_LIBRARY") || !driveIdentifier.MatchString(zone) ||
++		!folderDestinationIdentifier.MatchString(id) || !folderReservationID.MatchString(reservation) ||
++		leaf == "" || leaf == "." || leaf == ".." || len(leaf) > 255 || !utf8.ValidString(leaf) ||
++		strings.IndexFunc(leaf, func(r rune) bool { return r < 32 || r == 127 || r == '/' || r == '\\' }) >= 0 {
++		return "", ErrConditionalRefused
++	}
++	clientID := "FOLDER::UNKNOWN_ZONE::TempId-" + reservation
++	payload, err := json.Marshal(struct {
++		Parent  string                         `json:"destinationDrivewsId"`
++		Folders []conditionalFolderPreparation `json:"folders"`
++	}{parentID, []conditionalFolderPreparation{{ClientID: clientID, Name: leaf}}})
++	if err != nil {
++		return "", ErrConditionalRefused
++	}
++	session := d.icloud.Session
++	resp, err := session.srv.Call(ctx, &rest.Opts{
++		Method: http.MethodPost, Path: "/createFolders", RootURL: d.endpoint,
++		Body: bytes.NewReader(payload), ExtraHeaders: session.GetHeaders(nil),
++		NoRedirect: true, IgnoreStatus: true,
++	})
++	if err != nil {
++		return "", ErrConditionalUnconfirmed
++	}
++	defer resp.Body.Close()
++	body, err := io.ReadAll(io.LimitReader(resp.Body, conditionalReplyLimit+1))
++	if err != nil || len(body) > conditionalReplyLimit {
++		return "", ErrConditionalUnconfirmed
++	}
++	if resp.StatusCode == http.StatusConflict {
++		return "", ErrConditionalConflict
++	}
++	var reply struct {
++		Folders []struct {
++			DriveItem
++			ClientID string `json:"clientId"`
++		} `json:"folders"`
++	}
++	if json.Unmarshal(body, &reply) != nil || len(reply.Folders) != 1 {
++		return "", ErrConditionalUnconfirmed
++	}
++	folder := reply.Folders[0]
++	if folder.Status == "ALREADY_EXISTS" || folder.Status == "NAME_CONFLICT" {
++		return "", ErrConditionalConflict
++	}
++	actualKind, actualZone, actualID := DeconstructDriveID(folder.Drivewsid)
++	if resp.StatusCode != http.StatusOK || folder.Status != statusOk || folder.Type != "FOLDER" ||
++		actualKind != "FOLDER" || actualZone != zone || !driveIdentifier.MatchString(actualID) ||
++		folder.Drivewsid == parentID || folder.ParentID != parentID || folder.FullName() != leaf ||
++		(folder.ClientID != "" && folder.ClientID != clientID) {
++		return "", ErrConditionalUnconfirmed
++	}
++	return folder.Drivewsid, nil
++}
+--- /dev/null
++++ b/backend/iclouddrive/api/bb_conditional_folder_create_test.go
+@@ -0,0 +1,62 @@
++package api
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"net/http"
++	"net/http/httptest"
++	"sync/atomic"
++	"testing"
++
++	"github.com/rclone/rclone/lib/rest"
++)
++
++func TestBBFolderCreateUsesOneExactParentAndReservation(t *testing.T) {
++	const parent = "FOLDER::icloud.example::source"
++	const wanted = "FOLDER::icloud.example::new"
++	const reservation = "fe5ca24a-2a4f-449d-90e1-83e47ce8e73e"
++	const clientID = "FOLDER::UNKNOWN_ZONE::TempId-" + reservation
++
++	for _, trial := range []struct {
++		name        string
++		status      int
++		leaf, nonce string
++		err         error
++	}{
++		{"accepted", http.StatusOK, "Dest", clientID, nil},
++		{"occupied", http.StatusConflict, "Dest", clientID, ErrConditionalConflict},
++		{"alternate name", http.StatusOK, "Dest 2", clientID, ErrConditionalUnconfirmed},
++		{"unexpected reservation", http.StatusOK, "Dest", "wrong", ErrConditionalUnconfirmed},
++		{"redirect", http.StatusTemporaryRedirect, "Dest", clientID, ErrConditionalUnconfirmed},
++	} {
++		t.Run(trial.name, func(t *testing.T) {
++			var calls atomic.Int32
++			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				calls.Add(1)
++				var input struct {
++					Parent  string                         `json:"destinationDrivewsId"`
++					Folders []conditionalFolderPreparation `json:"folders"`
++				}
++				if r.Method != http.MethodPost || r.URL.Path != "/createFolders" ||
++					json.NewDecoder(r.Body).Decode(&input) != nil || input.Parent != parent ||
++					len(input.Folders) != 1 || input.Folders[0] != (conditionalFolderPreparation{clientID, "Dest"}) {
++					t.Errorf("unexpected provider create request")
++				}
++				w.Header().Set("Location", "/unexpected-replay")
++				w.WriteHeader(trial.status)
++				writeJSON(t, w, map[string]any{"folders": []map[string]any{{
++					"drivewsid": wanted, "parentId": parent, "type": "FOLDER", "name": trial.leaf, "status": "OK", "clientId": trial.nonce,
++				}}})
++			}))
++			defer server.Close()
++			session := NewSession()
++			session.srv = rest.NewClient(server.Client())
++			service := DriveService{endpoint: server.URL, icloud: &Client{Session: session}}
++			id, err := service.CreateBBFolder(context.Background(), parent, "Dest", reservation)
++			if !errors.Is(err, trial.err) || (trial.err == nil && id != wanted) || calls.Load() != 1 {
++				t.Fatalf("id = %s, error = %v, calls = %d", id, err, calls.Load())
++			}
++		})
++	}
++}
+--- /dev/null
++++ b/backend/iclouddrive/api/bb_conditional_retire.go
+@@ -0,0 +1,55 @@
++package api
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"io"
++	"net/http"
++
++	"github.com/rclone/rclone/lib/rest"
++)
++
++// RetireBBFolderItem sends exactly one original-revision trash operation.
++// The caller has verified the saved copy and, for a folder, its emptiness.
++func (d *DriveService) RetireBBFolderItem(ctx context.Context, original DriveItem) error {
++	kind, zone, id := DeconstructDriveID(original.Drivewsid)
++	if (kind != "FOLDER" && kind != "FILE") || original.Type != kind ||
++		!driveIdentifier.MatchString(zone) || !driveIdentifier.MatchString(id) ||
++		original.Docwsid != id || original.ParentID == "" || len(original.ParentID) > 512 ||
++		original.Etag == "" || len(original.Etag) > 512 {
++		return ErrConditionalRefused
++	}
++	payload, err := json.Marshal(struct {
++		Items []conditionalFolderMoveItem `json:"items"`
++	}{[]conditionalFolderMoveItem{{original.Drivewsid, original.Etag, original.Drivewsid}}})
++	if err != nil {
++		return ErrConditionalRefused
++	}
++	session := d.icloud.Session
++	resp, err := session.srv.Call(ctx, &rest.Opts{
++		Method: http.MethodPost, Path: "/moveItemsToTrash", RootURL: d.endpoint,
++		Body: bytes.NewReader(payload), ExtraHeaders: session.GetHeaders(nil),
++		NoRedirect: true, IgnoreStatus: true,
++	})
++	if err != nil {
++		return ErrConditionalUnconfirmed
++	}
++	defer resp.Body.Close()
++	body, err := io.ReadAll(io.LimitReader(resp.Body, conditionalReplyLimit+1))
++	if err != nil || len(body) > conditionalReplyLimit {
++		return ErrConditionalUnconfirmed
++	}
++	var reply DriveItem
++	if json.Unmarshal(body, &reply) != nil || len(reply.Items) != 1 || reply.Items[0] == nil || reply.Items[0].Drivewsid != original.Drivewsid {
++		return ErrConditionalUnconfirmed
++	}
++	item := reply.Items[0]
++	if item.Status == "ETAG_CONFLICT" && (resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusOK) {
++		return ErrConditionalConflict
++	}
++	if resp.StatusCode != http.StatusOK || item.Status != statusOk {
++		return ErrConditionalUnconfirmed
++	}
++	return nil
++}
+--- /dev/null
++++ b/backend/iclouddrive/api/bb_folder_file_activate_test.go
+@@ -0,0 +1,45 @@
++package api
++
++import (
++	"context"
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"sync/atomic"
++	"testing"
++
++	"github.com/rclone/rclone/lib/rest"
++)
++
++func TestBBFolderFileActivationHasKnownAllocationAndExactLeaf(t *testing.T) {
++	const folder = "FOLDER::icloud.example::destination"
++	const slot = "reserved-file"
++	var transportCalls atomic.Int32
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		transportCalls.Add(1)
++		var input UpdateFileInfo
++		if r.Method != http.MethodPost || r.URL.Path != "/ws/icloud.example/update/documents" ||
++			json.NewDecoder(r.Body).Decode(&input) != nil || input.AllowConflict || input.CreateShortGUID ||
++			input.Path.Path != "Receipt.bin" || input.Path.StartingDocumentID != "destination" ||
++			input.DocumentID != slot || input.Data.Signature != "copied-signature" || input.Data.Size != 7 {
++			t.Errorf("invalid provider activation request")
++		}
++		writeJSON(t, w, map[string]any{"results": []map[string]any{{"document": map[string]any{"document_id": slot}}}})
++	}))
++	defer server.Close()
++	session := NewSession()
++	session.srv = rest.NewClient(server.Client())
++	service := DriveService{docsEndpoint: server.URL, icloud: &Client{Session: session}}
++	staged := SingleFileInfo{Signature: "copied-signature", Size: 7}
++	if _, err := service.ActivateBBFolderFile(context.Background(), folder, "Receipt.bin", slot, staged); err != nil {
++		t.Fatal(err)
++	}
++	for _, traversal := range []string{"../Receipt.bin", "Nested/Receipt.bin", "Nested\\Receipt.bin"} {
++		if _, err := service.ActivateBBFolderFile(context.Background(), folder, traversal, slot, staged); err != ErrConditionalRefused {
++			t.Fatalf("invalid name accepted")
++		}
++	}
++	if transportCalls.Load() != 1 {
++		t.Fatalf("calls: %d", transportCalls.Load())
++	}
++}
+--- /dev/null
++++ b/backend/iclouddrive/api/bb_folder_file_copy.go
+@@ -0,0 +1,78 @@
++package api
++
++import (
++	"context"
++	"encoding/json"
++	"io"
++	"net/http"
++	"net/url"
++	"strings"
++
++	"github.com/rclone/rclone/lib/rest"
++)
++
++type BBFolderFileAllocation struct {
++	DocumentID string
++	Asset      SingleFileInfo
++}
++
++// AllocateBBFolderFileCopy allocates one snapshot without placing a named
++// item under the destination. Publishing and the verification of exact
++// copied bytes are subsequent, separate steps in the owning worker.
++func (d *DriveService) AllocateBBFolderFileCopy(ctx context.Context, source DriveItem) (BBFolderFileAllocation, error) {
++	var result BBFolderFileAllocation
++	kind, zone, docID := DeconstructDriveID(source.Drivewsid)
++	if kind != "FILE" || source.Type != "FILE" || !driveIdentifier.MatchString(zone) ||
++		!driveIdentifier.MatchString(docID) || docID != source.Docwsid ||
++		!validBBFolderCopyItemID(source.Itemid) || source.Etag == "" || source.ParentID == "" || source.Size < 0 || source.Size > (1<<30) {
++		return result, ErrConditionalRefused
++	}
++	itemID := source.Itemid
++	session := d.icloud.Session
++	resp, err := session.srv.Call(ctx, &rest.Opts{
++		Method: http.MethodPost, Path: "/v1/item/copy/" + url.PathEscape(itemID),
++		RootURL: d.docsEndpoint, Body: strings.NewReader(`{"info_to_update":{}}`),
++		ExtraHeaders: session.GetHeaders(nil), NoRedirect: true, IgnoreStatus: true,
++	})
++	if err != nil {
++		return result, ErrConditionalUnconfirmed
++	}
++	defer resp.Body.Close()
++	raw, err := io.ReadAll(io.LimitReader(resp.Body, conditionalReplyLimit+1))
++	if err != nil || len(raw) > conditionalReplyLimit || resp.StatusCode < 200 || resp.StatusCode >= 300 {
++		return result, ErrConditionalUnconfirmed
++	}
++	var allocated DriveItemRaw
++	if json.Unmarshal(raw, &allocated) != nil || !validBBFolderCopyItemID(allocated.ItemID) || allocated.ItemID == itemID {
++		return result, ErrConditionalUnconfirmed
++	}
++
++	lookup, err := session.srv.Call(ctx, &rest.Opts{
++		Method: http.MethodGet, Path: "/ws/" + zone + "/list/lookup_by_id", RootURL: d.docsEndpoint,
++		Parameters:   url.Values{"document_id": {allocated.ItemID}, "unified_format": {"false"}},
++		ExtraHeaders: session.GetHeaders(nil), NoRedirect: true, IgnoreStatus: true,
++	})
++	if err != nil {
++		return result, ErrConditionalUnconfirmed
++	}
++	defer lookup.Body.Close()
++	raw, err = io.ReadAll(io.LimitReader(lookup.Body, conditionalReplyLimit+1))
++	if err != nil || len(raw) > conditionalReplyLimit || lookup.StatusCode != http.StatusOK {
++		return result, ErrConditionalUnconfirmed
++	}
++	var doc Document
++	if json.Unmarshal(raw, &doc) != nil || doc.Status.StatusCode != 0 ||
++		!driveIdentifier.MatchString(doc.DocumentID) || doc.DocumentID == docID || doc.Deleted ||
++		doc.Data.Signature == "" || doc.Data.Size != source.Size {
++		return result, ErrConditionalUnconfirmed
++	}
++	return BBFolderFileAllocation{DocumentID: doc.DocumentID, Asset: SingleFileInfo{
++		Signature: doc.Data.Signature, ReferenceSignature: doc.Data.ReferenceSignature,
++		Size: doc.Data.Size, WrappingKey: doc.Data.WrappingKey,
++	}}, nil
++}
++
++func validBBFolderCopyItemID(value string) bool {
++	return value != "" && len(value) <= 512 && value != "." && value != ".." &&
++		strings.IndexFunc(value, func(r rune) bool { return r < 33 || r > 126 || r == '/' || r == '\\' }) < 0
++}
+--- /dev/null
++++ b/backend/iclouddrive/bb_folder_stage.go
+@@ -0,0 +1,146 @@
++package iclouddrive
++
++import (
++	"context"
++	"crypto/sha256"
++	"errors"
++	"strings"
++
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++)
++
++// Until the owner gives this entry's published identity to reconciliation,
++// an allocation or staged copy is never authority to change source bytes.
++func (f *Fs) lookupBBFolderLeaf(ctx context.Context, binding, parentID, leaf string) (*BBFolderItem, error) {
++	items, err := f.BBFolderList(ctx, binding, parentID)
++	if err != nil {
++		return nil, err
++	}
++	var found *BBFolderItem
++	for i := range items {
++		if !strings.EqualFold(items[i].Name, leaf) {
++			continue
++		}
++		if items[i].Name != leaf || found != nil {
++			return nil, api.ErrConditionalConflict
++		}
++		found = &items[i]
++	}
++	return found, nil
++}
++
++func (f *Fs) BBReserveStageFolder(ctx context.Context, binding, parentID, leaf, reservation string) (BBFolderItem, error) {
++	var empty BBFolderItem
++	found, err := f.lookupBBFolderLeaf(ctx, binding, parentID, leaf)
++	if err != nil {
++		return empty, err
++	}
++	if found != nil {
++		return empty, api.ErrConditionalConflict
++	}
++	id, err := f.service.CreateBBFolder(ctx, parentID, f.opt.Enc.FromStandardName(leaf), reservation)
++	if err != nil {
++		return empty, err
++	}
++	fresh, err := f.lookupBBFolderLeaf(ctx, binding, parentID, leaf)
++	if err != nil || fresh == nil || fresh.DocumentID != id || !fresh.Directory {
++		return empty, api.ErrConditionalUnconfirmed
++	}
++	children, err := f.BBFolderList(ctx, binding, id)
++	if err != nil || len(children) != 0 {
++		return empty, api.ErrConditionalUnconfirmed
++	}
++	return *fresh, nil
++}
++
++// Allocate from the original exact iCloud object after checking its
++// version and bytes. The caller must verify the activated copy's bytes
++// again in case another client edited the source during allocation.
++func (f *Fs) BBReserveStageFile(ctx context.Context, binding string, expected BBFolderItem, original [sha256.Size]byte) (api.BBFolderFileAllocation, error) {
++	var empty api.BBFolderFileAllocation
++	fresh, err := f.lookupBBFolderLeaf(ctx, binding, expected.ParentID, expected.Name)
++	if err != nil || fresh == nil || fresh.Directory || expected.Directory ||
++		fresh.DocumentID != expected.DocumentID || fresh.ETag != expected.ETag || fresh.Size != expected.Size {
++		return empty, api.ErrConditionalConflict
++	}
++	actual, err := f.BBFolderFileHash(ctx, *fresh)
++	if err != nil || actual != original {
++		return empty, api.ErrConditionalConflict
++	}
++	return f.service.AllocateBBFolderFileCopy(ctx, *fresh.item)
++}
++
++// Verify the exact allocated identity before trusting a resumed activation.
++// Other clients' items are never reused merely because their name or bytes match.
++func (f *Fs) BBObserveStageFile(ctx context.Context, binding, parentID, leaf, allocatedID string, original [sha256.Size]byte) (*BBFolderItem, error) {
++	current, err := f.lookupBBFolderLeaf(ctx, binding, parentID, leaf)
++	if err != nil || current == nil {
++		return current, err
++	}
++	_, zone, _ := api.DeconstructDriveID(parentID)
++	if current.Directory || current.DocumentID != api.ConstructDriveID(allocatedID, zone, "FILE") {
++		return nil, api.ErrConditionalConflict
++	}
++	digest, err := f.BBFolderFileHash(ctx, *current)
++	if err != nil || digest != original {
++		return nil, api.ErrConditionalUnconfirmed
++	}
++	return current, nil
++}
++
++func (f *Fs) BBActivateStageFile(ctx context.Context, binding, parentID, leaf string, allocated api.BBFolderFileAllocation, original [sha256.Size]byte) (*BBFolderItem, error) {
++	current, err := f.BBObserveStageFile(ctx, binding, parentID, leaf, allocated.DocumentID, original)
++	if err != nil || current != nil {
++		return current, err
++	}
++	_, publishErr := f.service.ActivateBBFolderFile(ctx, parentID, f.opt.Enc.FromStandardName(leaf), allocated.DocumentID, allocated.Asset)
++	current, err = f.BBObserveStageFile(ctx, binding, parentID, leaf, allocated.DocumentID, original)
++	if err != nil {
++		return nil, err
++	}
++	if current != nil {
++		return current, nil
++	}
++	if errors.Is(publishErr, api.ErrConditionalConflict) {
++		return nil, api.ErrConditionalConflict
++	}
++	return nil, api.ErrConditionalUnconfirmed
++}
++
++// The original item is retired only after the owner verifies a complete
++// replacement. A file must keep its saved revision. A directory must match
++// the caller's freshly verified exact identity and still be empty.
++func (f *Fs) BBRetireCopiedFolderItem(ctx context.Context, binding string, expected BBFolderItem) error {
++	fresh, err := f.lookupBBFolderLeaf(ctx, binding, expected.ParentID, expected.Name)
++	if err != nil || fresh == nil || fresh.DocumentID != expected.DocumentID || fresh.ETag != expected.ETag ||
++		fresh.Directory != expected.Directory {
++		return api.ErrConditionalConflict
++	}
++	if fresh.Directory {
++		children, err := f.BBFolderList(ctx, binding, fresh.DocumentID)
++		if err != nil {
++			return err
++		}
++		if len(children) != 0 {
++			return api.ErrConditionalConflict
++		}
++		final, err := f.lookupBBFolderLeaf(ctx, binding, expected.ParentID, expected.Name)
++		if err != nil || final == nil || final.DocumentID != expected.DocumentID ||
++			final.ETag != expected.ETag || !final.Directory {
++			return api.ErrConditionalConflict
++		}
++	}
++	if err := f.service.RetireBBFolderItem(ctx, *fresh.item); err != nil {
++		return err
++	}
++	siblings, err := f.BBFolderList(ctx, binding, expected.ParentID)
++	if err != nil {
++		return api.ErrConditionalUnconfirmed
++	}
++	for _, candidate := range siblings {
++		if candidate.DocumentID == expected.DocumentID {
++			return api.ErrConditionalUnconfirmed
++		}
++	}
++	return nil
++}
+--- /dev/null
++++ b/cmd/bisync/bb_folder_clone_plan.go
+@@ -0,0 +1,71 @@
++package bisync
++
++import (
++	"cmp"
++	"path"
++	"slices"
++	"strings"
++)
++
++type bbCloneAction string
++
++const (
++	bbCloneCreateStage bbCloneAction = "create_stage"
++	bbCloneCreateDir   bbCloneAction = "create_directory"
++	bbCloneCopyFile    bbCloneAction = "copy_file"
++	bbCloneVerifyTree  bbCloneAction = "verify_staged_tree"
++	bbClonePublish     bbCloneAction = "publish_verified_tree"
++	bbCloneRetire      bbCloneAction = "retire_original_entry"
++	bbCloneRetireStage bbCloneAction = "retire_empty_stage"
++)
++
++type bbFolderCloneStep struct {
++	action bbCloneAction
++	entry  string
++}
++
++// Build a stable ordering from the immutable original manifest. Every
++// original leaf remains untouched until the owner's staged-tree proof.
++func bbFolderCloneSteps(intent BBFolderMoveIntent) ([]bbFolderCloneStep, error) {
++	if !validBBFolderTransition(intent, true) {
++		return nil, errBBInvalidDelivery
++	}
++	dirs := make([]string, 0, len(intent.Entries))
++	files := make([]string, 0, len(intent.Hashes))
++	for name, entry := range intent.Entries {
++		if entry.Directory {
++			dirs = append(dirs, name)
++		} else {
++			files = append(files, name)
++		}
++	}
++	slices.SortFunc(dirs, func(a, b string) int {
++		if depth := cmp.Compare(strings.Count(a, "/"), strings.Count(b, "/")); depth != 0 {
++			return depth
++		}
++		return cmp.Compare(a, b)
++	})
++	slices.Sort(files)
++	result := []bbFolderCloneStep{{bbCloneCreateStage, ""}}
++	for _, name := range dirs {
++		result = append(result, bbFolderCloneStep{bbCloneCreateDir, name})
++	}
++	for _, name := range files {
++		result = append(result, bbFolderCloneStep{bbCloneCopyFile, name})
++	}
++	result = append(result, bbFolderCloneStep{bbCloneVerifyTree, intent.Source})
++	caseOnly := bbFoldPath(intent.Source) == bbFoldPath(intent.Path) && path.Dir(intent.Source) == path.Dir(intent.Path)
++	if !caseOnly {
++		result = append(result, bbFolderCloneStep{bbClonePublish, intent.Source})
++	}
++	for _, name := range files {
++		result = append(result, bbFolderCloneStep{bbCloneRetire, name})
++	}
++	for i := len(dirs) - 1; i >= 0; i-- {
++		result = append(result, bbFolderCloneStep{bbCloneRetire, dirs[i]})
++	}
++	if caseOnly {
++		result = append(result, bbFolderCloneStep{bbClonePublish, intent.Source})
++	}
++	return append(result, bbFolderCloneStep{bbCloneRetireStage, ""}), nil
++}
+--- /dev/null
++++ b/cmd/bisync/bb_folder_clone_plan_test.go
+@@ -0,0 +1,74 @@
++package bisync
++
++import (
++	"crypto/sha256"
++	"errors"
++	"slices"
++	"testing"
++	"time"
++)
++
++func TestBBFolderCloneVerifiesCompleteCopyBeforeRetiringAnyOriginal(t *testing.T) {
++	const from = "Projects/Active"
++	intent := BBFolderMoveIntent{
++		OperationID: "e1a2b6ae-0b51-4d83-adab-7ce02a86309b", Binding: "vault", Source: from, DestinationParent: "projects",
++		Entries: map[string]BBTreeIdentity{
++			from:                       {BBIndexedVersion: BBIndexedVersion{"original", "projects", "etag"}, Directory: true},
++			from + "/Nested":           {BBIndexedVersion: BBIndexedVersion{"nested", "original", "etag"}, Directory: true},
++			from + "/Nested/Bytes.bin": {BBIndexedVersion: BBIndexedVersion{"asset", "nested", "etag"}},
++		},
++		Hashes: map[string][sha256.Size]byte{from + "/Nested/Bytes.bin": sha256.Sum256([]byte("original"))},
++	}
++	for _, scenario := range []struct {
++		name     string
++		caseOnly bool
++	}{
++		{"Projects/Retitled", false}, {"Projects/active", true},
++	} {
++		intent.Path = scenario.name
++		steps, err := bbFolderCloneSteps(intent)
++		if err != nil {
++			t.Fatal(err)
++		}
++		want := []bbFolderCloneStep{
++			{bbCloneCreateStage, ""}, {bbCloneCreateDir, from}, {bbCloneCreateDir, from + "/Nested"},
++			{bbCloneCopyFile, from + "/Nested/Bytes.bin"}, {bbCloneVerifyTree, from},
++		}
++		if !scenario.caseOnly {
++			want = append(want, bbFolderCloneStep{bbClonePublish, from})
++		}
++		want = append(want,
++			bbFolderCloneStep{bbCloneRetire, from + "/Nested/Bytes.bin"}, bbFolderCloneStep{bbCloneRetire, from + "/Nested"},
++			bbFolderCloneStep{bbCloneRetire, from})
++		if scenario.caseOnly {
++			want = append(want, bbFolderCloneStep{bbClonePublish, from})
++		}
++		want = append(want, bbFolderCloneStep{bbCloneRetireStage, ""})
++		if !slices.Equal(steps, want) {
++			t.Fatalf("generated provider steps = %+v, expected %+v", steps, want)
++		}
++	}
++}
++
++func TestBBCaseCloneBaselineShiftKeepsExactNamesAndRefusesAnotherVariant(t *testing.T) {
++	const from, to = "Projects/ACTIVE", "Projects/active"
++	intent := BBFolderMoveIntent{
++		OperationID: "481b42ec-eb5e-4390-84cb-878aae7a5dcf", Binding: "vault",
++		Source: from, Path: to, DestinationParent: "projects",
++		Entries: map[string]BBTreeIdentity{
++			from:              {BBIndexedVersion: BBIndexedVersion{"original", "projects", "etag"}, Directory: true},
++			from + "/Note.md": {BBIndexedVersion: BBIndexedVersion{"file", "original", "etag"}},
++		},
++		Hashes: map[string][sha256.Size]byte{from + "/Note.md": sha256.Sum256([]byte("old"))},
++	}
++	old := newFileList()
++	old.put(from+"/Note.md", 3, time.Unix(1700000000, 0), "", "", "-")
++	shifted, err := relocateBBFolderBaseline(old, intent, false)
++	if err != nil || shifted.info[to+"/Note.md"] == nil || shifted.info[from+"/Note.md"] != nil {
++		t.Fatalf("case relocated listing = %+v, error = %v", shifted, err)
++	}
++	old.put("Projects/Active/Note.md", 1, time.Unix(1700000001, 0), "", "", "-")
++	if _, err := relocateBBFolderBaseline(old, intent, false); !errors.Is(err, ErrBBDeliveryUnsettled) {
++		t.Fatalf("case alias was not fenced: %v", err)
++	}
++}
+--- /dev/null
++++ b/cmd/bisync/bb_folder_clone_store.go
+@@ -0,0 +1,316 @@
++package bisync
++
++import (
++	"maps"
++	"path"
++	"strings"
++)
++
++const bbFolderCloneVersion = 10
++
++type BBFolderCloneAllocation struct {
++	DocumentID         string
++	Signature          string
++	ReferenceSignature string
++	WrappingKey        string
++	Size               int64
++}
++
++type BBFolderCloneJournal struct {
++	Version              int
++	Intent               BBFolderMoveIntent
++	Step                 int
++	Dispatched           bool
++	ActivationDispatched bool              `json:",omitempty"`
++	Stage                *BBIndexedVersion `json:",omitempty"`
++	Copies               map[string]BBIndexedVersion
++	Allocation           *BBFolderCloneAllocation `json:",omitempty"`
++	Published            *BBIndexedVersion        `json:",omitempty"`
++	Retained             map[string]bool          `json:",omitempty"`
++}
++
++func (journal BBFolderCloneJournal) StageName() string {
++	return ".bb-icloud-rename-" + journal.Intent.OperationID
++}
++
++func (journal BBFolderCloneJournal) Current() (action, entry string, exists bool) {
++	steps, err := bbFolderCloneSteps(journal.Intent)
++	if err != nil || journal.Step < 0 || journal.Step >= len(steps) {
++		return "", "", false
++	}
++	step := steps[journal.Step]
++	return string(step.action), step.entry, true
++}
++
++func validBBCloneIdentity(value BBIndexedVersion) bool {
++	return value.DocumentID != "" && len(value.DocumentID) <= 512 &&
++		value.ParentID != "" && len(value.ParentID) <= 512 &&
++		value.ETag != "" && len(value.ETag) <= 512
++}
++
++func (journal BBFolderCloneJournal) valid() bool {
++	if journal.Version != 1 {
++		return false
++	}
++	steps, err := bbFolderCloneSteps(journal.Intent)
++	if err != nil || journal.Step < 0 || journal.Step > len(steps) ||
++		(journal.Dispatched && journal.Step == len(steps)) ||
++		len(journal.Copies) > len(journal.Intent.Entries) || len(journal.Retained) > len(journal.Intent.Entries) {
++		return false
++	}
++	if (journal.Stage != nil) != (journal.Step > 0) ||
++		(journal.Stage != nil && (!validBBCloneIdentity(*journal.Stage) ||
++			journal.Stage.ParentID != journal.Intent.Binding || journal.Stage.DocumentID == journal.Intent.Binding)) {
++		return false
++	}
++	ids := make(map[string]bool, len(journal.Copies)+len(journal.Intent.Entries)+2)
++	ids[journal.Intent.Binding] = true
++	for _, old := range journal.Intent.Entries {
++		ids[old.DocumentID] = true
++	}
++	if journal.Stage != nil {
++		if ids[journal.Stage.DocumentID] {
++			return false
++		}
++		ids[journal.Stage.DocumentID] = true
++	}
++	copied, retained := 0, 0
++	sawPublish := false
++	for _, step := range steps[:journal.Step] {
++		switch step.action {
++		case bbCloneCreateDir, bbCloneCopyFile:
++			result, ok := journal.Copies[step.entry]
++			parent := journal.Stage.DocumentID
++			if step.entry != journal.Intent.Source {
++				parent = journal.Copies[path.Dir(step.entry)].DocumentID
++			}
++			if !ok || !validBBCloneIdentity(result) || parent == "" || result.ParentID != parent || ids[result.DocumentID] {
++				return false
++			}
++			ids[result.DocumentID] = true
++			copied++
++		case bbClonePublish:
++			copy := journal.Copies[journal.Intent.Source]
++			if journal.Published == nil || !validBBCloneIdentity(*journal.Published) ||
++				journal.Published.DocumentID != copy.DocumentID ||
++				journal.Published.ParentID != journal.Intent.DestinationParent {
++				return false
++			}
++			sawPublish = true
++		case bbCloneRetire:
++			if journal.Retained[step.entry] {
++				retained++
++			}
++		}
++	}
++	if copied != len(journal.Copies) || retained != len(journal.Retained) ||
++		sawPublish != (journal.Published != nil) {
++		return false
++	}
++	if journal.ActivationDispatched && (journal.Allocation == nil || !journal.Dispatched) {
++		return false
++	}
++	if a := journal.Allocation; a != nil {
++		if !journal.Dispatched || journal.Step >= len(steps) || steps[journal.Step].action != bbCloneCopyFile ||
++			a.DocumentID == "" || len(a.DocumentID) > 512 || a.Signature == "" || len(a.Signature) > 4096 ||
++			len(a.ReferenceSignature) > 4096 || len(a.WrappingKey) > 4096 || a.Size < 0 || a.Size > (1<<30) {
++			return false
++		}
++	}
++	return true
++}
++
++func (journal BBFolderCloneJournal) includesDocument(documentID string) bool {
++	if documentID == "" {
++		return false
++	}
++	if journal.Stage != nil && journal.Stage.DocumentID == documentID {
++		return true
++	}
++	for _, entry := range journal.Intent.Entries {
++		if entry.DocumentID == documentID {
++			return true
++		}
++	}
++	for _, entry := range journal.Copies {
++		if entry.DocumentID == documentID {
++			return true
++		}
++	}
++	return false
++}
++
++func (journal BBFolderCloneJournal) overlaps(name string, documents ...string) bool {
++	if name != "" {
++		fold := bbFoldPath(name)
++		for _, root := range []string{journal.Intent.Source, journal.Intent.Path, journal.StageName()} {
++			root = bbFoldPath(root)
++			if fold == root || strings.HasPrefix(fold, root+"/") {
++				return true
++			}
++		}
++	}
++	for _, document := range documents {
++		if journal.includesDocument(document) {
++			return true
++		}
++	}
++	return false
++}
++
++// The whole clone record lives in the managed native journal. A generation
++// predating clone support must not treat a staged vault as ordinary content.
++func BBReadFolderClone(workdir string) (*BBFolderCloneJournal, error) {
++	state, err := readBBDeliveries(workdir)
++	return state.FolderClone, err
++}
++
++func BBPrepareFolderClone(workdir string, intent BBFolderMoveIntent) error {
++	if !validBBFolderTransition(intent, true) {
++		return errBBInvalidDelivery
++	}
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return err
++	}
++	if old := state.FolderClone; old != nil {
++		prior := old.Intent
++		if prior.OperationID != intent.OperationID || prior.Binding != intent.Binding || prior.Source != intent.Source ||
++			prior.Path != intent.Path || prior.DestinationParent != intent.DestinationParent ||
++			!maps.Equal(prior.Entries, intent.Entries) || !maps.Equal(prior.Hashes, intent.Hashes) {
++			return ErrBBDeliveryUnsettled
++		}
++		return nil
++	}
++	journal := BBFolderCloneJournal{Version: 1, Intent: intent, Copies: map[string]BBIndexedVersion{}}
++	if !journal.valid() || state.Pending != nil || state.Relocation != nil || state.FolderMove != nil {
++		return ErrBBDeliveryUnsettled
++	}
++	for _, confirmed := range state.Confirmed {
++		if journal.overlaps(confirmed.Path, confirmed.ProviderID) || journal.overlaps(confirmed.RemovedPath) {
++			return ErrBBDeliveryUnsettled
++		}
++	}
++	state.FolderClone, state.Version = &journal, bbFolderCloneVersion
++	return state.write(workdir)
++}
++
++func updateBBFolderClone(workdir, operationID string, step int, change func(*BBFolderCloneJournal) error) error {
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return err
++	}
++	journal := state.FolderClone
++	if journal == nil || journal.Intent.OperationID != operationID || journal.Step != step {
++		return ErrBBDeliveryUnsettled
++	}
++	if err := change(journal); err != nil {
++		return err
++	}
++	if !journal.valid() {
++		return errBBInvalidDelivery
++	}
++	return state.write(workdir)
++}
++
++func BBDispatchFolderCloneStep(workdir, operationID string, step int) error {
++	return updateBBFolderClone(workdir, operationID, step, func(journal *BBFolderCloneJournal) error {
++		action, _, exists := journal.Current()
++		if !exists || journal.Dispatched || action == string(bbCloneVerifyTree) {
++			return ErrBBDeliveryUnsettled
++		}
++		if action == string(bbClonePublish) && bbFoldPath(journal.Intent.Source) == bbFoldPath(journal.Intent.Path) && len(journal.Retained) != 0 {
++			return ErrBBDeliveryUnsettled
++		}
++		journal.Dispatched = true
++		return nil
++	})
++}
++
++func BBRecordFolderCloneAllocation(workdir, operationID string, step int, allocated BBFolderCloneAllocation) error {
++	return updateBBFolderClone(workdir, operationID, step, func(journal *BBFolderCloneJournal) error {
++		action, _, _ := journal.Current()
++		if action != string(bbCloneCopyFile) || !journal.Dispatched || journal.Allocation != nil {
++			return ErrBBDeliveryUnsettled
++		}
++		journal.Allocation = &allocated
++		return nil
++	})
++}
++
++func BBDispatchFolderCloneActivation(workdir, operationID string, step int) error {
++	return updateBBFolderClone(workdir, operationID, step, func(journal *BBFolderCloneJournal) error {
++		action, _, _ := journal.Current()
++		if action != string(bbCloneCopyFile) || journal.Allocation == nil || !journal.Dispatched || journal.ActivationDispatched {
++			return ErrBBDeliveryUnsettled
++		}
++		journal.ActivationDispatched = true
++		return nil
++	})
++}
++
++// Finish a step only from exact provider read-back. For a retirement,
++// retained means the independently changed original was left alone.
++func BBCompleteFolderCloneStep(workdir, operationID string, step int, identity *BBIndexedVersion, retained bool) error {
++	return updateBBFolderClone(workdir, operationID, step, func(journal *BBFolderCloneJournal) error {
++		action, entry, ok := journal.Current()
++		if !ok || ((action == string(bbCloneVerifyTree)) == journal.Dispatched) {
++			return ErrBBDeliveryUnsettled
++		}
++		wantsIdentity := action == string(bbCloneCreateStage) || action == string(bbCloneCreateDir) ||
++			action == string(bbCloneCopyFile) || action == string(bbClonePublish)
++		if wantsIdentity != (identity != nil) || (retained && action != string(bbCloneRetire)) ||
++			(action == string(bbCloneCopyFile) && (journal.Allocation == nil || !journal.ActivationDispatched || identity == nil ||
++				bbAllocatedDocumentID(identity.DocumentID) != journal.Allocation.DocumentID)) {
++			return errBBInvalidDelivery
++		}
++		switch bbCloneAction(action) {
++		case bbCloneCreateStage:
++			journal.Stage = identity
++		case bbCloneCreateDir, bbCloneCopyFile:
++			journal.Copies[entry] = *identity
++		case bbClonePublish:
++			journal.Published = identity
++		case bbCloneRetire:
++			if retained {
++				if journal.Retained == nil {
++					journal.Retained = make(map[string]bool)
++				}
++				journal.Retained[entry] = true
++			}
++		}
++		journal.Step++
++		journal.Dispatched = false
++		journal.ActivationDispatched = false
++		journal.Allocation = nil
++		return nil
++	})
++}
++
++// Transfer the fully verified, externally visible copy into the paired
++// baseline reconciliation, atomically releasing its temporary namespace.
++func BBAdoptFinishedFolderClone(workdir, operationID string) (*BBFolderMove, error) {
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return nil, err
++	}
++	clone := state.FolderClone
++	if clone == nil || clone.Intent.OperationID != operationID || clone.Dispatched || clone.Published == nil || state.FolderMove != nil {
++		return nil, ErrBBDeliveryUnsettled
++	}
++	if _, _, exists := clone.Current(); exists {
++		return nil, ErrBBDeliveryUnsettled
++	}
++	copies := maps.Clone(clone.Copies)
++	copies[clone.Intent.Source] = *clone.Published
++	move := BBFolderMove{Intent: clone.Intent, Dispatched: true, Published: clone.Published, Copies: copies}
++	if !move.valid() {
++		return nil, errBBInvalidDelivery
++	}
++	state.FolderClone = nil
++	state.FolderMove = &move
++	if err := state.write(workdir); err != nil {
++		return nil, err
++	}
++	return &move, nil
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_folder_clone.go
+@@ -0,0 +1,264 @@
++package main
++
++import (
++	"context"
++	"errors"
++	"path"
++	"strings"
++	"time"
++
++	"github.com/rclone/rclone/backend/iclouddrive"
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/cmd/bisync"
++)
++
++type ownedCloneMover interface {
++	ownedCloneCloud
++	BBMoveFolder(context.Context, iclouddrive.BBFolderItem, string) error
++	BBRetireCopiedFolderItem(context.Context, string, iclouddrive.BBFolderItem) error
++}
++
++func cloneLocation(ctx context.Context, cloud folderProofCloud, journal *bisync.BBFolderCloneJournal, entry string, copied bool) (*iclouddrive.BBFolderItem, error) {
++	intent := journal.Intent
++	location := intent.Source
++	var parent string
++	var err error
++	if copied {
++		location = intent.Path
++		if journal.Published == nil {
++			parent = journal.Stage.DocumentID
++		} else {
++			parent, err = folderParentByName(ctx, cloud, intent.Binding, path.Dir(location))
++			if err != nil || parent != intent.DestinationParent {
++				return nil, api.ErrConditionalConflict
++			}
++		}
++	} else {
++		parent, err = folderParentByName(ctx, cloud, intent.Binding, path.Dir(location))
++	}
++	if err != nil {
++		return nil, err
++	}
++	item, err := cloneFolderLeaf(ctx, cloud, intent.Binding, parent, path.Base(location))
++	if err != nil || item == nil {
++		return item, err
++	}
++	expected := func(name string) bisync.BBIndexedVersion {
++		if copied {
++			return journal.Copies[name]
++		}
++		return intent.Entries[name].BBIndexedVersion
++	}
++	if item.DocumentID != expected(intent.Source).DocumentID || !item.Directory {
++		return nil, api.ErrConditionalConflict
++	}
++	current := intent.Source
++	suffix := strings.TrimPrefix(entry, current)
++	if suffix == "" {
++		return item, nil
++	}
++	for _, leaf := range strings.Split(strings.TrimPrefix(suffix, "/"), "/") {
++		if !item.Directory {
++			return nil, api.ErrConditionalConflict
++		}
++		parent = item.DocumentID
++		current = path.Join(current, leaf)
++		item, err = cloneFolderLeaf(ctx, cloud, intent.Binding, parent, leaf)
++		if err != nil || item == nil {
++			return item, err
++		}
++		if item.DocumentID != expected(current).DocumentID ||
++			item.Directory != intent.Entries[current].Directory {
++			return nil, api.ErrConditionalConflict
++		}
++	}
++	return item, nil
++}
++
++func advanceCloneRetirement(ctx context.Context, cloud ownedCloneMover, workdir string, journal *bisync.BBFolderCloneJournal, original string) error {
++	intent := journal.Intent
++	finish := func(retained bool) error {
++		return bisync.BBCompleteFolderCloneStep(workdir, intent.OperationID, journal.Step, nil, retained)
++	}
++	copied, err := cloneLocation(ctx, cloud, journal, original, true)
++	if err != nil || copied == nil {
++		return api.ErrConditionalUnconfirmed
++	}
++	if !copied.Directory {
++		body, err := cloud.BBFolderFileHash(ctx, *copied)
++		if err != nil {
++			return err
++		}
++		if body != intent.Hashes[original] {
++			if journal.Published == nil {
++				return api.ErrConditionalConflict
++			}
++			if !journal.Dispatched {
++				if err := bisync.BBDispatchFolderCloneStep(workdir, intent.OperationID, journal.Step); err != nil {
++					return err
++				}
++			}
++			return finish(true)
++		}
++	}
++	source, err := cloneLocation(ctx, cloud, journal, original, false)
++	if err != nil && !errors.Is(err, api.ErrConditionalConflict) {
++		return err
++	}
++	if !journal.Dispatched {
++		if err := bisync.BBDispatchFolderCloneStep(workdir, intent.OperationID, journal.Step); err != nil {
++			return err
++		}
++	}
++	if errors.Is(err, api.ErrConditionalConflict) {
++		return finish(true)
++	}
++	if source == nil {
++		return finish(false)
++	}
++	if !source.Directory && source.ETag != intent.Entries[original].ETag {
++		return finish(true)
++	}
++	if journal.Dispatched {
++		return api.ErrConditionalUnconfirmed
++	}
++	if err := cloud.BBRetireCopiedFolderItem(ctx, intent.Binding, *source); err != nil {
++		if errors.Is(err, api.ErrConditionalConflict) {
++			return finish(true)
++		}
++		return err
++	}
++	return finish(false)
++}
++
++func advanceClonePublish(ctx context.Context, cloud ownedCloneMover, workdir string, journal *bisync.BBFolderCloneJournal) (ownedNoteReply, error) {
++	intent := journal.Intent
++	parent, err := folderParentByName(ctx, cloud, intent.Binding, path.Dir(intent.Path))
++	if err != nil || parent != intent.DestinationParent {
++		return ownedNoteReply{}, api.ErrConditionalConflict
++	}
++	name := path.Base(intent.Path)
++	if strings.EqualFold(intent.Source, intent.Path) && len(journal.Retained) > 0 {
++		return ownedNoteReply{Outcome: "folder_case_conflict", AlternatePath: path.Join(journal.StageName(), name)}, nil
++	}
++	if !journal.Dispatched {
++		if err := verifyOwnedCloneTree(ctx, cloud, journal, false); err != nil {
++			return ownedNoteReply{}, err
++		}
++		occupant, err := cloneFolderLeaf(ctx, cloud, intent.Binding, parent, name)
++		if err != nil || occupant != nil {
++			return ownedNoteReply{}, api.ErrConditionalConflict
++		}
++		source, err := cloneFolderLeaf(ctx, cloud, intent.Binding, journal.Stage.DocumentID, name)
++		if err != nil || source == nil || source.DocumentID != journal.Copies[intent.Source].DocumentID {
++			return ownedNoteReply{}, api.ErrConditionalUnconfirmed
++		}
++		if err := bisync.BBDispatchFolderCloneStep(workdir, intent.OperationID, journal.Step); err != nil {
++			return ownedNoteReply{}, err
++		}
++		// Exact read-back determines whether the move landed.
++		_ = cloud.BBMoveFolder(ctx, *source, parent)
++	}
++	siblings, err := cloud.BBFolderList(ctx, intent.Binding, parent)
++	if err != nil {
++		return ownedNoteReply{}, err
++	}
++	var child *iclouddrive.BBFolderItem
++	for i := range siblings {
++		if siblings[i].DocumentID == journal.Copies[intent.Source].DocumentID {
++			if child != nil {
++				return ownedNoteReply{}, api.ErrConditionalUnconfirmed
++			}
++			child = &siblings[i]
++		}
++	}
++	if child == nil || !child.Directory {
++		return ownedNoteReply{}, api.ErrConditionalUnconfirmed
++	}
++	if child.Name != name {
++		if !validFolderPath(child.Name) || path.Base(child.Name) != child.Name {
++			return ownedNoteReply{}, api.ErrConditionalUnconfirmed
++		}
++		return ownedNoteReply{Outcome: "folder_collision", AlternatePath: path.Join(path.Dir(intent.Path), child.Name)}, nil
++	}
++	if err := verifyOwnedCloneTree(ctx, cloud, journal, true); err != nil {
++		return ownedNoteReply{}, err
++	}
++	version := ownedFolderVersion(*child)
++	return ownedNoteReply{}, bisync.BBCompleteFolderCloneStep(workdir, intent.OperationID, journal.Step, &version, false)
++}
++
++func advanceCloneCleanup(ctx context.Context, cloud ownedCloneMover, workdir string, journal *bisync.BBFolderCloneJournal) error {
++	intent := journal.Intent
++	target, err := cloneLocation(ctx, cloud, journal, intent.Source, true)
++	if err != nil || target == nil {
++		return api.ErrConditionalUnconfirmed
++	}
++	folder, err := cloneFolderLeaf(ctx, cloud, intent.Binding, intent.Binding, journal.StageName())
++	if err != nil {
++		return err
++	}
++	if folder != nil && (!folder.Directory || folder.DocumentID != journal.Stage.DocumentID) {
++		return api.ErrConditionalConflict
++	}
++	if !journal.Dispatched {
++		if err := bisync.BBDispatchFolderCloneStep(workdir, intent.OperationID, journal.Step); err != nil {
++			return err
++		}
++	}
++	if folder != nil {
++		if journal.Dispatched {
++			return api.ErrConditionalUnconfirmed
++		}
++		if err := cloud.BBRetireCopiedFolderItem(ctx, intent.Binding, *folder); err != nil {
++			return err
++		}
++	}
++	return bisync.BBCompleteFolderCloneStep(workdir, intent.OperationID, journal.Step, nil, false)
++}
++
++func runOwnedFolderClone(ctx context.Context, cloud ownedCloneMover, request ownedNoteFrame) ownedNoteReply {
++	unconfirmed := ownedNoteReply{Outcome: "uncertain"}
++	for steps := 0; steps < 4; steps++ {
++		journal, err := bisync.BBReadFolderClone(request.Workdir)
++		if err != nil || journal == nil {
++			return unconfirmed
++		}
++		intent := journal.Intent
++		if intent.OperationID != request.OperationID || intent.Binding != request.Binding ||
++			intent.Source != request.Source || intent.Path != request.Path {
++			return unconfirmed
++		}
++		action, entry, exists := journal.Current()
++		if !exists {
++			move, err := bisync.BBAdoptFinishedFolderClone(request.Workdir, request.OperationID)
++			if err != nil {
++				return unconfirmed
++			}
++			return ownedNoteReply{Outcome: "folder_published", Folder: &ownedFolderObservation{
++				Source: *move.Published, DestinationParent: move.Intent.DestinationParent, Method: "copy",
++			}}
++		}
++		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < 5*time.Second {
++			return unconfirmed
++		}
++		switch action {
++		case "retire_original_entry":
++			err = advanceCloneRetirement(ctx, cloud, request.Workdir, journal, entry)
++		case "publish_verified_tree":
++			var response ownedNoteReply
++			response, err = advanceClonePublish(ctx, cloud, request.Workdir, journal)
++			if response.Outcome != "" {
++				return response
++			}
++		case "retire_empty_stage":
++			err = advanceCloneCleanup(ctx, cloud, request.Workdir, journal)
++		default:
++			err = advanceCloneConstruction(ctx, cloud, request.Workdir, journal)
++		}
++		if err != nil {
++			return unconfirmed
++		}
++	}
++	return unconfirmed
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_folder_clone_stage.go
+@@ -0,0 +1,171 @@
++package main
++
++import (
++	"context"
++	"crypto/sha256"
++	"path"
++
++	"github.com/google/uuid"
++	"github.com/rclone/rclone/backend/iclouddrive"
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/cmd/bisync"
++)
++
++type ownedCloneCloud interface {
++	folderProofCloud
++	BBReserveStageFolder(context.Context, string, string, string, string) (iclouddrive.BBFolderItem, error)
++	BBReserveStageFile(context.Context, string, iclouddrive.BBFolderItem, [sha256.Size]byte) (api.BBFolderFileAllocation, error)
++	BBActivateStageFile(context.Context, string, string, string, api.BBFolderFileAllocation, [sha256.Size]byte) (*iclouddrive.BBFolderItem, error)
++	BBObserveStageFile(context.Context, string, string, string, string, [sha256.Size]byte) (*iclouddrive.BBFolderItem, error)
++}
++
++func cloneFolderLeaf(ctx context.Context, cloud folderProofCloud, binding, parent, leaf string) (*iclouddrive.BBFolderItem, error) {
++	items, err := cloud.BBFolderList(ctx, binding, parent)
++	if err != nil {
++		return nil, err
++	}
++	return folderNameIn(items, leaf)
++}
++
++func advanceCloneConstruction(ctx context.Context, cloud ownedCloneCloud, workdir string, journal *bisync.BBFolderCloneJournal) error {
++	action, entry, ok := journal.Current()
++	if !ok {
++		return api.ErrConditionalRefused
++	}
++	intent := journal.Intent
++	if action == "verify_staged_tree" {
++		if err := verifyOwnedCloneTree(ctx, cloud, journal, false); err != nil {
++			return err
++		}
++		return bisync.BBCompleteFolderCloneStep(workdir, intent.OperationID, journal.Step, nil, false)
++	}
++
++	switch action {
++	case "create_stage", "create_directory":
++		if journal.Dispatched {
++			// Provider did not acknowledge a new ID. An independent
++			// same-name folder is never claimed after a lost reply.
++			return api.ErrConditionalUnconfirmed
++		}
++		parent, name := intent.Binding, journal.StageName()
++		if action == "create_directory" {
++			name = path.Base(intent.Path)
++			parent = journal.Stage.DocumentID
++			if entry != intent.Source {
++				name = path.Base(entry)
++				parent = journal.Copies[path.Dir(entry)].DocumentID
++			}
++		}
++		if err := bisync.BBDispatchFolderCloneStep(workdir, intent.OperationID, journal.Step); err != nil {
++			return err
++		}
++		nonce := uuid.NewSHA1(uuid.MustParse(intent.OperationID), []byte(action+"\x00"+entry)).String()
++		folder, err := cloud.BBReserveStageFolder(ctx, intent.Binding, parent, name, nonce)
++		if err != nil {
++			return err
++		}
++		version := ownedFolderVersion(folder)
++		return bisync.BBCompleteFolderCloneStep(workdir, intent.OperationID, journal.Step, &version, false)
++
++	case "copy_file":
++		parent := journal.Copies[path.Dir(entry)].DocumentID
++		label := path.Base(entry)
++		digest := intent.Hashes[entry]
++		allocated := journal.Allocation
++		if allocated == nil {
++			if journal.Dispatched {
++				return api.ErrConditionalUnconfirmed
++			}
++			prior := intent.Entries[entry].BBIndexedVersion
++			current, err := cloneFolderLeaf(ctx, cloud, intent.Binding, prior.ParentID, label)
++			if err != nil || current == nil || ownedFolderVersion(*current) != prior {
++				return api.ErrConditionalConflict
++			}
++			if err := bisync.BBDispatchFolderCloneStep(workdir, intent.OperationID, journal.Step); err != nil {
++				return err
++			}
++			slot, err := cloud.BBReserveStageFile(ctx, intent.Binding, *current, digest)
++			if err != nil {
++				return err
++			}
++			allocated = &bisync.BBFolderCloneAllocation{
++				DocumentID: slot.DocumentID, Signature: slot.Asset.Signature, ReferenceSignature: slot.Asset.ReferenceSignature,
++				WrappingKey: slot.Asset.WrappingKey, Size: slot.Asset.Size,
++			}
++			if err := bisync.BBRecordFolderCloneAllocation(workdir, intent.OperationID, journal.Step, *allocated); err != nil {
++				return err
++			}
++		}
++		var found *iclouddrive.BBFolderItem
++		var err error
++		if journal.ActivationDispatched {
++			found, err = cloud.BBObserveStageFile(ctx, intent.Binding, parent, label, allocated.DocumentID, digest)
++		} else {
++			if err := bisync.BBDispatchFolderCloneActivation(workdir, intent.OperationID, journal.Step); err != nil {
++				return err
++			}
++			found, err = cloud.BBActivateStageFile(ctx, intent.Binding, parent, label, api.BBFolderFileAllocation{
++				DocumentID: allocated.DocumentID, Asset: api.SingleFileInfo{
++					Signature: allocated.Signature, ReferenceSignature: allocated.ReferenceSignature,
++					WrappingKey: allocated.WrappingKey, Size: allocated.Size,
++				},
++			}, digest)
++		}
++		if err != nil || found == nil {
++			return api.ErrConditionalUnconfirmed
++		}
++		version := ownedFolderVersion(*found)
++		return bisync.BBCompleteFolderCloneStep(workdir, intent.OperationID, journal.Step, &version, false)
++	}
++	return api.ErrConditionalRefused
++}
++
++func verifyOwnedCloneTree(ctx context.Context, cloud folderProofCloud, journal *bisync.BBFolderCloneJournal, published bool) error {
++	intent := journal.Intent
++	parent := journal.Stage.DocumentID
++	if published {
++		parent = intent.DestinationParent
++	}
++	root, err := cloneFolderLeaf(ctx, cloud, intent.Binding, parent, path.Base(intent.Path))
++	if err != nil || root == nil || !root.Directory || root.DocumentID != journal.Copies[intent.Source].DocumentID {
++		return api.ErrConditionalUnconfirmed
++	}
++	count := 1
++	var verify func(string, string) error
++	verify = func(at, id string) error {
++		children, err := cloud.BBFolderList(ctx, intent.Binding, id)
++		if err != nil {
++			return err
++		}
++		for _, child := range children {
++			if !validFolderPath(child.Name) || path.Base(child.Name) != child.Name {
++				return api.ErrConditionalConflict
++			}
++			name := path.Join(at, child.Name)
++			original, known := intent.Entries[name]
++			copy := journal.Copies[name]
++			if !known || child.DocumentID != copy.DocumentID || child.ParentID != copy.ParentID || child.Directory != original.Directory {
++				return api.ErrConditionalConflict
++			}
++			count++
++			if child.Directory {
++				if err := verify(name, child.DocumentID); err != nil {
++					return err
++				}
++			} else {
++				hash, err := cloud.BBFolderFileHash(ctx, child)
++				if err != nil || hash != intent.Hashes[name] {
++					return api.ErrConditionalConflict
++				}
++			}
++		}
++		return nil
++	}
++	if err := verify(intent.Source, root.DocumentID); err != nil {
++		return err
++	}
++	if count != len(intent.Entries) {
++		return api.ErrConditionalConflict
++	}
++	return nil
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_folder_clone_test.go
+@@ -0,0 +1,155 @@
++package main
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"fmt"
++	"os"
++	"path/filepath"
++	"slices"
++	"testing"
++
++	"github.com/rclone/rclone/backend/iclouddrive"
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/cmd/bisync"
++)
++
++type ownedCloneFixture struct {
++	children        map[string][]iclouddrive.BBFolderItem
++	bodies          map[string][]byte
++	serial          int
++	activationCount int
++	moveCount       int
++	editSource      bool
++}
++
++func (f *ownedCloneFixture) BBFolderList(_ context.Context, _, parent string) ([]iclouddrive.BBFolderItem, error) {
++	return slices.Clone(f.children[parent]), nil
++}
++
++func (f *ownedCloneFixture) BBFolderFileHash(_ context.Context, item iclouddrive.BBFolderItem) ([sha256.Size]byte, error) {
++	return sha256.Sum256(f.bodies[item.DocumentID]), nil
++}
++
++func (f *ownedCloneFixture) id() string {
++	f.serial++
++	return fmt.Sprintf("id-%d", f.serial)
++}
++
++func (f *ownedCloneFixture) BBReserveStageFolder(_ context.Context, _, parent, name, _ string) (iclouddrive.BBFolderItem, error) {
++	item := iclouddrive.BBFolderItem{Name: name, DocumentID: "FOLDER::zone::" + f.id(), ParentID: parent, ETag: "dir", Directory: true}
++	f.children[parent] = append(f.children[parent], item)
++	return item, nil
++}
++
++func (f *ownedCloneFixture) BBReserveStageFile(_ context.Context, _ string, old iclouddrive.BBFolderItem, _ [sha256.Size]byte) (api.BBFolderFileAllocation, error) {
++	return api.BBFolderFileAllocation{DocumentID: f.id(), Asset: api.SingleFileInfo{Signature: string(f.bodies[old.DocumentID]), Size: old.Size}}, nil
++}
++
++func (f *ownedCloneFixture) BBActivateStageFile(_ context.Context, _, parent, name string, allocation api.BBFolderFileAllocation, _ [sha256.Size]byte) (*iclouddrive.BBFolderItem, error) {
++	f.activationCount++
++	item := iclouddrive.BBFolderItem{Name: name, DocumentID: "FILE::zone::" + allocation.DocumentID, ParentID: parent, ETag: "copy", Size: allocation.Asset.Size}
++	f.children[parent] = append(f.children[parent], item)
++	f.bodies[item.DocumentID] = []byte(allocation.Asset.Signature)
++	if f.editSource {
++		f.bodies["FILE::zone::original"] = []byte("device edit")
++		f.children["FOLDER::zone::original"][0].ETag = "independent edit"
++	}
++	// The next request must recover the allocated identity, without a retry.
++	return nil, api.ErrConditionalUnconfirmed
++}
++
++func (f *ownedCloneFixture) BBObserveStageFile(_ context.Context, _, parent, name, allocation string, digest [sha256.Size]byte) (*iclouddrive.BBFolderItem, error) {
++	for _, child := range f.children[parent] {
++		if child.Name == name && child.DocumentID == "FILE::zone::"+allocation && sha256.Sum256(f.bodies[child.DocumentID]) == digest {
++			return &child, nil
++		}
++	}
++	return nil, api.ErrConditionalUnconfirmed
++}
++
++func (f *ownedCloneFixture) BBMoveFolder(_ context.Context, item iclouddrive.BBFolderItem, parent string) error {
++	f.moveCount++
++	f.children[item.ParentID] = slices.DeleteFunc(f.children[item.ParentID], func(sibling iclouddrive.BBFolderItem) bool {
++		return sibling.DocumentID == item.DocumentID
++	})
++	item.ParentID, item.ETag = parent, "moved"
++	f.children[parent] = append(f.children[parent], item)
++	return api.ErrConditionalUnconfirmed
++}
++
++func (f *ownedCloneFixture) BBRetireCopiedFolderItem(_ context.Context, _ string, item iclouddrive.BBFolderItem) error {
++	if item.Directory && len(f.children[item.DocumentID]) > 0 {
++		return api.ErrConditionalConflict
++	}
++	f.children[item.ParentID] = slices.DeleteFunc(f.children[item.ParentID], func(sibling iclouddrive.BBFolderItem) bool {
++		return sibling.DocumentID == item.DocumentID && sibling.ETag == item.ETag
++	})
++	return nil
++}
++
++func TestBBFolderCloneRecoversActivationAndProtectsIndependentChanges(t *testing.T) {
++	for _, trial := range []struct {
++		name, target        string
++		edit, expectPublish bool
++	}{
++		{"new name with independent original", "Renamed", true, true},
++		{"case-only with unchanged source", "source", false, true},
++		{"case-only with independent original", "source", true, false},
++	} {
++		t.Run(trial.name, func(t *testing.T) {
++			const binding = "FOLDER::zone::root"
++			source := iclouddrive.BBFolderItem{Name: "Source", DocumentID: "FOLDER::zone::original", ParentID: binding, ETag: "old", Directory: true}
++			file := iclouddrive.BBFolderItem{Name: "Data.bin", DocumentID: "FILE::zone::original", ParentID: source.DocumentID, ETag: "old", Size: 3}
++			cloud := &ownedCloneFixture{
++				children: map[string][]iclouddrive.BBFolderItem{binding: {source}, source.DocumentID: {file}},
++				bodies:   map[string][]byte{file.DocumentID: []byte("abc")}, editSource: trial.edit,
++			}
++			workdir := t.TempDir()
++			index, err := json.Marshal(map[string]any{"version": 1, "binding": binding, "entries": map[string]bisync.BBTreeIdentity{
++				"Source":          {BBIndexedVersion: ownedFolderVersion(source), Directory: true},
++				"Source/Data.bin": {BBIndexedVersion: ownedFolderVersion(file)},
++			}})
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err := os.WriteFile(filepath.Join(workdir, "bb-cloud-tree-identities-v1.json"), index, 0600); err != nil {
++				t.Fatal(err)
++			}
++			digest := sha256.Sum256([]byte("abc"))
++			req := ownedNoteFrame{Binding: binding, Workdir: workdir, Source: "Source", Path: trial.target,
++				OperationID: "0755a78a-db26-4863-af4b-e84560e68149", FolderEntries: []ownedFolderEntry{{
++					Path: "Data.bin", Kind: "file", Size: 3, Hash: hex.EncodeToString(digest[:]),
++				}}}
++			ctx := context.Background()
++			reply := applyOwnedFolderMove(ctx, cloud, req)
++			req.FolderEntries = nil
++			for count := 0; reply.Outcome == "uncertain" && count < 8; count++ {
++				reply = applyOwnedFolderMove(ctx, cloud, req)
++			}
++			if (reply.Outcome == "folder_published") != trial.expectPublish || cloud.activationCount != 1 {
++				t.Fatalf("reply = %+v, activations = %d", reply, cloud.activationCount)
++			}
++			if trial.expectPublish {
++				item, _ := cloneFolderLeaf(ctx, cloud, binding, binding, trial.target)
++				if item == nil || item.DocumentID == source.DocumentID || cloud.moveCount != 1 {
++					t.Fatalf("published copy = %+v, moves = %d", item, cloud.moveCount)
++				}
++				child, _ := cloneFolderLeaf(ctx, cloud, binding, item.DocumentID, file.Name)
++				if child == nil || child.DocumentID == file.DocumentID || string(cloud.bodies[child.DocumentID]) != "abc" {
++					t.Fatalf("copied child = %+v", child)
++				}
++			} else if cloud.moveCount != 0 {
++				t.Fatal("published alongside an independently changed case-folded original")
++			}
++			if trial.edit {
++				old, _ := cloneFolderLeaf(ctx, cloud, binding, source.DocumentID, file.Name)
++				if old == nil || old.DocumentID != file.DocumentID || string(cloud.bodies[old.DocumentID]) != "device edit" {
++					t.Fatalf("independent version = %+v", old)
++				}
++			}
++		})
++	}
++}
