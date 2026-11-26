@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { Markdown, useRpc } from '@get-bb/plugin-sdk/app';
+import { experimental_Icon as Icon, Markdown, useRpc } from '@get-bb/plugin-sdk/app';
 import type { z } from 'zod';
 import { actionText, actionTextLimit, rpcContract } from './contract.ts';
 
@@ -17,6 +17,7 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
   const input = useRef<HTMLInputElement>(null);
   const saving = useRef(false);
   const [snapshot, setSnapshot] = useState<Snapshot>();
+  const [exiting, setExiting] = useState<{ snapshot: Snapshot; line: number }>();
   const [readState, setReadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [reload, setReload] = useState(0);
   const [draft, setDraft] = useState<string>();
@@ -44,6 +45,13 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
     if (editing) input.current?.focus();
   }, [editing]);
 
+  useEffect(() => {
+    if (!exiting) return;
+    // Finish even if the browser skips the animation or never reports its end.
+    const timer = window.setTimeout(() => setExiting(undefined), 250);
+    return () => window.clearTimeout(timer);
+  }, [exiting]);
+
   const refresh = () => {
     setReadState('loading');
     setReload(value => value + 1);
@@ -52,8 +60,8 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
     setDraft(undefined);
     addButton.current?.focus();
   };
-  const canWrite = readState === 'ready' && !pending && !uncertainId;
-  const save = async (change: Change) => {
+  const canWrite = readState === 'ready' && !pending && !uncertainId && !exiting;
+  const save = async (change: Change, checkbox?: HTMLInputElement) => {
     if (!canWrite || saving.current) return;
     saving.current = true;
     setPending(true);
@@ -63,8 +71,20 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
     try {
       const result = await client.current.call('changeAreaAction', { source, id, change, operationId });
       if (result.outcome === 'saved_locally_pending_sync' || result.outcome === 'unchanged') {
-        if (change.operation === 'add') closeForm();
-        setNotice(change.operation === 'add' ? 'Action added.' : change.complete ? 'Action completed.' : 'Action reopened.');
+        if (change.operation === 'add') {
+          closeForm();
+        } else if (snapshot) {
+          const row = checkbox?.closest('li');
+          if (row?.matches(':focus-within')) {
+            const target = row.nextElementSibling?.querySelector('input')
+              ?? row.previousElementSibling?.querySelector('input') ?? input.current ?? addButton.current;
+            target?.focus();
+          }
+          setExiting({ snapshot, line: change.line });
+          setSnapshot(current => current?.version === change.version
+            ? { ...current, actions: current.actions.filter(action => action.line !== change.line) } : current);
+        }
+        setNotice(change.operation === 'add' ? 'Action added.' : 'Action completed.');
         refresh();
       } else if (result.outcome === 'uncertain') {
         setUncertainId(operationId);
@@ -85,12 +105,14 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
   };
 
   const validDraft = actionText.safeParse(draft);
+  const actions = (exiting?.snapshot ?? snapshot)?.actions.filter(action => !action.complete) ?? [];
   return <section className="gtd-area-actions" aria-labelledby={heading}>
     <div className="gtd-list-bar">
       <h2 id={heading}>Actions</h2>
-      {hasNote && <button type="button" ref={addButton} aria-expanded={editing} aria-controls={editing ? formId : undefined}
+      {hasNote && <button type="button" ref={addButton} className="gtd-row-action" aria-label="Add action" title="Add action"
+        aria-expanded={editing} aria-controls={editing ? formId : undefined}
         aria-disabled={!canWrite || editing} onClick={() => { if (canWrite && !editing) setDraft(''); }}>
-        Add action
+        <Icon name="Plus" aria-hidden="true" />
       </button>}
     </div>
     {editing && <form className="gtd-add-action" id={formId} onSubmit={event => {
@@ -110,17 +132,24 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
         <button type="button" onClick={refresh}>Try again</button>
       </div>
         : !snapshot ? <p role="status">Loading actions…</p>
-          : snapshot.actions.length ? <ul className="gtd-action-list">
-            {snapshot.actions.map(action => <li key={action.line} className="gtd-action-row">
-              <label className="gtd-action-checkbox">
-                <input type="checkbox" aria-labelledby={`${heading}-action-${action.line}`} checked={action.complete} aria-disabled={!canWrite}
-                  onClick={event => { if (!canWrite) event.preventDefault(); }}
-                  onChange={event => void save({ operation: 'edit', line: action.line, version: snapshot.version, complete: event.target.checked })} />
-              </label>
-              <div className="gtd-area-actions-text" id={`${heading}-action-${action.line}`}>
-                <Markdown content={action.text} />
-              </div>
-            </li>)}
+          : actions.length ? <ul className="gtd-action-list">
+            {actions.map(action => {
+              const leaving = exiting?.line === action.line;
+              const label = `${heading}-action-${action.line}`;
+              return <li key={action.line} className={leaving ? 'gtd-action-row gtd-action-exiting' : 'gtd-action-row'}
+                inert={leaving} onAnimationEnd={event => {
+                  if (leaving && event.target === event.currentTarget) setExiting(undefined);
+                }}>
+                <div className="gtd-action-content">
+                  <label className="gtd-action-checkbox">
+                    <input type="checkbox" aria-labelledby={label} checked={leaving} aria-disabled={!canWrite}
+                      onClick={event => { if (!canWrite) event.preventDefault(); }}
+                      onChange={event => void save({ operation: 'edit', line: action.line, version: snapshot.version, complete: true }, event.currentTarget)} />
+                  </label>
+                  <div className="gtd-area-actions-text" id={label}><Markdown content={action.text} /></div>
+                </div>
+              </li>;
+            })}
           </ul> : <p role="status">No actions recorded.</p>}
     {error && <p role="alert">{error}</p>}
     {uncertainId && <div>

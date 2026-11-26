@@ -52,7 +52,16 @@
 .gtd-area-actions p { margin-block: 6px; }
 .gtd-area-actions [role='status'] { color: var(--muted-foreground); }
 .gtd-action-list { list-style: none; margin: 0; padding: 0; }
-.gtd-action-row { display: flex; align-items: flex-start; gap: 5px; }
+.gtd-action-row { display: grid; grid-template-rows: 1fr; }
+.gtd-action-content { display: flex; align-items: flex-start; gap: 5px; min-height: 0; }
+.gtd-action-exiting { animation: gtd-action-complete 180ms ease-out both; overflow: clip; }
+.gtd-action-exiting .gtd-area-actions-text { text-decoration: line-through; }
+@keyframes gtd-action-complete {
+  to { opacity: 0; grid-template-rows: 0fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gtd-action-exiting { animation-duration: 1ms; }
+}
 .gtd-action-checkbox { flex: none; min-width: 28px; min-height: 28px; display: grid; place-items: center; }
 .gtd-action-checkbox input { width: 16px; height: 16px; accent-color: var(--primary); }
 .gtd-area-actions :is(input, button):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

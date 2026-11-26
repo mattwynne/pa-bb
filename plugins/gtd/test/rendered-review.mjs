@@ -143,6 +143,7 @@ try {
     let areaActions = [
       { line: 1, text: 'Bring the [workshop plan](https://example.com/plan)', complete: false },
       { line: 2, text: 'Book the room', complete: true },
+      { line: 3, text: 'Pack the tools', complete: false },
     ];
     let refuseAction = false;
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
@@ -794,21 +795,34 @@ try {
       const actionLink = actions.getByRole('link', { name: 'workshop plan' });
       await actionLink.waitFor();
       assert.equal(await actionLink.getAttribute('href'), 'https://example.com/plan');
-      await actions.getByText('Book the room').waitFor();
+      assert.equal(await actions.getByText('Book the room').count(), 0);
       const boxes = actions.getByRole('checkbox');
       assert.equal(await boxes.count(), 2);
-      assert.equal(await actions.getByRole('checkbox', { name: 'Bring the workshop plan' }).count(), 1);
-      assert.equal(await boxes.nth(0).isChecked(), false);
-      assert.equal(await boxes.nth(1).isChecked(), true);
-      await boxes.nth(0).focus();
+      const remaining = actions.getByRole('checkbox', { name: 'Bring the workshop plan' });
+      const completing = actions.getByRole('checkbox', { name: 'Pack the tools' });
+      assert.equal(await remaining.isChecked(), false);
+      assert.equal(await completing.isChecked(), false);
+      refuseAction = true;
+      await completing.focus();
       await page.keyboard.press('Space');
+      await actions.getByRole('alert').getByText(/Area note changed/).waitFor();
+      assert.equal(await completing.isChecked(), false);
+      refuseAction = false;
+      await completing.locator('xpath=self::*[@aria-disabled="false"]').waitFor();
+      await page.keyboard.press('Space');
+      const exiting = actions.locator('.gtd-action-exiting');
+      await exiting.waitFor();
+      assert.equal(await exiting.evaluate(el => getComputedStyle(el).animationName), 'gtd-action-complete');
       await actions.getByText('Action completed.').waitFor();
-      await actions.locator('input[type=checkbox]:checked').nth(1).waitFor();
-      assert.ok(await boxes.nth(0).evaluate(el => el.matches(':focus')));
-      await page.keyboard.press('Space');
-      await actions.getByText('Action reopened.').waitFor();
-      await actions.locator('input[type=checkbox]:not(:checked)').waitFor();
+      await exiting.waitFor({ state: 'detached' });
+      assert.equal(await actions.getByText('Pack the tools').count(), 0);
+      assert.ok(await remaining.evaluate(el => el.matches(':focus')));
       const add = actions.getByRole('button', { name: 'Add action' });
+      const addProject = nav.getByRole('button', { name: 'Add project' });
+      for (const control of [add, addProject]) {
+        assert.ok(await control.locator('svg').isVisible());
+        assert.equal(await control.innerText(), '');
+      }
       await add.click();
       const draft = actions.getByRole('textbox', { name: 'Action', exact: true });
       assert.ok(await draft.evaluate(el => el.matches(':focus')));
@@ -823,6 +837,10 @@ try {
       await draft.press('Enter');
       await actions.getByRole('checkbox', { name: 'Check the supplies' }).waitFor();
       assert.ok(await add.evaluate(el => el.matches(':focus')));
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await actions.getByRole('checkbox', { name: 'Check the supplies' }).click();
+      await actions.getByText('Action completed.').waitFor();
+      await actions.getByText('Check the supplies').waitFor({ state: 'detached' });
       await heading('Learning').focus();
       for (let i = 0; i < 8 && !await actionLink.evaluate(el => el.matches(':focus')); i++) await page.keyboard.press('Tab');
       assert.ok(await actionLink.evaluate(el => el.matches(':focus')));

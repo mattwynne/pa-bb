@@ -699,8 +699,9 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       {ready && (area || unassigned) && <>
         {area && <AreaStandard key={`standard:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} hasNote={area.id.endsWith('.md')} />}
         {area && <AreaActions key={`actions:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} revision={inventory.revision} />}
-        <FilterBar title="Projects" label="Project status" action={area && <button ref={addProject} type="button" disabled={!!busy || !!inventory.error}
-          onClick={() => setCreateTarget(key(inventory.source, area.id))}>Add project</button>}>
+        <FilterBar title="Projects" label="Project status" action={area && <button ref={addProject} type="button" className="gtd-row-action"
+          aria-label="Add project" title="Add project" disabled={!!busy || !!inventory.error}
+          onClick={() => setCreateTarget(key(inventory.source, area.id))}><Icon name="Plus" aria-hidden="true" /></button>}>
           {(Object.keys(projectStatuses) as ProjectFilter[]).map(value => <FilterOption key={value} type="radio" name={statusGroup}
             label={projectStatuses[value]} checked={status === value} onChange={() => { lastProjectFilter = value; setStatus(value); }} />)}
         </FilterBar>

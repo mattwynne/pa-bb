@@ -64,7 +64,7 @@ In the BB composer, type `@` and part of a name to find **GTD projects** and **G
 
 ### Actions
 
-Keep project and Area actions as Markdown checkboxes under `## TODO` in the Obsidian landing note. On the Area page, use **Add action** to create a task and its checkbox to complete or reopen it.
+Keep project and Area actions as Markdown checkboxes under `## TODO` in the Obsidian landing note. On the Area page, use the **Add action** icon to create a task and its checkbox to complete it. The page shows open actions.
 
 `bb gtd actions list --kind area --source <source> --id <note-path>` lists the actions with their line numbers and note version. Use `--kind project` for project notes. The `add` command takes `--text`. The `edit` and `delete` commands need `--line` and `--version` from a fresh listing. Edit accepts `--text`, `--status open|complete`, or both. All four commands accept `--json`.
 
