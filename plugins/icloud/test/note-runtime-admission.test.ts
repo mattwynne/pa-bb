@@ -328,7 +328,7 @@ test('global 256-path admission cap applies fairly across all 20 mirrors in boun
 });
 
 
-test('Obsidian writes continue during a pending move and managed scan', {skip: !enabled, timeout: 30_000}, async () => {
+test('Obsidian writes continue during a preserved move conflict and managed scan', {skip: !enabled, timeout: 30_000}, async () => {
   const {chmod, readFile, rename} = await import('node:fs/promises');
   const f = await fixture(1);
   const id = 'mirror-0', relative = 'Note.md';
@@ -408,9 +408,10 @@ test('Obsidian writes continue during a pending move and managed scan', {skip: !
           assert.deepEqual(input.expected, {documentId:response.observation.documentId,parentId:response.observation.parentId,etag:'three',hash});
           assert.equal(input.text,'Additional edit before move');
           assert.equal(input.wantedHash,crypto.createHash('sha256').update(input.text).digest('hex'));
-          fs.writeFileSync(destination,input.text,{flag:'wx'});
-          fs.unlinkSync(target);
-          console.log(JSON.stringify({outcome:'uncertain'}));
+          fs.writeFileSync(destination,'Independent destination bytes',{flag:'wx'});
+          const conflictCopy='BB move conflict '+input.operationId+'.md';
+          fs.writeFileSync(require('node:path').join(require('node:path').dirname(target),conflictCopy),input.text,{flag:'wx'});
+          console.log(JSON.stringify({outcome:'conflict_preserved',conflictCopy}));
         } else {
           assert.equal(argv[1],'replace');
           const {documentId,parentId,etag,hash} = observe();
@@ -461,8 +462,11 @@ test('Obsidian writes continue during a pending move and managed scan', {skip: !
     });
     assert.equal(moved.outcome,'moved_locally_pending_sync');
     await f.runtime.deliverKnownNotes(pull,()=>true);
-    assert.equal(await readFile(join(f.remote,'generated-0','Renamed.md'),'utf8'),beforeMoving);
-    await assert.rejects(readFile(cloud),{code:'ENOENT'});
+    const conflictCopy = 'BB move conflict '+moved.operationId+'.md';
+    assert.equal(await readFile(join(f.remote,'generated-0','Renamed.md'),'utf8'),'Independent destination bytes');
+    assert.equal(await readFile(cloud,'utf8'),incoming);
+    assert.equal(await readFile(join(f.remote,'generated-0',conflictCopy),'utf8'),beforeMoving);
+    assert.deepEqual(f.runtime.moveConflict(id),{outcome:'preserved',source:relative,destination:'Renamed.md',copy:conflictCopy});
     assert.equal(f.db.prepare('SELECT count(*) FROM icloud_delivery_move_intent').pluck().get(),1);
     const independent = 'Independent while a move is pending';
     await ledger.fs.commit({mirrorId:id,revision:1,path:'Independent.md',operationId:op(),kind:'create',expectedHash:null,text:independent});

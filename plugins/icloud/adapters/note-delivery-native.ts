@@ -13,6 +13,7 @@ const index = z.strictObject({ version: z.literal(1), binding: string, notes: z.
 const reply = z.discriminatedUnion('outcome', [
   z.strictObject({ outcome: z.literal('observed'), observation: deliveryObservation }),
   z.strictObject({ outcome: z.literal('published'), observation: deliveryObservation, sourceRetained: z.literal(true).optional() }),
+  z.strictObject({ outcome: z.literal('conflict_preserved'), conflictCopy: z.string().max(1024) }),
   z.strictObject({ outcome: z.literal('refused') }),
   z.strictObject({ outcome: z.literal('absent') }),
   z.strictObject({ outcome: z.literal('uncertain') }),
@@ -98,6 +99,10 @@ export class NativeNoteDelivery implements NotePublicationWorker {
       source:intent.source,path:intent.path,operationId,wantedHash:intent.wantedHash,...(text !== undefined ? {text} : {}),
       expected:{documentId:expected.documentId,parentId:expected.parentId,etag:expected.etag,hash:expected.hash},
     }));
+    if (result.outcome === 'conflict_preserved') {
+      this.journal.preserveMoveConflict(intent.mirrorId,operationId,result.conflictCopy);
+      return {outcome:'uncertain'};
+    }
     if (result.outcome === 'refused') return {outcome:'refused'};
     if (result.outcome !== 'published') return {outcome:'uncertain'};
     this.admitted.set(operationId,result.observation);

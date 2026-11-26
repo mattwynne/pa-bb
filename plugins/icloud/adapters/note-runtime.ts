@@ -464,7 +464,9 @@ export class NoteRuntime {
         const paths = move ? pending.filter(path => !isMoveEndpoint(move,path) && !queue.pendingPath(id,path)[0]?.source) : pending;
         const last = paths.indexOf(this.deliveryLastPath.get(id) ?? '');
         let path = paths[(last + 1) % paths.length];
-        if (move && !write) {
+        if (move?.conflictCopy && !write) {
+          if (!path) continue;
+        } else if (move && !write) {
           const operationId = move.operations.at(-1)!;
           const previous = this.deliveryMoveAttempt.get(id);
           const now = Date.now();
@@ -490,6 +492,13 @@ export class NoteRuntime {
         },path);
       }
     } finally { this.deliveryBusy = false; }
+  }
+
+  moveConflict(id: string) {
+    if (!this.managedDelivery.has(id) || !this.deliveryJournal) throw new CloudError('invalid_selection');
+    const move = this.deliveryJournal.pending(id,'move');
+    return move?.conflictCopy ? { outcome:'preserved' as const, source:move.source!, destination:move.path, copy:move.conflictCopy }
+      : { outcome:'none' as const };
   }
 
   probeManagedBinding(id: string, binary: string) {

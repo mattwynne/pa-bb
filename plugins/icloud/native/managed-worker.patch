@@ -760,7 +760,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_delivery_store.go
-@@ -0,0 +1,266 @@
+@@ -0,0 +1,269 @@
 +package bisync
 +
 +import (
@@ -837,8 +837,9 @@
 +		return bbDeliveryStore{}, err
 +	}
 +	var state bbDeliveryStore
-+	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > 3) ||
-+		(state.Relocation != nil && (state.Version < 2 || (state.Pending != nil && state.Version < 3) || !state.Relocation.valid())) ||
++	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > 4) ||
++		(state.Relocation != nil && (state.Version < 2 || (state.Pending != nil && state.Version < 3) ||
++			(state.Relocation.Conflict != nil && state.Version < 4) || !state.Relocation.valid())) ||
 +		len(state.Confirmed) > bbDeliveryLimit || len(state.Applied) > bbDeliveryLimit || (state.Pending == nil && state.Dispatched) || (state.Pending != nil && !validBBDelivery(*state.Pending)) {
 +		return bbDeliveryStore{}, errBBInvalidDelivery
 +	}
@@ -897,7 +898,9 @@
 +		if err := bbCheckRelocationDisjoint(state.Relocation, intent, knownDocument); err != nil {
 +			return err
 +		}
-+		state.Version = 3
++		if state.Version < 3 {
++			state.Version = 3
++		}
 +		if len(knownDocument) == 1 {
 +			state.PendingDocument = knownDocument[0]
 +		}
@@ -2414,7 +2417,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,318 @@
+@@ -0,0 +1,319 @@
 +package main
 +
 +import (
@@ -2463,6 +2466,7 @@
 +	Binding        string                `json:"binding,omitempty"`
 +	Observation    *ownedNoteObservation `json:"observation,omitempty"`
 +	SourceRetained bool                  `json:"sourceRetained,omitempty"`
++	ConflictCopy   string                `json:"conflictCopy,omitempty"`
 +}
 +
 +type ownedNoteObservation struct {
@@ -2901,7 +2905,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation.go
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,217 @@
 +package main
 +
 +import (
@@ -2986,6 +2990,10 @@
 +		state = &bisync.BBRelocation{Intent: intent, Data: data}
 +	}
 +
++	if state.Conflict != nil {
++		return preserveRelocationConflict(ctx, cloud, request.Workdir, state)
++	}
++
 +	var target iclouddrive.BBNotePublication
 +	if state.Destination == nil {
 +		if state.Allocation == "" {
@@ -2999,8 +3007,8 @@
 +		} else {
 +			target, err = cloud.ObserveBBCreate(ctx, request.Path)
 +			_, _, currentID := api.DeconstructDriveID(target.Revision.DriveID)
-+			if currentID != state.Allocation || target.Revision.Hash != intent.Hash {
-+				return uncertain
++			if err == nil && (currentID != state.Allocation || target.Revision.Hash != intent.Hash) {
++				return preserveRelocationConflict(ctx, cloud, request.Workdir, state)
 +			}
 +		}
 +		if err != nil {
@@ -3023,7 +3031,7 @@
 +	if target.Revision != expectedTarget {
 +		target, err = cloud.CheckBBNoteVersion(ctx, request.Path, expectedTarget)
 +		if err != nil || !matchesRelocationTarget(intent, *state.Destination, target) {
-+			return uncertain
++			return verifyRelocationDestinationDispute(ctx, cloud, request.Workdir, state, expectedTarget)
 +		}
 +	}
 +	sourceNeedsReadback := state.Removing
@@ -3046,7 +3054,7 @@
 +	}
 +	target, err = cloud.CheckBBNoteVersion(ctx, request.Path, expectedTarget)
 +	if err != nil || !matchesRelocationTarget(intent, *state.Destination, target) {
-+		return uncertain
++		return verifyRelocationDestinationDispute(ctx, cloud, request.Workdir, state, expectedTarget)
 +	}
 +	if sourceNeedsReadback {
 +		err = bisync.BBFinishRelocationWithIndependentSource(request.Workdir, intent, sourcePresent)
@@ -3061,13 +3069,63 @@
 +	return reply
 +}
 +
++func verifyRelocationDestinationDispute(ctx context.Context, cloud relocationCloud, workdir string, move *bisync.BBRelocation, expected iclouddrive.BBNoteRevision) ownedNoteReply {
++	current, err := cloud.ObserveBBCreate(ctx, move.Intent.Path)
++	if errors.Is(err, fs.ErrorObjectNotFound) || (err == nil && current.Revision != expected) {
++		return preserveRelocationConflict(ctx, cloud, workdir, move)
++	}
++	return ownedNoteReply{Outcome: "uncertain"}
++}
++
++// An independent destination is left untouched. Save the staged bytes
++// through a second conditional create and never advance the move's original
++// removal phase. Confirmation is distinct from successful relocation.
++func preserveRelocationConflict(ctx context.Context, cloud relocationCloud, workdir string, move *bisync.BBRelocation) ownedNoteReply {
++	uncertain := ownedNoteReply{Outcome: "uncertain"}
++	intent := move.Intent
++	copyIntent := intent.ConflictIntent()
++	conflict := move.Conflict
++	if conflict == nil {
++		if err := bisync.BBBeginRelocationConflict(workdir, intent); err != nil {
++			return uncertain
++		}
++		conflict = &bisync.BBRelocationConflict{}
++	}
++	if conflict.Copy != nil {
++		return ownedNoteReply{Outcome: "conflict_preserved", ConflictCopy: copyIntent.Path}
++	}
++	allocation := conflict.Allocation
++	var observed iclouddrive.BBNotePublication
++	var err error
++	if allocation == "" {
++		observed, err = cloud.CreateBBNote(ctx, copyIntent.Path, intent.Binding, move.Data, func(id string) error {
++			if err := bisync.BBAllocateRelocationConflict(workdir, intent, id); err != nil {
++				return err
++			}
++			allocation = id
++			return nil
++		})
++	} else {
++		observed, err = cloud.ObserveBBCreate(ctx, copyIntent.Path)
++	}
++	if err != nil || allocation == "" || observed.Revision.Hash != intent.Hash {
++		return uncertain
++	}
++	receipt := bisync.BBDeliveryReceipt{BBDeliveryIntent: copyIntent, DocumentID: allocation, ProviderID: observed.Revision.DriveID,
++		ProviderParentID: observed.Revision.ParentID, ETag: observed.Revision.ETag, Modified: observed.Modified, Size: observed.Size}
++	if err := bisync.BBRecordRelocationConflict(workdir, intent, receipt); err != nil {
++		return uncertain
++	}
++	return ownedNoteReply{Outcome: "conflict_preserved", ConflictCopy: copyIntent.Path}
++}
++
 +func matchesRelocationTarget(intent bisync.BBRelocationIntent, receipt bisync.BBDeliveryReceipt, target iclouddrive.BBNotePublication) bool {
 +	return target.Revision.DriveID == receipt.ProviderID && target.Revision.ParentID == receipt.ProviderParentID && target.Revision.ETag == receipt.ETag &&
 +		target.Revision.Hash == intent.Hash && target.Size == receipt.Size
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation_test.go
-@@ -0,0 +1,177 @@
+@@ -0,0 +1,215 @@
 +package main
 +
 +import (
@@ -3075,6 +3133,7 @@
 +	"crypto/sha256"
 +	"encoding/hex"
 +	"errors"
++	"strings"
 +	"testing"
 +	"time"
 +
@@ -3085,10 +3144,11 @@
 +)
 +
 +type relocationFake struct {
-+	notes                             map[string]iclouddrive.BBNotePublication
-+	lostCreate, lostTrash, editSource bool
-+	loseSourceRead                    bool
-+	creates, trashes                  int
++	notes                               map[string]iclouddrive.BBNotePublication
++	lostCreate, lostTrash, editSource   bool
++	lostConflictCopy, editTargetOnTrash bool
++	loseSourceRead                      bool
++	creates, trashes                    int
 +}
 +
 +func fixturePublication(id, etag string, data []byte) iclouddrive.BBNotePublication {
@@ -3116,16 +3176,21 @@
 +	if _, ok := f.notes[name]; ok {
 +		return absent, api.ErrConditionalConflict
 +	}
-+	if err := dispatch("allocated-document"); err != nil {
++	conflictCopy := strings.HasPrefix(name, "BB move conflict ")
++	docID := "allocated-document"
++	if conflictCopy {
++		docID = "conflict-allocation"
++	}
++	if err := dispatch(docID); err != nil {
 +		return absent, err
 +	}
 +	f.creates++
-+	published := fixturePublication("allocated-document", "destination-version", data)
++	published := fixturePublication(docID, "destination-version", data)
 +	f.notes[name] = published
 +	if f.editSource {
 +		f.notes["from.md"] = fixturePublication("original-document", "newer-source", []byte("Mac update"))
 +	}
-+	if f.lostCreate {
++	if (!conflictCopy && f.lostCreate) || (conflictCopy && f.lostConflictCopy) {
 +		return absent, api.ErrConditionalUnconfirmed
 +	}
 +	return published, nil
@@ -3148,6 +3213,9 @@
 +	}
 +	f.trashes++
 +	delete(f.notes, name)
++	if f.editTargetOnTrash {
++		f.notes["to.md"] = fixturePublication("allocated-document", "after-removal", []byte("Newer destination while removing"))
++	}
 +	if f.lostTrash {
 +		f.loseSourceRead = true
 +		return api.ErrConditionalUnconfirmed
@@ -3156,7 +3224,7 @@
 +}
 +
 +func TestBBRelocationRecoversByIdentityWithoutReplaying(t *testing.T) {
-+	for _, scenario := range []string{"success", "recent source publication", "lost create", "same bytes foreign destination", "changed destination", "lost trash", "recreated source after lost trash", "later source edit", "occupied destination"} {
++	for _, scenario := range []string{"success", "recent source publication", "lost create", "same bytes foreign destination", "changed destination", "lost conflict copy reply", "conflict copy occupied", "changed during source removal", "lost trash", "recreated source after lost trash", "later source edit", "occupied destination"} {
 +		t.Run(scenario, func(t *testing.T) {
 +			ctx := context.Background()
 +			source := fixturePublication("original-document", "prior-version", []byte("original"))
@@ -3167,8 +3235,10 @@
 +				Expected: &ownedNoteVersion{source.Revision.DriveID, source.Revision.ParentID, source.Revision.ETag, hex.EncodeToString(source.Revision.Hash[:])},
 +			}
 +			cloud := &relocationFake{notes: map[string]iclouddrive.BBNotePublication{"from.md": source},
-+				lostCreate: scenario == "lost create" || scenario == "same bytes foreign destination" || scenario == "changed destination",
-+				lostTrash:  scenario == "lost trash" || scenario == "recreated source after lost trash", editSource: scenario == "later source edit",
++				lostCreate: scenario == "lost create" || scenario == "same bytes foreign destination" || scenario == "changed destination" ||
++					scenario == "lost conflict copy reply" || scenario == "conflict copy occupied",
++				lostConflictCopy: scenario == "lost conflict copy reply", editTargetOnTrash: scenario == "changed during source removal",
++				lostTrash: scenario == "lost trash" || scenario == "recreated source after lost trash", editSource: scenario == "later source edit",
 +			}
 +			if scenario == "recent source publication" {
 +				prior := bisync.BBDeliveryIntent{OperationID: "762407e3-1321-4b67-a506-020a1917e0ae", Path: "from.md", Hash: source.Revision.Hash}
@@ -3199,6 +3269,9 @@
 +			if scenario == "success" || scenario == "recent source publication" || scenario == "later source edit" {
 +				want = "published"
 +			}
++			if scenario == "changed during source removal" {
++				want = "conflict_preserved"
++			}
 +			if first.Outcome != want {
 +				t.Fatalf("first outcome %q, want %q", first.Outcome, want)
 +			}
@@ -3212,9 +3285,15 @@
 +			if scenario == "same bytes foreign destination" {
 +				cloud.notes["to.md"] = fixturePublication("unrelated-document", "mac", []byte(text))
 +			}
-+			if scenario == "changed destination" {
++			if scenario == "changed destination" || scenario == "lost conflict copy reply" || scenario == "conflict copy occupied" {
 +				cloud.notes["to.md"] = fixturePublication("allocated-document", "mac", []byte("Mac destination edit"))
 +			}
++			copyPath := "BB move conflict " + request.OperationID + ".md"
++			if scenario == "conflict copy occupied" {
++				cloud.notes[copyPath] = fixturePublication("foreign-conflict", "older", []byte("Already occupied"))
++			}
++			expectedTarget := cloud.notes["to.md"]
++			expectedSource := cloud.notes["from.md"]
 +			if scenario == "recreated source after lost trash" {
 +				cloud.notes["from.md"] = fixturePublication("new-source", "mac-recreation", []byte("Recreated by Mac"))
 +			}
@@ -3229,12 +3308,29 @@
 +					cloud.notes["from.md"].Revision.ETag == "prior-version" || cloud.notes["from.md"].Size == 0 {
 +					t.Fatalf("the independently changed source was not accounted for: %+v; trashes=%d", second, cloud.trashes)
 +				}
-+			case "same bytes foreign destination", "changed destination", "occupied destination":
-+				if second.Outcome != want || cloud.trashes != 0 || cloud.notes["from.md"].Size == 0 {
-+					t.Fatalf("race touched a source or was accepted: %+v; trashes=%d", second, cloud.trashes)
++			case "same bytes foreign destination", "changed destination", "changed during source removal", "lost conflict copy reply":
++				if scenario == "lost conflict copy reply" {
++					if second.Outcome != "uncertain" {
++						t.Fatalf("lost response unexpectedly confirmed: %+v", second)
++					}
++					second = applyOwnedRelocation(ctx, cloud, hashOnly)
 +				}
-+				if scenario == "occupied destination" && cloud.creates != 0 {
-+					t.Fatal("occupied destination got a create")
++				if second.Outcome != "conflict_preserved" || second.ConflictCopy != copyPath || cloud.creates != 2 ||
++					cloud.notes[copyPath].Revision.Hash != destinationHash || cloud.notes["from.md"] != expectedSource ||
++					cloud.notes["to.md"] != expectedTarget {
++					t.Fatalf("conflict was not independently preserved: %+v; creates=%d", second, cloud.creates)
++				}
++				if again := applyOwnedRelocation(ctx, cloud, hashOnly); again.Outcome != "conflict_preserved" || cloud.creates != 2 {
++					t.Fatalf("an already confirmed conflict copy was replayed: %+v", again)
++				}
++			case "conflict copy occupied", "occupied destination":
++				creates := 0
++				if scenario == "conflict copy occupied" {
++					creates = 1
++				}
++				if second.Outcome != want || cloud.trashes != 0 || cloud.creates != creates || cloud.notes["from.md"] != expectedSource ||
++					cloud.notes["to.md"] != expectedTarget {
++					t.Fatalf("occupancy triggered replacement: %+v", second)
 +				}
 +			default:
 +				if second.Outcome != "published" || cloud.creates != 1 || cloud.trashes != 1 || second.Observation == nil ||
@@ -3247,7 +3343,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation.go
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,283 @@
 +package bisync
 +
 +import (
@@ -3278,6 +3374,7 @@
 +	Allocation  string
 +	Destination *BBDeliveryReceipt
 +	Removing    bool
++	Conflict    *BBRelocationConflict `json:",omitempty"`
 +}
 +
 +func equalBBPaths(a, b string) bool {
@@ -3300,7 +3397,7 @@
 +	if move.Intent.OperationID == intent.OperationID {
 +		return ErrBBDeliveryUnsettled
 +	}
-+	for _, name := range []string{move.Intent.Source, move.Intent.Path} {
++	for _, name := range move.heldPaths() {
 +		key, endpoint := bbFoldPath(intent.Path), bbFoldPath(name)
 +		if key == endpoint || strings.HasPrefix(key, endpoint+".") {
 +			return ErrBBDeliveryUnsettled
@@ -3319,12 +3416,21 @@
 +	return nil
 +}
 +
-+func (r *BBRelocation) hasProviderDocument(providerID string) bool {
++func bbAllocatedDocumentID(providerID string) string {
 +	_, rest, qualified := strings.Cut(providerID, "::")
 +	_, bare, document := strings.Cut(rest, "::")
++	if !qualified || !document {
++		return ""
++	}
++	return bare
++}
++
++func (r *BBRelocation) hasProviderDocument(providerID string) bool {
++	bare := bbAllocatedDocumentID(providerID)
 +	return providerID == r.Intent.Previous.DocumentID ||
 +		(r.Destination != nil && providerID == r.Destination.ProviderID) ||
-+		(qualified && document && r.Allocation != "" && bare == r.Allocation)
++		(bare != "" && r.Allocation != "" && bare == r.Allocation) ||
++		(bare != "" && r.Conflict != nil && r.Conflict.Copy == nil && bare == r.Conflict.Allocation)
 +}
 +
 +func BBCheckDeliveryDisjoint(workdir string, intent BBDeliveryIntent, knownDocument ...string) error {
@@ -3350,6 +3456,9 @@
 +		intent.SourceHash == ([sha256.Size]byte{}) || len(r.Allocation) > 512 ||
 +		len(r.Data) < 1 || len(r.Data) > bbDeliveryBytes ||
 +		sha256.Sum256(r.Data) != intent.Hash || (r.Removing && r.Destination == nil) {
++		return false
++	}
++	if r.Conflict != nil && !r.Conflict.valid(intent, len(r.Data)) {
 +		return false
 +	}
 +	if target := r.Destination; target != nil {
@@ -3463,7 +3572,7 @@
 +
 +func BBDispatchRelocationTrash(workdir string, intent BBRelocationIntent) error {
 +	return bbChangeRelocation(workdir, intent, func(_ *bbDeliveryStore, move *BBRelocation) bool {
-+		if move.Destination == nil || move.Removing {
++		if move.Destination == nil || move.Removing || move.Conflict != nil {
 +			return false
 +		}
 +		move.Removing = true
@@ -3484,7 +3593,7 @@
 +
 +func bbFinishRelocation(workdir string, intent BBRelocationIntent, observedSource, sourcePresent bool) error {
 +	return bbChangeRelocation(workdir, intent, func(state *bbDeliveryStore, move *BBRelocation) bool {
-+		if (!move.Removing && !observedSource) || move.Destination == nil {
++		if (!move.Removing && !observedSource) || move.Destination == nil || move.Conflict != nil {
 +			return false
 +		}
 +		state.Confirmed = slices.DeleteFunc(state.Confirmed, func(prior BBDeliveryReceipt) bool {
@@ -3612,7 +3721,7 @@
 +		}
 +	}
 +	held := &bbRelocationHold{files: map[string]bool{}, trees: map[string]bool{}}
-+	paths := []string{move.Intent.Source, move.Intent.Path}
++	paths := move.heldPaths()
 +	for name, observation := range b.march.bbIdentities {
 +		if move.hasProviderDocument(observation.DocumentID) {
 +			paths = append(paths, name)
@@ -3653,7 +3762,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation_hold_test.go
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,222 @@
 +package bisync
 +
 +import (
@@ -3759,6 +3868,13 @@
 +	if err := BBAllocateRelocation(workdir, move, "allocated"); err != nil {
 +		t.Fatal(err)
 +	}
++	if err := BBBeginRelocationConflict(workdir, move); err != nil {
++		t.Fatal(err)
++	}
++	if err := BBAllocateRelocationConflict(workdir, move, "conflict-allocated"); err != nil {
++		t.Fatal(err)
++	}
++	copyIntent := move.ConflictIntent()
 +	if err := os.Remove(filepath.Join(mirrorRoot, source)); err != nil {
 +		t.Fatal(err)
 +	}
@@ -3769,9 +3885,11 @@
 +	write(cloudRoot, source, "Mac continued editing old source", later)
 +	write(cloudRoot, observedMove, "independent content at altered provider path", later)
 +	write(cloudRoot, "Mac edit.md", "Mac edit during recovery", later)
++	write(cloudRoot, copyIntent.Path, wanted, later)
 +	cloudRevisions := map[string]BBIndexedVersion{
-+		source:       {prev.DocumentID, prev.ParentID, "new-etag"},
-+		observedMove: {"FILE::com.apple.CloudDocs::allocated", "FOLDER::com.apple.CloudDocs::vault", "altered"},
++		source:          {prev.DocumentID, prev.ParentID, "new-etag"},
++		observedMove:    {"FILE::com.apple.CloudDocs::allocated", "FOLDER::com.apple.CloudDocs::vault", "altered"},
++		copyIntent.Path: {"FILE::com.apple.CloudDocs::conflict-allocated", "FOLDER::com.apple.CloudDocs::vault", "conflict-version"},
 +	}
 +	cloudSide := &bbHeldListingFS{Fs: cloud, versions: cloudRevisions}
 +	options.Resync = false
@@ -3803,6 +3921,19 @@
 +	absent(mirrorRoot, source)
 +	absent(mirrorRoot, observedMove)
 +	absent(cloudRoot, "Archive")
++	absent(mirrorRoot, copyIntent.Path)
++	version := cloudRevisions[copyIntent.Path]
++	receipt := BBDeliveryReceipt{BBDeliveryIntent: copyIntent, DocumentID: "conflict-allocated",
++		ProviderID: version.DocumentID, ProviderParentID: version.ParentID, ETag: version.ETag, Size: int64(len(wanted)), Modified: later}
++	if err := BBRecordRelocationConflict(workdir, move, receipt); err != nil {
++		t.Fatal(err)
++	}
++	if err := BBManagedBisync(ctx, cloudSide, mirror, options, move.Binding); err != nil {
++		t.Fatal(err)
++	}
++	wantOn(mirrorRoot, copyIntent.Path, wanted)
++	absent(mirrorRoot, source)
++	absent(mirrorRoot, observedMove)
 +	state, err := readBBDeliveries(workdir)
 +	if err != nil || state.Relocation == nil || state.Relocation.Allocation != "allocated" ||
 +		len(state.Confirmed) != 1 || state.Confirmed[0].BBDeliveryIntent != prior {
@@ -3853,4 +3984,78 @@
 +	if err != nil || pending == nil || pending.Allocation != "allocated" || settled != nil {
 +		t.Fatalf("independent delivery replaced the original move: %v", err)
 +	}
++}
+--- /dev/null
++++ b/cmd/bisync/bb_relocation_conflict.go
+@@ -0,0 +1,71 @@
++package bisync
++
++// BBRelocationConflict preserves the staged BB bytes at a deterministic
++// create-only path. It is separate from the disputed canonical destination.
++type BBRelocationConflict struct {
++	Allocation string
++	Copy       *BBDeliveryReceipt
++}
++
++func (r BBRelocationIntent) ConflictIntent() BBDeliveryIntent {
++	intent := r.BBDeliveryIntent
++	intent.Path = "BB move conflict " + intent.OperationID + ".md"
++	return intent
++}
++
++func (r *BBRelocation) heldPaths() []string {
++	paths := []string{r.Intent.Source, r.Intent.Path}
++	if r.Conflict != nil && r.Conflict.Copy == nil {
++		paths = append(paths, r.Intent.ConflictIntent().Path)
++	}
++	return paths
++}
++
++func (c *BBRelocationConflict) valid(intent BBRelocationIntent, size int) bool {
++	target := intent.ConflictIntent()
++	if !validBBRelocationPaths(intent.Source, target) || !validBBRelocationPaths(intent.Path, target) ||
++		len(c.Allocation) > 512 {
++		return false
++	}
++	if c.Copy == nil {
++		return true
++	}
++	return c.Allocation != "" && c.Copy.BBDeliveryIntent == target && c.Copy.DocumentID == c.Allocation &&
++		c.Copy.RemovedPath == "" && !c.Copy.SourceRetained && c.Copy.ProviderID != "" && bbAllocatedDocumentID(c.Copy.ProviderID) == c.Allocation &&
++		c.Copy.ProviderParentID != "" && c.Copy.ETag != "" && c.Copy.Size == int64(size) && !c.Copy.Modified.IsZero()
++}
++
++func BBBeginRelocationConflict(workdir string, intent BBRelocationIntent) error {
++	return bbChangeRelocation(workdir, intent, func(state *bbDeliveryStore, move *BBRelocation) bool {
++		if move.Allocation == "" || move.Conflict != nil {
++			return false
++		}
++		if state.Version < 4 {
++			state.Version = 4
++		}
++		move.Conflict = &BBRelocationConflict{}
++		return true
++	})
++}
++
++func BBAllocateRelocationConflict(workdir string, intent BBRelocationIntent, allocation string) error {
++	return bbChangeRelocation(workdir, intent, func(_ *bbDeliveryStore, move *BBRelocation) bool {
++		if move.Conflict == nil || move.Conflict.Allocation != "" || allocation == "" || allocation == move.Allocation {
++			return false
++		}
++		move.Conflict.Allocation = allocation
++		return true
++	})
++}
++
++func BBRecordRelocationConflict(workdir string, intent BBRelocationIntent, receipt BBDeliveryReceipt) error {
++	return bbChangeRelocation(workdir, intent, func(_ *bbDeliveryStore, move *BBRelocation) bool {
++		if move.Conflict == nil || move.Conflict.Allocation == "" || move.Conflict.Copy != nil ||
++			receipt.ProviderID == move.Intent.Previous.DocumentID ||
++			(move.Destination != nil && receipt.ProviderID == move.Destination.ProviderID) {
++			return false
++		}
++		move.Conflict.Copy = &receipt
++		return true
++	})
 +}

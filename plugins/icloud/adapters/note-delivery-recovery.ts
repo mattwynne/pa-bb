@@ -20,7 +20,7 @@ const intent = z.object({
   expected: deliveryObservation.nullable(),
   wantedHash: hash,
 }).strict();
-const stored = intent.extend({ publication: deliveryObservation.nullable() }).strict();
+const stored = intent.extend({ publication: deliveryObservation.nullable(), conflictCopy: notePath.optional() }).strict();
 export type DeliveryObservation = z.infer<typeof deliveryObservation>;
 export type DeliveryIntent = z.infer<typeof intent>;
 type Stored = z.infer<typeof stored>;
@@ -99,10 +99,20 @@ export class NoteDeliveryRecovery {
     }).immediate();
   }
 
+  preserveMoveConflict(mirrorId: string, operationId: string, copy: string) {
+    this.db.transaction(() => {
+      const row = this.forOperation(mirrorId,operationId);
+      if (!row.source || row.publication || copy !== `BB move conflict ${operationId}.md`)
+        throw new CloudError('recovery_required');
+      if (row.conflictCopy && row.conflictCopy !== copy) throw new CloudError('source_changed');
+      this.write({...row,conflictCopy:copy});
+    }).immediate();
+  }
+
   published(mirrorId: string, operationId: string, publication: DeliveryObservation, expectedCreateDocumentId?: string) {
     this.db.transaction(() => {
       const row = this.forOperation(mirrorId, operationId);
-      if (row.publication) throw new CloudError('recovery_required');
+      if (row.publication || row.conflictCopy) throw new CloudError('recovery_required');
       const next = deliveryObservation.parse(publication);
       if (next.hash !== row.wantedHash ||
         (row.source
@@ -117,7 +127,7 @@ export class NoteDeliveryRecovery {
   refused(mirrorId: string, operationId: string) {
     this.db.transaction(() => {
       const row = this.forOperation(mirrorId, operationId);
-      if (row.publication) throw new CloudError('recovery_required');
+      if (row.publication || row.conflictCopy) throw new CloudError('recovery_required');
       this.remove(row);
     }).immediate();
   }

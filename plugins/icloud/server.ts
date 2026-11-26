@@ -149,6 +149,10 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
         return await runtime.probeManagedBinding(id,binary);
       } finally { admittedWork--; }
     },
+    id => {
+      if (!runtime) throw new CloudError('unavailable');
+      return runtime.moveConflict(id);
+    },
   ));
   const admit = async <T>(operation: () => T | Promise<T>) => {
     if (sync.maintenanceHeld) throw new CloudError('busy');
