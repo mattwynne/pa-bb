@@ -68,6 +68,7 @@ export const rpcContract = defineRpcContract({
     output: correspondenceChangeResult,
   },
   readNextAction: { input: reference, output: nextAction },
+  readAreaActions: { input: reference, output: z.object({ text: standardText }).strict() },
   readAreaStandard: { input: reference, output: noteSection },
   saveAreaStandard: { input: areaStandardInput, output: standardSaveResult },
   listProjects: { input: listInput, output: pageSchema },

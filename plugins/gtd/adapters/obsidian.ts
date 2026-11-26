@@ -1,5 +1,6 @@
 import { combineCorrespondence, correspondenceLinks, correspondenceSections, snoozedLinks } from '../core/correspondence.ts';
 import type { CorrespondenceWrite } from '../core/correspondence-tools.ts';
+import type { ActionTarget } from '../core/actions.ts';
 import { posix } from 'node:path';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
@@ -169,10 +170,10 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
     }
   }
 
-  private standardTarget(source: string, id: string) {
+  private areaSection(source: string, id: string, heading: string) {
     if (source !== this.config.vaultId || !relativeFolder.safeParse(id).success ||
         !immediate(id, this.scope(this.config.areasFolder ?? this.config.folder)) || !id.endsWith('.md')) throw new GtdError('invalid_source');
-    return { vaultId: source, path: id, heading: 'Standard' };
+    return { vaultId: source, path: id, heading };
   }
 
   private projectSection(source: string, id: string, heading: string) {
@@ -184,6 +185,19 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
 
   async readNextAction({ source, id }: { source: string; id: string }, signal: AbortSignal) {
     return nextAction.parse(await vaultRpc(this.sdk, 'readSectionTask', this.projectSection(source, id, 'TODO'), signal));
+  }
+
+  private actionTarget({ kind, source, id }: ActionTarget) {
+    return kind === 'area' ? this.areaSection(source, id, 'TODO') : this.projectSection(source, id, 'TODO');
+  }
+
+  async readActions(target: ActionTarget, signal: AbortSignal) {
+    return noteSection.parse(await vaultRpc(this.sdk, 'readNoteSection', this.actionTarget(target), signal));
+  }
+
+  async writeActions(target: ActionTarget,
+    change: { text: string; expectedHash: string; operationId: string }, signal: AbortSignal) {
+    return standardSaveResult.parse(await vaultRpc(this.sdk, 'writeNoteSection', { ...this.actionTarget(target), ...change }, signal));
   }
 
   async readCorrespondenceVersion({ source, id }: { source: string; id: string }, signal: AbortSignal) {
@@ -226,11 +240,11 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
   }
 
   async readAreaStandard({ source, id }: { source: string; id: string }, signal: AbortSignal) {
-    return noteSection.parse(await vaultRpc(this.sdk, 'readNoteSection', this.standardTarget(source, id), signal));
+    return noteSection.parse(await vaultRpc(this.sdk, 'readNoteSection', this.areaSection(source, id, 'Standard'), signal));
   }
 
   async saveAreaStandard({ source, id, ...change }: z.infer<typeof areaStandardInput>, signal: AbortSignal) {
-    const result = standardSaveResult.parse(await vaultRpc(this.sdk, 'writeNoteSection', { ...this.standardTarget(source, id), ...change }, signal));
+    const result = standardSaveResult.parse(await vaultRpc(this.sdk, 'writeNoteSection', { ...this.areaSection(source, id, 'Standard'), ...change }, signal));
     if (result.operationId !== change.operationId) throw new Error('Obsidian returned a different operation receipt.');
     return result;
   }

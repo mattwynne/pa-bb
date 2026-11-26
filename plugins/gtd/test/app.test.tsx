@@ -36,6 +36,7 @@ function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }
       },
       readAreaMailStatus: async () => [{ id: ref.id, state: 'clear' }],
       readAreaStandard: async () => ({ text: 'Practice weekly.', hash: 'a'.repeat(64) }),
+      readAreaActions: async () => ({ text: '- [ ] Check the supplies' }),
       newThread,
     },
     sdk: { threads: { experimental_listPluginMetadata: async () => ({ threads: [{ threadId: 't1', metadata: { project: ref } }, { threadId: 't2', metadata: { project: ref } }] }) } },
@@ -64,6 +65,8 @@ test('GTD registers a navigation panel and keeps area, project and thread action
   ]);
   const slot = setup();
   const projectLink = await slot.findByRole('link', { name: 'Learn woodworking' });
+  const actions = slot.getByRole('region', { name: 'Actions' });
+  expect(await within(actions).findByText(/Check the supplies/)).toBeTruthy();
   expect(projectLink.getAttribute('href')).toBe(panelHref(woodwork));
   fireEvent.click(projectLink);
   expect(slot.inspection.navigateCalls.at(-1)).toMatchObject({ method: 'toPluginPanel', path: 'projects', options: { subPath: woodwork.subPath } });

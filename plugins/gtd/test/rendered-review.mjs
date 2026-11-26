@@ -108,7 +108,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'auto-refresh', 'next-action', 'correspondence', 'area-mail', 'composer-project'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'area-actions', 'auto-refresh', 'next-action', 'correspondence', 'area-mail', 'composer-project'];
   const reviewedModes = native ? ['native-refresh'] : process.env.BB_REVIEW_MODE ? modes.filter(mode => mode === process.env.BB_REVIEW_MODE) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
   for (const width of [1280, 390]) for (const mode of reviewedModes) {
@@ -138,6 +138,7 @@ try {
     let standardText = 'Practice weekly.', standardHash = 'a'.repeat(64);
     const standardReads = [];
     let homeStandard = '', firstHomeRead = true;
+    let actionState = 'loading', releaseActions;
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
     const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
       ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1,
@@ -218,7 +219,7 @@ try {
         const areas = [{ id: 'Areas/Learning.md', title: 'Learning' }];
         if (mode === 'empty') areas.length = 0;
         if (mode === 'project-actions' || mode === 'browser-flow') areas.push({ id: 'Areas/Home.md', title: 'Home' });
-        if (mode === 'area-standard') areas.push({ id: 'Areas/Home.md', title: 'Home' }, { id: 'Areas/Folder/', title: 'Folder' });
+        if (mode === 'area-standard' || mode === 'area-actions') areas.push({ id: 'Areas/Home.md', title: 'Home' }, { id: 'Areas/Folder/', title: 'Folder' });
         if (mode === 'create-project') areas.push({ id: 'Areas/Folder/', title: 'Folder' });
         if (mode === 'browser-flow') {
           areas.push({ id: 'Areas/Empty #50% 木/', title: 'Empty Area' });
@@ -264,6 +265,15 @@ try {
         await heldNextAction;
         if (failNextAction) return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic read failure' } } });
         result = { text: nextAction };
+      }
+      if (method === 'readAreaActions') {
+        if (mode === 'area-actions') {
+          if (input.id === 'Areas/Folder/') throw new Error('Folder-only Area requested an action read');
+          if (input.id === 'Areas/Home.md') return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic read failure' } } });
+          if (actionState === 'loading') await new Promise(resolve => { releaseActions = resolve; });
+          if (actionState === 'ready') result = { text: '- [ ] Bring the [workshop plan](https://example.com/plan)\n- [x] Book the room' };
+        }
+        result ??= { text: '' };
       }
       if (method === 'readCorrespondence' || method === 'refreshCorrespondence') {
         if (method === 'readCorrespondence') {
@@ -747,6 +757,38 @@ try {
       await retry.waitFor({ state: 'hidden' });
       assert.ok(await heading('Learning').evaluate(el => el.matches(':focus')));
       await page.screenshot({ path: join(artifacts, `auto-refresh-${width}.png`) });
+    } else if (mode === 'area-actions') {
+      const actions = nav.getByRole('region', { name: 'Actions', exact: true });
+      const openArea = async title => {
+        await nav.getByRole('link', { name: 'Areas', exact: true }).click();
+        await nav.getByRole('link', { name: title, exact: true }).click();
+      };
+      await nav.getByRole('link', { name: 'Learning', exact: true }).click();
+      await actions.getByText('Loading actions…').waitFor();
+      for (let i = 0; i < 100 && !releaseActions; i++) await new Promise(resolve => setTimeout(resolve, 20));
+      assert.ok(releaseActions);
+      actionState = 'ready';
+      releaseActions();
+      const actionLink = actions.getByRole('link', { name: 'workshop plan' });
+      await actionLink.waitFor();
+      assert.equal(await actionLink.getAttribute('href'), 'https://example.com/plan');
+      await actions.getByText('Book the room').waitFor();
+      const boxes = actions.getByRole('checkbox');
+      assert.equal(await boxes.count(), 2);
+      assert.equal(await boxes.nth(0).isChecked(), false);
+      assert.equal(await boxes.nth(1).isChecked(), true);
+      assert.ok(await boxes.nth(0).isDisabled());
+      await heading('Learning').focus();
+      for (let i = 0; i < 8 && !await actionLink.evaluate(el => el.matches(':focus')); i++) await page.keyboard.press('Tab');
+      assert.ok(await actionLink.evaluate(el => el.matches(':focus')));
+      await page.screenshot({ path: join(artifacts, `area-actions-populated-${width}.png`) });
+      await openArea('Home');
+      await actions.getByRole('status').getByText('Could not load actions. Check the Area note in Obsidian.').waitFor();
+      await openArea('Folder');
+      await actions.getByText('Add an Area note in Obsidian to record actions.').waitFor();
+      actionState = 'empty';
+      await openArea('Learning');
+      await actions.getByText('No actions recorded.').waitFor();
     } else if (mode === 'area-standard') {
       const standard = nav.getByRole('region', { name: 'Standard' });
       await nav.getByRole('link', { name: 'Learning', exact: true }).click();

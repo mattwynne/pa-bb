@@ -19,7 +19,7 @@ async function setup(backend?: ProjectBackend, areaBackend?: AreaBackend) {
 test('host registers the GTD tools and CLI help, validation, listing and RPC share the same contract', async () => {
   const { harness } = await setup({ async readProjects() { return data(); }, async checkAccess() {} });
   try {
-    const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), ['gtd_list_correspondence', 'gtd_open_correspondence', 'gtd_archive_correspondence', 'gtd_add_correspondence', 'gtd_snooze_correspondence', 'gtd_unsnooze_correspondence', 'gtd_refresh_correspondence', 'gtd_browse_area_targets', 'gtd_prepare_project_change', 'gtd_check_project_change', 'gtd_defer_project', 'gtd_change_project', 'gtd_apply_project_change', 'gtd_rename_area', 'gtd_resolve_detail_link', 'gtd_list_projects', 'gtd_list_areas', 'gtd_create_project_thread']); assert.match(config.instructions!, /untrusted evidence/);
+    const config = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext()); assert.deepEqual(config.tools.map(t => t.name), ['gtd_list_actions', 'gtd_add_action', 'gtd_edit_action', 'gtd_delete_action', 'gtd_list_correspondence', 'gtd_open_correspondence', 'gtd_archive_correspondence', 'gtd_add_correspondence', 'gtd_snooze_correspondence', 'gtd_unsnooze_correspondence', 'gtd_refresh_correspondence', 'gtd_browse_area_targets', 'gtd_prepare_project_change', 'gtd_check_project_change', 'gtd_defer_project', 'gtd_change_project', 'gtd_apply_project_change', 'gtd_rename_area', 'gtd_resolve_detail_link', 'gtd_list_projects', 'gtd_list_areas', 'gtd_create_project_thread']); assert.match(config.instructions!, /untrusted evidence/);
     const help = await harness.behavior.runCli(['projects', '--help']); assert.equal(help.exitCode, 0); assert.match(help.stdout!, /--status/);
     for (const args of [['projects', '--status', 'bogus', '--json'], ['projects', '--limit', '201', '--json'], ['projects', '--limti', '1', '--json']]) assert.notEqual((await harness.behavior.runCli(args)).exitCode, 0);
     const cli = await harness.behavior.runCli(['projects', '--json']); assert.equal(cli.exitCode, 0); assert.equal(JSON.parse(cli.stdout!).totalProjects, 1);
@@ -161,7 +161,9 @@ test('settings validation rejects traversal and survives reload; plugin imports 
     const result = await host.harness.behavior.runCli(['projects', '--json']);
     assert.doesNotMatch(result.stdout!, /unconfigured/); assert.match(result.stdout!, /source_unavailable/);
   } finally { await host.harness.lifecycle.dispose(); }
-  const scan = await experimental_scanPublicSdkOnly(new URL('../', import.meta.url).pathname, { allow: [/^react$/, /^@testing-library\/react$/, /^playwright$/, /^@get-bb\/plugin-sdk\/testing$/] });
+  const scan = await experimental_scanPublicSdkOnly(new URL('../', import.meta.url).pathname, {
+    allow: [/^react$/, /^@testing-library\/react$/, /^playwright$/, /^@get-bb\/plugin-sdk\/testing$/, /^mdast-util-from-markdown$/],
+  });
   assert.deepEqual(scan.violations, []);
   assert.deepEqual(scan.privateDependencies, []);
 });

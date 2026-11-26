@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@get-bb/plugin-sdk": "0.6.157",
+    "mdast-util-from-markdown": "2.1.0",
     "zod": "4.6.7"
   },
   "devDependencies": {

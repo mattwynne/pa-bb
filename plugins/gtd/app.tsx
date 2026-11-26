@@ -8,6 +8,7 @@ import { ProjectCorrespondence } from './project-correspondence.tsx';
 import { ProjectNextAction } from './project-next-action.tsx';
 import { useAreaMailStatus } from './area-mail-status.ts';
 import { AreaStandard } from './area-standard.tsx';
+import { AreaActions } from './area-actions.tsx';
 import './app.css';
 const key = (source: string, id: string) => JSON.stringify([source, id]);
 let inventoryRevision = 0;
@@ -697,6 +698,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       </>}
       {ready && (area || unassigned) && <>
         {area && <AreaStandard key={`standard:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} hasNote={area.id.endsWith('.md')} />}
+        {area && <AreaActions key={`actions:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} revision={inventory.revision} />}
         <FilterBar title="Projects" label="Project status" action={area && <button ref={addProject} type="button" disabled={!!busy || !!inventory.error}
           onClick={() => setCreateTarget(key(inventory.source, area.id))}>Add project</button>}>
           {(Object.keys(projectStatuses) as ProjectFilter[]).map(value => <FilterOption key={value} type="radio" name={statusGroup}

@@ -47,6 +47,11 @@
 .gtd-next-action .gtd-next-action-text { margin-top: 4px; font-size: 15px; line-height: 1.5; }
 .gtd-next-action-text p { margin: 0; }
 .gtd-next-action-text a { text-decoration: underline; }
+.gtd-area-actions { border-bottom: 1px solid var(--border); padding: 12px 0; }
+.gtd-area-actions > p { margin: 6px 0 0; color: var(--muted-foreground); }
+.gtd-area-actions-text { margin-top: 6px; overflow-wrap: anywhere; }
+.gtd-area-actions-text a { text-decoration: underline; }
+.gtd-area-actions-text li.task-list-item::marker { content: ''; }
 .gtd-list-bar { margin: 14px 0 6px; }
 .gtd-list-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .gtd-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted-foreground); }

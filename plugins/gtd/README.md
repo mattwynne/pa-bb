@@ -62,6 +62,14 @@ On an Area page, choose **Add project**, enter a name, and choose **Create proje
 
 In the BB composer, type `@` and part of a name to find **GTD projects** and **GTD Areas**, including folder-only Areas. A mention gives the agent the item's exact reference as context. Ask BB to open the mentioned item in GTD to get a one-click link. The read-only `gtd_resolve_detail_link` tool verifies the kind, source and ID against the configured inventory and returns the canonical same-app detail link.
 
+### Actions
+
+Keep project and Area actions as Markdown checkboxes under `## TODO` in the Obsidian landing note. The Area page renders that section under **Actions**.
+
+`bb gtd actions list --kind area --source <source> --id <note-path>` lists the actions with their line numbers and note version. Use `--kind project` for project notes. The `add` command takes `--text`. The `edit` and `delete` commands need `--line` and `--version` from a fresh listing. Edit accepts `--text`, `--status open|complete`, or both. All four commands accept `--json`.
+
+The equivalent agent tools are `gtd_list_actions`, `gtd_add_action`, `gtd_edit_action`, and `gtd_delete_action`.
+
 Opening a detail page directly from a native mention pill requires BB core support. The smallest extension would let a mention provider supply a structured, plugin-owned panel destination with the result, let BB validate it against that plugin's registered panels and retain it with the mention, and have BB use it for click and keyboard activation.
 
 Open a project to see its linked threads. The **Filter** menu starts with **Active** checked. Select **Archived** to include archived threads, and clear **Active** if you want to see only archived threads. Use **Show more archived threads** when there are more pages. The breadcrumb returns to the project’s Area. Thread links support BB’s ordinary menus, modifier-clicks and split drags.
