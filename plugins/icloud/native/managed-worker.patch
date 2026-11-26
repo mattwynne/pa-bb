@@ -814,7 +814,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_delivery_store.go
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,339 @@
 +package bisync
 +
 +import (
@@ -986,7 +986,8 @@
 +	if err != nil {
 +		return err
 +	}
-+	if state.Pending != nil || (state.FolderMove != nil && state.FolderMove.overlaps(intent.Path, knownDocument...)) {
++	if state.Pending != nil || (state.FolderMove != nil && state.FolderMove.overlaps(intent.Path, knownDocument...) &&
++		!state.FolderMove.permitsReplacement(intent, knownDocument)) {
 +		return ErrBBDeliveryUnsettled
 +	}
 +	if state.Relocation != nil {
@@ -1756,7 +1757,7 @@
 +			adoptErr = b.installBBFolderBaseline(move)
 +		}
 +		if adoptErr == nil {
-+			b.bbFolderChanges, adoptErr = b.prepareBBFolderContent(ctx, move)
++			b.bbFolderChanges, adoptErr = b.prepareBBFolderContent(ctx, move, state)
 +		}
 +		if adoptErr == nil {
 +			b.bbFolderReconcile = move.Intent.OperationID
@@ -2662,7 +2663,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,407 @@
+@@ -0,0 +1,413 @@
 +package main
 +
 +import (
@@ -2711,6 +2712,7 @@
 +	Outcome        string                  `json:"outcome"`
 +	Binding        string                  `json:"binding,omitempty"`
 +	Observation    *ownedNoteObservation   `json:"observation,omitempty"`
++	MovedBaseline  *ownedNoteVersion       `json:"movedBaseline,omitempty"`
 +	SourceRetained bool                    `json:"sourceRetained,omitempty"`
 +	ConflictCopy   string                  `json:"conflictCopy,omitempty"`
 +	AlternatePath  string                  `json:"alternatePath,omitempty"`
@@ -2846,7 +2848,12 @@
 +		if err != nil {
 +			return uncertain
 +		}
-+		return observedOwnedNote("observed", published)
++		result := observedOwnedNote("observed", published)
++		if original, digest, ok := bisync.BBMovedNoteBaseline(request.Workdir, binding, request.Path); ok &&
++			original.DocumentID == published.Revision.DriveID && original.ParentID == published.Revision.ParentID {
++			result.MovedBaseline = &ownedNoteVersion{original.DocumentID, original.ParentID, original.ETag, hex.EncodeToString(digest[:])}
++		}
++		return result
 +	}
 +	if operation == "create" || operation == "recover-create" {
 +		return applyOwnedCreate(ctx, cloud, operation, request)
@@ -6669,7 +6676,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_folder_content.go
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,155 @@
 +package bisync
 +
 +import (
@@ -6686,10 +6693,22 @@
 +	hashes  [2]*[sha256.Size]byte
 +}
 +
-+func (b *bisyncRun) prepareBBFolderContent(ctx context.Context, move *BBFolderMove) (map[string]bbFolderContentChange, error) {
++func (b *bisyncRun) prepareBBFolderContent(ctx context.Context, move *BBFolderMove, state bbDeliveryStore) (map[string]bbFolderContentChange, error) {
 +	changes := make(map[string]bbFolderContentChange)
++	// Later note publications are reconciled by their own receipts. If
++	// one is unresolved, the note hold retains its shifted baseline.
++	notePaths := make(map[string]bool, len(state.Confirmed)+1)
++	if state.Pending != nil {
++		notePaths[state.Pending.Path] = true
++	}
++	for _, receipt := range state.Confirmed {
++		notePaths[receipt.Path] = true
++	}
 +	for source, original := range move.Intent.Hashes {
 +		name := move.Intent.Path + strings.TrimPrefix(source, move.Intent.Source)
++		if notePaths[name] {
++			continue
++		}
 +		// A spelling change may be paired by rclone as an alias. Retain the
 +		// old baseline until the exact path can be reconciled safely.
 +		if b.aliases.Alias(name) != name {
@@ -6815,7 +6834,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_folder_move.go
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,308 @@
 +package bisync
 +
 +import (
@@ -6970,6 +6989,31 @@
 +	return false
 +}
 +
++// A confirmed identity-preserving move proves the original document at its
++// new exact path while the scheduled scan still holds the old index.
++func (move BBFolderMove) movedFile(target string) (BBIndexedVersion, [sha256.Size]byte, bool) {
++	if move.Published == nil || !strings.HasPrefix(target, move.Intent.Path+"/") {
++		return BBIndexedVersion{}, [sha256.Size]byte{}, false
++	}
++	old := move.Intent.Source + strings.TrimPrefix(target, move.Intent.Path)
++	entry := move.Intent.Entries[old]
++	digest, exists := move.Intent.Hashes[old]
++	return entry.BBIndexedVersion, digest, exists && !entry.Directory && entry.DocumentID != ""
++}
++
++func BBMovedNoteBaseline(workdir, binding, target string) (BBIndexedVersion, [sha256.Size]byte, bool) {
++	state, err := readBBDeliveries(workdir)
++	if err != nil || state.FolderMove == nil || state.FolderMove.Intent.Binding != binding {
++		return BBIndexedVersion{}, [sha256.Size]byte{}, false
++	}
++	return state.FolderMove.movedFile(target)
++}
++
++func (move BBFolderMove) permitsReplacement(intent BBDeliveryIntent, knownDocument []string) bool {
++	entry, _, exists := move.movedFile(intent.Path)
++	return !intent.Create && exists && len(knownDocument) == 1 && entry.DocumentID == knownDocument[0]
++}
++
 +// Folder move transitions use the same per-mirror mutation lock as note
 +// delivery and scheduled baseline installation.
 +func BBReadFolderMove(workdir, operationID string) (*BBFolderMove, error) {
@@ -7101,7 +7145,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_folder_move_test.go
-@@ -0,0 +1,392 @@
+@@ -0,0 +1,427 @@
 +package bisync
 +
 +import (
@@ -7161,6 +7205,24 @@
 +		t.Fatal(err)
 +	}
 +	if err := BBConfirmFolderMove(workdir, intent.OperationID, after); err != nil {
++		t.Fatal(err)
++	}
++
++	if err := BBResolveDelivery(workdir, note, nil); err != nil {
++		t.Fatal(err)
++	}
++	note.Path = "new/Folder/Child.md"
++	version, digest, ok := BBMovedNoteBaseline(workdir, intent.Binding, note.Path)
++	if !ok || version != child || digest != intent.Hashes["old/Folder/Child.md"] {
++		t.Fatalf("remapped note proof = %+v, %t", version, ok)
++	}
++	if _, _, ok := BBMovedNoteBaseline(workdir, "different-account-root", note.Path); ok {
++		t.Fatal("accepted a different mirror binding")
++	}
++	if err := BBBeginDeliveryWithData(workdir, note, data, "independently-recreated"); !errors.Is(err, ErrBBDeliveryUnsettled) {
++		t.Fatalf("replacement on another iCloud identity = %v", err)
++	}
++	if err := BBBeginDeliveryWithData(workdir, note, data, child.DocumentID); err != nil {
 +		t.Fatal(err)
 +	}
 +
@@ -7332,7 +7394,7 @@
 +		}
 +	}
 +	for _, root := range []string{cloudRoot, mirrorRoot} {
-+		for _, name := range []string{"Cloud.md", "Local.md", "Gone.md", "Keep.md", "Both.md", "Recreated.md"} {
++		for _, name := range []string{"Cloud.md", "Local.md", "Gone.md", "Keep.md", "Both.md", "Recreated.md", "Fast.md"} {
 +			write(root, source+"/"+name, "old")
 +		}
 +		write(root, "Anchor.md", "independent anchor")
@@ -7360,7 +7422,7 @@
 +		Hashes:            map[string][sha256.Size]byte{},
 +	}
 +	newVersions := map[string]BBIndexedVersion{}
-+	for _, name := range []string{"Cloud.md", "Local.md", "Gone.md", "Keep.md", "Both.md", "Recreated.md"} {
++	for _, name := range []string{"Cloud.md", "Local.md", "Gone.md", "Keep.md", "Both.md", "Recreated.md", "Fast.md"} {
 +		version := BBIndexedVersion{name, rootVersion.DocumentID, "original-file-etag"}
 +		move.Entries[source+"/"+name] = BBTreeIdentity{BBIndexedVersion: version}
 +		move.Hashes[source+"/"+name] = sha256.Sum256([]byte("old"))
@@ -7387,6 +7449,23 @@
 +			t.Fatal(err)
 +		}
 +	}
++	fast := []byte("fast note after folder move")
++	fastPath := destination + "/Fast.md"
++	fastVersion := newVersions[fastPath]
++	note := BBDeliveryIntent{OperationID: "5ec49f07-dd77-4f54-8756-dd2d5d49c060", Path: fastPath, Hash: sha256.Sum256(fast)}
++	if err := BBBeginDeliveryWithData(workdir, note, fast, fastVersion.DocumentID); err != nil {
++		t.Fatal(err)
++	}
++	fastVersion.ETag = "fast-replacement"
++	newVersions[fastPath] = fastVersion
++	for _, root := range []string{cloudRoot, mirrorRoot} {
++		write(root, fastPath, string(fast))
++	}
++	if err := BBResolveDelivery(workdir, note, &BBDeliveryReceipt{
++		BBDeliveryIntent: note, Modified: modified, Size: int64(len(fast)), ProviderID: fastVersion.DocumentID, ETag: fastVersion.ETag,
++	}); err != nil {
++		t.Fatal(err)
++	}
 +	write(cloudRoot, destination+"/Cloud.md", "new")
 +	write(mirrorRoot, destination+"/Local.md", "cpu")
 +	write(cloudRoot, destination+"/Both.md", "mac")
@@ -7402,7 +7481,7 @@
 +		t.Fatal(err)
 +	}
 +	for _, root := range []string{cloudRoot, mirrorRoot} {
-+		for name, expected := range map[string]string{"Cloud.md": "new", "Local.md": "cpu", "Keep.md": "old"} {
++		for name, expected := range map[string]string{"Cloud.md": "new", "Local.md": "cpu", "Keep.md": "old", "Fast.md": string(fast)} {
 +			bytes, err := os.ReadFile(filepath.Join(root, destination, name))
 +			if err != nil || string(bytes) != expected {
 +				t.Fatalf("reconciled %s = %q, error = %v", name, bytes, err)

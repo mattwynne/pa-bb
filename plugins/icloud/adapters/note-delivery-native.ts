@@ -12,7 +12,7 @@ const string = z.string().min(1).max(512);
 const identity = z.strictObject({ documentId: string, parentId: string, etag: string });
 const index = z.strictObject({ version: z.literal(1), binding: string, notes: z.record(z.string(), identity) });
 const reply = z.discriminatedUnion('outcome', [
-  z.strictObject({ outcome: z.literal('observed'), observation: deliveryObservation }),
+  z.strictObject({ outcome: z.literal('observed'), observation: deliveryObservation, movedBaseline: identity.extend({hash: z.string().regex(/^[a-f0-9]{64}$/)}).optional() }),
   z.strictObject({ outcome: z.literal('published'), observation: deliveryObservation, sourceRetained: z.literal(true).optional() }),
   z.strictObject({ outcome: z.literal('conflict_preserved'), conflictCopy: z.string().max(1024) }),
   z.strictObject({ outcome: z.literal('conflict_resolved') }),
@@ -62,7 +62,9 @@ export class NativeNoteDelivery implements NotePublicationWorker {
     if (plan.previousHash === null)
       return evidence.outcome === 'absent' ? {mirrorId,path:plan.path,expected:null,wantedHash:plan.hash,operations:plan.operations} : null;
     const head = this.journal.head(mirrorId,source,this.target.binding);
-    const targets = head?.hash === plan.previousHash ? [head,indexed] : [indexed];
+    const moved = !plan.source && evidence.outcome === 'observed' && evidence.movedBaseline?.hash === plan.previousHash
+      ? evidence.movedBaseline : null;
+    const targets = head?.hash === plan.previousHash ? [head,indexed,moved] : [indexed,moved];
     if (!current || current.hash !== plan.previousHash || !targets.some(prior => prior && current.documentId === prior.documentId &&
         current.parentId === prior.parentId && current.etag === prior.etag)) return null;
     return { mirrorId, path:plan.path, ...(plan.source ? {source:plan.source} : {}),
