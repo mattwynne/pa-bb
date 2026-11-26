@@ -12,6 +12,7 @@ import { NoteActions } from './note-actions.tsx';
 import { FoldableSection } from './foldable-section.tsx';
 import { FilterControls, FilterOption } from './filter-controls.tsx';
 import { RowActions, type RowAction } from './row-actions.tsx';
+import { celebrateProject, ProjectFireworks } from './project-fireworks.tsx';
 import './app.css';
 const key = (source: string, id: string) => JSON.stringify([source, id]);
 let inventoryRevision = 0;
@@ -537,6 +538,10 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       try {
         const result = await rpc.call('changeProject', { source: inventory.source, id: project.id, change });
         setNotice(result.message);
+        if ('movedToDone' in result && result.movedToDone) {
+          const area = enclosingArea(inventory.areas, project.areaId);
+          celebrateProject(project.title, project.areaId?.split('/').at(-1), area?.title);
+        }
         if (result.state === 'renamed' && result.id !== project.id) {
           restoreAfterChange.current = { identity: key(inventory.source, result.id), trigger };
           if (nav.current && currentPage.current === originalPage && route.kind === 'project' && record?.id === project.id) {
@@ -730,6 +735,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   </section>;
 }
 export default definePluginApp(app => {
+  app.slots.experimental_appOverlay?.({ id: 'project-fireworks', component: ProjectFireworks });
   app.slots.navPanel({ id: 'projects', path: 'areas', title: 'GTD', icon: 'ListTodo',
     component: props => <GtdPanel {...props} panel="areas" /> });
   // The former project browser URL still opens the Areas index.

@@ -622,6 +622,7 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
     panelChanges.set(key, lock);
     let writing = false;
     let moved = false;
+    let movedToDone = false;
     let moveOperation: string | undefined;
     try {
       const s = await scope();
@@ -666,13 +667,14 @@ export function projectChanges(bb: BbPluginApi, settings: () => Promise<Config &
       if (destination && result.state === 'links_verified') {
         if (change.kind === 'rename') return { state: 'renamed' as const, id: destination, message: 'Project renamed in Obsidian.' };
         moved = true;
+        movedToDone = item.status !== 'done';
         await archiveConversations(s.source, destination, signal);
-        return { state: 'done' as const, message: 'Project moved to Done locally and all linked threads archived.' };
+        return { state: 'done' as const, movedToDone, message: 'Project moved to Done locally and all linked threads archived.' };
       }
       throw new Error('Project change unconfirmed.');
     } catch (error) {
       bb.log.warn(`GTD project_panel ${moved ? 'archive_incomplete' : writing ? 'write_unconfirmed' : 'prepare_blocked'}`);
-      if (moved) return { state: 'partial' as const, message: 'Project is in Done. Some thread archives are unconfirmed. Open Done and choose Archive linked threads to check the remaining threads.' };
+      if (moved) return { state: 'partial' as const, movedToDone, message: 'Project is in Done. Some thread archives are unconfirmed. Open Done and choose Archive linked threads to check the remaining threads.' };
       if (writing) return { state: 'unconfirmed' as const, message: moveOperation
         ? `Project ${input.change.kind === 'rename' ? 'rename' : 'completion'} is unconfirmed. Inspect GTD plan and Obsidian move receipt ${moveOperation} before trying again.`
         : 'Area assignment is unconfirmed. Inspect the project note and Obsidian receipts before trying again.' };

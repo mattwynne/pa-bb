@@ -1,3 +1,21 @@
+.gtd-fireworks {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+  pointer-events: none;
+}
+.gtd-fireworks canvas, .gtd-fireworks-launches { position: absolute; inset: 0; width: 100%; height: 100%; }
+.gtd-fireworks-flare {
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(#fff, var(--gtd-firework-color) 21%, transparent 90%);
+  box-shadow: 0 -4px 12px var(--gtd-firework-color);
+}
+
 .gtd-composer-project {
   display: flex;
   align-items: center;

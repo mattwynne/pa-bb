@@ -162,7 +162,7 @@ test('settings validation rejects traversal and survives reload; plugin imports 
     assert.doesNotMatch(result.stdout!, /unconfigured/); assert.match(result.stdout!, /source_unavailable/);
   } finally { await host.harness.lifecycle.dispose(); }
   const scan = await experimental_scanPublicSdkOnly(new URL('../', import.meta.url).pathname, {
-    allow: [/^react$/, /^sonner$/, /^@testing-library\/react$/, /^playwright$/, /^@get-bb\/plugin-sdk\/testing$/, /^mdast-util-from-markdown$/],
+    allow: [/^react$/, /^sonner$/, /^canvas-confetti$/, /^@testing-library\/react$/, /^playwright$/, /^@get-bb\/plugin-sdk\/testing$/, /^mdast-util-from-markdown$/],
   });
   assert.deepEqual(scan.violations, []);
   assert.deepEqual(scan.privateDependencies, []);

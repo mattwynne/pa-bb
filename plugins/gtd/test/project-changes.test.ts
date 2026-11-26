@@ -351,11 +351,13 @@ test('panel completion archives the verified linked thread and can finish after 
   f.failArchive(true);
   let result: any = await f.handles.host.harness.behavior.callRpc('changeProject', { source, id: owner, change: { kind: 'done' } });
   assert.equal(result.state, 'partial');
+  assert.equal(result.movedToDone, true);
   assert.equal(f.meta.project.id, done);
   assert.equal(f.archived(), false);
   f.failArchive(false);
   result = await f.handles.host.harness.behavior.callRpc('changeProject', { source, id: done, change: { kind: 'done' } });
   assert.equal(result.state, 'done');
+  assert.equal(result.movedToDone, undefined);
   assert.equal(f.archived(), true);
   assert.doesNotMatch(JSON.stringify(f.handles.host.harness.inspection.logEntries), /PRIVATE_ARCHIVE_SENTINEL/);
 });

@@ -22,12 +22,14 @@
   },
   "dependencies": {
     "@get-bb/plugin-sdk": "0.6.157",
+    "canvas-confetti": "1.9.4",
     "mdast-util-from-markdown": "2.1.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
     "@types/better-sqlite3": "7.6.13",
+    "@types/canvas-confetti": "1.9.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.3.0",

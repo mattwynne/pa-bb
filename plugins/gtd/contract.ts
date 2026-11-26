@@ -133,6 +133,7 @@ export const rpcContract = defineRpcContract({
   changeProject: { input: projectActionInput, output: z.object({
     state: z.enum(['done', 'assigned', 'partial', 'blocked', 'unconfirmed']),
     message: z.string(),
+    movedToDone: z.boolean().optional(),
   }).strict().or(z.object({
     state: z.literal('renamed'), id: reference.shape.id, message: z.string(),
   }).strict()) },

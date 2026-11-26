@@ -119,7 +119,8 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
     page.setDefaultTimeout(12000);
     const errors = []; const consoleErrors = []; page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
-    let title = 'Learn woodworking', creations = 0;
+    const projectEmoji = mode === 'project-actions' && width === 390 ? '👩🏽‍🚀' : '';
+    let title = projectEmoji ? `${projectEmoji} Learn woodworking` : 'Learn woodworking', creations = 0;
     let watchRevision = null, inventoryReads = 0, heldRead, failInventory = false;
     let extraProject = null;
     const publish = revision => { watchRevision = `12345678-1234-4123-8123-123456789abc:${revision}`; };
@@ -137,7 +138,8 @@ try {
     const snoozeDate = offset => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
     let workshopArchived = false;
     let unread = 2, areaUnread = true;
-    let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
+    const homeArea = mode === 'project-actions' ? { id: 'Areas/🏡 Home.md', title: '🏡 Home' } : { id: 'Areas/Home.md', title: 'Home' };
+    let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = `Projects/${title}.md`;
     const standardSaves = [];
     let standardText = 'Practice weekly.', standardHash = 'a'.repeat(64);
     const standardReads = [];
@@ -231,7 +233,7 @@ try {
         );
         const areas = [{ id: 'Areas/Learning.md', title: 'Learning' }];
         if (mode === 'empty') areas.length = 0;
-        if (mode === 'project-actions' || mode === 'browser-flow') areas.push({ id: 'Areas/Home.md', title: 'Home' });
+        if (mode === 'project-actions' || mode === 'browser-flow') areas.push(homeArea);
         if (mode === 'area-standard' || mode === 'area-actions') areas.push({ id: 'Areas/Home.md', title: 'Home' }, { id: 'Areas/Folder/', title: 'Folder' });
         if (mode === 'create-project') areas.push({ id: 'Areas/Folder/', title: 'Folder' });
         if (mode === 'browser-flow') {
@@ -415,10 +417,12 @@ try {
           title = input.change.name;
           projectId = `${projectId.slice(0, projectId.lastIndexOf('/'))}/${title}.md`;
           result = { state: 'renamed', id: projectId, message: 'Project renamed in Obsidian.' };
+        } else if (projectStatus === 'done') {
+          result = { state: 'done', message: 'All linked threads are archived.' };
         } else {
           projectStatus = 'done';
-          projectId = 'Projects/Done/Learn woodworking.md';
-          result = { state: 'done', message: 'Project moved to Done locally and all linked threads archived.' };
+          projectId = `Projects/Done/${title}.md`;
+          result = { state: 'done', movedToDone: true, message: 'Project moved to Done locally and all linked threads archived.' };
         }
       }
       if (method === 'associate') { if (input.project) associations.set(input.threadId, input.project); else associations.delete(input.threadId); result = null; }
@@ -1422,10 +1426,10 @@ try {
         await dialog.waitFor({ state: 'hidden' });
       };
       await verifyObsidianLink(nav.getByLabel('Actions for Area Learning'), 'Areas%2FLearning.md', 'area-obsidian-menu');
-      await verifyObsidianLink(menu, 'Projects%2FLearn%20woodworking.md');
+      await verifyObsidianLink(menu, encodeURIComponent(projectId));
       await project.click();
       await heading(title).waitFor();
-      await verifyObsidianLink(menu, 'Projects%2FLearn%20woodworking.md', 'project-obsidian-menu');
+      await verifyObsidianLink(menu, encodeURIComponent(projectId), 'project-obsidian-menu');
       await switchArea('Learning');
       const activate = async name => {
         await menu.focus();
@@ -1448,22 +1452,52 @@ try {
       await project.waitFor();
       await activate('Move to Area…');
       const move = nav.getByRole('dialog', { name: 'Move to Area' });
-      await move.getByRole('combobox', { name: 'Area' }).selectOption('Areas/Home.md');
+      await move.getByRole('combobox', { name: 'Area' }).selectOption(homeArea.id);
       await move.getByRole('button', { name: 'Move', exact: true }).click();
       await nav.getByText('Project assigned locally. iCloud sync is pending.').waitFor();
-      assert.deepEqual(projectChanges, [{ kind: 'area', areaPath: 'Areas/Home.md' }]);
-      await switchArea('Home');
+      assert.deepEqual(projectChanges, [{ kind: 'area', areaPath: homeArea.id }]);
+      await switchArea(homeArea.title);
       await project.waitFor();
       await activate('Mark as done');
       const confirm = nav.getByRole('dialog', { name: 'Mark as done' });
       await confirm.getByText(/archive all its linked BB threads/).waitFor();
       await page.screenshot({ path: join(artifacts, `done-confirm-${width}.png`), timeout: 30000 });
+      await page.evaluate(() => {
+        window.gtdFireworksEmoji = [];
+        const fillText = OffscreenCanvasRenderingContext2D.prototype.fillText;
+        OffscreenCanvasRenderingContext2D.prototype.fillText = function (text, ...args) {
+          window.gtdFireworksEmoji.push(text);
+          return fillText.call(this, text, ...args);
+        };
+      });
+      const fireworks = page.locator('.gtd-fireworks');
+      await fireworks.waitFor({ state: 'attached' });
+      assert.equal(await fireworks.isVisible(), false);
       await confirm.getByRole('button', { name: 'Mark as done', exact: true }).click();
       await nav.getByText('Project moved to Done locally and all linked threads archived.').waitFor();
       assert.deepEqual(projectChanges.at(-1), { kind: 'done' });
+      await fireworks.waitFor();
+      assert.deepEqual(await page.evaluate(() => window.gtdFireworksEmoji), [projectEmoji || '🏡']);
+      assert.deepEqual(await fireworks.evaluate(el => [el.clientWidth, el.clientHeight, getComputedStyle(el).pointerEvents]), [width, 900, 'none']);
+      await page.waitForFunction(() => {
+        const canvas = document.querySelector('.gtd-fireworks canvas');
+        const color = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+        return color.some((sample, index) => index % 4 === 3 && sample > 0);
+      });
+      await page.screenshot({ path: join(artifacts, `project-fireworks-${width}.png`) });
+      await areasCrumb.click();
+      await heading('Areas').waitFor();
+      assert.equal(await fireworks.isVisible(), true);
+      if (width === 390) await page.emulateMedia({ reducedMotion: 'reduce' });
+      await fireworks.waitFor({ state: 'hidden' });
+      if (width === 390) await page.emulateMedia({ reducedMotion: 'no-preference' });
       const projectPath = id => `/plugins/gtd/projects/${Buffer.from(JSON.stringify([ref.source, id])).toString('base64url')}`;
       await page.goto(`${base}${projectPath(projectId)}`);
       await heading(title).waitFor();
+      await activate('Archive linked threads');
+      await nav.getByRole('dialog', { name: 'Archive linked threads' }).getByRole('button', { name: 'Archive linked threads' }).click();
+      await nav.getByText('All linked threads are archived.').waitFor();
+      assert.equal(await fireworks.isVisible(), false);
       await activate('Rename…');
       const rename = nav.getByRole('dialog', { name: 'Rename project' });
       const name = rename.getByRole('textbox', { name: 'Project name' });
