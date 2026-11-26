@@ -349,20 +349,21 @@
 +}
 --- a/cmd/bisync/operations.go
 +++ b/cmd/bisync/operations.go
-@@ -54,0 +55 @@
+@@ -54,0 +55,2 @@
 +	bbContentDeltas    map[string]bbContentDelta
-@@ -201,0 +203,3 @@
++	bbHeldRelocation   *bbRelocationHold
+@@ -201,0 +204,3 @@
 +			if opt.bbBeforeScan != nil {
 +				return errBBManagedScanRetryable
 +			}
-@@ -276,0 +281,6 @@
+@@ -276,0 +282,6 @@
 +	}
 +
 +	if opt.bbBeforeScan != nil {
 +		if err := opt.bbBeforeScan(fctx, b); err != nil {
 +			return err
 +		}
-@@ -318,0 +329,17 @@
+@@ -318,0 +330,17 @@
 +	if opt.bbMutationLock != "" {
 +		release, lockErr := bbAcquireMutationPhase(fctx, opt.bbMutationLock)
 +		if lockErr != nil {
@@ -380,7 +381,7 @@
 +		}
 +	}
 +
-@@ -458,0 +486,5 @@
+@@ -458,0 +487,5 @@
 +	if opt.bbAfterSync != nil {
 +		if err := opt.bbAfterSync(fctx, b); err != nil {
 +			return err
@@ -759,7 +760,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_delivery_store.go
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,242 @@
 +package bisync
 +
 +import (
@@ -799,6 +800,7 @@
 +	ETag             string
 +	RemovedPath      string `json:",omitempty"`
 +	ProviderParentID string `json:",omitempty"`
++	SourceRetained   bool   `json:",omitempty"`
 +}
 +
 +type bbDeliveryStore struct {
@@ -821,7 +823,7 @@
 +}
 +
 +func validBBReceipt(receipt BBDeliveryReceipt) bool {
-+	return validBBDelivery(receipt.BBDeliveryIntent) &&
++	return validBBDelivery(receipt.BBDeliveryIntent) && (!receipt.SourceRetained || receipt.RemovedPath != "") &&
 +		(receipt.RemovedPath == "" || (receipt.Create && receipt.ProviderParentID != "" && receipt.ProviderID != "" && receipt.ETag != "" && receipt.DocumentID != "" && validBBRelocationPaths(receipt.RemovedPath, receipt.BBDeliveryIntent)))
 +}
 +
@@ -1055,12 +1057,11 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_listed_versions.go
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,23 @@
 +package bisync
 +
 +import (
 +	"context"
-+	"strings"
 +
 +	"github.com/rclone/rclone/fs"
 +)
@@ -1070,15 +1071,12 @@
 +}
 +
 +func bbCloudVersionFrom(ctx context.Context, obj fs.Object) (bbIndexedCloudObservation, bool) {
-+	if !strings.HasSuffix(obj.Remote(), ".md") {
-+		return bbIndexedCloudObservation{}, false
-+	}
 +	provider, ok := obj.(bbVersionedObject)
 +	if !ok {
 +		return bbIndexedCloudObservation{}, false
 +	}
 +	documentID, parentID, etag := provider.BBListedIdentity()
-+	if documentID == "" || parentID == "" || etag == "" {
++	if documentID == "" {
 +		return bbIndexedCloudObservation{}, false
 +	}
 +	return bbIndexedCloudObservation{BBIndexedVersion{documentID, parentID, etag}, obj.Size(), obj.ModTime(ctx)}, true
@@ -1523,7 +1521,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_managed_scan.go
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,277 @@
 +package bisync
 +
 +import (
@@ -1583,10 +1581,21 @@
 +	if err != nil {
 +		return err
 +	}
-+	if state.Pending != nil || state.Relocation != nil {
++	if state.Pending != nil {
 +		return ErrBBDeliveryUnsettled
 +	}
-+	if len(state.Confirmed) == 0 {
++	if state.Relocation != nil {
++		if err := b.holdBBRelocation(ctx, state.Relocation); err != nil {
++			return err
++		}
++	}
++	var confirmations []BBDeliveryReceipt
++	for _, receipt := range state.Confirmed {
++		if !b.bbHeldRelocation.holdsReceipt(receipt) {
++			confirmations = append(confirmations, receipt)
++		}
++	}
++	if len(confirmations) == 0 {
 +		return nil
 +	}
 +	pair, err := bbPairFor(b.listing1, b.listing2)
@@ -1600,7 +1609,7 @@
 +	// version has the same listing metadata, keep its content delta until the
 +	// local copy is verified. A restarted scan can recognize completed copies.
 +	b.bbContentDeltas = make(map[string]bbContentDelta)
-+	for _, receipt := range state.Confirmed {
++	for _, receipt := range confirmations {
 +		later, err := bbRemoteContentDelta(ctx, b.fs1, receipt)
 +		if err != nil {
 +			return err
@@ -1637,7 +1646,7 @@
 +		if err != nil {
 +			return err
 +		}
-+		for _, r := range state.Confirmed {
++		for _, r := range confirmations {
 +			if r.RemovedPath != "" {
 +				if previous.isDir(r.RemovedPath) {
 +					return errBBInvalidDelivery
@@ -1673,7 +1682,7 @@
 +	if err := pair.recover(nil); err != nil {
 +		return err
 +	}
-+	for _, receipt := range state.Confirmed {
++	for _, receipt := range confirmations {
 +		for _, name := range []string{receipt.Path, receipt.RemovedPath} {
 +			if name == "" {
 +				continue
@@ -1709,6 +1718,10 @@
 +func (b *bisyncRun) settleBBDeliveries(ctx context.Context, state bbDeliveryStore, finished bool) error {
 +	remaining := make([]BBDeliveryReceipt, 0, len(state.Confirmed))
 +	for _, receipt := range state.Confirmed {
++		if b.bbHeldRelocation.holdsReceipt(receipt) {
++			remaining = append(remaining, receipt)
++			continue
++		}
 +		if change, ok := b.bbContentDeltas[receipt.Path]; ok {
 +			if !finished {
 +				remaining = append(remaining, receipt)
@@ -2113,7 +2126,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_version_index.go
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,82 @@
 +package bisync
 +
 +import (
@@ -2121,6 +2134,7 @@
 +	"encoding/json"
 +	"errors"
 +	"path/filepath"
++	"strings"
 +	"time"
 +
 +	"github.com/rclone/rclone/fs"
@@ -2158,7 +2172,7 @@
 +	}
 +	index := bbIndexFile{Version: 1, Binding: binding, Notes: map[string]BBIndexedVersion{}}
 +	for name, version := range b.march.bbIdentities {
-+		if !cloud.has(name) || !mirror.has(name) || cloud.isDir(name) || mirror.isDir(name) || b.aliases.Alias(name) != name {
++		if !strings.HasSuffix(name, ".md") || version.ParentID == "" || version.ETag == "" || !cloud.has(name) || !mirror.has(name) || cloud.isDir(name) || mirror.isDir(name) || b.aliases.Alias(name) != name {
 +			continue
 +		}
 +		if cloud.getSize(name) != version.Size || timeDiffers(ctx, cloud.getTime(name), version.Modified, b.fs1, b.fs1) {
@@ -2376,7 +2390,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,311 @@
+@@ -0,0 +1,312 @@
 +package main
 +
 +import (
@@ -2421,9 +2435,10 @@
 +}
 +
 +type ownedNoteReply struct {
-+	Outcome     string                `json:"outcome"`
-+	Binding     string                `json:"binding,omitempty"`
-+	Observation *ownedNoteObservation `json:"observation,omitempty"`
++	Outcome        string                `json:"outcome"`
++	Binding        string                `json:"binding,omitempty"`
++	Observation    *ownedNoteObservation `json:"observation,omitempty"`
++	SourceRetained bool                  `json:"sourceRetained,omitempty"`
 +}
 +
 +type ownedNoteObservation struct {
@@ -2741,12 +2756,30 @@
 +}
 --- a/cmd/bisync/deltas.go
 +++ b/cmd/bisync/deltas.go
-@@ -227,0 +228,5 @@
-+			}
+@@ -181,0 +182,4 @@
++		if b.bbHeldRelocation.includes(file) {
++			ds.oldCount--
++			continue
++		}
+@@ -228,0 +233,5 @@
 +			if change, tracked := b.bbContentDeltas[file]; tracked && !change.mirrored && f == b.fs1 {
 +				whatchanged = append(whatchanged, "content")
 +				d |= deltaHash
 +				s, t = now.getSize(file), now.getTime(file)
++			}
+@@ -258 +267 @@
+-		if !old.has(file) {
++		if !b.bbHeldRelocation.includes(file) && !old.has(file) {
+@@ -272,0 +282,6 @@
++	// A held path cannot be used as proof that a real current file is
++	// unchanged. An empty queue is safe when no unheld delta exists.
++	if b.bbHeldRelocation != nil && ds.empty() {
++		ds.foundSame = true
++	}
++
+@@ -277 +292 @@
+-			if filepath.Base(file) == b.opt.CheckFilename {
++			if !b.bbHeldRelocation.includes(file) && filepath.Base(file) == b.opt.CheckFilename {
 --- a/cmd/bisync/queue.go
 +++ b/cmd/bisync/queue.go
 @@ -232,0 +233,37 @@
@@ -2838,7 +2871,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation.go
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,163 @@
 +package main
 +
 +import (
@@ -2897,10 +2930,12 @@
 +	if completed != nil {
 +		// The committed receipt already proved both endpoints. Later
 +		// device edits do not invalidate this acknowledgement.
-+		return observedOwnedNote("published", iclouddrive.BBNotePublication{
++		reply := observedOwnedNote("published", iclouddrive.BBNotePublication{
 +			Revision: iclouddrive.BBNoteRevision{DriveID: completed.ProviderID, ParentID: completed.ProviderParentID, ETag: completed.ETag, Hash: completed.Hash},
 +			Modified: completed.Modified, Size: completed.Size,
 +		})
++		reply.SourceRetained = completed.SourceRetained
++		return reply
 +	}
 +	if state == nil {
 +		// A recovery frame cannot open a new move. An operation whose
@@ -2961,23 +2996,39 @@
 +			return uncertain
 +		}
 +	}
++	sourceNeedsReadback := state.Removing
 +	if !state.Removing {
-+		if err := cloud.TrashBBNote(ctx, request.Source, sourceVersion,
-+			func() error { return bisync.BBDispatchRelocationTrash(request.Workdir, intent) }); err != nil {
++		sourceNeedsReadback = cloud.TrashBBNote(ctx, request.Source, sourceVersion,
++			func() error { return bisync.BBDispatchRelocationTrash(request.Workdir, intent) }) != nil
++	}
++	sourcePresent := false
++	if sourceNeedsReadback {
++		current, err := cloud.ObserveBBCreate(ctx, request.Source)
++		switch {
++		case err == nil && current.Revision != sourceVersion:
++			// Another device owns this newer revision. Leave it intact.
++			sourcePresent = true
++		case errors.Is(err, fs.ErrorObjectNotFound):
++			// The exact source is already gone. No removal is needed.
++		default:
 +			return uncertain
 +		}
-+	} else if _, err := cloud.ObserveBBCreate(ctx, request.Source); !errors.Is(err, fs.ErrorObjectNotFound) {
-+		// An existing removal checkpoint is read-only.
-+		return uncertain
 +	}
 +	target, err = cloud.CheckBBNoteVersion(ctx, request.Path, expectedTarget)
 +	if err != nil || !matchesRelocationTarget(intent, *state.Destination, target) {
 +		return uncertain
 +	}
-+	if err := bisync.BBFinishRelocation(request.Workdir, intent); err != nil {
++	if sourceNeedsReadback {
++		err = bisync.BBFinishRelocationWithIndependentSource(request.Workdir, intent, sourcePresent)
++	} else {
++		err = bisync.BBFinishRelocation(request.Workdir, intent)
++	}
++	if err != nil {
 +		return uncertain
 +	}
-+	return observedOwnedNote("published", target)
++	reply := observedOwnedNote("published", target)
++	reply.SourceRetained = sourcePresent
++	return reply
 +}
 +
 +func matchesRelocationTarget(intent bisync.BBRelocationIntent, receipt bisync.BBDeliveryReceipt, target iclouddrive.BBNotePublication) bool {
@@ -2986,7 +3037,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation_test.go
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,177 @@
 +package main
 +
 +import (
@@ -3006,6 +3057,7 @@
 +type relocationFake struct {
 +	notes                             map[string]iclouddrive.BBNotePublication
 +	lostCreate, lostTrash, editSource bool
++	loseSourceRead                    bool
 +	creates, trashes                  int
 +}
 +
@@ -3019,6 +3071,10 @@
 +
 +func (f *relocationFake) ObserveBBCreate(_ context.Context, name string) (iclouddrive.BBNotePublication, error) {
 +	object, ok := f.notes[name]
++	if f.loseSourceRead && name == "from.md" {
++		f.loseSourceRead = false
++		return object, errors.New("source read failed after the lost reply")
++	}
 +	if !ok {
 +		return object, fs.ErrorObjectNotFound
 +	}
@@ -3063,13 +3119,14 @@
 +	f.trashes++
 +	delete(f.notes, name)
 +	if f.lostTrash {
++		f.loseSourceRead = true
 +		return api.ErrConditionalUnconfirmed
 +	}
 +	return nil
 +}
 +
 +func TestBBRelocationRecoversByIdentityWithoutReplaying(t *testing.T) {
-+	for _, scenario := range []string{"success", "recent source publication", "lost create", "same bytes foreign destination", "changed destination", "lost trash", "later source edit", "occupied destination"} {
++	for _, scenario := range []string{"success", "recent source publication", "lost create", "same bytes foreign destination", "changed destination", "lost trash", "recreated source after lost trash", "later source edit", "occupied destination"} {
 +		t.Run(scenario, func(t *testing.T) {
 +			ctx := context.Background()
 +			source := fixturePublication("original-document", "prior-version", []byte("original"))
@@ -3081,7 +3138,7 @@
 +			}
 +			cloud := &relocationFake{notes: map[string]iclouddrive.BBNotePublication{"from.md": source},
 +				lostCreate: scenario == "lost create" || scenario == "same bytes foreign destination" || scenario == "changed destination",
-+				lostTrash:  scenario == "lost trash", editSource: scenario == "later source edit",
++				lostTrash:  scenario == "lost trash" || scenario == "recreated source after lost trash", editSource: scenario == "later source edit",
 +			}
 +			if scenario == "recent source publication" {
 +				prior := bisync.BBDeliveryIntent{OperationID: "762407e3-1321-4b67-a506-020a1917e0ae", Path: "from.md", Hash: source.Revision.Hash}
@@ -3109,7 +3166,7 @@
 +			if scenario == "occupied destination" {
 +				want = "refused"
 +			}
-+			if scenario == "success" || scenario == "recent source publication" {
++			if scenario == "success" || scenario == "recent source publication" || scenario == "later source edit" {
 +				want = "published"
 +			}
 +			if first.Outcome != want {
@@ -3128,9 +3185,21 @@
 +			if scenario == "changed destination" {
 +				cloud.notes["to.md"] = fixturePublication("allocated-document", "mac", []byte("Mac destination edit"))
 +			}
++			if scenario == "recreated source after lost trash" {
++				cloud.notes["from.md"] = fixturePublication("new-source", "mac-recreation", []byte("Recreated by Mac"))
++			}
 +			second := applyOwnedRelocation(ctx, cloud, hashOnly)
 +			switch scenario {
-+			case "later source edit", "same bytes foreign destination", "changed destination", "occupied destination":
++			case "later source edit", "recreated source after lost trash":
++				trashes := 0
++				if scenario == "recreated source after lost trash" {
++					trashes = 1
++				}
++				if second.Outcome != "published" || !second.SourceRetained || cloud.trashes != trashes || cloud.creates != 1 ||
++					cloud.notes["from.md"].Revision.ETag == "prior-version" || cloud.notes["from.md"].Size == 0 {
++					t.Fatalf("the independently changed source was not accounted for: %+v; trashes=%d", second, cloud.trashes)
++				}
++			case "same bytes foreign destination", "changed destination", "occupied destination":
 +				if second.Outcome != want || cloud.trashes != 0 || cloud.notes["from.md"].Size == 0 {
 +					t.Fatalf("race touched a source or was accepted: %+v; trashes=%d", second, cloud.trashes)
 +				}
@@ -3148,7 +3217,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation.go
-@@ -0,0 +1,203 @@
+@@ -0,0 +1,216 @@
 +package bisync
 +
 +import (
@@ -3171,8 +3240,8 @@
 +}
 +
 +// BBRelocation retains the destination bytes across ambiguous requests and
-+// intervening local edits. It excludes both stock publication and other fast
-+// commands until both endpoints have a verified baseline.
++// intervening local edits. Scheduled sync retains each affected path's
++// last common baseline until the move receipt can be applied.
 +type BBRelocation struct {
 +	Intent      BBRelocationIntent
 +	Data        []byte
@@ -3319,8 +3388,19 @@
 +}
 +
 +func BBFinishRelocation(workdir string, intent BBRelocationIntent) error {
++	return bbFinishRelocation(workdir, intent, false, false)
++}
++
++// A positively observed source replacement or absence is sufficient when
++// the exact destination has been verified. It is never a reason to retry
++// removal against the newer source.
++func BBFinishRelocationWithIndependentSource(workdir string, intent BBRelocationIntent, present bool) error {
++	return bbFinishRelocation(workdir, intent, true, present)
++}
++
++func bbFinishRelocation(workdir string, intent BBRelocationIntent, observedSource, sourcePresent bool) error {
 +	return bbChangeRelocation(workdir, intent, func(state *bbDeliveryStore, move *BBRelocation) bool {
-+		if !move.Removing || move.Destination == nil {
++		if (!move.Removing && !observedSource) || move.Destination == nil {
 +			return false
 +		}
 +		state.Confirmed = slices.DeleteFunc(state.Confirmed, func(prior BBDeliveryReceipt) bool {
@@ -3336,7 +3416,9 @@
 +		if len(state.Applied) > bbDeliveryLimit {
 +			state.Applied = state.Applied[len(state.Applied)-bbDeliveryLimit:]
 +		}
-+		state.Confirmed = append(state.Confirmed, *move.Destination)
++		confirmed := *move.Destination
++		confirmed.SourceRetained = sourcePresent
++		state.Confirmed = append(state.Confirmed, confirmed)
 +		state.Relocation = nil
 +		return true
 +	})
@@ -3351,4 +3433,299 @@
 +		state.Relocation = nil
 +		return true
 +	})
++}
+--- /dev/null
++++ b/cmd/bisync/bb_relocation_hold.go
+@@ -0,0 +1,134 @@
++package bisync
++
++import (
++	"context"
++	"path"
++	"strings"
++
++	"github.com/rclone/rclone/fs"
++	"golang.org/x/text/cases"
++	"golang.org/x/text/unicode/norm"
++)
++
++// During an unconfirmed move the scheduled scan retains the previous
++// observations of affected paths. Queue construction must never see them as
++// differences, and the next successful scan must still compare against the
++// original baseline.
++type bbRelocationHold struct {
++	files map[string]bool
++	trees map[string]bool
++}
++
++func (h *bbRelocationHold) holdsReceipt(r BBDeliveryReceipt) bool {
++	return h.includes(r.Path) || h.includes(r.RemovedPath)
++}
++
++var bbPathCase = cases.Fold()
++
++func bbFoldPath(name string) string {
++	return bbPathCase.String(norm.NFC.String(name))
++}
++
++func (h *bbRelocationHold) includes(name string) bool {
++	if h == nil || name == "" {
++		return false
++	}
++	key := bbFoldPath(name)
++	if h.files[key] {
++		return true
++	}
++	// Conflict copies are associated with the same logical note.
++	suffix := strings.LastIndex(key, ".md.")
++	if suffix >= 0 && h.files[key[:suffix+3]] {
++		return true
++	}
++	for parent := key; parent != "."; parent = path.Dir(parent) {
++		if h.trees[parent] {
++			return true
++		}
++		if parent == "/" {
++			break
++		}
++	}
++	return false
++}
++
++func (h *bbRelocationHold) retain(previous, current *fileList) *fileList {
++	retained := newFileList()
++	retained.hash = current.hash
++	for _, name := range current.list {
++		if !h.includes(name) {
++			current.getPut(name, retained)
++		}
++	}
++	for _, name := range previous.list {
++		if h.includes(name) {
++			previous.getPut(name, retained)
++		}
++	}
++	return retained
++}
++
++func (b *bisyncRun) holdBBRelocation(ctx context.Context, move *BBRelocation) error {
++	if b.march.bbIdentities == nil || b.opt.RemoveEmptyDirs || fs.GetConfig(ctx).TrackRenames {
++		return ErrBBDeliveryUnsettled
++	}
++	cloud, err := b.loadListing(b.listing1)
++	if err != nil {
++		return err
++	}
++	local, err := b.loadListing(b.listing2)
++	if err != nil {
++		return err
++	}
++	for _, name := range b.march.ls1.list {
++		if !b.march.ls1.isDir(name) && b.march.bbIdentities[name].DocumentID == "" {
++			// An item without an identity could be a later name for one of
++			// the affected documents. Do not construct a partial queue.
++			return ErrBBDeliveryUnsettled
++		}
++	}
++	held := &bbRelocationHold{files: map[string]bool{}, trees: map[string]bool{}}
++	paths := []string{move.Intent.Source, move.Intent.Path}
++	for name, observation := range b.march.bbIdentities {
++		providerID := observation.DocumentID
++		_, candidate, allocated := strings.Cut(providerID, "::")
++		_, candidate, document := strings.Cut(candidate, "::")
++		if providerID == move.Intent.Previous.DocumentID ||
++			(allocated && document && move.Allocation != "" && candidate == move.Allocation) {
++			paths = append(paths, name)
++		}
++	}
++	for _, name := range paths {
++		for _, related := range []string{name, b.aliases.Alias(name)} {
++			held.files[bbFoldPath(related)] = true
++			for dir := path.Dir(related); dir != "." && dir != "/"; dir = path.Dir(dir) {
++				if b.opt.CreateEmptySrcDirs && (!cloud.isDir(dir) || !local.isDir(dir) ||
++					!b.march.ls1.isDir(dir) || !b.march.ls2.isDir(dir)) {
++					// Directory creation/removal must not act on an incomplete
++					// subtree. Preserve that ancestor and all its contents.
++					held.trees[bbFoldPath(dir)] = true
++				}
++			}
++		}
++	}
++	// Retain the real provider metadata internally only long enough to
++	// identify relocated files. Never advertise a held alias as an
++	// acknowledged baseline for another fast operation.
++	for name := range b.march.bbIdentities {
++		if held.includes(name) {
++			delete(b.march.bbIdentities, name)
++		}
++	}
++	b.march.ls1 = held.retain(cloud, b.march.ls1)
++	b.march.ls2 = held.retain(local, b.march.ls2)
++	if err := b.march.ls1.save(b.newListing1); err != nil {
++		return err
++	}
++	if err := b.march.ls2.save(b.newListing2); err != nil {
++		return err
++	}
++	b.bbHeldRelocation = held
++	fs.Infof(nil, "An iCloud move is awaiting verification. Unrelated paths continue through scheduled sync.")
++	return nil
++}
+--- /dev/null
++++ b/cmd/bisync/bb_relocation_hold_test.go
+@@ -0,0 +1,155 @@
++package bisync
++
++import (
++	"context"
++	"crypto/sha256"
++	"errors"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/rclone/rclone/backend/local"
++	"github.com/rclone/rclone/fs"
++	"github.com/rclone/rclone/fs/config/configmap"
++)
++
++type bbHeldListingFS struct {
++	fs.Fs
++	versions map[string]BBIndexedVersion
++}
++
++type bbHeldListingObject struct {
++	fs.Object
++	version BBIndexedVersion
++}
++
++func (o bbHeldListingObject) BBListedIdentity() (string, string, string) {
++	return o.version.DocumentID, o.version.ParentID, o.version.ETag
++}
++
++func (f *bbHeldListingFS) List(ctx context.Context, dir string) (fs.DirEntries, error) {
++	items, err := f.Fs.List(ctx, dir)
++	for i, item := range items {
++		if obj, ok := item.(fs.Object); ok {
++			version, tracked := f.versions[item.Remote()]
++			if !tracked {
++				version = BBIndexedVersion{"different-" + item.Remote(), "parent", "version"}
++			}
++			items[i] = bbHeldListingObject{obj, version}
++		}
++	}
++	return items, err
++}
++
++func TestBBUnconfirmedMoveProtectsBothEndpointsAndSyncsUnrelatedFiles(t *testing.T) {
++	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
++	defer cancel()
++	cloudRoot, mirrorRoot, workdir := t.TempDir(), t.TempDir(), t.TempDir()
++	cloud, err := local.NewFs(ctx, "local", cloudRoot, configmap.Simple{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	mirror, err := local.NewFs(ctx, "local", mirrorRoot, configmap.Simple{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	baseline := time.Unix(1700000000, 0)
++	later := baseline.Add(40 * time.Second)
++	write := func(root, name, data string, mt time.Time) {
++		file := filepath.Join(root, name)
++		if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.WriteFile(file, []byte(data), 0600); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.Chtimes(file, mt, mt); err != nil {
++			t.Fatal(err)
++		}
++	}
++	const source, destination, observedMove = "Source/From.md", "Archive/To.md", "Mac changed name.txt"
++	const original, wanted = "original version", "new bytes while moving"
++	for _, root := range []string{cloudRoot, mirrorRoot} {
++		write(root, source, original, baseline)
++		write(root, "Source/Anchor.md", "anchor", baseline)
++		write(root, "BB edit.md", "original BB bytes", baseline)
++		write(root, "Mac edit.md", "original Mac bytes", baseline)
++	}
++	options := Options{Resync: true, Workdir: workdir, CompareFlag: "size,modtime", CheckSync: CheckSyncTrue, MaxDelete: 50, CreateEmptySrcDirs: true}
++	if err := Bisync(ctx, cloud, mirror, &options); err != nil {
++		t.Fatal(err)
++	}
++
++	// The move has already crossed the creation boundary. iCloud's new
++	// document now appears under an independently edited, non-Markdown name.
++	prev := BBIndexedVersion{"FILE::com.apple.CloudDocs::old", "FOLDER::com.apple.CloudDocs::source", "prior-etag"}
++	move := BBRelocationIntent{
++		BBDeliveryIntent: BBDeliveryIntent{"38da8cab-4ea1-48fa-9ef9-c93810322f4b", destination, sha256.Sum256([]byte(wanted)), true},
++		Source:           source, Binding: "FOLDER::com.apple.CloudDocs::vault", Previous: prev, SourceHash: sha256.Sum256([]byte(original)),
++	}
++	prior := BBDeliveryIntent{"e7bd52ef-e4a5-45d1-b4cc-ec4d6be5770c", source, move.SourceHash, false}
++	if err := BBBeginDelivery(workdir, prior); err != nil {
++		t.Fatal(err)
++	}
++	if err := BBResolveDelivery(workdir, prior, &BBDeliveryReceipt{
++		BBDeliveryIntent: prior, Size: int64(len(original)), Modified: baseline, ProviderID: prev.DocumentID, ETag: prev.ETag,
++	}); err != nil {
++		t.Fatal(err)
++	}
++	if err := BBBeginRelocation(workdir, move, []byte(wanted)); err != nil {
++		t.Fatal(err)
++	}
++	if err := BBAllocateRelocation(workdir, move, "allocated"); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Remove(filepath.Join(mirrorRoot, source)); err != nil {
++		t.Fatal(err)
++	}
++
++	write(mirrorRoot, destination, wanted, later)
++	write(mirrorRoot, "Archive/Adjacent.md", "new sibling in unconfirmed directory", later)
++	write(mirrorRoot, "BB edit.md", "BB edit during recovery", later)
++	write(cloudRoot, source, "Mac continued editing old source", later)
++	write(cloudRoot, observedMove, "independent content at altered provider path", later)
++	write(cloudRoot, "Mac edit.md", "Mac edit during recovery", later)
++	cloudRevisions := map[string]BBIndexedVersion{
++		source:       {prev.DocumentID, prev.ParentID, "new-etag"},
++		observedMove: {"FILE::com.apple.CloudDocs::allocated", "FOLDER::com.apple.CloudDocs::vault", "altered"},
++	}
++	cloudSide := &bbHeldListingFS{Fs: cloud, versions: cloudRevisions}
++	options.Resync = false
++	if err := BBManagedBisync(ctx, cloud, mirror, options, move.Binding); !errors.Is(err, ErrBBDeliveryUnsettled) {
++		t.Fatalf("scan with a missing provider identity was admitted: %v", err)
++	}
++	if err := BBManagedBisync(ctx, cloudSide, mirror, options, move.Binding); err != nil {
++		t.Fatal(err)
++	}
++
++	wantOn := func(root, name, want string) {
++		t.Helper()
++		got, err := os.ReadFile(filepath.Join(root, name))
++		if err != nil || string(got) != want {
++			t.Fatalf("unexpected fixture contents at %s: %q %v", name, got, err)
++		}
++	}
++	absent := func(root, name string) {
++		t.Helper()
++		if _, err := os.Lstat(filepath.Join(root, name)); !errors.Is(err, os.ErrNotExist) {
++			t.Fatalf("unexpected file at %s: %v", name, err)
++		}
++	}
++	wantOn(cloudRoot, "BB edit.md", "BB edit during recovery")
++	wantOn(mirrorRoot, "Mac edit.md", "Mac edit during recovery")
++	wantOn(cloudRoot, source, "Mac continued editing old source")
++	wantOn(mirrorRoot, destination, wanted)
++	wantOn(cloudRoot, observedMove, "independent content at altered provider path")
++	absent(mirrorRoot, source)
++	absent(mirrorRoot, observedMove)
++	absent(cloudRoot, "Archive")
++	state, err := readBBDeliveries(workdir)
++	if err != nil || state.Relocation == nil || state.Relocation.Allocation != "allocated" ||
++		len(state.Confirmed) != 1 || state.Confirmed[0].BBDeliveryIntent != prior {
++		t.Fatalf("unconfirmed state lost while syncing other files: %v", err)
++	}
 +}

@@ -12,7 +12,7 @@ const identity = z.strictObject({ documentId: string, parentId: string, etag: st
 const index = z.strictObject({ version: z.literal(1), binding: string, notes: z.record(z.string(), identity) });
 const reply = z.discriminatedUnion('outcome', [
   z.strictObject({ outcome: z.literal('observed'), observation: deliveryObservation }),
-  z.strictObject({ outcome: z.literal('published'), observation: deliveryObservation }),
+  z.strictObject({ outcome: z.literal('published'), observation: deliveryObservation, sourceRetained: z.literal(true).optional() }),
   z.strictObject({ outcome: z.literal('refused') }),
   z.strictObject({ outcome: z.literal('absent') }),
   z.strictObject({ outcome: z.literal('uncertain') }),
