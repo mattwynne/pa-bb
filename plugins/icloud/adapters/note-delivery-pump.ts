@@ -1,5 +1,5 @@
 import { coalesceDelivery, type NoteDeliveryQueue, type NoteDeliveryPlan } from './note-delivery-queue.ts';
-import { classifyReplacementReadback, type DeliveryIntent, type DeliveryObservation, type NoteDeliveryRecovery } from './note-delivery-recovery.ts';
+import { classifyReplacementReadback, isMoveEndpoint, type DeliveryIntent, type DeliveryObservation, type NoteDeliveryRecovery } from './note-delivery-recovery.ts';
 
 export type PublicationIntent = DeliveryIntent;
 export type NativePublicationResult =
@@ -24,20 +24,14 @@ export class NoteDeliveryPump {
 
   // The owning worker serializes calls for a mirror and supplies a bounded turn.
   async deliverOne(mirrorId: string, path?: string) {
-    const pending = this.journal.pending(mirrorId);
-    if (pending) {
-      if (pending.publication) return this.finish(pending,pending.publication);
-      const current = await this.worker.readBack(pending);
-      if (!current || current.hash !== pending.wantedHash ||
-          (pending.expected && !pending.source && classifyReplacementReadback(pending.expected,pending.wantedHash,current).outcome !== 'published'))
-        return 'needs_reconciliation' as const;
-      return this.accept(pending,current);
-    }
-
+    const write = this.journal.pending(mirrorId,'write');
+    if (write) return this.recover(write);
+    const move = this.journal.pending(mirrorId,'move');
     const queued = path === undefined ? this.queue.oldest(mirrorId) : this.queue.pendingPath(mirrorId,path);
+    if (move && (!queued.length || isMoveEndpoint(move,queued[0]!.path))) return this.recover(move);
     if (queued.length === 0) return 'idle' as const;
     let plan = coalesceDelivery(queued);
-    if (!plan) return 'needs_reconciliation' as const;
+    if (!plan || (move && plan.source)) return 'needs_reconciliation' as const;
     if (plan.source) {
       const source = this.queue.pendingPath(mirrorId,plan.source).filter(row => row.sequence < queued[0]!.sequence);
       if (source.length) {
@@ -66,6 +60,15 @@ export class NoteDeliveryPump {
     }
     if (published.outcome === 'uncertain') return 'needs_reconciliation' as const;
     return this.accept(replacement, published.observation);
+  }
+
+  private async recover(pending: PublicationIntent & {publication:DeliveryObservation | null}) {
+    if (pending.publication) return this.finish(pending,pending.publication);
+    const current = await this.worker.readBack(pending);
+    if (!current || current.hash !== pending.wantedHash ||
+        (pending.expected && !pending.source && classifyReplacementReadback(pending.expected,pending.wantedHash,current).outcome !== 'published'))
+      return 'needs_reconciliation' as const;
+    return this.accept(pending,current);
   }
 
   private accept(intent: PublicationIntent, publication: DeliveryObservation) {

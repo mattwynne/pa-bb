@@ -14,7 +14,7 @@ import type { Resolution } from './note-overlay.ts';
 import { RcloneProcess } from './rclone-process.ts';
 import type { ListingCheckers, ManagedNativeMirror } from './rclone-process.ts';
 import { NoteDeliveryQueue, noteDeliverySchema } from './note-delivery-queue.ts';
-import { NoteDeliveryRecovery, deliveryRecoverySchema } from './note-delivery-recovery.ts';
+import { NoteDeliveryRecovery, deliveryRecoverySchema, isMoveEndpoint } from './note-delivery-recovery.ts';
 import { runNoteDelivery } from './note-delivery-native.ts';
 import { managedMirrorBinding } from './note-delivery-deployment.ts';
 import { selectedRemote } from './rclone-cloud-provider.ts';
@@ -60,6 +60,7 @@ export class NoteRuntime {
   private managedBindings = new Map<string, string>();
   private deliveryBusy = false;
   private deliveryLastPath = new Map<string,string>();
+  private deliveryMoveAttempt = new Map<string,{operationId:string; at:number}>();
   private deliveryQueue?: NoteDeliveryQueue;
   private deliveryJournal?: NoteDeliveryRecovery;
   private legacyWrites = new Map<string, number>();
@@ -452,12 +453,33 @@ export class NoteRuntime {
         const cursor = queue.cursor(id);
         const page = await changes(id,cursor);
         if (!canStart() || this.closed || this.moving) return;
-        queue.stage(id,cursor,page);
-        const paths = queue.pendingPaths(id);
+        try { queue.stage(id,cursor,page); }
+        catch (error) {
+          // A full receipt page must not prevent work already in the queue.
+          if (!(error instanceof CloudError) || error.category !== 'capacity') throw error;
+        }
+        const write = journal.pending(id,'write');
+        const move = journal.pending(id,'move');
+        const pending = queue.pendingPaths(id);
+        const paths = move ? pending.filter(path => !isMoveEndpoint(move,path) && !queue.pendingPath(id,path)[0]?.source) : pending;
         const last = paths.indexOf(this.deliveryLastPath.get(id) ?? '');
-        const path = paths[(last + 1) % paths.length];
-        if (!path && !journal.pending(id)) continue;
-        if (path) this.deliveryLastPath.set(id,path);
+        let path = paths[(last + 1) % paths.length];
+        if (move && !write) {
+          const operationId = move.operations.at(-1)!;
+          const previous = this.deliveryMoveAttempt.get(id);
+          const now = Date.now();
+          // Give queued independent writes a turn before retrying a move.
+          // Recovery still gets periodic turns even when other edits continue.
+          const retryInterval = paths.length ? 30_000 : 4_000;
+          if (previous?.operationId !== operationId) this.deliveryMoveAttempt.set(id,{operationId,at:now});
+          else if (now - previous.at >= retryInterval) {
+            this.deliveryMoveAttempt.set(id,{operationId,at:now});
+            path = move.path;
+          }
+          if (!path) continue;
+        } else if (!move) this.deliveryMoveAttempt.delete(id);
+        if (!path && !write) continue;
+        if (path && path !== move?.path) this.deliveryLastPath.set(id,path);
         await runNoteDelivery(id,target,this.worker,queue,journal,async path => {
           const current = this.mirror(id);
           if (!canStart() || !current?.enabled || !this.members.has(id) || this.moving ||

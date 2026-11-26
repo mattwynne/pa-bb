@@ -29,6 +29,10 @@ export const deliveryRecoverySchema = `CREATE TABLE icloud_delivery_intent (
     mirror TEXT PRIMARY KEY,
     payload TEXT NOT NULL
   );
+  CREATE TABLE icloud_delivery_move_intent (
+    mirror TEXT PRIMARY KEY,
+    payload TEXT NOT NULL
+  );
   CREATE TABLE icloud_delivery_head (
     mirror TEXT NOT NULL,
     path TEXT NOT NULL,
@@ -48,12 +52,35 @@ export function classifyReplacementReadback(before: DeliveryObservation, wantedH
   return { outcome: 'changed_content' } as const;
 }
 
-export class NoteDeliveryRecovery {
-  constructor(private readonly db: Database.Database) {}
+export function isMoveEndpoint(move: Pick<DeliveryIntent,'source'|'path'>, path: string) {
+  const key = path.normalize('NFC').toLowerCase();
+  return [move.source,move.path].some(name => {
+    if (!name) return false;
+    const endpoint = name.normalize('NFC').toLowerCase();
+    return key === endpoint || key.startsWith(endpoint + '.');
+  });
+}
 
-  pending(mirrorId: string) {
-    const row = this.db.prepare('SELECT payload FROM icloud_delivery_intent WHERE mirror = ?').get(mirrorId) as { payload: string } | undefined;
-    return row ? stored.parse(JSON.parse(row.payload)) : null;
+const tables = { write:'icloud_delivery_intent', move:'icloud_delivery_move_intent' } as const;
+type Lane = keyof typeof tables;
+
+export class NoteDeliveryRecovery {
+  constructor(private readonly db: Database.Database) {
+    this.db.transaction(() => {
+      // Preserve an already admitted move from the former single intent table.
+      const moves = "json_type(payload, '$.source') = 'text'";
+      this.db.exec(`INSERT INTO icloud_delivery_move_intent SELECT mirror,payload FROM icloud_delivery_intent WHERE ${moves}`);
+      this.db.exec(`DELETE FROM icloud_delivery_intent WHERE ${moves}`);
+    }).immediate();
+  }
+
+  pending(mirrorId: string, lane?: Lane): Stored | null {
+    if (lane === undefined) return this.pending(mirrorId,'write') ?? this.pending(mirrorId,'move');
+    const row = this.db.prepare(`SELECT payload FROM ${tables[lane]} WHERE mirror = ?`).get(mirrorId) as { payload: string } | undefined;
+    if (!row) return null;
+    const value = stored.parse(JSON.parse(row.payload));
+    if ((lane === 'move') !== !!value.source || value.mirrorId !== mirrorId) throw new CloudError('recovery_required');
+    return value;
   }
 
   prepare(input: DeliveryIntent) {
@@ -61,8 +88,15 @@ export class NoteDeliveryRecovery {
     if ((value.sourceOperations && !value.source) ||
         (value.source && (!value.expected || value.path.normalize('NFC').toLowerCase() === value.source.normalize('NFC').toLowerCase())))
       throw new CloudError('source_changed');
-    const write = this.db.prepare('INSERT OR IGNORE INTO icloud_delivery_intent (mirror, payload) VALUES (?, ?)');
-    if (write.run(value.mirrorId, JSON.stringify(value)).changes !== 1) throw new CloudError('recovery_required');
+    const lane = value.source ? 'move' : 'write';
+    this.db.transaction(() => {
+      const move = this.pending(value.mirrorId,'move');
+      if (this.pending(value.mirrorId,'write') || (move && (value.source || isMoveEndpoint(move,value.path) ||
+          move.operations.some(id => value.operations.includes(id)) || move.sourceOperations?.some(id => value.operations.includes(id)))))
+        throw new CloudError('recovery_required');
+      const write = this.db.prepare(`INSERT OR IGNORE INTO ${tables[lane]} (mirror, payload) VALUES (?, ?)`);
+      if (write.run(value.mirrorId,JSON.stringify(value)).changes !== 1) throw new CloudError('recovery_required');
+    }).immediate();
   }
 
   published(mirrorId: string, operationId: string, publication: DeliveryObservation, expectedCreateDocumentId?: string) {
@@ -84,7 +118,7 @@ export class NoteDeliveryRecovery {
     this.db.transaction(() => {
       const row = this.forOperation(mirrorId, operationId);
       if (row.publication) throw new CloudError('recovery_required');
-      this.db.prepare('DELETE FROM icloud_delivery_intent WHERE mirror = ?').run(mirrorId);
+      this.remove(row);
     }).immediate();
   }
 
@@ -102,7 +136,7 @@ export class NoteDeliveryRecovery {
       if (binding) this.db.prepare(`INSERT INTO icloud_delivery_head (mirror,path,binding,body) VALUES (?,?,?,?)
         ON CONFLICT (mirror,path) DO UPDATE SET binding=excluded.binding,body=excluded.body`)
         .run(mirrorId,row.path,binding,JSON.stringify(row.publication));
-      this.db.prepare('DELETE FROM icloud_delivery_intent WHERE mirror = ?').run(mirrorId);
+      this.remove(row);
     }).immediate();
   }
 
@@ -113,12 +147,18 @@ export class NoteDeliveryRecovery {
   }
 
   private forOperation(mirrorId: string, operationId: string) {
-    const row = this.pending(mirrorId);
-    if (!row || row.operations.at(-1) !== operationId) throw new CloudError('recovery_required');
-    return row;
+    const rows = [this.pending(mirrorId,'write'),this.pending(mirrorId,'move')];
+    const matching = rows.filter((row): row is Stored => row?.operations.at(-1) === operationId);
+    if (matching.length !== 1) throw new CloudError('recovery_required');
+    return matching[0]!;
   }
 
   private write(row: Stored) {
-    this.db.prepare('UPDATE icloud_delivery_intent SET payload = ? WHERE mirror = ?').run(JSON.stringify(row), row.mirrorId);
+    this.db.prepare(`UPDATE ${tables[row.source ? 'move' : 'write']} SET payload = ? WHERE mirror = ?`)
+      .run(JSON.stringify(row),row.mirrorId);
+  }
+
+  private remove(row: Stored) {
+    this.db.prepare(`DELETE FROM ${tables[row.source ? 'move' : 'write']} WHERE mirror = ?`).run(row.mirrorId);
   }
 }
