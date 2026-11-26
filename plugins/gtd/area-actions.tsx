@@ -73,6 +73,7 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
       if (result.outcome === 'saved_locally_pending_sync' || result.outcome === 'unchanged') {
         if (change.operation === 'add') {
           closeForm();
+          setNotice('Action added.');
         } else if (snapshot) {
           const row = checkbox?.closest('li');
           if (row?.matches(':focus-within')) {
@@ -84,7 +85,6 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
           setSnapshot(current => current?.version === change.version
             ? { ...current, actions: current.actions.filter(action => action.line !== change.line) } : current);
         }
-        setNotice(change.operation === 'add' ? 'Action added.' : 'Action completed.');
         refresh();
       } else if (result.outcome === 'uncertain') {
         setUncertainId(operationId);

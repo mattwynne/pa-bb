@@ -813,9 +813,9 @@ try {
       const exiting = actions.locator('.gtd-action-exiting');
       await exiting.waitFor();
       assert.equal(await exiting.evaluate(el => getComputedStyle(el).animationName), 'gtd-action-complete');
-      await actions.getByText('Action completed.').waitFor();
       await exiting.waitFor({ state: 'detached' });
       assert.equal(await actions.getByText('Pack the tools').count(), 0);
+      assert.equal(await actions.getByText('Action completed.').count(), 0);
       assert.ok(await remaining.evaluate(el => el.matches(':focus')));
       const add = actions.getByRole('button', { name: 'Add action' });
       const addProject = nav.getByRole('button', { name: 'Add project' });
@@ -839,7 +839,6 @@ try {
       assert.ok(await add.evaluate(el => el.matches(':focus')));
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await actions.getByText('Check the supplies', { exact: true }).click();
-      await actions.getByText('Action completed.').waitFor();
       await actions.getByText('Check the supplies').waitFor({ state: 'detached' });
       await heading('Learning').focus();
       for (let i = 0; i < 8 && !await actionLink.evaluate(el => el.matches(':focus')); i++) await page.keyboard.press('Tab');
