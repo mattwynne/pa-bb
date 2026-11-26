@@ -7,10 +7,15 @@ import { newThreadInput } from '../contract.ts';
 import type { ProjectSnapshot } from '../core/model.ts';
 const ref = { source: 'one', id: 'Projects/Woodworking.md' };
 const snapshot = (): ProjectSnapshot => ({ source: { backend: 'fake', id: 'one', name: 'Synthetic', scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null }, projects: [{ id: ref.id, title: 'Learn woodworking', status: 'active', areaId: 'Areas/Learning.md' }, { id: 'Projects/Workbench.md', title: 'Build workbench', status: 'deferred' }], complete: true, warnings: [] });
-async function setup(initial = snapshot()) {
+async function setup(initial = snapshot(), actionSection?: { text: string; hash: string }) {
   let data = initial; const metadata: Record<string, any> = { t1: { unrelated: 'keep' }, t2: { project: ref } }; let spawns = 0; let fail = false;
-  const host = createFakePluginHost({ pluginId: 'gtd', agentSkillIds: ['gtd-projects'], sdk: {
-    plugins: { callRpc: async () => ({ vaults: [], incomplete: false }) },
+  const host = createFakePluginHost({ pluginId: 'gtd', agentSkillIds: ['gtd-projects'],
+    ...(actionSection ? { settings: { vaultId: 'one' } } : {}), sdk: {
+    plugins: { callRpc: async args => {
+      if (actionSection && args.method === 'readNoteSection') return actionSection;
+      assert.equal(args.method, 'vaultLocations');
+      return { vaults: actionSection ? [{ id: 'one', root: '', name: 'Synthetic' }] : [], incomplete: false };
+    } },
     projects: { list: async () => [{ id: 'personal', kind: 'personal' }] as any },
     threads: {
       updatePluginMetadata: async (input: any) => { metadata[input.threadId] ??= {}; Object.assign(metadata[input.threadId], input.set); for (const key of input.remove ?? []) delete metadata[input.threadId][key]; return metadata[input.threadId]; },
@@ -24,6 +29,32 @@ async function setup(initial = snapshot()) {
   await plugin(host.bb, dependencies);
   return { ...host, dependencies, metadata, spawns: () => spawns, fail: () => { fail = true; }, remove: () => { data.projects = []; } };
 }
+
+test('starting an action thread verifies the selected row and opens a linked thread with that goal', async () => {
+  const action = 'Measure **oak** boards';
+  const section = { text: `- [ ] Unrelated action\n- [x] ${action}`, hash: 'a'.repeat(64) };
+  const f = await setup(snapshot(), section);
+  try {
+    const start = (input: object) => f.harness.behavior.callRpc('startActionThread', input);
+    for (const [kind, id] of [['project', ref.id], ['area', 'Areas/Learning.md']] as const) {
+      const input = { kind, source: 'one', id, requestId: randomUUID(), line: 2, version: section.hash };
+      assert.deepEqual(await start({ ...input, line: 3 }), { changed: true });
+      assert.deepEqual(await start({ ...input, version: 'b'.repeat(64) }), { changed: true });
+      assert.deepEqual(await start(input), { threadId: 'created' });
+      const call = f.harness.inspection.sdk.callsTo('threads.spawn').at(-1)![0] as any;
+      assert.deepEqual(call.pluginMetadata[kind], { source: 'one', id });
+      assert.equal(call.title, action);
+      assert.match(call.prompt, /create_goal/);
+      assert.ok(call.prompt.includes(JSON.stringify(action)));
+      assert.doesNotMatch(call.prompt, /Unrelated action|Acknowledge readiness and wait/);
+      const count = f.spawns();
+      section.hash = 'c'.repeat(64);
+      assert.deepEqual(await start(input), { threadId: 'created' });
+      assert.equal(f.spawns(), count);
+    }
+    assert.equal(f.spawns(), 2);
+  } finally { await f.harness.lifecycle.dispose(); }
+});
 test('association changes preserve project records and unrelated thread metadata', async () => {
   const f = await setup(); let active = f.harness;
   try {

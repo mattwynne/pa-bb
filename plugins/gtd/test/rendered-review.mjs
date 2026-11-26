@@ -121,6 +121,7 @@ try {
     let extraProject = null;
     const publish = revision => { watchRevision = `12345678-1234-4123-8123-123456789abc:${revision}`; };
     const projectChanges = [], areaCreations = [];
+    const actionCreations = [];
     const projectCreations = [];
     const gmail = 'https://mail.google.com/mail/?authuser=example%40example.com#all/beef';
     const fastmail = 'https://app.fastmail.com/mail/Archive/S_anchor?u=1234abcd';
@@ -370,6 +371,10 @@ try {
       }
       if (method === 'newThread') { creations++; await new Promise(r => setTimeout(r, 250)); result = { threadId: 'fixture1' }; }
       if (method === 'newAreaThread') { areaCreations.push(input); result = { threadId: 'fixture1' }; }
+      if (method === 'startActionThread') {
+        actionCreations.push(input);
+        result = actionCreations.length === 1 ? { changed: true } : { threadId: 'fixture1' };
+      }
       if (method === 'changeProject') {
         projectChanges.push(input.change);
         if (input.change.kind === 'area') {
@@ -1057,13 +1062,13 @@ try {
       assert.equal(await plan.count(), 0);
       const actionMenu = actions.getByLabel('Options for action Check the workbench');
       await actionMenu.press('Enter');
-      await actionMenu.locator('..').getByRole('button', { name: 'Rename…' }).press('Enter');
-      const rename = actions.getByRole('textbox', { name: 'Rename action' });
-      assert.equal(await rename.inputValue(), 'Check the workbench');
-      assert.ok(await rename.evaluate(el => el.matches(':focus')));
-      await page.screenshot({ path: join(artifacts, `rename-action-${width}.png`) });
-      await rename.fill('Inspect the workbench');
-      await rename.press('Enter');
+      await actionMenu.locator('..').getByRole('button', { name: 'Edit…' }).press('Enter');
+      const edit = actions.getByRole('textbox', { name: 'Edit action' });
+      assert.equal(await edit.inputValue(), 'Check the workbench');
+      assert.ok(await edit.evaluate(el => el.matches(':focus')));
+      await page.screenshot({ path: join(artifacts, `edit-action-${width}.png`) });
+      await edit.fill('Inspect the workbench');
+      await edit.press('Enter');
       const renamed = actions.getByRole('checkbox', { name: 'Inspect the workbench' });
       await renamed.waitFor();
       assert.ok(await renamed.isChecked());
@@ -1095,6 +1100,24 @@ try {
       failProjectActions = true;
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
       await actions.getByText('Could not load actions. Check the project note in Obsidian.', { exact: true }).waitFor();
+      actionState = 'ready';
+      failProjectActions = false;
+      await actions.getByRole('button', { name: 'Try again' }).click();
+      const menu = actions.getByLabel('Options for action Inspect the workbench');
+      await selectActionFilter(actions, 'Done');
+      const start = menu.locator('..').getByRole('button', { name: 'Start a thread' });
+      await menu.press('Enter');
+      await page.keyboard.press('Tab');
+      assert.ok(await start.evaluate(el => el.matches(':focus-visible')));
+      await page.screenshot({ path: join(artifacts, `start-action-thread-${width}.png`) });
+      await page.keyboard.press('Enter');
+      await nav.getByText('The note changed. Review the refreshed action before starting a thread.', { exact: true }).waitFor();
+      await menu.press('Enter');
+      await start.press('Enter');
+      await page.waitForURL('**/threads/fixture1');
+      assert.equal(actionCreations.length, 2);
+      assert.deepEqual(actionCreations.map(({ requestId, ...input }) => input),
+        Array(2).fill({ ...ref, kind: 'project', version: actionVersion, line: 1 }));
     } else if (mode === 'correspondence') {
       await openLearning();
       const areaUrl = page.url();

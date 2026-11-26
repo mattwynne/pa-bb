@@ -506,15 +506,26 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   // Retain a request ID for the life of this action, including uncertain failures.
   const requests = useRef(new Map<string, string>());
   const run = async (id: string, task: () => Promise<void>) => { if (busyRef.current) return; busyRef.current = true; setBusy(id); setNotice(''); try { await task(); } catch { setNotice('Change not confirmed. Inspect threads or Obsidian receipts before trying again.'); } finally { busyRef.current = false; setBusy(''); } };
-  const newThread = (item: Area | Project, kind: 'area' | 'project') => void run(item.id, async () => {
-    const k = (kind === 'area' ? 'gtd-new-area:' : 'gtd-new:') + key(inventory.source, item.id);
+  const newThread = (item: Area | Project, kind: 'area' | 'project',
+    action?: { line: number; version: string; refresh: () => void }) => void run(item.id, async () => {
+    const k = action ? 'gtd-new-action:' + JSON.stringify([kind, inventory.source, item.id, action.version, action.line])
+      : (kind === 'area' ? 'gtd-new-area:' : 'gtd-new:') + key(inventory.source, item.id);
     let requestId = requests.current.get(k) ?? sessionStorage.getItem(k);
     const completed = Number(sessionStorage.getItem(k + ':completed') ?? 0);
     // Reuse a fast completion during the double-click window, even across reload.
     if (completed && Date.now() - completed > 1000) { requests.current.delete(k); sessionStorage.removeItem(k); requestId = null; }
     if (!requestId) { requestId = crypto.randomUUID(); requests.current.set(k, requestId); sessionStorage.setItem(k, requestId); sessionStorage.removeItem(k + ':completed'); }
     sessionStorage.setItem(k, requestId);
-    const result = await rpc.call(kind === 'area' ? 'newAreaThread' : 'newThread', { source: inventory.source, id: item.id, requestId });
+    const input = { source: inventory.source, id: item.id, requestId };
+    const result = action ? await rpc.call('startActionThread', { ...input, kind, line: action.line, version: action.version })
+      : await rpc.call(kind === 'area' ? 'newAreaThread' : 'newThread', input);
+    if ('changed' in result) {
+      requests.current.delete(k);
+      sessionStorage.removeItem(k);
+      setNotice('The note changed. Review the refreshed action before starting a thread.');
+      action?.refresh();
+      return;
+    }
     sessionStorage.setItem(k + ':completed', String(Date.now()));
     navigate.toThread(result.threadId); linksChanged();
   });
@@ -662,7 +673,8 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       </>}
       {ready && (area || unassigned) && <div className="gtd-detail-sections">
         {area && <AreaStandard key={`standard:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} hasNote={area.id.endsWith('.md')} />}
-        {area && <NoteActions key={`actions:${key(inventory.source, area.id)}`} kind="area" source={inventory.source} id={area.id} revision={inventory.revision} />}
+        {area && <NoteActions key={`actions:${key(inventory.source, area.id)}`} kind="area" source={inventory.source} id={area.id} revision={inventory.revision}
+          startingThread={!!busy} startThread={action => newThread(area, 'area', action)} />}
         <FoldableSection key={`projects:${key(inventory.source, area?.id ?? '')}`} title="Projects" tools={
           <FilterControls label="Project status" action={area && <button ref={addProject} type="button" className="gtd-row-action"
             aria-label="Add project" title="Add project" disabled={!!busy || !!inventory.error}
@@ -692,7 +704,8 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
           action={newThreadAction(area, 'area')} />}
       </div>}
       {project && <div className="gtd-detail-sections" key={key(inventory.source, project.id)}>
-        <NoteActions kind="project" source={inventory.source} id={project.id} revision={inventory.revision} />
+        <NoteActions kind="project" source={inventory.source} id={project.id} revision={inventory.revision}
+          startingThread={!!busy} startThread={action => newThread(project, 'project', action)} />
         <ProjectCorrespondence key={JSON.stringify([inventory.source, project.id])} source={inventory.source} id={project.id} revision={inventory.revision} />
         <LinkedThreads kind="project" id={project.id} source={inventory.source} action={newThreadAction(project, 'project')} />
       </div>}

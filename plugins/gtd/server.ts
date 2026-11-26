@@ -12,7 +12,7 @@ import { areaRenames, renameAreaInput } from './core/area-renames.ts';
 import { applyInput, browseInput, changeInput, changeNames, checkInput, deferInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
 import { areaStandardInput, rpcContract, reference, newThreadInput, standardTextLimit, type createProjectInput } from './contract.ts';
 import { panelHref, readRoute, recordDestination, type PanelPath } from './app-routes.ts';
-import { threadActions } from './core/threads.ts';
+import { ActionChangedError, threadActions } from './core/threads.ts';
 import { areaListInput, areaPageSchema } from './core/model.ts';
 import type { AreaBackendSelection, AreaPage } from './core/model.ts';
 import { Projects, compareProjects, normalizeProjectSnapshot } from './core/projects.ts';
@@ -534,6 +534,25 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     associate: (input, context) => withWrite(() => renames.withThread(input.threadId, () => threads.associate(input, context.experimental_signal))),
     newThread: (input, context) => withWrite(() => threads.newThread(input, context.experimental_signal)),
     newAreaThread: (input, context) => withWrite(() => renames.withArea(input, () => threads.newThread(input, context.experimental_signal, 'area'))),
+    startActionThread: ({ kind, source, id, requestId, version, line }, context) => withWrite(() => {
+      const signal = context.experimental_signal;
+      const start = async () => {
+        try {
+          return await threads.newThread({ source, id, requestId }, signal, kind, {
+            line, version, readText: async () => {
+              const snapshot = await readNoteActions({ kind, source, id }, signal);
+              const action = snapshot.actions.find(action => action.line === line);
+              if (snapshot.version !== version || !action) throw new ActionChangedError();
+              return action.text;
+            },
+          });
+        } catch (error) {
+          if (error instanceof ActionChangedError) return { changed: true } as const;
+          throw error;
+        }
+      };
+      return kind === 'area' ? renames.withArea({ source, id }, start) : start();
+    }),
     async changeProject(input, context) {
       if (closing || context.experimental_signal.aborted) throw new GtdError('cancelled');
       try { return await withWrite(() => changes.applyFromPanel(input, context.experimental_signal)); }

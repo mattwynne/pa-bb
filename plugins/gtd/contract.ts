@@ -117,4 +117,8 @@ export const rpcContract = defineRpcContract({
   }).strict()) },
   newAreaThread: { input: newThreadInput, output: z.object({ threadId: z.string() }).strict() },
   newThread: { input: newThreadInput, output: z.object({ threadId: z.string() }).strict() },
+  startActionThread: {
+    input: actionTarget.extend({ requestId: newThreadInput.shape.requestId, line: actionLine, version: noteHash }),
+    output: z.union([z.object({ threadId: z.string() }).strict(), z.object({ changed: z.literal(true) }).strict()]),
+  },
 });
