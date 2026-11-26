@@ -123,3 +123,115 @@ test('verifies both one-click headers against an actual DKIM signature', async (
   const altered = raw.toString().replace('token=a,b', 'token=changed');
   assert.equal(await verifyOneClick(Buffer.from(signed.signatures + altered), signal, lookup), false);
 });
+
+test('an unverified one-click signature falls back to a distinct footer link and browser subthread', async () => {
+  const footer = 'https://links.example.com/leave?token=footer';
+  const source = await message(
+    `List-Unsubscribe: <${link}>\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n`,
+    `<p><a href="${footer}">Unsubscribe</a></p>`,
+  );
+  const page = 'https://lists.example.com/preferences';
+  const visited: string[] = [];
+  const result = await unsubscribeMessage(source, {
+    failure, verify: async () => false,
+    async web(url, _, body) {
+      assert.equal(body, undefined);
+      visited.push(url.href);
+      if (url.href === footer) return { status: 302, html: '', location: page };
+      assert.equal(url.href, page);
+      return { status: 200, html: '<form><select><option>This list</option></select></form>' };
+    },
+    async browser(url, address) {
+      assert.equal(url.href, page);
+      assert.equal(address, mailbox);
+      return { status: 'in_progress', method: 'browser', reason: 'browser_subthread_started', childThreadId: 'thr_example' };
+    },
+  }, signal);
+  assert.deepEqual(visited, [footer, page]);
+  assert.equal(result.status, 'in_progress');
+  assert.equal(result.childThreadId, 'thr_example');
+});
+
+test('discovers parenthesized plain-text footer links and skips a duplicate of the failed header URL', async () => {
+  const raw = Buffer.from(
+    `From: lists@example.com\r\nTo: ${mailbox}\r\nList-Unsubscribe: <${link}>\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\nNewsletter\r\nunsubscribe ( ${link} )\r\n`,
+  );
+  const source = await renderMessage(raw.toString('base64'), mailbox);
+  assert.ok(source);
+  assert.equal(source.footer, link);
+  assert.equal((await unsubscribeMessage(source, {
+    ...noBrowser, failure, verify: async () => false, web: async () => assert.fail('Do not reuse the failed header URL'),
+  }, signal)).reason, 'one_click_signature_unverified');
+});
+
+test('parses mixed legacy URLs while preserving commas in the token', async () => {
+  const source = await message(`List-Unsubscribe: mailto:remove@example.com, ${link}\r\n`);
+  assert.equal(source.web, link);
+  assert.equal(source.mail, 'mailto:remove@example.com');
+  assert.equal(source.oneClick, false);
+});
+
+test('accepts public IPv6 over HTTPS and rejects nonpublic or mapped addresses', () => {
+  assert.equal(httpsTarget('https://[2606:4700:4700::1111]/remove')?.hostname, '[2606:4700:4700::1111]');
+  for (const host of ['fd00::1', 'fe80::1', '::ffff:127.0.0.1', '2001:db8::1', '::1']) {
+    assert.equal(httpsTarget(`https://[${host}]/remove`), null);
+  }
+});
+
+test('never contacts an unsafe redirect or the skipped one-click endpoint', async () => {
+  const footer = 'https://links.example.com/leave';
+  const source = await message(
+    `List-Unsubscribe: <${link}>\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n`,
+    `<a href="${footer}">Unsubscribe</a>`,
+  );
+  for (const location of [link, 'https://127.0.0.1/leave', footer, 'http://example.com/leave']) {
+    const out = await unsubscribeMessage(source, {
+      ...noBrowser, failure, verify: async () => false,
+      async web(url) {
+        assert.equal(url.href, footer);
+        return { status: 302, html: '', location };
+      },
+    }, signal);
+    assert.equal(out.reason, 'unsubscribe_redirect_unavailable');
+  }
+});
+
+test('a definitive one-click rejection can reach a clear GET acknowledgment', async () => {
+  const source = await message(`List-Unsubscribe: <${link}>\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n`);
+  const answer = await unsubscribeMessage(source, {
+    ...noBrowser, failure, verify: async () => true,
+    web: async (_, __, body) => body ? { status: 404, html: '' } : { status: 200, html: success },
+  }, signal);
+  assert.deepEqual(answer, { status: 'confirmed', method: 'web_link', reason: 'sender_confirmed' });
+});
+
+test('submits a simple GET form with only its active controls and verified address', async () => {
+  const source = await message(`List-Unsubscribe: <${link}>\r\n`);
+  const getForm = `<h1>Unsubscribe from the list</h1><form action="/done?ignore=1">
+    <input type="hidden" name="token" value="a b">
+    <input type="email" name="email" value="Reader@example.com">
+    <input type="button" name="ignored" value="dismiss">
+    <button type="button" name="action" value="cancel">Cancel</button>
+    <button name="action" value="remove">Confirm</button></form>`;
+  const result = await unsubscribeMessage(source, {
+    ...noBrowser, failure,
+    async web(url, _, body) {
+      assert.equal(body, undefined);
+      if (url.href === link) return { status: 200, html: getForm };
+      assert.equal(url.href, 'https://mail.example.com/done?token=a+b&email=Reader%40example.com&action=remove');
+      return { status: 200, html: success };
+    },
+  }, signal);
+  assert.equal(result.method, 'web_form');
+  assert.equal(result.status, 'confirmed');
+  assert.equal(inspectPage(getForm.replace('Reader@example.com', 'another@example.com'), new URL(link), mailbox).kind, 'browser');
+});
+
+test('suppresses hidden confirmation text and defers ambiguous controls and challenges', () => {
+  const at = new URL(link);
+  assert.equal(inspectPage('<script>const answer = "You have been unsubscribed.";</script><template>' + success + '</template>', at).kind, 'browser');
+  assert.equal(inspectPage('<form><div class="g-recaptcha"></div><button>Continue</button></form>', at).kind, 'blocked');
+  assert.equal(inspectPage(form.replace('</form>', '<button>Keep subscription</button></form>'), at, mailbox).kind, 'browser');
+  assert.equal(inspectPage('<form method="post"><input type="image" name="Unsubscribe"></form>', at, mailbox).kind, 'browser');
+  assert.equal(inspectPage('<form method="post"><select name="scope"><option>This list only</option></select><button>Save</button></form>', at, mailbox).kind, 'browser');
+});

@@ -47,6 +47,9 @@ export async function renderMessage(mime: string, mailbox: string) {
   const listHeader = header('list-unsubscribe');
   // RFC 2369 encloses each URI in angle brackets. Commas inside URIs are data.
   const headerLinks = [...(listHeader ?? '').matchAll(/<([^<>]+)>/g)].map(match => match[1]!);
+  // Some senders omit brackets. Split off a new URI only when another scheme
+  // follows the comma, so commas embedded in tokens stay intact.
+  if (listHeader && !/[<>]/.test(listHeader)) headerLinks.push(...listHeader.split(/,[ \t]*(?=[a-z][a-z0-9+.-]*:)/i).map(link => link.trim()));
   const headerWeb = [...new Set(headerLinks.map(link => httpsTarget(link)?.href).filter((link): link is string => Boolean(link)))];
   const mail = unique([...new Set(headerLinks.filter(link => /^mailto:/i.test(link)))]);
   const bodyLinks: string[] = [];
@@ -58,8 +61,8 @@ export async function renderMessage(mime: string, mailbox: string) {
     }
   }
   if (message.text && message.text.length <= 256 * 1024) {
-    for (const match of message.text.matchAll(/^\s*(?:unsubscribe|opt[ -]?out)\s*:?\s*<?(https:\/\/[^<>\s]+)>?\s*$/gim)) {
-      const href = httpsTarget(match[1]!);
+    for (const match of message.text.matchAll(/^[ \t]*(?:unsubscribe|opt[ -]?out)[ \t]*:?[ \t]*(?:\([ \t]*(https:\/\/[^<>\s)]+)[ \t]*\)|<(https:\/\/[^<>\s]+)>|(https:\/\/[^<>\s]+))[ \t]*\r?$/gim)) {
+      const href = httpsTarget((match[1] ?? match[2] ?? match[3])!);
       if (href) bodyLinks.push(href.href);
     }
   }
@@ -71,8 +74,10 @@ export async function renderMessage(mime: string, mailbox: string) {
     ? delivered?.trim().toLowerCase() === primary ? mailbox : undefined
     : to.some(address => address?.toLowerCase() === primary) ? mailbox : undefined;
   const oneClick = headerWeb.length === 1 && header('list-unsubscribe-post')?.trim() === 'List-Unsubscribe=One-Click';
-  return { raw, web: unique(headerWeb) ?? (!headerWeb.length ? unique([...new Set(bodyLinks)]) : undefined),
-    mail, recipient, oneClick, ambiguous: headerWeb.length > 1 || (!headerWeb.length && new Set(bodyLinks).size > 1) };
+  const footerLinks = [...new Set(bodyLinks)];
+  const footer = unique(footerLinks);
+  return { raw, web: unique(headerWeb) ?? (!headerWeb.length ? footer : undefined),
+    footer, mail, recipient, oneClick, ambiguous: headerWeb.length > 1 || (!headerWeb.length && footerLinks.length > 1) };
 }
 
 export async function verifyOneClick(raw: Buffer, signal: AbortSignal, lookupTxt?: (name: string) => Promise<string[][]>) {
@@ -127,8 +132,9 @@ export function inspectPage(html: string, url: URL, recipient?: string) {
       !/if you (?:have|are)|(?:un)?successfully subscribed|could not|were not|failed|error/i.test(text)))
     return { kind: 'confirmed' } as const;
   const form = unique(elements.filter(el => el.tagName === 'form'));
+  const method = form ? (attr(form, 'method') ?? 'get').trim().toLowerCase() : '';
   if (!form || /preferences|unsubscribe from all|all (?:lists|emails|subscriptions)/i.test(label(form)) ||
-    attr(form, 'method')?.toLowerCase() !== 'post' ||
+    (method !== 'post' && method !== 'get') ||
     attr(form, 'enctype') && attr(form, 'enctype') !== 'application/x-www-form-urlencoded')
     return { kind: 'browser' } as const;
   const action = attr(form, 'action');
@@ -144,11 +150,14 @@ export function inspectPage(html: string, url: URL, recipient?: string) {
     const type = attr(control, 'type')?.toLowerCase() ?? (control.tagName === 'button' ? 'submit' : 'text');
     const name = attr(control, 'name');
     const value = attr(control, 'value') ?? '';
+    if (['input', 'button'].includes(control.tagName) && type === 'button') continue;
     if (control.attrs.some(item => /^form|^on|^disabled$/.test(item.name))) return { kind: 'browser' } as const;
-    if (['input', 'button'].includes(control.tagName) && type === 'submit' &&
-        unsubscribeLabel.test(label(control) || value) && !submit) submit = true;
+    const buttonLabel = label(control) || value;
+    const clearlyUnsubscribes = unsubscribeLabel.test(buttonLabel) || /^confirm unsubscribe$/i.test(buttonLabel) ||
+      (/^confirm$/i.test(buttonLabel) && /\bunsubscribe\b/i.test(text));
+    if (['input', 'button'].includes(control.tagName) && type === 'submit' && clearlyUnsubscribes && !submit) submit = true;
     else if (control.tagName === 'input' && type === 'email' && name && recipient && !filled && (!value || value.toLowerCase() === recipient.toLowerCase())) {
-      fields.append(name, recipient);
+      fields.append(name, value || recipient);
       filled = true;
       continue;
     } else if (control.tagName !== 'input' || type !== 'hidden') return { kind: 'browser' } as const;
@@ -157,5 +166,5 @@ export function inspectPage(html: string, url: URL, recipient?: string) {
   // A script may change the form's behavior or synthesize required fields.
   if (!submit || fields.toString().length > 8192 || /<(?:script|iframe)\b|\sonsubmit\s*=/i.test(html))
     return { kind: 'browser' } as const;
-  return { kind: 'form', target, fields } as const;
+  return { kind: 'form', method, target, fields } as const;
 }

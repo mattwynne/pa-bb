@@ -18,6 +18,12 @@ accepted request separately from a confirmation. A receipt prevents automatic
 repeat submissions for the same account and message after an uncertain result.
 An interrupted receipt requires manual follow-up.
 
+If the one-click signature cannot be verified, the tool can follow a distinct
+unsubscribe link from the message body. It follows bounded HTTPS redirects
+and rechecks each destination before connecting. It handles simple GET and
+POST forms when the controls and recipient are clear. A loaded page alone is
+insufficient evidence of confirmation.
+
 ## Browser fallback
 
 When a page needs interaction, the tool starts **Finish email unsubscribe**

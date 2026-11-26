@@ -46,28 +46,47 @@ export async function unsubscribeMessage(message: NonNullable<Awaited<ReturnType
   }
 
   if (message.ambiguous) return { status: 'needs_user', reason: 'ambiguous_unsubscribe_links' };
-  const url = message.web && httpsTarget(message.web);
+  let url = message.web && httpsTarget(message.web);
   if (!url) return sendMail();
 
   let method: Method = 'one_click';
+  let rejectedHeaderUrl: string | undefined;
   try {
     if (message.oneClick) {
       const verified = await (ports.verify ?? verifyOneClick)(message.raw, signal);
-      if (!verified) return { status: 'needs_user', method, reason: 'one_click_signature_unverified' };
-      const response = await ports.web(url, signal, new URLSearchParams({ 'List-Unsubscribe': 'One-Click' }));
-      if (ok(response)) {
-        return inspectPage(response.html, url).kind === 'confirmed'
-          ? { status: 'confirmed', method, reason: 'sender_confirmed' }
-          : { status: 'request_sent', method, reason: 'one_click_accepted' };
+      if (verified) {
+        const response = await ports.web(url, signal, new URLSearchParams({ 'List-Unsubscribe': 'One-Click' }));
+        if (ok(response)) {
+          return inspectPage(response.html, url).kind === 'confirmed'
+            ? { status: 'confirmed', method, reason: 'sender_confirmed' }
+            : { status: 'request_sent', method, reason: 'one_click_accepted' };
+        }
+        if (![404, 405, 410, 415].includes(response.status))
+          return { status: 'unverified', method, reason: 'unexpected_post_response' };
+      } else {
+        ports.failure(method, 'signature_unverified');
+        const footer = message.footer && httpsTarget(message.footer);
+        if (!footer || footer.href === url.href)
+          return { status: 'needs_user', method, reason: 'one_click_signature_unverified' };
+        rejectedHeaderUrl = url.href;
+        url = footer;
       }
-      if (![404, 405, 410, 415].includes(response.status))
-        return { status: 'unverified', method, reason: 'unexpected_post_response' };
     }
 
     method = 'web_link';
-    const page = await ports.web(url, signal);
+    let page = await ports.web(url, signal);
+    const visited = new Set([url.href]);
+    while ([301, 302, 303, 307, 308].includes(page.status) && page.location && visited.size < 5) {
+      const next = httpsTarget(page.location, url);
+      if (!next || visited.has(next.href) || next.href === rejectedHeaderUrl) return { status: 'needs_user', method, reason: 'unsubscribe_redirect_unavailable' };
+      visited.add(next.href);
+      url = next;
+      page = await ports.web(url, signal);
+    }
+    if ([301, 302, 303, 307, 308].includes(page.status))
+      return { status: 'needs_user', method, reason: 'unsubscribe_redirect_unavailable' };
     if ([404, 410].includes(page.status)) {
-      if (message.mail) return sendMail();
+      if (message.mail && !rejectedHeaderUrl) return sendMail();
       return { status: 'unavailable', method, reason: 'unsubscribe_page_missing' };
     }
     const inspected = ok(page) ? inspectPage(page.html, url, message.recipient) : { kind: 'browser' as const };
@@ -75,12 +94,15 @@ export async function unsubscribeMessage(message: NonNullable<Awaited<ReturnType
     if (inspected.kind === 'blocked') return { status: 'needs_user', method, reason: 'login_or_challenge' };
     if (inspected.kind === 'form') {
       method = 'web_form';
-      const submitted = await ports.web(inspected.target, signal, inspected.fields);
+      const destination = new URL(inspected.target);
+      if (inspected.method === 'get') destination.search = inspected.fields.toString();
+      if (destination.href === rejectedHeaderUrl) return { status: 'needs_user', method, reason: 'one_click_signature_unverified' };
+      const submitted = await ports.web(destination, signal, inspected.method === 'post' ? inspected.fields : undefined);
       if (ok(submitted) && inspectPage(submitted.html, inspected.target).kind === 'confirmed')
         return { status: 'confirmed', method, reason: 'sender_confirmed' };
       if (submitted.status === 303 && submitted.location) {
-        const receipt = httpsTarget(submitted.location, inspected.target);
-        if (receipt?.origin === inspected.target.origin && receipt.href !== inspected.target.href) {
+        const receipt = httpsTarget(submitted.location, destination);
+        if (receipt?.origin === destination.origin && receipt.href !== destination.href && receipt.href !== rejectedHeaderUrl) {
           const confirmation = await ports.web(receipt, signal);
           if (ok(confirmation) && inspectPage(confirmation.html, receipt).kind === 'confirmed')
             return { status: 'confirmed', method, reason: 'sender_confirmed' };
