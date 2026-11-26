@@ -272,3 +272,40 @@ test('uses the HTML rendition of a tracked footer and opens tokenized pages with
   assert.equal(result.method, 'browser');
   assert.equal(result.status, 'in_progress');
 });
+
+test('two different clearly labelled HTML destinations are ambiguous even with a plain-text rendition', async () => {
+  const raw = Buffer.from([
+    'From: newsletters@example.org', `To: ${mailbox}`, 'MIME-Version: 1.0',
+    'Content-Type: multipart/alternative; boundary=variants', '', '--variants',
+    'Content-Type: text/plain', '', 'unsubscribe ( https://tracking.example.org/route )',
+    '--variants', 'Content-Type: text/html', '',
+    '<footer><a href="https://lists.example.org/weekly">Unsubscribe</a>',
+    '<a href="https://lists.example.org/all">Unsubscribe</a></footer>', '--variants--', '',
+  ].join('\r\n'));
+  const source = await renderMessage(raw.toString('base64'), mailbox);
+  assert.ok(source);
+  const outcome = await unsubscribeMessage(source, {
+    ...noBrowser, failure, web: async () => assert.fail('Unexpected destination selected'),
+  }, signal);
+  assert.deepEqual(outcome, { status: 'needs_user', reason: 'ambiguous_unsubscribe_links' });
+});
+
+test('an alias can use token-only confirmation but must never fill an address or send email', async () => {
+  const raw = Buffer.from([
+    'From: newsletter@example.org', 'Delivered-To: masked@example.org',
+    `To: ${mailbox}`, 'List-Unsubscribe: <mailto:remove@example.org>', '', 'Newsletter',
+  ].join('\r\n'));
+  const source = await renderMessage(raw.toString('base64'), mailbox);
+  assert.ok(source);
+  assert.equal(source.recipient, undefined);
+  const outcome = await unsubscribeMessage(source, {
+    ...noBrowser, failure, web: async () => assert.fail(),
+    send: async () => assert.fail('The tool must not guess a sending identity'),
+  }, signal);
+  assert.deepEqual(outcome, { method: 'mailto', status: 'needs_user', reason: 'recipient_not_verified' });
+
+  const tokenForm = '<form method="post" action="/final"><input name="token" type="hidden" value="a+b"><button>Confirm unsubscribe</button></form>';
+  assert.equal(inspectPage(tokenForm, new URL(link), source.recipient).kind, 'form');
+  assert.equal(inspectPage(tokenForm.replace('<button>', '<input type="email" name="email"><button>'),
+    new URL(link), source.recipient).kind, 'browser');
+});

@@ -40,12 +40,12 @@ const recipient = 'reader@example.com';
 const url = 'https://mail.example.com/leave?token=PRIVATE_LINK_TOKEN';
 const child = makeThreadResponse({ id: childId, parentThreadId: parentId, projectId, status: 'active' });
 
-function browserFixture(spawnError = false) {
+function browserFixture({ spawnError = false, deliveredTo = recipient } = {}) {
   const { bb, harness } = createFakePluginHost({ pluginId: 'email-unsubscribe', agentSkillIds: ['email-unsubscribe'] });
   let jobId = '';
   let spawnCount = 0;
   let earlyAccess: ReturnType<typeof harness.behavior.callAgentTool> | undefined;
-  const mime = Buffer.from(`To: ${recipient}\r\nList-Unsubscribe: <${url}>\r\n\r\nTest message\r\n`).toString('base64');
+  const mime = Buffer.from(`To: ${deliveredTo}\r\nList-Unsubscribe: <${url}>\r\n\r\nTest message\r\n`).toString('base64');
   harness.sdk.stub('plugins.callRpc', () => ({ status: 'ok', mailbox: recipient, mime }));
   harness.sdk.stub('threads.get', () => makeThreadResponse({ id: parentId, projectId, environmentId, providerId: 'codex', canSpawnChild: true }));
   harness.sdk.stub('environments.get', () => ({ hostId }));
@@ -113,7 +113,7 @@ test('a child ending without a receipt leaves an unverified result and no repeat
 });
 
 test('an uncertain spawn is recorded and further calls cannot start a duplicate child', async () => {
-  const fx = browserFixture(true);
+  const fx = browserFixture({ spawnError: true });
   try {
     const result = await fx.use();
     assert.match(JSON.stringify(result), /unverified.*subthread_start_unverified/);
@@ -121,5 +121,21 @@ test('an uncertain spawn is recorded and further calls cannot start a duplicate 
     assert.equal(fx.spawnCount(), 1);
     assert.equal((await fx.call('email_unsubscribe_browser_job', { jobId: fx.jobId() })).isError, true);
     assert.doesNotMatch(JSON.stringify(fx.harness.inspection.logEntries), /PRIVATE_LINK_TOKEN/);
+  } finally { await fx.harness.lifecycle.dispose(); }
+});
+
+test('a tokenized browser job omits an unverified delivery address and records its explicit blocker', async () => {
+  const fx = browserFixture({ deliveredTo: 'unverified-alias@example.com' });
+  try {
+    assert.match(JSON.stringify(await fx.use()), /in_progress/);
+    const job = await fx.earlyAccess();
+    assert.match(JSON.stringify(job), /PRIVATE_LINK_TOKEN/);
+    assert.doesNotMatch(JSON.stringify(job), /unverified-alias|reader@example|recipient/);
+    const status = await fx.call('email_unsubscribe_browser_finish', {
+      jobId: fx.jobId(), status: 'needs_user', reason: 'recipient_unverified',
+    });
+    assert.equal(status.isError, undefined);
+    assert.match(JSON.stringify(await fx.use()), /needs_user.*recipient_unverified/);
+    assert.equal(fx.spawnCount(), 1);
   } finally { await fx.harness.lifecycle.dispose(); }
 });
