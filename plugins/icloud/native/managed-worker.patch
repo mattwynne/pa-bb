@@ -2625,7 +2625,7 @@
 +}
 --- /dev/null
 +++ b/backend/iclouddrive/api/bb_conditional_create.go
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,94 @@
 +package api
 +
 +import (
@@ -2651,13 +2651,13 @@
 +		!driveIdentifier.MatchString(allocatedDocID) || staged.Signature == "" || staged.Size < 0 || staged.Size > (1<<20) {
 +		return 0, ErrConditionalRefused
 +	}
-+	return d.publishBBAllocatedFile(ctx, zone, parent, relative, allocatedDocID, staged)
++	return d.publishBBAllocatedFile(ctx, zone, parent, relative, allocatedDocID, staged, nil)
 +}
 +
 +// ActivateBBFolderFile publishes an already allocated copy at one exact
 +// destination leaf. The caller owns and verifies the destination parent and
 +// the allocation before this operation can publish it.
-+func (d *DriveService) ActivateBBFolderFile(ctx context.Context, directoryID, leaf, allocatedDocID string, staged SingleFileInfo) (int, error) {
++func (d *DriveService) ActivateBBFolderFile(ctx context.Context, directoryID, leaf, allocatedDocID string, staged SingleFileInfo, dispatch func() error) (int, error) {
 +	kind, zone, parent := DeconstructDriveID(directoryID)
 +	if kind != "FOLDER" || !driveIdentifier.MatchString(zone) || !driveIdentifier.MatchString(parent) ||
 +		leaf == "" || leaf == "." || leaf == ".." || len(leaf) > 255 || !utf8.ValidString(leaf) ||
@@ -2666,10 +2666,10 @@
 +		staged.Signature == "" || staged.Size < 0 || staged.Size > (1<<30) {
 +		return 0, ErrConditionalRefused
 +	}
-+	return d.publishBBAllocatedFile(ctx, zone, parent, leaf, allocatedDocID, staged)
++	return d.publishBBAllocatedFile(ctx, zone, parent, leaf, allocatedDocID, staged, dispatch)
 +}
 +
-+func (d *DriveService) publishBBAllocatedFile(ctx context.Context, zone, parent, relative, allocatedDocID string, staged SingleFileInfo) (int, error) {
++func (d *DriveService) publishBBAllocatedFile(ctx context.Context, zone, parent, relative, allocatedDocID string, staged SingleFileInfo, dispatch func() error) (int, error) {
 +	request := NewUpdateFileInfo()
 +	request.AllowConflict = false
 +	request.CreateShortGUID = false
@@ -2686,6 +2686,14 @@
 +	raw, err := json.Marshal(request)
 +	if err != nil {
 +		return 0, ErrConditionalRefused
++	}
++	if err := ctx.Err(); err != nil {
++		return 0, err
++	}
++	if dispatch != nil {
++		if err := dispatch(); err != nil {
++			return 0, err
++		}
 +	}
 +	session := d.icloud.Session
 +	resp, err := session.srv.Call(ctx, &rest.Opts{
@@ -8005,11 +8013,11 @@
 +	session.srv = rest.NewClient(server.Client())
 +	service := DriveService{docsEndpoint: server.URL, icloud: &Client{Session: session}}
 +	staged := SingleFileInfo{Signature: "copied-signature", Size: 7}
-+	if _, err := service.ActivateBBFolderFile(context.Background(), folder, "Receipt.bin", slot, staged); err != nil {
++	if _, err := service.ActivateBBFolderFile(context.Background(), folder, "Receipt.bin", slot, staged, nil); err != nil {
 +		t.Fatal(err)
 +	}
 +	for _, traversal := range []string{"../Receipt.bin", "Nested/Receipt.bin", "Nested\\Receipt.bin"} {
-+		if _, err := service.ActivateBBFolderFile(context.Background(), folder, traversal, slot, staged); err != ErrConditionalRefused {
++		if _, err := service.ActivateBBFolderFile(context.Background(), folder, traversal, slot, staged, nil); err != ErrConditionalRefused {
 +			t.Fatalf("invalid name accepted")
 +		}
 +	}
@@ -8019,7 +8027,7 @@
 +}
 --- /dev/null
 +++ b/backend/iclouddrive/api/bb_folder_file_copy.go
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,86 @@
 +package api
 +
 +import (
@@ -8041,13 +8049,21 @@
 +// AllocateBBFolderFileCopy allocates one snapshot without placing a named
 +// item under the destination. Publishing and the verification of exact
 +// copied bytes are subsequent, separate steps in the owning worker.
-+func (d *DriveService) AllocateBBFolderFileCopy(ctx context.Context, source DriveItem) (BBFolderFileAllocation, error) {
++func (d *DriveService) AllocateBBFolderFileCopy(ctx context.Context, source DriveItem, dispatch func() error) (BBFolderFileAllocation, error) {
 +	var result BBFolderFileAllocation
 +	kind, zone, docID := DeconstructDriveID(source.Drivewsid)
 +	if kind != "FILE" || source.Type != "FILE" || !driveIdentifier.MatchString(zone) ||
 +		!driveIdentifier.MatchString(docID) || docID != source.Docwsid ||
 +		!validBBFolderCopyItemID(source.Itemid) || source.Etag == "" || source.ParentID == "" || source.Size < 0 || source.Size > (1<<30) {
 +		return result, ErrConditionalRefused
++	}
++	if err := ctx.Err(); err != nil {
++		return result, err
++	}
++	if dispatch != nil {
++		if err := dispatch(); err != nil {
++			return result, err
++		}
 +	}
 +	itemID := source.Itemid
 +	session := d.icloud.Session
@@ -8100,7 +8116,7 @@
 +}
 --- /dev/null
 +++ b/backend/iclouddrive/bb_folder_stage.go
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,158 @@
 +package iclouddrive
 +
 +import (
@@ -8159,7 +8175,7 @@
 +// Allocate from the original exact iCloud object after checking its
 +// version and bytes. The caller must verify the activated copy's bytes
 +// again in case another client edited the source during allocation.
-+func (f *Fs) BBReserveStageFile(ctx context.Context, binding string, expected BBFolderItem, original [sha256.Size]byte) (api.BBFolderFileAllocation, error) {
++func (f *Fs) BBReserveStageFile(ctx context.Context, binding string, expected BBFolderItem, original [sha256.Size]byte, dispatch func() error) (api.BBFolderFileAllocation, error) {
 +	var empty api.BBFolderFileAllocation
 +	fresh, err := f.lookupBBFolderLeaf(ctx, binding, expected.ParentID, expected.Name)
 +	if err != nil || fresh == nil || fresh.Directory || expected.Directory ||
@@ -8170,7 +8186,7 @@
 +	if err != nil || actual != original {
 +		return empty, api.ErrConditionalConflict
 +	}
-+	return f.service.AllocateBBFolderFileCopy(ctx, *fresh.item)
++	return f.service.AllocateBBFolderFileCopy(ctx, *fresh.item, dispatch)
 +}
 +
 +// Verify the exact allocated identity before trusting a resumed activation.
@@ -8191,12 +8207,24 @@
 +	return current, nil
 +}
 +
-+func (f *Fs) BBActivateStageFile(ctx context.Context, binding, parentID, leaf string, allocated api.BBFolderFileAllocation, original [sha256.Size]byte) (*BBFolderItem, error) {
++func (f *Fs) BBActivateStageFile(ctx context.Context, binding, parentID, leaf string, allocated api.BBFolderFileAllocation, original [sha256.Size]byte, dispatch func() error) (*BBFolderItem, error) {
 +	current, err := f.BBObserveStageFile(ctx, binding, parentID, leaf, allocated.DocumentID, original)
 +	if err != nil || current != nil {
 +		return current, err
 +	}
-+	_, publishErr := f.service.ActivateBBFolderFile(ctx, parentID, f.opt.Enc.FromStandardName(leaf), allocated.DocumentID, allocated.Asset)
++	started := false
++	_, publishErr := f.service.ActivateBBFolderFile(ctx, parentID, f.opt.Enc.FromStandardName(leaf), allocated.DocumentID, allocated.Asset, func() error {
++		if dispatch != nil {
++			if err := dispatch(); err != nil {
++				return err
++			}
++		}
++		started = true
++		return nil
++	})
++	if !started {
++		return nil, publishErr
++	}
 +	current, err = f.BBObserveStageFile(ctx, binding, parentID, leaf, allocated.DocumentID, original)
 +	if err != nil {
 +		return nil, err
@@ -8986,13 +9014,14 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_folder_clone_stage.go
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,186 @@
 +package main
 +
 +import (
 +	"context"
 +	"crypto/sha256"
 +	"path"
++	"time"
 +
 +	"github.com/google/uuid"
 +	"github.com/rclone/rclone/backend/iclouddrive"
@@ -9003,8 +9032,8 @@
 +type ownedCloneCloud interface {
 +	folderProofCloud
 +	BBReserveStageFolder(context.Context, string, string, string, string) (iclouddrive.BBFolderItem, error)
-+	BBReserveStageFile(context.Context, string, iclouddrive.BBFolderItem, [sha256.Size]byte) (api.BBFolderFileAllocation, error)
-+	BBActivateStageFile(context.Context, string, string, string, api.BBFolderFileAllocation, [sha256.Size]byte) (*iclouddrive.BBFolderItem, error)
++	BBReserveStageFile(context.Context, string, iclouddrive.BBFolderItem, [sha256.Size]byte, func() error) (api.BBFolderFileAllocation, error)
++	BBActivateStageFile(context.Context, string, string, string, api.BBFolderFileAllocation, [sha256.Size]byte, func() error) (*iclouddrive.BBFolderItem, error)
 +	BBObserveStageFile(context.Context, string, string, string, string, [sha256.Size]byte) (*iclouddrive.BBFolderItem, error)
 +}
 +
@@ -9070,10 +9099,11 @@
 +			if err != nil || current == nil || ownedFolderVersion(*current) != prior {
 +				return api.ErrConditionalConflict
 +			}
-+			if err := bisync.BBDispatchFolderCloneStep(workdir, intent.OperationID, journal.Step); err != nil {
-+				return err
-+			}
-+			slot, err := cloud.BBReserveStageFile(ctx, intent.Binding, *current, digest)
++			slot, err := cloud.BBReserveStageFile(ctx, intent.Binding, *current, digest, func() error {
++				return beforeCloneFileDispatch(ctx, func() error {
++					return bisync.BBDispatchFolderCloneStep(workdir, intent.OperationID, journal.Step)
++				})
++			})
 +			if err != nil {
 +				return err
 +			}
@@ -9081,24 +9111,25 @@
 +				DocumentID: slot.DocumentID, Signature: slot.Asset.Signature, ReferenceSignature: slot.Asset.ReferenceSignature,
 +				WrappingKey: slot.Asset.WrappingKey, Size: slot.Asset.Size,
 +			}
-+			if err := bisync.BBRecordFolderCloneAllocation(workdir, intent.OperationID, journal.Step, *allocated); err != nil {
-+				return err
-+			}
++			// Start activation from the durable allocation, with a fresh
++			// dispatch check after its own provider preflight.
++			return bisync.BBRecordFolderCloneAllocation(workdir, intent.OperationID, journal.Step, *allocated)
 +		}
 +		var found *iclouddrive.BBFolderItem
 +		var err error
 +		if journal.ActivationDispatched {
 +			found, err = cloud.BBObserveStageFile(ctx, intent.Binding, parent, label, allocated.DocumentID, digest)
 +		} else {
-+			if err := bisync.BBDispatchFolderCloneActivation(workdir, intent.OperationID, journal.Step); err != nil {
-+				return err
-+			}
 +			found, err = cloud.BBActivateStageFile(ctx, intent.Binding, parent, label, api.BBFolderFileAllocation{
 +				DocumentID: allocated.DocumentID, Asset: api.SingleFileInfo{
 +					Signature: allocated.Signature, ReferenceSignature: allocated.ReferenceSignature,
 +					WrappingKey: allocated.WrappingKey, Size: allocated.Size,
 +				},
-+			}, digest)
++			}, digest, func() error {
++				return beforeCloneFileDispatch(ctx, func() error {
++					return bisync.BBDispatchFolderCloneActivation(workdir, intent.OperationID, journal.Step)
++				})
++			})
 +		}
 +		if err != nil || found == nil {
 +			return api.ErrConditionalUnconfirmed
@@ -9107,6 +9138,18 @@
 +		return bisync.BBCompleteFolderCloneStep(workdir, intent.OperationID, journal.Step, &version, false)
 +	}
 +	return api.ErrConditionalRefused
++}
++
++// Leave enough of the bounded attempt for the provider mutation and its
++// acknowledgement. An expired preflight must never become a lost reply.
++func beforeCloneFileDispatch(ctx context.Context, record func() error) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < 6*time.Second {
++		return context.DeadlineExceeded
++	}
++	return record()
 +}
 +
 +func verifyOwnedCloneTree(ctx context.Context, cloud folderProofCloud, journal *bisync.BBFolderCloneJournal, published bool) error {
@@ -9160,7 +9203,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_folder_clone_test.go
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,167 @@
 +package main
 +
 +import (
@@ -9180,12 +9223,14 @@
 +)
 +
 +type ownedCloneFixture struct {
-+	children        map[string][]iclouddrive.BBFolderItem
-+	bodies          map[string][]byte
-+	serial          int
-+	activationCount int
-+	moveCount       int
-+	editSource      bool
++	children                   map[string][]iclouddrive.BBFolderItem
++	bodies                     map[string][]byte
++	serial                     int
++	activationCount            int
++	activationPreflightRefused bool
++	skipOneActivationPreflight bool
++	moveCount                  int
++	editSource                 bool
 +}
 +
 +func (f *ownedCloneFixture) BBFolderList(_ context.Context, _, parent string) ([]iclouddrive.BBFolderItem, error) {
@@ -9207,11 +9252,21 @@
 +	return item, nil
 +}
 +
-+func (f *ownedCloneFixture) BBReserveStageFile(_ context.Context, _ string, old iclouddrive.BBFolderItem, _ [sha256.Size]byte) (api.BBFolderFileAllocation, error) {
++func (f *ownedCloneFixture) BBReserveStageFile(_ context.Context, _ string, old iclouddrive.BBFolderItem, _ [sha256.Size]byte, dispatch func() error) (api.BBFolderFileAllocation, error) {
++	if err := dispatch(); err != nil {
++		return api.BBFolderFileAllocation{}, err
++	}
 +	return api.BBFolderFileAllocation{DocumentID: f.id(), Asset: api.SingleFileInfo{Signature: string(f.bodies[old.DocumentID]), Size: old.Size}}, nil
 +}
 +
-+func (f *ownedCloneFixture) BBActivateStageFile(_ context.Context, _, parent, name string, allocation api.BBFolderFileAllocation, _ [sha256.Size]byte) (*iclouddrive.BBFolderItem, error) {
++func (f *ownedCloneFixture) BBActivateStageFile(_ context.Context, _, parent, name string, allocation api.BBFolderFileAllocation, _ [sha256.Size]byte, dispatch func() error) (*iclouddrive.BBFolderItem, error) {
++	if f.skipOneActivationPreflight && !f.activationPreflightRefused {
++		f.activationPreflightRefused = true
++		return nil, context.DeadlineExceeded
++	}
++	if err := dispatch(); err != nil {
++		return nil, err
++	}
 +	f.activationCount++
 +	item := iclouddrive.BBFolderItem{Name: name, DocumentID: "FILE::zone::" + allocation.DocumentID, ParentID: parent, ETag: "copy", Size: allocation.Asset.Size}
 +	f.children[parent] = append(f.children[parent], item)
@@ -9268,7 +9323,7 @@
 +			file := iclouddrive.BBFolderItem{Name: "Data.bin", DocumentID: "FILE::zone::original", ParentID: source.DocumentID, ETag: "old", Size: 3}
 +			cloud := &ownedCloneFixture{
 +				children: map[string][]iclouddrive.BBFolderItem{binding: {source}, source.DocumentID: {file}},
-+				bodies:   map[string][]byte{file.DocumentID: []byte("abc")}, editSource: trial.edit,
++				bodies:   map[string][]byte{file.DocumentID: []byte("abc")}, editSource: trial.edit, skipOneActivationPreflight: true,
 +			}
 +			workdir := t.TempDir()
 +			index, err := json.Marshal(map[string]any{"version": 1, "binding": binding, "entries": map[string]bisync.BBTreeIdentity{
@@ -9292,7 +9347,7 @@
 +			for count := 0; reply.Outcome == "uncertain" && count < 8; count++ {
 +				reply = applyOwnedFolderMove(ctx, cloud, req)
 +			}
-+			if (reply.Outcome == "folder_published") != trial.expectPublish || cloud.activationCount != 1 {
++			if (reply.Outcome == "folder_published") != trial.expectPublish || cloud.activationCount != 1 || !cloud.activationPreflightRefused {
 +				t.Fatalf("reply = %+v, activations = %d", reply, cloud.activationCount)
 +			}
 +			if trial.expectPublish {
