@@ -148,6 +148,7 @@ test('invalid callback is rejected and secrets are never logged', async () => {
 test('Email reuses the exact Gmail connection with read-only calls and safe failures', async () => {
   const requests = [];
   let rejected = false;
+  let raw = Buffer.from('PRIVATE_GMAIL_BODY').toString('base64url');
   const w = await world(undefined, { gmailFetch: async (url, init) => {
     assert.equal(init.redirect, 'error');
     assert.deepEqual(init.headers, { Authorization: 'Bearer SECRET_ACCESS' });
@@ -156,7 +157,7 @@ test('Email reuses the exact Gmail connection with read-only calls and safe fail
     if (requests.at(-1).pathname.endsWith('/messages')) {
       return Response.json({ messages: [{ id: 'm1' }], nextPageToken: 'next' });
     }
-    return Response.json({ id: 'm1', raw: Buffer.from('PRIVATE_GMAIL_BODY').toString('base64url') });
+    return Response.json({ id: 'm1', raw });
   } });
   const caller = { experimental_caller: { kind: 'plugin', pluginId: 'email' } };
   const call = (method, input) => w.host.harness.behavior.callRpc(method, input, caller);
@@ -171,16 +172,28 @@ test('Email reuses the exact Gmail connection with read-only calls and safe fail
     assert.equal(requests[0].host, 'gmail.googleapis.com');
     assert.equal(requests[0].searchParams.get('includeSpamTrash'), 'true');
     assert.equal(requests[1].searchParams.get('format'), 'raw');
+    const largeMime = Buffer.alloc(12 * 1024 * 1024 + 1, 'binary content\xff');
+    raw = largeMime.toString('base64url') + '==';
+    const largeMessage = await call('emailArchiveMessage', { accountId: 'alice-id', messageId: 'm1' });
+    assert.equal(largeMessage.status, 'ok');
+    assert.ok(Buffer.from(largeMessage.mime, 'base64').equals(largeMime));
     rejected = true;
     await assert.rejects(call('emailArchivePage', { accountId: 'alice-id', cursor: 'next' }), /Gmail archive read failed/);
+    rejected = false;
+    raw = undefined;
+    await assert.rejects(call('emailArchiveMessage', { accountId: 'alice-id', messageId: 'm1' }), /Gmail archive read failed/);
+    raw = 'PRIVATE_GMAIL_BODY!';
+    await assert.rejects(call('emailArchiveMessage', { accountId: 'alice-id', messageId: 'm1' }), /Gmail archive read failed/);
     const logs = JSON.stringify(w.host.harness.inspection.logEntries);
     assert.match(logs, /archive_page authorization/);
+    assert.match(logs, /archive_message raw_missing/);
+    assert.match(logs, /archive_message raw_invalid/);
     assert.doesNotMatch(logs, /PRIVATE_GMAIL_BODY|SECRET|alice/);
     await w.rpc('removeAccount', { subject: 'alice-id' });
     accounts = await call('emailArchiveAccounts', null);
     assert.deepEqual(accounts, []);
     await assert.rejects(call('emailArchivePage', { accountId: 'alice-id', cursor: null }), /Gmail archive read failed/);
-    assert.equal(requests.length, 3);
+    assert.equal(requests.length, 6);
   } finally { await w.close(); }
 });
 

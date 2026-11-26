@@ -71,7 +71,11 @@ export default async function plugin(bb: BbPluginApi, ports: any = {}) {
     }
     try { return await read(AbortSignal.any([context.experimental_signal ?? lifetime.signal, lifetime.signal])); }
     catch (error) {
-      bb.log.warn(`Google Workspace archive_${stage} ${error instanceof MailReadError ? error.category : category(error)}`);
+      const failure = error instanceof MailReadError ? error.category : category(error);
+      const unexpected = error instanceof RangeError ? 'range_error'
+        : error instanceof TypeError ? 'type_error'
+        : error instanceof z.ZodError ? 'invalid_response' : 'unknown';
+      bb.log.warn(`Google Workspace archive_${stage} ${failure === 'unavailable' ? unexpected : failure}`);
       throw new Error('Gmail archive read failed. Check Google Workspace configuration.');
     }
   }

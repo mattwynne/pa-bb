@@ -6,6 +6,8 @@ const maxMimeBytes = 32 * 1024 * 1024;
 const maxRawChars = Math.ceil(maxMimeBytes * 4 / 3) + 4;
 const account = z.object({ id: key, email: z.email().max(320) });
 const page = z.object({ ids: z.array(key).max(25), next: cursor.nullable(), restart: z.boolean().optional() });
+const gmailMessage = z.object({ id: key, raw: z.unknown().optional() });
+const invalidRawCharacter = /[^A-Za-z0-9_-]/;
 const raw = z.discriminatedUnion('status', [
   z.object({ status: z.literal('ok'), mime: z.string().max(maxRawChars) }),
   z.object({ status: z.enum(['missing', 'too_large']) }),
@@ -17,7 +19,8 @@ export const emailArchiveContract = {
 };
 
 export class MailReadError extends Error {
-  constructor(readonly category: 'authorization' | 'rate_limited' | 'provider_rejected' | 'size_limit' | 'invalid_response') {
+  constructor(readonly category: 'authorization' | 'rate_limited' | 'provider_rejected' | 'size_limit' | 'invalid_response'
+    | 'transport' | 'body_read' | 'raw_missing' | 'raw_invalid') {
     super('Gmail archive read failed.');
   }
 }
@@ -29,7 +32,10 @@ export async function readGmailJson(response: Response, limit: number) {
   let size = 0;
   try {
     while (true) {
-      const result = await reader.read();
+      const result = await reader.read().catch(error => {
+        if (error?.name === 'AbortError' || error?.name === 'TimeoutError') throw error;
+        throw new MailReadError('body_read');
+      });
       if (result.done) break;
       size += result.value.length;
       if (size > limit) throw new MailReadError('size_limit');
@@ -47,6 +53,9 @@ export function gmailArchive(access: (subject: string) => Promise<string>, reque
     signal.throwIfAborted();
     return request(`https://gmail.googleapis.com/gmail/v1/users/me/${path}?${query}`, {
       headers: { Authorization: `Bearer ${token}` }, redirect: 'error', signal,
+    }).catch(() => {
+      signal.throwIfAborted();
+      throw new MailReadError('transport');
     });
   }
   function rejected(response: Response): never {
@@ -83,10 +92,16 @@ export function gmailArchive(access: (subject: string) => Promise<string>, reque
         if (error instanceof MailReadError && error.category === 'size_limit') return { status: 'too_large' };
         throw error;
       }
-      const message = z.object({ id: key, raw: z.string().min(1).regex(/^[A-Za-z0-9_-]+={0,2}$/) }).parse(body);
-      if (message.id !== messageId) throw new MailReadError('invalid_response');
-      const mime = Buffer.from(message.raw, 'base64url');
-      if (!mime.length) throw new MailReadError('invalid_response');
+      const message = gmailMessage.safeParse(body);
+      if (!message.success || message.data.id !== messageId) throw new MailReadError('invalid_response');
+      const encoded = message.data.raw;
+      if (encoded == null || encoded === '') throw new MailReadError('raw_missing');
+      if (typeof encoded !== 'string') throw new MailReadError('raw_invalid');
+      // Look for an invalid character without matching the entire MIME payload.
+      const unpadded = encoded.replace(/={1,2}$/, '');
+      if (!unpadded || invalidRawCharacter.test(unpadded)) throw new MailReadError('raw_invalid');
+      const mime = Buffer.from(unpadded, 'base64url');
+      if (!mime.length) throw new MailReadError('raw_invalid');
       if (mime.length > maxMimeBytes) return { status: 'too_large' };
       return { status: 'ok', mime: mime.toString('base64') };
     },
