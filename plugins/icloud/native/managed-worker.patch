@@ -760,7 +760,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_delivery_store.go
-@@ -0,0 +1,313 @@
+@@ -0,0 +1,318 @@
 +package bisync
 +
 +import (
@@ -839,8 +839,9 @@
 +		return bbDeliveryStore{}, err
 +	}
 +	var state bbDeliveryStore
-+	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > 6) ||
++	if err := json.Unmarshal(raw, &state); err != nil || (state.Version < 1 || state.Version > 7) ||
 +		(state.Relocation != nil && (state.Version < 2 || (state.Pending != nil && state.Version < 3) ||
++			(state.Version < 7 && BBCaseRelocation(state.Relocation.Intent.Source, state.Relocation.Intent.Path)) ||
 +			(state.Relocation.Conflict != nil && state.Version < 4) || (state.Version < 5 && state.Relocation.Conflict != nil && state.Relocation.Conflict.Approved != nil) || !state.Relocation.valid())) ||
 +		len(state.Confirmed) > bbDeliveryLimit || len(state.Applied) > bbDeliveryLimit || len(state.ReconciledConflicts) > bbDeliveryLimit || (state.Version < 5 && len(state.ReconciledConflicts) > 0) || (state.Pending == nil && state.Dispatched) || (state.Pending != nil && !validBBDelivery(*state.Pending)) {
 +		return bbDeliveryStore{}, errBBInvalidDelivery
@@ -862,20 +863,22 @@
 +		return bbDeliveryStore{}, errBBInvalidDelivery
 +	}
 +	for _, move := range state.ReconciledConflicts {
-+		if !validBBRelocationIntent(move) {
++		if !validBBRelocationIntent(move) || (state.Version < 7 && BBCaseRelocation(move.Source, move.Path)) {
 +			return bbDeliveryStore{}, errBBInvalidDelivery
 +		}
 +	}
 +	seen := map[string]bool{}
 +	for _, receipt := range state.Confirmed {
-+		if !validBBReceipt(receipt) || (state.Version == 1 && receipt.RemovedPath != "") || seen[receipt.Path] || receipt.Modified.IsZero() ||
++		if !validBBReceipt(receipt) || (state.Version == 1 && receipt.RemovedPath != "") ||
++			(BBCaseRelocation(receipt.RemovedPath, receipt.Path) && (state.Version < 7 || receipt.SourceRetained)) || seen[receipt.Path] || receipt.Modified.IsZero() ||
 +			receipt.Size < 1 || receipt.Size > bbDeliveryBytes {
 +			return bbDeliveryStore{}, errBBInvalidDelivery
 +		}
 +		seen[receipt.Path] = true
 +	}
 +	for _, receipt := range state.Applied {
-+		if !validBBReceipt(receipt) || (state.Version == 1 && receipt.RemovedPath != "") || receipt.Modified.IsZero() || receipt.Size < 1 || receipt.Size > bbDeliveryBytes {
++		if !validBBReceipt(receipt) || (state.Version == 1 && receipt.RemovedPath != "") ||
++			(BBCaseRelocation(receipt.RemovedPath, receipt.Path) && (state.Version < 7 || receipt.SourceRetained)) || receipt.Modified.IsZero() || receipt.Size < 1 || receipt.Size > bbDeliveryBytes {
 +			return bbDeliveryStore{}, errBBInvalidDelivery
 +		}
 +	}
@@ -939,7 +942,9 @@
 +	}
 +	state.Pending = &intent
 +	if len(data) != 0 {
-+		state.Version = 6
++		if state.Version < 6 {
++			state.Version = 6
++		}
 +		state.PendingData = data
 +		if len(knownDocument) == 1 {
 +			state.PendingDocument = knownDocument[0]
@@ -1602,7 +1607,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_managed_scan.go
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,348 @@
 +package bisync
 +
 +import (
@@ -1694,8 +1699,22 @@
 +	// version has the same listing metadata, keep its content delta until the
 +	// local copy is verified. A restarted scan can recognize completed copies.
 +	b.bbContentDeltas = make(map[string]bbContentDelta)
++	caseViews := make(map[string]bbCaseView)
 +	for _, receipt := range confirmations {
-+		later, err := bbRemoteContentDelta(ctx, b.fs1, receipt)
++		var later *[sha256.Size]byte
++		var err error
++		if BBCaseRelocation(receipt.RemovedPath, receipt.Path) {
++			view, viewErr := b.observePublishedCase(ctx, receipt.Path)
++			if viewErr != nil {
++				return viewErr
++			}
++			caseViews[receipt.Path] = view
++			if view.cloud != nil && view.cloud.Remote() == receipt.Path {
++				later, err = bbRemoteObjectContentDelta(ctx, b.fs1, view.cloud, receipt)
++			}
++		} else {
++			later, err = bbRemoteContentDelta(ctx, b.fs1, receipt)
++		}
 +		if err != nil {
 +			return err
 +		}
@@ -1717,6 +1736,13 @@
 +		}
 +		if err := bbConfirmLocalReceiptTime(b.fs2.Root(), receipt.Path, localBaseline, receipt.Modified, nil); err != nil {
 +			return err
++		}
++		if view, ok := caseViews[receipt.Path]; ok {
++			view.local, err = bbListCaseObject(ctx, b.fs2, receipt.Path)
++			if err != nil || view.local == nil || view.local.Remote() != receipt.Path {
++				return errBBLocalSuperseded
++			}
++			caseViews[receipt.Path] = view
 +		}
 +	}
 +	var before [2][sha256.Size]byte
@@ -1780,6 +1806,12 @@
 +		return err
 +	}
 +	for _, receipt := range confirmations {
++		if view, ok := caseViews[receipt.Path]; ok {
++			if err := b.refreshPublishedCase(ctx, receipt.Path, view); err != nil {
++				return err
++			}
++			continue
++		}
 +		for _, name := range []string{receipt.Path, receipt.RemovedPath} {
 +			if name == "" {
 +				continue
@@ -1793,7 +1825,18 @@
 +		}
 +	}
 +	if resolved != nil {
-+		for _, name := range resolved.Intent.conflictEndpointNames() {
++		names := resolved.Intent.conflictEndpointNames()
++		if BBCaseRelocation(resolved.Intent.Source, resolved.Intent.Path) {
++			view, err := b.observePublishedCase(ctx, resolved.Intent.Path)
++			if err != nil {
++				return err
++			}
++			if err := b.refreshPublishedCase(ctx, resolved.Intent.Path, view); err != nil {
++				return err
++			}
++			names = names[2:]
++		}
++		for _, name := range names {
 +			if err := b.refreshPublishedPath(ctx, name); err != nil {
 +				return err
 +			}
@@ -1869,6 +1912,13 @@
 +	}
 +	if err != nil {
 +		return nil, err
++	}
++	return bbRemoteObjectContentDelta(ctx, cloud, obj, receipt)
++}
++
++func bbRemoteObjectContentDelta(ctx context.Context, cloud fs.Fs, obj fs.Object, receipt BBDeliveryReceipt) (*[sha256.Size]byte, error) {
++	if receipt.ETag == "" || receipt.ProviderID == "" {
++		return nil, nil
 +	}
 +	listed, ok := bbCloudVersionFrom(ctx, obj)
 +	if !ok {
@@ -2652,7 +2702,7 @@
 +			return refused
 +		}
 +		source, err := cloud.ObserveBBCreate(ctx, request.Source)
-+		if err != nil || !cloud.BBNoteAbsent(ctx, request.Path) {
++		if err != nil || (!bisync.BBCaseRelocation(request.Source, request.Path) && !cloud.BBNoteAbsent(ctx, request.Path)) {
 +			return refused
 +		}
 +		return observedOwnedNote("observed", source)
@@ -3060,7 +3110,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_relocation.go
-@@ -0,0 +1,228 @@
+@@ -0,0 +1,239 @@
 +package main
 +
 +import (
@@ -3121,6 +3171,11 @@
 +		return applyConflictResolution(ctx, cloud, request.Workdir, intent, operation == "reconcile-relocation")
 +	}
 +
++	caseMove := bisync.BBCaseRelocation(intent.Source, intent.Path)
++	caseCloud, caseSupported := cloud.(caseRelocationCloud)
++	if caseMove && !caseSupported {
++		return refused
++	}
 +	sourceVersion := iclouddrive.BBNoteRevision{DriveID: previous.DocumentID, ParentID: previous.ParentID, ETag: previous.ETag, Hash: intent.SourceHash}
 +
 +	state, completed, err := bisync.BBReadRelocation(request.Workdir, intent)
@@ -3147,8 +3202,10 @@
 +		if err != nil || source.Revision != sourceVersion {
 +			return refused
 +		}
-+		if _, err := cloud.ObserveBBCreate(ctx, request.Path); !errors.Is(err, fs.ErrorObjectNotFound) {
-+			return refused
++		if !caseMove {
++			if _, err := cloud.ObserveBBCreate(ctx, request.Path); !errors.Is(err, fs.ErrorObjectNotFound) {
++				return refused
++			}
 +		}
 +		if err := bisync.BBBeginRelocation(request.Workdir, intent, data); err != nil {
 +			return refused
@@ -3158,6 +3215,10 @@
 +
 +	if state.Conflict != nil {
 +		return preserveRelocationConflict(ctx, cloud, request.Workdir, state)
++	}
++
++	if caseMove {
++		return applyCaseRelocation(ctx, caseCloud, request.Workdir, state, sourceVersion)
 +	}
 +
 +	var target iclouddrive.BBNotePublication
@@ -3509,11 +3570,12 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_relocation.go
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,313 @@
 +package bisync
 +
 +import (
 +	"crypto/sha256"
++	"path"
 +	"slices"
 +	"strings"
 +
@@ -3535,22 +3597,29 @@
 +// intervening local edits. Scheduled sync retains each affected path's
 +// last common baseline until the move receipt can be applied.
 +type BBRelocation struct {
-+	Intent      BBRelocationIntent
-+	Data        []byte
-+	Allocation  string
-+	Destination *BBDeliveryReceipt
-+	Removing    bool
-+	Conflict    *BBRelocationConflict `json:",omitempty"`
++	Intent            BBRelocationIntent
++	Data              []byte
++	Allocation        string
++	Destination       *BBDeliveryReceipt
++	Removing          bool
++	CaseSourceRemoved bool                  `json:",omitempty"`
++	Conflict          *BBRelocationConflict `json:",omitempty"`
 +}
 +
 +func equalBBPaths(a, b string) bool {
 +	return strings.EqualFold(norm.NFC.String(a), norm.NFC.String(b))
 +}
 +
++// BBCaseRelocation is a spelling change of one leaf in the same directory.
++func BBCaseRelocation(source, destination string) bool {
++	return source != "" && destination != "" && norm.NFC.String(source) != norm.NFC.String(destination) &&
++		path.Dir(source) == path.Dir(destination) && equalBBPaths(source, destination)
++}
++
 +func validBBRelocationPaths(source string, destination BBDeliveryIntent) bool {
 +	from := destination
 +	from.Path = source
-+	return validBBDelivery(from) && !equalBBPaths(source, destination.Path)
++	return validBBDelivery(from) && (!equalBBPaths(source, destination.Path) || BBCaseRelocation(source, destination.Path))
 +}
 +
 +// Admission uses the frozen path names and the provider document identity.
@@ -3620,8 +3689,11 @@
 +
 +func (r BBRelocation) valid() bool {
 +	intent := r.Intent
++	caseMove := BBCaseRelocation(intent.Source, intent.Path)
 +	if !validBBRelocationIntent(intent) || len(r.Allocation) > 512 || len(r.Data) < 1 || len(r.Data) > bbDeliveryBytes ||
-+		sha256.Sum256(r.Data) != intent.Hash || (r.Removing && r.Destination == nil) {
++		sha256.Sum256(r.Data) != intent.Hash ||
++		(!caseMove && (r.CaseSourceRemoved || (r.Removing && r.Destination == nil))) ||
++		(caseMove && ((r.CaseSourceRemoved && !r.Removing) || (!r.CaseSourceRemoved && (r.Allocation != "" || r.Destination != nil)))) {
 +		return false
 +	}
 +	if r.Conflict != nil && !r.Conflict.valid(intent, len(r.Data)) {
@@ -3691,6 +3763,9 @@
 +	if state.Version < 2 {
 +		state.Version = 2
 +	}
++	if BBCaseRelocation(intent.Source, intent.Path) && state.Version < 7 {
++		state.Version = 7
++	}
 +	state.Relocation = &move
 +	return state.write(workdir)
 +}
@@ -3717,7 +3792,8 @@
 +
 +func BBAllocateRelocation(workdir string, intent BBRelocationIntent, allocation string) error {
 +	return bbChangeRelocation(workdir, intent, func(_ *bbDeliveryStore, move *BBRelocation) bool {
-+		if move.Allocation != "" || allocation == "" {
++		if move.Allocation != "" || allocation == "" ||
++			(BBCaseRelocation(intent.Source, intent.Path) && !move.CaseSourceRemoved) {
 +			return false
 +		}
 +		move.Allocation = allocation
@@ -3739,10 +3815,23 @@
 +
 +func BBDispatchRelocationTrash(workdir string, intent BBRelocationIntent) error {
 +	return bbChangeRelocation(workdir, intent, func(_ *bbDeliveryStore, move *BBRelocation) bool {
-+		if move.Destination == nil || move.Removing || move.Conflict != nil {
++		caseMove := BBCaseRelocation(intent.Source, intent.Path)
++		if move.Removing || move.Conflict != nil || (caseMove && move.Allocation != "") || (!caseMove && move.Destination == nil) {
 +			return false
 +		}
 +		move.Removing = true
++		return true
++	})
++}
++
++// Record only a positive provider response to the exact conditional removal.
++// Mere absence cannot distinguish BB's removal from an independent deletion.
++func BBRecordCaseSourceRemoval(workdir string, intent BBRelocationIntent) error {
++	return bbChangeRelocation(workdir, intent, func(_ *bbDeliveryStore, move *BBRelocation) bool {
++		if !BBCaseRelocation(intent.Source, intent.Path) || !move.Removing || move.CaseSourceRemoved || move.Conflict != nil {
++			return false
++		}
++		move.CaseSourceRemoved = true
 +		return true
 +	})
 +}
@@ -3760,7 +3849,8 @@
 +
 +func bbFinishRelocation(workdir string, intent BBRelocationIntent, observedSource, sourcePresent bool) error {
 +	return bbChangeRelocation(workdir, intent, func(state *bbDeliveryStore, move *BBRelocation) bool {
-+		if (!move.Removing && !observedSource) || move.Destination == nil || move.Conflict != nil {
++		if (!move.Removing && !observedSource) || move.Destination == nil || move.Conflict != nil ||
++			(BBCaseRelocation(intent.Source, intent.Path) && (!move.CaseSourceRemoved || observedSource)) {
 +			return false
 +		}
 +		state.Confirmed = slices.DeleteFunc(state.Confirmed, func(prior BBDeliveryReceipt) bool {
@@ -3787,7 +3877,7 @@
 +// Refuse a move only while no destination request could have reached iCloud.
 +func BBRefuseRelocation(workdir string, intent BBRelocationIntent) error {
 +	return bbChangeRelocation(workdir, intent, func(state *bbDeliveryStore, move *BBRelocation) bool {
-+		if move.Allocation != "" {
++		if move.Allocation != "" || move.Removing || move.Conflict != nil {
 +			return false
 +		}
 +		state.Relocation = nil
@@ -4261,7 +4351,7 @@
 +
 +func BBBeginRelocationConflict(workdir string, intent BBRelocationIntent) error {
 +	return bbChangeRelocation(workdir, intent, func(state *bbDeliveryStore, move *BBRelocation) bool {
-+		if move.Allocation == "" || move.Conflict != nil {
++		if move.Conflict != nil || (move.Allocation == "" && (!BBCaseRelocation(intent.Source, intent.Path) || !move.Removing)) {
 +			return false
 +		}
 +		if state.Version < 4 {
@@ -4295,7 +4385,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_conflict_resolution.go
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,86 @@
 +package main
 +
 +import (
@@ -4303,6 +4393,7 @@
 +	"errors"
 +	"path/filepath"
 +
++	"github.com/rclone/rclone/backend/iclouddrive"
 +	"github.com/rclone/rclone/cmd/bisync"
 +	"github.com/rclone/rclone/fs"
 +)
@@ -4331,7 +4422,23 @@
 +		return ownedNoteReply{Outcome: "refused"}
 +	}
 +	local := filepath.Join(filepath.Dir(parent), "mirrors", filepath.Base(workdir))
++	caseMove := bisync.BBCaseRelocation(intent.Source, intent.Path)
++	var location iclouddrive.BBCaseNamespace
++	if caseMove {
++		caseCloud, ok := cloud.(caseRelocationCloud)
++		if !ok {
++			return uncertain
++		}
++		location, err = caseCloud.ObserveBBCaseNamespace(ctx, intent.Source, intent.Path)
++		if err != nil || location == iclouddrive.BBCaseOccupied {
++			return uncertain
++		}
++	}
 +	read := func(name string) (bisync.BBConflictSnapshot, error) {
++		if caseMove && ((name == intent.Source && location != iclouddrive.BBCaseSource) ||
++			(name == intent.Path && location != iclouddrive.BBCaseDestination)) {
++			return bisync.BBConflictSnapshot{}, nil
++		}
 +		remote, err := cloud.ObserveBBCreate(ctx, name)
 +		if errors.Is(err, fs.ErrorObjectNotFound) || errors.Is(err, fs.ErrorDirNotFound) {
 +			return bisync.BBConflictSnapshot{}, nil
@@ -4367,7 +4474,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_conflict_resolution.go
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,186 @@
 +package bisync
 +
 +import (
@@ -4431,7 +4538,9 @@
 +		if state.Pending != nil || move.Conflict == nil || move.Conflict.Copy == nil || !resolution.valid() {
 +			return false
 +		}
-+		state.Version = 5
++		if state.Version < 5 {
++			state.Version = 5
++		}
 +		move.Conflict.Approved = &resolution
 +		return true
 +	})
@@ -4483,12 +4592,30 @@
 +}
 +
 +func (b *bisyncRun) conflictResolutionReady(ctx context.Context, move *BBRelocation) bool {
++	var caseObject fs.Object
++	caseMove := BBCaseRelocation(move.Intent.Source, move.Intent.Path)
++	if caseMove {
++		var err error
++		caseObject, err = bbListCaseObject(ctx, b.fs1, move.Intent.Path)
++		if err != nil || (caseObject != nil && caseObject.Remote() != move.Intent.Source && caseObject.Remote() != move.Intent.Path) {
++			return false
++		}
++	}
 +	for i, name := range move.Intent.conflictEndpointNames() {
 +		selected := move.conflictSnapshots()[i]
 +		if b.aliases.Alias(name) != name || BBVerifyConflictLocal(b.fs2.Root(), name, selected, false) != nil {
 +			return false
 +		}
-+		now, err := b.fs1.NewObject(ctx, name)
++		var now fs.Object
++		var err error
++		if caseMove && i < 2 {
++			err = fs.ErrorObjectNotFound
++			if caseObject != nil && caseObject.Remote() == name {
++				now, err = caseObject, nil
++			}
++		} else {
++			now, err = b.fs1.NewObject(ctx, name)
++		}
 +		if !selected.Present {
 +			if (!errors.Is(err, fs.ErrorObjectNotFound) && !errors.Is(err, fs.ErrorDirNotFound)) || b.march.ls1.has(name) {
 +				return false
@@ -4688,4 +4815,391 @@
 +	if reply := applyOwnedCreate(context.Background(), fixture, "recover-create", request); reply.Outcome != "uncertain" || fixture.attempts != 0 {
 +		t.Fatal("an ambiguous legacy create cannot be cleared or replayed without evidence")
 +	}
++}
+--- a/backend/iclouddrive/api/drive.go
++++ b/backend/iclouddrive/api/drive.go
+@@ -302,0 +303,4 @@
++	}
++
++	if len(item.Items) != 1 || item.Items[0] == nil {
++		return nil, resp, ErrConditionalUnconfirmed
+--- /dev/null
++++ b/backend/iclouddrive/bb_note_case.go
+@@ -0,0 +1,81 @@
++package iclouddrive
++
++import (
++	"context"
++	"path"
++	"strings"
++
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"golang.org/x/text/unicode/norm"
++)
++
++type BBCaseNamespace uint8
++
++const (
++	BBCaseVacant BBCaseNamespace = iota
++	BBCaseSource
++	BBCaseDestination
++	BBCaseOccupied
++)
++
++func (f *Fs) ObserveBBCaseNamespace(ctx context.Context, source, destination string) (BBCaseNamespace, error) {
++	invalid := api.ErrConditionalRefused
++	placeholder := BBNoteRevision{DriveID: "scope", ParentID: "scope", ETag: "scope"}
++	if !validBBIntent(source, placeholder, []byte{1}) || !validBBIntent(destination, placeholder, []byte{1}) || path.Dir(source) != path.Dir(destination) {
++		return BBCaseOccupied, invalid
++	}
++	from, to := norm.NFC.String(path.Base(source)), norm.NFC.String(path.Base(destination))
++	if from == to || !strings.EqualFold(from, to) {
++		return BBCaseOccupied, invalid
++	}
++	_, parent, _, err := f.FindPath(ctx, source, false)
++	if err != nil {
++		return BBCaseOccupied, err
++	}
++	entries, err := f.listAll(ctx, parent)
++	if err != nil {
++		return BBCaseOccupied, err
++	}
++	location := BBCaseVacant
++	for _, item := range entries {
++		if item == nil {
++			return BBCaseOccupied, api.ErrConditionalUnconfirmed
++		}
++		leaf := norm.NFC.String(item.FullName())
++		if !strings.EqualFold(leaf, from) {
++			continue
++		}
++		if location != BBCaseVacant || item.Type != "FILE" || item.ParentID != parent {
++			return BBCaseOccupied, nil
++		}
++		switch leaf {
++		case from:
++			location = BBCaseSource
++		case to:
++			location = BBCaseDestination
++		default:
++			return BBCaseOccupied, nil
++		}
++	}
++	return location, nil
++}
++
++// The case-only move must prove that our conditional request removed the
++// source before recreating it. An absence after a lost reply is insufficient.
++func (f *Fs) TrashBBCaseSource(ctx context.Context, remote string, expected BBNoteRevision, dispatch func() error) error {
++	if !validBBIntent(remote, expected, []byte{1}) || dispatch == nil {
++		return api.ErrConditionalRefused
++	}
++	current, err := f.readBBNoteItem(ctx, remote)
++	if err != nil || !sameBBIdentity(expected, current) || current.Etag != expected.ETag {
++		return api.ErrConditionalConflict
++	}
++	if err := dispatch(); err != nil {
++		return api.ErrConditionalUnconfirmed
++	}
++	accepted, _, err := f.service.MoveItemToTrashByID(ctx, expected.DriveID, expected.ETag, false)
++	if err != nil || accepted == nil || accepted.Drivewsid != expected.DriveID {
++		return api.ErrConditionalUnconfirmed
++	}
++	return nil
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_case_relocation.go
+@@ -0,0 +1,106 @@
++package main
++
++import (
++	"context"
++	"errors"
++
++	"github.com/rclone/rclone/backend/iclouddrive"
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/cmd/bisync"
++)
++
++type caseRelocationCloud interface {
++	relocationCloud
++	ObserveBBCaseNamespace(context.Context, string, string) (iclouddrive.BBCaseNamespace, error)
++	TrashBBCaseSource(context.Context, string, iclouddrive.BBNoteRevision, func() error) error
++}
++
++func applyCaseRelocation(ctx context.Context, cloud caseRelocationCloud, workdir string, move *bisync.BBRelocation, source iclouddrive.BBNoteRevision) ownedNoteReply {
++	uncertain := ownedNoteReply{Outcome: "uncertain"}
++	intent := move.Intent
++	if !move.CaseSourceRemoved {
++		if move.Removing {
++			// A missing reply cannot authorize recreating a file that a
++			// device might have deleted independently.
++			return preserveRelocationConflict(ctx, cloud, workdir, move)
++		}
++		dispatched := false
++		err := cloud.TrashBBCaseSource(ctx, intent.Source, source, func() error {
++			if err := bisync.BBDispatchRelocationTrash(workdir, intent); err != nil {
++				return err
++			}
++			dispatched = true
++			return nil
++		})
++		if err != nil {
++			if !dispatched && errors.Is(err, api.ErrConditionalConflict) && bisync.BBRefuseRelocation(workdir, intent) == nil {
++				return ownedNoteReply{Outcome: "refused"}
++			}
++			return uncertain
++		}
++		if !dispatched || bisync.BBRecordCaseSourceRemoval(workdir, intent) != nil {
++			return uncertain
++		}
++		move.Removing, move.CaseSourceRemoved = true, true
++	}
++
++	location, err := cloud.ObserveBBCaseNamespace(ctx, intent.Source, intent.Path)
++	if err != nil {
++		return uncertain
++	}
++	if location == iclouddrive.BBCaseSource {
++		current, err := cloud.ObserveBBCreate(ctx, intent.Source)
++		if err != nil || current.Revision == source {
++			// The old revision can still appear before iCloud's listing
++			// reflects a positively acknowledged removal.
++			return uncertain
++		}
++		return preserveRelocationConflict(ctx, cloud, workdir, move)
++	}
++	if location == iclouddrive.BBCaseOccupied {
++		return preserveRelocationConflict(ctx, cloud, workdir, move)
++	}
++
++	var target iclouddrive.BBNotePublication
++	switch {
++	case move.Allocation == "" && location == iclouddrive.BBCaseVacant:
++		target, err = cloud.CreateBBNote(ctx, intent.Path, intent.Binding, move.Data, func(id string) error {
++			if err := bisync.BBAllocateRelocation(workdir, intent, id); err != nil {
++				return err
++			}
++			move.Allocation = id
++			return nil
++		})
++	case move.Allocation != "" && location == iclouddrive.BBCaseDestination:
++		target, err = cloud.ObserveBBCreate(ctx, intent.Path)
++	case location == iclouddrive.BBCaseDestination:
++		return preserveRelocationConflict(ctx, cloud, workdir, move)
++	default:
++		// Another request may still publish an already allocated name.
++		return uncertain
++	}
++	if err != nil {
++		return uncertain
++	}
++	_, _, document := api.DeconstructDriveID(target.Revision.DriveID)
++	if document != move.Allocation || target.Revision.Hash != intent.Hash || target.Revision.ParentID != source.ParentID {
++		return preserveRelocationConflict(ctx, cloud, workdir, move)
++	}
++	if move.Destination == nil {
++		receipt := bisync.BBDeliveryReceipt{BBDeliveryIntent: intent.BBDeliveryIntent, Modified: target.Modified, Size: target.Size,
++			ProviderID: target.Revision.DriveID, ProviderParentID: target.Revision.ParentID, ETag: target.Revision.ETag}
++		if err := bisync.BBRecordRelocationDestination(workdir, intent, receipt); err != nil {
++			return uncertain
++		}
++		receipt.DocumentID = move.Allocation
++		receipt.RemovedPath = intent.Source
++		move.Destination = &receipt
++	}
++	if !matchesRelocationTarget(intent, *move.Destination, target) {
++		return preserveRelocationConflict(ctx, cloud, workdir, move)
++	}
++	if bisync.BBFinishRelocation(workdir, intent) != nil {
++		return uncertain
++	}
++	return observedOwnedNote("published", target)
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_case_relocation_test.go
+@@ -0,0 +1,83 @@
++package main
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"strings"
++	"testing"
++
++	"github.com/rclone/rclone/backend/iclouddrive"
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++)
++
++type caseRelocationFake struct {
++	*relocationFake
++	competing, independentDelete bool
++}
++
++func (f caseRelocationFake) ObserveBBCaseNamespace(_ context.Context, from, to string) (iclouddrive.BBCaseNamespace, error) {
++	if f.competing {
++		return iclouddrive.BBCaseOccupied, nil
++	}
++	_, source := f.notes[from]
++	_, destination := f.notes[to]
++	switch {
++	case source && destination:
++		return iclouddrive.BBCaseOccupied, nil
++	case source:
++		return iclouddrive.BBCaseSource, nil
++	case destination:
++		return iclouddrive.BBCaseDestination, nil
++	default:
++		return iclouddrive.BBCaseVacant, nil
++	}
++}
++
++func (f caseRelocationFake) TrashBBCaseSource(ctx context.Context, name string, expected iclouddrive.BBNoteRevision, dispatch func() error) error {
++	if !f.independentDelete {
++		return f.TrashBBNote(ctx, name, expected, dispatch)
++	}
++	if err := dispatch(); err != nil {
++		return err
++	}
++	// The source disappeared because a device deleted it first.
++	delete(f.notes, name)
++	return api.ErrConditionalUnconfirmed
++}
++
++func TestOwnedCaseMoveRequiresAcknowledgedRemovalBeforeCreatingTheNewSpelling(t *testing.T) {
++	for _, scenario := range []string{"success", "lost create", "lost trash", "independent deletion", "competing spelling"} {
++		t.Run(scenario, func(t *testing.T) {
++			source := fixturePublication("original-document", "original-revision", []byte("Original"))
++			cloud := caseRelocationFake{relocationFake: &relocationFake{notes: map[string]iclouddrive.BBNotePublication{"from.md": source},
++				lostCreate: scenario == "lost create", lostTrash: scenario == "lost trash"}, competing: scenario == "competing spelling",
++				independentDelete: scenario == "independent deletion"}
++			request := ownedNoteFrame{Workdir: t.TempDir(), Binding: source.Revision.ParentID, Source: "from.md", Path: "From.md",
++				OperationID: "7dcdd7dc-ad20-4d59-a8f3-4977f85c0960", Text: "Locally rewritten body",
++				Expected: &ownedNoteVersion{source.Revision.DriveID, source.Revision.ParentID, source.Revision.ETag, hex.EncodeToString(source.Revision.Hash[:])}}
++			hash := sha256.Sum256([]byte(request.Text))
++			request.WantedHash = hex.EncodeToString(hash[:])
++			ctx := context.Background()
++			reply := applyOwnedRelocation(ctx, cloud, request)
++			request.Text = ""
++			if reply.Outcome == "uncertain" {
++				reply = applyOwnedRelocation(ctx, cloud, request)
++			}
++			if scenario == "success" || scenario == "lost create" {
++				if reply.Outcome != "published" || reply.SourceRetained || reply.Observation.DocumentID == source.Revision.DriveID ||
++					reply.Observation.Hash != request.WantedHash || cloud.notes[request.Path].Revision.Hash != hash {
++					t.Fatalf("exact case move = %s", reply.Outcome)
++				}
++			} else {
++				if reply.Outcome != "conflict_preserved" || !strings.HasPrefix(reply.ConflictCopy, "BB move conflict ") ||
++					cloud.notes[reply.ConflictCopy].Revision.Hash != hash || cloud.notes[request.Path].Revision.DriveID != "" {
++					t.Fatalf("a contested removal recreated the canonical note: %s", reply.Outcome)
++				}
++			}
++			if cloud.creates != 1 || cloud.trashes > 1 {
++				t.Fatalf("replayed request: %d creations, %d removals", cloud.creates, cloud.trashes)
++			}
++		})
++	}
++}
+--- /dev/null
++++ b/cmd/bisync/bb_case_refresh.go
+@@ -0,0 +1,98 @@
++package bisync
++
++import (
++	"context"
++	"errors"
++	"path"
++
++	"github.com/rclone/rclone/fs"
++	"github.com/rclone/rclone/fs/hash"
++)
++
++type bbCaseView struct {
++	cloud, local fs.Object
++}
++
++// A plain iCloud NewObject call resolves case-insensitively. List one
++// parent and retain the unique exact spelling for the affected namespace.
++func bbListCaseObject(ctx context.Context, filesystem fs.Fs, note string) (fs.Object, error) {
++	directory := path.Dir(note)
++	if directory == "." {
++		directory = ""
++	}
++	entries, err := filesystem.List(ctx, directory)
++	if errors.Is(err, fs.ErrorDirNotFound) {
++		return nil, nil
++	}
++	if err != nil {
++		return nil, err
++	}
++	var found fs.Object
++	for _, entry := range entries {
++		if !equalBBPaths(entry.Remote(), note) {
++			continue
++		}
++		obj, ok := entry.(fs.Object)
++		if !ok || found != nil || path.Dir(obj.Remote()) != path.Dir(note) {
++			return nil, ErrBBDeliveryUnsettled
++		}
++		found = obj
++	}
++	return found, nil
++}
++
++func (b *bisyncRun) observePublishedCase(ctx context.Context, note string) (bbCaseView, error) {
++	cloud, err := bbListCaseObject(ctx, b.fs1, note)
++	if err != nil {
++		return bbCaseView{}, err
++	}
++	if cloud != nil && b.march.bbIdentities != nil {
++		if _, ok := bbCloudVersionFrom(ctx, cloud); !ok {
++			return bbCaseView{}, ErrBBDeliveryUnsettled
++		}
++	}
++	local, err := bbListCaseObject(ctx, b.fs2, note)
++	return bbCaseView{cloud: cloud, local: local}, err
++}
++
++func (b *bisyncRun) refreshPublishedCase(ctx context.Context, note string, view bbCaseView) error {
++	for name, peer := range b.aliases {
++		if equalBBPaths(name, note) || equalBBPaths(peer, note) {
++			delete(b.aliases, name)
++		}
++	}
++	for name := range b.march.bbIdentities {
++		if equalBBPaths(name, note) {
++			delete(b.march.bbIdentities, name)
++		}
++	}
++	for _, side := range []struct {
++		object  fs.Object
++		listing *fileList
++		output  string
++	}{{view.cloud, b.march.ls1, b.newListing1}, {view.local, b.march.ls2, b.newListing2}} {
++		if side.listing.hash != hash.None {
++			return ErrBBDeliveryUnsettled
++		}
++		for _, name := range append([]string(nil), side.listing.list...) {
++			if equalBBPaths(name, note) {
++				side.listing.remove(name)
++			}
++		}
++		if side.object != nil {
++			name := side.object.Remote()
++			side.listing.put(name, side.object.Size(), side.object.ModTime(ctx).In(TZ), "", "", "-")
++		}
++		if err := side.listing.save(side.output); err != nil {
++			return err
++		}
++	}
++	if view.cloud != nil && b.march.bbIdentities != nil {
++		version, _ := bbCloudVersionFrom(ctx, view.cloud)
++		b.march.bbIdentities[view.cloud.Remote()] = version
++	}
++	if view.cloud != nil && view.local != nil {
++		b.aliases.Add(view.cloud.Remote(), view.local.Remote())
++	}
++	return nil
 +}

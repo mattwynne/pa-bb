@@ -96,7 +96,7 @@ test('delivery changes carry the canonical predecessor from resolved conflicts',
   }
 });
 
-test('a move publishes only still-verified external backlink changes in the receipt feed', async () => {
+test('a capitalization-only move publishes its intent and verified external backlink changes in the receipt feed', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bb-vault-move-delivery-'));
   const { db, fs, ledger } = receiptsFixture(root, join(root, 'receipt.sqlite'));
   try {
@@ -104,20 +104,20 @@ test('a move publishes only still-verified external backlink changes in the rece
     const baseline = ledger.deliveryChanges(vaultId, null, 8);
     const previous = '[[Before]]', next = '[[After]]';
     const previousHash = digest(previous), hash = digest(next);
-    await Promise.all(['Before.md', 'External.md', 'Changed again.md'].map(path => writeFile(join(root, path), previous)));
+    await Promise.all(['note.md', 'External.md', 'Changed again.md'].map(path => writeFile(join(root, path), previous)));
     const operationId = randomUUID();
-    const receipt = await fs.movePath({ vaultId, path: 'Before.md', destination: 'After.md', operationId, kind: 'note' },
+    const receipt = await fs.movePath({ vaultId, path: 'note.md', destination: 'Note.md', operationId, kind: 'note' },
       revision, async before => {
         await before();
-        await rename(join(root, 'Before.md'), join(root, 'After.md'));
+        await rename(join(root, 'note.md'), join(root, 'Note.md'));
         await writeFile(join(root, 'External.md'), next);
         await writeFile(join(root, 'Changed again.md'), 'independent edit');
-        return { backlinks: ['External.md', 'Changed again.md', 'After.md'].map(path => ({ path, previousHash, hash })) };
+        return { backlinks: ['External.md', 'Changed again.md', 'Note.md'].map(path => ({ path, previousHash, hash })) };
       });
     assert.equal(receipt.outcome, 'moved_locally_pending_sync');
     const page = ledger.deliveryChanges(vaultId, baseline.cursor, 8);
     assert.deepEqual(page.changes.map(({ path, source, previousHash, hash }) => ({ path, source, previousHash, hash })), [
-      { path: 'After.md', source: 'Before.md', previousHash, hash: previousHash },
+      { path: 'Note.md', source: 'note.md', previousHash, hash: previousHash },
       { path: 'External.md', source: undefined, previousHash, hash },
     ]);
     assert.equal(await readFile(join(root, 'Changed again.md'), 'utf8'), 'independent edit');

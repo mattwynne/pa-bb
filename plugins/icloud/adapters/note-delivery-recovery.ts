@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CloudError } from '../core/ports.ts';
 import type Database from 'better-sqlite3';
-import type { NoteDeliveryQueue } from './note-delivery-queue.ts';
+import { validDeliveryMove, type NoteDeliveryQueue } from './note-delivery-queue.ts';
 
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 const metadata = z.string().min(1).max(512);
@@ -86,7 +86,7 @@ export class NoteDeliveryRecovery {
   prepare(input: DeliveryIntent) {
     const value = stored.parse({ ...input, publication: null });
     if ((value.sourceOperations && !value.source) ||
-        (value.source && (!value.expected || value.path.normalize('NFC').toLowerCase() === value.source.normalize('NFC').toLowerCase())))
+        (value.source && (!value.expected || !validDeliveryMove(value.source, value.path))))
       throw new CloudError('source_changed');
     const lane = value.source ? 'move' : 'write';
     this.db.transaction(() => {

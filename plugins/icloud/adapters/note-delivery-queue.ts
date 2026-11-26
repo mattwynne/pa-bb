@@ -13,6 +13,12 @@ const queued = change.extend({ mirrorId: z.string() }).strict();
 type Queued = z.infer<typeof queued>;
 const capacity = 128;
 
+export function validDeliveryMove(source: string, destination: string) {
+  const from = source.normalize('NFC'), to = destination.normalize('NFC');
+  return from !== to && (from.toLowerCase() !== to.toLowerCase() ||
+    source.slice(0, source.lastIndexOf('/') + 1) === destination.slice(0, destination.lastIndexOf('/') + 1));
+}
+
 export const noteDeliverySchema = [
   `CREATE TABLE icloud_delivery_cursor (
     mirror TEXT PRIMARY KEY,
@@ -45,7 +51,7 @@ export class NoteDeliveryQueue {
     let previous = from ?? 0;
     for (const change of page.data.changes) {
       if (change.sequence <= previous || change.sequence > page.data.cursor ||
-          (change.source !== undefined && (change.previousHash === null || change.source.normalize('NFC').toLowerCase() === change.path.normalize('NFC').toLowerCase())))
+          (change.source !== undefined && (change.previousHash === null || !validDeliveryMove(change.source, change.path))))
         throw new CloudError('source_changed');
       previous = change.sequence;
     }

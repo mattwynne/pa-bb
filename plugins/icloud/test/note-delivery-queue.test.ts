@@ -45,3 +45,21 @@ test('the cursor and pending edits recover together and settling a coalesced edi
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('a capitalization-only leaf rename keeps both exact endpoints in the durable queue', () => {
+  const db = new Database(':memory:');
+  try {
+    noteDeliverySchema.forEach(sql => db.exec(sql));
+    const queue = new NoteDeliveryQueue(db);
+    const change = { path: 'Folder/Note.md', source: 'Folder/note.md', sequence: 1,
+      operationId: randomUUID(), previousHash: 'a'.repeat(64), hash: 'b'.repeat(64) };
+    queue.stage('mirror', null, { changes: [], cursor: 0, hasMore: false });
+    for (const invalid of [change.path, 'folder/Note.md']) {
+      assert.throws(() => queue.stage('mirror', 0, {
+        changes: [{ ...change, source: invalid }], cursor: 1, hasMore: false,
+      }), /source_changed/);
+    }
+    queue.stage('mirror', 0, { changes: [change], cursor: 1, hasMore: false });
+    assert.equal(queue.pendingPath('mirror', change.path)[0]?.source, change.source);
+  } finally { db.close(); }
+});

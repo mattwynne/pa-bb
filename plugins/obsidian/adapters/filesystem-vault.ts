@@ -87,7 +87,9 @@ export class FilesystemVault {
   async movePath(input: PathMove, revision: number, run: (before: () => Promise<void>) => Promise<boolean | DesktopMoveEvidence | void>): Promise<PathMoveReceipt> {
     const { vaultId, path, destination, operationId, expectedHash, kind } = input;
     const folder = kind === 'folder';
-    const changedCloudName = path.normalize('NFC').toLowerCase() !== destination.normalize('NFC').toLowerCase();
+    const sourceName = path.normalize('NFC'), targetName = destination.normalize('NFC');
+    const changedCloudName = sourceName !== targetName && (sourceName.toLowerCase() !== targetName.toLowerCase() ||
+      path.slice(0, path.lastIndexOf('/') + 1) === destination.slice(0, destination.lastIndexOf('/') + 1));
     (folder ? validateRelativePath : validateNotePath)(destination);
     if (path === destination || (folder && (destination.startsWith(path + '/') || path.startsWith(destination + '/')))) throw new VaultError('invalid_path');
     const endpoints = { vaultId, path, destination, operationId };
