@@ -39,11 +39,13 @@ export function useDisclosure() {
 export function FilterControls({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
   const { detailsProps, trigger } = useDisclosure();
   return <div className="gtd-list-actions">
+    {action}
     <details className="gtd-menu gtd-filter" {...detailsProps}>
-      <summary ref={trigger} aria-label={`Filter by ${label.toLowerCase()}`}><Icon name="SlidersHorizontal" aria-hidden="true" />Filter</summary>
+      <summary className="gtd-row-action" ref={trigger} aria-label={`Filter by ${label.toLowerCase()}`} title="Filter">
+        <Icon name="SlidersHorizontal" aria-hidden="true" />
+      </summary>
       <div className="gtd-menu-items" role="group" aria-label={label}>{children}</div>
     </details>
-    {action}
   </div>;
 }
 

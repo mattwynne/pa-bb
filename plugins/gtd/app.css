@@ -91,9 +91,7 @@
 .gtd-menu { position: relative; }
 .gtd-menu-items { display: grid; min-width: max-content; padding: 4px; background: var(--popover); color: var(--popover-foreground, var(--foreground)); position: absolute; right: 0; z-index: 10; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 2px 8px #0003; }
 .gtd-nav .gtd-menu-items button { border: 0; text-align: start; }
-.gtd-filter summary { display: flex; align-items: center; gap: 7px; min-height: 32px; padding: 4px 9px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; list-style: none; }
-.gtd-filter summary::-webkit-details-marker { display: none; }
-.gtd-filter summary:hover, .gtd-filter[open] summary, .gtd-filter label:hover { background: var(--accent); }
+.gtd-filter label:hover { background: var(--accent); }
 .gtd-filter .gtd-menu-items { top: calc(100% + 4px); min-width: 10rem; }
 .gtd-filter label { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
 .gtd-filter label:has(input:disabled) { cursor: default; }
@@ -191,7 +189,7 @@
 .gtd-edit-actions button[type='submit']:hover { background: color-mix(in srgb, var(--primary) 85%, var(--background)); }
 @container gtd (max-width: 520px) {
   .gtd-content { --gtd-action-size: 44px; --gtd-crumb-padding: 8px; padding: 14px 14px 28px; }
-  .gtd-nav button, .gtd-nav select, .gtd-browser-link, .gtd-thread a, .gtd-filter summary, .gtd-filter label { min-height: 44px; }
+  .gtd-nav button, .gtd-nav select, .gtd-browser-link, .gtd-thread a, .gtd-filter label { min-height: 44px; }
   .gtd-thread .gtd-row-action { opacity: 1; }
 }
 .gtd-standard .gtd-list-bar { justify-content: flex-start; }

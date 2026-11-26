@@ -108,7 +108,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'area-actions', 'auto-refresh', 'project-actions-list', 'correspondence', 'area-mail', 'composer-project'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'area-actions', 'section-filters', 'auto-refresh', 'project-actions-list', 'correspondence', 'area-mail', 'composer-project'];
   const selectedModes = process.env.BB_REVIEW_MODE?.split(',');
   const reviewedModes = native ? ['native-refresh'] : selectedModes ? modes.filter(mode => selectedModes.includes(mode)) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
@@ -674,12 +674,12 @@ try {
       assert.equal(await nav.getByLabel('Actions for area Learning').count(), 0);
       const areaThreads = nav.getByRole('region', { name: 'Threads', exact: true });
       const newAreaThread = areaThreads.getByRole('button', { name: 'New thread for Area Learning' });
-      await threadFilter.focus();
+      await newAreaThread.focus();
       await page.keyboard.press('Tab');
-      assert.equal(await newAreaThread.evaluate(el => el.matches(':focus-visible')), true);
+      assert.equal(await threadFilter.evaluate(el => el.matches(':focus-visible')), true);
       await page.keyboard.press('Tab');
       assert.equal(await nav.getByRole('button', { name: 'Refresh GTD' }).count(), 0);
-      assert.equal(await newAreaThread.evaluate(el => el.matches(':focus')), false);
+      assert.equal(await threadFilter.evaluate(el => el.matches(':focus')), false);
       const plus = nav.getByRole('button', { name: 'New thread for Learn woodworking' });
       await page.keyboard.press('Tab'); await plus.focus();
       assert.notEqual(await plus.evaluate(el => getComputedStyle(el).outlineStyle), 'none');
@@ -832,6 +832,33 @@ try {
       await retry.waitFor({ state: 'hidden' });
       assert.ok(await heading('Learning').evaluate(el => el.matches(':focus')));
       await page.screenshot({ path: join(artifacts, `auto-refresh-${width}.png`) });
+    } else if (mode === 'section-filters') {
+      await openLearning();
+      for (const [sectionName, addName, filterLabel] of [
+        ['Actions', 'Add action', 'Action status'],
+        ['Projects', 'Add project', 'Project status'],
+        ['Threads', 'New thread for Area Learning', 'Thread status'],
+      ]) {
+        const section = nav.getByRole('region', { name: sectionName, exact: true });
+        const add = section.getByRole('button', { name: addName, exact: true });
+        const filter = section.getByLabel(`Filter by ${filterLabel.toLowerCase()}`, { exact: true });
+        await add.waitFor();
+        assert.ok(await filter.locator('svg').isVisible());
+        assert.equal(await filter.innerText(), '');
+        assert.equal(await filter.getAttribute('title'), 'Filter');
+        const addBox = await add.boundingBox();
+        const filterBox = await filter.boundingBox();
+        assert.ok(addBox && filterBox && filterBox.x >= addBox.x + addBox.width);
+        assert.equal(filterBox.y, addBox.y);
+        await add.focus();
+        await page.keyboard.press('Tab');
+        assert.ok(await filter.evaluate(el => el.matches(':focus-visible')));
+        await page.keyboard.press('Enter');
+        const menu = section.getByRole('group', { name: filterLabel, exact: true });
+        await menu.waitFor();
+        await page.keyboard.press('Escape');
+        await menu.waitFor({ state: 'hidden' });
+      }
     } else if (mode === 'area-actions') {
       const actions = nav.getByRole('region', { name: 'Actions', exact: true });
       const openArea = async title => {
@@ -1159,9 +1186,9 @@ try {
       await newThread.waitFor();
       assert.equal(await nav.locator('.gtd-page-heading').getByRole('button', { name: newThreadName }).count(), 0);
       const filterThreads = threads.getByLabel('Filter by thread status');
-      await filterThreads.focus();
+      await newThread.focus();
       await page.keyboard.press('Tab');
-      assert.ok(await newThread.evaluate(el => el.matches(':focus')));
+      assert.ok(await filterThreads.evaluate(el => el.matches(':focus')));
       await toggleThreads.press('Enter');
       assert.equal(await filterThreads.count(), 0);
       assert.equal(await newThread.count(), 0);
