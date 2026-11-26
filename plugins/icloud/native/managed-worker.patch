@@ -6,6 +6,9 @@
 +	docID       string
 +	bbParentID  string // document ID of the object
 +	itemID      string // item ID of the object
+@@ -243 +244 @@
+-			entries = append(entries, d)
++			entries = append(entries, &bbDriveDirectory{d, id, item.ParentID, item.Etag})
 @@ -818,0 +820 @@
 +	o.bbParentID = item.ParentID
 --- /dev/null
@@ -431,13 +434,23 @@
 +			}
 --- a/cmd/bisync/march.go
 +++ b/cmd/bisync/march.go
-@@ -23,0 +24 @@
+@@ -23,0 +24,2 @@
 +	bbIdentities   map[string]bbIndexedCloudObservation
-@@ -125,0 +127,3 @@
++	bbDirectories  map[string]BBIndexedVersion
+@@ -90,0 +93,7 @@
++	if b.march.bbDirectories != nil && o1.Remote() == o2.Remote() && isDir(o1) && isDir(o2) {
++		if version, ok := bbCloudVersionFrom(ctx, o1); ok {
++			b.march.marchLsLock.Lock()
++			b.march.bbDirectories[o1.Remote()] = version.BBIndexedVersion
++			b.march.marchLsLock.Unlock()
++		}
++	}
+@@ -125,0 +135,4 @@
 +	if b.opt.bbReadVersions {
 +		b.march.bbIdentities = make(map[string]bbIndexedCloudObservation)
++		b.march.bbDirectories = make(map[string]BBIndexedVersion)
 +	}
-@@ -169,0 +174,5 @@
+@@ -169,0 +183,5 @@
 +	if isPath1 && b.march.bbIdentities != nil {
 +		if version, ok := bbCloudVersionFrom(b.march.marchCtx, o); ok {
 +			b.march.bbIdentities[o.Remote()] = version
@@ -1155,7 +1168,7 @@
 +	BBListedIdentity() (documentID, parentID, etag string)
 +}
 +
-+func bbCloudVersionFrom(ctx context.Context, obj fs.Object) (bbIndexedCloudObservation, bool) {
++func bbCloudVersionFrom(ctx context.Context, obj fs.DirEntry) (bbIndexedCloudObservation, bool) {
 +	provider, ok := obj.(bbVersionedObject)
 +	if !ok {
 +		return bbIndexedCloudObservation{}, false
@@ -2291,7 +2304,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_version_index.go
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,99 @@
 +package bisync
 +
 +import (
@@ -2336,16 +2349,29 @@
 +		return err
 +	}
 +	index := bbIndexFile{Version: 1, Binding: binding, Notes: map[string]BBIndexedVersion{}}
++	tree := bbTreeIndexFile{Version: 1, Binding: binding, Entries: map[string]BBTreeIdentity{}}
++	for name, version := range b.march.bbDirectories {
++		// Directory matches are captured independently of bisync's empty
++		// directory option, which controls only its ordinary listings.
++		if version.ParentID != "" && version.ETag != "" && !b.bbHeldRelocation.includes(name) &&
++			(!b.opt.CreateEmptySrcDirs || (cloud.isDir(name) && mirror.isDir(name))) {
++			tree.Entries[name] = BBTreeIdentity{version, true}
++		}
++	}
 +	for name, version := range b.march.bbIdentities {
-+		if !strings.HasSuffix(name, ".md") || version.ParentID == "" || version.ETag == "" || !cloud.has(name) || !mirror.has(name) || cloud.isDir(name) || mirror.isDir(name) || b.aliases.Alias(name) != name {
++		if version.ParentID == "" || version.ETag == "" || !cloud.has(name) || !mirror.has(name) ||
++			cloud.isDir(name) || mirror.isDir(name) || b.aliases.Alias(name) != name || b.bbHeldRelocation.includes(name) {
 +			continue
 +		}
 +		if cloud.getSize(name) != version.Size || timeDiffers(ctx, cloud.getTime(name), version.Modified, b.fs1, b.fs1) {
-+			// This native pass changed the cloud object after taking the listing.
-+			// The following scan can establish its new identity.
++			// A native pass can change an item after taking the listing.
++			// The following scan can establish its identity.
 +			continue
 +		}
-+		index.Notes[name] = version.BBIndexedVersion
++		tree.Entries[name] = BBTreeIdentity{version.BBIndexedVersion, false}
++		if strings.HasSuffix(name, ".md") {
++			index.Notes[name] = version.BBIndexedVersion
++		}
 +	}
 +	output, err := json.Marshal(index)
 +	if err != nil {
@@ -2354,7 +2380,11 @@
 +	if len(output) > bbIndexLimit {
 +		return errors.New("cloud note identity index exceeds its byte limit")
 +	}
-+	return (bbListingPair{directory: b.workDir}).publishFile(filepath.Join(b.workDir, BBIndexName), output, false)
++	owner := bbListingPair{directory: b.workDir}
++	if err := owner.publishFile(filepath.Join(b.workDir, BBIndexName), output, false); err != nil {
++		return err
++	}
++	return writeBBTreeIndex(owner, tree)
 +}
 +
 +func bbRefreshVersion(ctx context.Context, side fs.Fs, path string, index map[string]bbIndexedCloudObservation) error {
@@ -2555,7 +2585,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bb-icloud-native/owned_note.go
-@@ -0,0 +1,397 @@
+@@ -0,0 +1,403 @@
 +package main
 +
 +import (
@@ -2582,14 +2612,15 @@
 +const maxOwnedFrame = 8 << 20
 +
 +type ownedNoteFrame struct {
-+	Binding     string            `json:"binding"`
-+	Path        string            `json:"path"`
-+	Source      string            `json:"source,omitempty"`
-+	Expected    *ownedNoteVersion `json:"expected,omitempty"`
-+	Workdir     string            `json:"workdir,omitempty"`
-+	OperationID string            `json:"operationId,omitempty"`
-+	Text        *string           `json:"text,omitempty"`
-+	WantedHash  string            `json:"wantedHash,omitempty"`
++	Binding       string             `json:"binding"`
++	Path          string             `json:"path"`
++	Source        string             `json:"source,omitempty"`
++	Expected      *ownedNoteVersion  `json:"expected,omitempty"`
++	Workdir       string             `json:"workdir,omitempty"`
++	OperationID   string             `json:"operationId,omitempty"`
++	Text          *string            `json:"text,omitempty"`
++	WantedHash    string             `json:"wantedHash,omitempty"`
++	FolderEntries []ownedFolderEntry `json:"folderEntries,omitempty"`
 +}
 +
 +type ownedNoteVersion struct {
@@ -2600,11 +2631,12 @@
 +}
 +
 +type ownedNoteReply struct {
-+	Outcome        string                `json:"outcome"`
-+	Binding        string                `json:"binding,omitempty"`
-+	Observation    *ownedNoteObservation `json:"observation,omitempty"`
-+	SourceRetained bool                  `json:"sourceRetained,omitempty"`
-+	ConflictCopy   string                `json:"conflictCopy,omitempty"`
++	Outcome        string                  `json:"outcome"`
++	Binding        string                  `json:"binding,omitempty"`
++	Observation    *ownedNoteObservation   `json:"observation,omitempty"`
++	SourceRetained bool                    `json:"sourceRetained,omitempty"`
++	ConflictCopy   string                  `json:"conflictCopy,omitempty"`
++	Folder         *ownedFolderObservation `json:"folder,omitempty"`
 +}
 +
 +type ownedNoteObservation struct {
@@ -2632,13 +2664,13 @@
 +func validOwnedNoteFrame(operation string, message ownedNoteFrame) bool {
 +	if operation == "binding" {
 +		return message.Workdir != "" && message.Binding == "" && message.Path == "" && message.Source == "" &&
-+			message.Expected == nil && message.OperationID == "" && message.Text == nil && message.WantedHash == ""
++			message.Expected == nil && message.OperationID == "" && message.Text == nil && message.WantedHash == "" && message.FolderEntries == nil
 +	}
 +	return message.Binding != "" && message.Path != ""
 +}
 +
 +func ownedNoteDeadline(operation string) time.Duration {
-+	if operation == "relocate" || operation == "reconcile-relocation" {
++	if operation == "relocate" || operation == "reconcile-relocation" || operation == "inspect-folder" {
 +		return 24 * time.Second
 +	}
 +	return 12 * time.Second
@@ -2655,7 +2687,7 @@
 +			if err != nil {
 +				return json.NewEncoder(os.Stdout).Encode(ownedNoteReply{Outcome: "refused"})
 +			}
-+			if !validOwnedNoteFrame(args[0], message) || (args[0] != "inspect" && args[0] != "inspect-relocation" && !ownInheritedMutationLock(message.Workdir)) {
++			if !validOwnedNoteFrame(args[0], message) || (args[0] != "inspect" && args[0] != "inspect-relocation" && args[0] != "inspect-folder" && !ownInheritedMutationLock(message.Workdir)) {
 +				return json.NewEncoder(os.Stdout).Encode(ownedNoteReply{Outcome: "refused"})
 +			}
 +			ctx, cancel := context.WithTimeout(context.Background(), ownedNoteDeadline(args[0]))
@@ -2669,10 +2701,10 @@
 +func applyOwnedNote(ctx context.Context, operation, remote string, request ownedNoteFrame) ownedNoteReply {
 +	refused := ownedNoteReply{Outcome: "refused"}
 +	uncertain := ownedNoteReply{Outcome: "uncertain"}
-+	if !validOwnedNoteFrame(operation, request) {
++	if !validOwnedNoteFrame(operation, request) || (operation != "inspect-folder" && request.FolderEntries != nil) {
 +		return refused
 +	}
-+	if operation != "inspect" && operation != "replace" && operation != "recover" && operation != "create" && operation != "recover-create" && operation != "relocate" && operation != "binding" && operation != "inspect-relocation" && operation != "reconcile-relocation" && operation != "read-relocation-resolution" {
++	if operation != "inspect" && operation != "replace" && operation != "recover" && operation != "create" && operation != "recover-create" && operation != "relocate" && operation != "binding" && operation != "inspect-relocation" && operation != "reconcile-relocation" && operation != "read-relocation-resolution" && operation != "inspect-folder" {
 +		return refused
 +	}
 +	backend, name, root, config, err := fs.ConfigFs(remote)
@@ -2702,6 +2734,10 @@
 +	if binding != request.Binding {
 +		return refused
 +	}
++	if operation == "inspect-folder" {
++		return inspectOwnedFolder(ctx, cloud, request)
++	}
++
 +	if operation == "relocate" || operation == "reconcile-relocation" || operation == "read-relocation-resolution" {
 +		return applyRelocationOperation(ctx, cloud, request, operation)
 +	}
@@ -5336,4 +5372,594 @@
 +		b.aliases.Add(view.cloud.Remote(), view.local.Remote())
 +	}
 +	return nil
++}
+--- /dev/null
++++ b/backend/iclouddrive/bb_folder_identity.go
+@@ -0,0 +1,14 @@
++package iclouddrive
++
++import "github.com/rclone/rclone/fs"
++
++// The managed scanner records the same revision that appeared in this
++// directory listing. Keep rclone's ordinary directory behavior intact.
++type bbDriveDirectory struct {
++	*fs.Dir
++	documentID, parentID, etag string
++}
++
++func (d *bbDriveDirectory) BBListedIdentity() (string, string, string) {
++	return d.documentID, d.parentID, d.etag
++}
+--- /dev/null
++++ b/backend/iclouddrive/bb_folder_tree.go
+@@ -0,0 +1,67 @@
++package iclouddrive
++
++import (
++	"context"
++	"crypto/sha256"
++	"io"
++
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"golang.org/x/text/unicode/norm"
++)
++
++type BBFolderItem struct {
++	Name, DocumentID, ParentID, ETag string
++	Directory                        bool
++	Size                             int64
++	item                             *api.DriveItem
++}
++
++// The owned folder walker obtains every descendant ID from directories it
++// has already verified beneath the bound mirror. Resolve a directory by
++// that identity so an insensitive path lookup cannot redirect a read.
++func (f *Fs) BBFolderList(ctx context.Context, binding, directoryID string) ([]BBFolderItem, error) {
++	_, boundZone, boundID := api.DeconstructDriveID(binding)
++	kind, zone, id := api.DeconstructDriveID(directoryID)
++	if boundID == "" || id == "" || boundZone != zone || (kind != "FOLDER" && (directoryID != binding || kind != "APP_LIBRARY")) {
++		return nil, api.ErrConditionalRefused
++	}
++	children, err := f.listAll(ctx, directoryID)
++	if err != nil {
++		return nil, err
++	}
++	out := make([]BBFolderItem, 0, len(children))
++	for _, item := range children {
++		if item == nil || item.ParentID != directoryID || item.Drivewsid == "" || item.Etag == "" {
++			return nil, api.ErrConditionalUnconfirmed
++		}
++		isDirectory := item.Type == "FOLDER"
++		if !isDirectory && (item.Type != "FILE" || item.Size < 0) {
++			return nil, api.ErrConditionalRefused
++		}
++		out = append(out, BBFolderItem{norm.NFC.String(item.FullName()), item.Drivewsid, item.ParentID, item.Etag, isDirectory, item.Size, item})
++	}
++	return out, nil
++}
++
++func (f *Fs) BBFolderFileHash(ctx context.Context, item BBFolderItem) ([sha256.Size]byte, error) {
++	var result [sha256.Size]byte
++	if item.item == nil || item.Directory || item.Size < 0 || item.Size > 1<<30 || item.item.Drivewsid != item.DocumentID {
++		return result, api.ErrConditionalRefused
++	}
++	object, err := f.NewObjectFromDriveItem(ctx, item.Name, item.item)
++	if err != nil {
++		return result, err
++	}
++	stream, err := object.Open(ctx)
++	if err != nil {
++		return result, err
++	}
++	defer stream.Close()
++	sha := sha256.New()
++	count, err := io.Copy(sha, io.LimitReader(stream, item.Size+1))
++	if err != nil || count != item.Size {
++		return result, api.ErrConditionalUnconfirmed
++	}
++	copy(result[:], sha.Sum(nil))
++	return result, nil
++}
+--- /dev/null
++++ b/cmd/bisync/bb_tree_index.go
+@@ -0,0 +1,64 @@
++package bisync
++
++import (
++	"encoding/json"
++	"path/filepath"
++	"strings"
++)
++
++const bbTreeIndexName = "bb-cloud-tree-identities-v1.json"
++
++type BBTreeIdentity struct {
++	BBIndexedVersion
++	Directory bool `json:"directory"`
++}
++
++type bbTreeIndexFile struct {
++	Version int                       `json:"version"`
++	Binding string                    `json:"binding"`
++	Entries map[string]BBTreeIdentity `json:"entries"`
++}
++
++func writeBBTreeIndex(owner bbListingPair, tree bbTreeIndexFile) error {
++	data, err := json.Marshal(tree)
++	if err != nil {
++		return err
++	}
++	if len(data) > bbIndexLimit {
++		// Do not retain a stale complete-looking prefix when a tree grows
++		// beyond the index budget. Ordinary note delivery still has its index.
++		tree.Entries = nil
++		data, err = json.Marshal(tree)
++		if err != nil {
++			return err
++		}
++	}
++	return owner.publishFile(filepath.Join(owner.directory, bbTreeIndexName), data, false)
++}
++
++// BBIndexedTree returns one bound acknowledgment for use by a folder
++// operation. A caller must still revalidate the exact provider contents.
++func BBIndexedTree(workdir, binding, source string) (map[string]BBTreeIdentity, error) {
++	if binding == "" || source == "" {
++		return nil, errBBInvalidDelivery
++	}
++	raw, err := bbReadBounded(filepath.Join(workdir, bbTreeIndexName), bbIndexLimit)
++	if err != nil {
++		return nil, err
++	}
++	var tree bbTreeIndexFile
++	if json.Unmarshal(raw, &tree) != nil || tree.Version != 1 || tree.Binding != binding ||
++		!tree.Entries[source].Directory {
++		return nil, errBBInvalidDelivery
++	}
++	selected := make(map[string]BBTreeIdentity)
++	for name, identity := range tree.Entries {
++		if name == source || strings.HasPrefix(name, source+"/") {
++			if identity.DocumentID == "" || identity.ParentID == "" || identity.ETag == "" {
++				return nil, errBBInvalidDelivery
++			}
++			selected[name] = identity
++		}
++	}
++	return selected, nil
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_folder.go
+@@ -0,0 +1,276 @@
++package main
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"path"
++	"strings"
++
++	"github.com/rclone/rclone/backend/iclouddrive"
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/cmd/bisync"
++	"golang.org/x/sync/errgroup"
++	"golang.org/x/text/cases"
++	"golang.org/x/text/unicode/norm"
++)
++
++type ownedFolderEntry struct {
++	Path string `json:"path"`
++	Kind string `json:"kind"`
++	Size int64  `json:"size,omitempty"`
++	Hash string `json:"hash,omitempty"`
++}
++
++type ownedFolderObservation struct {
++	Source            bisync.BBIndexedVersion `json:"source"`
++	DestinationParent string                  `json:"destinationParent"`
++	Method            string                  `json:"method"`
++}
++
++type folderProofCloud interface {
++	BBFolderList(context.Context, string, string) ([]iclouddrive.BBFolderItem, error)
++	BBFolderFileHash(context.Context, iclouddrive.BBFolderItem) ([sha256.Size]byte, error)
++}
++
++func validFolderPath(name string) bool {
++	if name == "" || name == "." || name == ".." || len(name) > 1024 || path.IsAbs(name) || path.Clean(name) != name ||
++		strings.HasPrefix(name, "../") || norm.NFC.String(name) != name || strings.ContainsAny(name, "\\\x00\r\n") {
++		return false
++	}
++	for _, part := range strings.Split(name, "/") {
++		if len(part) > 255 || strings.IndexFunc(part, func(r rune) bool { return r < 32 || r == 127 }) != -1 {
++			return false
++		}
++	}
++	return true
++}
++
++func folderNameIn(items []iclouddrive.BBFolderItem, name string) (*iclouddrive.BBFolderItem, error) {
++	var found *iclouddrive.BBFolderItem
++	for i := range items {
++		if !strings.EqualFold(items[i].Name, name) {
++			continue
++		}
++		if found != nil || items[i].Name != name {
++			return nil, api.ErrConditionalConflict
++		}
++		found = &items[i]
++	}
++	return found, nil
++}
++
++func folderParentByName(ctx context.Context, cloud folderProofCloud, binding, name string) (string, error) {
++	id := binding
++	if name == "." {
++		return id, nil
++	}
++	for _, segment := range strings.Split(name, "/") {
++		items, err := cloud.BBFolderList(ctx, binding, id)
++		if err != nil {
++			return "", err
++		}
++		entry, err := folderNameIn(items, segment)
++		if err != nil || entry == nil || !entry.Directory {
++			return "", api.ErrConditionalConflict
++		}
++		id = entry.DocumentID
++	}
++	return id, nil
++}
++
++func ownedFolderVersion(item iclouddrive.BBFolderItem) bisync.BBIndexedVersion {
++	return bisync.BBIndexedVersion{DocumentID: item.DocumentID, ParentID: item.ParentID, ETag: item.ETag}
++}
++
++// Inspect the live tree and compare every name, identity, revision, and
++// byte hash against the acknowledged mirror and the saved local manifest.
++// The returned proof allows a caller to plan a mutation, never to skip
++// revalidation of its source and destination immediately before dispatch.
++func inspectOwnedFolder(ctx context.Context, cloud folderProofCloud, request ownedNoteFrame) ownedNoteReply {
++	refused := ownedNoteReply{Outcome: "refused"}
++	if !validFolderPath(request.Source) || !validFolderPath(request.Path) || request.Source == request.Path ||
++		request.Expected != nil || request.OperationID != "" || request.Text != nil || request.WantedHash != "" ||
++		request.FolderEntries == nil || len(request.FolderEntries) > 10000 {
++		return refused
++	}
++	fold := cases.Fold()
++	from, to := fold.String(request.Source), fold.String(request.Path)
++	caseChange := strings.EqualFold(request.Source, request.Path)
++	if strings.HasPrefix(from, to+"/") || strings.HasPrefix(to, from+"/") ||
++		(caseChange && path.Dir(request.Source) != path.Dir(request.Path)) {
++		return refused
++	}
++	children := make(map[string]ownedFolderEntry, len(request.FolderEntries))
++	var size int64
++	for _, entry := range request.FolderEntries {
++		if !validFolderPath(entry.Path) || !validFolderPath(path.Join(request.Source, entry.Path)) ||
++			!validFolderPath(path.Join(request.Path, entry.Path)) {
++			return refused
++		}
++		if _, exists := children[entry.Path]; exists {
++			return refused
++		}
++		switch entry.Kind {
++		case "directory":
++			if entry.Size != 0 || entry.Hash != "" {
++				return refused
++			}
++		case "file":
++			raw, err := hex.DecodeString(entry.Hash)
++			if err != nil || len(raw) != sha256.Size || strings.ToLower(entry.Hash) != entry.Hash || entry.Size < 0 || entry.Size > 1<<30 {
++				return refused
++			}
++			size += entry.Size
++			if size > 1<<30 {
++				return refused
++			}
++		default:
++			return refused
++		}
++		children[entry.Path] = entry
++	}
++	indexed, err := bisync.BBIndexedTree(request.Workdir, request.Binding, request.Source)
++	if err != nil || len(indexed) != len(children)+1 {
++		return refused
++	}
++	inspectEndpoints := func() (iclouddrive.BBFolderItem, string, error) {
++		var empty iclouddrive.BBFolderItem
++		sourceParent, err := folderParentByName(ctx, cloud, request.Binding, path.Dir(request.Source))
++		if err != nil {
++			return empty, "", err
++		}
++		sourceSiblings, err := cloud.BBFolderList(ctx, request.Binding, sourceParent)
++		if err != nil {
++			return empty, "", err
++		}
++		source, err := folderNameIn(sourceSiblings, path.Base(request.Source))
++		if err != nil || source == nil || !source.Directory || indexed[request.Source].BBIndexedVersion != ownedFolderVersion(*source) {
++			return empty, "", api.ErrConditionalConflict
++		}
++		destinationParent := sourceParent
++		destinationSiblings := sourceSiblings
++		if path.Dir(request.Source) != path.Dir(request.Path) {
++			destinationParent, err = folderParentByName(ctx, cloud, request.Binding, path.Dir(request.Path))
++			if err != nil {
++				return empty, "", err
++			}
++			destinationSiblings, err = cloud.BBFolderList(ctx, request.Binding, destinationParent)
++			if err != nil {
++				return empty, "", err
++			}
++		}
++		for _, sibling := range destinationSiblings {
++			if strings.EqualFold(sibling.Name, path.Base(request.Path)) &&
++				(!caseChange || sibling.DocumentID != source.DocumentID || sibling.ParentID != sourceParent) {
++				return empty, "", api.ErrConditionalConflict
++			}
++		}
++		return *source, destinationParent, nil
++	}
++	source, destinationParent, err := inspectEndpoints()
++	if err != nil {
++		return refused
++	}
++
++	type fileCheck struct {
++		observed iclouddrive.BBFolderItem
++		wanted   string
++	}
++	inspectTree := func(root iclouddrive.BBFolderItem, collectFiles bool) ([]fileCheck, error) {
++		var files []fileCheck
++		known := map[string]bool{root.DocumentID: true}
++		visited := 0
++		var walk func(string, string, int) error
++		walk = func(parent, suffix string, level int) error {
++			if level > 64 || ctx.Err() != nil {
++				return api.ErrConditionalUnconfirmed
++			}
++			entries, err := cloud.BBFolderList(ctx, request.Binding, parent)
++			if err != nil {
++				return err
++			}
++			siblings := make(map[string]bool, len(entries))
++			for _, entry := range entries {
++				folded := fold.String(entry.Name)
++				if !validFolderPath(entry.Name) || strings.Contains(entry.Name, "/") || siblings[folded] ||
++					known[entry.DocumentID] || entry.ParentID != parent {
++					return api.ErrConditionalConflict
++				}
++				siblings[folded] = true
++				known[entry.DocumentID] = true
++				sibling := path.Join(suffix, entry.Name)
++				manifest, found := children[sibling]
++				baseline := indexed[path.Join(request.Source, sibling)]
++				if !found || baseline.BBIndexedVersion != ownedFolderVersion(entry) ||
++					baseline.Directory != entry.Directory || (manifest.Kind == "directory") != entry.Directory {
++					return api.ErrConditionalConflict
++				}
++				visited++
++				if visited > len(children) {
++					return api.ErrConditionalConflict
++				}
++				if entry.Directory {
++					if err := walk(entry.DocumentID, sibling, level+1); err != nil {
++						return err
++					}
++				} else {
++					if manifest.Size != entry.Size {
++						return api.ErrConditionalConflict
++					}
++					if collectFiles {
++						files = append(files, fileCheck{entry, manifest.Hash})
++					}
++				}
++			}
++			return nil
++		}
++		if err := walk(root.DocumentID, "", 0); err != nil {
++			return nil, err
++		}
++		if visited != len(children) {
++			return nil, api.ErrConditionalConflict
++		}
++		return files, nil
++	}
++	files, err := inspectTree(source, true)
++	if err != nil {
++		return refused
++	}
++
++	group, verifyCtx := errgroup.WithContext(ctx)
++	group.SetLimit(4)
++	for _, file := range files {
++		if verifyCtx.Err() != nil {
++			break
++		}
++		group.Go(func() error {
++			digest, err := cloud.BBFolderFileHash(verifyCtx, file.observed)
++			if err != nil || hex.EncodeToString(digest[:]) != file.wanted {
++				return api.ErrConditionalConflict
++			}
++			return nil
++		})
++	}
++	if group.Wait() != nil || ctx.Err() != nil {
++		return refused
++	}
++	// File renames may leave every ancestor ETag untouched. Re-list the
++	// descendants after reading the bytes before returning the observation.
++	if _, err := inspectTree(source, false); err != nil {
++		return refused
++	}
++	finalSource, finalParent, err := inspectEndpoints()
++	if err != nil || ownedFolderVersion(finalSource) != ownedFolderVersion(source) || finalParent != destinationParent {
++		return refused
++	}
++	method := "copy"
++	if caseChange {
++		method = "case_copy"
++	} else if source.ParentID != destinationParent && path.Base(request.Source) == path.Base(request.Path) {
++		method = "move"
++	}
++	return ownedNoteReply{Outcome: "folder_verified", Folder: &ownedFolderObservation{
++		Source: ownedFolderVersion(source), DestinationParent: destinationParent, Method: method,
++	}}
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_folder_test.go
+@@ -0,0 +1,70 @@
++package main
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/rclone/rclone/backend/iclouddrive"
++	"github.com/rclone/rclone/cmd/bisync"
++)
++
++type folderProofFixture struct {
++	items     map[string][]iclouddrive.BBFolderItem
++	content   []byte
++	afterHash func()
++}
++
++func (f *folderProofFixture) BBFolderList(_ context.Context, _, parent string) ([]iclouddrive.BBFolderItem, error) {
++	return f.items[parent], nil
++}
++
++func (f *folderProofFixture) BBFolderFileHash(_ context.Context, _ iclouddrive.BBFolderItem) ([sha256.Size]byte, error) {
++	if f.afterHash != nil {
++		f.afterHash()
++	}
++	return sha256.Sum256(f.content), nil
++}
++
++func TestBBInspectOwnedFolderChecksDescendantsAfterHash(t *testing.T) {
++	source := iclouddrive.BBFolderItem{Name: "Folder", DocumentID: "source", ParentID: "root", ETag: "a", Directory: true}
++	parent := iclouddrive.BBFolderItem{Name: "Destination", DocumentID: "destination", ParentID: "root", ETag: "b", Directory: true}
++	attachment := iclouddrive.BBFolderItem{Name: "Attachment.bin", DocumentID: "file", ParentID: "source", ETag: "c", Size: 3}
++	content := []byte{0, 1, 255}
++	cloud := &folderProofFixture{items: map[string][]iclouddrive.BBFolderItem{
++		"root": {source, parent}, "source": {attachment},
++	}, content: content}
++	workdir := t.TempDir()
++	index, err := json.Marshal(map[string]any{
++		"version": 1, "binding": "root",
++		"entries": map[string]bisync.BBTreeIdentity{
++			"Folder":                {BBIndexedVersion: ownedFolderVersion(source), Directory: true},
++			"Folder/Attachment.bin": {BBIndexedVersion: ownedFolderVersion(attachment)},
++		},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(workdir, "bb-cloud-tree-identities-v1.json"), index, 0600); err != nil {
++		t.Fatal(err)
++	}
++	digest := sha256.Sum256(content)
++	request := ownedNoteFrame{Binding: "root", Workdir: workdir, Source: "Folder", Path: "Destination/Folder",
++		FolderEntries: []ownedFolderEntry{{Path: attachment.Name, Kind: "file", Size: attachment.Size, Hash: hex.EncodeToString(digest[:])}}}
++	got := inspectOwnedFolder(context.Background(), cloud, request)
++	if got.Folder == nil || got.Folder.Method != "move" || got.Folder.DestinationParent != "destination" {
++		t.Fatalf("unchanged exact tree = %+v", got)
++	}
++
++	cloud.afterHash = func() {
++		// The provider can rename a file without changing any ancestor ETag.
++		cloud.items["source"][0].Name = "Device.bin"
++	}
++	if got := inspectOwnedFolder(context.Background(), cloud, request); got.Outcome != "refused" {
++		t.Fatalf("renamed attachment = %+v", got)
++	}
++}
+--- /dev/null
++++ b/cmd/bisync/bb_tree_index_test.go
+@@ -0,0 +1,81 @@
++package bisync
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/rclone/rclone/backend/local"
++	"github.com/rclone/rclone/fs"
++	"github.com/rclone/rclone/fs/config/configmap"
++)
++
++type bbIndexedTestDirectory struct {
++	fs.Directory
++}
++
++func (d bbIndexedTestDirectory) BBListedIdentity() (string, string, string) {
++	return "identity-" + d.Remote(), "verified-parent", "same-revision"
++}
++
++type bbIndexedTestFs struct {
++	fs.Fs
++}
++
++func (f bbIndexedTestFs) List(ctx context.Context, path string) (fs.DirEntries, error) {
++	items, err := f.Fs.List(ctx, path)
++	for i, item := range items {
++		if dir, ok := item.(fs.Directory); ok {
++			items[i] = bbIndexedTestDirectory{dir}
++		}
++	}
++	return items, err
++}
++
++func TestBBTreeIndexRecordsMatchedDirectoriesWithoutEmptyDirectorySync(t *testing.T) {
++	ctx := context.Background()
++	cloudRoot, mirrorRoot, workdir := t.TempDir(), t.TempDir(), t.TempDir()
++	for _, root := range []string{cloudRoot, mirrorRoot} {
++		for _, name := range []string{"Folder", "Folder/Empty"} {
++			if err := os.Mkdir(filepath.Join(root, name), 0700); err != nil {
++				t.Fatal(err)
++			}
++		}
++		anchor := filepath.Join(root, "anchor.md")
++		if err := os.WriteFile(anchor, []byte("# anchor"), 0600); err != nil {
++			t.Fatal(err)
++		}
++		modified := time.Unix(1700000000, 0)
++		if err := os.Chtimes(anchor, modified, modified); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := os.Mkdir(filepath.Join(cloudRoot, "Folder/CloudOnly"), 0700); err != nil {
++		t.Fatal(err)
++	}
++	cloud, err := local.NewFs(ctx, "local", cloudRoot, configmap.Simple{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	mirror, err := local.NewFs(ctx, "local", mirrorRoot, configmap.Simple{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	options := Options{Resync: true, Workdir: workdir, CompareFlag: "size,modtime", CheckSync: CheckSyncTrue, MaxDelete: 50}
++	if err := Bisync(ctx, cloud, mirror, &options); err != nil {
++		t.Fatal(err)
++	}
++	options.Resync = false
++	if err := BBManagedBisync(ctx, bbIndexedTestFs{cloud}, mirror, options, "binding"); err != nil {
++		t.Fatal(err)
++	}
++	tree, err := BBIndexedTree(workdir, "binding", "Folder")
++	if err != nil || len(tree) != 2 || !tree["Folder"].Directory || tree["Folder/Empty"].DocumentID != "identity-Folder/Empty" {
++		t.Fatalf("tree = %+v, error = %v", tree, err)
++	}
++	if _, err := os.Stat(filepath.Join(mirrorRoot, "Folder/CloudOnly")); !os.IsNotExist(err) {
++		t.Fatalf("stock sync should leave unmatched empty directory alone, stat: %v", err)
++	}
 +}
