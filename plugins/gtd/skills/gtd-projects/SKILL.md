@@ -1,6 +1,6 @@
 ---
 name: gtd-projects
-description: Create, clarify, review, browse or maintain personal GTD projects and areas of focus. Includes outcomes, success criteria, Area standards and filename-based naming. For personal GTD. BB coding-project inventories use separate tooling.
+description: Create, clarify, review, browse, complete or maintain personal GTD projects and areas of focus. Use when a finished project still appears Active, or when asked to move a personal project to Done. BB coding-project inventories use separate tooling.
 ---
 
 # GTD projects
@@ -45,6 +45,15 @@ Read [project and area practice](references/project-and-area-practice.md) when t
 - On an explicit project archive request, use `gtd_archive_correspondence` with that ID and a fresh operation UUID. This moves the link in Obsidian. Mailbox labels and unread state are independent. After an uncertain add or archive, inspect the Obsidian receipt by that operation ID. Use an ordinary versioned Obsidian edit to reactivate a link.
 - On request, use `gtd_snooze_correspondence` to snooze an Active conversation or change its date. Ask for a return date if the user did not give one. Pass a future Vancouver calendar date as `YYYY-MM-DD` and a fresh operation UUID. Snooze requires zero confirmed unread messages.
 - List with `status: snoozed` to see saved return dates. On request, `gtd_unsnooze_correspondence` returns a saved link to Active. `gtd_refresh_correspondence` checks one project and saves due or unread snoozed links back to Active, so it can write to the project note. Inspect an uncertain receipt before repeating a change or refresh.
+
+## Complete a project
+
+1. For a status check or a completion review, find the exact project in GTD and read its landing note. Use the outcome, completion criteria and available evidence to assess whether the work is finished. If an open action or Waiting For could affect that outcome, surface it. A separate follow-up project can stay active.
+2. Check the current GTD status independently of the work outcome. A landing note inside a recognized status folder takes its GTD status from that folder. For a landing note directly under Projects, GTD uses the YAML `status` when present and defaults to Active otherwise. For example, `Projects/Active/Example.md` remains Active in GTD even when its YAML says `status: completed`. Explain the mismatch when asked and make changes only on an explicit request to complete or move the project.
+3. On that request, if GTD still needs to move the project, call `gtd_change_project` with its current `source`, exact `id` and `status: done`. Use the GTD move so it can move the matching support folder and update linked BB thread references. A YAML edit alone cannot complete a project in Active. If GTD refuses the move because of a missing or ambiguous destination, resolve the reported folder issue within the authorized scope before trying again.
+4. Verify the result in the Done inventory using the same source and the landing note at its new path and confirm it is absent from Active if it was previously there. Use the new ID for future work. If completion is unconfirmed or partial, retain the plan ID and follow the receipt recovery guidance below. Report any unresolved step separately from the verified status.
+
+In BB, **Mark as done** moves the project and archives its linked BB threads. The agent's `gtd_change_project` move updates thread references and leaves their archive state as it was. If the user also asks to archive the linked threads, the Done project's **Archive linked threads** action provides that workflow.
 
 ## Change one project's Area or status
 
