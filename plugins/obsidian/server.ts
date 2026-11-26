@@ -46,6 +46,17 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     }
   };
   bb.rpc.register(rpcContract, {
+    deliveryChanges({ vaultId, after, limit }, context) {
+      const caller = context.experimental_caller;
+      if (caller.kind !== 'plugin' || caller.pluginId !== 'icloud')
+        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only iCloud can request vault delivery changes.' });
+      return evidence(async () => {
+        if (!ledger) throw new VaultError('source_unavailable');
+        const scope = service.receiptScope();
+        service.checkReceiptScope(scope.revision, vaultId);
+        return ledger.deliveryChanges(vaultId, after, limit);
+      }, context);
+    },
     inventoryRevision(input, context) {
       const caller = context.experimental_caller;
       if (caller.kind !== 'plugin' || caller.pluginId !== 'gtd')

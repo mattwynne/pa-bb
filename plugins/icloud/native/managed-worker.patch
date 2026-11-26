@@ -1,0 +1,2355 @@
+--- a/backend/iclouddrive/iclouddrive.go
++++ b/backend/iclouddrive/iclouddrive.go
+@@ -82,2 +82,3 @@
+-	docID       string    // document ID of the object
+-	itemID      string    // item ID of the object
++	docID       string
++	bbParentID  string // document ID of the object
++	itemID      string // item ID of the object
+@@ -818,0 +820 @@
++	o.bbParentID = item.ParentID
+--- /dev/null
++++ b/backend/iclouddrive/bb_note_create.go
+@@ -0,0 +1,77 @@
++package iclouddrive
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"errors"
++
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/fs"
++)
++
++func (f *Fs) BBNoteAbsent(ctx context.Context, remote string) bool {
++	placeholder := BBNoteRevision{DriveID: "scope", ParentID: "scope", ETag: "scope"}
++	if !validBBIntent(remote, placeholder, []byte{1}) {
++		return false
++	}
++	leaf, parent, _, err := f.FindPath(ctx, remote, false)
++	if err != nil {
++		return false
++	}
++	_, found, err := f.findLeafItem(ctx, parent, leaf)
++	return err == nil && !found
++}
++
++func (f *Fs) CreateBBNote(ctx context.Context, remote, binding string, data []byte, dispatch func(documentID string) error) (BBNotePublication, error) {
++	var output BBNotePublication
++	placeholder := BBNoteRevision{DriveID: "scope", ParentID: "scope", ETag: "scope"}
++	if !validBBIntent(remote, placeholder, data) || dispatch == nil {
++		return output, api.ErrConditionalRefused
++	}
++	root, err := f.BBMirrorBinding(ctx)
++	if err != nil || root != binding || !f.BBNoteAbsent(ctx, remote) {
++		return output, api.ErrConditionalConflict
++	}
++	leaf, parent, _, err := f.FindPath(ctx, remote, false)
++	if err != nil || api.ZoneFromDriveID(parent) != api.ZoneFromDriveID(root) {
++		return output, api.ErrConditionalRefused
++	}
++	slot, _, err := f.service.CreateUpload(ctx, int64(len(data)), leaf, api.ZoneFromDriveID(root))
++	if err != nil || slot == nil || slot.URL == "" || slot.DocumentID == "" {
++		return output, api.ErrConditionalRefused
++	}
++	upload, _, err := f.service.Upload(ctx, bytes.NewReader(data), int64(len(data)), leaf, slot.URL)
++	if err != nil || upload == nil || upload.SingleFile == nil || upload.SingleFile.Size != int64(len(data)) ||
++		upload.SingleFile.Signature == "" {
++		return output, api.ErrConditionalRefused
++	}
++
++	foundRoot, err := f.BBMirrorBinding(ctx)
++	if err != nil || foundRoot != root || !f.BBNoteAbsent(ctx, remote) {
++		return output, api.ErrConditionalConflict
++	}
++	if err := dispatch(slot.DocumentID); err != nil {
++		return output, api.ErrConditionalUnconfirmed
++	}
++	status, publishErr := f.service.CreateConditionalMarkdown(ctx, root, remote, slot.DocumentID, *upload.SingleFile)
++	if status == 409 && errors.Is(publishErr, api.ErrConditionalConflict) {
++		return output, api.ErrConditionalConflict
++	}
++	item, content, err := f.readBBNoteRevision(ctx, remote)
++	if err != nil || item.Docwsid != slot.DocumentID || item.ParentID != parent || !bytes.Equal(content, data) {
++		return output, api.ErrConditionalUnconfirmed
++	}
++	return BBNotePublication{Revision: BBNoteRevision{item.Drivewsid, item.ParentID, item.Etag, sha256.Sum256(data)},
++		Modified: item.DateModified, Size: item.Size}, nil
++}
++
++// Return definite absence only if the parent still resolves and has been
++// checked; a transport error is not an absent note and cannot cause replays.
++func (f *Fs) ObserveBBCreate(ctx context.Context, remote string) (BBNotePublication, error) {
++	current, err := f.InspectBBNote(ctx, remote)
++	if err != nil && f.BBNoteAbsent(ctx, remote) {
++		return BBNotePublication{}, fs.ErrorObjectNotFound
++	}
++	return current, err
++}
+--- /dev/null
++++ b/backend/iclouddrive/bb_note_replace.go
+@@ -0,0 +1,169 @@
++package iclouddrive
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"errors"
++	"io"
++	"path"
++	"strings"
++	"time"
++
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"golang.org/x/text/unicode/norm"
++)
++
++const bbMarkdownLimit = 1 << 20
++
++// A revision represents the document and cloud version already acknowledged
++// by this mirror. A file recreated at the same path is a different document,
++// even if its content is byte-identical.
++type BBNoteRevision struct {
++	DriveID  string
++	ParentID string
++	ETag     string
++	Hash     [sha256.Size]byte
++}
++
++type BBNotePublication struct {
++	Revision BBNoteRevision
++	Modified time.Time
++	Size     int64
++}
++
++// ReplaceBBNote uses an already-authenticated, scope-bound filesystem selected
++// by the BB worker. This method is not a stock backend command.
++func (f *Fs) ReplaceBBNote(ctx context.Context, remote string, base BBNoteRevision, data []byte) (BBNotePublication, error) {
++	return f.ReplaceBBNoteWithDispatch(ctx, remote, base, data, nil)
++}
++
++func (f *Fs) ReplaceBBNoteWithDispatch(ctx context.Context, remote string, base BBNoteRevision, data []byte, dispatch func() error) (BBNotePublication, error) {
++	var out BBNotePublication
++	if !validBBIntent(remote, base, data) {
++		return out, api.ErrConditionalRefused
++	}
++	original, previous, err := f.readBBNoteRevision(ctx, remote)
++	if err != nil || !bbRevisionMatches(base, original, previous) {
++		return out, api.ErrConditionalConflict
++	}
++
++	zone := api.ZoneFromDriveID(original.Drivewsid)
++	name := original.FullName()
++	slot, _, err := f.service.CreateUpload(ctx, int64(len(data)), name, zone)
++	if err != nil || slot == nil || slot.URL == "" {
++		return out, api.ErrConditionalRefused
++	}
++	upload, _, err := f.service.Upload(ctx, bytes.NewReader(data), int64(len(data)), name, slot.URL)
++	if err != nil || upload == nil || upload.SingleFile == nil ||
++		upload.SingleFile.Size != int64(len(data)) || upload.SingleFile.Signature == "" {
++		return out, api.ErrConditionalRefused
++	}
++
++	// Open a new exact-name observation after staging. Keep the initial
++	// revision as the conditional version in the publication itself.
++	before, beforeBytes, err := f.readBBNoteRevision(ctx, remote)
++	if err != nil || !bbRevisionMatches(base, before, beforeBytes) {
++		return out, api.ErrConditionalConflict
++	}
++	if dispatch != nil {
++		if err := dispatch(); err != nil {
++			return out, api.ErrConditionalUnconfirmed
++		}
++	}
++	published, publishErr := f.service.PublishConditionalNote(ctx, *original, base.ParentID, name, *upload.SingleFile, time.Now())
++	if errors.Is(publishErr, api.ErrConditionalConflict) || errors.Is(publishErr, api.ErrConditionalRefused) {
++		return out, publishErr
++	}
++	updated, uploaded, err := f.readBBNoteRevision(ctx, remote)
++	if err != nil || !sameBBIdentity(base, updated) || updated.Etag == base.ETag ||
++		(published != nil && published.Etag != "" && published.Etag != updated.Etag) || !bytes.Equal(data, uploaded) {
++		return out, api.ErrConditionalUnconfirmed
++	}
++	return BBNotePublication{
++		Revision: BBNoteRevision{updated.Drivewsid, updated.ParentID, updated.Etag, sha256.Sum256(data)},
++		Modified: updated.DateModified,
++		Size:     int64(len(data)),
++	}, nil
++}
++
++func validBBIntent(remote string, base BBNoteRevision, data []byte) bool {
++	return remote != "." && path.Clean(remote) == remote && !path.IsAbs(remote) &&
++		!strings.HasPrefix(remote, "../") && !strings.ContainsAny(remote, "\\\x00\r\n") &&
++		strings.HasSuffix(remote, ".md") &&
++		base.DriveID != "" && base.ParentID != "" && base.ETag != "" && len(data) > 0 && len(data) <= bbMarkdownLimit
++}
++
++func sameBBIdentity(base BBNoteRevision, item *api.DriveItem) bool {
++	return item != nil && item.Drivewsid == base.DriveID && item.ParentID == base.ParentID && item.Etag != ""
++}
++
++func bbRevisionMatches(base BBNoteRevision, item *api.DriveItem, data []byte) bool {
++	return sameBBIdentity(base, item) && item.Etag == base.ETag && sha256.Sum256(data) == base.Hash
++}
++
++func (f *Fs) readBBNoteRevision(ctx context.Context, remote string) (*api.DriveItem, []byte, error) {
++	leaf, folder, _, err := f.FindPath(ctx, remote, false)
++	if err != nil {
++		return nil, nil, err
++	}
++	// The name and parent identity are checked again after the directory lookup.
++	item, found, err := f.findLeafItem(ctx, folder, leaf)
++	if err != nil || !found || item == nil || item.ParentID != folder || item.Type != "FILE" ||
++		norm.NFC.String(item.FullName()) != norm.NFC.String(leaf) || item.Etag == "" || item.Size < 1 || item.Size > bbMarkdownLimit {
++		return nil, nil, api.ErrConditionalConflict
++	}
++	obj, err := f.NewObjectFromDriveItem(ctx, remote, item)
++	if err != nil {
++		return nil, nil, err
++	}
++	stream, err := obj.Open(ctx)
++	if err != nil {
++		return nil, nil, err
++	}
++	defer stream.Close()
++	data, err := io.ReadAll(io.LimitReader(stream, bbMarkdownLimit+1))
++	if err != nil {
++		return nil, nil, err
++	}
++	if len(data) > bbMarkdownLimit || int64(len(data)) != item.Size {
++		return nil, nil, api.ErrConditionalUnconfirmed
++	}
++	return item, data, nil
++}
++
++// BBListedIdentity exposes the provider revision already present in the
++// directory response. It does not query or download note contents.
++func (o *Object) BBListedIdentity() (driveID, parentID, etag string) {
++	return o.driveID, o.bbParentID, o.etag
++}
++
++// BBMirrorBinding reports the authenticated root's exact provider identity.
++func (f *Fs) BBMirrorBinding(ctx context.Context) (string, error) {
++	if f.name != "icloud" || f.root == "" {
++		return "", api.ErrConditionalRefused
++	}
++	folder, _, err := f.FindDir(ctx, "", false)
++	if err != nil {
++		return "", api.ErrConditionalUnconfirmed
++	}
++	kind, zone, doc := api.DeconstructDriveID(folder)
++	if (kind != "FOLDER" && kind != "APP_LIBRARY") || zone == "" || doc == "" {
++		return "", api.ErrConditionalRefused
++	}
++	return folder, nil
++}
++
++// InspectBBNote reads only the bound note and projects its current revision.
++func (f *Fs) InspectBBNote(ctx context.Context, remote string) (BBNotePublication, error) {
++	placeholder := BBNoteRevision{DriveID: "scope", ParentID: "scope", ETag: "scope"}
++	if !validBBIntent(remote, placeholder, []byte{1}) {
++		return BBNotePublication{}, api.ErrConditionalRefused
++	}
++	item, contents, err := f.readBBNoteRevision(ctx, remote)
++	if err != nil {
++		return BBNotePublication{}, err
++	}
++	return BBNotePublication{Revision: BBNoteRevision{item.Drivewsid, item.ParentID, item.Etag, sha256.Sum256(contents)},
++		Modified: item.DateModified, Size: item.Size}, nil
++}
+--- /dev/null
++++ b/backend/iclouddrive/bb_note_replace_test.go
+@@ -0,0 +1,43 @@
++package iclouddrive
++
++import (
++	"crypto/sha256"
++	"testing"
++
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++)
++
++func TestBBRevisionRejectsSameNameRecreation(t *testing.T) {
++	bytes := []byte("# Existing note\n")
++	base := BBNoteRevision{"existing-drive-id", "existing-parent", "etag-1", sha256.Sum256(bytes)}
++	item := api.DriveItem{Drivewsid: base.DriveID, ParentID: base.ParentID, Etag: base.ETag}
++	if !bbRevisionMatches(base, &item, bytes) {
++		t.Fatal("matching revision rejected")
++	}
++	changed := item
++	changed.Drivewsid = "recreated-drive-id"
++	if bbRevisionMatches(base, &changed, bytes) {
++		t.Fatal("a same-name recreation matched prior identity")
++	}
++	changed = item
++	changed.ParentID = "different-parent"
++	if bbRevisionMatches(base, &changed, bytes) {
++		t.Fatal("a different parent matched prior identity")
++	}
++	changed = item
++	changed.Etag = "etag-2"
++	if bbRevisionMatches(base, &changed, bytes) {
++		t.Fatal("a later ETag matched")
++	}
++	if bbRevisionMatches(base, &item, []byte("# Changed bytes\n")) {
++		t.Fatal("different bytes matched")
++	}
++	for _, invalid := range []string{"../other.md", "/absolute.md", "folder/../note.md", "other.txt", "embedded\nname.md"} {
++		if validBBIntent(invalid, base, bytes) {
++			t.Fatal("unexpected valid path")
++		}
++	}
++	if !validBBIntent("Vault/Note.md", base, bytes) {
++		t.Fatal("valid note rejected")
++	}
++}
+--- a/cmd/bisync/operations.go
++++ b/cmd/bisync/operations.go
+@@ -201,0 +202,3 @@
++			if opt.bbBeforeScan != nil {
++				return errBBManagedScanRetryable
++			}
+@@ -276,0 +280,6 @@
++	}
++
++	if opt.bbBeforeScan != nil {
++		if err := opt.bbBeforeScan(fctx, b); err != nil {
++			return err
++		}
+@@ -318,0 +328,17 @@
++	if opt.bbMutationLock != "" {
++		release, lockErr := bbAcquireMutationPhase(fctx, opt.bbMutationLock)
++		if lockErr != nil {
++			return lockErr
++		}
++		defer func() {
++			if releaseErr := release(); err == nil {
++				err = releaseErr
++			}
++		}()
++	}
++	if opt.beforeDeltas != nil {
++		if err = opt.beforeDeltas(fctx, b); err != nil {
++			return err
++		}
++	}
++
+@@ -458,0 +485,5 @@
++	if opt.bbAfterSync != nil {
++		if err := opt.bbAfterSync(fctx, b); err != nil {
++			return err
++		}
++	}
+--- a/cmd/bisync/cmd.go
++++ b/cmd/bisync/cmd.go
+@@ -33,0 +34,7 @@
++	// Prototype-only in-process checkpoint, unreachable from stock CLI or RC.
++	// No content transfer can start before it returns.
++	beforeDeltas          func(context.Context, *bisyncRun) error
++	bbAfterSync           func(context.Context, *bisyncRun) error
++	bbBeforeScan          func(context.Context, *bisyncRun) error
++	bbReadVersions        bool
++	bbMutationLock        string
+@@ -119,0 +127 @@
++var bbManagedBinding string
+@@ -124,0 +133,3 @@
++	flags.StringVarP(cmdFlags, &bbManagedBinding, "bb-managed-binding", "", "", "Use the BB-owned two-way note sync protocol.", "")
++	_ = cmdFlags.MarkHidden("bb-managed-binding")
++
+@@ -195 +206,24 @@
+-			err := Bisync(ctx, fs1, fs2, &opt)
++			var err error
++			if bbManagedBinding == "" {
++				err = Bisync(ctx, fs1, fs2, &opt)
++			} else {
++				bound, ok := fs1.(interface {
++					BBMirrorBinding(context.Context) (string, error)
++				})
++				if !ok {
++					return fserrors.FatalError(errBBInvalidDelivery)
++				}
++				binding, bindErr := bound.BBMirrorBinding(ctx)
++				if bindErr != nil || binding != bbManagedBinding {
++					return fserrors.FatalError(errBBInvalidDelivery)
++				}
++				err = BBManagedBisync(ctx, fs1, fs2, opt, binding)
++				if errors.Is(err, ErrBBDeliveryUnsettled) || errors.Is(err, errBBLocalSuperseded) || errors.Is(err, errBBIndistinguishableRemote) {
++					// Bisync has released its locks and has started no sync
++					// mutations. The pinned BB host recognizes this wait code.
++					os.Exit(42)
++				}
++				if errors.Is(err, errBBManagedScanRetryable) {
++					os.Exit(43)
++				}
++			}
+--- a/cmd/bisync/march.go
++++ b/cmd/bisync/march.go
+@@ -23,0 +24 @@
++	bbIdentities   map[string]bbIndexedCloudObservation
+@@ -125,0 +127,3 @@
++	if b.opt.bbReadVersions {
++		b.march.bbIdentities = make(map[string]bbIndexedCloudObservation)
++	}
+@@ -169,0 +174,5 @@
++	if isPath1 && b.march.bbIdentities != nil {
++		if version, ok := bbCloudVersionFrom(b.march.marchCtx, o); ok {
++			b.march.bbIdentities[o.Remote()] = version
++		}
++	}
+--- /dev/null
++++ b/cmd/bisync/bb_baseline_pair.go
+@@ -0,0 +1,172 @@
++package bisync
++
++import (
++	"crypto/sha256"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"os"
++	"path/filepath"
++	"strings"
++
++	"golang.org/x/sys/unix"
++)
++
++const bbListingLimit = 16 << 20
++const bbJournalLimit = 48 << 20
++
++var errBBListingChanged = errors.New("paired sync listings changed outside the recorded transaction")
++
++type bbListingPairJournal struct {
++	Version int
++	Before  [2][sha256.Size]byte
++	After   [2][]byte
++}
++
++type bbListingPair struct {
++	directory string
++	listings  [2]string
++	journal   string
++}
++
++func bbPairFor(first, second string) (bbListingPair, error) {
++	stem, matched := strings.CutSuffix(filepath.Base(first), ".path1.lst")
++	if !matched || stem == "" || filepath.Base(second) != stem+".path2.lst" ||
++		!filepath.IsAbs(first) || !filepath.IsAbs(second) || filepath.Dir(first) != filepath.Dir(second) {
++		return bbListingPair{}, errors.New("expected the ordinary sync listing pair")
++	}
++	return bbListingPair{filepath.Dir(first), [2]string{first, second}, first + ".bb-pair-journal"}, nil
++}
++
++func bbReadBounded(path string, limit int) ([]byte, error) {
++	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
++	if err != nil {
++		return nil, err
++	}
++	file := os.NewFile(uintptr(fd), path)
++	defer file.Close()
++	stat, err := file.Stat()
++	if err != nil {
++		return nil, err
++	}
++	if !stat.Mode().IsRegular() || stat.Size() > int64(limit) {
++		return nil, errors.New("listing exceeds its bounds")
++	}
++	data, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
++	if err != nil {
++		return nil, err
++	}
++	if len(data) > limit {
++		return nil, errors.New("listing exceeds its bounds")
++	}
++	return data, nil
++}
++
++// Stage an already checked pair before either listing can change. This and
++// recover both require the same native owner and a drained mutation phase.
++func (p bbListingPair) begin(expected [2][sha256.Size]byte, after [2][]byte) error {
++	if err := p.verifyCurrent(expected, expected); err != nil {
++		return err
++	}
++	for _, data := range after {
++		if len(data) == 0 || len(data) > bbListingLimit {
++			return errors.New("replacement listing exceeds its bounds")
++		}
++	}
++	contents, err := json.Marshal(bbListingPairJournal{1, expected, after})
++	if err != nil {
++		return err
++	}
++	return p.publishFile(p.journal, contents, true)
++}
++
++func (p bbListingPair) verifyCurrent(before, after [2][sha256.Size]byte) error {
++	for i, path := range p.listings {
++		data, err := bbReadBounded(path, bbListingLimit)
++		if err != nil {
++			return err
++		}
++		observed := sha256.Sum256(data)
++		if observed != before[i] && observed != after[i] {
++			return errBBListingChanged
++		}
++	}
++	return nil
++}
++
++// Recover is idempotent across a stop after either replacement. It will not
++// modify either side if one has advanced to a version absent from the journal.
++func (p bbListingPair) recover(afterStep func(int) error) error {
++	raw, err := bbReadBounded(p.journal, bbJournalLimit)
++	if errors.Is(err, os.ErrNotExist) {
++		return nil
++	}
++	if err != nil {
++		return err
++	}
++	var record bbListingPairJournal
++	if err := json.Unmarshal(raw, &record); err != nil || record.Version != 1 {
++		return errors.New("invalid paired listing journal")
++	}
++	var after [2][sha256.Size]byte
++	for i, data := range record.After {
++		if len(data) == 0 || len(data) > bbListingLimit {
++			return errors.New("invalid replacement listing")
++		}
++		after[i] = sha256.Sum256(data)
++	}
++	if err := p.verifyCurrent(record.Before, after); err != nil {
++		return err
++	}
++	for i, listing := range p.listings {
++		if err := p.publishFile(listing, record.After[i], false); err != nil {
++			return err
++		}
++		if afterStep != nil {
++			if err := afterStep(i); err != nil {
++				return err
++			}
++		}
++	}
++	if err := p.verifyCurrent(after, after); err != nil {
++		return err
++	}
++	if err := os.Remove(p.journal); err != nil {
++		return err
++	}
++	return p.sync()
++}
++
++func (p bbListingPair) publishFile(destination string, data []byte, exclusive bool) error {
++	temp, err := os.CreateTemp(p.directory, ".bb-listing-stage-")
++	if err != nil {
++		return err
++	}
++	defer os.Remove(temp.Name())
++	n, writeErr := temp.Write(data)
++	if n != len(data) && writeErr == nil {
++		writeErr = io.ErrShortWrite
++	}
++	err = errors.Join(writeErr, temp.Sync(), temp.Close())
++	if err != nil {
++		return err
++	}
++	if exclusive {
++		err = os.Link(temp.Name(), destination)
++	} else {
++		err = os.Rename(temp.Name(), destination)
++	}
++	if err != nil {
++		return fmt.Errorf("publish sync listing state: %w", err)
++	}
++	return p.sync()
++}
++
++func (p bbListingPair) sync() error {
++	dir, err := os.Open(p.directory)
++	if err != nil {
++		return err
++	}
++	return errors.Join(dir.Sync(), dir.Close())
++}
+--- /dev/null
++++ b/cmd/bisync/bb_baseline_pair_test.go
+@@ -0,0 +1,137 @@
++package bisync
++
++import (
++	"crypto/sha256"
++	"errors"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"testing"
++)
++
++func TestBBPairedListingRecovery(t *testing.T) {
++	for _, interrupted := range []int{-1, 0, 1} {
++		for _, foreign := range []bool{false, true} {
++			dir := t.TempDir()
++			first, second := filepath.Join(dir, "generated.path1.lst"), filepath.Join(dir, "generated.path2.lst")
++			p, err := bbPairFor(first, second)
++			if err != nil {
++				t.Fatal(err)
++			}
++			var original [2][sha256.Size]byte
++			next := [2][]byte{[]byte("new cloud listing"), []byte("new BB listing")}
++			for i, filename := range p.listings {
++				prior := []byte(filename)
++				if err := os.WriteFile(filename, prior, 0600); err != nil {
++					t.Fatal(err)
++				}
++				original[i] = sha256.Sum256(prior)
++			}
++			if err := p.begin(original, next); err != nil {
++				t.Fatal(err)
++			}
++			if err := p.begin(original, next); !errors.Is(err, os.ErrExist) {
++				t.Fatalf("existing journal was replaced: %v", err)
++			}
++			stop := errors.New("injected interruption")
++			if interrupted >= 0 {
++				err = p.recover(func(i int) error {
++					if i == interrupted {
++						return stop
++					}
++					return nil
++				})
++				if !errors.Is(err, stop) {
++					t.Fatalf("did not simulate interruption: %v", err)
++				}
++			}
++			if foreign {
++				if err := os.WriteFile(second, []byte("external replacement"), 0600); err != nil {
++					t.Fatal(err)
++				}
++				firstBefore, err := os.ReadFile(first)
++				if err != nil {
++					t.Fatal(err)
++				}
++				if err := p.recover(nil); !errors.Is(err, errBBListingChanged) {
++					t.Fatalf("failed to reject external replacement: %v", err)
++				}
++				firstAfter, err := os.ReadFile(first)
++				if err != nil {
++					t.Fatal(err)
++				}
++				if string(firstAfter) != string(firstBefore) {
++					t.Fatal("first listing changed after refused transaction")
++				}
++				if _, err := os.Stat(p.journal); err != nil {
++					t.Fatal(err)
++				}
++			} else {
++				for range 2 {
++					if err := p.recover(nil); err != nil {
++						t.Fatal(err)
++					}
++				}
++				for i, filename := range p.listings {
++					actual, err := os.ReadFile(filename)
++					if err != nil || string(actual) != string(next[i]) {
++						t.Fatalf("listing did not recover: %v", err)
++					}
++				}
++				if _, err := os.Stat(p.journal); !errors.Is(err, os.ErrNotExist) {
++					t.Fatalf("journal left after recovery: %v", err)
++				}
++			}
++		}
++	}
++}
++
++func TestBBPairRecoversAfterProcessExit(t *testing.T) {
++	const worker = "BB_FIXTURE_PAIR_INTERRUPTION_DIR"
++	if dir := os.Getenv(worker); dir != "" {
++		pair, err := bbPairFor(filepath.Join(dir, "paired.path1.lst"), filepath.Join(dir, "paired.path2.lst"))
++		if err != nil {
++			t.Fatal(err)
++		}
++		err = pair.recover(func(i int) error {
++			if i == 0 {
++				os.Exit(73)
++			}
++			return nil
++		})
++		t.Fatalf("child did not exit between listing replacements: %v", err)
++	}
++	dir := t.TempDir()
++	pair, err := bbPairFor(filepath.Join(dir, "paired.path1.lst"), filepath.Join(dir, "paired.path2.lst"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	prior := [2][]byte{[]byte("cloud-before"), []byte("bb-before")}
++	next := [2][]byte{[]byte("cloud-after"), []byte("bb-after")}
++	for i := range prior {
++		if err := os.WriteFile(pair.listings[i], prior[i], 0600); err != nil {
++			t.Fatal(err)
++		}
++	}
++	before := [2][sha256.Size]byte{sha256.Sum256(prior[0]), sha256.Sum256(prior[1])}
++	if err := pair.begin(before, next); err != nil {
++		t.Fatal(err)
++	}
++	child := exec.Command(os.Args[0], "-test.run=^TestBBPairRecoversAfterProcessExit$")
++	child.Env = append(os.Environ(), worker+"="+dir)
++	var exit *exec.ExitError
++	if err := child.Run(); !errors.As(err, &exit) || exit.ExitCode() != 73 {
++		t.Fatalf("unexpected child result: %v", err)
++	}
++	if err := pair.verifyCurrent([2][sha256.Size]byte{sha256.Sum256(next[0]), sha256.Sum256(prior[1])},
++		[2][sha256.Size]byte{sha256.Sum256(next[0]), sha256.Sum256(prior[1])}); err != nil {
++		t.Fatal(err)
++	}
++	if err := pair.recover(nil); err != nil {
++		t.Fatal(err)
++	}
++	if err := pair.verifyCurrent([2][sha256.Size]byte{sha256.Sum256(next[0]), sha256.Sum256(next[1])},
++		[2][sha256.Size]byte{sha256.Sum256(next[0]), sha256.Sum256(next[1])}); err != nil {
++		t.Fatal(err)
++	}
++}
+--- /dev/null
++++ b/cmd/bisync/bb_delivery_store.go
+@@ -0,0 +1,226 @@
++package bisync
++
++import (
++	"crypto/sha256"
++	"encoding/json"
++	"errors"
++	"os"
++	"path"
++	"path/filepath"
++	"regexp"
++	"slices"
++	"strings"
++	"time"
++)
++
++const bbDeliveryLimit = 256
++const bbDeliveryBytes = 1 << 20
++
++var bbOperationID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
++var ErrBBDeliveryUnsettled = errors.New("an expedited iCloud publication still needs verification")
++var errBBInvalidDelivery = errors.New("invalid expedited delivery record")
++
++type BBDeliveryIntent struct {
++	OperationID string
++	Path        string
++	Hash        [sha256.Size]byte
++	Create      bool
++}
++
++type BBDeliveryReceipt struct {
++	BBDeliveryIntent
++	Modified   time.Time
++	Size       int64
++	DocumentID string
++	ProviderID string
++	ETag       string
++}
++
++type bbDeliveryStore struct {
++	Version           int
++	Pending           *BBDeliveryIntent
++	Dispatched        bool
++	AllocatedDocument string
++	Applied           []BBDeliveryReceipt
++	Confirmed         []BBDeliveryReceipt
++}
++
++func bbDeliveryPath(workdir string) string { return filepath.Join(workdir, "bb-delivery-v1.json") }
++
++func validBBDelivery(intent BBDeliveryIntent) bool {
++	p := intent.Path
++	return bbOperationID.MatchString(intent.OperationID) && intent.Hash != ([sha256.Size]byte{}) &&
++		p != "." && len(p) <= 1024 && path.Clean(p) == p && !path.IsAbs(p) &&
++		!strings.HasPrefix(p, "../") && !strings.ContainsAny(p, "\\\x00\r\n") && strings.HasSuffix(p, ".md")
++}
++
++func readBBDeliveries(workdir string) (bbDeliveryStore, error) {
++	raw, err := bbReadBounded(bbDeliveryPath(workdir), bbDeliveryBytes)
++	if errors.Is(err, os.ErrNotExist) {
++		return bbDeliveryStore{Version: 1}, nil
++	}
++	if err != nil {
++		return bbDeliveryStore{}, err
++	}
++	var state bbDeliveryStore
++	if err := json.Unmarshal(raw, &state); err != nil || state.Version != 1 ||
++		len(state.Confirmed) > bbDeliveryLimit || len(state.Applied) > bbDeliveryLimit || (state.Pending == nil && state.Dispatched) || (state.Pending != nil && !validBBDelivery(*state.Pending)) {
++		return bbDeliveryStore{}, errBBInvalidDelivery
++	}
++	seen := map[string]bool{}
++	for _, receipt := range state.Confirmed {
++		if !validBBDelivery(receipt.BBDeliveryIntent) || seen[receipt.Path] || receipt.Modified.IsZero() ||
++			receipt.Size < 1 || receipt.Size > bbDeliveryBytes {
++			return bbDeliveryStore{}, errBBInvalidDelivery
++		}
++		seen[receipt.Path] = true
++	}
++	for _, receipt := range state.Applied {
++		if !validBBDelivery(receipt.BBDeliveryIntent) || receipt.Modified.IsZero() || receipt.Size < 1 || receipt.Size > bbDeliveryBytes {
++			return bbDeliveryStore{}, errBBInvalidDelivery
++		}
++	}
++	return state, nil
++}
++
++func (state bbDeliveryStore) write(workdir string) error {
++	raw, err := json.Marshal(state)
++	if err != nil {
++		return err
++	}
++	if !filepath.IsAbs(workdir) || len(raw) > bbDeliveryBytes {
++		return errBBInvalidDelivery
++	}
++	return (bbListingPair{directory: workdir}).publishFile(bbDeliveryPath(workdir), raw, false)
++}
++
++// All delivery state transitions run while the caller owns this mirror's
++// mutation lock. The intent is durable before any request can publish bytes.
++func BBBeginDelivery(workdir string, intent BBDeliveryIntent) error {
++	if !validBBDelivery(intent) {
++		return errBBInvalidDelivery
++	}
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return err
++	}
++	if state.Pending != nil {
++		return ErrBBDeliveryUnsettled
++	}
++	if len(state.Confirmed) == bbDeliveryLimit && !slices.ContainsFunc(state.Confirmed, func(r BBDeliveryReceipt) bool { return r.Path == intent.Path }) {
++		return ErrBBDeliveryUnsettled
++	}
++	state.Pending = &intent
++	return state.write(workdir)
++}
++
++// Resolve only from verified provider evidence. A definitive precondition
++// refusal is represented by a nil receipt; uncertain attempts stay pending.
++func BBResolveDelivery(workdir string, intent BBDeliveryIntent, receipt *BBDeliveryReceipt) error {
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return err
++	}
++	if state.Pending == nil || *state.Pending != intent {
++		return errBBInvalidDelivery
++	}
++	if receipt != nil {
++		if receipt.BBDeliveryIntent != intent || receipt.Modified.IsZero() || receipt.Size < 1 || receipt.Size > bbDeliveryBytes {
++			return errBBInvalidDelivery
++		}
++		recorded := *receipt
++		if intent.Create {
++			recorded.DocumentID = state.AllocatedDocument
++		}
++		receipt = &recorded
++		index := slices.IndexFunc(state.Confirmed, func(old BBDeliveryReceipt) bool { return old.Path == receipt.Path })
++		if index >= 0 {
++			// Keep the fact that this path may not exist in the prior listing until
++			// both listings have incorporated the earliest create receipt.
++			kept := *receipt
++			kept.Create = kept.Create || state.Confirmed[index].Create
++			state.Confirmed[index] = kept
++		} else {
++			state.Confirmed = append(state.Confirmed, *receipt)
++		}
++	}
++	state.Pending = nil
++	state.Dispatched = false
++	state.AllocatedDocument = ""
++	return state.write(workdir)
++}
++
++// BBDispatchDelivery is written after all precondition checks and immediately
++// before the conditional content publication request.
++func BBDispatchDelivery(workdir string, intent BBDeliveryIntent, allocated ...string) error {
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return err
++	}
++	if state.Pending == nil || *state.Pending != intent {
++		return errBBInvalidDelivery
++	}
++	if intent.Create {
++		if len(allocated) != 1 || allocated[0] == "" || len(allocated[0]) > 512 || state.Dispatched {
++			return errBBInvalidDelivery
++		}
++		state.AllocatedDocument = allocated[0]
++	}
++	state.Dispatched = true
++	return state.write(workdir)
++}
++
++func BBAllocatedDocument(workdir string, intent BBDeliveryIntent) (string, error) {
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return "", err
++	}
++	if !intent.Create {
++		return "", errBBInvalidDelivery
++	}
++	if state.Pending != nil && *state.Pending == intent && state.Dispatched && state.AllocatedDocument != "" {
++		return state.AllocatedDocument, nil
++	}
++	same := func(r BBDeliveryReceipt) bool {
++		return r.OperationID == intent.OperationID && r.Path == intent.Path && r.Hash == intent.Hash
++	}
++	for _, receipts := range [][]BBDeliveryReceipt{state.Confirmed, state.Applied} {
++		if i := slices.IndexFunc(receipts, same); i >= 0 && receipts[i].DocumentID != "" {
++			return receipts[i].DocumentID, nil
++		}
++	}
++	return "", errBBInvalidDelivery
++}
++
++type BBDeliveryStage string
++
++const (
++	BBDeliveryMissing    BBDeliveryStage = "missing"
++	BBDeliveryPrepared   BBDeliveryStage = "prepared"
++	BBDeliveryDispatched BBDeliveryStage = "dispatched"
++	BBDeliveryRecorded   BBDeliveryStage = "recorded"
++	BBDeliveryApplied    BBDeliveryStage = "applied"
++)
++
++func BBReadDeliveryStage(workdir string, intent BBDeliveryIntent) (BBDeliveryStage, error) {
++	state, err := readBBDeliveries(workdir)
++	if err != nil {
++		return "", err
++	}
++	if state.Pending != nil && *state.Pending == intent {
++		if state.Dispatched {
++			return BBDeliveryDispatched, nil
++		}
++		return BBDeliveryPrepared, nil
++	}
++	equal := func(r BBDeliveryReceipt) bool {
++		return r.OperationID == intent.OperationID && r.Path == intent.Path && r.Hash == intent.Hash
++	}
++	if slices.ContainsFunc(state.Confirmed, equal) {
++		return BBDeliveryRecorded, nil
++	}
++	if slices.ContainsFunc(state.Applied, equal) {
++		return BBDeliveryApplied, nil
++	}
++	return BBDeliveryMissing, nil
++}
+--- /dev/null
++++ b/cmd/bisync/bb_file_phase.go
+@@ -0,0 +1,49 @@
++package bisync
++
++import (
++	"context"
++	"errors"
++	"os"
++	"time"
++
++	"golang.org/x/sys/unix"
++)
++
++// Under the worker's existing generation ownership, both its scheduled and
++// expedited writers take this lock. The scheduled scan can read concurrently,
++// then it holds the lock from the listing refresh to completion of writes.
++func bbAcquireMutationPhase(ctx context.Context, path string) (func() error, error) {
++	fd, err := unix.Open(path, unix.O_CREAT|unix.O_RDWR|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0600)
++	if err != nil {
++		return nil, err
++	}
++	var stat unix.Stat_t
++	if err := unix.Fstat(fd, &stat); err != nil {
++		unix.Close(fd)
++		return nil, err
++	}
++	if stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1 || int(stat.Uid) != os.Getuid() || stat.Mode&0077 != 0 {
++		unix.Close(fd)
++		return nil, errors.New("mutation phase lock is not a private owned file")
++	}
++	tick := time.NewTicker(10 * time.Millisecond)
++	defer tick.Stop()
++	for {
++		if err := ctx.Err(); err != nil {
++			unix.Close(fd)
++			return nil, err
++		}
++		err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
++		if err == nil {
++			return func() error { return unix.Close(fd) }, nil
++		}
++		if !errors.Is(err, unix.EWOULDBLOCK) {
++			unix.Close(fd)
++			return nil, err
++		}
++		select {
++		case <-ctx.Done():
++		case <-tick.C:
++		}
++	}
++}
+--- /dev/null
++++ b/cmd/bisync/bb_listed_versions.go
+@@ -0,0 +1,27 @@
++package bisync
++
++import (
++	"context"
++	"strings"
++
++	"github.com/rclone/rclone/fs"
++)
++
++type bbVersionedObject interface {
++	BBListedIdentity() (documentID, parentID, etag string)
++}
++
++func bbCloudVersionFrom(ctx context.Context, obj fs.Object) (bbIndexedCloudObservation, bool) {
++	if !strings.HasSuffix(obj.Remote(), ".md") {
++		return bbIndexedCloudObservation{}, false
++	}
++	provider, ok := obj.(bbVersionedObject)
++	if !ok {
++		return bbIndexedCloudObservation{}, false
++	}
++	documentID, parentID, etag := provider.BBListedIdentity()
++	if documentID == "" || parentID == "" || etag == "" {
++		return bbIndexedCloudObservation{}, false
++	}
++	return bbIndexedCloudObservation{BBIndexedVersion{documentID, parentID, etag}, obj.Size(), obj.ModTime(ctx)}, true
++}
+--- /dev/null
++++ b/cmd/bisync/bb_local_receipt_time.go
+@@ -0,0 +1,75 @@
++package bisync
++
++import (
++	"crypto/sha256"
++	"errors"
++	"io"
++	"os"
++	"path"
++	"strings"
++	"time"
++
++	"golang.org/x/sys/unix"
++)
++
++var errBBLocalSuperseded = errors.New("published note has been superseded locally")
++
++// Normalize only the inode whose bytes were confirmed in iCloud. A rename or
++// an atomic note replacement cannot redirect the timestamp change.
++func bbConfirmLocalReceiptTime(root, relative string, digest [sha256.Size]byte, mtime time.Time, beforeTimestamp func()) error {
++	if path.Clean(relative) != relative || path.IsAbs(relative) || relative == "." ||
++		strings.HasPrefix(relative, "../") || !strings.HasSuffix(relative, ".md") || mtime.IsZero() {
++		return errBBLocalSuperseded
++	}
++	folder, err := unix.Open(root, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
++	if err != nil {
++		return err
++	}
++	defer func() { _ = unix.Close(folder) }()
++	parts := strings.Split(relative, "/")
++	for _, part := range parts[:len(parts)-1] {
++		next, err := unix.Openat(folder, part, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_DIRECTORY, 0)
++		if err != nil {
++			return err
++		}
++		_ = unix.Close(folder)
++		folder = next
++	}
++	leaf := parts[len(parts)-1]
++	fd, err := unix.Openat(folder, leaf, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
++	if err != nil {
++		return err
++	}
++	file := os.NewFile(uintptr(fd), leaf)
++	defer file.Close()
++	stat, err := file.Stat()
++	if err != nil || !stat.Mode().IsRegular() || stat.Size() > 1<<20 {
++		return errBBLocalSuperseded
++	}
++	verify := func() error {
++		if _, err := file.Seek(0, io.SeekStart); err != nil {
++			return err
++		}
++		contents, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
++		if err != nil || len(contents) > 1<<20 || sha256.Sum256(contents) != digest {
++			return errBBLocalSuperseded
++		}
++		var bound, endpoint unix.Stat_t
++		if unix.Fstat(fd, &bound) != nil || unix.Fstatat(folder, leaf, &endpoint, unix.AT_SYMLINK_NOFOLLOW) != nil ||
++			bound.Dev != endpoint.Dev || bound.Ino != endpoint.Ino || bound.Size != endpoint.Size || bound.Mtim != endpoint.Mtim || bound.Ctim != endpoint.Ctim {
++			return errBBLocalSuperseded
++		}
++		return nil
++	}
++	if err := verify(); err != nil {
++		return err
++	}
++	if beforeTimestamp != nil {
++		beforeTimestamp()
++	}
++	touched := unix.NsecToTimeval(mtime.UnixNano())
++	if err := unix.Futimes(fd, []unix.Timeval{touched, touched}); err != nil {
++		return err
++	}
++	return verify()
++}
+--- /dev/null
++++ b/cmd/bisync/bb_local_receipt_time_test.go
+@@ -0,0 +1,52 @@
++package bisync
++
++import (
++	"crypto/sha256"
++	"errors"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++func TestBBReceiptTimestampCannotRetargetAReplacement(t *testing.T) {
++	root := t.TempDir()
++	note := filepath.Join(root, "note.md")
++	contents := []byte("verified provider bytes")
++	if err := os.WriteFile(note, contents, 0600); err != nil {
++		t.Fatal(err)
++	}
++	target := time.Unix(1705012323, 0)
++	if err := bbConfirmLocalReceiptTime(root, "note.md", sha256.Sum256(contents), target, nil); err != nil {
++		t.Fatal(err)
++	}
++	got, err := os.Stat(note)
++	if err != nil || !got.ModTime().Equal(target) {
++		t.Fatalf("verified timestamp was not adopted: %v", err)
++	}
++
++	replacement := filepath.Join(root, "replacement")
++	later := target.Add(90 * time.Second)
++	if err := os.WriteFile(replacement, []byte("later BB save"), 0600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Chtimes(replacement, later, later); err != nil {
++		t.Fatal(err)
++	}
++	fresh := func() {
++		if err := os.Rename(replacement, note); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := bbConfirmLocalReceiptTime(root, "note.md", sha256.Sum256(contents), target, fresh); !errors.Is(err, errBBLocalSuperseded) {
++		t.Fatalf("later note was not detected: %v", err)
++	}
++	got, err = os.Stat(note)
++	if err != nil || !got.ModTime().Equal(later) {
++		t.Fatalf("retimestamp affected newer note: %v", err)
++	}
++	actual, err := os.ReadFile(note)
++	if err != nil || string(actual) != "later BB save" {
++		t.Fatalf("newer bytes were changed: %v", err)
++	}
++}
+--- /dev/null
++++ b/cmd/bisync/bb_refresh.go
+@@ -0,0 +1,53 @@
++package bisync
++
++import (
++	"context"
++	"errors"
++	"path"
++	"strings"
++
++	"github.com/rclone/rclone/fs"
++	"github.com/rclone/rclone/fs/hash"
++)
++
++// refreshPublishedPath discards just the scanned observations that may
++// predate a fast publication. The owner is responsible for fencing writers
++// and verifying the corresponding previous listings first.
++func (b *bisyncRun) refreshPublishedPath(ctx context.Context, name string) error {
++	if name == "." || name == "" || path.Clean(name) != name || !strings.HasSuffix(name, ".md") ||
++		strings.HasPrefix(name, "/") || strings.HasPrefix(name, "../") || b.aliases.Alias(name) != name {
++		return errors.New("path requires full reconciliation")
++	}
++	sides := []struct {
++		files   fs.Fs
++		listing *fileList
++		output  string
++	}{
++		{b.fs1, b.march.ls1, b.newListing1},
++		{b.fs2, b.march.ls2, b.newListing2},
++	}
++	for _, side := range sides {
++		if side.listing.hash != hash.None || side.listing.isDir(name) {
++			return errors.New("listing requires full reconciliation")
++		}
++		obj, err := side.files.NewObject(ctx, name)
++		if errors.Is(err, fs.ErrorObjectNotFound) {
++			side.listing.remove(name)
++			continue
++		}
++		if err != nil {
++			return err
++		}
++		if obj.Remote() != name {
++			return errors.New("file identity requires full reconciliation")
++		}
++		side.listing.remove(name)
++		side.listing.put(name, obj.Size(), obj.ModTime(ctx).In(TZ), "", "", "-")
++	}
++	for _, side := range sides {
++		if err := side.listing.save(side.output); err != nil {
++			return err
++		}
++	}
++	return nil
++}
+--- /dev/null
++++ b/cmd/bisync/bb_refresh_test.go
+@@ -0,0 +1,246 @@
++package bisync
++
++import (
++	"context"
++	"crypto/sha256"
++	"errors"
++	"os"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/rclone/rclone/backend/local"
++	"github.com/rclone/rclone/fs"
++	"github.com/rclone/rclone/fs/config/configmap"
++)
++
++type capturedScan struct {
++	fs.Fs
++	captured atomic.Bool
++	seen     chan<- struct{}
++	resume   <-chan struct{}
++}
++
++func (f *capturedScan) List(ctx context.Context, name string) (fs.DirEntries, error) {
++	entries, err := f.Fs.List(ctx, name)
++	if name != "" || err != nil || !f.captured.CompareAndSwap(false, true) {
++		return entries, err
++	}
++	select {
++	case f.seen <- struct{}{}:
++	case <-ctx.Done():
++		return nil, ctx.Err()
++	}
++	select {
++	case <-f.resume:
++		return entries, nil
++	case <-ctx.Done():
++		return nil, ctx.Err()
++	}
++}
++
++func TestBBFastPublicationDuringReadOnlyScan(t *testing.T) {
++	for _, scenario := range []string{"unchanged", "mac edit", "mac delete", "bb edit", "interrupted pair then mac delete"} {
++		t.Run(scenario, func(t *testing.T) {
++			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
++			defer cancel()
++			cloudRoot, bbRoot := t.TempDir(), t.TempDir()
++			cloud, err := local.NewFs(ctx, "local", cloudRoot, configmap.Simple{})
++			if err != nil {
++				t.Fatal(err)
++			}
++			bb, err := local.NewFs(ctx, "local", bbRoot, configmap.Simple{})
++			if err != nil {
++				t.Fatal(err)
++			}
++
++			note := "note.md"
++			original := "original"
++			delivered := "delivered by BB"
++			laterMac := "later Mac edit"
++			laterBB := "later BB edit"
++			baseTime := time.Unix(1700000000, 0)
++			fastTime := baseTime.Add(20 * time.Second)
++			laterTime := baseTime.Add(40 * time.Second)
++			write := func(root, name, value string, timestamp time.Time) {
++				filename := filepath.Join(root, name)
++				if err := os.WriteFile(filename, []byte(value), 0600); err != nil {
++					t.Fatal(err)
++				}
++				if err := os.Chtimes(filename, timestamp, timestamp); err != nil {
++					t.Fatal(err)
++				}
++			}
++			for _, folder := range []string{cloudRoot, bbRoot} {
++				write(folder, note, original, baseTime)
++				for _, witness := range []string{"a.md", "b.md", "c.md"} {
++					write(folder, witness, "witness", baseTime)
++				}
++			}
++
++			options := Options{Workdir: t.TempDir(), CompareFlag: "size,modtime", MaxDelete: 50,
++				ConflictSuffixFlag: "icloud-conflict,bb-conflict", CheckSync: CheckSyncTrue, Resync: true}
++			if err := Bisync(ctx, cloud, bb, &options); err != nil {
++				t.Fatal(err)
++			}
++			options.Resync = false
++			options.bbMutationLock = filepath.Join(options.Workdir, "scan-mutation.lock")
++			scheduledEntered := make(chan struct{})
++			seen, resume := make(chan struct{}, 2), make(chan struct{})
++			options.beforeDeltas = func(ctx context.Context, b *bisyncRun) error {
++				close(scheduledEntered)
++				pair, err := bbPairFor(b.listing1, b.listing2)
++				if err != nil {
++					return err
++				}
++				var before [2][sha256.Size]byte
++				var after [2][]byte
++				for i, file := range pair.listings {
++					raw, err := bbReadBounded(file, bbListingLimit)
++					if err != nil {
++						return err
++					}
++					before[i] = sha256.Sum256(raw)
++					old, err := b.loadListing(file)
++					if err != nil {
++						return err
++					}
++					old.remove(note)
++					old.put(note, int64(len(delivered)), fastTime, "", "", "-")
++					path := filepath.Join(b.workDir, filepath.Base(file)+".generated-proposal")
++					if err := old.save(path); err != nil {
++						return err
++					}
++					after[i], err = bbReadBounded(path, bbListingLimit)
++					if err != nil {
++						return err
++					}
++					if err := os.Remove(path); err != nil {
++						return err
++					}
++				}
++				if err := pair.begin(before, after); err != nil {
++					return err
++				}
++				if scenario == "interrupted pair then mac delete" {
++					stop := errors.New("terminated after first listing")
++					err := pair.recover(func(int) error { return stop })
++					if !errors.Is(err, stop) {
++						return errors.New("interruption was not injected")
++					}
++				}
++				if err := pair.recover(nil); err != nil {
++					return err
++				}
++				return b.refreshPublishedPath(ctx, note)
++			}
++			done := make(chan error, 1)
++			go func() {
++				done <- Bisync(ctx, &capturedScan{Fs: cloud, seen: seen, resume: resume}, &capturedScan{Fs: bb, seen: seen, resume: resume}, &options)
++			}()
++			for range 2 {
++				select {
++				case <-seen:
++				case err := <-done:
++					t.Fatalf("sync quit before collecting listings: %v", err)
++				case <-ctx.Done():
++					t.Fatal(ctx.Err())
++				}
++			}
++
++			release, err := bbAcquireMutationPhase(ctx, options.bbMutationLock)
++			if err != nil {
++				t.Fatal(err)
++			}
++			stillHeld := true
++			defer func() {
++				if stillHeld {
++					_ = release()
++				}
++			}()
++			write(bbRoot, note, delivered, fastTime)
++			write(cloudRoot, note, delivered, fastTime)
++			switch scenario {
++			case "mac edit":
++				write(cloudRoot, note, laterMac, laterTime)
++			case "mac delete", "interrupted pair then mac delete":
++				if err := os.Remove(filepath.Join(cloudRoot, note)); err != nil {
++					t.Fatal(err)
++				}
++			case "bb edit":
++				write(bbRoot, note, laterBB, laterTime)
++			}
++			close(resume)
++			select {
++			case <-scheduledEntered:
++				t.Fatal("scheduled writer entered while fast publication still owned the lock")
++			case <-time.After(25 * time.Millisecond):
++			}
++			if err := release(); err != nil {
++				t.Fatal(err)
++			}
++			stillHeld = false
++			if err := <-done; err != nil {
++				t.Fatal(err)
++			}
++			for _, folder := range []string{cloudRoot, bbRoot} {
++				value, err := os.ReadFile(filepath.Join(folder, note))
++				switch scenario {
++				case "unchanged":
++					if err != nil || string(value) != delivered {
++						t.Fatalf("fast delivery lost: %v", err)
++					}
++				case "mac delete", "interrupted pair then mac delete":
++					if !errors.Is(err, os.ErrNotExist) {
++						t.Fatal("Mac deletion did not propagate")
++					}
++				case "mac edit":
++					if err != nil || string(value) != laterMac {
++						t.Fatal("Mac edit did not propagate")
++					}
++				case "bb edit":
++					if err != nil || string(value) != laterBB {
++						t.Fatal("BB edit did not propagate")
++					}
++				}
++			}
++		})
++	}
++}
++
++func TestBBExpeditedAndScheduledWritesShareOneMutationPhase(t *testing.T) {
++	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
++	defer cancel()
++	safeLock := filepath.Join(t.TempDir(), "private.lock")
++	release, err := bbAcquireMutationPhase(ctx, safeLock)
++	if err != nil {
++		t.Fatal(err)
++	}
++	short, stop := context.WithTimeout(ctx, 50*time.Millisecond)
++	defer stop()
++	if other, err := bbAcquireMutationPhase(short, safeLock); !errors.Is(err, context.DeadlineExceeded) {
++		if other != nil {
++			_ = other()
++		}
++		t.Fatalf("concurrent writer entered: %v", err)
++	}
++	if err := release(); err != nil {
++		t.Fatal(err)
++	}
++	release, err = bbAcquireMutationPhase(ctx, safeLock)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := release(); err != nil {
++		t.Fatal(err)
++	}
++	unsafe := filepath.Join(t.TempDir(), "foreign.lock")
++	if err := os.Symlink(safeLock, unsafe); err != nil {
++		t.Fatal(err)
++	}
++	if release, err := bbAcquireMutationPhase(ctx, unsafe); err == nil {
++		_ = release()
++		t.Fatal("symlink was used as a lock")
++	}
++}
+--- /dev/null
++++ b/cmd/bisync/bb_managed_scan.go
+@@ -0,0 +1,172 @@
++package bisync
++
++import (
++	"context"
++	"crypto/sha256"
++	"errors"
++	"io"
++	"os"
++	"path/filepath"
++
++	"github.com/rclone/rclone/fs"
++)
++
++const BBMutationLockName = "bb-managed-mutation.lock"
++
++var errBBIndistinguishableRemote = errors.New("a later iCloud revision has identical listing metadata")
++var errBBManagedScanRetryable = errors.New("managed bisync stopped before a retryable failure")
++
++// BBManagedBisync shares the mutation phase fence with expedited writes.
++// There is no ordinary-bisync fallback after a mirror starts using this mode.
++func BBManagedBisync(ctx context.Context, cloud, local fs.Fs, options Options, binding ...string) error {
++	if options.Resync || options.DryRun || options.CheckSync != CheckSyncTrue || !filepath.IsAbs(options.Workdir) ||
++		options.CompareFlag != "size,modtime" {
++		return errors.New("unsupported managed bisync options")
++	}
++	if len(binding) == 1 && binding[0] != "" {
++		options.bbReadVersions = true
++		options.bbAfterSync = func(ctx context.Context, b *bisyncRun) error { return b.writeBBVersionIndex(ctx, binding[0]) }
++	}
++	options.bbMutationLock = filepath.Join(options.Workdir, BBMutationLockName)
++	options.bbBeforeScan = func(ctx context.Context, b *bisyncRun) error {
++		release, err := bbAcquireMutationPhase(ctx, options.bbMutationLock)
++		if err != nil {
++			return err
++		}
++		pair, err := bbPairFor(b.listing1, b.listing2)
++		if err == nil {
++			err = pair.recover(nil)
++		}
++		return errors.Join(err, release())
++	}
++	options.beforeDeltas = func(ctx context.Context, b *bisyncRun) error {
++		return b.incorporateBBDeliveries(ctx)
++	}
++	return Bisync(ctx, cloud, local, &options)
++}
++
++func (b *bisyncRun) incorporateBBDeliveries(ctx context.Context) error {
++	state, err := readBBDeliveries(b.workDir)
++	if err != nil {
++		return err
++	}
++	if state.Pending != nil {
++		return ErrBBDeliveryUnsettled
++	}
++	if len(state.Confirmed) == 0 {
++		return nil
++	}
++	pair, err := bbPairFor(b.listing1, b.listing2)
++	if err != nil {
++		return err
++	}
++	if err := pair.recover(nil); err != nil {
++		return err
++	}
++	// This checks the exact BB bytes, updates only their inode and refuses a
++	// superseding local save. It does not change the later file.
++	for _, receipt := range state.Confirmed {
++		if err := verifyBBRemoteReceipt(ctx, b.fs1, receipt); err != nil {
++			return err
++		}
++	}
++	for _, receipt := range state.Confirmed {
++		if err := bbConfirmLocalReceiptTime(b.fs2.Root(), receipt.Path, receipt.Hash, receipt.Modified, nil); err != nil {
++			return err
++		}
++	}
++	var before [2][sha256.Size]byte
++	var after [2][]byte
++	for i, file := range pair.listings {
++		raw, err := bbReadBounded(file, bbListingLimit)
++		if err != nil {
++			return err
++		}
++		before[i] = sha256.Sum256(raw)
++		previous, err := b.loadListing(file)
++		if err != nil {
++			return err
++		}
++		for _, r := range state.Confirmed {
++			if previous.isDir(r.Path) || (!r.Create && !previous.has(r.Path)) {
++				return errBBInvalidDelivery
++			}
++			previous.remove(r.Path)
++			previous.put(r.Path, r.Size, r.Modified, "", "", "-")
++		}
++		tmp, err := os.CreateTemp(b.workDir, ".bb-listings-proposal-")
++		if err != nil {
++			return err
++		}
++		name := tmp.Name()
++		defer os.Remove(name)
++		if err := tmp.Close(); err != nil {
++			return err
++		}
++		if err := previous.save(name); err != nil {
++			return err
++		}
++		after[i], err = bbReadBounded(name, bbListingLimit)
++		if err != nil {
++			return err
++		}
++	}
++	if err := pair.begin(before, after); err != nil {
++		return err
++	}
++	if err := pair.recover(nil); err != nil {
++		return err
++	}
++	for _, receipt := range state.Confirmed {
++		if err := b.refreshPublishedPath(ctx, receipt.Path); err != nil {
++			return err
++		}
++		if err := bbRefreshVersion(ctx, b.fs1, receipt.Path, b.march.bbIdentities); err != nil {
++			return err
++		}
++	}
++	state.Applied = append(state.Applied, state.Confirmed...)
++	if len(state.Applied) > bbDeliveryLimit {
++		state.Applied = state.Applied[len(state.Applied)-bbDeliveryLimit:]
++	}
++	state.Confirmed = nil
++	return state.write(b.workDir)
++}
++
++// iCloud listing timestamps have one-second resolution. A later cloud edit
++// can have identical listing metadata to the publication that preceded it.
++func verifyBBRemoteReceipt(ctx context.Context, cloud fs.Fs, receipt BBDeliveryReceipt) error {
++	if receipt.ETag == "" || receipt.ProviderID == "" {
++		return nil
++	}
++	obj, err := cloud.NewObject(ctx, receipt.Path)
++	if errors.Is(err, fs.ErrorObjectNotFound) {
++		return nil
++	}
++	if err != nil {
++		return err
++	}
++	listed, ok := bbCloudVersionFrom(ctx, obj)
++	if !ok {
++		return errBBInvalidDelivery
++	}
++	if listed.DocumentID == receipt.ProviderID && listed.ETag == receipt.ETag {
++		return nil
++	}
++	if obj.Size() != receipt.Size || timeDiffers(ctx, obj.ModTime(ctx), receipt.Modified, cloud, cloud) {
++		return nil
++	}
++	body, err := obj.Open(ctx)
++	if err != nil {
++		return err
++	}
++	defer body.Close()
++	data, err := io.ReadAll(io.LimitReader(body, bbDeliveryBytes+1))
++	if err != nil {
++		return err
++	}
++	if sha256.Sum256(data) != receipt.Hash {
++		return errBBIndistinguishableRemote
++	}
++	return nil
++}
+--- /dev/null
++++ b/cmd/bisync/bb_managed_scan_test.go
+@@ -0,0 +1,142 @@
++package bisync
++
++import (
++	"context"
++	"crypto/sha256"
++	"errors"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/rclone/rclone/backend/local"
++	"github.com/rclone/rclone/fs/config/configmap"
++)
++
++func TestBBManagedScanConsumesDurablePublication(t *testing.T) {
++	for _, scenario := range []string{"later edit", "later delete", "unconfirmed", "new note", "superseded local"} {
++		t.Run(scenario, func(t *testing.T) {
++			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
++			defer cancel()
++			cloudRoot, localRoot, workdir := t.TempDir(), t.TempDir(), t.TempDir()
++			cloud, err := local.NewFs(ctx, "local", cloudRoot, configmap.Simple{})
++			if err != nil {
++				t.Fatal(err)
++			}
++			mirror, err := local.NewFs(ctx, "local", localRoot, configmap.Simple{})
++			if err != nil {
++				t.Fatal(err)
++			}
++			path := "note.md"
++			baseline := time.Unix(1700000000, 0)
++			publication, subsequent := baseline.Add(15*time.Second), baseline.Add(30*time.Second)
++			original, fast, later := "old", "published-fast", "later independent edit"
++			write := func(root, name, text string, modified time.Time) {
++				file := filepath.Join(root, name)
++				if err := os.WriteFile(file, []byte(text), 0600); err != nil {
++					t.Fatal(err)
++				}
++				if err := os.Chtimes(file, modified, modified); err != nil {
++					t.Fatal(err)
++				}
++			}
++			for _, root := range []string{cloudRoot, localRoot} {
++				for _, w := range []string{"a.md", "b.md", "c.md"} {
++					write(root, w, "unchanged", baseline)
++				}
++				if scenario != "new note" {
++					write(root, path, original, baseline)
++				}
++			}
++			opts := Options{Resync: true, Workdir: workdir, CompareFlag: "size,modtime", CheckSync: CheckSyncTrue, MaxDelete: 50}
++			if err := Bisync(ctx, cloud, mirror, &opts); err != nil {
++				t.Fatal(err)
++			}
++			opts.Resync = false
++			seen, resume := make(chan struct{}, 2), make(chan struct{})
++			done := make(chan error, 1)
++			go func() {
++				done <- BBManagedBisync(ctx, &capturedScan{Fs: cloud, seen: seen, resume: resume},
++					&capturedScan{Fs: mirror, seen: seen, resume: resume}, opts)
++			}()
++			for range 2 {
++				select {
++				case <-seen:
++				case err := <-done:
++					t.Fatalf("scan did not start: %v", err)
++				case <-ctx.Done():
++					t.Fatal(ctx.Err())
++				}
++			}
++
++			// Deliver from a separate file description while the managed scan is
++			// still holding old observations. The next process uses only disk state.
++			release, err := bbAcquireMutationPhase(ctx, filepath.Join(workdir, BBMutationLockName))
++			if err != nil {
++				t.Fatal(err)
++			}
++			intent := BBDeliveryIntent{"e7bd52ef-e4a5-45d1-b4cc-ec4d6be5770c", path, sha256.Sum256([]byte(fast)), scenario == "new note"}
++			if err := BBBeginDelivery(workdir, intent); err != nil {
++				t.Fatal(err)
++			}
++			write(localRoot, path, fast, publication.Add(-2*time.Second))
++			if scenario != "unconfirmed" {
++				write(cloudRoot, path, fast, publication)
++				if err := BBResolveDelivery(workdir, intent, &BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: publication, Size: int64(len(fast))}); err != nil {
++					t.Fatal(err)
++				}
++			}
++			switch scenario {
++			case "later edit":
++				write(cloudRoot, path, later, subsequent)
++			case "later delete":
++				if err := os.Remove(filepath.Join(cloudRoot, path)); err != nil {
++					t.Fatal(err)
++				}
++			case "superseded local":
++				write(localRoot, path, later, subsequent)
++			}
++			if err := release(); err != nil {
++				t.Fatal(err)
++			}
++			close(resume)
++			err = <-done
++			store, storeErr := readBBDeliveries(workdir)
++			if storeErr != nil {
++				t.Fatal(storeErr)
++			}
++			want := fast
++			switch scenario {
++			case "unconfirmed":
++				if !errors.Is(err, ErrBBDeliveryUnsettled) || store.Pending == nil {
++					t.Fatalf("uncertain request was not kept: %v", err)
++				}
++				body, readErr := os.ReadFile(filepath.Join(cloudRoot, path))
++				if readErr != nil || string(body) != original {
++					t.Fatal("the managed scan overwrote the note after an uncertain request")
++				}
++				return
++			case "superseded local":
++				if !errors.Is(err, errBBLocalSuperseded) || len(store.Confirmed) != 1 {
++					t.Fatalf("later local revision lost its publication evidence: %v", err)
++				}
++				return
++			case "later edit":
++				want = later
++			}
++			if err != nil || len(store.Confirmed) != 0 || store.Pending != nil {
++				t.Fatalf("managed sync did not settle: %v", err)
++			}
++			for _, root := range []string{cloudRoot, localRoot} {
++				body, readErr := os.ReadFile(filepath.Join(root, path))
++				if scenario == "later delete" {
++					if !errors.Is(readErr, os.ErrNotExist) {
++						t.Fatal("deletion was resurrected")
++					}
++				} else if readErr != nil || string(body) != want {
++					t.Fatalf("later note state differed: %v", readErr)
++				}
++			}
++		})
++	}
++}
+--- /dev/null
++++ b/cmd/bisync/bb_version_index.go
+@@ -0,0 +1,81 @@
++package bisync
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"path/filepath"
++	"time"
++
++	"github.com/rclone/rclone/fs"
++)
++
++const bbIndexLimit = 16 << 20
++const BBIndexName = "bb-cloud-note-identities-v1.json"
++
++type BBIndexedVersion struct {
++	DocumentID string `json:"documentId"`
++	ParentID   string `json:"parentId"`
++	ETag       string `json:"etag"`
++}
++
++type bbIndexFile struct {
++	Version int                         `json:"version"`
++	Binding string                      `json:"binding"`
++	Notes   map[string]BBIndexedVersion `json:"notes"`
++}
++
++type bbIndexedCloudObservation struct {
++	BBIndexedVersion
++	Size     int64
++	Modified time.Time
++}
++
++func (b *bisyncRun) writeBBVersionIndex(ctx context.Context, binding string) error {
++	cloud, err := b.loadListing(b.listing1)
++	if err != nil {
++		return err
++	}
++	mirror, err := b.loadListing(b.listing2)
++	if err != nil {
++		return err
++	}
++	index := bbIndexFile{Version: 1, Binding: binding, Notes: map[string]BBIndexedVersion{}}
++	for name, version := range b.march.bbIdentities {
++		if !cloud.has(name) || !mirror.has(name) || cloud.isDir(name) || mirror.isDir(name) || b.aliases.Alias(name) != name {
++			continue
++		}
++		if cloud.getSize(name) != version.Size || timeDiffers(ctx, cloud.getTime(name), version.Modified, b.fs1, b.fs1) {
++			// This native pass changed the cloud object after taking the listing.
++			// The following scan can establish its new identity.
++			continue
++		}
++		index.Notes[name] = version.BBIndexedVersion
++	}
++	output, err := json.Marshal(index)
++	if err != nil {
++		return err
++	}
++	if len(output) > bbIndexLimit {
++		return errors.New("cloud note identity index exceeds its byte limit")
++	}
++	return (bbListingPair{directory: b.workDir}).publishFile(filepath.Join(b.workDir, BBIndexName), output, false)
++}
++
++func bbRefreshVersion(ctx context.Context, side fs.Fs, path string, index map[string]bbIndexedCloudObservation) error {
++	if index == nil {
++		return nil
++	}
++	delete(index, path)
++	obj, err := side.NewObject(ctx, path)
++	if errors.Is(err, fs.ErrorObjectNotFound) {
++		return nil
++	}
++	if err != nil {
++		return err
++	}
++	if ver, ok := bbCloudVersionFrom(ctx, obj); ok {
++		index[path] = ver
++	}
++	return nil
++}
+--- /dev/null
++++ b/backend/iclouddrive/api/bb_conditional_note.go
+@@ -0,0 +1,107 @@
++package api
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"errors"
++	"io"
++	"net/http"
++	"regexp"
++	"time"
++
++	"github.com/rclone/rclone/lib/rest"
++)
++
++const conditionalReplyLimit = 65536
++
++var (
++	driveIdentifier           = regexp.MustCompile(`^[A-Za-z0-9._-]{1,160}$`)
++	ErrConditionalRefused     = errors.New("conditional write requires an exact generated fixture and version")
++	ErrConditionalConflict    = errors.New("provider refused the expected version")
++	ErrConditionalUnconfirmed = errors.New("conditional write outcome requires read-back")
++)
++
++type conditionalPayload struct {
++	Command    string          `json:"command"`
++	DocumentID string          `json:"document_id"`
++	ETag       string          `json:"etag"`
++	Mtime      int64           `json:"mtime"`
++	Data       conditionalData `json:"data"`
++}
++
++type conditionalData struct {
++	Receipt            string `json:"receipt,omitempty"`
++	ReferenceSignature string `json:"reference_signature,omitempty"`
++	Signature          string `json:"signature"`
++	Size               int64  `json:"size"`
++	WrappingKey        string `json:"wrapping_key,omitempty"`
++}
++
++type conditionalReply struct {
++	DocumentUpdateResponse
++	Code       string `json:"error_code"`
++	ServerCode string `json:"serverErrorCode"`
++}
++
++// PublishGeneratedFixture submits the receipt once against the original
++// document identity and ETag. A successful response still requires fresh
++// exact-path, identity, revision, and byte verification by its caller.
++// PublishConditionalNote is called only after the worker proves the bound
++// mirror, exact path, prior bytes, and original document identity.
++func (d *DriveService) PublishConditionalNote(ctx context.Context, item DriveItem, expectedParent, expectedName string, staged SingleFileInfo, modified time.Time) (*Document, error) {
++	kind, zone, documentID := DeconstructDriveID(item.Drivewsid)
++	if kind != "FILE" || item.Type != "FILE" || expectedName == "" || item.FullName() != expectedName ||
++		!driveIdentifier.MatchString(zone) || !driveIdentifier.MatchString(documentID) ||
++		documentID != item.Docwsid || expectedParent == "" || item.ParentID != expectedParent || item.Etag == "" ||
++		staged.Signature == "" || staged.Size <= 0 || staged.Size > (1<<20) {
++		return nil, ErrConditionalRefused
++	}
++	payload, err := json.Marshal(conditionalPayload{
++		Command: "modify_file", DocumentID: documentID, ETag: item.Etag, Mtime: modified.UnixMilli(),
++		Data: conditionalData{
++			Receipt: staged.Receipt, ReferenceSignature: staged.ReferenceSignature,
++			Signature: staged.Signature, Size: staged.Size, WrappingKey: staged.WrappingKey,
++		},
++	})
++	if err != nil {
++		return nil, ErrConditionalRefused
++	}
++
++	// Use the existing session transport without Client.Request's automatic
++	// authentication-and-replay behavior around a content mutation.
++	session := d.icloud.Session
++	resp, err := session.srv.Call(ctx, &rest.Opts{
++		Method: http.MethodPost, Path: "/ws/" + zone + "/update/documents",
++		RootURL: d.docsEndpoint, Body: io.NopCloser(bytes.NewReader(payload)),
++		ExtraHeaders: session.GetHeaders(nil),
++		NoRedirect:   true, IgnoreStatus: true,
++	})
++	if err != nil {
++		return nil, ErrConditionalUnconfirmed
++	}
++	defer resp.Body.Close()
++	body, err := io.ReadAll(io.LimitReader(resp.Body, conditionalReplyLimit+1))
++	if err != nil || len(body) > conditionalReplyLimit {
++		return nil, ErrConditionalUnconfirmed
++	}
++	var reply conditionalReply
++	if err := json.Unmarshal(body, &reply); err != nil {
++		return nil, ErrConditionalUnconfirmed
++	}
++	if resp.StatusCode == http.StatusConflict &&
++		(reply.Code == "OP_LOCK_FAILURE" || reply.ServerCode == "OP_LOCK_FAILURE") {
++		return nil, ErrConditionalConflict
++	}
++	if resp.StatusCode < 200 || resp.StatusCode >= 300 ||
++		reply.Status.StatusCode != 0 || len(reply.Results) != 1 {
++		return nil, ErrConditionalUnconfirmed
++	}
++	result := reply.Results[0]
++	doc := result.Document
++	if result.Status.StatusCode != 0 || doc == nil || doc.Status.StatusCode != 0 ||
++		doc.DocumentID != documentID || doc.Deleted {
++		return nil, ErrConditionalUnconfirmed
++	}
++	return doc, nil
++}
+--- /dev/null
++++ b/backend/iclouddrive/api/bb_conditional_create.go
+@@ -0,0 +1,66 @@
++package api
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"io"
++	"net/http"
++	"path"
++	"strings"
++	"time"
++
++	"github.com/rclone/rclone/lib/rest"
++)
++
++// Resolve the exact relative name at publication within the bound provider
++// root. A folder moved since staging is not an independent destination.
++func (d *DriveService) CreateConditionalMarkdown(ctx context.Context, folder, relative, allocatedDocID string, staged SingleFileInfo) (int, error) {
++	kind, zone, parent := DeconstructDriveID(folder)
++	if (kind != "FOLDER" && kind != "APP_LIBRARY") || !driveIdentifier.MatchString(zone) || !driveIdentifier.MatchString(parent) ||
++		!strings.HasSuffix(relative, ".md") || path.Clean(relative) != relative || path.IsAbs(relative) || strings.HasPrefix(relative, "../") || len(relative) > 1024 ||
++		!driveIdentifier.MatchString(allocatedDocID) || staged.Signature == "" || staged.Size <= 0 || staged.Size > (1<<20) {
++		return 0, ErrConditionalRefused
++	}
++	request := NewUpdateFileInfo()
++	request.AllowConflict = false
++	request.CreateShortGUID = false
++	request.Btime = time.Now().UnixMilli()
++	request.Mtime = request.Btime
++	request.DocumentID = allocatedDocID
++	request.Path.Path = relative
++	request.Path.StartingDocumentID = parent
++	request.Data.Receipt = staged.Receipt
++	request.Data.ReferenceSignature = staged.ReferenceSignature
++	request.Data.Signature = staged.Signature
++	request.Data.Size = staged.Size
++	request.Data.WrappingKey = staged.WrappingKey
++	raw, err := json.Marshal(request)
++	if err != nil {
++		return 0, ErrConditionalRefused
++	}
++	session := d.icloud.Session
++	resp, err := session.srv.Call(ctx, &rest.Opts{
++		Method: http.MethodPost, Path: "/ws/" + zone + "/update/documents", RootURL: d.docsEndpoint,
++		Body: io.NopCloser(bytes.NewReader(raw)), ExtraHeaders: session.GetHeaders(nil),
++		IgnoreStatus: true, NoRedirect: true,
++	})
++	if err != nil {
++		return 0, ErrConditionalUnconfirmed
++	}
++	defer resp.Body.Close()
++	raw, err = io.ReadAll(io.LimitReader(resp.Body, conditionalReplyLimit+1))
++	if err != nil || len(raw) > conditionalReplyLimit {
++		return resp.StatusCode, ErrConditionalUnconfirmed
++	}
++	if resp.StatusCode == http.StatusConflict {
++		return resp.StatusCode, ErrConditionalConflict
++	}
++	var reply conditionalReply
++	if json.Unmarshal(raw, &reply) != nil || resp.StatusCode < 200 || resp.StatusCode >= 300 ||
++		reply.Status.StatusCode != 0 || len(reply.Results) != 1 || reply.Results[0].Document == nil ||
++		reply.Results[0].Status.StatusCode != 0 || reply.Results[0].Document.DocumentID != allocatedDocID {
++		return resp.StatusCode, ErrConditionalUnconfirmed
++	}
++	return resp.StatusCode, nil
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_note.go
+@@ -0,0 +1,267 @@
++package main
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"io"
++	"os"
++	"path/filepath"
++	"time"
++
++	"github.com/rclone/rclone/backend/iclouddrive"
++	"github.com/rclone/rclone/backend/iclouddrive/api"
++	"github.com/rclone/rclone/cmd"
++	"github.com/rclone/rclone/cmd/bisync"
++	"github.com/rclone/rclone/fs"
++	"github.com/spf13/cobra"
++	"golang.org/x/sys/unix"
++)
++
++const maxOwnedFrame = 8 << 20
++
++type ownedNoteFrame struct {
++	Binding     string            `json:"binding"`
++	Path        string            `json:"path"`
++	Expected    *ownedNoteVersion `json:"expected,omitempty"`
++	Workdir     string            `json:"workdir,omitempty"`
++	OperationID string            `json:"operationId,omitempty"`
++	Text        string            `json:"text,omitempty"`
++}
++
++type ownedNoteVersion struct {
++	DocumentID string `json:"documentId"`
++	ParentID   string `json:"parentId"`
++	ETag       string `json:"etag"`
++	Hash       string `json:"hash"`
++}
++
++type ownedNoteReply struct {
++	Outcome     string                `json:"outcome"`
++	Observation *ownedNoteObservation `json:"observation,omitempty"`
++}
++
++type ownedNoteObservation struct {
++	ownedNoteVersion
++	ModifiedMs int64 `json:"modifiedMs"`
++	Size       int64 `json:"size"`
++}
++
++func readOwnedNoteFrame(in io.Reader) (ownedNoteFrame, error) {
++	var message ownedNoteFrame
++	raw, err := io.ReadAll(io.LimitReader(in, maxOwnedFrame+1))
++	if err != nil || len(raw) > maxOwnedFrame {
++		return message, api.ErrConditionalRefused
++	}
++	// Decode one complete frame and refuse unknown fields or trailing input.
++	decoder := json.NewDecoder(bytes.NewReader(raw))
++	decoder.DisallowUnknownFields()
++	if decoder.Decode(&message) != nil || decoder.Decode(new(any)) != io.EOF || message.Binding == "" || message.Path == "" {
++		return ownedNoteFrame{}, api.ErrConditionalRefused
++	}
++	return message, nil
++}
++
++func init() {
++	command := &cobra.Command{
++		Use:    "bb-owned-note <inspect|replace> <bound-remote>",
++		Short:  "Run one experiment within a selected iCloud mirror using an inherited note frame.",
++		Hidden: true,
++		Args:   cobra.ExactArgs(2),
++		RunE: func(_ *cobra.Command, args []string) error {
++			message, err := readOwnedNoteFrame(os.Stdin)
++			if err != nil {
++				return json.NewEncoder(os.Stdout).Encode(ownedNoteReply{Outcome: "refused"})
++			}
++			if args[0] != "inspect" && !ownInheritedMutationLock(message.Workdir) {
++				return json.NewEncoder(os.Stdout).Encode(ownedNoteReply{Outcome: "refused"})
++			}
++			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
++			defer cancel()
++			return json.NewEncoder(os.Stdout).Encode(applyOwnedNote(ctx, args[0], args[1], message))
++		},
++	}
++	cmd.Root.AddCommand(command)
++}
++
++func applyOwnedNote(ctx context.Context, operation, remote string, request ownedNoteFrame) ownedNoteReply {
++	refused := ownedNoteReply{Outcome: "refused"}
++	uncertain := ownedNoteReply{Outcome: "uncertain"}
++	if operation != "inspect" && operation != "replace" && operation != "recover" && operation != "create" && operation != "recover-create" {
++		return refused
++	}
++	backend, name, root, config, err := fs.ConfigFs(remote)
++	if err != nil || name != "icloud" || root == "" || backend.Name != "iclouddrive" {
++		return refused
++	}
++	selected, err := backend.NewFs(ctx, name, root, config)
++	if err != nil {
++		return uncertain
++	}
++	cloud, ok := selected.(*iclouddrive.Fs)
++	if !ok {
++		return refused
++	}
++	binding, err := cloud.BBMirrorBinding(ctx)
++	if err != nil || binding != request.Binding {
++		return refused
++	}
++	if operation == "inspect" {
++		if request.Expected != nil || request.Text != "" {
++			return refused
++		}
++		published, err := cloud.ObserveBBCreate(ctx, request.Path)
++		if errors.Is(err, fs.ErrorObjectNotFound) {
++			return ownedNoteReply{Outcome: "absent"}
++		}
++		if err != nil {
++			return uncertain
++		}
++		return observedOwnedNote("observed", published)
++	}
++	if operation == "create" || operation == "recover-create" {
++		return applyOwnedCreate(ctx, cloud, operation, request)
++	}
++	if request.Expected == nil || len(request.Text) < 1 || len(request.Text) > 1<<20 {
++		return refused
++	}
++	prior := request.Expected
++	priorHash, err := hex.DecodeString(prior.Hash)
++	if err != nil || len(priorHash) != 32 || prior.DocumentID == "" || prior.ParentID == "" || prior.ETag == "" {
++		return refused
++	}
++	revision := iclouddrive.BBNoteRevision{DriveID: prior.DocumentID, ParentID: prior.ParentID, ETag: prior.ETag}
++	copy(revision.Hash[:], priorHash)
++	wanted := sha256.Sum256([]byte(request.Text))
++	intent := bisync.BBDeliveryIntent{OperationID: request.OperationID, Path: request.Path, Hash: wanted}
++	stage, stageErr := bisync.BBReadDeliveryStage(request.Workdir, intent)
++	if stageErr != nil {
++		return uncertain
++	}
++	if operation == "recover" {
++		now, err := cloud.InspectBBNote(ctx, request.Path)
++		if err != nil || now.Revision.DriveID != revision.DriveID || now.Revision.ParentID != revision.ParentID {
++			return uncertain
++		}
++		if now.Revision.ETag != revision.ETag && now.Revision.Hash == wanted {
++			if stage == bisync.BBDeliveryDispatched {
++				if err := bisync.BBResolveDelivery(request.Workdir, intent, &bisync.BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: now.Modified, Size: now.Size, ProviderID: now.Revision.DriveID, ETag: now.Revision.ETag}); err != nil {
++					return uncertain
++				}
++			} else if stage != bisync.BBDeliveryRecorded && stage != bisync.BBDeliveryApplied {
++				return uncertain
++			}
++			return observedOwnedNote("published", now)
++		}
++		// A recovered retry is conditional on the original, freshly checked
++		// identity, revision and bytes. Even if the first request is still
++		// finishing remotely, only one request can use this ETag.
++		if now.Revision.ETag != revision.ETag || now.Revision.Hash != revision.Hash ||
++			(stage != bisync.BBDeliveryPrepared && stage != bisync.BBDeliveryDispatched && stage != bisync.BBDeliveryMissing) {
++			return uncertain
++		}
++	}
++	if operation == "replace" || stage == bisync.BBDeliveryMissing {
++		if err := bisync.BBBeginDelivery(request.Workdir, intent); err != nil {
++			return refused
++		}
++	}
++	published, err := cloud.ReplaceBBNoteWithDispatch(ctx, request.Path, revision, []byte(request.Text),
++		func() error { return bisync.BBDispatchDelivery(request.Workdir, intent) })
++	if errors.Is(err, api.ErrConditionalConflict) || errors.Is(err, api.ErrConditionalRefused) {
++		if err := bisync.BBResolveDelivery(request.Workdir, intent, nil); err != nil {
++			return uncertain
++		}
++		return refused
++	}
++	if err != nil {
++		return uncertain
++	}
++	if err := bisync.BBResolveDelivery(request.Workdir, intent, &bisync.BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: published.Modified, Size: published.Size, ProviderID: published.Revision.DriveID, ETag: published.Revision.ETag}); err != nil {
++		return uncertain
++	}
++	return observedOwnedNote("published", published)
++}
++
++func applyOwnedCreate(ctx context.Context, cloud *iclouddrive.Fs, operation string, request ownedNoteFrame) ownedNoteReply {
++	refused := ownedNoteReply{Outcome: "refused"}
++	uncertain := ownedNoteReply{Outcome: "uncertain"}
++	if request.Expected != nil || len(request.Text) < 1 || len(request.Text) > 1<<20 {
++		return refused
++	}
++	data := []byte(request.Text)
++	intent := bisync.BBDeliveryIntent{OperationID: request.OperationID, Path: request.Path, Hash: sha256.Sum256(data), Create: true}
++	stage, err := bisync.BBReadDeliveryStage(request.Workdir, intent)
++	if err != nil {
++		return uncertain
++	}
++	if operation == "recover-create" {
++		current, err := cloud.ObserveBBCreate(ctx, request.Path)
++		if err == nil && current.Revision.Hash == intent.Hash {
++			issued, err := bisync.BBAllocatedDocument(request.Workdir, intent)
++			_, _, currentDocID := api.DeconstructDriveID(current.Revision.DriveID)
++			if err != nil || currentDocID != issued {
++				return uncertain
++			}
++			if stage == bisync.BBDeliveryDispatched {
++				if err := bisync.BBResolveDelivery(request.Workdir, intent, &bisync.BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: current.Modified, Size: current.Size, ProviderID: current.Revision.DriveID, ETag: current.Revision.ETag}); err != nil {
++					return uncertain
++				}
++			} else if stage != bisync.BBDeliveryRecorded && stage != bisync.BBDeliveryApplied {
++				return uncertain
++			}
++			return observedOwnedNote("published", current)
++		}
++		if !errors.Is(err, fs.ErrorObjectNotFound) || (stage != bisync.BBDeliveryMissing && stage != bisync.BBDeliveryPrepared) {
++			return uncertain
++		}
++	}
++	if operation == "create" || stage == bisync.BBDeliveryMissing {
++		if err := bisync.BBBeginDelivery(request.Workdir, intent); err != nil {
++			return refused
++		}
++	}
++	published, err := cloud.CreateBBNote(ctx, request.Path, request.Binding, data,
++		func(id string) error { return bisync.BBDispatchDelivery(request.Workdir, intent, id) })
++	if errors.Is(err, api.ErrConditionalConflict) || errors.Is(err, api.ErrConditionalRefused) {
++		if err := bisync.BBResolveDelivery(request.Workdir, intent, nil); err != nil {
++			return uncertain
++		}
++		return refused
++	}
++	if err != nil {
++		return uncertain
++	}
++	if err := bisync.BBResolveDelivery(request.Workdir, intent, &bisync.BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: published.Modified, Size: published.Size, ProviderID: published.Revision.DriveID, ETag: published.Revision.ETag}); err != nil {
++		return uncertain
++	}
++	return observedOwnedNote("published", published)
++}
++
++func observedOwnedNote(outcome string, result iclouddrive.BBNotePublication) ownedNoteReply {
++	return ownedNoteReply{Outcome: outcome, Observation: &ownedNoteObservation{
++		ownedNoteVersion: ownedNoteVersion{result.Revision.DriveID, result.Revision.ParentID, result.Revision.ETag, hex.EncodeToString(result.Revision.Hash[:])},
++		ModifiedMs:       result.Modified.UnixMilli(), Size: result.Size,
++	}}
++}
++
++// The BB owner opens the same per-mirror mutation phase file for both
++// its fast command and its scheduled scan. Never substitute a CLI path.
++func ownInheritedMutationLock(workdir string) bool {
++	const phaseFD = 5
++	var stat unix.Stat_t
++	if unix.Fstat(phaseFD, &stat) != nil || int(stat.Uid) != os.Getuid() || stat.Nlink != 1 ||
++		stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Mode&0077 != 0 {
++		return false
++	}
++	var bound, root unix.Stat_t
++	if !filepath.IsAbs(workdir) || filepath.Clean(workdir) != workdir ||
++		unix.Lstat(workdir, &root) != nil || root.Mode&unix.S_IFMT != unix.S_IFDIR || root.Mode&0077 != 0 || int(root.Uid) != os.Getuid() ||
++		unix.Lstat(filepath.Join(workdir, bisync.BBMutationLockName), &bound) != nil || bound.Dev != stat.Dev || bound.Ino != stat.Ino {
++		return false
++	}
++	return unix.Flock(phaseFD, unix.LOCK_EX|unix.LOCK_NB) == nil
++}
+--- /dev/null
++++ b/cmd/bb-icloud-native/main.go
+@@ -0,0 +1,9 @@
++package main
++
++import (
++	_ "github.com/rclone/rclone/backend/iclouddrive"
++	_ "github.com/rclone/rclone/backend/local"
++	"github.com/rclone/rclone/cmd"
++)
++
++func main() { cmd.Main() }
+--- /dev/null
++++ b/cmd/bb-icloud-native/owned_note_test.go
+@@ -0,0 +1,22 @@
++package main
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestBBPrivateNoteFrameRejectsUnexpectedInput(t *testing.T) {
++	const prefix = `{"binding":"FOLDER::com.apple.CloudDocs::test","path":"Test.md"`
++	accepted, err := readOwnedNoteFrame(strings.NewReader(prefix + `,"text":"generated"}`))
++	if err != nil || accepted.Text != "generated" {
++		t.Fatal("valid note frame was not parsed")
++	}
++	for _, input := range []string{
++		prefix + `,"unknown":true}`, prefix + `} {}`, `{"binding":"generated"}`,
++		prefix + `,"text":"` + strings.Repeat("x", maxOwnedFrame) + `"}`,
++	} {
++		if _, err := readOwnedNoteFrame(strings.NewReader(input)); err == nil {
++			t.Fatal("unexpected frame was accepted")
++		}
++	}
++}

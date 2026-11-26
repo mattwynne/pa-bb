@@ -24,7 +24,20 @@ export const listingCheckers = ['2', '4', '8'] as const;
 export type ListingCheckers = typeof listingCheckers[number];
 type ListingObservation = { configFd: number; signal?: AbortSignal; record: (record: unknown) => void };
 type BisyncCheckers = '2' | '4';
-type CommandObservation = { listing?: ListingObservation; bisyncCheckers?: BisyncCheckers };
+type OwnedNoteInput = { configFd: number; phaseFd: number; frame: string };
+type CommandObservation = { listing?: ListingObservation; bisyncCheckers?: BisyncCheckers; managedBisync?: true; ownedNote?: OwnedNoteInput };
+export type ManagedNativeMirror = { binary: string; remote: `icloud:${string}`; workdir: string; binding: string };
+export const nativeMutationLock = 'bb-managed-mutation.lock';
+const sameManaged = (left: ManagedNativeMirror, right: ManagedNativeMirror) =>
+  left.remote === right.remote && left.workdir === right.workdir && left.binding === right.binding && left.binary === right.binary;
+
+type NativeMirrorRun = Pick<ManagedNativeMirror, 'remote' | 'workdir'> & { managed?: ManagedNativeMirror };
+function disjointNativeMirrors(a: Pick<ManagedNativeMirror,'remote'|'workdir'>, b: Pick<ManagedNativeMirror,'remote'|'workdir'>) {
+  if (a.workdir === b.workdir) return false;
+  const remote = (value: string) => value.slice('icloud:'.length).normalize('NFC').toLowerCase();
+  const left = remote(a.remote), right = remote(b.remote);
+  return Boolean(left && right && left !== right && !left.startsWith(right+'/') && !right.startsWith(left+'/'));
+}
 
 export function safeEnvironment(): NodeJS.ProcessEnv {
   // Never inherit provider options, credentials, proxies or BB process secrets.
@@ -37,6 +50,8 @@ export class RcloneProcess {
   private child: ChildProcess | null = null;
   private children = new Set<ChildProcess>();
   private listingChild: ChildProcess | null = null;
+  private nativeScan: NativeMirrorRun | null = null;
+  private fastActive: ManagedNativeMirror | null = null;
   private fileWork: { controller: AbortController; task: Promise<unknown> } | null = null;
   private started: Promise<void> | null = null;
   private stopping = false;
@@ -190,32 +205,84 @@ export class RcloneProcess {
       req.end(JSON.stringify(body));
     });
   }
-  async call(method: string, body: Record<string, unknown>) { await this.ensure(); if (this.stopping) throw new CloudError('interrupted'); if (this.fileWork) throw new CloudError('busy'); return this.rawCall(method, body); }
+  async call(method: string, body: Record<string, unknown>) { await this.ensure(); if (this.stopping) throw new CloudError('interrupted'); if (this.fileWork || this.fastActive) throw new CloudError('busy'); return this.rawCall(method, body); }
   // Same native generation and inherited flock as run(), not a second mutex
   // claiming to exclude rclone. No native command may start during this work.
   async withFiles<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     await this.ensure();
-    if (this.stopping || this.fileWork || this.children.size) throw new CloudError('busy');
+    if (this.stopping || this.fileWork || this.fastActive || this.children.size) throw new CloudError('busy');
     if (!this.ownsLock || !this.lock) throw new CloudError('unavailable');
     const controller = new AbortController();
     const task = Promise.resolve().then(() => operation(controller.signal));
     this.fileWork = { controller, task };
     try { return await task; } finally { this.fileWork = null; }
   }
-  async run(args: string[], capture = false, report?: (stats: TransferProgress) => void, checkers: BisyncCheckers = '2') {
+  async run(args: string[], capture = false, report?: (stats: TransferProgress) => void, checkers: BisyncCheckers = '2', managed?: ManagedNativeMirror) {
     await this.ensure();
-    if (this.fileWork || this.stopping) throw new CloudError('busy');
+    if (this.fileWork || this.stopping || this.nativeScan) throw new CloudError('busy');
     const command = args[0];
+    const remote = args[1];
+    const workdir = args[args.indexOf('--workdir') + 1];
+    const ordinary = command === 'bisync' && remote?.startsWith('icloud:') && workdir?.startsWith(join(this.root,'baselines')+'/')
+      ? {remote:remote as `icloud:${string}`,workdir,managed} : null;
+    if (this.fastActive && (!ordinary || !((managed && sameManaged(this.fastActive,managed)) ||
+      disjointNativeMirrors(this.fastActive,ordinary)))) throw new CloudError('busy');
+    if (managed && (command !== 'bisync' || args[1] !== managed.remote || args[args.indexOf('--workdir') + 1] !== managed.workdir ||
+        args.includes('--resync') || !isAbsolute(managed.binary))) throw new CloudError('invalid_selection');
     const stats = report ? ['--use-json-log', '--stats', '1s', '--stats-log-level', 'NOTICE', '--log-level', command === 'bisync' ? 'DEBUG' : 'NOTICE'] : command === 'bisync' ? ['--use-json-log', '--log-level', 'DEBUG'] : [];
     const timeout = command === 'bisync' ? args.includes('--resync') ? COMMAND_TIMEOUTS.initialBisync : COMMAND_TIMEOUTS.bisync : command === 'lsjson' ? COMMAND_TIMEOUTS.listing : COMMAND_TIMEOUTS.transfer;
     const bisync = command === 'bisync';
     const effectiveCheckers = bisync && !args.includes('--resync') ? checkers : '2';
-    return this.execute(this.binary!, [...args, ...this.flags(effectiveCheckers), ...stats], capture, timeout, report,
-      bisync ? 'bisync' : 'generic', bisync ? { bisyncCheckers: effectiveCheckers } : undefined);
+    if (ordinary) this.nativeScan = ordinary;
+    try {
+      const binding = managed ? ['--bb-managed-binding', managed.binding] : [];
+      return await this.execute(managed?.binary ?? this.binary!, [...args, ...binding, ...this.flags(effectiveCheckers), ...stats],
+        capture, timeout, report, bisync ? 'bisync' : 'generic', bisync ? { bisyncCheckers: effectiveCheckers, ...(managed ? { managedBisync: true } : {}) } : undefined);
+    } finally {
+      if (ordinary) this.nativeScan = null;
+    }
+  }
+  async noteDeliveryCommand(target: ManagedNativeMirror, operation: 'inspect' | 'replace' | 'recover' | 'create' | 'recover-create', payload: Record<string, unknown>) {
+    await this.ensure();
+    const scan = this.nativeScan;
+    const compatibleScan = scan && ((scan.managed && sameManaged(scan.managed,target)) || disjointNativeMirrors(scan,target));
+    if (this.stopping || this.fastActive || this.fileWork || (this.children.size && !compatibleScan) ||
+        !this.ownsLock || !this.lock) throw new CloudError('busy');
+    if (!isAbsolute(target.binary) || !isAbsolute(target.workdir)) throw new CloudError('invalid_selection');
+    this.fastActive = target;
+    let config: Awaited<ReturnType<typeof open>> | undefined;
+    let phase: Awaited<ReturnType<typeof open>> | undefined;
+    let temporary: string | undefined;
+    let link: string | undefined;
+    try {
+      config = await open(this.config, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const configInfo = await config.stat();
+      if (!configInfo.isFile() || configInfo.uid !== process.getuid?.() || configInfo.nlink !== 1 || (configInfo.mode & 0o077) !== 0)
+        throw new CloudError('unavailable');
+      phase = await open(join(target.workdir, nativeMutationLock), constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600);
+      const phaseInfo = await phase.stat();
+      if (!phaseInfo.isFile() || phaseInfo.uid !== process.getuid?.() || phaseInfo.nlink !== 1 || (phaseInfo.mode & 0o077) !== 0)
+        throw new CloudError('unavailable');
+      temporary = await mkdtemp(join(this.root, 'state', 'delivery-'));
+      link = join(temporary, 'config');
+      await symlink(`/proc/self/fd/${LISTING_CONFIG_FD}`, link);
+      const frame = JSON.stringify({ ...payload, binding: target.binding, workdir: target.workdir });
+      if (Buffer.byteLength(frame) > (8 << 20)) throw new CloudError('capacity');
+      const output = await this.execute(target.binary, ['bb-owned-note', operation, target.remote, ...this.flags('2', link),
+        '--retries', '1', '--low-level-retries', '1'], true, 15_000, undefined, 'generic',
+        { ownedNote: { configFd: config.fd, phaseFd: phase.fd, frame } });
+      try { return JSON.parse(output) as unknown; } catch { throw new CloudError('sync_failed'); }
+    } finally {
+      await phase?.close().catch(() => {});
+      await config?.close().catch(() => {});
+      if (link) await unlink(link).catch(() => {});
+      if (temporary) await rmdir(temporary).catch(() => {});
+      this.fastActive = null;
+    }
   }
   async benchmarkListing(remote: `icloud:${string}`, checkers: ListingCheckers, signal?: AbortSignal) {
     await this.ensure();
-    if (this.fileWork || this.children.size || !this.ownsLock || !this.lock) throw new CloudError('busy');
+    if (this.fileWork || this.fastActive || this.children.size || !this.ownsLock || !this.lock) throw new CloudError('busy');
     if (!listingCheckers.includes(checkers)) throw new CloudError('invalid_selection');
     const started = performance.now();
     let retryRecords = 0, rateLimitRecords = 0, invalidLogRecords = 0;
@@ -258,7 +325,7 @@ export class RcloneProcess {
       if (temporary) await rmdir(temporary).catch(() => {});
     }
   }
-  private execute(binary: string, args: string[], capture: boolean, timeout: number | null, report?: (stats: TransferProgress) => void, context: 'bisync' | 'generic' = 'generic', { listing, bisyncCheckers }: CommandObservation = {}): Promise<string> {
+  private execute(binary: string, args: string[], capture: boolean, timeout: number | null, report?: (stats: TransferProgress) => void, context: 'bisync' | 'generic' = 'generic', { listing, bisyncCheckers, managedBisync, ownedNote }: CommandObservation = {}): Promise<string> {
     if (this.stopping || listing?.signal?.aborted) return Promise.reject(new CloudError('interrupted', { kind: 'command_stopped' }));
     return new Promise((resolve, reject) => {
       const observer = context === 'bisync' ? new RcloneBisyncObservation() : null;
@@ -267,10 +334,15 @@ export class RcloneProcess {
       const trace = (entry: Parameters<RcloneTrace['append']>[0]) => { if (observer) this.trace.append(entry); };
       trace({ at: new Date().toISOString(), commandId, elapsedMs: 0, event: 'command_start',
         ...(timeout === null ? {} : { timeoutMs: timeout }), ...(bisyncCheckers ? { checkers: bisyncCheckers === '4' ? 4 : 2 } : {}) });
-      const stdio: any[] = ['ignore', capture ? 'pipe' : 'ignore', report || observer || listing ? 'pipe' : 'ignore'];
+      const stdio: any[] = [ownedNote ? 'pipe' : 'ignore', capture ? 'pipe' : 'ignore', report || observer || listing ? 'pipe' : 'ignore'];
       if (this.lock) stdio.push(this.lock.fd);
       if (listing) stdio.push(listing.configFd);
+      if (ownedNote) stdio.push(ownedNote.configFd, ownedNote.phaseFd);
       const child = spawn(binary, args, { env: safeEnvironment(), stdio });
+      if (ownedNote && child.stdin) {
+        child.stdin.on('error', () => {}); // The bounded child outcome is authoritative.
+        child.stdin.end(ownedNote.frame);
+      }
       if (listing) this.listingChild = child;
       const abort = () => this.interrupt(child);
       listing?.signal?.addEventListener('abort', abort, { once: true });
@@ -288,13 +360,14 @@ export class RcloneProcess {
       });
       child.stdout?.on('data', chunk => {
         outputBytes += chunk.length;
-        if (outputBytes > (listing ? 1024 : 4 * 1024 * 1024)) beyondLimit();
+        if (outputBytes > (ownedNote ? 4096 : listing ? 1024 : 4 * 1024 * 1024)) beyondLimit();
         else output += chunk;
       });
       const timer = timeout === null ? null : setTimeout(() => {
         timedOut = true;
         trace({ at: new Date().toISOString(), commandId, elapsedMs: elapsed(), event: 'command_timeout', timeoutMs: timeout });
-        this.interrupt(child);
+        if (ownedNote) child.kill('SIGKILL');
+        else this.interrupt(child);
       }, timeout);
       timer?.unref();
       const cleanup = () => {
@@ -322,9 +395,11 @@ export class RcloneProcess {
         else {
           const native = context === 'bisync' && code === 7 && !this.stopping && !overflow && !timedOut && !signal ? observer?.decision() : undefined;
           const proof = stopped ? { kind: 'command_stopped' as const } : overflow ? { kind: 'command_output_limit' as const } : timedOut ? { kind: 'command_timeout' as const } : signal ? { kind: 'command_signal' as const } : { kind: 'command_exit' as const, exitCode: code, ...(native ? { native, ...(observer?.reason() ? { reason: observer.reason() } : {}) } : {}) };
-          let failure: 'interrupted' | 'recovery_required' | 'configuration' | 'capacity' | 'sync_failed';
+          let failure: 'busy' | 'interrupted' | 'recovery_required' | 'configuration' | 'capacity' | 'sync_failed';
           if (overflow && listing && !stopped) failure = 'capacity';
           else if (stopped || timedOut || signal) failure = 'interrupted';
+          else if (managedBisync && code === 42) failure = 'busy';
+          else if (managedBisync && code === 43) failure = 'sync_failed';
           else if (context === 'bisync' && code === 7) failure = native === 'retryable_abort' ? 'sync_failed' : 'recovery_required';
           else if (context === 'bisync' && code === 2) failure = 'recovery_required';
           else if (context === 'generic' && code === 2) failure = 'configuration';

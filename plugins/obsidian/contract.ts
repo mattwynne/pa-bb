@@ -32,7 +32,14 @@ const moveInput = noteInput.extend({
 const moveOutput = moveInput.pick({ vaultId: true, path: true, destination: true, operationId: true }).extend({
   outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']),
 });
+const deliverySequence = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const rpcContract = defineRpcContract({
+  deliveryChanges: {
+    input: vault.extend({ after: deliverySequence.nullable(), limit: z.number().int().min(1).max(32) }),
+    output: z.object({ cursor: deliverySequence, hasMore: z.boolean(),
+      changes: z.array(z.object({ sequence: deliverySequence, operationId, path: consumerFolder, previousHash: hash.nullable(), hash }).strict()).max(32),
+    }).strict(),
+  },
   inventoryRevision: {
     input: vault.extend({ folders: z.array(consumerFolder).min(1).max(2) }),
     output: z.string().regex(/^[a-f0-9-]{36}:\d{1,16}$/).nullable(),

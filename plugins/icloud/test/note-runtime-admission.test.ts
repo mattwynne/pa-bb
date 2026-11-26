@@ -1,8 +1,9 @@
+import { receiptsFixture } from '../../obsidian/test/receipt-fixture.ts';
 // Opt-in local generated Linux fixtures. These exercise the actual flock/RC
 // arbiter and scoped SQLite, not a mock overlay with imaginary ownership.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, readFile, rename } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, readFile, chmod, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
@@ -324,4 +325,105 @@ test('global 256-path admission cap applies fairly across all 20 mirrors in boun
     assert.equal((f.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_heads').get() as { count: number }).count, 256);
     console.log(JSON.stringify({ fixture: '20-mirror-full-cap-native-arbiter', applied: seen.size, retired: 0, quanta: durations.length, maxQuantumMs: Math.round(Math.max(...durations)) }));
   } finally { await f.close(); }
+});
+
+
+test('ordinary Obsidian saves and creates reach the managed worker during its scan', {skip: !enabled, timeout: 30_000}, async () => {
+  const {chmod, readFile} = await import('node:fs/promises');
+  const f = await fixture(1);
+  const id = 'mirror-0', relative = 'Note.md';
+  const root = join(f.workerRoot,'mirrors',id);
+  const workdir = join(f.workerRoot,'baselines',id);
+  const cloud = join(f.remote,'generated-0',relative);
+  const ledger = receiptsFixture(root,join(f.root,'obsidian-existing.db'));
+  const binary = join(f.root,'managed-fixture');
+  const marker = join(f.root,'scan-started');
+  const gate = join(f.root,'scan-done');
+  const binding = 'FOLDER::com.apple.CloudDocs::generated';
+  const baselineIdentity = {documentId:'FILE::com.apple.CloudDocs::generated-note',parentId:binding,etag:'one'};
+  let running: Promise<unknown> | undefined;
+  try {
+    await f.runtime.mirrorDirectoryGrant(id,1);
+    await writeFile(join(workdir,'bb-cloud-note-identities-v1.json'),
+      JSON.stringify({version:1,binding,notes:{[relative]:baselineIdentity}}), {mode:0o600});
+    const response = {
+      observation: {...baselineIdentity,hash:'',size:1,modifiedMs:1},
+      path: relative,
+    };
+    const src = '#!' + process.execPath + '\n' + `
+      const fs = require('node:fs');
+      const assert = require('node:assert/strict');
+      const crypto = require('node:crypto');
+      const argv = process.argv.slice(2);
+      const target = ${JSON.stringify(cloud)};
+      const started = ${JSON.stringify(marker)}, permit = ${JSON.stringify(gate)};
+      const response = ${JSON.stringify(response)};
+      const workdir = ${JSON.stringify(workdir)};
+      if (argv[0] === 'bisync') {
+        assert.equal(argv[argv.indexOf('--bb-managed-binding') + 1], ${JSON.stringify(binding)});
+        fs.writeFileSync(started,'1');
+        const deadline = Date.now() + 8000;
+        const check = setInterval(() => {
+          if (fs.existsSync(permit)) { clearInterval(check); process.exit(0); }
+          if (Date.now() >= deadline) { clearInterval(check); process.exit(2); }
+        },10);
+      } else {
+        assert.equal(argv[0],'bb-owned-note');
+        assert.equal(argv[2],'icloud:generated-0');
+        assert.ok(fs.fstatSync(4).isFile() && fs.fstatSync(5).isFile());
+        const metadata = fs.readFileSync(0, 'utf8');
+        const input = JSON.parse(metadata);
+        assert.ok(input.path===response.path || input.path==='Second.md');
+        const destination = require('node:path').join(require('node:path').dirname(target),input.path);
+        assert.equal(input.workdir,workdir);
+        assert.equal(input.binding,${JSON.stringify(binding)});
+        const observe = (etag) => {
+          const data = fs.readFileSync(destination);
+          return {...response.observation,etag,hash:crypto.createHash('sha256').update(data).digest('hex'),size:data.length};
+        };
+        if (argv[1] === 'inspect') {
+          if (!fs.existsSync(destination)) console.log(JSON.stringify({outcome:'absent'}));
+          else console.log(JSON.stringify({outcome:'observed',observation:observe('one')}));
+        } else if (argv[1] === 'create') {
+          assert.equal(input.expected,undefined);
+          assert.equal(input.text,'A new BB note');
+          fs.writeFileSync(destination,input.text,{flag:'wx'});
+          const observation = {...observe('first'),documentId:'FILE::com.apple.CloudDocs::new-note'};
+          console.log(JSON.stringify({outcome:'published',observation}));
+        } else {
+          assert.equal(argv[1],'replace');
+          const {documentId,parentId,etag,hash} = observe('one');
+          assert.deepEqual(input.expected,{documentId,parentId,etag,hash});
+          assert.equal(input.text,'A saved by BB');
+          fs.writeFileSync(target,input.text);
+          console.log(JSON.stringify({outcome:'published',observation:observe('two')}));
+        }
+      }
+    `;
+    await writeFile(binary,src,{mode:0o700}); await chmod(binary,0o700);
+    f.runtime.configureManagedDelivery({binary,mirrors:{[id]:binding}});
+    const pull = (id:string,after:number|null) => Promise.resolve(ledger.ledger.deliveryChanges(id,after,32));
+    await f.runtime.deliverKnownNotes(pull,()=>true);
+    f.state.mirrors[0]!.phase='running';
+    let exited=false;
+    running = f.runtime.run(syncArguments('icloud:generated-0',root,workdir,false)).finally(()=>{exited=true;});
+    void running.catch(()=>{});
+    const {setTimeout:sleep}=await import('node:timers/promises');
+    for(let i=0;i<200;i++){
+      if(await readFile(marker,'utf8').catch(()=>null)==='1') break;
+      await sleep(15);
+    }
+    assert.equal(await readFile(marker,'utf8'),'1');
+    const text='A saved by BB';
+    await ledger.fs.commit({mirrorId:id,revision:1,path:relative,operationId:op(),kind:'replace',expectedHash:hash('A'),text});
+    await f.runtime.deliverKnownNotes(pull,()=>true);
+    assert.equal(await readFile(cloud,'utf8'),text);
+    await ledger.fs.commit({mirrorId:id,revision:1,path:'Second.md',operationId:op(),kind:'create',expectedHash:null,text:'A new BB note'});
+    await f.runtime.deliverKnownNotes(pull,()=>true);
+    assert.equal(await readFile(join(f.remote,'generated-0','Second.md'),'utf8'),'A new BB note');
+    assert.equal(exited,false,'the scheduled scan was still active when the remote notes changed');
+    assert.equal(f.db.prepare('SELECT count(*) AS count FROM icloud_pending_delivery').pluck().get(),0);
+    await writeFile(gate,'1');
+    await running;
+  } finally { await writeFile(gate,'1').catch(()=>{}); await running?.catch(()=>{}); ledger.db.close(); await f.close(); }
 });

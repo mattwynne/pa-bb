@@ -11,7 +11,10 @@ import type { CommitInput } from './note-store.ts';
 import { NoteApplicationError, NoteOverlay } from './note-overlay.ts';
 import type { Resolution } from './note-overlay.ts';
 import { RcloneProcess } from './rclone-process.ts';
-import type { ListingCheckers } from './rclone-process.ts';
+import type { ListingCheckers, ManagedNativeMirror } from './rclone-process.ts';
+import { NoteDeliveryQueue, noteDeliverySchema } from './note-delivery-queue.ts';
+import { NoteDeliveryRecovery, deliveryRecoverySchema } from './note-delivery-recovery.ts';
+import { runNoteDelivery } from './note-delivery-native.ts';
 import { selectedRemote } from './rclone-cloud-provider.ts';
 import { NoteSearch } from './note-search.ts';
 import { NoteMoves, type MoveInput } from './note-move.ts';
@@ -51,6 +54,12 @@ export class NoteRuntime {
   private lastMirror: string | null = null;
   private accountHash: string | null = null;
   private direct = new Set<string>();
+  private managedDelivery = new Map<string, ManagedNativeMirror>();
+  private managedBindings = new Map<string, string>();
+  private deliveryBusy = false;
+  private deliveryLastPath = new Map<string,string>();
+  private deliveryQueue?: NoteDeliveryQueue;
+  private deliveryJournal?: NoteDeliveryRecovery;
   private legacyWrites = new Map<string, number>();
   constructor(readonly root: string, private db: Database.Database, readonly worker: RcloneProcess,
     private legacy: NoteStore, private state: () => State, private clock = () => Date.now(),
@@ -74,6 +83,10 @@ export class NoteRuntime {
         CREATE TABLE IF NOT EXISTS icloud_note_bindings (mirror_id TEXT PRIMARY KEY, folder_id TEXT NOT NULL, root_dev INTEGER NOT NULL, root_ino INTEGER NOT NULL, baseline_dev INTEGER NOT NULL, baseline_ino INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS icloud_note_account (id INTEGER PRIMARY KEY CHECK(id=1), fingerprint TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS icloud_note_direct (mirror_id TEXT PRIMARY KEY);`);
+      this.db.exec(`CREATE TABLE IF NOT EXISTS icloud_note_delivery_managed (mirror TEXT PRIMARY KEY,binding TEXT NOT NULL)`);
+      for (const row of this.db.prepare('SELECT mirror,binding FROM icloud_note_delivery_managed').all() as Array<{mirror:string;binding:string}>) {
+        this.managedBindings.set(row.mirror,row.binding);
+      }
       this.direct = new Set((this.db.prepare('SELECT mirror_id FROM icloud_note_direct').all() as { mirror_id: string }[]).map(row => row.mirror_id));
       if (this.state().mirrors.some(m => m.initialized)) await this.bindAccount();
       this.moves.start();
@@ -397,6 +410,64 @@ export class NoteRuntime {
     this.queue = task.then(() => {}, () => {});
     return task;
   }
+  configureManagedDelivery(deployment: {binary:string; mirrors: Record<string,string>}) {
+    if (!this.ready || this.closed || this.deliveryBusy || this.nativeRunning || this.turnsPending) throw new CloudError('busy');
+    this.db.transaction(() => {
+      for (const sql of [...noteDeliverySchema,deliveryRecoverySchema]) {
+        this.db.exec(sql.replaceAll('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ').replaceAll('CREATE INDEX ', 'CREATE INDEX IF NOT EXISTS '));
+      }
+      for (const [id,binding] of Object.entries(deployment.mirrors)) {
+        const mirror = this.mirror(id);
+        if (!mirror || !this.direct.has(id) || !mirror.initialized || !this.members.has(id)) throw new CloudError('invalid_selection');
+        const prior = this.managedBindings.get(id);
+        if (prior && prior !== binding) throw new CloudError('source_changed');
+        this.db.prepare('INSERT OR IGNORE INTO icloud_note_delivery_managed(mirror,binding) VALUES (?,?)').run(id,binding);
+      }
+    }).immediate();
+    this.managedDelivery.clear();
+    for (const [id,binding] of Object.entries(deployment.mirrors)) {
+      const mirror = this.mirror(id)!;
+      const workdir = join(this.root,'baselines',id);
+      this.managedBindings.set(id,binding);
+      this.managedDelivery.set(id,{binary:deployment.binary,remote:selectedRemote(mirror),workdir,binding});
+    }
+    this.deliveryQueue = new NoteDeliveryQueue(this.db);
+    this.deliveryJournal = new NoteDeliveryRecovery(this.db);
+  }
+
+  async deliverKnownNotes(changes: (id:string,after:number|null)=>Promise<unknown>,canStart:()=>boolean) {
+    if (!canStart() || !this.ready || this.closed || this.deliveryBusy || this.moving || this.storageBlocked) return;
+    const queue = this.deliveryQueue, journal = this.deliveryJournal;
+    if (!queue || !journal) return;
+    this.deliveryBusy = true;
+    try {
+      for (const [id,target] of this.managedDelivery) {
+        if (!canStart() || this.closed || this.moving) return;
+        const mirror = this.mirror(id);
+        if (!mirror?.enabled || !mirror.initialized || !this.members.has(id) || (mirror.failure && mirror.failure !== 'busy') || mirror.blocker ||
+            (mirror.phase !== 'running' && mirror.phase !== 'ready' && !(mirror.phase === 'failed' && mirror.failure === 'busy'))) continue;
+        await this.local(mirror,{requireBinding:true});
+        const cursor = queue.cursor(id);
+        const page = await changes(id,cursor);
+        if (!canStart() || this.closed || this.moving) return;
+        queue.stage(id,cursor,page);
+        const paths = queue.pendingPaths(id);
+        const last = paths.indexOf(this.deliveryLastPath.get(id) ?? '');
+        const path = paths[(last + 1) % paths.length];
+        if (!path && !journal.pending(id)) continue;
+        if (path) this.deliveryLastPath.set(id,path);
+        await runNoteDelivery(id,target,this.worker,queue,journal,async path => {
+          const current = this.mirror(id);
+          if (!canStart() || !current?.enabled || !this.members.has(id) || this.moving ||
+            (current.failure && current.failure !== 'busy') || current.blocker || current.folder.id !== mirror.folder.id) throw new CloudError('busy');
+          const root = await this.local(current,{requireBinding:true});
+          const note = await this.legacy.observe(root,path);
+          return note && {text:note.text,hash:note.hash};
+        },path);
+      }
+    } finally { this.deliveryBusy = false; }
+  }
+
   benchmarkListing(mirror: Mirror, checkers: ListingCheckers, signal?: AbortSignal) {
     if (this.turnsPending) throw new CloudError('busy');
     return this.turn(async () => {
@@ -432,12 +503,15 @@ export class NoteRuntime {
     for (const mirror of this.state().mirrors) if (mirror.initialized && args.includes(this.localPath(mirror)) && this.moves.blocked(mirror.id)) throw new NoteError('uncertain');
     const direct = args[0] === 'bisync' ? this.state().mirrors.find(m => this.direct.has(m.id) && this.localPath(m) === args[2]) : undefined;
     if (direct) await this.local(direct, { interrupted: direct.blocker === 'rebuild' });
+    const owned = direct && this.managedBindings.get(direct.id);
+    const target = owned && direct ? this.managedDelivery.get(direct.id) : undefined;
+    if (owned && (!target || args.includes('--resync'))) throw new CloudError('recovery_required');
     this.nativeRunning = true;
     this.nativeMirror = direct?.id;
     if (direct) this.mirrorWakeups?.suspend(direct.id);
     // Apply the measured checker increase to ordinary direct-note sync only.
     const tuned = ordinaryInitialized && direct?.phase === 'running' && direct.blocker === null && direct.failure === null && this.members.has(direct.id);
-    try { return await this.worker.run(direct ? [...args, '--exclude', obsidianStageExclude] : args, capture, report, tuned ? '4' : '2'); }
+    try { return await this.worker.run(direct ? [...args, '--exclude', obsidianStageExclude] : args, capture, report, tuned ? '4' : '2', target); }
     finally {
       this.nativeRunning = false;
       this.nativeMirror = undefined;
@@ -593,7 +667,7 @@ export class NoteRuntime {
   }
   activity() {
     return { nativeRunning: this.nativeRunning, localOperations: this.entered.size, turnsPending: this.turnsPending,
-      busy: this.closed || !this.ready || this.search.active || this.nativeRunning || this.entered.size > 0 || this.turnsPending > 0 || this.directoryReads.size > 0 || this.moving || this.wakeScheduled || this.maintenanceScheduled || this.maintenance !== null };
+      busy: this.closed || !this.ready || this.deliveryBusy || this.search.active || this.nativeRunning || this.entered.size > 0 || this.turnsPending > 0 || this.directoryReads.size > 0 || this.moving || this.wakeScheduled || this.maintenanceScheduled || this.maintenance !== null };
   }
   canRestoreScheduling(id: string) {
     return this.ready && !this.closed && !this.storageBlocked && !this.blocked.has(id) &&

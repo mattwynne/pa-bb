@@ -152,6 +152,31 @@ export class LocalReceipts {
     return rows.map(row => this.decode(row));
   }
 
+  // The terminal event's sequence is the publication order. An intent can stay
+  // open across another file's save and must remain visible when it later settles.
+  deliveryChanges(mirrorId: string, after: number | null, limit: number) {
+    return this.db.transaction(() => {
+      const { tail } = this.db.prepare(
+        'SELECT COALESCE(MAX(sequence), 0) AS tail FROM obsidian_receipt_events',
+      ).get() as { tail: number };
+      if (after === null) return { cursor: tail, hasMore: false, changes: [] };
+      if (after > tail) throw new VaultError('source_changed');
+      const entries = this.db.prepare(`SELECT sequence, payload FROM obsidian_receipt_events
+        WHERE sequence > ? AND sequence <= ? AND event = 'terminal' AND mirror = ? AND kind = 'save'
+        AND json_extract(payload, '$.outcome') = 'saved_locally_pending_sync'
+        ORDER BY sequence LIMIT ?`).all(after, tail, mirrorId, limit + 1) as Array<Pick<Stored, 'sequence' | 'payload'>>;
+      const hasMore = entries.length > limit;
+      const page = entries.slice(0, limit);
+      const changes = page.map(({ sequence, payload }) => {
+        const row = record.parse(JSON.parse(payload));
+        if (row.kind !== 'save' || row.outcome !== 'saved_locally_pending_sync') throw new VaultError('unavailable');
+        const { operationId, path, previousHash, hash } = row;
+        return { sequence, operationId, path, previousHash, hash };
+      });
+      return { cursor: hasMore ? page.at(-1)!.sequence : tail, hasMore, changes };
+    })();
+  }
+
   laterSaves(mirrorId: string, path: string, after: number) {
     const rows = this.db.prepare(`SELECT terminal.payload AS payload FROM obsidian_receipt_events terminal
       JOIN obsidian_receipt_events intent ON intent.operation_id = terminal.operation_id AND intent.event = 'intent'

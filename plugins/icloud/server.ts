@@ -19,6 +19,8 @@ import { NoteStore, NoteError } from './adapters/note-store.ts';
 import { NoteRuntime } from './adapters/note-runtime.ts';
 import { MirrorWakeups } from './adapters/mirror-wakeups.ts';
 import { maintenanceCli } from './adapters/maintenance-cli.ts';
+import { managedDeliveryDeployment } from './adapters/note-delivery-deployment.ts';
+import { noteDeliveryPage } from './adapters/note-delivery-queue.ts';
 import type Database from 'better-sqlite3';
 
 export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudProvider; repository?: StateRepository; history?: RunHistoryRepository; notes?: NoteStore; worker?: RcloneProcess; runtime?: NoteRuntime }) {
@@ -61,6 +63,40 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     try { await runtime?.stop(); } catch { diagnose('note_owner', 'unknown'); }
     throw new CloudError(failure === 'unknown' ? 'unavailable' : failure);
   }
+  const noteDeliverySettings = bb.settings.define({
+    noteDeliveryBinary: {type:'string',label:'Managed iCloud note worker executable',default:''},
+    noteDeliverySHA256: {type:'string',label:'Managed iCloud note worker checksum',default:''},
+    noteDeliveryBindings: {type:'string',label:'Managed iCloud note mirror bindings',default:''},
+  });
+  let expeditedConfigured = false;
+  try {
+    if (runtime) {
+      const value = await noteDeliverySettings.get();
+      const deployment = await managedDeliveryDeployment({binary:value.noteDeliveryBinary ?? '',sha256:value.noteDeliverySHA256 ?? '',
+        mirrors:value.noteDeliveryBindings ?? ''});
+      if (deployment) { runtime.configureManagedDelivery(deployment); expeditedConfigured = true; }
+    }
+  } catch (error) { diagnose('note_delivery_configuration', category(error)); }
+  let deliveryStopped = false;
+  let deliveryTimer: ReturnType<typeof setTimeout> | undefined;
+  let deliveryRun: Promise<void> | undefined;
+  const canDeliver = () => !deliveryStopped && !sync.maintenanceHeld && !updatePause.held && sync.status().connected;
+  const pollDelivery = () => {
+    if (deliveryStopped || !expeditedConfigured) return;
+    deliveryTimer = setTimeout(() => {
+      const run = runtime?.deliverKnownNotes((vaultId,after) => bb.sdk.plugins.callRpc({
+        pluginId:'obsidian',method:'deliveryChanges',input:{vaultId,after,limit:32},
+        outputSchema:noteDeliveryPage,signal:AbortSignal.timeout(3000),
+      }),canDeliver).catch(error => {
+        const failure = category(error);
+        if (failure !== 'busy') diagnose('note_delivery', failure, {evidence:evidence(error)});
+      });
+      deliveryRun = run;
+      void run?.finally(() => { deliveryRun = undefined; pollDelivery(); });
+    },1000);
+    deliveryTimer.unref();
+  };
+  pollDelivery();
   sync.restoreConnection();
   let available = false;
   try { await sync.checkAvailability(); available = true; } catch (error) { diagnose('prerequisite', category(error), { evidence: evidence(error) }); }
@@ -236,9 +272,11 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     try { await sync.tick(undefined, () => !updatePause.held); } catch (error) { diagnose('schedule', category(error), { evidence: evidence(error) }); }
   });
   bb.onDispose(async () => {
+    deliveryStopped = true;
+    clearTimeout(deliveryTimer);
     const paused = updatePause.stop();
     runtime?.requestStop(); // fence local admission, retaining ownership until service drain
-    try { await sync.stop(); } finally { await runtime?.stop(); await paused; }
+    try { await sync.stop(); } finally { await deliveryRun; await runtime?.stop(); await paused; }
   });
   bb.agents.registerTool({ name: 'icloud_list_local_folders', description: 'List initialized iCloud folders, local note availability and last cloud sync. Paused or disconnected cloud delivery does not revoke sound local access. Never ask for Apple credentials in chat.', parameters: z.object({}),
     async execute() { return { content: [{ type: 'text' as const, text: JSON.stringify(await inventory()) }] }; } });
