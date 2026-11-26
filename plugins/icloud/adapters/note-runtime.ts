@@ -65,6 +65,7 @@ export class NoteRuntime {
   private deliveryQueue?: NoteDeliveryQueue;
   private folderDeliveryQueue?: FolderDeliveryQueue;
   private folderAttemptAt = new Map<string,number>();
+  private folderFeedWarnings = new Map<string,string>();
   private deliveryJournal?: NoteDeliveryRecovery;
   private legacyWrites = new Map<string, number>();
   constructor(readonly root: string, private db: Database.Database, readonly worker: RcloneProcess,
@@ -455,20 +456,28 @@ export class NoteRuntime {
             (mirror.phase !== 'running' && mirror.phase !== 'ready' && !(mirror.phase === 'failed' && mirror.failure === 'busy'))) continue;
         const root = await this.local(mirror,{requireBinding:true});
         const folderQueue = this.folderDeliveryQueue;
+        const folderFrom = folders && folderQueue ? folderQueue.cursor(id) : null;
+        const cursor = queue.cursor(id);
+        const [notePage,folderPage] = await Promise.allSettled([
+          changes(id,cursor),
+          folders && folderQueue ? folders.changes(id,folderFrom) : undefined,
+        ]);
+        if (!canStart() || this.closed || this.moving) return;
         if (folders && folderQueue) {
-          const from = folderQueue.cursor(id);
           try {
-            const page = await folders.changes(id,from);
-            if (!canStart() || this.closed || this.moving) return;
-            folderQueue.stage(id,from,page);
+            if (folderPage.status === 'rejected') throw folderPage.reason;
+            folderQueue.stage(id,folderFrom,folderPage.value);
+            this.folderFeedWarnings.delete(id);
           } catch (error) {
             const failure = error instanceof CloudError ? error.category : 'unavailable';
-            if (failure !== 'capacity') this.diagnose('folder_delivery_feed',failure);
+            if (failure !== 'capacity' && this.folderFeedWarnings.get(id) !== failure) {
+              this.folderFeedWarnings.set(id,failure);
+              this.diagnose('folder_delivery_feed',failure);
+            }
           }
         }
-        const cursor = queue.cursor(id);
-        const page = await changes(id,cursor);
-        if (!canStart() || this.closed || this.moving) return;
+        if (notePage.status === 'rejected') throw notePage.reason;
+        const page = notePage.value;
         try { queue.stage(id,cursor,page); }
         catch (error) {
           // A full receipt page must not prevent work already in the queue.
