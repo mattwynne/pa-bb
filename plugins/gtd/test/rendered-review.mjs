@@ -108,7 +108,7 @@ try {
   await setPreference('sidebar.sortDirection', 'ascending');
   console.log(`Evidence: ${artifacts}`);
   browser = await chromium.launch({ headless: true, executablePath: chrome });
-  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'area-actions', 'auto-refresh', 'next-action', 'correspondence', 'area-mail', 'composer-project'];
+  const modes = ['browser-flow', 'normal', 'empty', 'error', 'loading', 'missing', 'malformed', 'area-boundary', 'relationships', 'project-actions', 'create-project', 'area-standard', 'area-actions', 'auto-refresh', 'project-actions-list', 'correspondence', 'area-mail', 'composer-project'];
   const selectedModes = process.env.BB_REVIEW_MODE?.split(',');
   const reviewedModes = native ? ['native-refresh'] : selectedModes ? modes.filter(mode => selectedModes.includes(mode)) : modes;
   assert.ok(reviewedModes.length, 'Unknown BB_REVIEW_MODE');
@@ -132,7 +132,6 @@ try {
     let workshopReturnDate;
     const snoozeDate = offset => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
     let workshopArchived = false;
-    let nextAction = null, heldNextAction, failNextAction = false;
     let unread = 2, areaUnread = true;
     let assignedArea = 'Areas/Learning.md', projectStatus = 'active', projectId = ref.id;
     const standardSaves = [];
@@ -146,7 +145,7 @@ try {
       { line: 2, text: 'Book the room', complete: true },
       { line: 3, text: 'Pack the tools', complete: false },
     ];
-    let refuseAction = false;
+    let refuseAction = false, failProjectActions = false;
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
     const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
       ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1,
@@ -269,22 +268,19 @@ try {
           result = { state: 'created', id: extraProject.id };
         }
       }
-      if (method === 'readNextAction') {
-        await heldNextAction;
-        if (failNextAction) return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic read failure' } } });
-        result = { text: nextAction };
-      }
-      if (method === 'readAreaActions') {
-        if (mode === 'area-actions') {
+      if (method === 'readNoteActions') {
+        if ((mode === 'area-actions' && input.kind === 'area') || (mode === 'project-actions-list' && input.kind === 'project')) {
           if (input.id === 'Areas/Folder/') throw new Error('Folder-only Area requested an action read');
-          if (input.id === 'Areas/Home.md') return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic read failure' } } });
+          if (input.id === 'Areas/Home.md' || failProjectActions) return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic read failure' } } });
           if (actionState === 'loading') await new Promise(resolve => { releaseActions = resolve; });
           if (actionState === 'ready') result = { version: actionVersion, actions: areaActions };
         }
         result ??= { version: actionVersion, actions: [] };
       }
-      if (method === 'changeAreaAction') {
-        assert.equal(input.id, 'Areas/Learning.md');
+      if (method === 'changeNoteAction') {
+        const projectActions = mode === 'project-actions-list';
+        assert.equal(input.kind, projectActions ? 'project' : 'area');
+        assert.equal(input.id, projectActions ? projectId : 'Areas/Learning.md');
         if (refuseAction) result = { outcome: 'not_saved', reason: 'changed' };
         else {
           const { change } = input;
@@ -978,58 +974,58 @@ try {
       await nav.getByRole('radio', { name: 'Done', exact: true }).click();
       await nav.getByText('No done projects in this Area.', { exact: true }).waitFor();
       assert.equal(await nav.locator('[data-mail]').count(), 0);
-    } else if (mode === 'next-action') {
+    } else if (mode === 'project-actions-list') {
       await openLearning();
-      assert.equal(await nav.getByRole('region', { name: 'Next action' }).count(), 0);
-      let resolveNextAction;
-      heldNextAction = new Promise(resolve => { resolveNextAction = resolve; });
       await link(title).click();
-      const action = nav.getByRole('region', { name: 'Next action' });
-      await action.getByText('Loading next action…', { exact: true }).waitFor();
-      const planUrl = 'https://example.com/bench-plan';
-      nextAction = `**Next:** Measure the boards with the [bench plan](${planUrl}) and mark each cut before setting up the saw.`;
-      resolveNextAction();
-      await action.locator('strong').getByText('Next:', { exact: true }).waitFor();
-      const plan = action.getByRole('link', { name: 'bench plan', exact: true });
-      assert.equal(await plan.getAttribute('href'), planUrl);
-      const position = await action.boundingBox();
-      const projectTitle = await nav.getByRole('heading', { name: title, level: 1 }).boundingBox();
-      const correspondence = await nav.getByRole('region', { name: 'Correspondence' }).boundingBox();
-      assert.ok(position.y > projectTitle.y && position.y + position.height <= correspondence.y);
-      const toggleAction = action.getByRole('button', { name: 'Next action' });
-      assert.equal(await action.locator('button, input, textarea, [contenteditable]').count(), 1);
-      await toggleAction.press('Space');
-      assert.equal(await toggleAction.getAttribute('aria-expanded'), 'false');
-      assert.equal(await plan.count(), 0);
-      await toggleAction.press('Space');
+      const actions = nav.getByRole('region', { name: 'Actions', exact: true });
+      await actions.getByText('Loading actions…').waitFor();
+      for (let i = 0; i < 100 && !releaseActions; i++) await new Promise(resolve => setTimeout(resolve, 20));
+      assert.ok(releaseActions);
+      actionState = 'ready';
+      releaseActions();
+      const plan = actions.getByRole('link', { name: 'workshop plan', exact: true });
       await plan.waitFor();
-      const linked = nav.getByRole('region', { name: 'Threads', exact: true });
-      const toggleLinked = linked.getByRole('button', { name: 'Threads', exact: true });
-      const threadFilter = linked.getByLabel('Filter by thread status');
-      await threadFilter.waitFor();
-      await toggleLinked.press('Enter');
-      assert.equal(await threadFilter.count(), 0);
+      assert.equal(await actions.getByRole('checkbox').count(), 2);
+      assert.equal(await actions.getByText('Book the room').count(), 0);
+      const add = actions.getByRole('button', { name: 'Add action', exact: true });
+      const toggle = actions.getByRole('button', { name: 'Actions', exact: true });
+      await toggle.press('Space');
+      assert.equal(await plan.count(), 0);
+      assert.equal(await add.count(), 0);
+      await toggle.press('Space');
+      await plan.waitFor();
+      await add.click();
+      const draft = actions.getByRole('textbox', { name: 'Action', exact: true });
+      await draft.fill('Check the workbench');
+      await draft.press('Enter');
+      const task = actions.getByText('Check the workbench', { exact: true });
+      await task.waitFor();
+      await task.click();
+      await task.waitFor({ state: 'detached' });
+      assert.ok(await plan.isVisible());
+      const threads = nav.getByRole('region', { name: 'Threads', exact: true });
+      const toggleThreads = threads.getByRole('button', { name: 'Threads', exact: true });
+      const newThreadName = `New thread for ${title}`;
+      const newThread = threads.getByRole('button', { name: newThreadName });
+      await newThread.waitFor();
+      assert.equal(await nav.locator('.gtd-page-heading').getByRole('button', { name: newThreadName }).count(), 0);
+      const filterThreads = threads.getByLabel('Filter by thread status');
+      await filterThreads.focus();
+      await page.keyboard.press('Tab');
+      assert.ok(await newThread.evaluate(el => el.matches(':focus')));
+      await toggleThreads.press('Enter');
+      assert.equal(await filterThreads.count(), 0);
+      assert.equal(await newThread.count(), 0);
       await assertDividers(3);
-      await toggleLinked.press('Enter');
-      await threadFilter.waitFor();
-      await assertDividers(3);
-      assert.ok(await action.evaluate(node => node.scrollWidth === node.clientWidth));
-      await nav.getByRole('heading', { name: title, level: 1 }).focus();
-      await page.keyboard.press('Tab');
-      assert.ok(await nav.getByRole('button', { name: `New thread for ${title}` }).evaluate(node => node === document.activeElement));
-      await page.keyboard.press('Tab');
-      await page.keyboard.press('Tab');
-      assert.ok(await toggleAction.evaluate(node => node === document.activeElement));
-      await page.keyboard.press('Tab');
-      assert.ok(await plan.evaluate(node => node === document.activeElement));
-      await page.screenshot({ path: join(artifacts, `project-next-action-${width}.png`) });
-      nextAction = null;
+      await toggleThreads.press('Enter');
+      await newThread.waitFor();
+      await page.screenshot({ path: join(artifacts, `project-actions-list-${width}.png`) });
+      actionState = 'empty';
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-      await action.getByText('No next action recorded.', { exact: true }).waitFor();
-      failNextAction = true;
+      await actions.getByText('No actions recorded.', { exact: true }).waitFor();
+      failProjectActions = true;
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-      await action.getByText('Could not load the next action. Check the project note in Obsidian.', { exact: true }).waitFor();
-      assert.equal(await action.getByText('No next action recorded.', { exact: true }).count(), 0);
+      await actions.getByText('Could not load actions. Check the project note in Obsidian.', { exact: true }).waitFor();
     } else if (mode === 'correspondence') {
       await openLearning();
       const areaUrl = page.url();

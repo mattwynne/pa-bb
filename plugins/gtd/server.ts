@@ -189,6 +189,24 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     }),
   };
   registerActionTools(bb, actionPorts);
+  const readNoteActions = async (input: ActionTarget, signal: AbortSignal) => {
+    try {
+      return await actionPorts.list(input, signal);
+    } catch {
+      throw new Error(`Could not load actions. Check the ${input.kind === 'area' ? 'Area' : 'project'} note in Obsidian.`);
+    }
+  };
+  const changeNoteAction = async ({ operationId, change, ...input }: z.input<typeof rpcContract.changeNoteAction.input>,
+    signal: AbortSignal): Promise<z.output<typeof rpcContract.changeNoteAction.output>> => {
+    try {
+      const result = await actionPorts.change({ ...input, ...change }, signal, operationId);
+      const { outcome } = result;
+      if (outcome === 'not_saved') return { outcome, reason: result.reason === 'nested_actions' ? 'unavailable' : result.reason };
+      return { outcome };
+    } catch {
+      return { outcome: 'not_saved', reason: 'unavailable' };
+    }
+  };
   const readNextAction = async (input: z.infer<typeof reference>, signal: AbortSignal) => {
     try {
       const selection = await configured('projectsFolder');
@@ -513,25 +531,10 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     },
     readAreaMailStatus: (input, context) => readAreaMailStatus(input, context.experimental_signal),
     readNextAction: (input, context) => readNextAction(input, context.experimental_signal),
-    async readAreaActions(input, context) {
-      try {
-        return await actionPorts.list({ ...input, kind: 'area' }, context.experimental_signal);
-      } catch {
-        throw new Error('Could not load actions. Check the Area note in Obsidian.');
-      }
-    },
-    async changeAreaAction({ operationId, change, ...input }, context): Promise<z.output<typeof rpcContract.changeAreaAction.output>> {
-      try {
-        const result = await actionPorts.change({ ...input, ...change, kind: 'area' }, context.experimental_signal, operationId);
-        const { outcome } = result;
-        if (outcome === 'not_saved') {
-          return { outcome, reason: result.reason === 'nested_actions' ? 'unavailable' : result.reason };
-        }
-        return { outcome };
-      } catch {
-        return { outcome: 'not_saved', reason: 'unavailable' };
-      }
-    },
+    readNoteActions: (input, context) => readNoteActions(input, context.experimental_signal),
+    changeNoteAction: (input, context) => changeNoteAction(input, context.experimental_signal),
+    readAreaActions: (input, context) => readNoteActions({ ...input, kind: 'area' }, context.experimental_signal),
+    changeAreaAction: (input, context) => changeNoteAction({ ...input, kind: 'area' }, context.experimental_signal),
     readCorrespondence: (input, context) => readCorrespondence(input, context.experimental_signal),
     refreshCorrespondence: (input, context) => mailActions.refresh(input, context.experimental_signal),
     changeCorrespondenceSnooze: ({ url, change, ...input }, context) =>

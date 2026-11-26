@@ -4,10 +4,11 @@ import type { z } from 'zod';
 import { actionText, actionTextLimit, rpcContract } from './contract.ts';
 import { FoldableSection } from './foldable-section.tsx';
 
-type Snapshot = z.output<typeof rpcContract.readAreaActions.output>;
-type Change = z.input<typeof rpcContract.changeAreaAction.input>['change'];
+type Snapshot = z.output<typeof rpcContract.readNoteActions.output>;
+type Change = z.input<typeof rpcContract.changeNoteAction.input>['change'];
 
-export function AreaActions({ source, id, revision }: { source: string; id: string; revision: number }) {
+export function NoteActions({ kind, source, id, revision }: z.input<typeof rpcContract.readNoteActions.input> & { revision: number }) {
+  const owner = kind === 'area' ? 'Area' : 'project';
   const heading = useId();
   const formId = useId();
   const rpc = useRpc<typeof rpcContract>();
@@ -32,7 +33,7 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
     if (!hasNote) return;
     let current = true;
     setReadState('loading');
-    void client.current.call('readAreaActions', { source, id }).then(value => {
+    void client.current.call('readNoteActions', { kind, source, id }).then(value => {
       if (!current) return;
       setSnapshot(value);
       setReadState('ready');
@@ -40,7 +41,7 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
       if (current) setReadState('error');
     });
     return () => { current = false; };
-  }, [source, id, revision, reload, hasNote]);
+  }, [kind, source, id, revision, reload, hasNote]);
 
   useEffect(() => {
     if (editing) input.current?.focus();
@@ -70,7 +71,7 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
     setNotice('');
     const operationId = crypto.randomUUID();
     try {
-      const result = await client.current.call('changeAreaAction', { source, id, change, operationId });
+      const result = await client.current.call('changeNoteAction', { kind, source, id, change, operationId });
       if (result.outcome === 'saved_locally_pending_sync' || result.outcome === 'unchanged') {
         if (change.operation === 'add') {
           closeForm();
@@ -91,7 +92,7 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
         setUncertainId(operationId);
       } else if (result.outcome === 'not_saved') {
         if (result.reason === 'changed' || result.reason === 'missing_action') {
-          setError('The Area note changed. Review the latest actions before trying again.');
+          setError(`The ${owner} note changed. Review the latest actions before trying again.`);
           refresh();
         } else {
           setError('Could not save the action. Check the TODO section in Obsidian.');
@@ -107,7 +108,7 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
 
   const validDraft = actionText.safeParse(draft);
   const actions = (exiting?.snapshot ?? snapshot)?.actions.filter(action => !action.complete) ?? [];
-  return <FoldableSection title="Actions" className="gtd-area-actions" tools={
+  return <FoldableSection title="Actions" className="gtd-note-actions" tools={
     hasNote && <button type="button" ref={addButton} className="gtd-row-action" aria-label="Add action" title="Add action"
       aria-expanded={editing} aria-controls={editing ? formId : undefined}
       aria-disabled={!canWrite || editing} onClick={() => { if (canWrite && !editing) setDraft(''); }}>
@@ -125,9 +126,9 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
         <button type="submit" aria-disabled={!validDraft.success || !canWrite}>{pending ? 'Saving…' : 'Add'}</button>
       </div>
     </form>}
-    {!hasNote ? <p>Add an Area note in Obsidian to record actions.</p>
+    {!hasNote ? <p>Add {kind === 'area' ? 'an Area' : 'a project'} note in Obsidian to record actions.</p>
       : readState === 'error' ? <div>
-        <p role="status">Could not load actions. Check the Area note in Obsidian.</p>
+        <p role="status">Could not load actions. Check the {owner} note in Obsidian.</p>
         <button type="button" onClick={refresh}>Try again</button>
       </div>
         : !snapshot ? <p role="status">Loading actions…</p>
@@ -151,7 +152,7 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
                       onClick={event => { if (!canWrite) event.preventDefault(); }}
                       onChange={event => void save({ operation: 'edit', line: action.line, version: snapshot.version, complete: true }, event.currentTarget)} />
                   </label>
-                  <div className="gtd-area-actions-text" id={label}><Markdown content={action.text} /></div>
+                  <div className="gtd-note-actions-text" id={label}><Markdown content={action.text} /></div>
                 </div>
               </li>;
             })}

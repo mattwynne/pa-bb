@@ -38,6 +38,7 @@ test('action tools and CLI share the TODO section and check its note version bef
     const list = await tool('list_actions', area);
     const areaRef = { source: area.source, id: area.id };
     assert.deepEqual(await harness.behavior.callRpc('readAreaActions', areaRef), list);
+    assert.deepEqual(await harness.behavior.callRpc('readNoteActions', area), list);
     assert.deepEqual(list.actions, [
       { line: 5, text: 'Buy **paint**', complete: false },
       { line: 6, text: 'Call the shop', complete: true },
@@ -68,6 +69,12 @@ test('action tools and CLI share the TODO section and check its note version bef
     assert.deepEqual(await harness.behavior.callRpc('changeAreaAction', { ...areaRef,
       operationId: 'e66439a2-f72f-4c92-b007-99e244d689dd', change: newAction }), { outcome: 'saved_locally_pending_sync' });
     assert.match(sections.get(area.id)!, /^- \[ \] Check the supplies\r\n/);
+    const projectList = await tool('list_actions', project);
+    assert.deepEqual(await harness.behavior.callRpc('readNoteActions', project), projectList);
+    assert.deepEqual(await harness.behavior.callRpc('changeNoteAction', { ...project, operationId: '5d91bca3-8d60-455b-b87d-c48e3ea08420',
+      change: { operation: 'edit', line: 1, version: projectList.version, complete: true } }), { outcome: 'saved_locally_pending_sync' });
+    assert.equal(sections.get(project.id), '- [x] Measure the boards');
+    await assert.rejects(() => harness.behavior.callRpc('readNoteActions', { ...project, id: area.id }), /Could not load actions/);
     fail = true;
     assert.deepEqual(await harness.behavior.callRpc('changeAreaAction', { ...areaRef,
       operationId: '8ea8d229-b352-4d4d-b001-c74167104724', change: newAction }), { outcome: 'uncertain' });

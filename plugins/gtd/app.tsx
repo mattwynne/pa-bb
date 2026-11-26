@@ -5,10 +5,9 @@ import type { Area, Project } from './core/model.ts';
 import { enclosingArea } from './core/area-presentation.ts';
 import { areasIndex, panelHref, readRoute, recordDestination, unassignedArea, type Destination, type PanelPath } from './app-routes.ts';
 import { ProjectCorrespondence } from './project-correspondence.tsx';
-import { ProjectNextAction } from './project-next-action.tsx';
 import { useAreaMailStatus } from './area-mail-status.ts';
 import { AreaStandard } from './area-standard.tsx';
-import { AreaActions } from './area-actions.tsx';
+import { NoteActions } from './note-actions.tsx';
 import { FoldableSection } from './foldable-section.tsx';
 import './app.css';
 const key = (source: string, id: string) => JSON.stringify([source, id]);
@@ -630,13 +629,11 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
   const newThreadAction = (item: Area | Project, kind: 'area' | 'project') =>
     <button className="gtd-row-action" aria-label={`New thread for ${kind === 'area' ? 'Area ' : ''}${item.title}`} title="New thread"
       disabled={!!busy} onClick={() => newThread(item, kind)}><Icon name="MessageSquarePlus" aria-hidden="true" /></button>;
-  const projectActions = (project: Project) => <>
-    {newThreadAction(project, 'project')}
+  const projectMenu = (project: Project) =>
     <RowActions project={project} source={inventory.source} disabled={!!busy || !(project.id.endsWith('.md'))} actions={[
       ...(eligibleAreas.length ? [{ label: 'Move to Area…', run: (trigger: HTMLElement) => setProjectAction({ kind: 'area', project, trigger }) }] : []),
       { label: project.status === 'done' ? 'Archive linked threads' : 'Mark as done', run: trigger => setProjectAction({ kind: 'done', project, trigger }) },
-    ]} />
-  </>;
+    ]} />;
   return <section className="gtd-nav" aria-label="Personal GTD projects" ref={nav}
     onFocusCapture={event => { focused.current = event.target as HTMLElement; }}
     onBlurCapture={event => {
@@ -653,7 +650,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
         </nav>}
         <div className="gtd-page-heading">
           <h1 tabIndex={-1} ref={heading}>{title}</h1>
-          {project && projectActions(project)}
+          {project && projectMenu(project)}
         </div>
       </header>
       {inventory.loading && <p role="status">Loading GTD…</p>}
@@ -696,7 +693,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       </>}
       {ready && (area || unassigned) && <div className="gtd-detail-sections">
         {area && <AreaStandard key={`standard:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} hasNote={area.id.endsWith('.md')} />}
-        {area && <AreaActions key={`actions:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} revision={inventory.revision} />}
+        {area && <NoteActions key={`actions:${key(inventory.source, area.id)}`} kind="area" source={inventory.source} id={area.id} revision={inventory.revision} />}
         <FoldableSection key={`projects:${key(inventory.source, area?.id ?? '')}`} title="Projects" tools={
           <FilterControls label="Project status" action={area && <button ref={addProject} type="button" className="gtd-row-action"
             aria-label="Add project" title="Add project" disabled={!!busy || !!inventory.error}
@@ -715,7 +712,8 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
               {mail && mail !== 'clear' && <span className="gtd-project-mail" data-mail={mail}>
                 {mail === 'unread' ? 'Unread email' : 'Mail status incomplete'}
               </span>}
-              {projectActions(item)}
+              {newThreadAction(item, 'project')}
+              {projectMenu(item)}
             </li>;
           })}</ul> : <p className="gtd-empty" role="status">{partial ? 'No matching projects in the loaded inventory.' :
             !inArea.length ? (area ? 'No projects in this Area yet.' : 'No unassigned projects.') :
@@ -725,9 +723,9 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
           action={newThreadAction(area, 'area')} />}
       </div>}
       {project && <div className="gtd-detail-sections" key={key(inventory.source, project.id)}>
-        <ProjectNextAction source={inventory.source} id={project.id} revision={inventory.revision} />
+        <NoteActions kind="project" source={inventory.source} id={project.id} revision={inventory.revision} />
         <ProjectCorrespondence key={JSON.stringify([inventory.source, project.id])} source={inventory.source} id={project.id} revision={inventory.revision} />
-        <LinkedThreads kind="project" id={project.id} source={inventory.source} />
+        <LinkedThreads kind="project" id={project.id} source={inventory.source} action={newThreadAction(project, 'project')} />
       </div>}
       {notice && <p role="status">{notice}</p>}
     </div>

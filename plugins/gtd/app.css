@@ -45,12 +45,8 @@
 .gtd-detail-sections > section > .gtd-list-bar { margin: 0; }
 .gtd-detail-sections .gtd-rows, .gtd-detail-sections .gtd-empty { border-block: 0; }
 .gtd-section-content { margin-block-start: 6px; }
-.gtd-next-action [role='status'] { margin: 0; color: var(--muted-foreground); line-height: 1.5; }
-.gtd-next-action .gtd-next-action-text { font-size: 15px; line-height: 1.5; }
-.gtd-next-action-text p { margin: 0; }
-.gtd-next-action-text a { text-decoration: underline; }
-.gtd-area-actions p { margin-block: 6px; }
-.gtd-area-actions [role='status'] { color: var(--muted-foreground); }
+.gtd-note-actions p { margin-block: 6px; }
+.gtd-note-actions [role='status'] { color: var(--muted-foreground); }
 .gtd-action-list { list-style: none; margin: 0; padding: 0; }
 .gtd-action-row { display: grid; grid-template-rows: 1fr; }
 .gtd-action-row[data-clickable] { cursor: pointer; border-radius: 6px; }
@@ -59,7 +55,7 @@
 }
 .gtd-action-content { display: flex; align-items: flex-start; gap: 5px; min-height: 0; }
 .gtd-action-exiting { animation: gtd-action-complete 180ms ease-out both; overflow: clip; }
-.gtd-action-exiting .gtd-area-actions-text { text-decoration: line-through; }
+.gtd-action-exiting .gtd-note-actions-text { text-decoration: line-through; }
 @keyframes gtd-action-complete {
   to { opacity: 0; grid-template-rows: 0fr; }
 }
@@ -68,10 +64,10 @@
 }
 .gtd-action-checkbox { flex: none; min-width: 28px; min-height: 28px; display: grid; place-items: center; }
 .gtd-action-checkbox input { width: 16px; height: 16px; accent-color: var(--primary); }
-.gtd-area-actions :is(input, button):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.gtd-area-actions [aria-disabled='true'] { opacity: .6; }
-.gtd-area-actions-text { min-width: 0; overflow-wrap: anywhere; }
-.gtd-area-actions-text a { text-decoration: underline; }
+.gtd-note-actions :is(input, button):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.gtd-note-actions [aria-disabled='true'] { opacity: .6; }
+.gtd-note-actions-text { min-width: 0; overflow-wrap: anywhere; }
+.gtd-note-actions-text a { text-decoration: underline; }
 .gtd-add-action { display: grid; gap: 8px; margin: 8px 0; }
 .gtd-add-action input {
   box-sizing: border-box; min-width: 0; padding: 7px 9px;
