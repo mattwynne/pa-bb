@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { generateKeyPairSync } from 'node:crypto';
 import { dkimSign } from 'mailauth';
 import { renderMessage, inspectPage, mailtoRequest, verifyOneClick } from '../message.ts';
-import { browserWorker, unsubscribeMessage } from '../unsubscribe.ts';
+import { unsubscribeMessage } from '../unsubscribe.ts';
 import { httpsTarget, isPublicAddress, WebFailure } from '../web.ts';
 
 const signal = AbortSignal.timeout(5000);
@@ -12,6 +12,7 @@ const link = 'https://mail.example.com/remove?token=a,b';
 const form = '<form method="post" action="/submit"><input type="hidden" name="token" value="x"><input type="email" name="email"><button>Unsubscribe</button></form>';
 const success = '<h1>You have been unsubscribed.</h1>';
 const failure = () => {};
+const noBrowser = { browser: async () => assert.fail('Unexpected browser fallback') };
 const message = async (headers: string, html = '') => {
   const mime = Buffer.from(`From: lists@example.com\r\nTo: ${mailbox}\r\nContent-Type: text/html; charset=UTF-8\r\n${headers}\r\n${html}`).toString('base64');
   const rendered = await renderMessage(mime, mailbox);
@@ -27,9 +28,9 @@ test('one-click requires signature evidence and preserves the exact token', asyn
     calls.push(url.href, String(data));
     return { status: 204, html: '' };
   };
-  assert.equal((await unsubscribeMessage(source, { failure, web, verify: async () => false }, signal)).reason, 'one_click_signature_unverified');
+  assert.equal((await unsubscribeMessage(source, { ...noBrowser, failure, web, verify: async () => false }, signal)).reason, 'one_click_signature_unverified');
   assert.deepEqual(calls, []);
-  assert.deepEqual(await unsubscribeMessage(source, { failure, web, verify: async () => true }, signal),
+  assert.deepEqual(await unsubscribeMessage(source, { ...noBrowser, failure, web, verify: async () => true }, signal),
     { status: 'request_sent', method: 'one_click', reason: 'one_click_accepted' });
   assert.deepEqual(calls, [link, 'List-Unsubscribe=One-Click']);
 });
@@ -38,7 +39,7 @@ test('renders a footer link and submits a single simple confirmation form', asyn
   const source = await message('', `<p>Newsletter</p><a href="${link}">Unsubscribe</a>`);
   let requests = 0;
   const receipt = await unsubscribeMessage(source, {
-    failure,
+    ...noBrowser, failure,
     async web(url, _, data) {
       requests++;
       if (requests === 1) {
@@ -70,39 +71,21 @@ test('does not run the browser or mailto after an uncertain form POST', async ()
   assert.deepEqual(outcome, { status: 'unverified', method: 'web_form', reason: 'transport' });
 });
 
-test('hands a scripted page to the isolated worker and matches its job receipt', async () => {
-  const source = await message(`List-Unsubscribe: <${link}>\r\n`);
-  const worker = browserWorker('https://worker.example.com', 'x'.repeat(32), async (target, options) => {
-    assert.equal(String(target), 'https://worker.example.com/jobs');
-    assert.equal(options?.redirect, 'error');
-    const job = JSON.parse(String(options?.body));
-    assert.deepEqual(Object.keys(job).sort(), ['jobId', 'recipientEmail', 'url']);
-    assert.equal(job.recipientEmail, mailbox);
-    assert.equal(job.url, link);
-    return Response.json({ jobId: job.jobId, status: 'confirmed' });
-  });
-  assert.ok(worker);
-  const result = await unsubscribeMessage(source, { failure, browser: worker,
-    web: async () => ({ status: 200, html: form + '<script></script>' }),
-  }, signal);
-  assert.deepEqual(result, { status: 'confirmed', method: 'browser', reason: 'sender_confirmed' });
-});
-
 test('reports when it needs the user, finds no method or receives no confirmation', async () => {
-  assert.equal((await unsubscribeMessage(await message(''), { failure, web: async () => assert.fail() }, signal)).status, 'unavailable');
+  assert.equal((await unsubscribeMessage(await message(''), { ...noBrowser, failure, web: async () => assert.fail() }, signal)).status, 'unavailable');
   const source = await message(`List-Unsubscribe: <${link}>\r\n`);
   assert.equal((await unsubscribeMessage(source, {
-    failure, web: async () => ({ status: 200, html: '<form><input type="password"></form>' }),
+    ...noBrowser, failure, web: async () => ({ status: 200, html: '<form><input type="password"></form>' }),
   }, signal)).reason, 'login_or_challenge');
   assert.equal((await unsubscribeMessage(source, {
-    failure, web: async () => ({ status: 200, html: form }),
+    ...noBrowser, failure, web: async () => ({ status: 200, html: form }),
   }, signal)).status, 'unverified');
 });
 
 test('sends an exact RFC 2369 mailto and rejects extra recipients and injected headers', async () => {
   const source = await message('List-Unsubscribe: <mailto:leave@example.com?subject=leave%20list&body=bye>\r\n');
   const result = await unsubscribeMessage(source, {
-    failure, web: async () => assert.fail(), send: async (mail) => {
+    ...noBrowser, failure, web: async () => assert.fail(), send: async (mail) => {
       assert.deepEqual(mail, { from: mailbox, to: 'leave@example.com', subject: 'leave list', body: 'bye' });
       return { status: 'request_sent' };
     },

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { inspectPage, mailtoRequest, renderMessage, verifyOneClick } from './message.ts';
 import { httpsTarget, WebFailure, type WebRequest, type WebResponse } from './web.ts';
@@ -17,13 +16,13 @@ export const messageSchema = z.discriminatedUnion('status', [
 ]);
 export const mailResultSchema = z.object({ status: z.enum(['request_sent', 'needs_user', 'unverified']), draftMayRemain: z.boolean().optional() });
 export type Method = 'one_click' | 'web_link' | 'web_form' | 'browser' | 'mailto';
-export type Status = 'confirmed' | 'request_sent' | 'needs_user' | 'unavailable' | 'unverified';
-export type Result = { status: Status; method?: Method; reason: string; draftMayRemain?: boolean };
+export type Status = 'confirmed' | 'request_sent' | 'needs_user' | 'unavailable' | 'unverified' | 'in_progress';
+export type Result = { status: Status; method?: Method; reason: string; draftMayRemain?: boolean; childThreadId?: string };
 type Sender = (mail: NonNullable<ReturnType<typeof mailtoRequest>>, signal: AbortSignal) => Promise<z.infer<typeof mailResultSchema>>;
-export type Browser = (url: URL, recipient: string, signal: AbortSignal) => Promise<'confirmed' | 'needs_user' | 'failed'>;
+export type Browser = (url: URL, recipient: string, signal: AbortSignal) => Promise<Result>;
 type Ports = {
   web: WebRequest;
-  browser?: Browser;
+  browser: Browser;
   send?: Sender;
   verify?: typeof verifyOneClick;
   failure(stage: string, category: string): void;
@@ -89,14 +88,9 @@ export async function unsubscribeMessage(message: NonNullable<Awaited<ReturnType
       }
       return { status: 'unverified', method, reason: 'form_confirmation_missing' };
     }
-    if (!ports.browser) return { status: 'needs_user', method, reason: 'browser_worker_unavailable' };
     if (!message.recipient) return { status: 'needs_user', method, reason: 'recipient_not_verified' };
     method = 'browser';
-    const result = await ports.browser(url, message.recipient, signal);
-    if (result === 'confirmed') return { status: 'confirmed', method, reason: 'sender_confirmed' };
-    if (result === 'needs_user') return { status: 'needs_user', method, reason: 'browser_needs_user' };
-    ports.failure(method, 'worker_unverified');
-    return { status: 'unverified', method, reason: 'worker_unverified' };
+    return await ports.browser(url, message.recipient, signal);
   } catch (error) {
     const reason = error instanceof WebFailure ? error.reason : signal.aborted ? 'cancelled' : 'request_unverified';
     ports.failure(method, reason);
@@ -106,36 +100,4 @@ export async function unsubscribeMessage(message: NonNullable<Awaited<ReturnType
 
 function ok(response: WebResponse) {
   return response.status >= 200 && response.status < 300;
-}
-
-export function browserWorker(origin: string | undefined, secret: string | undefined, request = fetch): Browser | undefined {
-  if (!origin || !secret || !/^[\x21-\x7e]{32,256}$/.test(secret)) return;
-  const target = httpsTarget(origin);
-  if (!target || target.pathname !== '/' || target.search || origin.includes('#')) return;
-  target.pathname = '/jobs';
-  return async (url, recipientEmail, signal) => {
-    const jobId = randomUUID();
-    const response = await request(target, {
-      method: 'POST', redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(165_000)]),
-      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jobId, url: url.href, recipientEmail }),
-    });
-    const reader = response.body?.getReader();
-    if (!reader) return 'failed';
-    try {
-      if (!response.ok) return 'failed';
-      const bytes = Buffer.alloc(4096);
-      let size = 0;
-      for (;;) {
-        const part = await reader.read();
-        if (part.done) break;
-        if (part.value.byteLength > bytes.length - size) return 'failed';
-        bytes.set(part.value, size);
-        size += part.value.byteLength;
-      }
-      const parsed = z.object({ jobId: z.uuid(), status: z.enum(['confirmed', 'needs_user', 'failed']) })
-        .safeParse(JSON.parse(bytes.subarray(0, size).toString('utf8')));
-      return parsed.success && parsed.data.jobId === jobId ? parsed.data.status : 'failed';
-    } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
-  };
 }
