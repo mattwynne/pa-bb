@@ -22,7 +22,7 @@ const record = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('move'), destination: base.path,
     directory: z.literal(true).optional(),
     tree: z.object({ from: base.path, to: base.path, inode: identity, fingerprint: hash }).strict().optional(), outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']) }).strict(),
-  z.object({ ...base, kind: z.literal('resolution'), choice: z.enum(['keep_local', 'accept_incoming', 'replace']), outcome: z.enum(['saved_locally_pending_sync', 'adopted_content', 'not_saved', 'uncertain']) }).strict(),
+  z.object({ ...base, kind: z.literal('resolution'), previousHash: hash.nullable().optional(), choice: z.enum(['keep_local', 'accept_incoming', 'replace']), outcome: z.enum(['saved_locally_pending_sync', 'adopted_content', 'not_saved', 'uncertain']) }).strict(),
 ]);
 export type LocalReceipt = z.infer<typeof record>;
 export type FileIdentity = z.infer<typeof identity>;
@@ -162,14 +162,16 @@ export class LocalReceipts {
       if (after === null) return { cursor: tail, hasMore: false, changes: [] };
       if (after > tail) throw new VaultError('source_changed');
       const entries = this.db.prepare(`SELECT sequence, payload FROM obsidian_receipt_events
-        WHERE sequence > ? AND sequence <= ? AND event = 'terminal' AND mirror = ? AND kind = 'save'
-        AND json_extract(payload, '$.outcome') = 'saved_locally_pending_sync'
+        WHERE sequence > ? AND sequence <= ? AND event = 'terminal' AND mirror = ?
+          AND ((kind = 'save' AND json_extract(payload, '$.outcome') = 'saved_locally_pending_sync')
+            OR (kind = 'resolution' AND json_type(payload, '$.previousHash') IS NOT NULL
+              AND json_extract(payload, '$.outcome') IN ('saved_locally_pending_sync', 'adopted_content')))
         ORDER BY sequence LIMIT ?`).all(after, tail, mirrorId, limit + 1) as Array<Pick<Stored, 'sequence' | 'payload'>>;
       const hasMore = entries.length > limit;
       const page = entries.slice(0, limit);
       const changes = page.map(({ sequence, payload }) => {
         const row = record.parse(JSON.parse(payload));
-        if (row.kind !== 'save' || row.outcome !== 'saved_locally_pending_sync') throw new VaultError('unavailable');
+        if (row.kind === 'move' || row.previousHash === undefined) throw new VaultError('unavailable');
         const { operationId, path, previousHash, hash } = row;
         return { sequence, operationId, path, previousHash, hash };
       });

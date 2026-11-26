@@ -334,7 +334,8 @@ export class FilesystemVault {
       if (input.expectedLogicalHash !== conflict.logical.hash || input.expectedIncomingHash !== conflict.incoming.hash) throw new VaultError('conflict');
       const text = input.choice === 'accept_incoming' ? conflict.incoming.text : input.choice === 'keep_local' ? conflict.logical.text : input.text;
       if (text === undefined) throw new VaultError('invalid_query');
-      const base = { kind: 'resolution' as const, publication: 'atomic' as const, mirrorId, path, operationId, choice: input.choice, hash: digest(text), root: rootIdentity, at: new Date().toISOString() };
+      const base = { kind: 'resolution' as const, publication: 'atomic' as const, mirrorId, path, operationId, choice: input.choice,
+        hash: digest(text), previousHash: conflict.canonical?.hash ?? null, root: rootIdentity, at: new Date().toISOString() };
       let inode!: FileIdentity;
       let birthtime!: number;
       await this.files.publish(root, path, text, conflict.canonical, async stage => {
