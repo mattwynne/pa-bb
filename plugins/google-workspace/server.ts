@@ -3,6 +3,7 @@ import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { emailArchiveContract, gmailArchive, MailReadError } from './email-archive.js';
 import { gmailConversationInput, gmailConversationTarget, gmailCorrespondence, gmailCorrespondenceContract } from './gmail-correspondence.js';
+import { gmailUnsubscribe, gmailUnsubscribeContract } from './gmail-unsubscribe.js';
 import { rpcContract } from './contract.js';
 import { createWorkspace } from './core/workspace.mjs';
 import { createGoogleAuth } from './core/auth.mjs';
@@ -74,6 +75,22 @@ export default async function plugin(bb: BbPluginApi, ports: any = {}) {
       throw new Error('Gmail archive read failed. Check Google Workspace configuration.');
     }
   }
+  const unsubscribe = gmailUnsubscribe(auth, ports.gmailFetch);
+  async function unsubscribeAccess<T>(context: ArchiveContext, stage: 'read' | 'send', run: (signal: AbortSignal) => Promise<T>) {
+    if (context?.experimental_caller?.kind !== 'plugin' || context.experimental_caller.pluginId !== 'email-unsubscribe') {
+      throw new sdk.experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only Email Unsubscribe can request this operation.' });
+    }
+    const signal = AbortSignal.any([context.experimental_signal ?? lifetime.signal, lifetime.signal, AbortSignal.timeout(20_000)]);
+    try { return await run(signal); }
+    catch (error) {
+      diagnose(`unsubscribe_${stage}`, error);
+      throw new Error('Gmail unsubscribe provider request could not be verified.');
+    }
+  }
+  bb.rpc.register(gmailUnsubscribeContract, {
+    unsubscribeMessage: (input, context) => unsubscribeAccess(context, 'read', signal => unsubscribe.read(input, signal)),
+    sendUnsubscribeMail: (input, context) => unsubscribeAccess(context, 'send', signal => unsubscribe.send(input, signal)),
+  }, { experimental_discoverable: false });
   const readConversation = gmailCorrespondence(auth, ports.gmailFetch);
   bb.rpc.register(gmailCorrespondenceContract, {
     async gmailConversationStatus({ url }, context) {

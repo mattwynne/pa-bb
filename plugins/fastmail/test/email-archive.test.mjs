@@ -54,3 +54,58 @@ test('Email reads exact primary Fastmail mail via JMAP with no MCP login', async
     assert.doesNotMatch(logs, /SECRET_JMAP|PRIVATE_FASTMAIL_BODY|primary@example/);
   } finally { await host.harness.lifecycle.dispose(); }
 });
+
+test('Email Unsubscribe binds the exact Fastmail message and submits mail with a matching JMAP identity', async () => {
+  const host = createFakePluginHost({ pluginId: 'fastmail', settings: { jmapApiToken: 'SECRET_JMAP' } });
+  const caller = { experimental_caller: { kind: 'plugin', pluginId: 'email-unsubscribe' } };
+  const invoke = (method, input) => host.harness.behavior.callRpc(method, input, caller);
+  const mime = Buffer.from('Subject: PRIVATE_UNSUBSCRIBE_MESSAGE\r\n\r\nA sample message.');
+  const mail = 'urn:ietf:params:jmap:mail';
+  const submission = 'urn:ietf:params:jmap:submission';
+  let junk = false;
+  let downloaded = 0;
+  let sent = 0;
+  await plugin(host.bb, () => assert.fail('No MCP connection is needed'), async (url, options) => {
+    assert.equal(options.headers.Authorization, 'Bearer SECRET_JMAP');
+    if (url.endsWith('/session')) return Response.json({
+      username: 'primary@example.test', apiUrl: 'https://api.fastmail.com/jmap/api/',
+      downloadUrl: 'https://download.fastmailusercontent.com/jmap/download/{accountId}/{blobId}/{name}?type={type}',
+      primaryAccounts: { [mail]: 'A1' },
+      accounts: { A1: { isPersonal: true, isReadOnly: false, accountCapabilities: { [mail]: {}, [submission]: {} } } },
+    });
+    if (url.includes('/download/')) { downloaded++; return new Response(mime); }
+    const { methodCalls } = JSON.parse(options.body);
+    const [method, args, tag] = methodCalls[0];
+    assert.equal(args.accountId, 'A1');
+    if (method === 'Email/set') {
+      sent++;
+      assert.equal(args.create.unsubscribeDraft.from[0].email, 'primary@example.test');
+      assert.equal(args.create.unsubscribeDraft.to[0].email, 'leave@example.test');
+      assert.equal(methodCalls[1][1].create.unsubscribeSend.emailId, '#unsubscribeDraft');
+      assert.equal(methodCalls[1][1].onSuccessUpdateEmail['#unsubscribeSend']['mailboxIds/S1'], true);
+      return Response.json({ methodResponses: [
+        [method, { accountId: 'A1', created: { unsubscribeDraft: { id: 'D2' } } }, tag],
+        ['EmailSubmission/set', { accountId: 'A1', created: { unsubscribeSend: { id: 'E1' } } }, 'send'],
+        ['Email/set', { accountId: 'A1', updated: { D2: null } }, 'send'],
+      ] });
+    }
+    const values = method === 'Email/get' ? [{ id: 'M1', blobId: 'B1', size: mime.length, keywords: {}, mailboxIds: { F1: true } }]
+      : method === 'Identity/get' ? [{ id: 'I1', email: 'primary@example.test' }]
+      : args.ids === null ? [{ id: 'D1', role: 'drafts' }, { id: 'S1', role: 'sent' }]
+      : [{ id: 'F1', role: junk ? 'junk' : 'inbox' }];
+    return Response.json({ methodResponses: [[method, { accountId: 'A1', list: values, notFound: [] }, tag]] });
+  });
+  const input = { account: 'A1', emailId: 'M1' };
+  try {
+    await assert.rejects(host.harness.behavior.callRpc('unsubscribeMessage', input), { code: 'forbidden' });
+    assert.deepEqual(await invoke('unsubscribeMessage', { ...input, account: 'A2' }), { status: 'account_missing' });
+    assert.deepEqual(await invoke('unsubscribeMessage', input), { status: 'ok', mailbox: 'primary@example.test', mime: mime.toString('base64') });
+    junk = true;
+    assert.deepEqual(await invoke('unsubscribeMessage', input), { status: 'ineligible' });
+    assert.deepEqual(await invoke('sendUnsubscribeMail',
+      { account: 'A1', from: 'primary@example.test', to: 'leave@example.test', subject: 'Unsubscribe', body: '' }),
+      { status: 'request_sent', draftMayRemain: false });
+    assert.deepEqual([downloaded, sent], [1, 1]);
+    assert.doesNotMatch(JSON.stringify(host.harness.inspection.logEntries), /SECRET_JMAP|PRIVATE_UNSUBSCRIBE_MESSAGE|primary@example/);
+  } finally { await host.harness.lifecycle.dispose(); }
+});

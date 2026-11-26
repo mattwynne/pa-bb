@@ -1,0 +1,42 @@
+{
+  "name": "bb-plugin-email-unsubscribe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22",
+    "bb": ">=0.50.1",
+    "bbPluginSdk": ">=0.6.157 <1"
+  },
+  "bb": {
+    "name": "Email Unsubscribe",
+    "description": "Unsubscribe from the list associated with one exact Gmail or Fastmail message.",
+    "branding": {
+      "icon": "MailMinus"
+    },
+    "server": "./server.ts",
+    "skills": [
+      "skills"
+    ]
+  },
+  "scripts": {
+    "build": "bb plugin build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-transform-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "ipaddr.js": "2.5.0",
+    "mailauth": "8.1.0",
+    "parse5": "8.1.1",
+    "postal-mime": "4.2.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.157",
+    "@types/node": "22.20.5",
+    "better-sqlite3": "13.0.3",
+    "cron-parser": "5.5.0",
+    "hono": "4.13.22",
+    "typescript": "5.9.3"
+  }
+}

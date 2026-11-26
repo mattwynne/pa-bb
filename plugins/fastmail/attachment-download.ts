@@ -5,6 +5,7 @@ import { saveOriginal, safeAttachmentName } from './attachment-file.ts';
 
 const CORE = 'urn:ietf:params:jmap:core';
 const MAIL = 'urn:ietf:params:jmap:mail';
+const SUBMISSION = 'urn:ietf:params:jmap:submission';
 export const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024; // Existing Drive upload ceiling.
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,256}$/);
 const account = z.string().min(1).max(320).regex(/^[^\s\x00-\x1f\x7f]+$/);
@@ -117,6 +118,7 @@ function receivedAt(value: unknown): number {
 }
 class DownloadClient {
   token: string; options: SessionOptions; signal: AbortSignal; api = ''; accountId = ''; username = ''; template = '';
+  submissionAvailable = false;
   constructor(token: string | undefined, options: SessionOptions) {
     if (!token || token.length > 8192 || /[\x00-\x20\x7f]/.test(token)) attachmentFail('attachment_config', 'token_missing_or_invalid');
     this.token = token; this.options = options;
@@ -177,6 +179,7 @@ class DownloadClient {
     if (!account.safeParse(session.username).success) return attachmentFail('attachment_session', 'session_username_missing');
     if (session.accounts[aid].isPersonal !== true) return attachmentFail('attachment_session', 'personal_account_required');
     if (!object(session.accounts[aid].accountCapabilities?.[MAIL])) return attachmentFail('attachment_session', 'mail_access_missing');
+    this.submissionAvailable = object(session.accounts[aid].accountCapabilities?.[SUBMISSION]) && session.accounts[aid].isReadOnly === false;
     this.accountId = aid; this.username = session.username; this.api = endpoint(session.apiUrl);
     if (typeof session.downloadUrl !== 'string' || session.downloadUrl.length > 2048) return attachmentFail('attachment_session', 'invalid_download_template');
     // Only the documented Fastmail JMAP template; no signed URLs or redirects.
@@ -314,4 +317,103 @@ export async function fastmailArchiveMessage(token: string | undefined, options:
   if (bytes.length !== email.size) attachmentFail('archive_mime', 'size_mismatch');
   options.ensureCurrent();
   return { status: 'ok', mime: bytes.toString('base64') };
+}
+
+const unsubscribeMimeLimit = 2 * 1024 * 1024;
+const unsubscribeAddress = z.email().max(320);
+const unsubscribeTarget = z.object({ account, emailId: id }).strict();
+const unsubscribeMessage = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('ok'), mailbox: unsubscribeAddress, mime: z.string().max(3 * 1024 * 1024) }),
+  z.object({ status: z.enum(['account_missing', 'missing', 'ineligible', 'too_large']) }),
+]);
+const unsubscribeSend = z.object({
+  account, from: unsubscribeAddress, to: unsubscribeAddress,
+  subject: z.string().max(256).regex(/^[\x20-\x7e]*$/),
+  body: z.string().max(2048).regex(/^[\x20-\x7e\r\n]*$/),
+}).strict();
+const unsubscribeMailResult = z.object({ status: z.enum(['request_sent', 'needs_user', 'unverified']), draftMayRemain: z.boolean().optional() });
+
+export const fastmailUnsubscribeContract = {
+  unsubscribeMessage: { input: unsubscribeTarget, output: unsubscribeMessage },
+  sendUnsubscribeMail: { input: unsubscribeSend, output: unsubscribeMailResult },
+};
+
+export async function fastmailUnsubscribeMessage(token: string | undefined, options: SessionOptions,
+  input: z.infer<typeof unsubscribeTarget>): Promise<z.infer<typeof unsubscribeMessage>> {
+  if (!token) return { status: 'account_missing' };
+  const client = new DownloadClient(token, options);
+  const identity = await client.open();
+  const mailbox = unsubscribeAddress.safeParse(identity.account);
+  if (!mailbox.success || (identity.accountId !== input.account && mailbox.data.toLowerCase() !== input.account.toLowerCase()))
+    return { status: 'account_missing' };
+  const response = await client.method('Email/get', {
+    ids: [input.emailId], properties: ['id', 'blobId', 'size', 'keywords', 'mailboxIds'],
+  }, [MAIL]);
+  const flags = z.record(z.string(), z.literal(true));
+  const metadata = z.object({
+    list: z.array(z.object({ id, blobId: id, size: z.number().int().positive(), keywords: flags, mailboxIds: flags })).max(1),
+    notFound: z.array(id).max(1),
+  }).parse(response);
+  if (!metadata.list.length && metadata.notFound[0] === input.emailId) return { status: 'missing' };
+  const email = metadata.list[0];
+  if (!email || email.id !== input.emailId || metadata.notFound.length) attachmentFail('unsubscribe_message', 'invalid_response');
+  if (email.keywords.$draft || email.keywords.$junk) return { status: 'ineligible' };
+  const folders = z.object({
+    list: z.array(z.object({ id, role: z.string().nullable() })).max(500),
+    notFound: z.array(id).max(500),
+  }).parse(await client.method('Mailbox/get', { ids: Object.keys(email.mailboxIds), properties: ['id', 'role'] }, [MAIL]));
+  if (folders.notFound.length || new Set(folders.list.map(folder => folder.id)).size !== Object.keys(email.mailboxIds).length ||
+      !folders.list.length || folders.list.some(folder => !Object.hasOwn(email.mailboxIds, folder.id)))
+    attachmentFail('unsubscribe_message', 'invalid_mailbox_response');
+  if (folders.list.some(folder => ['junk', 'trash', 'drafts', 'sent'].includes(folder.role ?? ''))) return { status: 'ineligible' };
+  if (email.size > unsubscribeMimeLimit) return { status: 'too_large' };
+  const url = client.downloadUrl(email.blobId, 'message.eml', 'message/rfc822');
+  const bytes = await bounded(await client.request(url, 'unsubscribe_mime'), email.size, client.signal, 'unsubscribe_mime');
+  if (bytes.length !== email.size) attachmentFail('unsubscribe_message', 'size_mismatch');
+  options.ensureCurrent();
+  return { status: 'ok', mailbox: mailbox.data, mime: bytes.toString('base64') };
+}
+
+export async function fastmailSendUnsubscribe(token: string | undefined, options: SessionOptions,
+  input: z.infer<typeof unsubscribeSend>): Promise<z.infer<typeof unsubscribeMailResult>> {
+  if (!token) return { status: 'needs_user' };
+  const client = new DownloadClient(token, options);
+  const identity = await client.open();
+  const primary = identity.account.toLowerCase();
+  if ((input.account !== identity.accountId && input.account.toLowerCase() !== primary) ||
+      input.from.toLowerCase() !== primary || !client.submissionAvailable) return { status: 'needs_user' };
+
+  const identities = z.array(z.object({ id, email: unsubscribeAddress })).max(100).parse(
+    (await client.call('Identity/get', { ids: null }, [MAIL, SUBMISSION])).list,
+  ).filter(entry => entry.email.toLowerCase() === primary);
+  const folders = z.array(z.object({ id, role: z.string().nullable() })).max(500).parse(
+    (await client.call('Mailbox/get', { ids: null, properties: ['id', 'role'] }, [MAIL])).list,
+  );
+  const drafts = folders.filter(folder => folder.role === 'drafts');
+  const sent = folders.filter(folder => folder.role === 'sent');
+  if (identities.length !== 1 || drafts.length !== 1 || sent.length !== 1) return { status: 'needs_user' };
+  const [draftFolder, sentFolder] = [drafts[0]!.id, sent[0]!.id];
+  const accountId = identity.accountId;
+  const createEmail = ['Email/set', { accountId, create: { unsubscribeDraft: {
+    mailboxIds: { [draftFolder]: true }, keywords: { '$draft': true },
+    from: [{ email: identities[0]!.email }], to: [{ email: input.to }], subject: input.subject,
+    textBody: [{ partId: 'text', type: 'text/plain' }], bodyValues: { text: { value: input.body } },
+  } } }, 'draft'];
+  const submitEmail = ['EmailSubmission/set', {
+    accountId, create: { unsubscribeSend: { identityId: identities[0]!.id, emailId: '#unsubscribeDraft' } },
+    onSuccessUpdateEmail: { '#unsubscribeSend': {
+      [`mailboxIds/${draftFolder}`]: null, [`mailboxIds/${sentFolder}`]: true, 'keywords/$draft': null,
+    } },
+  }, 'send'];
+  const response = await client.json(client.api, 'unsubscribe_send', {
+    using: [CORE, MAIL, SUBMISSION], methodCalls: [createEmail, submitEmail],
+  });
+  const methods = z.array(z.tuple([z.string(), z.record(z.string(), z.unknown()), z.string()])).max(3).parse(response.methodResponses);
+  const submitted = methods.find(([name, value, call]) => name === 'EmailSubmission/set' && call === 'send' && value.accountId === accountId)?.[1];
+  const draft = methods.find(([name, value, call]) => name === 'Email/set' && call === 'draft' && value.accountId === accountId)?.[1];
+  const draftId = object(draft?.created) ? draft.created.unsubscribeDraft?.id : null;
+  if (!object(submitted?.created) || !validId(submitted.created.unsubscribeSend?.id))
+    return { status: 'unverified', draftMayRemain: Boolean(draftId) };
+  const filed = methods.find(([name, value, call]) => name === 'Email/set' && call === 'send' && value.accountId === accountId)?.[1];
+  return { status: 'request_sent', draftMayRemain: !validId(draftId) || !object(filed?.updated) || !Object.hasOwn(filed.updated, draftId) };
 }

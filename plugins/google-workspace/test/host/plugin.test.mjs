@@ -239,3 +239,38 @@ test('a Gmail metadata failure stays unknown and Retry-After suppresses repeat r
     assert.doesNotMatch(logs, /PRIVATE_SENTINEL|SECRET|alice@example/);
   } finally { await w.close(); }
 });
+
+test('Email Unsubscribe can read and send only through the selected Gmail connection', async () => {
+  let reads = 0, sends = 0;
+  const mime = Buffer.from('Subject: PRIVATE_UNSUBSCRIBE_MESSAGE\r\n\r\nTest');
+  const w = await world(undefined, { gmailFetch: async (value, options) => {
+    const url = new URL(value);
+    assert.equal(url.origin, 'https://gmail.googleapis.com');
+    assert.equal(options.headers.Authorization, 'Bearer SECRET_ACCESS');
+    if (options.method === 'POST') {
+      sends++;
+      assert.equal(url.pathname, '/gmail/v1/users/me/messages/send');
+      assert.match(Buffer.from(JSON.parse(options.body).raw, 'base64url').toString(), /From: alice@example.test\r\nTo: leave@example.test/);
+      return Response.json({ id: 'sent1' });
+    }
+    reads++;
+    assert.equal(url.pathname, '/gmail/v1/users/me/messages/target1');
+    if (reads === 2) return new Response('PRIVATE_UNSUBSCRIBE_MESSAGE', { status: 403 });
+    return Response.json({ id: 'target1', labelIds: ['INBOX'], raw: mime.toString('base64url') });
+  } });
+  const input = { account: 'alice@example.test', emailId: 'target1' };
+  const caller = { experimental_caller: { kind: 'plugin', pluginId: 'email-unsubscribe' } };
+  const invoke = (method, data) => w.host.harness.behavior.callRpc(method, data, caller);
+  try {
+    await w.connect();
+    await assert.rejects(w.rpc('unsubscribeMessage', input), { code: 'forbidden' });
+    assert.deepEqual(await invoke('unsubscribeMessage', { ...input, account: 'elsewhere@example.test' }), { status: 'account_missing' });
+    assert.deepEqual(await invoke('unsubscribeMessage', input), { status: 'ok', mailbox: input.account, mime: mime.toString('base64') });
+    await assert.rejects(invoke('unsubscribeMessage', input), /Gmail unsubscribe provider request/);
+    const mail = { account: input.account, from: input.account, to: 'leave@example.test', subject: 'unsubscribe', body: '' };
+    assert.deepEqual(await invoke('sendUnsubscribeMail', { ...mail, from: 'other@example.test' }), { status: 'needs_user' });
+    assert.deepEqual(await invoke('sendUnsubscribeMail', mail), { status: 'request_sent' });
+    assert.deepEqual([reads, sends], [2, 1]);
+    assert.doesNotMatch(JSON.stringify(w.host.harness.inspection.logEntries), /PRIVATE_UNSUBSCRIBE_MESSAGE|SECRET_ACCESS|alice@example/);
+  } finally { await w.close(); }
+});

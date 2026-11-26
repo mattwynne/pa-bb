@@ -2,7 +2,7 @@ import * as sdk from '@get-bb/plugin-sdk';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { rpcContract } from './contract.js';
 import { z } from 'zod';
-import { emailArchiveContract, fastmailArchiveAccounts, fastmailArchivePage, fastmailArchiveMessage } from './attachment-download.js';
+import { emailArchiveContract, fastmailArchiveAccounts, fastmailArchivePage, fastmailArchiveMessage, fastmailUnsubscribeMessage, fastmailUnsubscribeContract, fastmailSendUnsubscribe } from './attachment-download.js';
 import { FastmailConnection, callbackUrl, parseCallback } from './core.mjs';
 import { resultFor } from './result.mjs';
 import { failureCategory } from './diagnostic.mjs';
@@ -267,6 +267,25 @@ export async function plugin(bb: BbPluginApi, connect?: () => { client: any; tra
     emailArchiveAccounts: (_, context) => archiveRead(context, 'accounts', fastmailArchiveAccounts),
     emailArchivePage: ({ accountId, cursor }, context) => archiveRead(context, 'page', (token, options) => fastmailArchivePage(token, options, accountId, cursor)),
     emailArchiveMessage: ({ accountId, messageId }, context) => archiveRead(context, 'message', (token, options) => fastmailArchiveMessage(token, options, accountId, messageId)),
+  }, { experimental_discoverable: false });
+  async function unsubscribeAccess<T>(context: ArchiveContext, stage: 'read' | 'send',
+    run: (token: string | undefined, options: { fetch?: typeof fetch; signal: AbortSignal; ensureCurrent: () => void }) => Promise<T>) {
+    if (context?.experimental_caller?.kind !== 'plugin' || context.experimental_caller.pluginId !== 'email-unsubscribe') {
+      throw new sdk.experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only Email Unsubscribe can request this operation.' });
+    }
+    const signal = AbortSignal.any([context.experimental_signal ?? lifetime.signal, lifetime.signal, configuration.signal, AbortSignal.timeout(20_000)]);
+    try {
+      const { jmapApiToken } = await settings.get();
+      signal.throwIfAborted();
+      return await run(jmapApiToken, { fetch: jmapFetch, signal, ensureCurrent: () => signal.throwIfAborted() });
+    } catch (error) {
+      diagnose(`unsubscribe_${stage}`, error instanceof AttachmentError ? error.category : signal.aborted ? 'cancelled' : 'unknown');
+      throw new Error('Fastmail unsubscribe provider request could not be verified.');
+    }
+  }
+  bb.rpc.register(fastmailUnsubscribeContract, {
+    unsubscribeMessage: (input, context) => unsubscribeAccess(context, 'read', (token, options) => fastmailUnsubscribeMessage(token, options, input)),
+    sendUnsubscribeMail: (input, context) => unsubscribeAccess(context, 'send', (token, options) => fastmailSendUnsubscribe(token, options, input)),
   }, { experimental_discoverable: false });
   bb.rpc.register(rpcContract, {
     async status() { return { connected: connection.ready, pending: Boolean(store.get().pending), tools: connection.toolNames().length, defaultSendingAddress: await connection.getDefaultSendingAddress() }; },
