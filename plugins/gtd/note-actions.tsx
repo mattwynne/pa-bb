@@ -14,10 +14,11 @@ const undoToastDuration = 10_000;
 const actionFilters = { open: 'Open', done: 'Done', all: 'All' } as const;
 type ActionFilter = keyof typeof actionFilters;
 
-export function NoteActions({ kind, source, id, revision, startingThread, startThread }: z.input<typeof rpcContract.readNoteActions.input> & {
+export function NoteActions({ kind, source, id, revision, startingThread, startThread, refreshProjects }: z.input<typeof rpcContract.readNoteActions.input> & {
   revision: number;
   startingThread: boolean;
   startThread: (action: { line: number; version: string; refresh: () => void }) => void;
+  refreshProjects: () => void;
 }) {
   const owner = kind === 'area' ? 'Area' : 'project';
   const heading = useId();
@@ -165,6 +166,69 @@ export function NoteActions({ kind, source, id, revision, startingThread, startT
     else if (mounted.current) void save(change);
   };
 
+  const createProject = async (line: number, version: string, trigger: HTMLElement) => {
+    if (!canWrite || editing || saving.current) return;
+    saving.current = true;
+    setPending(true);
+    setError('');
+    setNotice('');
+    const operationId = crypto.randomUUID();
+    try {
+      const result = await client.current.call('createProjectFromAction', { kind, source, id, line, version, operationId });
+      switch (result.state) {
+        case 'converted':
+          if (document.activeElement === trigger) addButton.current?.focus();
+          setSnapshot(current => current?.version === version
+            ? { ...current, actions: current.actions.filter(action => action.line !== line) } : current);
+          setNotice('Project created. Action removed.');
+          refresh();
+          refreshProjects();
+          break;
+        case 'action_kept':
+          setError('Project created. The action could not be removed. Review the refreshed actions.');
+          refresh();
+          refreshProjects();
+          break;
+        case 'removal_unconfirmed':
+          setError('Project created. Check whether the action was removed.');
+          setUncertainId(result.operationId);
+          refreshProjects();
+          break;
+        case 'changed':
+          setError('The note changed. Review the refreshed action before creating a project.');
+          refresh();
+          break;
+        case 'invalid_name':
+          setError('Edit the action so its text can be used as an Obsidian filename.');
+          break;
+        case 'has_details':
+          setError('This action has additional lines. Move those details out of the action before creating a project.');
+          break;
+        case 'no_area':
+          setError('Assign the parent project to an Area before creating a project from this action.');
+          break;
+        case 'exists':
+          setError('A project with this name already exists.');
+          break;
+        case 'blocked':
+          setError('Could not create the project. Check the Area and project folder in Obsidian.');
+          break;
+        case 'uncertain':
+          setError('Could not confirm project creation. Check the Projects list before trying again.');
+          setUncertainId(operationId);
+          refreshProjects();
+          break;
+      }
+    } catch {
+      setError('Could not confirm the conversion. Check the Projects and Actions lists before trying again.');
+      setUncertainId(operationId);
+      refreshProjects();
+    } finally {
+      saving.current = false;
+      setPending(false);
+    }
+  };
+
   const validDraft = actionText.safeParse(draft);
   const actions = (exiting?.snapshot ?? snapshot)?.actions.filter(action => matchesFilter(action.complete)) ?? [];
   const empty = filter === 'done' ? 'No done actions.' : snapshot?.actions.length ? 'No open actions.' : 'No actions recorded.';
@@ -227,6 +291,9 @@ export function NoteActions({ kind, source, id, revision, startingThread, startT
                   <RowActions label={`Options for action ${action.text}`} actions={[{
                     label: 'Start a thread', disabled: startingThread || pending || editing || !!exiting || readState !== 'ready',
                     run: () => startThread({ line: action.line, version: snapshot.version, refresh }),
+                  }, {
+                    label: 'Create project', disabled: !canWrite || editing,
+                    run: trigger => void createProject(action.line, snapshot.version, trigger),
                   }, { label: 'Edit…', disabled: !canWrite || editing, run: trigger => {
                     setEditTarget({ line: action.line, version: snapshot.version, trigger });
                     setDraft(action.text);

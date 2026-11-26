@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { actionCommands, registerActionTools } from './core/action-tools.ts';
-import { actionToolNames, changeActions, listActions, type ActionChange, type ActionTarget } from './core/actions.ts';
+import { actionToolNames, changeActions, listActions, prepareActionProject, type ActionChange, type ActionTarget } from './core/actions.ts';
 import { enclosingArea } from './core/area-presentation.ts';
 import { lookupAreaCorrespondence, lookupCorrespondence, mailProvider, mailStatus, type MailStatus } from './core/correspondence.ts';
 import { correspondenceActions, correspondenceToolNames, conversationId, registerCorrespondenceTools, type CorrespondenceWrite } from './core/correspondence-tools.ts';
@@ -21,6 +21,7 @@ import type { BackendSelection, ProjectPage } from './core/model.ts';
 
 type NoteActionChange = z.output<typeof rpcContract.changeNoteAction.input>['change'];
 type UndoCompletion = Extract<NoteActionChange, { operation: 'undoCompletion' }>;
+type ActionProjectConversion = typeof rpcContract.createProjectFromAction;
 const actionSectionVersion = (text: string) => createHash('sha256').update(text.replace(/\r\n?/g, '\n')).digest('hex');
 
 export function formatProjects(page: ProjectPage): string {
@@ -61,7 +62,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     projectsFolder: { type: 'string', label: 'Projects folder', description: 'Relative to the vault, such as Projects. Each project needs a Markdown note directly in this folder or in Active, Deferred, Someday or Done. A folder with the same name can hold supporting files.', default: 'Projects', experimental_schema: relativeFolder },
     automaticReactivation: { type: 'boolean', label: 'Automatically reactivate deferred projects', description: 'Move due projects and their supporting folders to Active, with their links and conversations. Checks daily after midnight Pacific and when GTD starts.', default: false },
   });
-  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'next_action_read' | 'actions_read' | 'actions_write' | 'correspondence_read' | 'correspondence_mail' | 'correspondence_archive' | 'correspondence_add' | 'correspondence_snooze' | 'area_mail' | 'project_create', code: string) => {
+  const diagnose = (stage: 'list' | 'areas' | 'sources' | 'standard_read' | 'standard_save' | 'watch' | 'next_action_read' | 'actions_read' | 'actions_write' | 'correspondence_read' | 'correspondence_mail' | 'correspondence_archive' | 'correspondence_add' | 'correspondence_snooze' | 'area_mail' | 'project_create' | 'action_project_create' | 'action_project_remove', code: string) => {
     const safe = ['unconfigured', 'source_unavailable', 'incompatible', 'invalid_configuration', 'invalid_source', 'cancelled', 'cursor_expired', 'capacity', 'partial',
       'changed', 'invalid_section', 'not_saved', 'uncertain'].includes(code) ? code : 'unknown';
     bb.log.warn(`GTD ${stage} ${safe}`);
@@ -146,6 +147,62 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     }
   };
   const actionsFolder = (kind: ActionTarget['kind']) => kind === 'area' ? 'areasFolder' : 'projectsFolder';
+  const createProjectFromAction = (input: z.output<ActionProjectConversion['input']>, signal: AbortSignal) =>
+    withWrite(async (): Promise<z.output<ActionProjectConversion['output']>> => {
+      try {
+        const selection = await configured('projectsFolder', true);
+        const backend = backendFor(selection);
+        const { text, hash } = await backend.readActions(input, signal);
+        if (hash !== input.version) return { state: 'changed' };
+        const prepared = prepareActionProject(text, input.line);
+        if (prepared.state !== 'ready') return { state: prepared.state };
+
+        let areaId = input.id;
+        if (input.kind === 'project') {
+          const { projects, areas } = await backend.readBoth(signal);
+          const project = projects.projects.find(project => project.id === input.id);
+          const area = enclosingArea(areas.areas, project?.areaId);
+          if (!area) return { state: 'no_area' };
+          areaId = area.id;
+        }
+        const ensureCurrent = async () => {
+          if ((await configured('projectsFolder', true)).key !== selection.key) throw new GtdError('invalid_source');
+          if (closing || signal.aborted) throw new GtdError('cancelled');
+        };
+        return await renames.withArea({ source: input.source, id: areaId }, async () => {
+          const result = await backend.createProject({
+            source: input.source, id: areaId, name: prepared.name, operationId: input.operationId,
+          }, signal, async () => {
+            if ((await backend.readActions(input, signal)).hash !== hash) throw new ActionChangedError();
+            await ensureCurrent();
+          });
+          if (result.state === 'uncertain' || result.state === 'blocked')
+            diagnose('action_project_create', result.state === 'uncertain' ? 'uncertain' : 'not_saved');
+          if (result.state === 'uncertain') invalidate();
+          if (result.state !== 'created') return { state: result.state };
+
+          let operationId: string | undefined;
+          try {
+            await ensureCurrent();
+            operationId = randomUUID();
+            const receipt = await backend.writeActions(input, { text: prepared.text, expectedHash: hash, operationId }, signal);
+            if (receipt.operationId !== operationId || receipt.outcome === 'uncertain') throw new GtdError('source_unavailable');
+            if (receipt.outcome === 'saved_locally_pending_sync') return { state: 'converted', id: result.id };
+            diagnose('action_project_remove', receipt.reason ?? 'not_saved');
+          } catch (error) {
+            diagnose('action_project_remove', operationId ? 'uncertain' : safeError(error, signal).code);
+            if (operationId) return { state: 'removal_unconfirmed', id: result.id, operationId };
+          } finally {
+            invalidate();
+          }
+          return { state: 'action_kept', id: result.id };
+        });
+      } catch (error) {
+        if (error instanceof ActionChangedError) return { state: 'changed' };
+        diagnose('action_project_create', safeError(error, signal).code);
+        return { state: 'blocked' };
+      }
+    });
   const readActions = async (input: ActionTarget, signal: AbortSignal) => {
     try {
       const folder = actionsFolder(input.kind);
@@ -562,6 +619,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     readNextAction: (input, context) => readNextAction(input, context.experimental_signal),
     readNoteActions: (input, context) => readNoteActions(input, context.experimental_signal),
     changeNoteAction: (input, context) => changeNoteAction(input, context.experimental_signal),
+    createProjectFromAction: (input, context) => createProjectFromAction(input, context.experimental_signal),
     readAreaActions: (input, context) => readNoteActions({ ...input, kind: 'area' }, context.experimental_signal),
     changeAreaAction: (input, context) => changeNoteAction({ ...input, kind: 'area' }, context.experimental_signal, false),
     readCorrespondence: (input, context) => readCorrespondence(input, context.experimental_signal),

@@ -674,7 +674,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       {ready && (area || unassigned) && <div className="gtd-detail-sections">
         {area && <AreaStandard key={`standard:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} hasNote={area.id.endsWith('.md')} />}
         {area && <NoteActions key={`actions:${key(inventory.source, area.id)}`} kind="area" source={inventory.source} id={area.id} revision={inventory.revision}
-          startingThread={!!busy} startThread={action => newThread(area, 'area', action)} />}
+          startingThread={!!busy} startThread={action => newThread(area, 'area', action)} refreshProjects={() => refreshInventory(true)} />}
         <FoldableSection key={`projects:${key(inventory.source, area?.id ?? '')}`} title="Projects" tools={
           <FilterControls label="Project status" action={area && <button ref={addProject} type="button" className="gtd-row-action"
             aria-label="Add project" title="Add project" disabled={!!busy || !!inventory.error}
@@ -705,7 +705,7 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       </div>}
       {project && <div className="gtd-detail-sections" key={key(inventory.source, project.id)}>
         <NoteActions kind="project" source={inventory.source} id={project.id} revision={inventory.revision}
-          startingThread={!!busy} startThread={action => newThread(project, 'project', action)} />
+          startingThread={!!busy} startThread={action => newThread(project, 'project', action)} refreshProjects={() => refreshInventory(true)} />
         <ProjectCorrespondence key={JSON.stringify([inventory.source, project.id])} source={inventory.source} id={project.id} revision={inventory.revision} />
         <LinkedThreads kind="project" id={project.id} source={inventory.source} action={newThreadAction(project, 'project')} />
       </div>}

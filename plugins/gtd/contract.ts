@@ -101,6 +101,15 @@ export const rpcContract = defineRpcContract({
   readNextAction: { input: reference, output: nextAction },
   readNoteActions: { input: actionTarget, output: actionsSnapshot },
   changeNoteAction: { input: noteActionInput, output: noteActionResult },
+  createProjectFromAction: {
+    input: actionTarget.extend({ line: actionLine, version: noteHash, operationId: z.uuid() }),
+    output: z.discriminatedUnion('state', [
+      z.object({ state: z.literal('converted'), id: reference.shape.id }).strict(),
+      z.object({ state: z.literal('action_kept'), id: reference.shape.id }).strict(),
+      z.object({ state: z.literal('removal_unconfirmed'), id: reference.shape.id, operationId: z.uuid() }).strict(),
+      z.object({ state: z.enum(['changed', 'invalid_name', 'has_details', 'no_area', 'exists', 'blocked', 'uncertain']) }).strict(),
+    ]),
+  },
   readAreaActions: { input: reference, output: actionsSnapshot },
   changeAreaAction: { input: areaActionInput, output: actionChangeResult },
   readAreaStandard: { input: reference, output: noteSection },

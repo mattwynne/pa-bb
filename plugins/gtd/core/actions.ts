@@ -1,6 +1,6 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
-import { actionLine, actionTarget, actionText } from '../contract.ts';
+import { actionLine, actionTarget, actionText, projectName } from '../contract.ts';
 
 const actionIdentity = actionTarget.extend({
   line: actionLine,
@@ -51,6 +51,21 @@ export function listActions(section: string) {
   return actionSpans(section).map(span => span.action);
 }
 
+function removeAction(section: string, span: ActionSpan) {
+  const start = span.itemStart === 0 ? 0 : section.lastIndexOf('\n', span.itemStart - 1) + 1;
+  const end = section.indexOf('\n', span.itemEnd);
+  return section.slice(0, start) + section.slice(end === -1 ? section.length : end + 1);
+}
+
+export function prepareActionProject(section: string, line: number) {
+  const span = actionSpans(section).find(span => span.action.line === line);
+  if (!span) return { state: 'changed' } as const;
+  if (span.itemEnd > span.lineEnd) return { state: 'has_details' } as const;
+  const name = projectName.safeParse(span.action.text);
+  if (!name.success) return { state: 'invalid_name' } as const;
+  return { state: 'ready', name: name.data, text: removeAction(section, span) } as const;
+}
+
 export function changeActions(section: string, change: ActionChange) {
   const newline = section.includes('\r\n') ? '\r\n' : '\n';
   if (change.operation === 'add') return { text: '- [ ] ' + change.text + (section ? newline + newline + section : '') };
@@ -61,9 +76,7 @@ export function changeActions(section: string, change: ActionChange) {
   if (change.operation === 'delete') {
     if (spans.some(other => other.itemStart > span.itemStart && other.itemStart < span.itemEnd))
       return { reason: 'nested_actions' as const };
-    const start = span.itemStart === 0 ? 0 : section.lastIndexOf('\n', span.itemStart - 1) + 1;
-    const end = section.indexOf('\n', span.itemEnd);
-    return { text: section.slice(0, start) + section.slice(end === -1 ? section.length : end + 1) };
+    return { text: removeAction(section, span) };
   }
 
   const marker = change.complete === undefined || change.complete === span.action.complete

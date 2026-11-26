@@ -341,6 +341,72 @@ test('creating a project uses the exact selected Area and never retries an uncer
   } finally { await host.harness.lifecycle.dispose(); }
 });
 
+test('action conversion creates in the owning Area before removing the versioned action', async () => {
+  const area = 'Areas/Learning.md';
+  const project = 'Projects/Active/Workshop.md';
+  const projectId = 'Projects/Pack the tools.md';
+  const source = { vaultId: 'one', name: 'Example', lastSuccess: null, cloudConnected: false, enabled: false, phase: 'paused', failure: null };
+  const version = 'a'.repeat(64);
+  const original = '- [ ] Pack the tools\n- [x] Book the room\n';
+  for (const scenario of ['area', 'project', 'stale', 'concurrent_edit', 'exists', 'create_uncertain', 'remove_conflict', 'remove_uncertain', 'details'] as const) {
+    const kind = scenario === 'project' ? 'project' : 'area';
+    const id = kind === 'project' ? project : area;
+    const writes: string[] = [];
+    let reads = 0;
+    const host = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one' },
+      sdk: { plugins: { callRpc: async (args: any) => {
+        if (args.method === 'vaultLocations') return { vaults: [{ id: 'one', root: '', name: 'Example' }], incomplete: false };
+        if (args.method === 'vaultInventory') return { source, folders: ['Projects', 'Areas'], incomplete: false,
+          notes: [{ path: area, properties: {}, malformed: false }, { path: project, properties: { area }, malformed: false },
+            ...(scenario === 'exists' ? [{ path: projectId, properties: {}, malformed: false }] : [])] };
+        if (args.method === 'readNoteSection') {
+          assert.equal(args.input.path, id);
+          reads++;
+          return { text: scenario === 'details' ? '- [ ] Pack the tools\n  - Check the kit\n' : original,
+            hash: scenario === 'stale' || (scenario === 'concurrent_edit' && reads === 2) ? 'b'.repeat(64) : version };
+        }
+        writes.push(args.method);
+        const { operationId } = args.input;
+        if (args.method === 'createNote') {
+          assert.equal(args.input.path, projectId);
+          assert.equal(args.input.text, `---\narea: ${JSON.stringify(area)}\n---\n`);
+          if (scenario === 'create_uncertain') throw new Error('private provider content');
+        } else {
+          assert.equal(args.method, 'writeNoteSection');
+          assert.equal(args.input.path, id);
+          assert.equal(args.input.expectedHash, version);
+          assert.equal(args.input.text, '- [x] Book the room\n');
+          if (scenario === 'remove_conflict') return { operationId, outcome: 'not_saved', reason: 'changed' };
+          if (scenario === 'remove_uncertain') throw new Error('private provider content');
+        }
+        return { operationId, outcome: 'saved_locally_pending_sync' };
+      } } } });
+    await plugin(host.bb);
+    try {
+      const result = await host.harness.behavior.callRpc('createProjectFromAction', {
+        kind, source: 'one', id, line: 1, version, operationId: randomUUID(),
+      }) as { state: string; id?: string; operationId?: string };
+      const expected = {
+        area: 'converted', project: 'converted', stale: 'changed', concurrent_edit: 'changed',
+        exists: 'exists', create_uncertain: 'uncertain', remove_conflict: 'action_kept', remove_uncertain: 'removal_unconfirmed',
+        details: 'has_details',
+      }[scenario];
+      assert.equal(result.state, expected, scenario);
+      if (['converted', 'action_kept', 'removal_unconfirmed'].includes(expected)) {
+        assert.equal(result.id, projectId);
+        assert.deepEqual(writes, ['createNote', 'writeNoteSection']);
+      } else assert.deepEqual(writes, scenario === 'create_uncertain' ? ['createNote'] : []);
+      const logs = JSON.stringify(host.harness.inspection.logEntries);
+      if (scenario === 'create_uncertain') assert.match(logs, /GTD action_project_create uncertain/);
+      if (scenario === 'remove_uncertain') {
+        assert.match(result.operationId ?? '', /^[\da-f-]{36}$/);
+        assert.match(logs, /GTD action_project_remove uncertain/);
+      }
+      assert.doesNotMatch(logs, /private provider content|Pack the tools/);
+    } finally { await host.harness.lifecycle.dispose(); }
+  }
+});
+
 test('snooze and refresh share agent and UI rules and persist both wake conditions', async () => {
   const ref = { source: 'one', id: 'Projects/Active/Launch.md' };
   const url = 'https://mail.google.com/mail/?authuser=example%40example.com#all/beef';

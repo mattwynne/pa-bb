@@ -269,6 +269,19 @@ try {
           result = { state: 'created', id: extraProject.id };
         }
       }
+      if (method === 'createProjectFromAction') {
+        assert.equal(input.kind, 'area');
+        assert.equal(input.id, assignedArea);
+        assert.equal(input.version, actionVersion);
+        const action = areaActions.find(action => action.line === input.line);
+        assert.equal(action?.text, 'Prepare the workshop');
+        if (refuseAction) result = { state: 'exists' };
+        else {
+          extraProject = { id: `Projects/${action.text}.md`, title: action.text, status: 'active', areaId: input.id };
+          areaActions = areaActions.filter(item => item.line !== input.line);
+          result = { state: 'converted', id: extraProject.id };
+        }
+      }
       if (method === 'readNoteActions') {
         if ((mode === 'area-actions' && input.kind === 'area') || (mode === 'project-actions-list' && input.kind === 'project')) {
           if (input.id === 'Areas/Folder/') throw new Error('Folder-only Area requested an action read');
@@ -933,6 +946,32 @@ try {
       await actions.getByText('Book the room', { exact: true }).click();
       await actions.locator('.gtd-action-row').filter({ hasText: 'Book the room' }).locator('input:checked').waitFor();
       assert.ok(await done.isChecked());
+      await add.click();
+      await draft.fill('Prepare the workshop');
+      await draft.press('Enter');
+      const conversionMenu = actions.getByLabel('Options for action Prepare the workshop');
+      const convert = conversionMenu.locator('..').getByRole('button', { name: 'Create project', exact: true });
+      refuseAction = true;
+      await conversionMenu.press('Enter');
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Tab');
+      assert.ok(await convert.evaluate(el => el.matches(':focus-visible')));
+      await page.screenshot({ path: join(artifacts, `create-project-from-action-${width}.png`) });
+      await page.keyboard.press('Enter');
+      await actions.getByRole('alert').getByText('A project with this name already exists.').waitFor();
+      await conversionMenu.waitFor();
+      refuseAction = false;
+      if (width === 390) {
+        await conversionMenu.tap();
+        await convert.tap();
+      } else {
+        await conversionMenu.press('Enter');
+        await convert.press('Enter');
+      }
+      await actions.getByRole('status').getByText('Project created. Action removed.').waitFor();
+      await conversionMenu.waitFor({ state: 'detached' });
+      await projects.getByRole('link', { name: 'Prepare the workshop', exact: true }).waitFor();
+      assert.ok(await add.evaluate(el => el.matches(':focus')));
       await openArea('Home');
       await actions.getByRole('status').getByText('Could not load actions. Check the Area note in Obsidian.').waitFor();
       await openArea('Folder');
