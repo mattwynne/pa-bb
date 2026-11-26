@@ -53,6 +53,10 @@
 .gtd-area-actions [role='status'] { color: var(--muted-foreground); }
 .gtd-action-list { list-style: none; margin: 0; padding: 0; }
 .gtd-action-row { display: grid; grid-template-rows: 1fr; }
+.gtd-action-row[data-clickable] { cursor: pointer; border-radius: 6px; }
+@media (hover: hover) {
+  .gtd-action-row[data-clickable]:hover { background: var(--accent); }
+}
 .gtd-action-content { display: flex; align-items: flex-start; gap: 5px; min-height: 0; }
 .gtd-action-exiting { animation: gtd-action-complete 180ms ease-out both; overflow: clip; }
 .gtd-action-exiting .gtd-area-actions-text { text-decoration: line-through; }

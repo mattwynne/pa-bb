@@ -137,7 +137,13 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
               const leaving = exiting?.line === action.line;
               const label = `${heading}-action-${action.line}`;
               return <li key={action.line} className={leaving ? 'gtd-action-row gtd-action-exiting' : 'gtd-action-row'}
-                inert={leaving} onAnimationEnd={event => {
+                inert={leaving} data-clickable={canWrite || undefined} onClick={event => {
+                  if (!canWrite || event.defaultPrevented || !(event.target instanceof Element)
+                    || event.target.closest('a, button, input, label, summary, [role="button"], [role="link"]')) return;
+                  const checkbox = event.currentTarget.querySelector<HTMLInputElement>('input[type="checkbox"]');
+                  checkbox?.focus({ preventScroll: true });
+                  checkbox?.click();
+                }} onAnimationEnd={event => {
                   if (leaving && event.target === event.currentTarget) setExiting(undefined);
                 }}>
                 <div className="gtd-action-content">
