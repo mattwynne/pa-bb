@@ -308,18 +308,20 @@
 +}
 --- a/cmd/bisync/operations.go
 +++ b/cmd/bisync/operations.go
-@@ -201,0 +202,3 @@
+@@ -54,0 +55 @@
++	bbContentDeltas    map[string]bbContentDelta
+@@ -201,0 +203,3 @@
 +			if opt.bbBeforeScan != nil {
 +				return errBBManagedScanRetryable
 +			}
-@@ -276,0 +280,6 @@
+@@ -276,0 +281,6 @@
 +	}
 +
 +	if opt.bbBeforeScan != nil {
 +		if err := opt.bbBeforeScan(fctx, b); err != nil {
 +			return err
 +		}
-@@ -318,0 +328,17 @@
+@@ -318,0 +329,17 @@
 +	if opt.bbMutationLock != "" {
 +		release, lockErr := bbAcquireMutationPhase(fctx, opt.bbMutationLock)
 +		if lockErr != nil {
@@ -337,7 +339,7 @@
 +		}
 +	}
 +
-@@ -458,0 +485,5 @@
+@@ -458,0 +486,5 @@
 +	if opt.bbAfterSync != nil {
 +		if err := opt.bbAfterSync(fctx, b); err != nil {
 +			return err
@@ -376,7 +378,7 @@
 +					return fserrors.FatalError(errBBInvalidDelivery)
 +				}
 +				err = BBManagedBisync(ctx, fs1, fs2, opt, binding)
-+				if errors.Is(err, ErrBBDeliveryUnsettled) || errors.Is(err, errBBLocalSuperseded) || errors.Is(err, errBBIndistinguishableRemote) {
++				if errors.Is(err, ErrBBDeliveryUnsettled) || errors.Is(err, errBBLocalSuperseded) || errors.Is(err, errBBContentChangedDuringScan) {
 +					// Bisync has released its locks and has started no sync
 +					// mutations. The pinned BB host recognizes this wait code.
 +					os.Exit(42)
@@ -1465,7 +1467,7 @@
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_managed_scan.go
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,251 @@
 +package bisync
 +
 +import (
@@ -1481,7 +1483,6 @@
 +
 +const BBMutationLockName = "bb-managed-mutation.lock"
 +
-+var errBBIndistinguishableRemote = errors.New("a later iCloud revision has identical listing metadata")
 +var errBBManagedScanRetryable = errors.New("managed bisync stopped before a retryable failure")
 +
 +// BBManagedBisync shares the mutation phase fence with expedited writes.
@@ -1493,7 +1494,6 @@
 +	}
 +	if len(binding) == 1 && binding[0] != "" {
 +		options.bbReadVersions = true
-+		options.bbAfterSync = func(ctx context.Context, b *bisyncRun) error { return b.writeBBVersionIndex(ctx, binding[0]) }
 +	}
 +	options.bbMutationLock = filepath.Join(options.Workdir, BBMutationLockName)
 +	options.bbBeforeScan = func(ctx context.Context, b *bisyncRun) error {
@@ -1509,6 +1509,15 @@
 +	}
 +	options.beforeDeltas = func(ctx context.Context, b *bisyncRun) error {
 +		return b.incorporateBBDeliveries(ctx)
++	}
++	options.bbAfterSync = func(ctx context.Context, b *bisyncRun) error {
++		if err := b.finishBBContentDeltas(ctx); err != nil {
++			return err
++		}
++		if options.bbReadVersions {
++			return b.writeBBVersionIndex(ctx, binding[0])
++		}
++		return nil
 +	}
 +	return Bisync(ctx, cloud, local, &options)
 +}
@@ -1531,15 +1540,32 @@
 +	if err := pair.recover(nil); err != nil {
 +		return err
 +	}
-+	// This checks the exact BB bytes, updates only their inode and refuses a
-+	// superseding local save. It does not change the later file.
++	// A confirmed publication is the shared baseline. When a newer provider
++	// version has the same listing metadata, keep its content delta until the
++	// local copy is verified. A restarted scan can recognize completed copies.
++	b.bbContentDeltas = make(map[string]bbContentDelta)
 +	for _, receipt := range state.Confirmed {
-+		if err := verifyBBRemoteReceipt(ctx, b.fs1, receipt); err != nil {
++		later, err := bbRemoteContentDelta(ctx, b.fs1, receipt)
++		if err != nil {
 +			return err
 +		}
-+	}
-+	for _, receipt := range state.Confirmed {
-+		if err := bbConfirmLocalReceiptTime(b.fs2.Root(), receipt.Path, receipt.Hash, receipt.Modified, nil); err != nil {
++		localBaseline := receipt.Hash
++		if later != nil {
++			local, err := b.fs2.NewObject(ctx, receipt.Path)
++			if err != nil {
++				return err
++			}
++			localHash, err := bbNoteHash(ctx, local)
++			if err != nil {
++				return err
++			}
++			mirrored := localHash == *later
++			b.bbContentDeltas[receipt.Path] = bbContentDelta{receipt.Hash, *later, mirrored}
++			if mirrored {
++				localBaseline = *later
++			}
++		}
++		if err := bbConfirmLocalReceiptTime(b.fs2.Root(), receipt.Path, localBaseline, receipt.Modified, nil); err != nil {
 +			return err
 +		}
 +	}
@@ -1593,54 +1619,109 @@
 +			return err
 +		}
 +	}
-+	state.Applied = append(state.Applied, state.Confirmed...)
++	return b.settleBBDeliveries(ctx, state, false)
++}
++
++type bbContentDelta struct {
++	published [sha256.Size]byte
++	incoming  [sha256.Size]byte
++	mirrored  bool
++}
++
++func (b *bisyncRun) finishBBContentDeltas(ctx context.Context) error {
++	if len(b.bbContentDeltas) == 0 {
++		return nil
++	}
++	state, err := readBBDeliveries(b.workDir)
++	if err != nil {
++		return err
++	}
++	return b.settleBBDeliveries(ctx, state, true)
++}
++
++func (b *bisyncRun) settleBBDeliveries(ctx context.Context, state bbDeliveryStore, finished bool) error {
++	remaining := make([]BBDeliveryReceipt, 0, len(state.Confirmed))
++	for _, receipt := range state.Confirmed {
++		if change, ok := b.bbContentDeltas[receipt.Path]; ok {
++			if !finished {
++				remaining = append(remaining, receipt)
++				continue
++			}
++			local, err := b.fs2.NewObject(ctx, receipt.Path)
++			if err != nil {
++				return err
++			}
++			digest, err := bbNoteHash(ctx, local)
++			if err != nil {
++				return err
++			}
++			if digest != change.incoming {
++				return errBBContentChangedDuringScan
++			}
++		}
++		state.Applied = append(state.Applied, receipt)
++	}
 +	if len(state.Applied) > bbDeliveryLimit {
 +		state.Applied = state.Applied[len(state.Applied)-bbDeliveryLimit:]
 +	}
-+	state.Confirmed = nil
++	state.Confirmed = remaining
 +	return state.write(b.workDir)
 +}
 +
++var errBBContentChangedDuringScan = errors.New("note content changed during managed reconciliation")
++
 +// iCloud listing timestamps have one-second resolution. A later cloud edit
 +// can have identical listing metadata to the publication that preceded it.
-+func verifyBBRemoteReceipt(ctx context.Context, cloud fs.Fs, receipt BBDeliveryReceipt) error {
++func bbRemoteContentDelta(ctx context.Context, cloud fs.Fs, receipt BBDeliveryReceipt) (*[sha256.Size]byte, error) {
 +	if receipt.ETag == "" || receipt.ProviderID == "" {
-+		return nil
++		return nil, nil
 +	}
 +	obj, err := cloud.NewObject(ctx, receipt.Path)
 +	if errors.Is(err, fs.ErrorObjectNotFound) {
-+		return nil
++		return nil, nil
 +	}
 +	if err != nil {
-+		return err
++		return nil, err
 +	}
 +	listed, ok := bbCloudVersionFrom(ctx, obj)
 +	if !ok {
-+		return errBBInvalidDelivery
++		return nil, errBBInvalidDelivery
 +	}
 +	if listed.DocumentID == receipt.ProviderID && listed.ETag == receipt.ETag {
-+		return nil
++		return nil, nil
 +	}
 +	if obj.Size() != receipt.Size || timeDiffers(ctx, obj.ModTime(ctx), receipt.Modified, cloud, cloud) {
-+		return nil
++		return nil, nil
++	}
++	digest, err := bbNoteHash(ctx, obj)
++	if err != nil || digest == receipt.Hash {
++		return nil, err
++	}
++	return &digest, nil
++}
++
++func bbNoteHash(ctx context.Context, obj fs.Object) ([sha256.Size]byte, error) {
++	var digest [sha256.Size]byte
++	if obj.Size() < 0 || obj.Size() > bbDeliveryBytes {
++		return digest, errBBContentChangedDuringScan
 +	}
 +	body, err := obj.Open(ctx)
 +	if err != nil {
-+		return err
++		return digest, err
 +	}
-+	defer body.Close()
-+	data, err := io.ReadAll(io.LimitReader(body, bbDeliveryBytes+1))
-+	if err != nil {
-+		return err
++	h := sha256.New()
++	n, readErr := io.Copy(h, io.LimitReader(body, bbDeliveryBytes+1))
++	if err := errors.Join(readErr, body.Close()); err != nil {
++		return digest, err
 +	}
-+	if sha256.Sum256(data) != receipt.Hash {
-+		return errBBIndistinguishableRemote
++	if n != obj.Size() || n > bbDeliveryBytes {
++		return digest, errBBContentChangedDuringScan
 +	}
-+	return nil
++	return [sha256.Size]byte(h.Sum(nil)), nil
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_managed_scan_test.go
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,190 @@
 +package bisync
 +
 +import (
@@ -1653,11 +1734,12 @@
 +	"time"
 +
 +	"github.com/rclone/rclone/backend/local"
++	"github.com/rclone/rclone/fs"
 +	"github.com/rclone/rclone/fs/config/configmap"
 +)
 +
 +func TestBBManagedScanConsumesDurablePublication(t *testing.T) {
-+	for _, scenario := range []string{"later edit", "later delete", "unconfirmed", "new note", "superseded local"} {
++	for _, scenario := range []string{"later edit", "identical metadata", "interrupted reconciliation", "independent local edit", "later delete", "unconfirmed", "new note", "superseded local"} {
 +		t.Run(scenario, func(t *testing.T) {
 +			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 +			defer cancel()
@@ -1674,6 +1756,10 @@
 +			baseline := time.Unix(1700000000, 0)
 +			publication, subsequent := baseline.Add(15*time.Second), baseline.Add(30*time.Second)
 +			original, fast, later := "old", "published-fast", "later independent edit"
++			equalMetadata := scenario == "identical metadata" || scenario == "interrupted reconciliation" || scenario == "independent local edit"
++			if equalMetadata {
++				later = "edited-over-it"
++			}
 +			write := func(root, name, text string, modified time.Time) {
 +				file := filepath.Join(root, name)
 +				if err := os.WriteFile(file, []byte(text), 0600); err != nil {
@@ -1698,8 +1784,12 @@
 +			opts.Resync = false
 +			seen, resume := make(chan struct{}, 2), make(chan struct{})
 +			done := make(chan error, 1)
++			var scanCloud fs.Fs = &capturedScan{Fs: cloud, seen: seen, resume: resume}
++			if equalMetadata {
++				scanCloud = &bbTestVersionedFs{Fs: scanCloud}
++			}
 +			go func() {
-+				done <- BBManagedBisync(ctx, &capturedScan{Fs: cloud, seen: seen, resume: resume},
++				done <- BBManagedBisync(ctx, scanCloud,
 +					&capturedScan{Fs: mirror, seen: seen, resume: resume}, opts)
 +			}()
 +			for range 2 {
@@ -1725,13 +1815,25 @@
 +			write(localRoot, path, fast, publication.Add(-2*time.Second))
 +			if scenario != "unconfirmed" {
 +				write(cloudRoot, path, fast, publication)
-+				if err := BBResolveDelivery(workdir, intent, &BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: publication, Size: int64(len(fast))}); err != nil {
++				receipt := BBDeliveryReceipt{BBDeliveryIntent: intent, Modified: publication, Size: int64(len(fast))}
++				if equalMetadata {
++					receipt.ProviderID, receipt.ETag = "document", "published"
++				}
++				if err := BBResolveDelivery(workdir, intent, &receipt); err != nil {
 +					t.Fatal(err)
 +				}
 +			}
 +			switch scenario {
 +			case "later edit":
 +				write(cloudRoot, path, later, subsequent)
++			case "identical metadata", "interrupted reconciliation", "independent local edit":
++				write(cloudRoot, path, later, publication)
++				if scenario == "interrupted reconciliation" {
++					write(localRoot, path, later, publication)
++				}
++				if scenario == "independent local edit" {
++					write(localRoot, path, "local only", subsequent)
++				}
 +			case "later delete":
 +				if err := os.Remove(filepath.Join(cloudRoot, path)); err != nil {
 +					t.Fatal(err)
@@ -1764,7 +1866,18 @@
 +					t.Fatalf("later local revision lost its publication evidence: %v", err)
 +				}
 +				return
-+			case "later edit":
++			case "independent local edit":
++				if !errors.Is(err, errBBLocalSuperseded) || len(store.Confirmed) != 1 {
++					t.Fatalf("independent local edit lost its publication evidence: %v", err)
++				}
++				for root, expected := range map[string]string{localRoot: "local only", cloudRoot: later} {
++					body, readErr := os.ReadFile(filepath.Join(root, path))
++					if readErr != nil || string(body) != expected {
++						t.Fatalf("independent edit overwritten: %v", readErr)
++					}
++				}
++				return
++			case "later edit", "identical metadata", "interrupted reconciliation":
 +				want = later
 +			}
 +			if err != nil || len(store.Confirmed) != 0 || store.Pending != nil {
@@ -1782,6 +1895,22 @@
 +			}
 +		})
 +	}
++}
++
++type bbTestVersionedFs struct{ fs.Fs }
++
++func (f *bbTestVersionedFs) NewObject(ctx context.Context, remote string) (fs.Object, error) {
++	obj, err := f.Fs.NewObject(ctx, remote)
++	if err != nil {
++		return nil, err
++	}
++	return bbTestVersionedObject{obj}, nil
++}
++
++type bbTestVersionedObject struct{ fs.Object }
++
++func (bbTestVersionedObject) BBListedIdentity() (string, string, string) {
++	return "document", "parent", "later"
 +}
 --- /dev/null
 +++ b/cmd/bisync/bb_version_index.go
@@ -2353,3 +2482,51 @@
 +		}
 +	}
 +}
+--- a/cmd/bisync/deltas.go
++++ b/cmd/bisync/deltas.go
+@@ -227,0 +228,5 @@
++			}
++			if change, tracked := b.bbContentDeltas[file]; tracked && !change.mirrored && f == b.fs1 {
++				whatchanged = append(whatchanged, "content")
++				d |= deltaHash
++				s, t = now.getSize(file), now.getTime(file)
+--- a/cmd/bisync/queue.go
++++ b/cmd/bisync/queue.go
+@@ -232,0 +233,37 @@
++	}
++
++	if len(b.bbContentDeltas) > 0 && fsrc == b.fs1 {
++		for name, change := range b.bbContentDeltas {
++			if change.mirrored || !files.Has(name) {
++				continue
++			}
++			source, err := fsrc.NewObject(ctx, name)
++			if err != nil {
++				return nil, err
++			}
++			destination, err := fdst.NewObject(ctx, name)
++			if err != nil {
++				return nil, err
++			}
++			srcHash, err := bbNoteHash(ctx, source)
++			if err != nil {
++				return nil, err
++			}
++			dstHash, err := bbNoteHash(ctx, destination)
++			if err != nil {
++				return nil, err
++			}
++			if srcHash != change.incoming || (dstHash != change.published && dstHash != change.incoming) {
++				return nil, errBBContentChangedDuringScan
++			}
++		}
++		logger, _ := operations.GetLogger(ctx)
++		normal := ctx
++		ctx = operations.WithEqualFn(ctx, func(ctx context.Context, src fs.ObjectInfo, dst fs.Object) bool {
++			if change, tracked := b.bbContentDeltas[src.Remote()]; tracked && !change.mirrored && dst.Remote() == src.Remote() {
++				logger(ctx, operations.Differ, src, dst, nil)
++				return false
++			}
++			// NeedTransfer invokes this hook with an fs.Object.
++			return !operations.NeedTransfer(normal, dst, src.(fs.Object))
++		})
