@@ -3,11 +3,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { request } from 'node:http';
 import { constants } from 'node:fs';
-import { chmod, mkdir, open, readFile, lstat, writeFile, unlink } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, open, readFile, lstat, writeFile, unlink, symlink, rmdir } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { CloudError } from '../core/ports.ts';
+import { CloudError, category, evidence } from '../core/ports.ts';
 import type { TransferProgress } from '../core/ports.ts';
+import { projectRcloneRecord } from '../core/rclone-trace.ts';
+import { obsidianStageExclude } from './mirror-wakeups.ts';
 import { RcloneStatsStream } from './rclone-stats.ts';
 import { RcloneBisyncObservation } from './rclone-bisync-observation.ts';
 import { RcloneTrace } from './rclone-trace.ts';
@@ -16,6 +18,11 @@ import { RcloneTrace } from './rclone-trace.ts';
 // Bound explicit interruption, not the total duration of that native work.
 export const COMMAND_TIMEOUTS = { listing: 5 * 60_000, transfer: 15 * 60_000, initialBisync: 20 * 60_000, bisync: null } as const;
 export const FLOCK_BINARY = '/usr/bin/flock';
+const LISTING_BENCHMARK_TIMEOUT_MS = 8 * 60_000;
+const LISTING_CONFIG_FD = 4; // fd 3 is the inherited worker lock
+export const listingCheckers = ['2', '4', '8'] as const;
+export type ListingCheckers = typeof listingCheckers[number];
+type ListingObservation = { configFd: number; signal?: AbortSignal; record: (record: unknown) => void };
 
 export function safeEnvironment(): NodeJS.ProcessEnv {
   // Never inherit provider options, credentials, proxies or BB process secrets.
@@ -27,6 +34,7 @@ export class RcloneProcess {
   private binary: string | null = null;
   private child: ChildProcess | null = null;
   private children = new Set<ChildProcess>();
+  private listingChild: ChildProcess | null = null;
   private fileWork: { controller: AbortController; task: Promise<unknown> } | null = null;
   private started: Promise<void> | null = null;
   private stopping = false;
@@ -70,11 +78,11 @@ export class RcloneProcess {
     if (!info.isDirectory() || info.uid !== process.getuid?.()) throw new CloudError('unavailable');
     await chmod(path, 0o700);
   }
-  private flags() {
+  private flags(checkers: ListingCheckers = '2', config = this.config) {
     const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
-    return ['--config', this.config, '--password-command', [process.execPath, this.helper, this.key].map(quote).join(' '),
+    return ['--config', config, '--password-command', [process.execPath, this.helper, this.key].map(quote).join(' '),
       '--ask-password=false', '--cache-dir', join(this.root, 'cache'), '--log-level', 'ERROR',
-      '--transfers', '2', '--checkers', '2', '--buffer-size', '4M', '--bwlimit', '8M', '--timeout', '30s', '--contimeout', '15s', ...(this.testBandwidth ? ['--bwlimit', this.testBandwidth] : [])];
+      '--transfers', '2', '--checkers', checkers, '--buffer-size', '4M', '--bwlimit', '8M', '--timeout', '30s', '--contimeout', '15s', ...(this.testBandwidth ? ['--bwlimit', this.testBandwidth] : [])];
   }
   async ensure() {
     if (this.stopping) throw new CloudError('interrupted');
@@ -200,24 +208,83 @@ export class RcloneProcess {
     const timeout = command === 'bisync' ? args.includes('--resync') ? COMMAND_TIMEOUTS.initialBisync : COMMAND_TIMEOUTS.bisync : command === 'lsjson' ? COMMAND_TIMEOUTS.listing : COMMAND_TIMEOUTS.transfer;
     return this.execute(this.binary!, [...args, ...this.flags(), ...stats], capture, timeout, report, command === 'bisync' ? 'bisync' : 'generic');
   }
-  private execute(binary: string, args: string[], capture: boolean, timeout: number | null, report?: (stats: TransferProgress) => void, context: 'bisync' | 'generic' = 'generic'): Promise<string> {
-    if (this.stopping) return Promise.reject(new CloudError('interrupted', { kind: 'command_stopped' }));
+  async benchmarkListing(remote: `icloud:${string}`, checkers: ListingCheckers, signal?: AbortSignal) {
+    await this.ensure();
+    if (this.fileWork || this.children.size || !this.ownsLock || !this.lock) throw new CloudError('busy');
+    if (!listingCheckers.includes(checkers)) throw new CloudError('invalid_selection');
+    const started = performance.now();
+    let retryRecords = 0, rateLimitRecords = 0, invalidLogRecords = 0;
+    const summary = () => ({ checkers: Number(checkers), elapsedMs: Math.round(performance.now() - started), retryRecords, rateLimitRecords, invalidLogRecords });
+    let config: Awaited<ReturnType<typeof open>> | undefined;
+    let temporary: string | undefined;
+    let link: string | undefined;
+    try {
+      try {
+        config = await open(this.config, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        const info = await config.stat();
+        if (!info.isFile() || info.uid !== process.getuid?.() || info.nlink !== 1 || (info.mode & 0o077) !== 0) throw new Error();
+        temporary = await mkdtemp(join(this.root, 'state', 'listing-'));
+        link = join(temporary, 'config');
+        // Stock rclone resolves one link before choosing where to save its
+        // config. In procfs it cannot create a temp file for a cookie update.
+        // Reads use the original encrypted bytes via the inherited descriptor.
+        await symlink(`/proc/self/fd/${LISTING_CONFIG_FD}`, link);
+      } catch { throw new CloudError('unavailable'); }
+      // For both supported versions, Count -> ListFn -> listRwalk -> Walk
+      // uses Checkers directory workers. The active filter also makes stock
+      // size refuse a source that now resolves to a file.
+      const output = await this.execute(this.binary!, ['size', remote, '--json', '--disable', 'ListR',
+        '--exclude', obsidianStageExclude, ...this.flags(checkers, link), '--use-json-log', '--log-level', 'DEBUG'],
+      true, LISTING_BENCHMARK_TIMEOUT_MS, undefined, 'generic', { configFd: config.fd, signal, record: record => {
+        const projected = projectRcloneRecord(record);
+        if (projected.event === 'retry') retryRecords++;
+        if (projected.category === 'rate_limited' || projected.httpStatus === 429) rateLimitRecords++;
+        if (projected.event === 'invalid_record') invalidLogRecords++;
+      } });
+      let count: unknown;
+      try { count = JSON.parse(output)?.count; } catch { throw new CloudError('sync_failed'); }
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) throw new CloudError('sync_failed');
+      return { outcome: 'succeeded' as const, ...summary(), objects: count };
+    } catch (error) {
+      return { outcome: 'failed' as const, ...summary(), failure: category(error), evidence: evidence(error) };
+    } finally {
+      await config?.close();
+      if (link) await unlink(link).catch(() => {});
+      if (temporary) await rmdir(temporary).catch(() => {});
+    }
+  }
+  private execute(binary: string, args: string[], capture: boolean, timeout: number | null, report?: (stats: TransferProgress) => void, context: 'bisync' | 'generic' = 'generic', listing?: ListingObservation): Promise<string> {
+    if (this.stopping || listing?.signal?.aborted) return Promise.reject(new CloudError('interrupted', { kind: 'command_stopped' }));
     return new Promise((resolve, reject) => {
       const observer = context === 'bisync' ? new RcloneBisyncObservation() : null;
       const commandId = randomUUID(), started = performance.now();
       const elapsed = () => Math.max(0, Math.round(performance.now() - started));
       const trace = (entry: Parameters<RcloneTrace['append']>[0]) => { if (observer) this.trace.append(entry); };
       trace({ at: new Date().toISOString(), commandId, elapsedMs: 0, event: 'command_start', ...(timeout === null ? {} : { timeoutMs: timeout }) });
-      const stdio: any[] = ['ignore', capture ? 'pipe' : 'ignore', report || observer ? 'pipe' : 'ignore'];
+      const stdio: any[] = ['ignore', capture ? 'pipe' : 'ignore', report || observer || listing ? 'pipe' : 'ignore'];
       if (this.lock) stdio.push(this.lock.fd);
+      if (listing) stdio.push(listing.configFd);
       const child = spawn(binary, args, { env: safeEnvironment(), stdio });
-      const stats = report || observer ? new RcloneStatsStream(report, record => {
+      if (listing) this.listingChild = child;
+      const abort = () => this.interrupt(child);
+      listing?.signal?.addEventListener('abort', abort, { once: true });
+      const stats = report || observer || listing ? new RcloneStatsStream(report, record => {
         observer?.observe(record);
         if (observer) this.trace.record(commandId, elapsed(), record);
+        listing?.record(record);
       }) : null;
-      child.stderr?.on('data', chunk => stats?.write(chunk));
-      this.children.add(child); let output = ''; let overflow = false; let timedOut = false;
-      child.stdout?.on('data', chunk => { if (output.length + chunk.length > 4 * 1024 * 1024) { overflow = true; child.kill('SIGKILL'); } else output += chunk; });
+      this.children.add(child); let output = ''; let outputBytes = 0; let logBytes = 0; let overflow = false; let timedOut = false;
+      const beyondLimit = () => { overflow = true; child.kill('SIGKILL'); };
+      child.stderr?.on('data', chunk => {
+        logBytes += chunk.length;
+        if (listing && logBytes > 4 * 1024 * 1024) beyondLimit();
+        else stats?.write(chunk);
+      });
+      child.stdout?.on('data', chunk => {
+        outputBytes += chunk.length;
+        if (outputBytes > (listing ? 1024 : 4 * 1024 * 1024)) beyondLimit();
+        else output += chunk;
+      });
       const timer = timeout === null ? null : setTimeout(() => {
         timedOut = true;
         trace({ at: new Date().toISOString(), commandId, elapsedMs: elapsed(), event: 'command_timeout', timeoutMs: timeout });
@@ -226,6 +293,8 @@ export class RcloneProcess {
       timer?.unref();
       const cleanup = () => {
         if (timer) clearTimeout(timer);
+        listing?.signal?.removeEventListener('abort', abort);
+        if (this.listingChild === child) this.listingChild = null;
         clearTimeout(this.interruptions.get(child)); this.interruptions.delete(child);
         this.children.delete(child);
       };
@@ -239,15 +308,17 @@ export class RcloneProcess {
         stats?.end(); cleanup();
         if (settled) return;
         settled = true;
-        if (code === 0 && !overflow && !timedOut && !this.stopping) {
+        const stopped = this.stopping || listing?.signal?.aborted;
+        if (code === 0 && !overflow && !timedOut && !stopped) {
           trace({ at: new Date().toISOString(), commandId, elapsedMs: elapsed(), event: 'command_end', outcome: 'succeeded', exitCode: 0 });
           void this.trace.flush().then(() => resolve(output));
         }
         else {
           const native = context === 'bisync' && code === 7 && !this.stopping && !overflow && !timedOut && !signal ? observer?.decision() : undefined;
-          const proof = this.stopping ? { kind: 'command_stopped' as const } : overflow ? { kind: 'command_output_limit' as const } : timedOut ? { kind: 'command_timeout' as const } : signal ? { kind: 'command_signal' as const } : { kind: 'command_exit' as const, exitCode: code, ...(native ? { native, ...(observer?.reason() ? { reason: observer.reason() } : {}) } : {}) };
+          const proof = stopped ? { kind: 'command_stopped' as const } : overflow ? { kind: 'command_output_limit' as const } : timedOut ? { kind: 'command_timeout' as const } : signal ? { kind: 'command_signal' as const } : { kind: 'command_exit' as const, exitCode: code, ...(native ? { native, ...(observer?.reason() ? { reason: observer.reason() } : {}) } : {}) };
           let failure: 'interrupted' | 'recovery_required' | 'configuration' | 'capacity' | 'sync_failed';
-          if (this.stopping || timedOut || signal) failure = 'interrupted';
+          if (overflow && listing && !stopped) failure = 'capacity';
+          else if (stopped || timedOut || signal) failure = 'interrupted';
           else if (context === 'bisync' && code === 7) failure = native === 'retryable_abort' ? 'sync_failed' : 'recovery_required';
           else if (context === 'bisync' && code === 2) failure = 'recovery_required';
           else if (context === 'generic' && code === 2) failure = 'configuration';
@@ -262,6 +333,7 @@ export class RcloneProcess {
   }
   private interrupt(child: ChildProcess) {
     if (child.exitCode !== null || child.signalCode !== null || this.interruptions.has(child)) return;
+    if (this.listingChild === child) { child.kill('SIGKILL'); return; }
     // Do not send repeated SIGINTs: native bisync uses its grace period to
     // finish critical cleanup. Escalate once if that bounded grace expires.
     const timer = setTimeout(() => child.kill('SIGKILL'), this.stopGraceMs); timer.unref();

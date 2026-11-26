@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { once } from 'node:events';
 import { attentionSnapshot, emptyAttention, loadAttention, verifiedDate, DAY } from './attention.ts';
 import { CloudError, category, evidence, emptyState, activity } from './ports.ts';
 import type { CloudProvider, StateRepository, State, CloudFolder, Mirror, SyncProgress, ProgressReporter, Diagnose, Failure, FailureEvidence, Blocker } from './ports.ts';
@@ -27,6 +28,8 @@ export class ICloudSync {
   private completingInitial: string | null = null;
   private stopping: Promise<void> | null = null;
   private current: Promise<unknown> | null = null;
+  private benchmarkPending = false;
+  private readonly serviceIdle = new EventTarget();
   private discovered = new Map<string, CloudFolder>();
   private history: SyncDiagnostics;
   private maintenanceWriting = false;
@@ -217,8 +220,36 @@ export class ICloudSync {
   private exclusive<T>(operation: () => Promise<T>, syncing = false): Promise<T> {
     if (this.busy || this.controlsPending || this.stopped) return Promise.reject(new CloudError('busy'));
     this.busy = true; this.syncing = syncing;
-    const task = operation().finally(() => { this.busy = false; this.syncing = false; this.current = null; });
+    const task = operation().finally(() => {
+      this.busy = false; this.syncing = false; this.current = null;
+      if (this.benchmarkPending) this.serviceIdle.dispatchEvent(new Event('idle'));
+    });
     this.current = task; return task;
+  }
+  async benchmarkListing<T>(id: string, read: (mirror: Mirror) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (this.maintenanceHeld || this.connectionRestorePending || this.benchmarkPending) throw new CloudError('busy');
+    const selected = () => {
+      const mirror = this.folder(id);
+      if (!mirror.initialized || mirror.phase === 'retained') throw new CloudError('invalid_selection');
+      if (!this.state.connected || mirror.blocker === 'reconnect') throw new CloudError('authentication');
+      return mirror;
+    };
+    const folderId = selected().folder.id;
+    this.benchmarkPending = true;
+    try {
+      if (this.syncing) {
+        const timeout = AbortSignal.timeout(15 * 60_000);
+        try { await once(this.serviceIdle, 'idle', { signal: signal ? AbortSignal.any([signal, timeout]) : timeout }); }
+        catch { throw new CloudError(signal?.aborted ? 'interrupted' : 'busy'); }
+      }
+      if (signal?.aborted) throw new CloudError('interrupted');
+      if (this.maintenanceHeld || this.connectionRestorePending) throw new CloudError('busy');
+      return await this.exclusive(async () => {
+        const mirror = selected();
+        if (mirror.folder.id !== folderId) throw new CloudError('source_changed');
+        return read(mirror);
+      });
+    } finally { this.benchmarkPending = false; }
   }
   // Folder metadata and directory-only reads do not own a native sync turn.
   // Account/config changes remain exclusive; state snapshots still save in order.
@@ -404,7 +435,7 @@ export class ICloudSync {
     // always returns immediately when another operation owns the service.
     if (targets && (this.busy || this.controlsPending)) await Promise.allSettled([this.current, this.controls]);
     if (this.stopped || !this.state.connected || !admitted()) return true;
-    if (this.busy || this.controlsPending) return false;
+    if (this.busy || this.controlsPending || this.benchmarkPending) return false;
     return this.exclusive(async () => {
       for (const mirror of this.state.mirrors) {
         if (!this.state.connected || this.stopped || !admitted()) break;

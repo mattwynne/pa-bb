@@ -85,6 +85,23 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
         catch { diagnose('maintenance_restore', 'unavailable'); throw new CloudError('unavailable'); }
       });
     }),
+    async (id, checkers, signal) => {
+      try {
+        return await admit(() => {
+          if (updatePause.held) throw new CloudError('busy');
+          if (!runtime) throw new CloudError('unavailable');
+          return sync.benchmarkListing(id, async mirror => {
+            if (updatePause.held) throw new CloudError('busy');
+            const result = await runtime!.benchmarkListing(mirror, checkers, signal);
+            if (result.outcome === 'failed') diagnose('listing_benchmark', result.failure, { evidence: result.evidence });
+            return result;
+          }, signal);
+        });
+      } catch (error) {
+        if (category(error) !== 'busy') diagnose('listing_benchmark', category(error), { evidence: evidence(error) });
+        throw error;
+      }
+    },
   ));
   const admit = async <T>(operation: () => T | Promise<T>) => {
     if (sync.maintenanceHeld) throw new CloudError('busy');

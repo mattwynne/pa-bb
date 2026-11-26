@@ -11,6 +11,8 @@ import type { CommitInput } from './note-store.ts';
 import { NoteApplicationError, NoteOverlay } from './note-overlay.ts';
 import type { Resolution } from './note-overlay.ts';
 import { RcloneProcess } from './rclone-process.ts';
+import type { ListingCheckers } from './rclone-process.ts';
+import { selectedRemote } from './rclone-cloud-provider.ts';
 import { NoteSearch } from './note-search.ts';
 import { NoteMoves, type MoveInput } from './note-move.ts';
 import type { SearchRequest } from './note-search.ts';
@@ -383,17 +385,26 @@ export class NoteRuntime {
     this.wake(); return result;
   }
   // A turn holds native exclusivity from beforeRun through post-run inspection.
-  // The bounded application quantum follows every command, even failed commands.
-  private turn<T>(action: () => Promise<T>): Promise<T> {
+  // Ordinary commands run the bounded application quantum, even on failure.
+  private turn<T>(action: () => Promise<T>, applyPending = true): Promise<T> {
     if (this.closed) return Promise.reject(new CloudError('interrupted'));
     this.turnsPending++;
     const task = this.queue.then(async () => {
       if (this.closed) throw new CloudError('interrupted');
       try { return await action(); }
-      finally { await this.quantum(); this.scheduleMaintenance(); }
+      finally { if (applyPending) { await this.quantum(); this.scheduleMaintenance(); } }
     }).finally(() => { this.turnsPending--; });
     this.queue = task.then(() => {}, () => {});
     return task;
+  }
+  benchmarkListing(mirror: Mirror, checkers: ListingCheckers, signal?: AbortSignal) {
+    if (this.turnsPending) throw new CloudError('busy');
+    return this.turn(async () => {
+      const current = this.mirror(mirror.id);
+      if (!this.ready || this.storageBlocked || !current || current.folder.id !== mirror.folder.id) throw new CloudError('source_changed');
+      await this.local(current, { requireBinding: true });
+      return this.worker.benchmarkListing(selectedRemote(current), checkers, signal);
+    }, false);
   }
   call(method: string, body: Record<string, unknown>) {
     // The existing owned daemon can list remote directories while its CLI syncs.

@@ -10,6 +10,7 @@ function decode(id: string): string {
   if (encode(path) !== id || !path || path.startsWith('/') || /[\x00-\x1f\x7f]/.test(path) || path.split('/').some(s => !s || s === '.' || s === '..')) throw new CloudError('invalid_selection');
   return path;
 }
+export const selectedRemote = (mirror: Mirror): `icloud:${string}` => `icloud:${decode(mirror.folder.id)}`;
 export function syncArguments(remote: string, local: string, baseline: string, initial: boolean): string[] {
   return ['bisync', remote, local, '--workdir', baseline, '--conflict-resolve', 'none', '--conflict-loser', 'num',
     '--conflict-suffix', 'icloud-conflict,bb-conflict', '--compare', 'size,modtime', '--max-delete', '50',
@@ -89,10 +90,9 @@ export class RcloneCloudProvider implements CloudProvider {
     if (!/^[a-zA-Z0-9-]{1,64}$/.test(mirror.id)) throw new CloudError('invalid_selection');
     return join(this.root, 'mirrors', mirror.id);
   }
-  private remote(mirror: Mirror) { return `icloud:${decode(mirror.folder.id)}`; }
   private async bisync(mirror: Mirror, initial: boolean, report?: ProgressReporter, runner = this.run) {
     report?.(activity('checking'));
-    await runner(syncArguments(this.remote(mirror), this.localFolder(mirror), join(this.root, 'baselines', mirror.id), initial), false, report ? stats => {
+    await runner(syncArguments(selectedRemote(mirror), this.localFolder(mirror), join(this.root, 'baselines', mirror.id), initial), false, report ? stats => {
       const complete = stats.totalFiles !== null && stats.files >= stats.totalFiles && (stats.totalBytes === null || stats.bytes >= stats.totalBytes);
       // Preserve measured completion counters for diagnostics before returning to finishing activity.
       report({ ...stats, stage: stats.bytes || stats.totalBytes || stats.totalFiles ? 'transferring' : 'checking' });
