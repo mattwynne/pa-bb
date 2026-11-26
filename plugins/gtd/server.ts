@@ -161,7 +161,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
       const { text, hash } = await readActions(input, signal);
       return { version: hash, actions: listActions(text) };
     },
-    change: (input: ActionChange, signal: AbortSignal) => withWrite(async () => {
+    change: (input: ActionChange, signal: AbortSignal, requestId?: string) => withWrite(async () => {
       let operationId: string | undefined;
       try {
         const folder = actionsFolder(input.kind);
@@ -176,7 +176,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
         if (updated.text.length > standardTextLimit) return { outcome: 'not_saved', reason: 'invalid_section' } as const;
         if ((await configured(folder)).key !== selection.key) throw new GtdError('source_unavailable');
         if (closing || signal.aborted) throw new GtdError('cancelled');
-        operationId = randomUUID();
+        operationId = requestId ?? randomUUID();
         const result = await backend.writeActions(input, { text: updated.text, expectedHash: hash, operationId }, signal);
         if (result.operationId !== operationId) throw new GtdError('source_unavailable');
         if (result.outcome !== 'saved_locally_pending_sync') diagnose('actions_write', result.reason ?? result.outcome);
@@ -515,10 +515,21 @@ export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Pro
     readNextAction: (input, context) => readNextAction(input, context.experimental_signal),
     async readAreaActions(input, context) {
       try {
-        const { text } = await readActions({ ...input, kind: 'area' }, context.experimental_signal);
-        return { text };
+        return await actionPorts.list({ ...input, kind: 'area' }, context.experimental_signal);
       } catch {
         throw new Error('Could not load actions. Check the Area note in Obsidian.');
+      }
+    },
+    async changeAreaAction({ operationId, change, ...input }, context): Promise<z.output<typeof rpcContract.changeAreaAction.output>> {
+      try {
+        const result = await actionPorts.change({ ...input, ...change, kind: 'area' }, context.experimental_signal, operationId);
+        const { outcome } = result;
+        if (outcome === 'not_saved') {
+          return { outcome, reason: result.reason === 'nested_actions' ? 'unavailable' : result.reason };
+        }
+        return { outcome };
+      } catch {
+        return { outcome: 'not_saved', reason: 'unavailable' };
       }
     },
     readCorrespondence: (input, context) => readCorrespondence(input, context.experimental_signal),

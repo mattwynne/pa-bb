@@ -36,7 +36,7 @@ function setup(mode = 'normal', newThread = async () => ({ threadId: 'created' }
       },
       readAreaMailStatus: async () => [{ id: ref.id, state: 'clear' }],
       readAreaStandard: async () => ({ text: 'Practice weekly.', hash: 'a'.repeat(64) }),
-      readAreaActions: async () => ({ text: '- [ ] Check the supplies' }),
+      readAreaActions: async () => ({ version: 'a'.repeat(64), actions: [{ line: 1, text: 'Check the supplies', complete: false }] }),
       newThread,
     },
     sdk: { threads: { experimental_listPluginMetadata: async () => ({ threads: [{ threadId: 't1', metadata: { project: ref } }, { threadId: 't2', metadata: { project: ref } }] }) } },

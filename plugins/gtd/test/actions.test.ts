@@ -35,8 +35,9 @@ test('action tools and CLI share the TODO section and check its note version bef
     return JSON.parse((response.content[0] as { text: string }).text);
   };
   try {
-    assert.deepEqual(await harness.behavior.callRpc('readAreaActions', { source: area.source, id: area.id }), { text: original });
     const list = await tool('list_actions', area);
+    const areaRef = { source: area.source, id: area.id };
+    assert.deepEqual(await harness.behavior.callRpc('readAreaActions', areaRef), list);
     assert.deepEqual(list.actions, [
       { line: 5, text: 'Buy **paint**', complete: false },
       { line: 6, text: 'Call the shop', complete: true },
@@ -56,7 +57,20 @@ test('action tools and CLI share the TODO section and check its note version bef
     assert.equal((await tool('delete_action', { ...area, version: latest.version, line: 6 })).outcome, 'saved_locally_pending_sync');
     assert.equal(sections.get(area.id), original.replace('[ ] Buy **paint**', '[x] Buy **primer**').split('\r\n').slice(0, -1).join('\r\n'));
     await assert.rejects(() => harness.behavior.callRpc('readAreaActions', { source: 'one', id: project.id }), /Could not load actions/);
+    const operationId = 'd3091c3e-00bb-4dc3-a52f-f1ba7f5069b6';
+    const edit = { operation: 'edit', line: 5, version: version(area.id), complete: false };
+    assert.deepEqual(await harness.behavior.callRpc('changeAreaAction', { ...areaRef, operationId, change: edit }), { outcome: 'saved_locally_pending_sync' });
+    assert.match(sections.get(area.id)!, /\[ \] Buy \*\*primer\*\*/);
+    assert.deepEqual(await harness.behavior.callRpc('changeAreaAction', { ...areaRef, operationId, change: { ...edit, complete: true } }), {
+      outcome: 'not_saved', reason: 'changed',
+    });
+    const newAction = { operation: 'add', text: 'Check the supplies' };
+    assert.deepEqual(await harness.behavior.callRpc('changeAreaAction', { ...areaRef,
+      operationId: 'e66439a2-f72f-4c92-b007-99e244d689dd', change: newAction }), { outcome: 'saved_locally_pending_sync' });
+    assert.match(sections.get(area.id)!, /^- \[ \] Check the supplies\r\n/);
     fail = true;
+    assert.deepEqual(await harness.behavior.callRpc('changeAreaAction', { ...areaRef,
+      operationId: '8ea8d229-b352-4d4d-b001-c74167104724', change: newAction }), { outcome: 'uncertain' });
     const failed = await tool('add_action', { ...area, text: 'Check the supplies' });
     assert.equal(failed.outcome, 'uncertain');
     assert.match(failed.operationId, /^[0-9a-f-]{36}$/);

@@ -1,11 +1,10 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { z } from 'zod';
-import { reference, standardTextLimit } from '../contract.ts';
+import { actionLine, actionText, reference } from '../contract.ts';
 
 export const actionTarget = reference.extend({ kind: z.enum(['project', 'area']) });
-const actionText = z.string().trim().min(1).max(2000).regex(/^[^\u0000-\u001f\u007f]+$/u);
 const actionIdentity = actionTarget.extend({
-  line: z.number().int().min(1).max(standardTextLimit),
+  line: actionLine,
   version: z.string().regex(/^[a-f0-9]{64}$/),
 });
 const addAction = actionTarget.extend({ text: actionText });

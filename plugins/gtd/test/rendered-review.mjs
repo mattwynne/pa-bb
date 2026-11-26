@@ -139,6 +139,12 @@ try {
     const standardReads = [];
     let homeStandard = '', firstHomeRead = true;
     let actionState = 'loading', releaseActions;
+    let actionVersion = 'a'.repeat(64);
+    let areaActions = [
+      { line: 1, text: 'Bring the [workshop plan](https://example.com/plan)', complete: false },
+      { line: 2, text: 'Book the room', complete: true },
+    ];
+    let refuseAction = false;
     const associations = new Map(['fixture1', 'fixture2'].map(id => [id, mode === 'missing' ? { ...ref, id: 'Projects/Deleted.md' } : ref]));
     const thread = (id, projectId, title, updatedAt, archivedAt = null) => ({
       ...makeThreadResponse({ id, projectId, title, updatedAt, archivedAt, createdAt: 1,
@@ -271,9 +277,25 @@ try {
           if (input.id === 'Areas/Folder/') throw new Error('Folder-only Area requested an action read');
           if (input.id === 'Areas/Home.md') return route.fulfill({ json: { ok: false, error: { code: 'handler_error', message: 'Synthetic read failure' } } });
           if (actionState === 'loading') await new Promise(resolve => { releaseActions = resolve; });
-          if (actionState === 'ready') result = { text: '- [ ] Bring the [workshop plan](https://example.com/plan)\n- [x] Book the room' };
+          if (actionState === 'ready') result = { version: actionVersion, actions: areaActions };
         }
-        result ??= { text: '' };
+        result ??= { version: actionVersion, actions: [] };
+      }
+      if (method === 'changeAreaAction') {
+        assert.equal(input.id, 'Areas/Learning.md');
+        if (refuseAction) result = { outcome: 'not_saved', reason: 'changed' };
+        else {
+          const { change } = input;
+          if (change.operation === 'edit') {
+            assert.equal(change.version, actionVersion);
+            areaActions = areaActions.map(action => action.line === change.line ? { ...action, complete: change.complete } : action);
+          } else {
+            areaActions = [{ line: 1, text: change.text, complete: false },
+              ...areaActions.map(action => ({ ...action, line: action.line + 2 }))];
+          }
+          actionVersion = actionVersion === 'a'.repeat(64) ? 'b'.repeat(64) : 'a'.repeat(64);
+          result = { outcome: 'saved_locally_pending_sync' };
+        }
       }
       if (method === 'readCorrespondence' || method === 'refreshCorrespondence') {
         if (method === 'readCorrespondence') {
@@ -775,9 +797,32 @@ try {
       await actions.getByText('Book the room').waitFor();
       const boxes = actions.getByRole('checkbox');
       assert.equal(await boxes.count(), 2);
+      assert.equal(await actions.getByRole('checkbox', { name: 'Bring the workshop plan' }).count(), 1);
       assert.equal(await boxes.nth(0).isChecked(), false);
       assert.equal(await boxes.nth(1).isChecked(), true);
-      assert.ok(await boxes.nth(0).isDisabled());
+      await boxes.nth(0).focus();
+      await page.keyboard.press('Space');
+      await actions.getByText('Action completed.').waitFor();
+      await actions.locator('input[type=checkbox]:checked').nth(1).waitFor();
+      assert.ok(await boxes.nth(0).evaluate(el => el.matches(':focus')));
+      await page.keyboard.press('Space');
+      await actions.getByText('Action reopened.').waitFor();
+      await actions.locator('input[type=checkbox]:not(:checked)').waitFor();
+      const add = actions.getByRole('button', { name: 'Add action' });
+      await add.click();
+      const draft = actions.getByRole('textbox', { name: 'Action', exact: true });
+      assert.ok(await draft.evaluate(el => el.matches(':focus')));
+      await draft.fill('Check the supplies');
+      await page.screenshot({ path: join(artifacts, `area-actions-add-${width}.png`) });
+      refuseAction = true;
+      await draft.press('Enter');
+      await actions.getByRole('alert').getByText(/Area note changed/).waitFor();
+      assert.equal(await draft.inputValue(), 'Check the supplies');
+      refuseAction = false;
+      await actions.getByRole('button', { name: 'Add', exact: true }).locator('xpath=self::*[@aria-disabled="false"]').waitFor();
+      await draft.press('Enter');
+      await actions.getByRole('checkbox', { name: 'Check the supplies' }).waitFor();
+      assert.ok(await add.evaluate(el => el.matches(':focus')));
       await heading('Learning').focus();
       for (let i = 0; i < 8 && !await actionLink.evaluate(el => el.matches(':focus')); i++) await page.keyboard.press('Tab');
       assert.ok(await actionLink.evaluate(el => el.matches(':focus')));

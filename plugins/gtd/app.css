@@ -48,10 +48,23 @@
 .gtd-next-action-text p { margin: 0; }
 .gtd-next-action-text a { text-decoration: underline; }
 .gtd-area-actions { border-bottom: 1px solid var(--border); padding: 12px 0; }
-.gtd-area-actions > p { margin: 6px 0 0; color: var(--muted-foreground); }
-.gtd-area-actions-text { margin-top: 6px; overflow-wrap: anywhere; }
+.gtd-area-actions .gtd-list-bar { margin: 0 0 6px; }
+.gtd-area-actions p { margin-block: 6px; }
+.gtd-area-actions [role='status'] { color: var(--muted-foreground); }
+.gtd-action-list { list-style: none; margin: 0; padding: 0; }
+.gtd-action-row { display: flex; align-items: flex-start; gap: 5px; }
+.gtd-action-checkbox { flex: none; min-width: 28px; min-height: 28px; display: grid; place-items: center; }
+.gtd-action-checkbox input { width: 16px; height: 16px; accent-color: var(--primary); }
+.gtd-area-actions :is(input, button):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.gtd-area-actions [aria-disabled='true'] { opacity: .6; }
+.gtd-area-actions-text { min-width: 0; overflow-wrap: anywhere; }
 .gtd-area-actions-text a { text-decoration: underline; }
-.gtd-area-actions-text li.task-list-item::marker { content: ''; }
+.gtd-add-action { display: grid; gap: 8px; margin: 8px 0; }
+.gtd-add-action input {
+  box-sizing: border-box; min-width: 0; padding: 7px 9px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--background); color: inherit; font: inherit; font-size: 16px;
+}
 .gtd-list-bar { margin: 14px 0 6px; }
 .gtd-list-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .gtd-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted-foreground); }

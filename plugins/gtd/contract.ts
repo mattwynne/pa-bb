@@ -45,6 +45,20 @@ export const createProjectResult = z.discriminatedUnion('state', [
 export const standardTextLimit = 16000;
 const standardText = z.string().max(standardTextLimit);
 const noteHash = z.string().regex(/^[0-9a-f]{64}$/);
+export const actionTextLimit = 2000;
+export const actionText = z.string().trim().min(1).max(actionTextLimit).regex(/^[^\u0000-\u001f\u007f]+$/u);
+export const actionLine = z.number().int().min(1).max(standardTextLimit);
+export const areaActionInput = reference.extend({
+  operationId: z.uuid(),
+  change: z.discriminatedUnion('operation', [
+    z.object({ operation: z.literal('add'), text: actionText }).strict(),
+    z.object({ operation: z.literal('edit'), line: actionLine, version: noteHash, complete: z.boolean() }).strict(),
+  ]),
+});
+const areaActionResult = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.enum(['saved_locally_pending_sync', 'unchanged', 'uncertain']) }).strict(),
+  z.object({ outcome: z.literal('not_saved'), reason: z.enum(['changed', 'invalid_section', 'missing_action', 'unavailable']).optional() }).strict(),
+]);
 export const areaStandardInput = reference.extend({ text: standardText, expectedHash: noteHash, operationId: z.string().uuid() });
 export const noteSection = z.object({ text: standardText, hash: noteHash }).strict();
 export const nextAction = z.object({ text: standardText.nullable() }).strict();
@@ -68,7 +82,11 @@ export const rpcContract = defineRpcContract({
     output: correspondenceChangeResult,
   },
   readNextAction: { input: reference, output: nextAction },
-  readAreaActions: { input: reference, output: z.object({ text: standardText }).strict() },
+  readAreaActions: { input: reference, output: z.object({
+    version: noteHash,
+    actions: z.array(z.object({ line: actionLine, text: standardText, complete: z.boolean() }).strict()),
+  }).strict() },
+  changeAreaAction: { input: areaActionInput, output: areaActionResult },
   readAreaStandard: { input: reference, output: noteSection },
   saveAreaStandard: { input: areaStandardInput, output: standardSaveResult },
   listProjects: { input: listInput, output: pageSchema },
