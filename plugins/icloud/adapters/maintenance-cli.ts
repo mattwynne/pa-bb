@@ -9,7 +9,7 @@ export function maintenanceCli(
   mutate: (action: 'pause' | 'restore', runId: string, signal?: AbortSignal) => Promise<unknown>,
   benchmark: (id: string, checkers: ListingCheckers, signal?: AbortSignal) => ReturnType<RcloneProcess['benchmarkListing']>,
   binding: (id: string, runId: string, binary: string, sha256: string, signal?: AbortSignal) => Promise<{mirrorId:string; binding:string}>,
-  moveConflict: (id: string) => {outcome:'preserved'; operationId:string; source:string; destination:string; copy:string} | {outcome:'none'},
+  moveConflict: (id: string) => {outcome:'preserved'; kind?:'folder'; operationId:string; source:string; destination:string; copy:string} | {outcome:'none'},
   reconcileConflict: (id:string, operationId:string) => Promise<{outcome:string}>,
 ) {
   const render = () => ({ exitCode: 0, stdout: JSON.stringify(status()) });
@@ -42,7 +42,7 @@ export function maintenanceCli(
       'maintenance pause': operation('pause', 'Hold iCloud scheduling and note admission for one maintenance run.'),
       'maintenance restore': operation('restore', 'Restore eligible prior scheduling after the matching hold has drained.'),
       'delivery move-conflict': cliCommand({
-        summary: 'Read the saved conflict-copy path for a pending move on a managed Obsidian mirror.',
+        summary: 'Read the preserved path for a pending note or folder move on a managed Obsidian mirror.',
         options: {
           'mirror-id': { type:'string',required:true,description:'Exact initialized mirror ID from iCloud inventory.' },
           json,
@@ -55,7 +55,7 @@ export function maintenanceCli(
         },
       }),
       'delivery reconcile-move-conflict': cliCommand({
-        summary: 'Request closure after the source, destination and saved copy agree on BB and iCloud.',
+        summary: 'Request note move closure after the source, destination and saved copy agree on BB and iCloud.',
         options: {
           'mirror-id': {type:'string',required:true,description:'Exact managed mirror ID.'},
           'operation-id': {type:'string',required:true,description:'Operation ID from delivery move-conflict.'},

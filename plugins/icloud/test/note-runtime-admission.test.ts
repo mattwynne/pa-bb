@@ -497,3 +497,60 @@ test('Obsidian writes continue during a preserved move conflict and managed scan
     await running;
   } finally { await writeFile(gate,'1').catch(()=>{}); await running?.catch(()=>{}); ledger.db.close(); await f.close(); }
 });
+
+test('a confirmed Obsidian folder move reaches the owned iCloud worker through the receipt feed', {skip: !enabled, timeout: 25_000}, async () => {
+  const f = await fixture(1);
+  const id = 'mirror-0';
+  const root = join(f.workerRoot,'mirrors',id);
+  const cloud = join(f.remote,'generated-0');
+  const ledger = receiptsFixture(root,join(f.root,'folder-receipts.db'));
+  const binary = join(f.root,'folder-worker');
+  const binding = 'FOLDER::com.apple.CloudDocs::generated';
+  const source = 'Inbox/Folder', destination = 'Archive/Folder';
+  try {
+    await f.runtime.mirrorDirectoryGrant(id,1);
+    for (const side of [root,cloud]) {
+      await mkdir(join(side,source,'Nested'),{recursive:true});
+      await mkdir(join(side,'Archive'));
+      await writeFile(join(side,source,'Nested','Record.md'),'original folder bytes');
+    }
+    const recorded = [
+      {path:'Nested',kind:'directory'},
+      {path:'Nested/Record.md',kind:'file',size:21,hash:hash('original folder bytes')},
+    ];
+    const script = '#!' + process.execPath + '\n' + `
+      const assert = require('node:assert/strict');
+      const fs = require('node:fs');
+      const argv = process.argv.slice(2);
+      assert.deepEqual(argv.slice(0,3), ['bb-owned-note','relocate-folder','icloud:generated-0']);
+      const input = JSON.parse(fs.readFileSync(0,'utf8'));
+      assert.equal(input.source,${JSON.stringify(source)});
+      assert.equal(input.path,${JSON.stringify(destination)});
+      assert.equal(input.binding,${JSON.stringify(binding)});
+      assert.deepEqual(input.folderEntries,${JSON.stringify(recorded)});
+      fs.renameSync(${JSON.stringify(join(cloud,source))},${JSON.stringify(join(cloud,destination))});
+      console.log(JSON.stringify({outcome:'folder_published',folder:{
+        source:{documentId:'generated-folder',parentId:'generated-parent',etag:'accepted'},
+        destinationParent:'generated-parent',method:'move'}}));
+    `;
+    await writeFile(binary,script,{mode:0o700});
+    await chmod(binary,0o700);
+    f.runtime.configureManagedDelivery({binary,mirrors:{[id]:binding}});
+    const pull = (mirror:string, after:number|null) => Promise.resolve(ledger.ledger.deliveryChanges(mirror,after,32));
+    const folders = {
+      changes:(mirror:string, after:number|null) => Promise.resolve(ledger.ledger.folderDeliveryChanges(mirror,after,32)),
+      page:(mirror:string, operation:string, side:'source'|'destination', offset:number) =>
+        Promise.resolve(ledger.ledger.folderDeliveryPage(mirror,operation,side,offset,64)),
+    };
+    await f.runtime.deliverKnownNotes(pull,()=>true,folders);
+    const move = await ledger.fs.movePath({vaultId:id,path:source,destination,operationId:op(),kind:'folder'},1,async commit => {
+      await commit();
+      await rename(join(root,source),join(root,destination));
+    });
+    assert.equal(move.outcome,'moved_locally_pending_sync');
+    await f.runtime.deliverKnownNotes(pull,()=>true,folders);
+    assert.equal(await readFile(join(cloud,destination,'Nested','Record.md'),'utf8'),'original folder bytes');
+    assert.equal(f.db.prepare('SELECT count(*) FROM icloud_folder_delivery_pending').pluck().get(),0);
+    assert.deepEqual(f.runtime.moveConflict(id),{outcome:'none'});
+  } finally { ledger.db.close(); await f.close(); }
+});

@@ -242,7 +242,7 @@ export class RcloneProcess {
       if (ordinary) this.nativeScan = null;
     }
   }
-  async noteDeliveryCommand(target: ManagedNativeMirror, operation: 'inspect' | 'replace' | 'recover' | 'create' | 'recover-create' | 'relocate' | 'binding' | 'inspect-relocation' | 'reconcile-relocation' | 'read-relocation-resolution' | 'inspect-folder', payload: Record<string, unknown>) {
+  async noteDeliveryCommand(target: ManagedNativeMirror, operation: 'inspect' | 'replace' | 'recover' | 'create' | 'recover-create' | 'relocate' | 'binding' | 'inspect-relocation' | 'reconcile-relocation' | 'read-relocation-resolution' | 'inspect-folder' | 'relocate-folder', payload: Record<string, unknown>) {
     await this.ensure();
     const scan = this.nativeScan;
     const compatibleScan = scan && ((scan.managed && sameManaged(scan.managed,target)) || disjointNativeMirrors(scan,target));
@@ -268,7 +268,7 @@ export class RcloneProcess {
       await symlink(`/proc/self/fd/${LISTING_CONFIG_FD}`, link);
       const frame = JSON.stringify({ ...payload, binding: target.binding, workdir: target.workdir });
       if (Buffer.byteLength(frame) > (8 << 20)) throw new CloudError('capacity');
-      const timeout = ['relocate', 'reconcile-relocation', 'inspect-folder'].includes(operation) ? 28_000 : 15_000;
+      const timeout = ['relocate', 'reconcile-relocation', 'inspect-folder', 'relocate-folder'].includes(operation) ? 28_000 : 15_000;
       const output = await this.execute(target.binary, ['bb-owned-note', operation, target.remote, ...this.flags('2', link),
         '--retries', '1', '--low-level-retries', '1'], true, timeout, undefined, 'generic',
         { ownedNote: { configFd: config.fd, phaseFd: phase.fd, frame } });

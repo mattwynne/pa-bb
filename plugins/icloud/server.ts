@@ -20,6 +20,7 @@ import { NoteRuntime } from './adapters/note-runtime.ts';
 import { MirrorWakeups } from './adapters/mirror-wakeups.ts';
 import { maintenanceCli } from './adapters/maintenance-cli.ts';
 import { managedDeliveryDeployment, verifyManagedDeliveryBinary } from './adapters/note-delivery-deployment.ts';
+import { folderManifestPage, folderMovePage } from './adapters/folder-delivery.ts';
 import { noteDeliveryPage } from './adapters/note-delivery-queue.ts';
 import type Database from 'better-sqlite3';
 
@@ -87,7 +88,16 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       const run = runtime?.deliverKnownNotes((vaultId,after) => bb.sdk.plugins.callRpc({
         pluginId:'obsidian',method:'deliveryChanges',input:{vaultId,after,limit:32},
         outputSchema:noteDeliveryPage,signal:AbortSignal.timeout(3000),
-      }),canDeliver).catch(error => {
+      }),canDeliver,{
+        changes:(vaultId,after) => bb.sdk.plugins.callRpc({
+          pluginId:'obsidian',method:'folderDeliveryChanges',input:{vaultId,after,limit:32},
+          outputSchema:folderMovePage,signal:AbortSignal.timeout(3000),
+        }),
+        page:(vaultId,operationId,side,offset,signal) => bb.sdk.plugins.callRpc({
+          pluginId:'obsidian',method:'folderDeliveryPage',input:{vaultId,operationId,side,offset,limit:64},
+          outputSchema:folderManifestPage,signal,
+        }),
+      }).catch(error => {
         const failure = category(error);
         if (failure !== 'busy') diagnose('note_delivery', failure, {evidence:evidence(error)});
       });

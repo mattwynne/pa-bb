@@ -13,6 +13,7 @@ import { NoteApplicationError, NoteOverlay } from './note-overlay.ts';
 import type { Resolution } from './note-overlay.ts';
 import { RcloneProcess } from './rclone-process.ts';
 import type { ListingCheckers, ManagedNativeMirror } from './rclone-process.ts';
+import { FolderDeliveryQueue, folderDeliverySchema, publishQueuedFolderMove, type FolderDeliveryFeed } from './folder-delivery.ts';
 import { NoteDeliveryQueue, noteDeliverySchema } from './note-delivery-queue.ts';
 import { NoteDeliveryRecovery, deliveryRecoverySchema, isMoveEndpoint } from './note-delivery-recovery.ts';
 import { NativeNoteDelivery, runNoteDelivery } from './note-delivery-native.ts';
@@ -62,6 +63,8 @@ export class NoteRuntime {
   private deliveryLastPath = new Map<string,string>();
   private deliveryMoveAttempt = new Map<string,{operationId:string; at:number}>();
   private deliveryQueue?: NoteDeliveryQueue;
+  private folderDeliveryQueue?: FolderDeliveryQueue;
+  private folderAttemptAt = new Map<string,number>();
   private deliveryJournal?: NoteDeliveryRecovery;
   private legacyWrites = new Map<string, number>();
   constructor(readonly root: string, private db: Database.Database, readonly worker: RcloneProcess,
@@ -416,7 +419,7 @@ export class NoteRuntime {
   configureManagedDelivery(deployment: {binary:string; mirrors: Record<string,string>}) {
     if (!this.ready || this.closed || this.deliveryBusy || this.nativeRunning || this.turnsPending) throw new CloudError('busy');
     this.db.transaction(() => {
-      for (const sql of [...noteDeliverySchema,deliveryRecoverySchema]) {
+      for (const sql of [...noteDeliverySchema,deliveryRecoverySchema,...folderDeliverySchema]) {
         this.db.exec(sql.replaceAll('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ').replaceAll('CREATE INDEX ', 'CREATE INDEX IF NOT EXISTS '));
       }
       for (const [id,binding] of Object.entries(deployment.mirrors)) {
@@ -435,10 +438,11 @@ export class NoteRuntime {
       this.managedDelivery.set(id,{binary:deployment.binary,remote:selectedRemote(mirror),workdir,binding});
     }
     this.deliveryQueue = new NoteDeliveryQueue(this.db);
+    this.folderDeliveryQueue = new FolderDeliveryQueue(this.db);
     this.deliveryJournal = new NoteDeliveryRecovery(this.db);
   }
 
-  async deliverKnownNotes(changes: (id:string,after:number|null)=>Promise<unknown>,canStart:()=>boolean) {
+  async deliverKnownNotes(changes: (id:string,after:number|null)=>Promise<unknown>,canStart:()=>boolean, folders?:FolderDeliveryFeed) {
     if (!canStart() || !this.ready || this.closed || this.deliveryBusy || this.moving || this.storageBlocked) return;
     const queue = this.deliveryQueue, journal = this.deliveryJournal;
     if (!queue || !journal) return;
@@ -449,7 +453,19 @@ export class NoteRuntime {
         const mirror = this.mirror(id);
         if (!mirror?.enabled || !mirror.initialized || !this.members.has(id) || (mirror.failure && mirror.failure !== 'busy') || mirror.blocker ||
             (mirror.phase !== 'running' && mirror.phase !== 'ready' && !(mirror.phase === 'failed' && mirror.failure === 'busy'))) continue;
-        await this.local(mirror,{requireBinding:true});
+        const root = await this.local(mirror,{requireBinding:true});
+        const folderQueue = this.folderDeliveryQueue;
+        if (folders && folderQueue) {
+          const from = folderQueue.cursor(id);
+          try {
+            const page = await folders.changes(id,from);
+            if (!canStart() || this.closed || this.moving) return;
+            folderQueue.stage(id,from,page);
+          } catch (error) {
+            const failure = error instanceof CloudError ? error.category : 'unavailable';
+            if (failure !== 'capacity') this.diagnose('folder_delivery_feed',failure);
+          }
+        }
         const cursor = queue.cursor(id);
         const page = await changes(id,cursor);
         if (!canStart() || this.closed || this.moving) return;
@@ -460,6 +476,19 @@ export class NoteRuntime {
         }
         const write = journal.pending(id,'write');
         const move = journal.pending(id,'move');
+        const folderMove = folderQueue?.oldest(id);
+        if (folders && folderQueue && folderMove && !folderMove.alternate && !write && !move &&
+            this.clock() - (this.folderAttemptAt.get(id) ?? -Infinity) >= (folderMove.dispatched ? 4000 : 1000)) {
+          this.folderAttemptAt.set(id,this.clock());
+          try {
+            const result = await publishQueuedFolderMove(id,target,this.worker,folderQueue,folders,root,
+              () => canStart() && this.mirror(id)?.enabled === true && !this.moving && !this.closed);
+            if (result === 'folder_collision') this.diagnose('folder_delivery_collision','source_changed');
+          } catch (error) {
+            const failure = error instanceof CloudError ? error.category : 'unavailable';
+            if (failure !== 'busy') this.diagnose('folder_delivery',failure,{evidence:evidence(error)});
+          }
+        }
         const pending = queue.pendingPaths(id);
         const paths = move ? pending.filter(path => !isMoveEndpoint(move,path) && !queue.pendingPath(id,path)[0]?.source) : pending;
         const last = paths.indexOf(this.deliveryLastPath.get(id) ?? '');
@@ -497,8 +526,14 @@ export class NoteRuntime {
   moveConflict(id: string) {
     if (!this.managedDelivery.has(id) || !this.deliveryJournal) throw new CloudError('invalid_selection');
     const move = this.deliveryJournal.pending(id,'move');
-    return move?.conflictCopy ? { outcome:'preserved' as const, operationId:move.operations.at(-1)!, source:move.source!, destination:move.path, copy:move.conflictCopy }
-      : { outcome:'none' as const };
+    if (move?.conflictCopy) return {
+      outcome:'preserved' as const, operationId:move.operations.at(-1)!, source:move.source!, destination:move.path, copy:move.conflictCopy,
+    };
+    const folder = this.folderDeliveryQueue?.oldest(id);
+    return folder?.alternate ? {
+      outcome:'preserved' as const, kind:'folder' as const, operationId:folder.operationId,
+      source:folder.source, destination:folder.path, copy:folder.alternate,
+    } : { outcome:'none' as const };
   }
 
   async reconcileMoveConflict(id: string, operationId: string) {
