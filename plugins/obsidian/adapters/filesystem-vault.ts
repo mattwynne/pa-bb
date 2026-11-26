@@ -8,6 +8,7 @@ import { fileIdentity, LocalReceipts } from './local-receipts.ts';
 import type { FileIdentity, LocalReceipt } from './local-receipts.ts';
 import type { RecoveryCheck, RecoveryInput } from '../core/receipt-recovery.ts';
 import type { DesktopLinks } from './desktop-links.ts';
+import type { FolderMoveManifest } from '../core/folder-move-evidence.ts';
 
 type Target = { mirrorId: string; revision: number; path: string };
 type DirectoryLookup = (mirrorId: string, revision: number, signal?: AbortSignal) => Promise<string>;
@@ -84,6 +85,16 @@ export class FilesystemVault {
     return !await this.files.entry(root, row.tree.from) && !!folder?.isDirectory() && identity(folder, row.tree.inode);
   }
 
+  private async movedFolderManifest(root: string, row: Extract<LocalReceipt, { kind: 'move' }>) {
+    const source = row.folderDelivery?.source;
+    if (!row.directory || !source) return undefined;
+    const destination = await this.files.folderManifest(root, row.destination, row.inode).catch(() => null);
+    if (!destination || destination.entries.length !== source.entries.length ||
+        !destination.entries.every((entry, index) =>
+          entry.path === source.entries[index]?.path && entry.kind === source.entries[index]?.kind)) return undefined;
+    return { source, destination };
+  }
+
   async movePath(input: PathMove, revision: number, run: (before: () => Promise<void>) => Promise<boolean | DesktopMoveEvidence | void>): Promise<PathMoveReceipt> {
     const { vaultId, path, destination, operationId, expectedHash, kind } = input;
     const folder = kind === 'folder';
@@ -121,7 +132,10 @@ export class FilesystemVault {
             }
           };
           await verify();
-          await begin({ ...base, outcome: 'uncertain' });
+          const folderSource: FolderMoveManifest | null = folder
+            ? await this.files.folderManifest(root, path, base.inode).catch(() => null) : null;
+          const prepared = { ...base, ...(folderSource ? { folderDelivery: { source: folderSource } } : {}) };
+          await begin({ ...prepared, outcome: 'uncertain' });
           const applied = await run(async () => { await verify(); dispatch(); committed(); });
           if (applied === false) return { ...base, outcome: 'not_moved' };
           if (!await this.moved(root, { ...base, outcome: 'uncertain' })) throw new VaultError('uncertain');
@@ -153,7 +167,12 @@ export class FilesystemVault {
             }
             await check();
           }
-          return { ...base, ...(delivery ? { delivery } : {}), outcome: 'moved_locally_pending_sync' };
+          const folderDelivery = await this.movedFolderManifest(root, { ...prepared, outcome: 'moved_locally_pending_sync' });
+          if (folderDelivery) {
+            await check();
+            if (!await this.moved(root, { ...prepared, outcome: 'uncertain' })) throw new VaultError('uncertain');
+          }
+          return { ...base, ...(delivery ? { delivery } : {}), ...(folderDelivery ? { folderDelivery } : {}), outcome: 'moved_locally_pending_sync' };
         });
       return { ...endpoints, outcome: row.outcome };
     } catch (error) {
@@ -424,7 +443,10 @@ export class FilesystemVault {
           if (!await this.moved(root, row)) return review('move_endpoints_do_not_prove_publication');
           const target = await this.files.entry(root, row.destination);
           if (!target || !matchesVersion(target, { ...row.inode, birthtime: row.birthtime })) return review('move_endpoints_changed');
-          return { status: 'proven', row: { ...row, outcome: 'moved_locally_pending_sync' }, witness: JSON.stringify(statWitness(target)) };
+          const folderDelivery = await this.movedFolderManifest(root, row);
+          const stamp = statWitness(target);
+          const witness = JSON.stringify(folderDelivery ? [...stamp, folderDelivery.destination.fingerprint] : stamp);
+          return { status: 'proven', row: { ...row, ...(folderDelivery ? { folderDelivery } : {}), outcome: 'moved_locally_pending_sync' }, witness };
         }
         const written = await this.files.observe(root, row.path);
         if (!written || !identity(row.inode, written.info) || row.hash !== written.hash ||

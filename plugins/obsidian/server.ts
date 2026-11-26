@@ -57,6 +57,26 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
         return ledger.deliveryChanges(vaultId, after, limit);
       }, context);
     },
+    folderDeliveryChanges({ vaultId, after, limit }, context) {
+      const caller = context.experimental_caller;
+      if (caller.kind !== 'plugin' || caller.pluginId !== 'icloud')
+        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only iCloud can request folder delivery changes.' });
+      return evidence(async () => {
+        if (!ledger) throw new VaultError('source_unavailable');
+        service.checkReceiptScope(service.receiptScope().revision, vaultId);
+        return ledger.folderDeliveryChanges(vaultId, after, limit);
+      }, context);
+    },
+    folderDeliveryPage({ vaultId, operationId, side, offset, limit }, context) {
+      const caller = context.experimental_caller;
+      if (caller.kind !== 'plugin' || caller.pluginId !== 'icloud')
+        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only iCloud can request folder delivery evidence.' });
+      return evidence(async () => {
+        if (!ledger) throw new VaultError('source_unavailable');
+        service.checkReceiptScope(service.receiptScope().revision, vaultId);
+        return ledger.folderDeliveryPage(vaultId, operationId, side, offset, limit);
+      }, context);
+    },
     inventoryRevision(input, context) {
       const caller = context.experimental_caller;
       if (caller.kind !== 'plugin' || caller.pluginId !== 'gtd')

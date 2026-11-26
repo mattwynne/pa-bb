@@ -93,6 +93,8 @@ test('normal tools use native Desktop against a disposable vault', {
   await writeFile(join(root, 'Elsewhere/Target.md'), '# Separate namesake');
   await writeFile(join(root, 'Occupied.md'), 'sentinel-occupied');
   await writeFile(join(root, 'OldFolder/Child.md'), '# Child\n');
+  await writeFile(join(root, 'OldFolder/Internal.md'), '[[OldFolder/Child]]\n');
+  await writeFile(join(root, 'OldFolder/attachment.bin'), Buffer.from([0, 128, 255]));
   await writeFile(join(root, 'Active/Support/Visible.md'), '# Visible');
   await writeFile(join(root, 'Active/Support/Nested/Deep.md'), '---\nstatus: [invalid\n---\n# Deep');
   await writeFile(join(root, 'Malformed.md'), '---\nstatus: [invalid\n---\n# Malformed');
@@ -244,8 +246,26 @@ process.exitCode = result.status ?? 1;
   const moved = await tool('move_note', { path: 'Active/Target.md', destination: 'Done/Target.md' });
   assert.equal(moved.outcome, 'moved_locally_pending_sync');
   const afterFileMove = await hashReference();
+  const icloudCaller = { experimental_caller: { kind: 'plugin' as const, pluginId: 'icloud' } };
+  const folderChanges = (after: number | null) => harness.behavior.callRpc('folderDeliveryChanges',
+    { vaultId: id, after, limit: 4 }, icloudCaller) as Promise<{ cursor: number; moves: Array<{ operationId: string }> }>;
+  const folderCursor = (await folderChanges(null)).cursor;
   const folder = await tool('move_folder', { path: 'OldFolder', destination: 'Done/NewFolder' });
   assert.equal(folder.outcome, 'moved_locally_pending_sync');
+  const folderMoves = await folderChanges(folderCursor);
+  assert.deepEqual(folderMoves.moves.map(move => move.operationId), [folder.operationId]);
+  const folderPage = (side: 'source' | 'destination') => harness.behavior.callRpc('folderDeliveryPage',
+    { vaultId: id, operationId: folder.operationId, side, offset: 0, limit: 4 }, icloudCaller) as
+    Promise<{ entries: Array<{ path: string; hash?: string }> }>;
+  const fromFolder = await folderPage('source'), toFolder = await folderPage('destination');
+  for (const name of ['Child.md', 'attachment.bin']) {
+    assert.deepEqual(fromFolder.entries.find(entry => entry.path === name), toFolder.entries.find(entry => entry.path === name));
+  }
+  const localInternal = await readFile(join(root, 'Done/NewFolder/Internal.md'));
+  assert.equal(toFolder.entries.find(entry => entry.path === 'Internal.md')?.hash, createHash('sha256').update(localInternal).digest('hex'));
+  await assert.rejects(harness.behavior.callRpc('folderDeliveryPage',
+    { vaultId: id, operationId: folder.operationId, side: 'source', offset: 0, limit: 4 }, caller), /Only iCloud/);
+
   const afterFolderMove = await hashReference();
   const changes = (await delivery(beforeMoves)).changes;
   assert.deepEqual(changes.map(({ path, source }) => [path, source]), [

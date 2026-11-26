@@ -1,11 +1,12 @@
 // Linux file primitives carried forward from the iCloud note store. All paths
 // below a host-authorized mirror are traversed with no-follow directory handles.
-import { constants, type Stats } from 'node:fs';
+import { constants, type BigIntStats, type Stats } from 'node:fs';
 import { open, opendir, lstat, rename, link, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { MAX_NOTE_BYTES, VaultError } from '../core/ports.ts';
+import { folderManifestLimit, type FolderMoveEntry, type FolderMoveManifest } from '../core/folder-move-evidence.ts';
 
 const NOTE_LIMITS = { bytes: MAX_NOTE_BYTES, entries: 10000, scanMs: 2000 };
 export function validateRelativePath(path: string) {
@@ -150,6 +151,88 @@ export class LocalNotes {
   async rootIdentity(root: string) {
     const handle = await open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     try { return await handle.stat(); } finally { await handle.close(); }
+  }
+
+  // Capture exact names and bytes, including attachments and empty directories.
+  async folderManifest(root: string, folder: string, expected: Pick<Stats, 'dev' | 'ino'>): Promise<FolderMoveManifest> {
+    const parent = await this.parent(root, folder);
+    const directoryFlags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+    const directory = await open(parent.path, directoryFlags).catch(async error => { await parent.close(); throw error; });
+    const entries: FolderMoveEntry[] = [];
+    const deadline = Date.now() + 4_000;
+    const buffer = Buffer.alloc(128 * 1024);
+    let totalBytes = 0;
+    const stampMatches = (a: BigIntStats, b: BigIntStats) =>
+      a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs;
+    const assertCapacity = () => {
+      if (Date.now() >= deadline || entries.length > folderManifestLimit || totalBytes > 1024 ** 3)
+        throw new VaultError('capacity');
+    };
+    const walk = async (handle: FileHandle, relative: string, depth: number) => {
+      if (depth > 64) throw new VaultError('capacity');
+      const before = await handle.stat({ bigint: true });
+      const pinned = fdPath(handle.fd);
+      const children = await opendir(pinned);
+      const names = new Set<string>();
+      for await (const child of children) {
+        assertCapacity();
+        if (names.has(child.name)) throw new VaultError('unsupported');
+        names.add(child.name);
+        const path = relative ? relative + '/' + child.name : child.name;
+        validateRelativePath(folder + '/' + path);
+        const item = join(pinned, child.name);
+        if (child.isDirectory()) {
+          const subdirectory = await open(item, directoryFlags);
+          try {
+            const nested = await subdirectory.stat({ bigint: true });
+            if (nested.dev !== before.dev || !stampMatches(nested, await lstat(item, { bigint: true })))
+              throw new VaultError('conflict');
+            entries.push({ path, kind: 'directory' });
+            await walk(subdirectory, path, depth + 1);
+            if (!stampMatches(nested, await lstat(item, { bigint: true }))) throw new VaultError('conflict');
+          } finally { await subdirectory.close(); }
+          continue;
+        }
+        if (!child.isFile()) throw new VaultError('unsupported');
+        const file = await open(item, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        try {
+          const initial = await file.stat({ bigint: true });
+          if (!initial.isFile() || initial.dev !== before.dev || initial.size > BigInt(1024 ** 3)) throw new VaultError('capacity');
+          const size = Number(initial.size);
+          totalBytes += size;
+          assertCapacity();
+          let position = 0;
+          const hash = createHash('sha256');
+          while (position < size) {
+            assertCapacity();
+            const { bytesRead } = await file.read(buffer, 0, Math.min(buffer.length, size - position), position);
+            if (bytesRead === 0) throw new VaultError('conflict');
+            hash.update(buffer.subarray(0, bytesRead));
+            position += bytesRead;
+          }
+          if (!stampMatches(initial, await file.stat({ bigint: true })) ||
+              !stampMatches(initial, await lstat(item, { bigint: true }))) throw new VaultError('conflict');
+          entries.push({ path, kind: 'file', size, hash: hash.digest('hex') });
+        } finally { await file.close(); }
+      }
+      if (!stampMatches(before, await handle.stat({ bigint: true }))) throw new VaultError('conflict');
+    };
+    try {
+      const before = await directory.stat();
+      if (!identity(before, expected)) throw new VaultError('conflict');
+      await walk(directory, '', 0);
+      assertCapacity();
+      const fresh = await this.parent(root, folder);
+      try {
+        if (!identity(before, await lstat(fresh.path)) || !identity(await parent.folder.stat(), await fresh.folder.stat()))
+          throw new VaultError('conflict');
+      } finally { await fresh.close(); }
+      entries.sort((a, b) => a.path < b.path ? -1 : a.path === b.path ? 0 : 1);
+      return { fingerprint: digest(JSON.stringify(entries)), entries };
+    } finally {
+      await directory.close();
+      await parent.close();
+    }
   }
 
   async children(root: string, folder: string) {

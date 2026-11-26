@@ -3,6 +3,7 @@ import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import { searchCapabilitySchema } from './adapters/icloud-note-contract.ts';
 import { linkReturnDate } from './core/section-links.ts';
+import { folderManifestLimit, folderManifestPageLimit, folderMoveEntry } from './core/folder-move-evidence.ts';
 const source = z.object({ id: z.string(), name: z.string(), initialized: z.boolean(), enabled: z.boolean(), cloudConnected: z.boolean(), phase: z.string(), lastSuccess: z.string().nullable(), failure: z.string().nullable(), local: z.object({ available: z.boolean(), reason: z.enum(['ownership', 'recovery_required', 'source_changed']).nullable(), pendingAgeMs: z.number().int().nonnegative().nullable(), applicationBlocker: z.enum(['application_uncertain', 'native_recovery']).nullable() }).strict() }).strict();
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const receipt = z.discriminatedUnion('kind', [
@@ -39,6 +40,20 @@ export const rpcContract = defineRpcContract({
     output: z.object({ cursor: deliverySequence, hasMore: z.boolean(),
       changes: z.array(z.object({ sequence: deliverySequence, operationId, path: consumerFolder, source: consumerFolder.optional(), previousHash: hash.nullable(), hash }).strict()).max(32),
     }).strict(),
+  },
+  folderDeliveryChanges: {
+    input: vault.extend({ after: deliverySequence.nullable(), limit: z.number().int().min(1).max(32) }),
+    output: z.object({ cursor: deliverySequence, hasMore: z.boolean(), moves: z.array(z.object({
+      sequence: deliverySequence, operationId, source: consumerFolder, path: consumerFolder,
+      sourceFingerprint: hash, destinationFingerprint: hash,
+    }).strict()).max(32) }).strict(),
+  },
+  folderDeliveryPage: {
+    input: vault.extend({ operationId, side: z.enum(['source', 'destination']),
+      offset: z.number().int().nonnegative().max(folderManifestLimit), limit: z.number().int().min(1).max(folderManifestPageLimit) }),
+    output: z.object({ path: consumerFolder, fingerprint: hash, total: z.number().int().nonnegative().max(folderManifestLimit),
+      entries: z.array(folderMoveEntry).max(folderManifestPageLimit), nextOffset: z.number().int().nonnegative().max(folderManifestLimit).nullable(),
+    }).strict().nullable(),
   },
   inventoryRevision: {
     input: vault.extend({ folders: z.array(consumerFolder).min(1).max(2) }),
