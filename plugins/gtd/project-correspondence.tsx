@@ -1,8 +1,9 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRpc } from '@get-bb/plugin-sdk/app';
 import type { z } from 'zod';
 import { rpcContract, type correspondenceChange } from './contract.ts';
 import { correspondenceDate, mailProvider, uniqueConversations, type correspondenceLinks, type projectCorrespondence, type MailStatus } from './core/correspondence.ts';
+import { FoldableSection } from './foldable-section.tsx';
 
 const refreshInterval = 5 * 60_000;
 const statuses = {
@@ -69,7 +70,6 @@ function ConversationRows({ links, mail, busy, onChange }: {
 }
 
 export function ProjectCorrespondence({ source, id, revision }: { source: string; id: string; revision: number }) {
-  const heading = useId();
   const client = useRpc<typeof rpcContract>();
   const rpc = useRef(client);
   rpc.current = client;
@@ -156,12 +156,10 @@ export function ProjectCorrespondence({ source, id, revision }: { source: string
     return saved;
   };
 
-  return <section className="gtd-linked" aria-labelledby={heading}>
-    <div className="gtd-list-bar">
-      <h2 id={heading}>Correspondence</h2>
-      {(!!conversations?.active.links.length || !!conversations?.snoozed.links.length || readError) &&
-        <button type="button" aria-disabled={busy || saving} onClick={() => refresh.current()}>Refresh email</button>}
-    </div>
+  return <FoldableSection title="Correspondence" className="gtd-linked" tools={
+    (!!conversations?.active.links.length || !!conversations?.snoozed.links.length || readError) &&
+      <button type="button" aria-disabled={busy || saving} onClick={() => refresh.current()}>Refresh email</button>
+  }>
     {readError && <p role="status">Correspondence could not refresh. Check the project note in Obsidian.</p>}
     {feedback && <p role="status">{feedback}</p>}
     {!conversations && !readError && <p role="status">Loading correspondence…</p>}
@@ -185,5 +183,5 @@ export function ProjectCorrespondence({ source, id, revision }: { source: string
           : !conversations.archived.incomplete && <p className="gtd-empty">No archived conversations.</p>}
       </details>
     </>}
-  </section>;
+  </FoldableSection>;
 }

@@ -9,6 +9,7 @@ import { ProjectNextAction } from './project-next-action.tsx';
 import { useAreaMailStatus } from './area-mail-status.ts';
 import { AreaStandard } from './area-standard.tsx';
 import { AreaActions } from './area-actions.tsx';
+import { FoldableSection } from './foldable-section.tsx';
 import './app.css';
 const key = (source: string, id: string) => JSON.stringify([source, id]);
 let inventoryRevision = 0;
@@ -403,17 +404,14 @@ const threadStatuses = ['active', 'archived'] as const;
 type ThreadFilter = typeof threadStatuses[number];
 const linkedThreadFilters = new Map<string, ThreadFilter[]>();
 
-function FilterBar({ title, label, action, children }: { title: string; label: string; action?: React.ReactNode; children: React.ReactNode }) {
+function FilterControls({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
   const { detailsProps, trigger } = useDisclosure();
-  return <div className="gtd-list-bar">
-    <h2>{title}</h2>
-    <div className="gtd-list-actions">
-      <details className="gtd-menu gtd-filter" {...detailsProps}>
-        <summary ref={trigger} aria-label={`Filter by ${label.toLowerCase()}`}><Icon name="SlidersHorizontal" aria-hidden="true" />Filter</summary>
-        <div className="gtd-menu-items" role="group" aria-label={label}>{children}</div>
-      </details>
-      {action}
-    </div>
+  return <div className="gtd-list-actions">
+    <details className="gtd-menu gtd-filter" {...detailsProps}>
+      <summary ref={trigger} aria-label={`Filter by ${label.toLowerCase()}`}><Icon name="SlidersHorizontal" aria-hidden="true" />Filter</summary>
+      <div className="gtd-menu-items" role="group" aria-label={label}>{children}</div>
+    </details>
+    {action}
   </div>;
 }
 
@@ -472,11 +470,11 @@ function LinkedThreads({ kind, id, source, action }: {
       setSelected(next);
     }
   };
-  return <section className="gtd-linked">
-    <FilterBar title={kind === 'area' ? 'Area threads' : 'Linked threads'} label="Thread status" action={action}>
-      {threadStatuses.map(status => <FilterOption key={status} type="checkbox" label={status === 'active' ? 'Active' : 'Archived'}
-        checked={selected.includes(status)} disabled={selected.length === 1 && selected.includes(status)} onChange={() => toggle(status)} />)}
-    </FilterBar>
+  const tools = <FilterControls label="Thread status" action={action}>
+    {threadStatuses.map(status => <FilterOption key={status} type="checkbox" label={status === 'active' ? 'Active' : 'Archived'}
+      checked={selected.includes(status)} disabled={selected.length === 1 && selected.includes(status)} onChange={() => toggle(status)} />)}
+  </FilterControls>;
+  const content = <>
     <ThreadReadStatus loading={pending} error={failed} metadataError={error} />
     {!!matching.length && <ThreadList threads={matching} showArchived={selected.length > 1} />}
     {!matching.length && !pending && !failed && <p className="gtd-empty gtd-thread-empty" role="status">
@@ -490,7 +488,13 @@ function LinkedThreads({ kind, id, source, action }: {
         {archived.isFetchingNextPage ? 'Loading more…' : archived.isFetchNextPageError ? 'Retry archived threads' : 'Show more archived threads'}
       </button>
     </>}
-  </section>;
+  </>;
+  return kind === 'project'
+    ? <FoldableSection title="Linked threads" className="gtd-linked" tools={tools}>{content}</FoldableSection>
+    : <section className="gtd-linked">
+      <div className="gtd-list-bar"><h2>Area threads</h2>{tools}</div>
+      {content}
+    </section>;
 }
 
 function ThreadAssociations({ inventory }: { inventory: InventoryState }) {
@@ -699,27 +703,30 @@ function GtdPanel({ panel, subPath }: PluginNavPanelProps & { panel: PanelPath }
       {ready && (area || unassigned) && <>
         {area && <AreaStandard key={`standard:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} hasNote={area.id.endsWith('.md')} />}
         {area && <AreaActions key={`actions:${key(inventory.source, area.id)}`} source={inventory.source} id={area.id} revision={inventory.revision} />}
-        <FilterBar title="Projects" label="Project status" action={area && <button ref={addProject} type="button" className="gtd-row-action"
-          aria-label="Add project" title="Add project" disabled={!!busy || !!inventory.error}
-          onClick={() => setCreateTarget(key(inventory.source, area.id))}><Icon name="Plus" aria-hidden="true" /></button>}>
-          {(Object.keys(projectStatuses) as ProjectFilter[]).map(value => <FilterOption key={value} type="radio" name={statusGroup}
-            label={projectStatuses[value]} checked={status === value} onChange={() => { lastProjectFilter = value; setStatus(value); }} />)}
-        </FilterBar>
-        {visible.length ? <ul className="gtd-rows">{visible.map(item => {
-          const mail = mailRows && (mailRows.get(item.id) ?? 'incomplete');
-          return <li key={item.id} className="gtd-project-row">
-            <PanelLink className="gtd-browser-link" destination={recordDestination('projects', inventory.source, item.id)}>
-              {item.title}{status === 'all' && <span className="gtd-row-status">{item.status[0].toUpperCase() + item.status.slice(1)}</span>}
-              <Icon name="ChevronRight" aria-hidden="true" />
-            </PanelLink>
-            {mail && mail !== 'clear' && <span className="gtd-project-mail" data-mail={mail}>
-              {mail === 'unread' ? 'Unread email' : 'Mail status incomplete'}
-            </span>}
-            {projectActions(item)}
-          </li>;
-        })}</ul> : <p className="gtd-empty" role="status">{partial ? 'No matching projects in the loaded inventory.' :
-          !inArea.length ? (area ? 'No projects in this Area yet.' : 'No unassigned projects.') :
-            `No ${status} projects ${area ? 'in this Area' : 'without an Area'}.`}</p>}
+        <FoldableSection key={`projects:${key(inventory.source, area?.id ?? '')}`} title="Projects" tools={
+          <FilterControls label="Project status" action={area && <button ref={addProject} type="button" className="gtd-row-action"
+            aria-label="Add project" title="Add project" disabled={!!busy || !!inventory.error}
+            onClick={() => setCreateTarget(key(inventory.source, area.id))}><Icon name="Plus" aria-hidden="true" /></button>}>
+            {(Object.keys(projectStatuses) as ProjectFilter[]).map(value => <FilterOption key={value} type="radio" name={statusGroup}
+              label={projectStatuses[value]} checked={status === value} onChange={() => { lastProjectFilter = value; setStatus(value); }} />)}
+          </FilterControls>
+        }>
+          {visible.length ? <ul className="gtd-rows">{visible.map(item => {
+            const mail = mailRows && (mailRows.get(item.id) ?? 'incomplete');
+            return <li key={item.id} className="gtd-project-row">
+              <PanelLink className="gtd-browser-link" destination={recordDestination('projects', inventory.source, item.id)}>
+                {item.title}{status === 'all' && <span className="gtd-row-status">{item.status[0].toUpperCase() + item.status.slice(1)}</span>}
+                <Icon name="ChevronRight" aria-hidden="true" />
+              </PanelLink>
+              {mail && mail !== 'clear' && <span className="gtd-project-mail" data-mail={mail}>
+                {mail === 'unread' ? 'Unread email' : 'Mail status incomplete'}
+              </span>}
+              {projectActions(item)}
+            </li>;
+          })}</ul> : <p className="gtd-empty" role="status">{partial ? 'No matching projects in the loaded inventory.' :
+            !inArea.length ? (area ? 'No projects in this Area yet.' : 'No unassigned projects.') :
+              `No ${status} projects ${area ? 'in this Area' : 'without an Area'}.`}</p>}
+        </FoldableSection>
         {area && <LinkedThreads key={key(inventory.source, area.id)} kind="area" id={area.id} source={inventory.source}
           action={newThreadAction(area, 'area')} />}
       </>}

@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { experimental_Icon as Icon, Markdown, useRpc } from '@get-bb/plugin-sdk/app';
 import type { z } from 'zod';
 import { actionText, actionTextLimit, rpcContract } from './contract.ts';
+import { FoldableSection } from './foldable-section.tsx';
 
 type Snapshot = z.output<typeof rpcContract.readAreaActions.output>;
 type Change = z.input<typeof rpcContract.changeAreaAction.input>['change'];
@@ -106,15 +107,13 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
 
   const validDraft = actionText.safeParse(draft);
   const actions = (exiting?.snapshot ?? snapshot)?.actions.filter(action => !action.complete) ?? [];
-  return <section className="gtd-area-actions" aria-labelledby={heading}>
-    <div className="gtd-list-bar">
-      <h2 id={heading}>Actions</h2>
-      {hasNote && <button type="button" ref={addButton} className="gtd-row-action" aria-label="Add action" title="Add action"
-        aria-expanded={editing} aria-controls={editing ? formId : undefined}
-        aria-disabled={!canWrite || editing} onClick={() => { if (canWrite && !editing) setDraft(''); }}>
-        <Icon name="Plus" aria-hidden="true" />
-      </button>}
-    </div>
+  return <FoldableSection title="Actions" className="gtd-area-actions" tools={
+    hasNote && <button type="button" ref={addButton} className="gtd-row-action" aria-label="Add action" title="Add action"
+      aria-expanded={editing} aria-controls={editing ? formId : undefined}
+      aria-disabled={!canWrite || editing} onClick={() => { if (canWrite && !editing) setDraft(''); }}>
+      <Icon name="Plus" aria-hidden="true" />
+    </button>
+  }>
     {editing && <form className="gtd-add-action" id={formId} onSubmit={event => {
       event.preventDefault();
       if (validDraft.success) void save({ operation: 'add', text: validDraft.data });
@@ -163,5 +162,5 @@ export function AreaActions({ source, id, revision }: { source: string; id: stri
       <button type="button" onClick={() => { setUncertainId(''); refresh(); }}>Reload actions</button>
     </div>}
     {notice && <p role="status">{notice}</p>}
-  </section>;
+  </FoldableSection>;
 }
