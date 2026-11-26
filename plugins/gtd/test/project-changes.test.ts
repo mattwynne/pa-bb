@@ -20,7 +20,7 @@ async function setup(paired = false) {
   const saves = new Map<string, { outcome: string; path: string; before: object; after: object }>();
   let lostProperty: string | undefined;
   let lostMove: string | undefined, loseThreads = false, archiveFails = false, hideReceipt = false;
-  let writes = 0, archived = false;
+  let writes = 0, archived = false, incomplete = false;
   const fixture = createFakePluginHost({
     pluginId: 'gtd', agentSkillIds: ['gtd-projects'], settings: { vaultId: source },
     sdk: {
@@ -34,7 +34,7 @@ async function setup(paired = false) {
             source: { vaultId: source, name: 'Fixture', cloudConnected: false, enabled: false, phase: 'paused', lastSuccess: null, failure: null },
             notes: [...docs].filter(([path]) => under(path)).map(([path, properties]) => ({
             path, properties: Object.fromEntries(Object.entries(properties).filter(([key]) => input.fields.includes(key))), malformed: false,
-          })), folders: [...folders].filter(under), incomplete: false };
+          })), folders: [...folders].filter(under), incomplete };
         }
         if (method === 'noteEvidence') {
           const note = docs.get(input.path);
@@ -117,6 +117,7 @@ async function setup(paired = false) {
     loseMove: (kind: string) => { lostMove = kind; },
     losePropertySave: (key: string) => { lostProperty = key; },
     hideReceipt: (value: boolean) => { hideReceipt = value; },
+    setIncomplete: (value: boolean) => { incomplete = value; },
     loseThreadWrite: () => { loseThreads = true; },
     failArchive: (value: boolean) => { archiveFails = value; },
     reload: async () => { handles.host = await handles.host.harness.lifecycle.reload(plugin); },
@@ -160,6 +161,70 @@ test('a direct move preserves a relative Area, finishes a companion step, and up
   assert.equal(checked.state, 'links_verified');
   assert.equal(f.history.filter(call => call.method === 'movePath').length, 2);
   assert.equal(f.writes(), 1);
+});
+
+test('a versioned migration move establishes the folder classification before status cleanup', async t => {
+  for (const [legacy, status, folder] of [
+    ['completed', 'done', 'Completed'], ['done', 'done', 'Done'],
+    ['deferred', 'deferred', 'Deferred'], ['someday', 'someday', 'Someday'],
+  ]) {
+    await t.test(legacy, async t => {
+      const f = await setup(true);
+      t.after(() => f.handles.host.harness.lifecycle.dispose());
+      const destination = `Projects/${folder}/Example.md`;
+      if (folder === 'Completed') f.folders.delete('Projects/Done');
+      f.folders.add(`Projects/${folder}`);
+      const before = f.docs.get(owner)!;
+      before.status = legacy;
+      before.keep = 'unrelated value';
+      const prepare = { source, id: owner, expectedHash: digest(before), status };
+      const plan = await f.tool('gtd_prepare_project_change', prepare);
+      assert.equal(plan.destination, destination);
+      assert.equal(plan.previousArea, area);
+      assert.equal(plan.linkedThreads, 1);
+
+      const result = await f.tool(plan.next.tool, plan.next.input);
+      assert.equal(result.state, 'links_verified');
+      assert.equal(f.docs.has(owner), false);
+      assert.equal(f.folders.has(destination.slice(0, -3)), true);
+      assert.equal(f.meta.project.id, destination);
+      assert.equal(f.archived(), false);
+      // Model the subsequent versioned Obsidian property removal in the file fixture.
+      const { status: storedStatus, ...cleaned } = f.docs.get(destination)!;
+      assert.equal(storedStatus, legacy);
+      assert.deepEqual(cleaned, { title: 'Example', area, keep: 'unrelated value' });
+      f.docs.set(destination, cleaned);
+      const listing = await f.tool('gtd_list_projects', { status });
+      assert.equal(listing.coverage, 'complete');
+      assert.deepEqual(listing.projects, [{ id: destination, title: 'Example', areaId: area, status }]);
+    });
+  }
+});
+
+test('migration preview blocks on partial coverage, missing or ambiguous status folders, and path collisions', async t => {
+  const f = await setup(true);
+  t.after(() => f.handles.host.harness.lifecycle.dispose());
+  const before = f.docs.get(owner)!;
+  before.status = 'completed';
+  const prepare = { source, id: owner, expectedHash: digest(before), status: 'done' };
+  const refuses = async (message: RegExp) => {
+    const result = await f.tool('gtd_prepare_project_change', prepare, true);
+    assert.match(result.content[0].text, message);
+  };
+  f.setIncomplete(true);
+  await refuses(/Complete project and ownership evidence/);
+  f.setIncomplete(false);
+  f.folders.delete('Projects/Done');
+  await refuses(/Create a Done folder/);
+  f.folders.add('Projects/Done');
+  f.folders.add('Projects/Completed');
+  await refuses(/duplicate Done folders/);
+  f.folders.delete('Projects/Completed');
+  f.folders.add(done.slice(0, -3));
+  await refuses(/Destination note or support folder already exists/);
+  assert.equal(f.history.some(call => call.method === 'movePath' || call.method === 'writeProperties'), false);
+  assert.equal(f.docs.get(owner)?.status, 'completed');
+  assert.equal(f.meta.project.id, owner);
 });
 
 test('a replaced destination blocks conversation changes and never dispatches again', async t => {

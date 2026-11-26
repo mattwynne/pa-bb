@@ -35,9 +35,9 @@ const cli = async (...args) => (await exec(process.execPath, [join(bb, 'host-dae
 let browser;
 const ref = { source: 'one', id: 'Projects/Learn woodworking.md' };
 const source = { backend: 'obsidian', id: 'one', name: 'Synthetic vault', obsidian: { vault: 'Synthetic vault', root: '' }, scope: 'Projects', observedAt: 'now', lastSuccessfulSync: null, sync: null };
-const projectNote = (legacyTitle, status = 'active') => `---\ntitle: ${legacyTitle}\nstatus: ${status}\narea: Areas/Learning.md\n---\n`;
+const projectNote = legacyTitle => `---\ntitle: ${legacyTitle}\narea: Areas/Learning.md\n---\n`;
 async function connectSyntheticVault(pkg) {
-  for (const directory of ['.obsidian', 'Projects/Done', 'Areas', 'Elsewhere']) await mkdir(join(vault, directory), { recursive: true });
+  for (const directory of ['.obsidian', 'Projects/Done', 'Projects/Someday', 'Areas', 'Elsewhere']) await mkdir(join(vault, directory), { recursive: true });
   await writeFile(join(vault, '.obsidian/app.json'), '{"alwaysUpdateLinks":true}');
   await writeFile(join(vault, 'Areas/Learning.md'), '# Learning\n\n## Standard\n\nPractice weekly.\n');
   await writeFile(join(vault, ref.id), projectNote('Legacy label'));
@@ -77,6 +77,9 @@ export default function (bb) {
   await cli('plugin', 'rpc', 'call', 'obsidian', 'connect', '--input-file', input, '--json');
   await cli('plugin', 'reload', 'gtd', '--json');
   await cli('plugin', 'config', 'gtd', 'set', 'vaultId', 'one');
+  const inventory = JSON.parse(await cli('gtd', 'projects', '--status', 'active', '--json'));
+  assert.equal(inventory.coverage, 'complete');
+  assert.deepEqual(inventory.projects.map(({ id, status }) => ({ id, status })), [{ id: ref.id, status: 'active' }]);
 }
 try {
   let ready = false; for (let i = 0; i < 100; i++) { assert.equal(server.exitCode, null); try { ready = (await fetch(base)).ok; } catch {} if (ready) break; await new Promise(r => setTimeout(r, 100)); } assert.ok(ready);
@@ -747,7 +750,9 @@ try {
       await page.waitForResponse(async response =>
         response.url().endsWith('/rpc/inventoryRevision') && typeof (await response.json()).result === 'string');
       assert.equal(await link('Legacy label').count(), 0);
-      await writeFile(join(vault, ref.id), projectNote('Edited in vault', 'someday'));
+      const someday = join(vault, 'Projects/Someday/Learn woodworking.md');
+      await writeFile(join(vault, ref.id), projectNote('Edited in vault'));
+      await rename(join(vault, ref.id), someday);
       await link('Learn woodworking').waitFor({ state: 'hidden' });
       assert.ok(await heading('Learning').evaluate(el => el.matches(':focus')));
       await filter.click();
@@ -755,7 +760,7 @@ try {
       await page.keyboard.press('Escape');
       await link('Learn woodworking').waitFor();
       assert.equal(await link('Edited in vault').count(), 0);
-      await writeFile(join(vault, ref.id), projectNote('Edited in vault'));
+      await rename(someday, join(vault, ref.id));
       await link('Learn woodworking').waitFor({ state: 'hidden' });
       await filter.click();
       await nav.getByRole('radio', { name: 'Active' }).click();

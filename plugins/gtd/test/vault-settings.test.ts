@@ -27,7 +27,7 @@ test('vault selector offers discovered roots, scopes folders relative to the vau
       const source = { vaultId: 'one', name: 'Container', cloudConnected: true, enabled: true, phase: 'ready', lastSuccess: null, failure: null };
       if (args.input.folders?.length === 0) return { source, notes: [], folders: [], incomplete: false };
       folders.push(args.input.root);
-      return { source, notes: [{ path: 'Life/Projects/Launch.md', properties: { status: 'active' }, malformed: false }],
+      return { source, notes: [{ path: 'Life/Projects/Launch.md', properties: {}, malformed: false }],
         folders: ['Life','Life/Projects','Life/Areas'], incomplete: false };
     }
     throw new Error('Unexpected method');

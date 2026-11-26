@@ -41,7 +41,7 @@ function fixture() {
     } else {
       assert.equal(input?.metadataDepth, 2);
       assert.deepEqual(input?.metadataFolders, [projects, areas]);
-      assert.deepEqual(input?.fields, ['status', 'area']);
+      assert.deepEqual(input?.fields, ['area']);
     }
     return page;
   } } } as unknown as BbPluginApi['sdk'];
@@ -130,13 +130,27 @@ test('access checks use empty authorized inventory, not source status or retaine
 
 test('one landing-note layer, filename labels, and exact folder confinement', () => {
   for (const path of ['../Projects/Test.md', '/Projects/Test.md', 'Projects-copy/Test.md', 'Projects/../Test.md', 'Projects/Test.txt'])
-    assert.equal(projectFromNote('Projects', path, {}), 'invalid');
+    assert.equal(projectFromNote('Projects', path), 'invalid');
   for (const bad of ['Projects/', '../Projects', 'Projects//Active', 'Projects\\Active']) assert.equal(relativeFolder.safeParse(bad).success, false);
-  assert.equal(projectFromNote('Projects', 'Projects/Active/Support/README.md', {}), null);
-  assert.equal(projectFromNote('Projects', 'Projects/Support/README.md', {}), null);
-  assert.deepEqual(projectFromNote('Projects', 'Projects/🪚 Done.md', { title: false }), { id: 'Projects/🪚 Done.md', title: '🪚 Done', status: 'active' });
+  assert.equal(projectFromNote('Projects', 'Projects/Active/Support/README.md'), null);
+  assert.equal(projectFromNote('Projects', 'Projects/Support/README.md'), null);
+  assert.deepEqual(projectFromNote('Projects', 'Projects/🪚 Done.md'), { id: 'Projects/🪚 Done.md', title: '🪚 Done', status: 'active' });
   for (const status of ['active', 'deferred', 'someday', 'done']) {
     const path = 'Projects/' + status + '/Example.md';
-    assert.deepEqual(projectFromNote('Projects', path, { status: 'unrecognized' }), { id: path, title: 'Example', status });
+    assert.deepEqual(projectFromNote('Projects', path), { id: path, title: 'Example', status });
   }
+});
+
+test('the inventory ignores top-level status values and preserves path classification after cleanup', async () => {
+  const f = fixture();
+  const rootNote = note(projects + '/Root.md', { status: 'someday' });
+  const activeNote = note(projects + '/Active/Example.md', { status: 'completed' });
+  f.result.notes.push(rootNote, activeNote);
+  f.result.folders.push(projects + '/Active');
+  const before = await f.backend.readProjects(signal());
+  assert.equal(before.complete, true);
+  for (const { path } of [rootNote, activeNote])
+    assert.equal(before.projects.find(row => row.id === path)?.status, 'active');
+  for (const entry of f.result.notes) delete entry.properties.status;
+  assert.deepEqual((await f.backend.readProjects(signal())).projects, before.projects);
 });

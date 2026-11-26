@@ -52,7 +52,7 @@ export async function readVaultInventory(sdk: BbPluginApi['sdk'], input: {
   return result;
 }
 
-const aliases: Record<string, ProjectStatus> = { active: 'active', deferred: 'deferred', someday: 'someday', done: 'done', completed: 'done' };
+const statusFolders: Record<string, ProjectStatus> = { active: 'active', deferred: 'deferred', someday: 'someday', done: 'done', completed: 'done' };
 const within = (path: string, folder: string) => path.startsWith(folder + '/');
 const immediate = (path: string, folder: string) => within(path, folder) && !path.slice(folder.length + 1).includes('/');
 const basenameKey = (path: string) => posix.basename(path.replace(/\/$/, ''), path.endsWith('/') ? undefined : '.md').toLocaleLowerCase('und');
@@ -61,17 +61,15 @@ const text = (value: unknown): value is string => typeof value === 'string' && v
 function projectStatusFolder(folder: string, path: string) {
   const directory = posix.dirname(path);
   const key = posix.basename(directory).toLowerCase();
-  return immediate(directory, folder) && Object.hasOwn(aliases, key) ? aliases[key] : undefined;
+  return immediate(directory, folder) && Object.hasOwn(statusFolders, key) ? statusFolders[key] : undefined;
 }
 
-export function projectFromNote(folder: string, path: string, properties: Record<string, unknown>): Project | 'invalid' | null {
+export function projectFromNote(folder: string, path: string): Project | 'invalid' | null {
   if (!relativeFolder.safeParse(path).success || !path.endsWith('.md') || !within(path, folder)) return 'invalid';
-  const fallback = projectStatusFolder(folder, path);
-  if (!immediate(path, folder) && !fallback) return null;
-  const status = fallback ?? (properties.status === undefined ? 'active'
-    : typeof properties.status === 'string' && Object.hasOwn(aliases, properties.status) ? aliases[properties.status] : undefined);
+  const status = immediate(path, folder) ? 'active' : projectStatusFolder(folder, path);
+  if (!status) return null;
   const title = posix.basename(path).slice(0, -3);
-  return status && text(title) ? { id: path, status, title: title.trim() } : 'invalid';
+  return text(title) ? { id: path, status, title: title.trim() } : 'invalid';
 }
 
 export function areaFromNote(folder: string, path: string): Area | 'invalid' | null {
@@ -178,7 +176,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
 
   private projectSection(source: string, id: string, heading: string) {
     if (source !== this.config.vaultId) throw new GtdError('invalid_source');
-    const project = projectFromNote(this.scope(this.config.folder), id, {});
+    const project = projectFromNote(this.scope(this.config.folder), id);
     if (!project || project === 'invalid') throw new GtdError('invalid_source');
     return { vaultId: source, path: id, heading };
   }
@@ -294,7 +292,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
         ...(projects ? {} : { folders: [areaFolder] }),
         metadataFolders: projects ? [...new Set([projectFolder, areaFolder])] : [areaFolder],
         metadataDepth: projects ? 2 : 1,
-        fields: projects ? ['status', 'area'] : [],
+        fields: projects ? ['area'] : [],
       }, signal);
       this.checkGeneration(generation, signal);
       const notes = new Set(inventory.notes.map(note => note.path));
@@ -321,7 +319,7 @@ export class ObsidianBackend implements ProjectBackend, AreaBackend {
       for (const note of inventory.notes) {
         const { path, properties, malformed } = note;
         if (projects && (immediate(path, projectFolder) || projectStatusFolder(projectFolder, path))) {
-          const project = malformed ? 'invalid' : projectFromNote(projectFolder, path, properties);
+          const project = malformed ? 'invalid' : projectFromNote(projectFolder, path);
           if (project === 'invalid') {
             projectWarnings.add('invalid_project');
             if (malformed && badProjects.length < 12) badProjects.push(path);

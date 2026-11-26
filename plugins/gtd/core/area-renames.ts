@@ -90,7 +90,7 @@ export function areaRenames(bb: BbPluginApi, settings: () => Promise<Scope>) {
         requireEvidence(selected === vaultId && area && area !== 'invalid' &&
           relativeFolder.safeParse(destination).success && pathKey(id) !== pathKey(destination) &&
           !within(projects, stem(id)) && !within(projects, stem(destination)) &&
-          projectFromNote(projects, id, {}) === 'invalid' && projectFromNote(projects, destination, {}) === 'invalid', stage,
+          projectFromNote(projects, id) === 'invalid' && projectFromNote(projects, destination) === 'invalid', stage,
         'Choose an exact top-level Area note and a distinct filename in its configured Areas folder.');
         const scopeKey = storedScope(scope);
         const checkScope = async () => {
@@ -106,7 +106,7 @@ export function areaRenames(bb: BbPluginApi, settings: () => Promise<Scope>) {
           requireEvidence(row.scope === scopeKey, 'configuration', 'Restore the original GTD source selection before inspecting this request.');
         }
         const inventory = async () => {
-          const data = await readVaultInventory(bb.sdk, { vaultId, root, metadataFolders: [projects, areas], metadataDepth: 2, fields: ['status', 'area'] }, signal);
+          const data = await readVaultInventory(bb.sdk, { vaultId, root, metadataFolders: [projects, areas], metadataDepth: 2, fields: ['area'] }, signal);
           const notes = new Set(data.notes.map(note => note.path));
           const folders = new Set(data.folders);
           requireEvidence(!data.incomplete && folders.has(areas) && folders.has(projects) && notes.size === data.notes.length,
@@ -114,9 +114,9 @@ export function areaRenames(bb: BbPluginApi, settings: () => Promise<Scope>) {
           const projectNotes = new Map<string, unknown>();
           for (const note of data.notes) {
             if (!within(note.path, projects)) continue;
-            const project = projectFromNote(projects, note.path, note.properties);
+            const project = projectFromNote(projects, note.path);
             if (project) {
-              requireEvidence(project !== 'invalid' && !note.malformed, 'inventory', 'A project note has unreadable assignment or status evidence.');
+              requireEvidence(project !== 'invalid' && !note.malformed, 'inventory', 'A project note has an invalid path or unreadable frontmatter.');
               projectNotes.set(note.path, note.properties.area);
             }
           }

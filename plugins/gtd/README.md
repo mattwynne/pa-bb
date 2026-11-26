@@ -18,7 +18,7 @@ Pre-selector configurations are not silently migrated: a previous selection that
 
 A project requires a Markdown landing note directly under Projects or an immediate status folder. A same-name folder can hold supporting files. A folder by itself is not a project. Files inside a supporting folder, including `README.md`, supply no project metadata.
 
-The immediate status folders are `Active`, `Deferred`, `Someday`, `Done`, and `Completed` (case-insensitive). The folder takes precedence over a note's optional `status`. For a note directly under Projects, absent status defaults to Active. The filename without `.md` supplies the project name. The project ID is its exact note path.
+The immediate status folders are `Active`, `Deferred`, `Someday`, `Done`, and `Completed` (case-insensitive). Both Done and Completed give the project Done status. A landing note directly under Projects is Active. The filename without `.md` supplies the project name. The project ID is its exact note path. Before upgrading an existing vault, follow the [project status migration](docs/project-status-migration.md) while the previous GTD reader is running.
 
 Areas use immediate Markdown notes and folders. The filename without `.md`, or the folder name for a folder-only Area, supplies the display name. A note and folder with the same name form one Area whose ID is the note path. Empty and attachment-only folders remain eligible. Nested notes can be Area targets without appearing as separate Areas in the index. Project landing notes with invalid YAML make the project inventory partial.
 
