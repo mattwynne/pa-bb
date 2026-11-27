@@ -16,7 +16,11 @@ type Check = (phase: 'before_launch' | 'before_command' | 'after_close', signal:
 const START_MS = 20_000;
 const COMMAND_MS = 8_000;
 const OUTPUT_BYTES = 8 * 1024 * 1024;
-const readyProbe = 'code=app.workspace.layoutReady && app.metadataCache.initialized && app.metadataCache.isCacheClean() ? { directory: app.vault.adapter.getBasePath(), restricted: !app.plugins.isEnabled() && Object.keys(app.plugins.plugins).length === 0, updateLinks: app.vault.getConfig("alwaysUpdateLinks") } : null';
+// BB's headless Obsidian has a throwaway profile and no screen, so it never saves
+// its layout. Otherwise it rewrites .obsidian/workspace.json in the synced vault and
+// conflicts with the layout your other devices save there.
+const keepLayoutUnsaved = 'app.workspace.requestSaveLayout?.cancel?.(), app.workspace.requestSaveLayout = Object.assign(() => {}, { cancel() {}, run() {} }), app.workspace.saveLayout = async () => {}';
+const readyProbe = `code=app.workspace.layoutReady && app.metadataCache.initialized && app.metadataCache.isCacheClean() ? (${keepLayoutUnsaved}, { directory: app.vault.adapter.getBasePath(), restricted: !app.plugins.isEnabled() && Object.keys(app.plugins.plugins).length === 0, updateLinks: app.vault.getConfig("alwaysUpdateLinks") }) : null`;
 const exec = promisify(execFile);
 
 export function desktopConfiguration(settings: Overrides, env = process.env): DesktopConfiguration | undefined {
