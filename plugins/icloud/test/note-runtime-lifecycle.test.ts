@@ -8,7 +8,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { mkdtemp, mkdir, writeFile, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
+import { NoteRuntime, retiredTables } from '../adapters/note-runtime.ts';
 import { NoteStore } from '../adapters/note-store.ts';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
 import { CloudError, emptyState } from '../core/ports.ts';
@@ -360,4 +360,19 @@ test('post-run failure after native success stays blocked with bounded unknown-e
     });
     assert.equal(f.runtime.applicationBlocker('one'), 'application_uncertain');
   } finally { await f.close(); }
+});
+
+test('startup drops the retired managed-worker delivery tables and keeps current note state', async () => {
+  const f = await fixture();
+  let next: NoteRuntime | undefined;
+  try {
+    for (const table of retiredTables) f.db.exec(`CREATE TABLE ${table} (mirror TEXT)`);
+    f.db.exec("CREATE INDEX icloud_delivery_path ON icloud_pending_delivery (mirror); INSERT INTO icloud_pending_delivery VALUES ('one')");
+    await f.runtime.stop();
+    next = f.newRuntime();
+    await next.start();
+    const tables = (f.db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')").all() as { name: string }[]).map(row => row.name);
+    for (const table of [...retiredTables, 'icloud_delivery_path']) assert.ok(!tables.includes(table), table);
+    for (const table of ['icloud_note_admission', 'icloud_note_bindings', 'icloud_note_account', 'icloud_note_direct']) assert.ok(tables.includes(table), table);
+  } finally { await next?.stop(); await f.close(); }
 });
