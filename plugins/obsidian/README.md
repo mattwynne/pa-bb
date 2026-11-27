@@ -123,6 +123,17 @@ remain enforced by the existing parser before saving.
   text to the canonical path and removes the inspected copies. An ambiguous
   set requires inspection in the vault directory. A missing canonical file
   alone does not establish incoming absence.
+- Conflicts resolve themselves. Every five minutes Obsidian looks for sync
+  conflict copies in connected vaults and settles up to 20 per vault:
+  - A note where one copy only adds lines keeps that copy, without a model.
+  - Any other note pair is merged by a hidden, short-lived BB agent thread. The
+    merge is applied only if it keeps every line both copies share. It goes
+    through the same guarded resolution, receipt and push as a manual choice.
+  - A file that isn't a note, such as `.obsidian/workspace.json`, keeps its
+    newest version.
+  Removed copies reach iCloud's Recently Deleted through the next sync. A
+  conflict that can't be settled, such as an ambiguous set, a note over 60,000
+  characters or a rejected merge, is left in place and retried after an hour.
 - Durable filesystem receipts record operation IDs, hashes and inode evidence
   in Obsidian's private storage. They contain metadata only. Uncertain
   operations are inspected by ID without replaying the file mutation.

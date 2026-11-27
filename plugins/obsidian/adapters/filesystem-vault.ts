@@ -1,5 +1,7 @@
 import type { Stats } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { readdir } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import { VaultError } from '../core/ports.ts';
 import type { Diagnose, DesktopLinkOperation, PathMove, PathMoveReceipt, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
 import { digest, equivalent, identity, LocalNotes, validateNotePath, validateRelativePath } from './local-notes.ts';
@@ -224,16 +226,61 @@ export class FilesystemVault {
     return conflict;
   }
 
+  private async issueToken(root: string, target: Target, conflict: Conflict) {
+    const token = randomUUID();
+    if (this.tokens.size >= 128) this.tokens.delete(this.tokens.keys().next().value!);
+    this.tokens.set(token, { target, root, identity: await this.files.rootIdentity(root),
+      version: this.conflictVersion(conflict), expires: Date.now() + 5 * 60_000 });
+    return token;
+  }
+
   inspect(mirrorId: string, revision: number, path: string) {
     return this.access(mirrorId, revision, async root => {
       const conflict = await this.conflict(root, path);
       if (!conflict) return null;
-      const token = randomUUID();
-      if (this.tokens.size >= 128) this.tokens.delete(this.tokens.keys().next().value!);
-      this.tokens.set(token, { target: { mirrorId, revision, path }, root, identity: await this.files.rootIdentity(root),
-        version: this.conflictVersion(conflict), expires: Date.now() + 5 * 60_000 });
+      const token = await this.issueToken(root, { mirrorId, revision, path }, conflict);
       return { token, logicalHash: conflict.logical.hash, incomingHash: conflict.incoming.hash, incomingAbsent: false };
     });
+  }
+
+  // Both versions of a conflicted note, with a token for resolve().
+  conflictVersions(mirrorId: string, revision: number, path: string) {
+    return this.access(mirrorId, revision, async root => {
+      const conflict = await this.conflict(root, path);
+      if (!conflict) return null;
+      const version = (o: NonNullable<Observed>) => ({ text: o.text, hash: o.hash, modifiedMs: o.info.mtimeMs });
+      return { token: await this.issueToken(root, { mirrorId, revision, path }, conflict),
+        local: version(conflict.logical), icloud: version(conflict.incoming) };
+    });
+  }
+
+  // Every file in the vault with sync conflict copies beside it.
+  conflictPaths(mirrorId: string, revision: number, signal?: AbortSignal) {
+    return this.access(mirrorId, revision, async root => {
+      const originals = new Set<string>();
+      let seen = 0;
+      for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+        if (++seen > 200_000) throw new VaultError('capacity');
+        const match = entry.isFile() && /^(.+)\.(?:icloud|bb)-conflict[1-9][0-9]*$/.exec(entry.name);
+        if (match) originals.add(relative(root, join(entry.parentPath, match[1]!)));
+      }
+      return [...originals].sort();
+    }, signal);
+  }
+
+  // For files that aren't notes, keep the newest version, as iCloud does.
+  keepNewest(mirrorId: string, revision: number, path: string) {
+    return this.ledger.run(() => this.access(mirrorId, revision, async root => {
+      validateRelativePath(path);
+      const copies = await this.files.conflictCopies(root, path);
+      if (!copies.length) return 'gone' as const;
+      const canonical = await this.files.observe(root, path);
+      const newest = copies.reduce((a, b) => b.observation.info.mtimeMs > a.observation.info.mtimeMs ? b : a);
+      const promote = !canonical || newest.observation.info.mtimeMs > canonical.info.mtimeMs;
+      if (promote) await this.files.promoteCopy(root, newest.path, path, newest.observation);
+      for (const copy of copies) if (!(promote && copy === newest)) await this.files.removeCopy(root, copy.path, copy.observation);
+      return 'kept_newest' as const;
+    }));
   }
 
   readIncoming(mirrorId: string, revision: number, path: string, token: string) {

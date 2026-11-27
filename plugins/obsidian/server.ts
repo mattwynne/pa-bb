@@ -15,7 +15,9 @@ import { MarkdownNotes } from './adapters/markdown-notes.ts';
 import { sectionLinks } from './core/section-links.ts';
 import { bbState } from './adapters/bb-state.ts';
 import { diagnosticLogger } from './adapters/diagnostic-log.ts';
-export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository }) {
+import { ConflictSweeper, type Merge } from './adapters/conflict-sweeper.ts';
+import { agentMerge } from './adapters/conflict-merge.ts';
+export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository; merge?: Merge }) {
   const diagnose = diagnosticLogger(message => bb.log.warn(message)); const parser = dependencies?.parser ?? new MarkdownNotes();
   const settings = bb.settings.define({
     desktopBinary: { type: 'string', label: 'Desktop executable override (optional)', description: 'Leave blank for automatic installation.' },
@@ -32,7 +34,22 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
   const icloud = new ICloud(bb.sdk, diagnose, ledger, parser, desktop, managed);
   const service = new Obsidian(dependencies?.catalog ?? icloud, dependencies?.files ?? icloud, parser, dependencies?.repository ?? bbState(bb, diagnose), randomUUID, Date.now, diagnose);
   const admission = new Admission();
-  bb.onDispose(async () => { icloud.cancelInstallation(); await admission.stop(); await service.stop(); await icloud.stop(); });
+  // Sync conflicts resolve themselves: notes are merged, other files keep their newest version.
+  const sweepStop = new AbortController();
+  let sweeping: Promise<void> | undefined;
+  const sweeper = new ConflictSweeper({
+    conflictPaths: (...args) => icloud.conflictAccess().vault!.conflictPaths(...args),
+    conflictVersions: (...args) => icloud.conflictAccess().vault!.conflictVersions(...args),
+    keepNewest: (...args) => icloud.conflictAccess().vault!.keepNewest(...args),
+    resolve: input => icloud.conflictAccess().vault!.resolve(input),
+  }, () => icloud.conflictAccess().targets, dependencies?.merge ?? agentMerge(bb), (outcome, kind) => {
+    const safe = /^[a-z_]{1,32}$/.test(outcome) ? outcome : 'unknown';
+    if (['merged', 'kept_local', 'kept_icloud', 'kept_newest'].includes(safe)) bb.log.info(`Obsidian conflict_sweep ${safe} kind=${kind}`);
+    else if (safe !== 'gone') bb.log.warn(`Obsidian conflict_sweep ${safe} kind=${kind}`);
+  });
+  const sweep = () => sweeping ??= sweeper.sweep(sweepStop.signal).finally(() => { sweeping = undefined; });
+  bb.background.schedule('conflict-sweep', '*/5 * * * *', async () => { if (!sweepStop.signal.aborted) await sweep(); });
+  bb.onDispose(async () => { sweepStop.abort(); await sweeping; icloud.cancelInstallation(); await admission.stop(); await service.stop(); await icloud.stop(); });
   await service.start();
   const clientOnly = (context: { experimental_caller: { kind: string } }) => { if (context.experimental_caller.kind !== 'client') throw new Error('Use Obsidian client settings for connection or conflict recovery.'); };
   const evidence = async <T>(read: () => Promise<T>, context: { experimental_caller: { kind: string } }): Promise<T> => {

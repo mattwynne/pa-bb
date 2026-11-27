@@ -277,6 +277,18 @@ export class LocalNotes {
     } finally { await parent.close(); }
   }
 
+  // Replace a file with one of its conflict copies in the same folder.
+  async promoteCopy(root: string, copyPath: string, path: string, expected: Observation) {
+    const parent = await this.parent(root, copyPath);
+    try {
+      if (copyPath.slice(0, copyPath.lastIndexOf('/') + 1) !== path.slice(0, path.lastIndexOf('/') + 1)) throw new VaultError('invalid_path');
+      if (!equivalent(await this.observe(root, copyPath), expected)) throw new VaultError('uncertain');
+      await this.verifyParent(root, copyPath, parent.folder);
+      await rename(parent.path, join(fdPath(parent.folder.fd), path.split('/').at(-1)!));
+      await parent.folder.sync();
+    } finally { await parent.close(); }
+  }
+
   async syncParent(root: string, path: string) {
     const parent = await this.parent(root, path);
     try { await parent.folder.sync(); } finally { await parent.close(); }

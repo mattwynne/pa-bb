@@ -60,6 +60,13 @@ export class ICloud implements MirrorCatalog, VaultFiles {
       outputSchema: z.null(), signal: AbortSignal.timeout(5000) }).catch(() => {});
   }
 
+  // Connected vaults the conflict sweeper may visit, with the direct filesystem access it uses.
+  conflictAccess() {
+    const configuration = this.configuration;
+    return { vault: this.filesystem, targets: this.filesystem && configuration
+      ? configuration.vaultIds.map(mirrorId => ({ mirrorId, revision: configuration.revision })) : [] };
+  }
+
   cancelInstallation() {
     this.installStop.abort();
   }
