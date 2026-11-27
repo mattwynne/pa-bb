@@ -17,11 +17,8 @@ import { RcloneCloudProvider } from './adapters/rclone-cloud-provider.ts';
 import { vaultRoots } from './adapters/vault-roots.ts';
 import { NoteStore, NoteError } from './adapters/note-store.ts';
 import { NoteRuntime } from './adapters/note-runtime.ts';
-import { MirrorWakeups } from './adapters/mirror-wakeups.ts';
 import { maintenanceCli } from './adapters/maintenance-cli.ts';
-import { managedDeliveryDeployment, verifyManagedDeliveryBinary } from './adapters/note-delivery-deployment.ts';
-import { folderManifestPage, folderMovePage } from './adapters/folder-delivery.ts';
-import { noteDeliveryPage } from './adapters/note-delivery-queue.ts';
+import { DirectPush } from './adapters/direct-push.ts';
 import type Database from 'better-sqlite3';
 
 export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudProvider; repository?: StateRepository; history?: RunHistoryRepository; notes?: NoteStore; worker?: RcloneProcess; runtime?: NoteRuntime }) {
@@ -41,8 +38,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     if (process.root !== root) throw new CloudError('unavailable');
     notes = new NoteStore(join(root, 'note-operations'));
     // Runtime state is read only after sync.start; construction is side-effect free.
-    const wakeups = new MirrorWakeups(ids => sync.tick(ids, () => !updatePause.held), diagnose);
-    runtime = dependencies?.runtime ?? new NoteRuntime(root, database as Database.Database, process, notes, () => sync.status(), undefined, diagnose, wakeups);
+    runtime = dependencies?.runtime ?? new NoteRuntime(root, database as Database.Database, process, notes, () => sync.status(), undefined, diagnose);
     if (runtime.root !== root || runtime.worker !== process) throw new CloudError('unavailable');
     provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body), (args, capture, report) => runtime!.run(args, capture, report), () => process.checkAvailability(), () => runtime!.stop(), undefined, undefined, mirror => runtime!.registerMirror(mirror), operation => runtime!.idleFiles(operation), () => runtime!.requestStop(), (args, capture, report) => runtime!.continueInterrupted(args, capture, report), (mirror, args, capture, report) => runtime!.completeInitialRegistration(mirror, args, capture, report));
   }
@@ -64,49 +60,6 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     try { await runtime?.stop(); } catch { diagnose('note_owner', 'unknown'); }
     throw new CloudError(failure === 'unknown' ? 'unavailable' : failure);
   }
-  const noteDeliverySettings = bb.settings.define({
-    noteDeliveryBinary: {type:'string',label:'Managed iCloud note worker executable',default:''},
-    noteDeliverySHA256: {type:'string',label:'Managed iCloud note worker checksum',default:''},
-    noteDeliveryBindings: {type:'string',label:'Managed iCloud note mirror bindings',default:''},
-  });
-  let expeditedConfigured = false;
-  try {
-    if (runtime) {
-      const value = await noteDeliverySettings.get();
-      const deployment = await managedDeliveryDeployment({binary:value.noteDeliveryBinary ?? '',sha256:value.noteDeliverySHA256 ?? '',
-        mirrors:value.noteDeliveryBindings ?? ''});
-      if (deployment) { runtime.configureManagedDelivery(deployment); expeditedConfigured = true; }
-    }
-  } catch (error) { diagnose('note_delivery_configuration', category(error)); }
-  let deliveryStopped = false;
-  let deliveryTimer: ReturnType<typeof setTimeout> | undefined;
-  let deliveryRun: Promise<void> | undefined;
-  const canDeliver = () => !deliveryStopped && !sync.maintenanceHeld && !updatePause.held && sync.status().connected;
-  const pollDelivery = () => {
-    if (deliveryStopped || !expeditedConfigured) return;
-    deliveryTimer = setTimeout(() => {
-      const run = runtime?.deliverKnownNotes((vaultId,after) => bb.sdk.plugins.callRpc({
-        pluginId:'obsidian',method:'deliveryChanges',input:{vaultId,after,limit:32},
-        outputSchema:noteDeliveryPage,signal:AbortSignal.timeout(3000),
-      }),canDeliver,{
-        changes:(vaultId,after) => bb.sdk.plugins.callRpc({
-          pluginId:'obsidian',method:'folderDeliveryChanges',input:{vaultId,after,limit:32},
-          outputSchema:folderMovePage,signal:AbortSignal.timeout(3000),
-        }),
-        page:(vaultId,operationId,side,offset,signal) => bb.sdk.plugins.callRpc({
-          pluginId:'obsidian',method:'folderDeliveryPage',input:{vaultId,operationId,side,offset,limit:64},
-          outputSchema:folderManifestPage,signal,
-        }),
-      }).catch(error => {
-        const failure = category(error);
-        if (failure !== 'busy') diagnose('note_delivery', failure, {evidence:evidence(error)});
-      });
-      deliveryRun = run;
-      void run?.finally(() => { deliveryRun = undefined; pollDelivery(); });
-    },1000);
-    deliveryTimer.unref();
-  };
-  pollDelivery();
   sync.restoreConnection();
   let available = false;
   try { await sync.checkAvailability(); available = true; } catch (error) { diagnose('prerequisite', category(error), { evidence: evidence(error) }); }
@@ -131,56 +84,22 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
         catch { diagnose('maintenance_restore', 'unavailable'); throw new CloudError('unavailable'); }
       });
     }),
-    async (id, checkers, signal) => {
-      try {
-        return await admit(() => {
-          if (updatePause.held) throw new CloudError('busy');
-          if (!runtime) throw new CloudError('unavailable');
-          return sync.benchmarkListing(id, async mirror => {
-            if (updatePause.held) throw new CloudError('busy');
-            const result = await runtime!.benchmarkListing(mirror, checkers, signal);
-            if (result.outcome === 'failed') diagnose('listing_benchmark', result.failure, { evidence: result.evidence });
-            return result;
-          }, signal);
-        });
-      } catch (error) {
-        if (category(error) !== 'busy') diagnose('listing_benchmark', category(error), { evidence: evidence(error) });
-        throw error;
-      }
-    },
-    async (id, runId, binary, sha256, signal) => {
-      const snapshot = sync.maintenanceStatus();
-      if (!runtime || snapshot.runId !== runId || !maintenanceActivity().ready || updatePause.held || signal?.aborted)
-        throw new CloudError('busy');
-      admittedWork++;
-      try {
-        await verifyManagedDeliveryBinary(binary,sha256);
-        if (sync.maintenanceStatus().runId !== runId || updatePause.held || signal?.aborted) throw new CloudError('interrupted');
-        return await runtime.probeManagedBinding(id,binary);
-      } finally { admittedWork--; }
-    },
-    id => {
-      if (!runtime) throw new CloudError('unavailable');
-      return runtime.moveConflict(id);
-    },
-    async (id,operationId) => {
-      if (!runtime || sync.maintenanceHeld || updatePause.held) throw new CloudError('busy');
-      admittedWork++;
-      try {
-        const result = await runtime.reconcileMoveConflict(id,operationId);
-        if (result.outcome === 'conflict_resolution_pending') {
-          void sync.tick(new Set([id]),() => !updatePause.held)
-            .catch(error => diagnose('schedule',category(error),{evidence:evidence(error)}));
-        }
-        return result;
-      } finally { admittedWork--; }
-    },
   ));
   const admit = async <T>(operation: () => T | Promise<T>) => {
     if (sync.maintenanceHeld) throw new CloudError('busy');
     admittedWork++;
     try { return await operation(); } finally { admittedWork--; }
   };
+  // Push BB's own changes now; the scheduled scan pulls iCloud changes and repairs the rest.
+  const pushes = runtime && worker ? new DirectPush((method, body) => runtime!.push(method, body), worker.root, id => {
+    const snapshot = sync.status(), mirror = snapshot.mirrors.find(m => m.id === id);
+    return mirror && snapshot.connected && !sync.maintenanceHeld && !updatePause.held && mirror.initialized && mirror.enabled &&
+      (mirror.phase === 'ready' || mirror.phase === 'running') && mirror.blocker === null && mirror.failure === null &&
+      runtime!.canRestoreScheduling(id) ? mirror : null;
+  }, (outcome, kind, elapsedMs) => {
+    if (outcome === 'sent') bb.log.info(`iCloud direct_push sent kind=${kind} elapsedMs=${elapsedMs}`);
+    else diagnose('direct_push', outcome);
+  }) : undefined;
   const status = async () => {
     const snapshot = sync.status();
     const mirrors = await Promise.all(snapshot.mirrors.map(async mirror => {
@@ -273,6 +192,11 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       clientOnly(context); return pauseAction(() => updatePause.userPause(input.id));
     },
     async disconnect(_input, context) { clientOnly(context); return action(() => admit(() => updatePause.disconnect())); },
+    pushChange({ mirrorId, change }, context) {
+      assertMirrorCaller(context);
+      if (pushes && !sync.maintenanceHeld) void admit(() => pushes.push(mirrorId, change)).catch(() => {});
+      return null;
+    },
     inventory() { return inventory(); },
     diagnostics(input) { return sync.diagnostics(input ?? {}); },
     async rcloneLogs(input) {
@@ -309,11 +233,9 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     try { await sync.tick(undefined, () => !updatePause.held); } catch (error) { diagnose('schedule', category(error), { evidence: evidence(error) }); }
   });
   bb.onDispose(async () => {
-    deliveryStopped = true;
-    clearTimeout(deliveryTimer);
     const paused = updatePause.stop();
     runtime?.requestStop(); // fence local admission, retaining ownership until service drain
-    try { await sync.stop(); } finally { await deliveryRun; await runtime?.stop(); await paused; }
+    try { await sync.stop(); } finally { await runtime?.stop(); await paused; }
   });
   bb.agents.registerTool({ name: 'icloud_list_local_folders', description: 'List initialized iCloud folders, local note availability and last cloud sync. Paused or disconnected cloud delivery does not revoke sound local access. Never ask for Apple credentials in chat.', parameters: z.object({}),
     async execute() { return { content: [{ type: 'text' as const, text: JSON.stringify(await inventory()) }] }; } });

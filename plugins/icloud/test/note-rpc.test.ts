@@ -153,7 +153,7 @@ test('fake-host grant stays additive and authorizes only the current validated b
 });
 
 const binary = process.env.RCLONE_TEST_BINARY;
-test('wired direct mirror wakes native sync on an existing baseline and keeps staging out of the replica', { skip: !binary, timeout: 20000 }, async () => {
+test('wired direct mirror pushes an Obsidian change at once, scans on schedule and keeps staging out of the replica', { skip: !binary, timeout: 20000 }, async () => {
   const host = createFakePluginHost({ pluginId: 'icloud' });
   const root = join(dirname(host.bb.storage.database().name), 'sync');
   const generated = await mkdtemp('/tmp/icloud-direct-rpc-');
@@ -192,17 +192,22 @@ test('wired direct mirror wakes native sync on an existing baseline and keeps st
     const stage = '.obsidian-bb-12345678-1234-7123-8123-123456789abc.tmp';
     await writeFile(join(directory, stage), 'temporary bytes');
     await writeFile(join(directory, 'Published.md'), 'direct local edit');
-    for (let attempt = 0; attempt < 100 && !(await status()).mirrors[0].lastSuccess; attempt++) await delay(75);
+    const push = { mirrorId: 'one', change: { kind: 'write', path: 'Published.md' } };
+    await assert.rejects(behavior.callRpc('pushChange', push, { experimental_caller: { kind: 'client' as const } }), /host-verified Obsidian/);
+    assert.equal(await behavior.callRpc('pushChange', push, caller), null);
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (await readFile(join(remote, 'Published.md'), 'utf8').catch(() => null)) break;
+      await delay(50);
+    }
     assert.equal(await readFile(join(remote, 'Published.md'), 'utf8'), 'direct local edit');
-    await assert.rejects(readFile(join(remote, stage)), { code: 'ENOENT' });
-    assert.ok((await status()).mirrors[0].lastSuccess);
-    await delay(550);
-    assert.equal(runs, 1);
+    assert.equal(runs, 0, 'a push does not start a scan');
+    assert.ok(host.harness.inspection.logEntries.some(entry => /iCloud direct_push sent kind=write elapsedMs=\d+/.test(JSON.stringify(entry))));
     await writeFile(join(remote, 'Inbound.md'), 'cloud-only edit');
     await behavior.runSchedule('selected-folder-sync');
+    assert.equal(runs, 1);
     assert.equal(await readFile(join(directory, 'Inbound.md'), 'utf8'), 'cloud-only edit');
-    await delay(550);
-    assert.equal(runs, 2);
+    await assert.rejects(readFile(join(remote, stage)), { code: 'ENOENT' });
+    assert.ok((await status()).mirrors[0].lastSuccess);
     const publicData = JSON.stringify([await status(), await behavior.callRpc('inventory', null), await behavior.callRpc('diagnostics', null), host.harness.inspection.logEntries]);
     assert.ok(!publicData.includes(directory));
     assert.doesNotMatch(publicData, /temporary bytes|direct local edit|cloud-only edit/);

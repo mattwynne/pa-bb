@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { request } from 'node:http';
-import { mkdtemp, mkdir, open, readFile, rm, stat, writeFile, unlink, access, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile, unlink, access, chmod } from 'node:fs/promises';
 import { RcloneProcess, safeEnvironment, COMMAND_TIMEOUTS, FLOCK_BINARY } from '../adapters/rclone-process.ts';
 import { CloudError } from '../core/ports.ts';
 import type { TransferProgress } from '../core/ports.ts';
@@ -86,52 +86,6 @@ test('command exit codes, output limits, signals and spawn failures retain only 
     await assert.rejects(runner.execute(process.execPath, ['-e', script], true, 3000), error => { assert.ok(error instanceof CloudError); assert.deepEqual(error.evidence, { kind }); return true; });
   }
   await assert.rejects(runner.execute('/tmp/nonexistent-sentinel-private-command', [], false, 3000), error => { assert.ok(error instanceof CloudError); assert.deepEqual(error.evidence, { kind: 'command_start' }); assert.doesNotMatch(JSON.stringify(error), /sentinel/); return true; });
-});
-test('listing benchmark keeps only aggregate evidence and stops promptly on cancellation', async () => {
-  const root = await mkdtemp('/tmp/icloud-benchmark-');
-  const executable = root + '/fake-rclone.cjs';
-  const runner = new RcloneProcess(root);
-  const lock = await open(root + '/worker.lock', 'w');
-  Object.assign(runner, { ensure: async () => {}, binary: executable, ownsLock: true, lock });
-  const script = `#!/usr/bin/env node
-const fs = require('node:fs');
-const path = require('node:path');
-const args = process.argv.slice(2);
-if (args[0] !== 'size' || args[args.indexOf('--checkers') + 1] !== '4' || !args.includes('ListR')) process.exit(2);
-const config = args[args.indexOf('--config') + 1];
-if (fs.readFileSync(config, 'utf8') !== 'generated config') process.exit(2);
-// Stock Save resolves one symlink and creates a temp file beside that target.
-try { fs.mkdtempSync(path.join(path.dirname(fs.readlinkSync(config)), 'save-')); process.exit(2); }
-catch (error) { if (error.code !== 'ENOENT' && error.code !== 'EACCES') throw error; }
-const source = args[1];
-if (source.endsWith('cancel')) setInterval(() => {}, 1000);
-else if (source.endsWith('overflow')) process.stdout.write('private-sentinel'.repeat(1024));
-else {
-  process.stderr.write(JSON.stringify({msg: 'pacer: low level retry 1/10 (HTTP status 429 private-sentinel)', object: 'private-sentinel'}) + '\\n');
-  process.stdout.write(JSON.stringify({count: 7, body: 'private-sentinel'}));
-  if (source.endsWith('fail')) process.exitCode = 3;
-}
-`;
-  try {
-    await mkdir(root + '/state');
-    await writeFile(root + '/state/rclone.conf', 'generated config', { mode: 0o600 });
-    await writeFile(executable, script, { mode: 0o700 });
-    const success = await runner.benchmarkListing('icloud:generated', '4');
-    const { elapsedMs, ...summary } = success;
-    assert.ok(elapsedMs >= 0);
-    assert.deepEqual(summary, { outcome: 'succeeded', checkers: 4, objects: 7, retryRecords: 1, rateLimitRecords: 1, invalidLogRecords: 0 });
-    const failure = await runner.benchmarkListing('icloud:generated-fail', '4');
-    assert.ok(failure.outcome === 'failed');
-    assert.deepEqual(failure.evidence, { kind: 'command_exit', exitCode: 3 });
-    assert.doesNotMatch(JSON.stringify(failure), /private-sentinel|objects/);
-    const overflow = await runner.benchmarkListing('icloud:generated-overflow', '4');
-    assert.ok(overflow.outcome === 'failed');
-    assert.deepEqual(overflow.evidence, { kind: 'command_output_limit' });
-    const cancelled = await runner.benchmarkListing('icloud:generated-cancel', '4', AbortSignal.timeout(150));
-    assert.ok(cancelled.outcome === 'failed');
-    assert.deepEqual(cancelled.evidence, { kind: 'command_stopped' });
-    assert.equal((await runner.benchmarkListing('icloud:generated', '4')).outcome, 'succeeded', 'the native owner is available again after child close');
-  } finally { await runner.stop(); await rm(root, { recursive: true }); }
 });
 test('bisync and generic exit codes use their documented command contexts', async () => {
   const runner = new RcloneProcess('/tmp/unused-context') as unknown as { execute(binary: string, args: string[], capture: boolean, timeout: number, report?: undefined, context?: 'bisync' | 'generic'): Promise<string> };

@@ -16,11 +16,9 @@ import { ICloudSync } from '../core/service.ts';
 import { RcloneCloudProvider } from '../adapters/rclone-cloud-provider.ts';
 import { MemoryState } from './fakes.ts';
 import { diagnosticMessage } from '../adapters/diagnostic-log.ts';
-import { MirrorWakeups, obsidianStageExclude } from '../adapters/mirror-wakeups.ts';
-import { setTimeout as delay } from 'node:timers/promises';
 
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
-async function fixture(native = false, initialized = true, wakeups?: MirrorWakeups) {
+async function fixture(native = false, initialized = true) {
   const root = await mkdtemp('/tmp/icloud-lifecycle-');
   const db = new Database(':memory:');
   const state = emptyState(); state.connected = true;
@@ -37,7 +35,7 @@ async function fixture(native = false, initialized = true, wakeups?: MirrorWakeu
     worker.call = async () => ({ type: 'alias', remote: 'generated' });
     worker.withFiles = async action => action(new AbortController().signal);
   }
-  const newRuntime = () => new NoteRuntime(root, db, worker, new NoteStore(join(root, 'legacy')), () => state, undefined, undefined, wakeups);
+  const newRuntime = () => new NoteRuntime(root, db, worker, new NoteStore(join(root, 'legacy')), () => state);
   const runtime = newRuntime();
   await runtime.start();
   return { root, db, state, runtime, worker, newRuntime, async close() { await runtime.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
@@ -186,47 +184,6 @@ for (const method of ['mirrorDirectoryGrant', 'mirrorDirectory'] as const) test(
       assert.equal(f.runtime.filesystemStatus('one', true), 'unavailable');
     } finally { release.resolve(); await refused; }
     assert.deepEqual(f.db.prepare('SELECT mirror_id FROM icloud_note_direct').all(), []);
-  } finally { await f.close(); }
-});
-
-test('direct mirror batches nested writes, filters staging and ignores native changes even during directory lookup', { timeout: 6000 }, async () => {
-  let f: Awaited<ReturnType<typeof fixture>>;
-  let wakeCount = 0;
-  const synced = deferred();
-  const diagnosis: string[] = [];
-  const wakeups = new MirrorWakeups(async ids => {
-    assert.deepEqual([...ids], ['one']);
-    wakeCount++;
-    await f.runtime.run(['bisync', 'generated:', join(f.root, 'mirrors/one')]);
-    synced.resolve();
-    return true;
-  }, (stage, failure) => diagnosis.push(`${stage} ${failure}`));
-  f = await fixture(false, true, wakeups);
-  try {
-    f.runtime.configure(1, ['one']);
-    const directory = join(f.root, 'mirrors/one');
-    const nested = join(directory, 'Nested');
-    await mkdir(nested);
-    let nativeCalls = 0;
-    f.worker.run = async args => {
-      nativeCalls++;
-      assert.deepEqual(args.slice(-2), ['--exclude', obsidianStageExclude]);
-      assert.deepEqual(await f.runtime.mirrorDirectory('one', 1), { directory });
-      await writeFile(join(nested, 'Cloud.md'), 'inbound');
-      return '';
-    };
-    await f.runtime.mirrorDirectory('one', 1);
-    const staging = join(nested, '.obsidian-bb-12345678-1234-7123-8123-123456789abc.tmp');
-    await writeFile(staging, 'temporary');
-    await delay(550);
-    assert.equal(wakeCount, 0);
-    await rename(staging, join(nested, 'Local.md'));
-    await writeFile(join(nested, 'More.md'), 'local');
-    await synced.promise;
-    await delay(550);
-    assert.equal(nativeCalls, 1);
-    assert.equal(wakeCount, 1);
-    assert.deepEqual(diagnosis, []);
   } finally { await f.close(); }
 });
 

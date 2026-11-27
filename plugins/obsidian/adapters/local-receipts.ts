@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { VaultError } from '../core/ports.ts';
-import { folderMoveEvidence } from '../core/folder-move-evidence.ts';
 
 const identity = z.object({ dev: z.number().int().nonnegative(), ino: z.number().int().nonnegative() }).strict();
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
@@ -21,11 +20,11 @@ const previous = { previousHash: hash.nullable(), previousIdentity: versionIdent
 const record = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('save'), ...previous, outcome: z.enum(['saved_locally_pending_sync', 'not_saved', 'uncertain']) }).strict(),
   z.object({ ...base, kind: z.literal('move'), destination: base.path,
-    delivery: z.object({ sourceHash: hash, destinationHash: hash }).strict().optional(),
     directory: z.literal(true).optional(),
-    folderDelivery: folderMoveEvidence.optional(),
+    // Written by the retired managed-worker folder delivery; kept readable, never written.
+    folderDelivery: z.unknown().optional(),
     tree: z.object({ from: base.path, to: base.path, inode: identity, fingerprint: hash }).strict().optional(), outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']) }).strict(),
-  z.object({ ...base, kind: z.literal('resolution'), previousHash: hash.nullable().optional(), choice: z.enum(['keep_local', 'accept_incoming', 'replace']), outcome: z.enum(['saved_locally_pending_sync', 'adopted_content', 'not_saved', 'uncertain']) }).strict(),
+  z.object({ ...base, kind: z.literal('resolution'), choice: z.enum(['keep_local', 'accept_incoming', 'replace']), outcome: z.enum(['saved_locally_pending_sync', 'adopted_content', 'not_saved', 'uncertain']) }).strict(),
 ]);
 export type LocalReceipt = z.infer<typeof record>;
 export type FileIdentity = z.infer<typeof identity>;
@@ -155,75 +154,6 @@ export class LocalReceipts {
     return rows.map(row => this.decode(row));
   }
 
-  // The terminal event's sequence is the publication order. An intent can stay
-  // open across another file's save and must remain visible when it later settles.
-  deliveryChanges(mirrorId: string, after: number | null, limit: number) {
-    return this.db.transaction(() => {
-      const { tail } = this.db.prepare(
-        'SELECT COALESCE(MAX(sequence), 0) AS tail FROM obsidian_receipt_events',
-      ).get() as { tail: number };
-      if (after === null) return { cursor: tail, hasMore: false, changes: [] };
-      if (after > tail) throw new VaultError('source_changed');
-      const entries = this.db.prepare(`SELECT sequence, payload FROM obsidian_receipt_events
-        WHERE sequence > ? AND sequence <= ? AND event = 'terminal' AND mirror = ?
-          AND ((kind = 'save' AND json_extract(payload, '$.outcome') = 'saved_locally_pending_sync')
-            OR (kind = 'resolution' AND json_type(payload, '$.previousHash') IS NOT NULL
-              AND json_extract(payload, '$.outcome') IN ('saved_locally_pending_sync', 'adopted_content'))
-            OR (kind = 'move' AND json_type(payload, '$.delivery') = 'object'
-              AND json_extract(payload, '$.outcome') = 'moved_locally_pending_sync'))
-        ORDER BY sequence LIMIT ?`).all(after, tail, mirrorId, limit + 1) as Array<Pick<Stored, 'sequence' | 'payload'>>;
-      const hasMore = entries.length > limit;
-      const page = entries.slice(0, limit);
-      const changes = page.map(({ sequence, payload }) => {
-        const row = record.parse(JSON.parse(payload));
-        if (row.kind === 'move') {
-          if (!row.delivery || row.directory) throw new VaultError('unavailable');
-          return { sequence, operationId: row.operationId, path: row.destination, source: row.path,
-            previousHash: row.delivery.sourceHash, hash: row.delivery.destinationHash };
-        }
-        if (row.previousHash === undefined) throw new VaultError('unavailable');
-        const { operationId, path, previousHash, hash } = row;
-        return { sequence, operationId, path, previousHash, hash };
-      });
-      return { cursor: hasMore ? page.at(-1)!.sequence : tail, hasMore, changes };
-    })();
-  }
-
-  folderDeliveryChanges(mirrorId: string, after: number | null, limit: number) {
-    return this.db.transaction(() => {
-      const { tail } = this.db.prepare('SELECT COALESCE(MAX(sequence), 0) AS tail FROM obsidian_receipt_events')
-        .get() as { tail: number };
-      if (after === null) return { cursor: tail, hasMore: false, moves: [] };
-      if (after > tail) throw new VaultError('source_changed');
-      const rows = this.db.prepare(`SELECT sequence, payload FROM obsidian_receipt_events
-        WHERE sequence > ? AND sequence <= ? AND event = 'terminal' AND mirror = ? AND kind = 'move'
-          AND json_extract(payload, '$.outcome') = 'moved_locally_pending_sync'
-          AND json_type(payload, '$.folderDelivery.destination') = 'object'
-        ORDER BY sequence LIMIT ?`).all(after, tail, mirrorId, limit + 1) as Array<Pick<Stored, 'sequence' | 'payload'>>;
-      const hasMore = rows.length > limit;
-      const moves = rows.slice(0, limit).map(({ sequence, payload }) => {
-        const row = record.parse(JSON.parse(payload));
-        if (row.kind !== 'move' || !row.directory || !row.folderDelivery?.destination) throw new VaultError('unavailable');
-        return { sequence, operationId: row.operationId, source: row.path, path: row.destination,
-          sourceFingerprint: row.folderDelivery.source.fingerprint,
-          destinationFingerprint: row.folderDelivery.destination.fingerprint };
-      });
-      return { cursor: hasMore ? moves.at(-1)!.sequence : tail, hasMore, moves };
-    })();
-  }
-
-  folderDeliveryPage(vaultId: string, operationId: string, side: 'source' | 'destination', offset: number, limit: number) {
-    const row = this.get(operationId)?.row;
-    if (row?.kind !== 'move' || !row.directory || row.mirrorId !== vaultId ||
-        row.outcome !== 'moved_locally_pending_sync' || !row.folderDelivery?.destination) return null;
-    const manifest = row.folderDelivery[side]!;
-    if (offset > manifest.entries.length) throw new VaultError('invalid_query');
-    const entries = manifest.entries.slice(offset, offset + limit);
-    return { path: side === 'source' ? row.path : row.destination, fingerprint: manifest.fingerprint,
-      total: manifest.entries.length, entries,
-      nextOffset: offset + entries.length < manifest.entries.length ? offset + entries.length : null };
-  }
-
   laterSaves(mirrorId: string, path: string, after: number) {
     const rows = this.db.prepare(`SELECT terminal.payload AS payload FROM obsidian_receipt_events terminal
       JOIN obsidian_receipt_events intent ON intent.operation_id = terminal.operation_id AND intent.event = 'intent'
@@ -289,25 +219,11 @@ export class LocalReceipts {
     this.append('dispatch', row);
   }
 
-  finish(row: LocalReceipt, relatedSaves: Array<Extract<LocalReceipt, { kind: 'save' }>> = []) {
+  finish(row: LocalReceipt) {
     try {
-      const complete = () => {
-        const entry = this.get(row.operationId);
-        if (entry?.row.outcome !== 'uncertain' || row.outcome === 'uncertain') throw new VaultError('uncertain');
-        this.append('terminal', row);
-      };
-      if (!relatedSaves.length) {
-        complete();
-        return;
-      }
-      this.db.transaction(() => {
-        complete();
-        for (const save of relatedSaves) {
-          this.begin({ ...save, outcome: 'uncertain' });
-          this.dispatch(save);
-          this.append('terminal', save);
-        }
-      }).immediate();
+      const entry = this.get(row.operationId);
+      if (entry?.row.outcome !== 'uncertain' || row.outcome === 'uncertain') throw new VaultError('uncertain');
+      this.append('terminal', row);
     } catch {
       throw new VaultError('uncertain', 'Inspect the exact operation receipt before making another change.');
     }

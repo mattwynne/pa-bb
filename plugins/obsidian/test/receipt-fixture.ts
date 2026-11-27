@@ -1,10 +1,10 @@
 import Database from 'better-sqlite3';
 import type { BbPluginApi } from '@get-bb/plugin-sdk';
 import { FilesystemVault } from '../adapters/filesystem-vault.ts';
-import { LocalReceipts } from '../adapters/local-receipts.ts';
+import { LocalReceipts, type LocalReceipt } from '../adapters/local-receipts.ts';
 
 const legacyKey = 'filesystem-note-receipts';
-export function receiptsFixture(root: string, dbPath: string, legacy?: unknown) {
+export function receiptsFixture(root: string, dbPath: string, legacy?: unknown, applied?: (row: LocalReceipt) => void) {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   const storage: BbPluginApi['storage'] = {
@@ -26,6 +26,6 @@ export function receiptsFixture(root: string, dbPath: string, legacy?: unknown) 
     },
   };
   const ledger = new LocalReceipts(storage);
-  const fs = new FilesystemVault(async () => root, async () => { throw new Error('Unexpected Desktop grant'); }, ledger, () => {});
+  const fs = new FilesystemVault(async () => root, async () => { throw new Error('Unexpected Desktop grant'); }, ledger, () => {}, applied);
   return { db, ledger, fs };
 }

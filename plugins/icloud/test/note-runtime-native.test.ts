@@ -25,7 +25,7 @@ const waitFor = async (predicate: () => Promise<boolean>, ms = 10000) => {
   while (performance.now() < deadline) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 30)); }
   throw new Error('generated fixture timed out waiting for native state');
 };
-test('wired BB v2 compatibility RPC remains local throughout a real >=40s owned native command, then reaches remote', { skip: !enabled, timeout: 130000 }, async () => {
+test('wired BB v2 RPC remains local throughout a real >=40s owned native command, then reaches remote', { skip: !enabled, timeout: 130000 }, async () => {
   const host = createFakePluginHost({ pluginId: 'icloud' });
   const root = join(dirname(host.bb.storage.database().name), 'sync');
   const generated = await mkdtemp('/tmp/icloud-runtime-generated-');
@@ -77,15 +77,12 @@ test('wired BB v2 compatibility RPC remains local throughout a real >=40s owned 
     await waitFor(async () => (await host.harness.behavior.callRpc('status', null) as any).mirrors[0].phase === 'running');
     await new Promise(resolve => setTimeout(resolve, 400));
     const localAt = performance.now();
-    // Exercise the v2 overlay contract with the actual producer and consumer.
-    // A v2-only provider does not advertise the later filesystem grant route.
+    // Real producer registration and copied consumer adapter/service, not a
+    // note-file fake. The bridge supplies BB's verified Obsidian caller.
     const sdk = { plugins: {
       async list() { return { plugins: [{ id: 'icloud', enabled: true, status: 'running' }] }; },
       async callRpc(request: { method: string; input: unknown; outputSchema: { parse(value: unknown): unknown } }) {
         const result = await host.harness.behavior.callRpc(request.method, request.input, request.method.startsWith('note') ? caller : undefined);
-        if (request.method === 'status') {
-          return request.outputSchema.parse({ ...(result as object), mirrorAccessVersion: null });
-        }
         return request.outputSchema.parse(result);
       },
     } } as unknown as ConstructorParameters<typeof ObsidianICloud>[0];
@@ -96,10 +93,11 @@ test('wired BB v2 compatibility RPC remains local throughout a real >=40s owned 
     assert.equal((await consumer.status()).vaults[0].source?.local.available, true);
     const consumerSaved = await consumer.create({ vaultId: 'one', path: '.hidden/Consumer.md', text: '# Consumer\n- [ ] Verify\n[[Note]]\n' });
     assert.equal(consumerSaved.receipt.kind, 'save');
-    const localNote = await consumerAdapter.read('one', 1, '.hidden/Consumer.md');
-    assert.equal(localNote.complete, true);
-    assert.equal(localNote.text, '# Consumer\n- [ ] Verify\n[[Note]]\n');
-    assert.equal((await rpc('noteList', { version: 2, mirrorId: 'one', revision: 1 })).value.paths.includes('.hidden/Consumer.md'), true);
+    assert.equal((await consumer.read({ vaultId: 'one', path: '.hidden/Consumer.md' })).complete, true);
+    assert.equal((await consumer.search({ vaultId: 'one', text: 'Consumer' })).results.some((row: any) => row.path === '.hidden/Consumer.md'), true);
+    assert.equal((await consumer.tasks({ vaultId: 'one', path: '.hidden/Consumer.md' })).results.length, 1);
+    assert.equal((await consumer.metadata({ vaultId: 'one', path: '.hidden/Consumer.md' })).headings[0].title, 'Consumer');
+    assert.equal((await consumer.resolve({ vaultId: 'one', path: '.hidden/Consumer.md', link: 'Note' })).status, 'resolved');
     assert.equal((await consumer.status({ vaultId: 'one', path: '.hidden/Consumer.md', operationId: consumerSaved.operationId })).receipts[0].kind, 'save');
 
     // Generated native-side change after capture: the real host-authorized
@@ -179,7 +177,7 @@ test('wired BB v2 compatibility RPC remains local throughout a real >=40s owned 
     const paused = await rpc('noteCommit', { ...target, operationId: operationId(), kind: 'replace', expectedHash: hash('Remote C'), text: 'Paused D' });
     assert.equal(paused.value.hash, hash('Paused D'));
     assert.equal((await rpc('noteRead', target)).value.text, 'Paused D');
-    assert.equal((await consumerAdapter.read('one', 1, '.hidden/Note.md')).text, 'Paused D');
+    assert.equal((await consumer.read({ vaultId: 'one', path: '.hidden/Note.md' })).text, 'Paused D');
     await host.harness.behavior.callRpc('disconnect', null);
     const disconnected = await host.harness.behavior.callRpc('status', null) as any;
     assert.equal(disconnected.connected, false); assert.equal(disconnected.mirrors[0].local.available, true);

@@ -11,7 +11,6 @@ import { RcloneProcess } from '../adapters/rclone-process.ts';
 import { syncArguments } from '../adapters/rclone-cloud-provider.ts';
 import { NoteRuntime } from '../adapters/note-runtime.ts';
 import { NoteStore } from '../adapters/note-store.ts';
-import { ICloudSync } from '../core/service.ts';
 import type { Mirror, State } from '../core/ports.ts';
 import { statusSchema } from '../contract.ts';
 import { FakeCloudProvider, MemoryState } from './fakes.ts';
@@ -162,86 +161,6 @@ test('cancellation and uncertain writes reconcile by run receipt without logging
 });
 
 const binary = process.env.RCLONE_TEST_BINARY;
-test('one benchmark can wait for sync, cancel while queued, and take the next idle turn', async () => {
-  const repository = new MemoryState();
-  repository.value = { connected: true, challenge: null, mirrors: [mirror('one')] };
-  const provider = new FakeCloudProvider();
-  const sync = new ICloudSync(provider, repository, () => new Date().toISOString(), () => 'generated', () => {});
-  const syncing = defer(), releaseSync = defer(), reading = defer(), releaseRead = defer();
-  provider.synchronize = async () => { syncing.release(); await releaseSync.promise; };
-  await sync.start();
-  const running = sync.tick();
-  try {
-    await syncing.promise;
-    const abort = new AbortController();
-    const cancelled = sync.benchmarkListing('one', async () => assert.fail('cancelled trial must never admit'), abort.signal);
-    await assert.rejects(sync.benchmarkListing('one', async () => assert.fail('only one probe can wait')), { category: 'busy' });
-    abort.abort();
-    await assert.rejects(cancelled, { category: 'interrupted' });
-    const benchmark = sync.benchmarkListing('one', async selected => { assert.equal(selected.id, 'one'); reading.release(); await releaseRead.promise; });
-    const scheduled = sync.tick(new Set(['one']));
-    releaseSync.release();
-    await reading.promise;
-    assert.equal(await scheduled, false, 'a pending sync hint yields the next turn to the admitted probe');
-    assert.equal(sync.activity().admissionPaused, false);
-    releaseRead.release();
-    await Promise.all([running, benchmark]);
-    assert.equal(await sync.tick(), true);
-  } finally { releaseSync.release(); releaseRead.release(); await sync.stop(); }
-});
-test('stock listing benchmarks only a bound initialized root through the live owner', { skip: !binary, timeout: 15_000 }, async () => {
-  const host = createFakePluginHost({ pluginId: 'icloud' });
-  const root = join(dirname(host.bb.storage.database().name), 'sync');
-  const worker = new RcloneProcess(root, binary);
-  const repository = new MemoryState();
-  const remote = await mkdtemp('/tmp/icloud-benchmark-remote-');
-  const baseline = join(root, 'baselines', 'one');
-  const source = join(remote, 'generated');
-  const { behavior } = host.harness;
-  const run = async (id: string, checkers: string) => {
-    const result = await behavior.runCli(['benchmark', 'listing', '--mirror-id', id, '--checkers', checkers, '--json']);
-    assert.doesNotMatch((result.stdout ?? '') + (result.stderr ?? ''), /PRIVATE_SENTINEL/);
-    return { code: result.exitCode, value: JSON.parse(result.stdout!) };
-  };
-  repository.value = { connected: true, challenge: null, mirrors: [mirror('one'), mirror('initial', { initialized: false })] };
-  try {
-    await worker.ensure();
-    await worker.call('config/create', { name: 'icloud', type: 'alias', parameters: { remote }, opt: { nonInteractive: true } });
-    await mkdir(join(source, 'nested'), { recursive: true });
-    await writeFile(join(source, 'PRIVATE_SENTINEL.md'), 'generated');
-    await writeFile(join(source, 'nested', 'Another.md'), 'generated');
-    await writeFile(join(source, '.obsidian-bb-11111111-1111-4111-8111-111111111111.tmp'), 'generated stage');
-    await mkdir(join(root, 'mirrors', 'one'));
-    await mkdir(baseline);
-    await writeFile(join(baseline, 'initialized'), '1', { mode: 0o600 });
-    await plugin(host.bb, { repository, worker });
-    const cli = commands(host);
-    await until(async () => (await cli.rpcStatus()).connectionCheck === 'verified');
-    assert.equal((await run('initial', '2')).value.error.code, 'invalid_selection');
-    assert.equal((await run('PRIVATE_SENTINEL', '2')).value.error.code, 'invalid_selection');
-    assert.equal((await run('one', '16')).code, 1);
-    await cli.run('pause', runId);
-    assert.equal((await run('one', '2')).value.error.code, 'busy');
-    await until(async () => (await cli.status()).ready);
-    await cli.run('restore', runId);
-    const before = structuredClone(repository.value);
-    const config = await readFile(join(root, 'state', 'rclone.conf'));
-    const success = await run('one', '4');
-    assert.equal(success.code, 0);
-    assert.equal(success.value.objects, 2);
-    assert.deepEqual(repository.value, before);
-    assert.deepEqual(await readdir(join(root, 'state')), ['rclone.conf']);
-    assert.deepEqual(await readFile(join(root, 'state', 'rclone.conf')), config);
-    assert.deepEqual(await readdir(baseline), ['initialized']);
-    await rm(source, { recursive: true });
-    await writeFile(source, 'generated replacement file');
-    const failure = await run('one', '8');
-    assert.equal(failure.code, 1);
-    assert.equal(failure.value.outcome, 'failed', 'a file at the selected path is refused');
-    assert.match(JSON.stringify(host.harness.inspection.logEntries), /listing_benchmark/);
-    assert.doesNotMatch(JSON.stringify(host.harness.inspection.logEntries), /PRIVATE_SENTINEL|generated replacement/);
-  } finally { await host.harness.lifecycle.dispose(); await worker.stop(); await rm(remote, { recursive: true }); }
-});
 test('native note work drains through the hold while the existing owner and baseline are preserved', { skip: !binary, timeout: 30000 }, async () => {
   const host = createFakePluginHost({ pluginId: 'icloud' });
   const db = host.bb.storage.database() as Database.Database;

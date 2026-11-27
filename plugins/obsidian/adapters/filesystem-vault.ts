@@ -1,14 +1,13 @@
 import type { Stats } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { VaultError } from '../core/ports.ts';
-import type { Diagnose, DesktopLinkOperation, DesktopMoveEvidence, PathMove, PathMoveReceipt, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
+import type { Diagnose, DesktopLinkOperation, PathMove, PathMoveReceipt, Receipt, Resolution, VaultFiles } from '../core/ports.ts';
 import { digest, equivalent, identity, LocalNotes, validateNotePath, validateRelativePath } from './local-notes.ts';
 import type { DirectoryGrant } from './local-notes.ts';
 import { fileIdentity, LocalReceipts } from './local-receipts.ts';
 import type { FileIdentity, LocalReceipt } from './local-receipts.ts';
 import type { RecoveryCheck, RecoveryInput } from '../core/receipt-recovery.ts';
 import type { DesktopLinks } from './desktop-links.ts';
-import type { FolderMoveManifest } from '../core/folder-move-evidence.ts';
 
 type Target = { mirrorId: string; revision: number; path: string };
 type DirectoryLookup = (mirrorId: string, revision: number, signal?: AbortSignal) => Promise<string>;
@@ -18,7 +17,6 @@ type Mutation<T> = {
   dispatch: () => void;
   committed: () => void;
   rootIdentity: FileIdentity;
-  relatedSaves: Array<Extract<LocalReceipt, { kind: 'save' }>>;
 };
 type Entry = NonNullable<ReturnType<LocalReceipts['get']>>;
 type Proof = { status: 'proven'; row: LocalReceipt; witness: string } | { status: 'review'; reason: string };
@@ -43,7 +41,7 @@ export class FilesystemVault {
   private evidenceTokens = new Map<string, EvidenceToken>();
   private tokens = new Map<string, Token>();
   constructor(private directory: DirectoryLookup, private grant: (id: string, revision: number, signal?: AbortSignal) => Promise<DirectoryGrant>,
-    private ledger: LocalReceipts, private diagnose: Diagnose) {}
+    private ledger: LocalReceipts, private diagnose: Diagnose, private applied: (row: LocalReceipt) => void = () => {}) {}
 
   async desktopRoot(id: string, revision: number, requested: string | undefined, signal: AbortSignal) {
     const grant = await this.grant(id, revision, signal);
@@ -85,57 +83,35 @@ export class FilesystemVault {
     return !await this.files.entry(root, row.tree.from) && !!folder?.isDirectory() && identity(folder, row.tree.inode);
   }
 
-  private async movedFolderManifest(root: string, row: Extract<LocalReceipt, { kind: 'move' }>) {
-    const source = row.folderDelivery?.source;
-    if (!row.directory || !source) return undefined;
-    const destination = await this.files.folderManifest(root, row.destination, row.inode).catch(() => null);
-    if (!destination || destination.entries.length !== source.entries.length ||
-        !destination.entries.every((entry, index) =>
-          entry.path === source.entries[index]?.path && entry.kind === source.entries[index]?.kind)) return undefined;
-    return { source, destination };
-  }
-
-  async movePath(input: PathMove, revision: number, run: (before: () => Promise<void>) => Promise<boolean | DesktopMoveEvidence | void>): Promise<PathMoveReceipt> {
+  async movePath(input: PathMove, revision: number, run: (before: () => Promise<void>) => Promise<unknown>): Promise<PathMoveReceipt> {
     const { vaultId, path, destination, operationId, expectedHash, kind } = input;
     const folder = kind === 'folder';
-    const sourceName = path.normalize('NFC'), targetName = destination.normalize('NFC');
-    const changedCloudName = sourceName !== targetName && (sourceName.toLowerCase() !== targetName.toLowerCase() ||
-      path.slice(0, path.lastIndexOf('/') + 1) === destination.slice(0, destination.lastIndexOf('/') + 1));
     (folder ? validateRelativePath : validateNotePath)(destination);
     if (path === destination || (folder && (destination.startsWith(path + '/') || path.startsWith(destination + '/')))) throw new VaultError('invalid_path');
     const endpoints = { vaultId, path, destination, operationId };
     try {
       const row = await this.mutate<Extract<LocalReceipt, { kind: 'move' }>>(
         { mirrorId: vaultId, path, revision, ...(folder ? { directory: true as const } : {}) },
-        async (root, { check, begin, dispatch, committed, rootIdentity, relatedSaves }) => {
+        async (root, { check, begin, dispatch, committed, rootIdentity }) => {
           const source = await this.files.entry(root, path);
           const base = {
             kind: 'move' as const, mirrorId: vaultId, path, destination, operationId,
             hash: expectedHash ?? digest(''), root: rootIdentity, inode: fileIdentity(source ?? rootIdentity),
             at: new Date().toISOString(), birthtime: source?.birthtimeMs, publication: 'desktop' as const, ...(folder ? { directory: true as const } : {}),
           };
-          let deliverySourceHash: string | undefined;
           const verify = async () => {
             await check();
             const current = await this.files.entry(root, path);
             if (!source || !current || !identity(source, current) || (folder ? !current.isDirectory() : !current.isFile()) ||
               await this.files.entry(root, destination)) throw new VaultError('conflict', 'Check the source and choose an unoccupied destination.');
             if (!folder) {
-              const observed = await this.files.observe(root, path).catch(error => {
-                if (expectedHash) throw error;
-                return null;
-              });
-              if (expectedHash && observed?.hash !== expectedHash) throw new VaultError('conflict');
-              deliverySourceHash = observed && identity(source, observed.info) ? observed.hash : undefined;
+              if (expectedHash && (await this.files.observe(root, path))?.hash !== expectedHash) throw new VaultError('conflict');
               await this.clearPath(root, path);
               await this.clearPath(root, destination);
             }
           };
           await verify();
-          const folderSource: FolderMoveManifest | null = folder
-            ? await this.files.folderManifest(root, path, base.inode).catch(() => null) : null;
-          const prepared = { ...base, ...(folderSource ? { folderDelivery: { source: folderSource } } : {}) };
-          await begin({ ...prepared, outcome: 'uncertain' });
+          await begin({ ...base, outcome: 'uncertain' });
           const applied = await run(async () => { await verify(); dispatch(); committed(); });
           if (applied === false) return { ...base, outcome: 'not_moved' };
           if (!await this.moved(root, { ...base, outcome: 'uncertain' })) throw new VaultError('uncertain');
@@ -143,36 +119,7 @@ export class FilesystemVault {
           await this.files.syncParent(root, destination);
           await check();
           if (!await this.moved(root, { ...base, outcome: 'uncertain' })) throw new VaultError('uncertain');
-          const target = !folder && changedCloudName && deliverySourceHash
-            ? await this.files.observe(root, destination).catch(() => null) : null;
-          const delivery = target && identity(base.inode, target.info) && target.info.birthtimeMs === base.birthtime && deliverySourceHash
-            ? { sourceHash: deliverySourceHash, destinationHash: target.hash } : undefined;
-          if (typeof applied === 'object') {
-            const seen = new Set<string>();
-            for (const link of applied.backlinks) {
-              const note = link.path;
-              if (seen.has(note) || link.hash === link.previousHash || [path, destination].some(endpoint =>
-                note === endpoint || note.startsWith(endpoint + '/'))) continue;
-              seen.add(note);
-              try {
-                this.ledger.assertFree(vaultId, [note]);
-                const current = await this.files.observe(root, note);
-                if (!current || current.hash !== link.hash) continue;
-                await this.files.syncParent(root, note);
-                if (!equivalent(current, await this.files.observe(root, note))) continue;
-                relatedSaves.push({ ...link, kind: 'save', mirrorId: vaultId, operationId: randomUUID(), at: base.at,
-                  root: rootIdentity, inode: fileIdentity(current.info), birthtime: current.info.birthtimeMs,
-                  publication: 'desktop', outcome: 'saved_locally_pending_sync' });
-              } catch { /* The regular scan retains publication ownership when evidence changes. */ }
-            }
-            await check();
-          }
-          const folderDelivery = await this.movedFolderManifest(root, { ...prepared, outcome: 'moved_locally_pending_sync' });
-          if (folderDelivery) {
-            await check();
-            if (!await this.moved(root, { ...prepared, outcome: 'uncertain' })) throw new VaultError('uncertain');
-          }
-          return { ...base, ...(delivery ? { delivery } : {}), ...(folderDelivery ? { folderDelivery } : {}), outcome: 'moved_locally_pending_sync' };
+          return { ...base, outcome: 'moved_locally_pending_sync' };
         });
       return { ...endpoints, outcome: row.outcome };
     } catch (error) {
@@ -311,12 +258,12 @@ export class FilesystemVault {
           this.ledger.begin(row);
           intent = row;
         };
-        const relatedSaves: Mutation<T>['relatedSaves'] = [];
-        const result = await plan(root, { check, begin, rootIdentity, relatedSaves, dispatch: () => {
+        const result = await plan(root, { check, begin, rootIdentity, dispatch: () => {
           if (!intent) throw new VaultError('uncertain');
           this.ledger.dispatch(intent);
         }, committed: () => { changed = true; } });
-        this.ledger.finish(result, relatedSaves);
+        this.ledger.finish(result);
+        if (outcome(result) === 'applied') this.applied(result);
         return result;
       } catch (error) {
         if (intent && !changed) {
@@ -388,8 +335,7 @@ export class FilesystemVault {
       if (input.expectedLogicalHash !== conflict.logical.hash || input.expectedIncomingHash !== conflict.incoming.hash) throw new VaultError('conflict');
       const text = input.choice === 'accept_incoming' ? conflict.incoming.text : input.choice === 'keep_local' ? conflict.logical.text : input.text;
       if (text === undefined) throw new VaultError('invalid_query');
-      const base = { kind: 'resolution' as const, publication: 'atomic' as const, mirrorId, path, operationId, choice: input.choice,
-        hash: digest(text), previousHash: conflict.canonical?.hash ?? null, root: rootIdentity, at: new Date().toISOString() };
+      const base = { kind: 'resolution' as const, publication: 'atomic' as const, mirrorId, path, operationId, choice: input.choice, hash: digest(text), root: rootIdentity, at: new Date().toISOString() };
       let inode!: FileIdentity;
       let birthtime!: number;
       await this.files.publish(root, path, text, conflict.canonical, async stage => {
@@ -443,10 +389,7 @@ export class FilesystemVault {
           if (!await this.moved(root, row)) return review('move_endpoints_do_not_prove_publication');
           const target = await this.files.entry(root, row.destination);
           if (!target || !matchesVersion(target, { ...row.inode, birthtime: row.birthtime })) return review('move_endpoints_changed');
-          const folderDelivery = await this.movedFolderManifest(root, row);
-          const stamp = statWitness(target);
-          const witness = JSON.stringify(folderDelivery ? [...stamp, folderDelivery.destination.fingerprint] : stamp);
-          return { status: 'proven', row: { ...row, ...(folderDelivery ? { folderDelivery } : {}), outcome: 'moved_locally_pending_sync' }, witness };
+          return { status: 'proven', row: { ...row, outcome: 'moved_locally_pending_sync' }, witness: JSON.stringify(statWitness(target)) };
         }
         const written = await this.files.observe(root, row.path);
         if (!written || !identity(row.inode, written.info) || row.hash !== written.hash ||

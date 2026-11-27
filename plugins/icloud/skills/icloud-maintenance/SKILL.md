@@ -42,21 +42,3 @@ read the durable state. Keep the run ID and inspect status after recovery.
 Use the same run ID throughout a window. The hold survives a reload or
 restart and remains active until its matching restore. Keep the new
 maintenance-capable code loaded while the hold is active.
-
-## Directory listing benchmark
-
-Run `bb icloud benchmark listing --mirror-id <id> --checkers <2|4|8> --json`
-with the exact initialized mirror ID from iCloud inventory. The worker runs
-one recursive stock rclone size command against the selected cloud root.
-It uses the owned worker's authenticated configuration through a read-only
-descriptor. Stock rclone session updates cannot replace the stored config.
-The result contains elapsed milliseconds, the count of file objects on
-success, and counts of recognized retry, rate limit and invalid log records.
-Those record counts are observations from stock rclone output.
-
-Run one trial at a time with maintenance restored. One trial can wait up to
-15 minutes for active sync to finish. A busy response means no trial started.
-Allow ordinary sync runs between trials. An admitted trial owns the worker
-for up to eight minutes and cancellation stops its child. The command uses
-the direct note staging exclusion. It measures listing only. Use regular sync diagnostics for
-end-to-end host sync times and confirm device delivery separately.

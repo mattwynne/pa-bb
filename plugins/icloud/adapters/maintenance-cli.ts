@@ -1,16 +1,10 @@
 import { cliCommand, defineCli, PluginCliError } from '@get-bb/plugin-sdk';
 import { maintenanceRunId } from '../core/maintenance.ts';
 import { category } from '../core/ports.ts';
-import { listingCheckers } from './rclone-process.ts';
-import type { ListingCheckers, RcloneProcess } from './rclone-process.ts';
 
 export function maintenanceCli(
   status: () => object,
   mutate: (action: 'pause' | 'restore', runId: string, signal?: AbortSignal) => Promise<unknown>,
-  benchmark: (id: string, checkers: ListingCheckers, signal?: AbortSignal) => ReturnType<RcloneProcess['benchmarkListing']>,
-  binding: (id: string, runId: string, binary: string, sha256: string, signal?: AbortSignal) => Promise<{mirrorId:string; binding:string}>,
-  moveConflict: (id: string) => {outcome:'preserved'; kind?:'folder'; operationId:string; source:string; destination:string; copy:string} | {outcome:'none'},
-  reconcileConflict: (id:string, operationId:string) => Promise<{outcome:string}>,
 ) {
   const render = () => ({ exitCode: 0, stdout: JSON.stringify(status()) });
   const json = { type: 'boolean', description: 'Emit machine-readable errors as JSON' } as const;
@@ -36,84 +30,11 @@ export function maintenanceCli(
   });
   return defineCli({
     name: 'icloud',
-    summary: 'Inspect iCloud maintenance and benchmark directory listing through BB.',
+    summary: 'Inspect or control iCloud maintenance through BB.',
     commands: {
       'maintenance status': cliCommand({ summary: 'Read iCloud admission, drain and maintenance receipt status.', options: { json }, run: render }),
       'maintenance pause': operation('pause', 'Hold iCloud scheduling and note admission for one maintenance run.'),
       'maintenance restore': operation('restore', 'Restore eligible prior scheduling after the matching hold has drained.'),
-      'delivery move-conflict': cliCommand({
-        summary: 'Read the preserved path for a pending note or folder move on a managed Obsidian mirror.',
-        options: {
-          'mirror-id': { type:'string',required:true,description:'Exact initialized mirror ID from iCloud inventory.' },
-          json,
-        },
-        run({options}) {
-          const id = options['mirror-id'];
-          if (!/^[a-zA-Z0-9-]{1,64}$/.test(id)) throw new PluginCliError('Supply an exact iCloud mirror ID.',{code:'invalid_selection'});
-          try { return {exitCode:0,stdout:JSON.stringify(moveConflict(id))}; }
-          catch (error) { throw new PluginCliError('Could not read a managed move conflict for this mirror.',{code:category(error)}); }
-        },
-      }),
-      'delivery reconcile-move-conflict': cliCommand({
-        summary: 'Request note move closure after the source, destination and saved copy agree on BB and iCloud.',
-        options: {
-          'mirror-id': {type:'string',required:true,description:'Exact managed mirror ID.'},
-          'operation-id': {type:'string',required:true,description:'Operation ID from delivery move-conflict.'},
-          json,
-        },
-        async run({options}) {
-          const id = options['mirror-id'], operation = maintenanceRunId.safeParse(options['operation-id']);
-          if (!/^[a-zA-Z0-9-]{1,64}$/.test(id) || !operation.success)
-            throw new PluginCliError('Supply an exact mirror ID and move operation UUID.',{code:'invalid_selection'});
-          try {
-            const result = await reconcileConflict(id,operation.data.toLowerCase());
-            return { exitCode:result.outcome==='conflict_resolution_pending' || result.outcome==='conflict_resolved' ? 0 : 1,
-              stdout:JSON.stringify(result) };
-          } catch (error) {
-            throw new PluginCliError('Could not verify this move conflict for closure.',{code:category(error)});
-          }
-        },
-      }),
-      'delivery binding': cliCommand({
-        summary: 'Read the provider binding for one initialized Obsidian mirror during a drained maintenance window.',
-        options: {
-          'mirror-id': { type: 'string', required: true, description: 'Exact initialized mirror ID from iCloud inventory.' },
-          'run-id': { type: 'string', required: true, description: 'Current drained maintenance run UUID.' },
-          binary: { type: 'string', required: true, description: 'Absolute path to the pinned iCloud note worker.' },
-          sha256: { type: 'string', required: true, description: 'SHA-256 of the executable.' },
-          json,
-        },
-        async run({ options }, { signal }) {
-          const id = options['mirror-id'];
-          const runId = maintenanceRunId.safeParse(options['run-id']);
-          if (!/^[a-zA-Z0-9-]{1,64}$/.test(id) || !runId.success)
-            throw new PluginCliError('Supply an exact mirror ID and a valid maintenance run UUID.', {code:'invalid_selection'});
-          try {
-            const result = await binding(id,runId.data.toLowerCase(),options.binary,options.sha256,signal);
-            return { exitCode:0,stdout:JSON.stringify(result) };
-          } catch (error) {
-            throw new PluginCliError('iCloud could not verify the selected mirror binding during this maintenance run.', {code:category(error)});
-          }
-        },
-      }),
-      'benchmark listing': cliCommand({
-        summary: 'Time one read-only recursive listing on an initialized mirror. Returns aggregate JSON.',
-        options: {
-          'mirror-id': { type: 'string', required: true, description: 'Exact initialized mirror ID from iCloud inventory.' },
-          checkers: { type: 'enum', values: listingCheckers, required: true, description: 'Number of concurrent directory workers.' },
-          json,
-        },
-        async run({ options }, { signal }) {
-          if (!/^[a-zA-Z0-9-]{1,64}$/.test(options['mirror-id'])) throw new PluginCliError('Supply an exact iCloud mirror ID.', { code: 'invalid_selection' });
-          try {
-            const result = await benchmark(options['mirror-id'], options.checkers, signal);
-            return { exitCode: result.outcome === 'succeeded' ? 0 : 1, stdout: JSON.stringify(result) };
-          } catch (error) {
-            const failure = category(error);
-            throw new PluginCliError(failure === 'busy' ? 'iCloud is busy. Retry when the sync owner is idle.' : 'iCloud could not admit the listing. Check the initialized mirror and connection status.', { code: failure });
-          }
-        },
-      }),
     },
   });
 }

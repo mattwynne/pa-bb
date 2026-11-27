@@ -1,5 +1,4 @@
 import type Database from 'better-sqlite3';
-import { z } from 'zod';
 import { constants, lstatSync, openSync, readFileSync, closeSync, fstatSync } from 'node:fs';
 import { open, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -12,23 +11,20 @@ import type { CommitInput } from './note-store.ts';
 import { NoteApplicationError, NoteOverlay } from './note-overlay.ts';
 import type { Resolution } from './note-overlay.ts';
 import { RcloneProcess } from './rclone-process.ts';
-import type { ListingCheckers, ManagedNativeMirror } from './rclone-process.ts';
-import { FolderDeliveryQueue, folderDeliverySchema, publishQueuedFolderMove, type FolderDeliveryFeed } from './folder-delivery.ts';
-import { NoteDeliveryQueue, noteDeliverySchema } from './note-delivery-queue.ts';
-import { NoteDeliveryRecovery, deliveryRecoverySchema, isMoveEndpoint } from './note-delivery-recovery.ts';
-import { NativeNoteDelivery, runNoteDelivery } from './note-delivery-native.ts';
-import { managedMirrorBinding } from './note-delivery-deployment.ts';
-import { selectedRemote } from './rclone-cloud-provider.ts';
 import { NoteSearch } from './note-search.ts';
 import { NoteMoves, type MoveInput } from './note-move.ts';
 import type { SearchRequest } from './note-search.ts';
-import { obsidianStageExclude, type MirrorWakeups } from './mirror-wakeups.ts';
 
 const MAX_SAFE_BINDING_ID = BigInt(Number.MAX_SAFE_INTEGER);
+const stageId = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+// Obsidian's atomic-save staging files never leave the host.
+export const obsidianStageExclude = `.obsidian-bb-{{${stageId}}}.tmp`;
+const pushMethods = new Set(['operations/stat', 'operations/copyfile', 'operations/movefile', 'sync/move']);
 
 // The flock, not a JS timer/lease, owns the generation. All native commands,
 // config calls and mirror mutations enter the same turn. Directory-only cloud
-// listings may share an active native command; they never access mirror files.
+// listings and direct pushes may share an active native command; the next
+// scan reconciles a push.
 // Overlay publications
 // have a separate admission fence and can proceed during this generation's child.
 export class NoteRuntime {
@@ -40,8 +36,8 @@ export class NoteRuntime {
   private queue: Promise<void> = Promise.resolve();
   private turnsPending = 0;
   private nativeRunning = false;
-  private nativeMirror: string | undefined;
   private directoryReads = new Set<Promise<unknown>>();
+  private pushes = new Set<Promise<unknown>>();
   private entered = new Set<Promise<unknown>>();
   private closed = false;
   private stopped: Promise<void> | null = null;
@@ -57,20 +53,10 @@ export class NoteRuntime {
   private lastMirror: string | null = null;
   private accountHash: string | null = null;
   private direct = new Set<string>();
-  private managedDelivery = new Map<string, ManagedNativeMirror>();
-  private managedBindings = new Map<string, string>();
-  private deliveryBusy = false;
-  private deliveryLastPath = new Map<string,string>();
-  private deliveryMoveAttempt = new Map<string,{operationId:string; at:number}>();
-  private deliveryQueue?: NoteDeliveryQueue;
-  private folderDeliveryQueue?: FolderDeliveryQueue;
-  private folderAttemptAt = new Map<string,number>();
-  private folderFeedWarnings = new Map<string,string>();
-  private deliveryJournal?: NoteDeliveryRecovery;
   private legacyWrites = new Map<string, number>();
   constructor(readonly root: string, private db: Database.Database, readonly worker: RcloneProcess,
     private legacy: NoteStore, private state: () => State, private clock = () => Date.now(),
-    private diagnose: Diagnose = () => {}, private mirrorWakeups?: MirrorWakeups) {
+    private diagnose: Diagnose = () => {}) {
     this.moves = new NoteMoves(db, legacy, id => this.guard(id));
     this.overlay = new NoteOverlay(join(root, 'overlay'), db, legacy, clock, undefined, id => this.guard(id));
     this.search = new NoteSearch(legacy, { paths: id => this.overlay.searchPaths(id), reader: (id, path) => this.overlay.searchReader(this.localPath(this.mirror(id)!), id, path) });
@@ -90,10 +76,6 @@ export class NoteRuntime {
         CREATE TABLE IF NOT EXISTS icloud_note_bindings (mirror_id TEXT PRIMARY KEY, folder_id TEXT NOT NULL, root_dev INTEGER NOT NULL, root_ino INTEGER NOT NULL, baseline_dev INTEGER NOT NULL, baseline_ino INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS icloud_note_account (id INTEGER PRIMARY KEY CHECK(id=1), fingerprint TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS icloud_note_direct (mirror_id TEXT PRIMARY KEY);`);
-      this.db.exec(`CREATE TABLE IF NOT EXISTS icloud_note_delivery_managed (mirror TEXT PRIMARY KEY,binding TEXT NOT NULL)`);
-      for (const row of this.db.prepare('SELECT mirror,binding FROM icloud_note_delivery_managed').all() as Array<{mirror:string;binding:string}>) {
-        this.managedBindings.set(row.mirror,row.binding);
-      }
       this.direct = new Set((this.db.prepare('SELECT mirror_id FROM icloud_note_direct').all() as { mirror_id: string }[]).map(row => row.mirror_id));
       if (this.state().mirrors.some(m => m.initialized)) await this.bindAccount();
       this.moves.start();
@@ -105,12 +87,10 @@ export class NoteRuntime {
         if (!Number.isSafeInteger(config.revision) || config.revision < 0 || !Array.isArray(members) || members.length > 20 || members.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(id)) || new Set(members).size !== members.length) throw new NoteError('uncertain');
         this.revision = config.revision; this.members = new Set(members);
       }
-      const watched = new Map<string, string>();
       for (const mirror of this.state().mirrors.filter(m => m.initialized && m.phase !== 'retained')) {
         try {
           const directory = await this.local(mirror);
           await this.overlay.indexLegacy(mirror.id, directory);
-          if (this.direct.has(mirror.id)) watched.set(mirror.id, directory);
         }
         catch (error) { this.blocked.add(mirror.id); if (error instanceof NoteError && error.category === 'uncertain') throw error; }
       }
@@ -118,7 +98,6 @@ export class NoteRuntime {
       // invitation to apply queued edits merely because the plugin restarted.
       for (const mirror of this.state().mirrors) if (!mirror.enabled && mirror.failure === 'interrupted' && this.overlay.pending().some(p => p.mirrorId === mirror.id)) this.nativeBlocked.set(mirror.id, 'uncertain');
       this.ready = true;
-      for (const [id, directory] of watched) this.mirrorWakeups?.observe(id, directory);
       this.wake();
       this.scheduleMaintenance();
     } catch (error) {
@@ -307,7 +286,6 @@ export class NoteRuntime {
         this.db.prepare('INSERT INTO icloud_note_direct(mirror_id) VALUES (?)').run(id);
         this.direct.add(id);
       }
-      if (this.nativeMirror !== id) this.mirrorWakeups?.observe(id, directory);
       return authorized;
     }, options);
   }
@@ -405,190 +383,26 @@ export class NoteRuntime {
     this.wake(); return result;
   }
   // A turn holds native exclusivity from beforeRun through post-run inspection.
-  // Ordinary commands run the bounded application quantum, even on failure.
-  private turn<T>(action: () => Promise<T>, applyPending = true): Promise<T> {
+  // The bounded application quantum follows every command, even failed commands.
+  private turn<T>(action: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new CloudError('interrupted'));
     this.turnsPending++;
     const task = this.queue.then(async () => {
       if (this.closed) throw new CloudError('interrupted');
       try { return await action(); }
-      finally { if (applyPending) { await this.quantum(); this.scheduleMaintenance(); } }
+      finally { await this.quantum(); this.scheduleMaintenance(); }
     }).finally(() => { this.turnsPending--; });
     this.queue = task.then(() => {}, () => {});
     return task;
   }
-  configureManagedDelivery(deployment: {binary:string; mirrors: Record<string,string>}) {
-    if (!this.ready || this.closed || this.deliveryBusy || this.nativeRunning || this.turnsPending) throw new CloudError('busy');
-    this.db.transaction(() => {
-      for (const sql of [...noteDeliverySchema,deliveryRecoverySchema,...folderDeliverySchema]) {
-        this.db.exec(sql.replaceAll('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ').replaceAll('CREATE INDEX ', 'CREATE INDEX IF NOT EXISTS '));
-      }
-      for (const [id,binding] of Object.entries(deployment.mirrors)) {
-        const mirror = this.mirror(id);
-        if (!mirror || !this.direct.has(id) || !mirror.initialized || !this.members.has(id)) throw new CloudError('invalid_selection');
-        const prior = this.managedBindings.get(id);
-        if (prior && prior !== binding) throw new CloudError('source_changed');
-        this.db.prepare('INSERT OR IGNORE INTO icloud_note_delivery_managed(mirror,binding) VALUES (?,?)').run(id,binding);
-      }
-    }).immediate();
-    this.managedDelivery.clear();
-    for (const [id,binding] of Object.entries(deployment.mirrors)) {
-      const mirror = this.mirror(id)!;
-      const workdir = join(this.root,'baselines',id);
-      this.managedBindings.set(id,binding);
-      this.managedDelivery.set(id,{binary:deployment.binary,remote:selectedRemote(mirror),workdir,binding});
-    }
-    this.deliveryQueue = new NoteDeliveryQueue(this.db);
-    this.folderDeliveryQueue = new FolderDeliveryQueue(this.db);
-    this.deliveryJournal = new NoteDeliveryRecovery(this.db);
-  }
-
-  async deliverKnownNotes(changes: (id:string,after:number|null)=>Promise<unknown>,canStart:()=>boolean, folders?:FolderDeliveryFeed) {
-    if (!canStart() || !this.ready || this.closed || this.deliveryBusy || this.moving || this.storageBlocked) return;
-    const queue = this.deliveryQueue, journal = this.deliveryJournal;
-    if (!queue || !journal) return;
-    this.deliveryBusy = true;
-    try {
-      for (const [id,target] of this.managedDelivery) {
-        if (!canStart() || this.closed || this.moving) return;
-        const mirror = this.mirror(id);
-        if (!mirror?.enabled || !mirror.initialized || !this.members.has(id) || (mirror.failure && mirror.failure !== 'busy') || mirror.blocker ||
-            (mirror.phase !== 'running' && mirror.phase !== 'ready' && !(mirror.phase === 'failed' && mirror.failure === 'busy'))) continue;
-        const root = await this.local(mirror,{requireBinding:true});
-        const folderQueue = this.folderDeliveryQueue;
-        const folderFrom = folders && folderQueue ? folderQueue.cursor(id) : null;
-        const cursor = queue.cursor(id);
-        const [notePage,folderPage] = await Promise.allSettled([
-          changes(id,cursor),
-          folders && folderQueue ? folders.changes(id,folderFrom) : undefined,
-        ]);
-        if (!canStart() || this.closed || this.moving) return;
-        if (folders && folderQueue) {
-          try {
-            if (folderPage.status === 'rejected') throw folderPage.reason;
-            folderQueue.stage(id,folderFrom,folderPage.value);
-            this.folderFeedWarnings.delete(id);
-          } catch (error) {
-            const failure = error instanceof CloudError ? error.category : 'unavailable';
-            if (failure !== 'capacity' && this.folderFeedWarnings.get(id) !== failure) {
-              this.folderFeedWarnings.set(id,failure);
-              this.diagnose('folder_delivery_feed',failure);
-            }
-          }
-        }
-        if (notePage.status === 'rejected') throw notePage.reason;
-        const page = notePage.value;
-        try { queue.stage(id,cursor,page); }
-        catch (error) {
-          // A full receipt page must not prevent work already in the queue.
-          if (!(error instanceof CloudError) || error.category !== 'capacity') throw error;
-        }
-        const write = journal.pending(id,'write');
-        const move = journal.pending(id,'move');
-        const folderMove = folderQueue?.oldest(id);
-        if (folders && folderQueue && folderMove && !folderMove.alternate && !write && !move &&
-            this.clock() - (this.folderAttemptAt.get(id) ?? -Infinity) >= (folderMove.dispatched ? 4000 : 1000)) {
-          this.folderAttemptAt.set(id,this.clock());
-          try {
-            const result = await publishQueuedFolderMove(id,target,this.worker,folderQueue,folders,root,
-              () => canStart() && this.mirror(id)?.enabled === true && !this.moving && !this.closed);
-            if (result === 'folder_collision') this.diagnose('folder_delivery_collision','source_changed');
-          } catch (error) {
-            const failure = error instanceof CloudError ? error.category : 'unavailable';
-            if (failure !== 'busy') this.diagnose('folder_delivery',failure,{evidence:evidence(error)});
-          }
-        }
-        const pending = queue.pendingPaths(id);
-        const paths = move ? pending.filter(path => !isMoveEndpoint(move,path) && !queue.pendingPath(id,path)[0]?.source) : pending;
-        const last = paths.indexOf(this.deliveryLastPath.get(id) ?? '');
-        let path = paths[(last + 1) % paths.length];
-        if (move?.conflictCopy && !move.reconcileConflict && !write) {
-          if (!path) continue;
-        } else if (move && !write) {
-          const operationId = move.operations.at(-1)!;
-          const previous = this.deliveryMoveAttempt.get(id);
-          const now = Date.now();
-          // Give queued independent writes a turn before retrying a move.
-          // Recovery still gets periodic turns even when other edits continue.
-          const retryInterval = paths.length && !move.reconcileConflict ? 30_000 : 4_000;
-          if (previous?.operationId !== operationId) this.deliveryMoveAttempt.set(id,{operationId,at:now});
-          else if (now - previous.at >= retryInterval) {
-            this.deliveryMoveAttempt.set(id,{operationId,at:now});
-            path = move.path;
-          }
-          if (!path) continue;
-        } else if (!move) this.deliveryMoveAttempt.delete(id);
-        if (!path && !write) continue;
-        if (path && path !== move?.path) this.deliveryLastPath.set(id,path);
-        await runNoteDelivery(id,target,this.worker,queue,journal,async path => {
-          const current = this.mirror(id);
-          if (!canStart() || !current?.enabled || !this.members.has(id) || this.moving ||
-            (current.failure && current.failure !== 'busy') || current.blocker || current.folder.id !== mirror.folder.id) throw new CloudError('busy');
-          const root = await this.local(current,{requireBinding:true});
-          const note = await this.legacy.observe(root,path);
-          return note && {text:note.text,hash:note.hash};
-        },path);
-      }
-    } finally { this.deliveryBusy = false; }
-  }
-
-  moveConflict(id: string) {
-    if (!this.managedDelivery.has(id) || !this.deliveryJournal) throw new CloudError('invalid_selection');
-    const move = this.deliveryJournal.pending(id,'move');
-    if (move?.conflictCopy) return {
-      outcome:'preserved' as const, operationId:move.operations.at(-1)!, source:move.source!, destination:move.path, copy:move.conflictCopy,
-    };
-    const folder = this.folderDeliveryQueue?.oldest(id);
-    return folder?.alternate ? {
-      outcome:'preserved' as const, kind:'folder' as const, operationId:folder.operationId,
-      source:folder.source, destination:folder.path, copy:folder.alternate,
-    } : { outcome:'none' as const };
-  }
-
-  async reconcileMoveConflict(id: string, operationId: string) {
-    if (!this.ready || this.closed || this.deliveryBusy || this.storageBlocked) throw new CloudError('busy');
-    const target = this.managedDelivery.get(id), journal = this.deliveryJournal, queue = this.deliveryQueue;
-    const mirror = this.mirror(id);
-    const pending = journal?.pending(id,'move');
-    if (!target || !journal || !queue || !mirror?.enabled || mirror.blocker || !pending?.conflictCopy ||
-        pending.operations.at(-1) !== operationId || journal.pending(id,'write')) throw new CloudError('invalid_selection');
-    this.deliveryBusy = true;
-    try {
-      await this.local(mirror,{requireBinding:true});
-      if (this.closed || this.mirror(id)?.folder.id !== mirror.folder.id) throw new CloudError('source_changed');
-      journal.requestConflictReconciliation(id,operationId);
-      const worker = new NativeNoteDelivery(target,this.worker,journal,async () => null);
-      const outcome = await worker.requestConflictResolution(pending);
-      if (outcome === 'conflict_resolved') journal.reconciledConflict(id,operationId,queue);
-      return {outcome};
-    } finally { this.deliveryBusy = false; }
-  }
-
-  probeManagedBinding(id: string, binary: string) {
-    if (this.turnsPending || this.deliveryBusy || this.nativeRunning) throw new CloudError('busy');
-    return this.turn(async () => {
-      const mirror = this.mirror(id);
-      if (!this.ready || this.storageBlocked || !mirror?.initialized || !this.direct.has(id) || !this.members.has(id))
-        throw new CloudError('invalid_selection');
-      await this.local(mirror,{requireBinding:true});
-      const target = {binary,remote:selectedRemote(mirror),workdir:join(this.root,'baselines',id),binding:''};
-      const result = await this.worker.noteDeliveryCommand(target,'binding',{});
-      const observed = z.strictObject({outcome:z.literal('bound'),binding:managedMirrorBinding}).safeParse(result);
-      if (!observed.success || this.mirror(id)?.folder.id !== mirror.folder.id) throw new CloudError('source_changed');
-      const prior = this.managedBindings.get(id);
-      if (prior && observed.data.binding !== prior) throw new CloudError('source_changed');
-      return {mirrorId:id,binding:observed.data.binding};
-    },false);
-  }
-
-  benchmarkListing(mirror: Mirror, checkers: ListingCheckers, signal?: AbortSignal) {
-    if (this.turnsPending) throw new CloudError('busy');
-    return this.turn(async () => {
-      const current = this.mirror(mirror.id);
-      if (!this.ready || this.storageBlocked || !current || current.folder.id !== mirror.folder.id) throw new CloudError('source_changed');
-      await this.local(current, { requireBinding: true });
-      return this.worker.benchmarkListing(selectedRemote(current), checkers, signal);
-    }, false);
+  // A push only stats, copies or moves within the selected cloud folder. It
+  // does not wait for a scan; a stopping generation drains it before the daemon exits.
+  push(method: string, body: Record<string, unknown>) {
+    if (this.closed || !pushMethods.has(method)) return Promise.reject(new CloudError('busy'));
+    if (this.pushes.size >= 8) return Promise.reject(new CloudError('busy'));
+    const task = this.worker.call(method, body);
+    this.pushes.add(task);
+    return task.finally(() => { this.pushes.delete(task); });
   }
   call(method: string, body: Record<string, unknown>) {
     // The existing owned daemon can list remote directories while its CLI syncs.
@@ -612,26 +426,14 @@ export class NoteRuntime {
     });
   }
   idleFiles<T>(action: (signal: AbortSignal) => Promise<T>) { return this.turn(() => this.worker.withFiles(action)); }
-  private async nativeCommand(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2], ordinaryInitialized = false) {
+  private async nativeCommand(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
     for (const mirror of this.state().mirrors) if (mirror.initialized && args.includes(this.localPath(mirror)) && this.moves.blocked(mirror.id)) throw new NoteError('uncertain');
     const direct = args[0] === 'bisync' ? this.state().mirrors.find(m => this.direct.has(m.id) && this.localPath(m) === args[2]) : undefined;
     if (direct) await this.local(direct, { interrupted: direct.blocker === 'rebuild' });
-    const owned = direct && this.managedBindings.get(direct.id);
-    const target = owned && direct ? this.managedDelivery.get(direct.id) : undefined;
-    if (owned && (!target || args.includes('--resync'))) throw new CloudError('recovery_required');
     this.nativeRunning = true;
-    this.nativeMirror = direct?.id;
-    if (direct) this.mirrorWakeups?.suspend(direct.id);
-    // Apply the measured checker increase to ordinary direct-note sync only.
-    const tuned = ordinaryInitialized && direct?.phase === 'running' && direct.blocker === null && direct.failure === null && this.members.has(direct.id);
-    try { return await this.worker.run(direct ? [...args, '--exclude', obsidianStageExclude] : args, capture, report, tuned ? '4' : '2', target); }
+    try { return await this.worker.run(direct ? [...args, '--exclude', obsidianStageExclude] : args, capture, report); }
     finally {
       this.nativeRunning = false;
-      this.nativeMirror = undefined;
-      if (direct && !this.closed) {
-        const directory = await this.local(direct, { interrupted: direct.blocker === 'rebuild' }).catch(() => null);
-        if (directory) this.mirrorWakeups?.observe(direct.id, directory);
-      }
       await Promise.allSettled([...this.directoryReads]);
     }
   }
@@ -647,7 +449,7 @@ export class NoteRuntime {
       const eligible = id && !args.includes('--resync') ? this.overlay.beforeRun(id) : [];
       let succeeded = false;
       let commandEvidence: ReturnType<typeof evidence> = null;
-      try { const output = await this.nativeCommand(args, capture, report, !!id && !args.includes('--resync')); succeeded = true; return output; }
+      try { const output = await this.nativeCommand(args, capture, report); succeeded = true; return output; }
       catch (error) {
         commandEvidence = evidence(error);
         if (id && error instanceof CloudError && ['recovery_required', 'capacity', 'configuration', 'invalid_selection'].includes(error.category)) this.nativeBlocked.set(id, 'native_failure');
@@ -780,7 +582,7 @@ export class NoteRuntime {
   }
   activity() {
     return { nativeRunning: this.nativeRunning, localOperations: this.entered.size, turnsPending: this.turnsPending,
-      busy: this.closed || !this.ready || this.deliveryBusy || this.search.active || this.nativeRunning || this.entered.size > 0 || this.turnsPending > 0 || this.directoryReads.size > 0 || this.moving || this.wakeScheduled || this.maintenanceScheduled || this.maintenance !== null };
+      busy: this.closed || !this.ready || this.search.active || this.nativeRunning || this.entered.size > 0 || this.turnsPending > 0 || this.directoryReads.size > 0 || this.moving || this.wakeScheduled || this.maintenanceScheduled || this.maintenance !== null };
   }
   canRestoreScheduling(id: string) {
     return this.ready && !this.closed && !this.storageBlocked && !this.blocked.has(id) &&
@@ -790,14 +592,13 @@ export class NoteRuntime {
   applicationBlocker(id: string) { return this.mirror(id)?.blocker === 'rebuild' || this.nativeBlocked.get(id) === 'uncertain' ? 'application_uncertain' as const : this.nativeBlocked.has(id) ? 'native_recovery' as const : null; }
   requestStop() {
     this.closed = true; this.ready = false;
-    this.mirrorWakeups?.stop();
     this.worker.requestStop();
   }
   stop(): Promise<void> {
     this.requestStop();
     return this.stopped ??= (async () => {
       await this.search.stop();
-      await Promise.allSettled([...this.entered]);
+      await Promise.allSettled([...this.entered, ...this.pushes]);
       await this.queue;
       await this.maintenance;
       await this.worker.stop();

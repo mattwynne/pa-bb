@@ -3,12 +3,12 @@ import { z } from 'zod';
 import { isAbsolute, normalize } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { FilesystemVault } from './filesystem-vault.ts';
-import type { LocalReceipts } from './local-receipts.ts';
+import type { LocalReceipt, LocalReceipts } from './local-receipts.ts';
 import type { PendingOperation, PendingStatus } from '../core/ports.ts';
 import type { RecoveryInput } from '../core/receipt-recovery.ts';
 import { noteRpcContract } from './icloud-note-contract.ts';
 import type { ManagedDesktop } from './desktop-install.ts';
-import { DesktopLinks, desktopMoveEvidence, type DesktopConfiguration } from './desktop-links.ts';
+import { DesktopLinks, type DesktopConfiguration } from './desktop-links.ts';
 import { inventoryWatchProbe } from './desktop-inventory-watch.ts';
 import { VaultError } from '../core/ports.ts';
 import type { DesktopStatus, MirrorCatalog, VaultFiles, Diagnose, Catalog, Configuration, DesktopLinkOperation, InventoryInput, Inventory, NoteParser, PathMove } from '../core/ports.ts';
@@ -44,10 +44,20 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     private parser: NoteParser = new MarkdownNotes(), private setup?: DesktopConfiguration, private managed?: ManagedDesktop) {
     if (ledger) {
       this.localReceiptWrites = true;
-      this.filesystem = new FilesystemVault(this.directory.bind(this), this.directoryGrant.bind(this), ledger, diagnose);
+      this.filesystem = new FilesystemVault(this.directory.bind(this), this.directoryGrant.bind(this), ledger, diagnose, row => this.push(row));
       const binaries = setup?.binaries ?? managed?.binaries;
       if (binaries) this.desktopRunner = new DesktopLinks(binaries, diagnose, !!managed);
     }
+  }
+
+  // Tell iCloud which path changed so it can send it now. Not awaited: if
+  // iCloud is busy or the call fails, the next sync scan sends the change.
+  private push(row: LocalReceipt) {
+    const change = row.kind === 'move'
+      ? { kind: 'move' as const, path: row.path, destination: row.destination, ...(row.directory ? { directory: true as const } : {}) }
+      : { kind: 'write' as const, path: row.path };
+    void this.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'pushChange', input: { mirrorId: row.mirrorId, change },
+      outputSchema: z.null(), signal: AbortSignal.timeout(5000) }).catch(() => {});
   }
 
   cancelInstallation() {
@@ -383,17 +393,9 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   }
 
   async movePath(input: PathMove, revision: number, signal?: AbortSignal) {
-    const { relative, inMirror, run, filesystem } = await this.desktopAccess(input.vaultId, revision, signal);
+    const { relative, run, filesystem } = await this.desktopAccess(input.vaultId, revision, signal);
     const operation = { kind: 'move' as const, path: relative(input.path), destination: relative(input.destination) };
-    return filesystem.movePath(input, revision, async before => {
-      const result = await run(operation, before);
-      if (result === false || result === true) return result;
-      const evidence = desktopMoveEvidence.parse(result);
-      return { backlinks: evidence.backlinks.flatMap(note => {
-        try { return [{ ...note, path: validateNotePath(inMirror(note.path)) }]; }
-        catch { return []; }
-      }) };
-    });
+    return filesystem.movePath(input, revision, before => run(operation, before));
   }
 
   async moveReceipt(vaultId: string, revision: number, operationId: string) {

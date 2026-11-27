@@ -105,12 +105,26 @@ directory lookup, keep a producer that enforces the saved handoff if the consume
 is rolled back. Wait until all consumers and unresolved recovery work have moved
 off v2 before considering removal of legacy code or storage.
 
-Minute polling continues for cloud changes. On a direct mirror, local changes
-are coalesced into a targeted sync. The watcher is suspended during native
-transfer so inbound changes cannot launch another run. The minute poll covers
-local changes during transfer and events the watcher misses. Native bisync
-excludes the exact Obsidian UUID staging-name pattern on a direct mirror so
-temporary files stay local.
+## Sending changes
+
+Obsidian calls `pushChange` (host-verified Obsidian only) after each note save,
+create, conflict resolution, note move or folder move it applies. iCloud sends
+that one change straight away with stock rclone through its running daemon:
+`operations/copyfile`, `operations/movefile`, or `sync/move` for a folder, which
+uses iCloud's server-side folder move. Pushes don't wait for a scan. They are
+skipped while a folder is paused, failed, blocked or held for maintenance.
+
+Before overwriting or moving a note, iCloud checks that the cloud copy still
+matches what BB last saw: its own last push, or the last scan's listing. If not,
+it skips the push. A skipped or failed push needs no queue or retry, because the
+change is already in the local mirror.
+
+The one-minute stock `rclone bisync` scan pulls changes made elsewhere and repairs
+anything a push missed. When both sides changed a file, bisync compares the bytes.
+Identical copies, such as a note BB just pushed, settle without a conflict.
+Different copies are kept as `.icloud-conflictN` and `.bb-conflictN`, and
+Obsidian's conflict tools resolve them. Native bisync excludes the exact Obsidian
+UUID staging-name pattern on a direct mirror, so temporary files stay local.
 
 ## Upgrading from 0.1.x
 

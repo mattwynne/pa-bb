@@ -30,7 +30,6 @@ export type DesktopLinkOperation =
   | { kind: 'search'; query: string }
   | { kind: 'tasks'; path?: string }
   | { kind: 'move'; path: string; destination: string };
-export type DesktopMoveEvidence = { backlinks: Array<{ path: string; previousHash: string; hash: string }> };
 export type DesktopLinkResult = { kind: 'start' } | { kind: Exclude<DesktopLinkOperation['kind'], 'start'>; value: unknown };
 export type InventoryInput = { vaultId: string; root: string; folders?: string[]; metadataFolders?: string[]; metadataDepth?: number; fields: string[]; tags?: boolean };
 export type Inventory = { notes: { path: string; properties: Record<string, unknown>; malformed: boolean; tags?: string[] }[]; folders: string[]; incomplete: boolean };

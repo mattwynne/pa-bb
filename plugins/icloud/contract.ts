@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { diagnosticsSchema, historyQuerySchema } from './core/diagnostics.js';
 import { traceQuerySchema, traceSnapshotSchema } from './core/rclone-trace.ts';
 import { noteRpcContract, searchCapabilitySchema } from './core/note-contract.ts';
+import { pushChangeSchema } from './core/push-change.ts';
 const folder = z.object({ id: z.string(), name: z.string(), ancestors: z.array(z.string()) });
 const progress = z.object({ stage: z.enum(['checking', 'backing_up_cloud', 'backing_up_local', 'saving_recovery', 'transferring', 'verifying']), bytes: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), totalBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(), files: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), totalFiles: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(), reusedFiles: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional() }).strict();
 const local = z.object({ available: z.boolean(), reason: z.enum(['ownership', 'recovery_required', 'source_changed']).nullable(), pendingAgeMs: z.number().int().nonnegative().nullable(), applicationBlocker: z.enum(['application_uncertain', 'native_recovery']).nullable() }).strict();
@@ -22,5 +23,6 @@ export const rpcContract = defineRpcContract({
   enable: { input: pauseOrResume, output: statusSchema }, retry: { input: id, output: statusSchema }, continueInterrupted: { input: id, output: statusSchema }, rebuild: { input: id, output: statusSchema }, pause: { input: pauseOrResume, output: statusSchema },
   completeInitialRegistration: { input: id, output: statusSchema },
   disconnect: { input: z.null(), output: statusSchema },
+  pushChange: { input: pushChangeSchema, output: z.null() },
   inventory: { input: z.null(), output: z.array(z.object({ id: z.string(), name: z.string(), phase: z.string(), lastSuccess: z.string().nullable(), local })) },
 });
