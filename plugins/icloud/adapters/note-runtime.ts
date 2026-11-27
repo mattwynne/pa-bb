@@ -19,8 +19,6 @@ const MAX_SAFE_BINDING_ID = BigInt(Number.MAX_SAFE_INTEGER);
 const stageId = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 // Obsidian's atomic-save staging files never leave the host.
 export const obsidianStageExclude = `.obsidian-bb-{{${stageId}}}.tmp`;
-export const retiredTables = ['icloud_note_delivery_managed', 'icloud_delivery_cursor', 'icloud_pending_delivery', 'icloud_delivery_head',
-  'icloud_delivery_intent', 'icloud_delivery_move_intent', 'icloud_folder_delivery_cursor', 'icloud_folder_delivery_pending'] as const;
 const pushMethods = new Set(['operations/stat', 'operations/copyfile', 'operations/movefile', 'sync/move']);
 
 // The flock, not a JS timer/lease, owns the generation. All native commands,
@@ -78,8 +76,6 @@ export class NoteRuntime {
         CREATE TABLE IF NOT EXISTS icloud_note_bindings (mirror_id TEXT PRIMARY KEY, folder_id TEXT NOT NULL, root_dev INTEGER NOT NULL, root_ino INTEGER NOT NULL, baseline_dev INTEGER NOT NULL, baseline_ino INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS icloud_note_account (id INTEGER PRIMARY KEY CHECK(id=1), fingerprint TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS icloud_note_direct (mirror_id TEXT PRIMARY KEY);`);
-      // Retired managed-worker delivery state; stock bisync and direct pushes need none of it.
-      this.db.transaction(() => { for (const table of retiredTables) this.db.exec(`DROP TABLE IF EXISTS ${table}`); })();
       this.direct = new Set((this.db.prepare('SELECT mirror_id FROM icloud_note_direct').all() as { mirror_id: string }[]).map(row => row.mirror_id));
       if (this.state().mirrors.some(m => m.initialized)) await this.bindAccount();
       this.moves.start();
