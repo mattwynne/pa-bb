@@ -7,7 +7,7 @@ import { lookupAreaCorrespondence, lookupCorrespondence, mailProvider, mailStatu
 import { correspondenceActions, correspondenceToolNames, conversationId, registerCorrespondenceTools, type CorrespondenceWrite } from './core/correspondence-tools.ts';
 import { cliCommand, defineCli, PluginCliError, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions } from './adapters/obsidian.ts';
+import { ObsidianBackend, connectedVaults, relativeFolder, vaultSelectionSchema, vaultOptions, rememberedVaults } from './adapters/obsidian.ts';
 import { Areas, compareAreas, normalizeAreaSnapshot } from './core/areas.ts';
 import { areaRenames, renameAreaInput } from './core/area-renames.ts';
 import { applyInput, browseInput, changeInput, changeNames, checkInput, deferInput, prepareInput, projectChanges, safeChangeError } from './core/project-changes.ts';
@@ -58,6 +58,10 @@ export function formatAreas(page: AreaPage): string {
 export async function plugin(bb: BbPluginApi, dependencies?: { select: () => Promise<BackendSelection>; selectAreas?: () => Promise<AreaBackendSelection> }, reactivationClock = Date.now) {
   let choices: Awaited<ReturnType<typeof vaultOptions>> = { vaults: [], incomplete: true };
   try { choices = await vaultOptions(bb.sdk); } catch { bb.log.warn('GTD sources source_unavailable'); }
+  // BB only honours a saved select value that is still offered. Keep offering
+  // the vaults from the last complete discovery while Obsidian is unavailable,
+  // so a brief outage at startup doesn't make the saved vault look unset.
+  choices = await rememberedVaults(bb.storage.kv, choices, () => bb.log.warn('GTD sources unknown'));
   const labels = Object.fromEntries(choices.vaults.map(v => [v.selection, choices.vaults.filter(other => other.name === v.name).length > 1 ? `${v.name} — ${v.id}/${v.root}` : v.name]));
   const settings = bb.settings.define({
     backend: { type: 'select', label: 'Backend', description: 'Read projects and Areas from your vault. First connect your vault in Obsidian settings.', options: ['obsidian'], experimental_optionLabels: { obsidian: 'Obsidian' }, default: 'obsidian' },

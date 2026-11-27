@@ -542,3 +542,29 @@ test('snooze and refresh share agent and UI rules and persist both wake conditio
     assert.equal((await agent('list_correspondence', { ...ref, status: 'snoozed' })).conversations.length, 0);
   } finally { await host.harness.lifecycle.dispose(); }
 });
+
+test('a saved vault stays configured when Obsidian is unavailable at a later startup', async () => {
+  const discovered = { vaults: [{ id: 'one', root: 'Life', name: 'Life' }], incomplete: false };
+  const first = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one/Life' }, sdk: { plugins: { callRpc: async (args: any) => {
+    if (args.method === 'vaultLocations') return discovered;
+    throw new Error('Unavailable authorized root');
+  } } } });
+  await plugin(first.bb);
+  const remembered = await first.bb.storage.kv.get('vault-options-v1');
+  await first.harness.lifecycle.dispose();
+
+  const inventoryRoots: string[] = [];
+  const restarted = createFakePluginHost({ pluginId: 'gtd', settings: { vaultId: 'one/Life' }, sdk: { plugins: { callRpc: async (args: any) => {
+    if (args.method === 'vaultLocations') throw new Error('sentinel-private-catalog');
+    inventoryRoots.push(args.input.root);
+    throw new Error('Unavailable authorized root');
+  } } } });
+  await restarted.bb.storage.kv.set('vault-options-v1', remembered);
+  await plugin(restarted.bb);
+  try {
+    const result = JSON.parse((await restarted.harness.behavior.runCli(['projects', '--json'])).stdout!);
+    assert.notEqual(result.error?.code, 'unconfigured');
+    assert.ok(inventoryRoots.includes('Life'), 'GTD reads the saved vault instead of reporting it unset');
+    assert.doesNotMatch(JSON.stringify(restarted.harness.inspection.logEntries), /sentinel/);
+  } finally { await restarted.harness.lifecycle.dispose(); }
+});

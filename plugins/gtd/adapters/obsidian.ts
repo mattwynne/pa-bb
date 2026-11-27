@@ -42,6 +42,21 @@ export async function vaultOptions(sdk: BbPluginApi['sdk'], signal: AbortSignal 
   const value = schema.parse(await vaultRpc(sdk, 'vaultLocations', null, signal));
   return { ...value, vaults: value.vaults.map(v => ({ ...v, selection: v.root ? `${v.id}/${v.root}` : v.id })) };
 }
+type VaultChoices = Awaited<ReturnType<typeof vaultOptions>>;
+const rememberedKey = 'vault-options-v1';
+const rememberedSchema = z.array(z.object({ id: vaultIdSchema, root: z.string().max(1024), name: z.string().max(240), selection: z.string().max(1100) }).strict()
+  .refine(v => v.selection === (v.root ? `${v.id}/${v.root}` : v.id))).max(200);
+// Store the vaults from a complete discovery. After a failed or partial one, add
+// the stored vaults it missed. Choices stay incomplete, so the settings page says so.
+export async function rememberedVaults(kv: BbPluginApi['storage']['kv'], fresh: VaultChoices, failed: () => void): Promise<VaultChoices> {
+  try {
+    if (!fresh.incomplete) { await kv.set(rememberedKey, fresh.vaults); return fresh; }
+    const stored = rememberedSchema.safeParse(await kv.get(rememberedKey));
+    if (!stored.success) return fresh;
+    const offered = new Set(fresh.vaults.map(v => v.selection));
+    return { ...fresh, vaults: [...fresh.vaults, ...stored.data.filter(v => !offered.has(v.selection))] };
+  } catch { failed(); return fresh; }
+}
 export async function readVaultInventory(sdk: BbPluginApi['sdk'], input: {
   vaultId: string; root: string; folders?: string[]; metadataFolders?: string[]; metadataDepth?: number; fields: string[];
 }, signal: AbortSignal) {
