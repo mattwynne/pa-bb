@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join } from 'node:path';
 import type { BbPluginApi, JsonValue, PluginAgentToolContentPart } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
@@ -12,6 +10,15 @@ import type { GrainGroup, GrainSettings, StoredSetting } from './grain-settings.
 import type { FetchLike } from '@modelcontextprotocol/client';
 
 const empty = z.object({}).strict();
+const reconnect = 'Reconnect Apple in iCloud settings';
+const knownPhotoErrors = new Set([
+  reconnect, `${reconnect}.`,
+  'Open iCloud settings to connect or reconnect Apple.',
+  'iCloud is busy. Wait for the current operation and try again.',
+  'This selection expired or changed. Open the album again.',
+  'Could not read iCloud Photos. Try again or check the Apple connection in iCloud settings.',
+  'Could not update the iCloud Photos index. Try again shortly.',
+]);
 
 async function readForm(request: Request) {
   if (!request.body) return null;
@@ -29,10 +36,6 @@ async function readForm(request: Request) {
   } catch { return null; }
   finally { reader.releaseLock(); }
 }
-
-// Browsers other than Safari cannot decode HEIC, so Journal loads this
-// unmodified LGPL decoder on demand. It is served from the installed package.
-const heicDecoder = createRequire(import.meta.url).resolve('libheif-js/libheif-wasm/libheif-bundle.mjs');
 
 export async function registerPhotos(bb: BbPluginApi, dependencies: { grainStorage?: GrainSettings; groupStorage?: StoredSetting<GrainGroup>; grainFetch?: FetchLike } = {}) {
   function dataRoot(folder: string) {
@@ -66,6 +69,25 @@ export async function registerPhotos(bb: BbPluginApi, dependencies: { grainStora
       return { ok: false as const, error: 'The iCloud plugin could not complete the request. Check iCloud settings and try again.' };
     }
   };
+  const journalRead = async <T extends { ok: boolean; error?: string | null }>(
+    stage: 'photoLibraries' | 'photoIndexStatus' | 'photoAssets' | 'photoMonths' | 'photoAlbums' | 'photoVersionTickets',
+    input: JsonValue, outputSchema: z.ZodType<T>, signal: AbortSignal,
+  ) => {
+    const unavailable = 'iCloud Photos could not complete the request. Check iCloud settings and try again.';
+    const safeMessage = (value: string | null | undefined) => value === reconnect ? `${reconnect}.`
+      : value && knownPhotoErrors.has(value) ? value : unavailable;
+    try {
+      const result = outputSchema.parse(await bb.sdk.plugins.callRpc({ pluginId: 'icloud', method: stage, input, outputSchema, signal }));
+      if (!result.ok) {
+        if (!knownPhotoErrors.has(result.error ?? '')) bb.log.warn(`Photos ${stage} provider_failure`);
+        return { ok: false as const, error: safeMessage(result.error) };
+      }
+      return result.error ? { ...result, error: safeMessage(result.error) } : result;
+    } catch {
+      if (!signal.aborted) bb.log.warn(`Photos ${stage} unavailable`);
+      return { ok: false as const, error: unavailable };
+    }
+  };
   const clientOnly = ({ experimental_caller: caller }: { experimental_caller: { kind: string } }) => {
     if (caller.kind !== 'client') throw new Error('Use the Photos settings in BB.');
   };
@@ -74,6 +96,12 @@ export async function registerPhotos(bb: BbPluginApi, dependencies: { grainStora
     browse(input, ctx) { clientOnly(ctx); return photoRead('photosBrowse', input, rpcContract.browse.output, ctx.experimental_signal); },
     page(input, ctx) { clientOnly(ctx); return photoRead('photosPage', input, rpcContract.page.output, ctx.experimental_signal); },
     download(input, ctx) { clientOnly(ctx); return photoRead('photosTicket', input, rpcContract.download.output, ctx.experimental_signal); },
+    photoLibraries(input, ctx) { clientOnly(ctx); return journalRead('photoLibraries', input, rpcContract.photoLibraries.output, ctx.experimental_signal); },
+    photoIndexStatus(input, ctx) { clientOnly(ctx); return journalRead('photoIndexStatus', input, rpcContract.photoIndexStatus.output, ctx.experimental_signal); },
+    photoAssets(input, ctx) { clientOnly(ctx); return journalRead('photoAssets', input, rpcContract.photoAssets.output, ctx.experimental_signal); },
+    photoMonths(input, ctx) { clientOnly(ctx); return journalRead('photoMonths', input, rpcContract.photoMonths.output, ctx.experimental_signal); },
+    photoAlbums(input, ctx) { clientOnly(ctx); return journalRead('photoAlbums', input, rpcContract.photoAlbums.output, ctx.experimental_signal); },
+    photoVersionTickets(input, ctx) { clientOnly(ctx); return journalRead('photoVersionTickets', input, rpcContract.photoVersionTickets.output, ctx.experimental_signal); },
     async checkGrain(_, ctx) {
       clientOnly(ctx);
       try { await grain.check(await requireGrain()); return { ok: true as const }; }
@@ -118,20 +146,6 @@ export async function registerPhotos(bb: BbPluginApi, dependencies: { grainStora
 
   form('/group-save', grainGroup, value => changeGrain(() => groups.set(value)), 'storage');
   form('/group-clear', empty, () => changeGrain(() => groups.set(null)), 'storage');
-
-  let decoder: Promise<Buffer> | null = null;
-  bb.http.route('GET', '/libheif.mjs', async context => {
-    try {
-      decoder ??= readFile(heicDecoder);
-      return new Response(new Uint8Array(await decoder), { headers: {
-        'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff',
-      } });
-    } catch {
-      decoder = null;
-      bb.log.warn('Photos heic_decoder unavailable');
-      return context.text('The HEIC decoder is unavailable.', 503);
-    }
-  }, { auth: 'local' });
 
   async function respond(action: () => Promise<PluginAgentToolContentPart[]>) {
     try { return { content: await action() }; }

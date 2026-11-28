@@ -134,16 +134,6 @@ test('Journal sharing group is validated, stored privately and cleared', async (
   });
 });
 
-test('Journal can load the HEIC decoder from the plugin', async () => {
-  await withHost(async ({ host }) => {
-    const response = await host.harness.behavior.fetchHttp('GET', '/libheif.mjs');
-    assert.equal(response.status, 200);
-    assert.match(response.headers.get('content-type'), /^text\/javascript/);
-    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
-    assert.ok((await response.arrayBuffer()).byteLength > 1_000_000);
-  });
-});
-
 test('Journal keeps gallery text within Grain limits and does not pretend to post', async () => {
   const { clampBytes, byteLength, shareGallery, TITLE_LIMIT } = await import('../share.ts');
   assert.equal(byteLength(clampBytes('é'.repeat(80), TITLE_LIMIT)), 100);
@@ -152,7 +142,4 @@ test('Journal keeps gallery text within Grain limits and does not pretend to pos
   const result = await shareGallery({ title: 'A walk', words: '', photos: [] });
   assert.equal(result.ok, false);
   assert.match(result.message, /isn’t connected yet/);
-  const { takenAt } = await import('../journal-images.ts');
-  assert.equal(await takenAt(new ArrayBuffer(8), '2015-01-16 09.34.21.jpg'), '2015-01-16T09:34:21');
-  assert.equal(await takenAt(new ArrayBuffer(8), 'IMG_0001.HEIC'), null);
 });
