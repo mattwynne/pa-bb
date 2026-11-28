@@ -16,14 +16,16 @@
     },
     "server": "./server.ts",
     "app": "./app.tsx",
-    "skills": ["skills"]
+    "skills": [
+      "skills"
+    ]
   },
   "dependencies": {
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.1",
-    "@get-bb/plugin-sdk": "0.6.132",
+    "@get-bb/plugin-sdk": "0.6.157",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "^22.0.0",
     "@types/react": "19.2.7",
