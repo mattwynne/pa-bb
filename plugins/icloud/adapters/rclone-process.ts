@@ -2,6 +2,7 @@ import { rcConnectionFailure } from './rclone-connection-failure.ts';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { request } from 'node:http';
+import type { IncomingMessage } from 'node:http';
 import { constants } from 'node:fs';
 import { chmod, mkdir, open, readFile, lstat, writeFile, unlink } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
@@ -151,7 +152,7 @@ export class RcloneProcess {
       await this.rawCall('core/quit', {}).catch(() => {});
       await unlink(this.socket).catch(() => {});
       if (this.stopping) throw new CloudError('interrupted');
-      const child = spawn(this.binary!, ['rcd', '--rc-addr', `unix://${this.socket}`, '--rc-no-auth', ...this.flags()], { env: safeEnvironment(), stdio: 'ignore' });
+      const child = spawn(this.binary!, ['rcd', '--rc-addr', `unix://${this.socket}`, '--rc-no-auth', '--rc-serve', '--rc-serve-no-modtime', ...this.flags()], { env: safeEnvironment(), stdio: 'ignore' });
       this.child = child;
       child.on('error', () => {});
       for (let attempt = 0; attempt < 100; attempt++) {
@@ -162,12 +163,13 @@ export class RcloneProcess {
       throw new CloudError('unavailable');
     } catch (error) { this.requestStop(); await this.release(); throw error instanceof CloudError ? error : new CloudError('unavailable'); }
   }
-  private rawCall(method: string, body: Record<string, unknown>): Promise<any> {
+  private rawCall(method: string, body: Record<string, unknown>, signal?: AbortSignal, limit = 4 * 1024 * 1024): Promise<any> {
     return new Promise((resolve, reject) => {
       const fail = () => reject(new CloudError('unavailable'));
-      const req = request({ socketPath: this.socket, path: `/${method}`, method: 'POST', headers: { 'Content-Type': 'application/json' } }, res => {
+      const req = request({ socketPath: this.socket, path: `/${method}`, method: 'POST', signal, headers: { 'Content-Type': 'application/json' } }, res => {
         let data = ''; let size = 0;
-        res.on('data', chunk => { size += chunk.length; if (size > 4 * 1024 * 1024) { req.destroy(); fail(); } else data += chunk; });
+        res.setEncoding('utf8');
+        res.on('data', chunk => { size += Buffer.byteLength(chunk); if (size > limit) { req.destroy(); fail(); } else data += chunk; });
         res.on('error', fail);
         res.on('end', () => {
           if (res.statusCode !== 200) {
@@ -181,6 +183,24 @@ export class RcloneProcess {
     });
   }
   async call(method: string, body: Record<string, unknown>) { await this.ensure(); if (this.stopping) throw new CloudError('interrupted'); if (this.fileWork) throw new CloudError('busy'); return this.rawCall(method, body); }
+  async listPhotos(parts: string[], signal: AbortSignal) {
+    await this.ensure();
+    signal.throwIfAborted();
+    if (this.fileWork) throw new CloudError('busy');
+    return this.rawCall('operations/list', { fs: 'icloud,service=photos:', remote: parts.join('/'),
+      opt: { recurse: false, noModTime: true, noMimeType: true } }, signal, 48 * 1024 * 1024);
+  }
+  async openPhoto(parts: string[], signal: AbortSignal) {
+    await this.ensure();
+    signal.throwIfAborted();
+    if (this.fileWork) throw new CloudError('busy');
+    const path = `/${encodeURIComponent('[icloud,service=photos:]')}/${parts.map(encodeURIComponent).join('/')}`;
+    return new Promise<IncomingMessage>((resolve, reject) => {
+      const req = request({ socketPath: this.socket, path, signal }, resolve);
+      req.on('error', () => reject(new CloudError('unavailable')));
+      req.end();
+    });
+  }
   // Same native generation and inherited flock as run(), not a second mutex
   // claiming to exclude rclone. No native command may start during this work.
   async withFiles<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {

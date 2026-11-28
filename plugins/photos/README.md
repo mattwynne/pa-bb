@@ -8,14 +8,11 @@ In a PA for BB checkout, run `npm ci` in `plugins/photos`, then `bb plugin insta
 
 ### iCloud Photos
 
-1. Install rclone with the [iCloud Photos backend](https://rclone.org/iclouddrive/#icloud-photos) and util-linux `flock` on the BB Linux host. The PA host dependencies include rclone. The plugin looks for it in `/usr/local/bin`, `/usr/bin` and `/bin`.
-2. On a trusted Apple device, open **Settings → Apple Account → iCloud** and enable **Access iCloud Data on the Web**. Approve a trusted-device request if Apple asks.
-3. In Photos settings, enter your Apple account email and regular Apple password, then follow the verification prompt. Enter credentials and codes only in the settings form.
-4. Choose **Browse library** to open a personal or shared library and its albums. Preview supported images on demand or choose **Download** for an original file. Each Live Photo component that rclone returns is shown separately.
+1. Enable the [iCloud plugin](../icloud/README.md) version 0.3.3 or later.
+2. If needed, connect your Apple account in **iCloud** settings. On a trusted Apple device, enable **Access iCloud Data on the Web** and follow any approval prompt.
+3. Return to **Photos** and choose **Browse library** to open a personal or shared library and its albums.
 
-The Apple sign-in belongs to Photos. It uses a separate encrypted rclone config and read-only remote. The plugin fetches album listings as you open them and streams selected originals to your browser. JPEG, PNG, GIF and WebP files up to 20 MiB can be previewed. Other files are available as original downloads. rclone can take longer to open a large album on the first visit.
-
-If Apple expires the session or browsing stops working, use **Manage Apple connection → Reconnect**. **Disconnect** removes the Photos remote and its listing cache on the BB host.
+Photos uses the Apple session managed by iCloud. The iCloud plugin provides read-only album listings and streams individual originals to the browser. JPEG, PNG, GIF and WebP files up to 20 MiB can be previewed. Other files are available as original downloads. Each Live Photo component that rclone returns is shown separately. If Apple expires the session or browsing stops working, open **iCloud** settings to reconnect.
 
 ### Grain MCP
 
@@ -25,4 +22,4 @@ In a conversation, the assistant can use `grain_list_tools` to discover the conn
 
 ## Verification
 
-Run `npm run typecheck`, `npm run build` and `npm test`. The test suite uses generated files and synthetic Apple and MCP responses. The native rclone test exercises retrieval through its private Unix socket with generated files. Run the rendered review against BB with `BB_REVIEW_BASE=http://127.0.0.1:PORT node test/rendered-review.mjs`. Live Apple sign-in and private Grain authentication must be verified with the respective account owner.
+Run `npm run typecheck`, `npm run build` and `npm test`. The test suite uses generated files and synthetic Apple and MCP responses. The iCloud tests cover the shared session and stream generated files through its private rclone socket. Run the rendered review against BB with `BB_REVIEW_BASE=http://127.0.0.1:PORT node test/rendered-review.mjs`. Live Apple sign-in and private Grain authentication must be verified with the respective account owner.

@@ -1,11 +1,6 @@
 const messages = {
   busy: 'An operation is already running. Wait for it to finish, then try again.',
-  host: 'The Photos host could not start rclone. Check the host requirements in the setup guide.',
-  unavailable: 'iCloud Photos did not complete the request. Try again or reconnect Apple.',
-  sign_in: 'Apple sign-in did not complete. Check your Apple account and start again.',
-  verification: 'The Apple verification step ended. Start Apple sign-in again.',
-  selection: 'This selection expired or changed. Open the album again.',
-  limit: 'The service returned more data than BB can display. Open a smaller album or use a narrower tool request.',
+  limit: 'The service returned more data than BB can display. Use a narrower Grain tool request.',
   cancelled: 'The connection changed or the request was cancelled. Try again.',
   timeout: 'The service did not respond in time. Try again for reads and verify any changes before retrying.',
   unconfigured: 'Connect this service in Photos settings first.',

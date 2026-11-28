@@ -1,4 +1,5 @@
 import { defineRpcContract } from '@get-bb/plugin-sdk';
+import { photosContract } from './core/photos-contract.ts';
 import { z } from 'zod';
 import { diagnosticsSchema, historyQuerySchema } from './core/diagnostics.js';
 import { traceQuerySchema, traceSnapshotSchema } from './core/rclone-trace.ts';
@@ -12,6 +13,7 @@ export const statusSchema = z.object({ maintenance: z.object({ admissionPaused: 
 const id = z.object({ id: z.string().min(1).max(64) }).strict();
 const pauseOrResume = z.union([id, z.object({ updateJob: z.string().uuid() }).strict()]);
 export const rpcContract = defineRpcContract({
+  ...photosContract,
   ...mirrorFileContract,
   status: { input: z.null(), output: statusSchema },
   attentionAction: { input: z.object({ generation: z.string().min(1).max(160), action: z.enum(['claim', 'snooze']) }).strict(), output: z.boolean() },

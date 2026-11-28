@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
 import { definePluginApp, useRpc } from '@get-bb/plugin-sdk/app';
 import type { rpcContract } from './contract.ts';
 import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButton, ConnectionDisclosure, ConnectionEmpty, ConnectionFooter, ConnectionGuide, ConnectionHeading, ConnectionSetup } from './connection-ui.tsx';
@@ -8,7 +7,7 @@ import './app.css';
 
 const GUIDE = 'https://github.com/mattwynne/pa-bb/blob/main/plugins/photos/README.md';
 const HTTP = '/api/v1/plugins/photos/http';
-type Status = { apple: 'disconnected' | 'verification' | 'saved'; grain: string | null };
+type Status = { apple: 'disconnected' | 'shared' | 'unavailable'; grain: string | null };
 type Entry = { name: string; directory: boolean; size: number | null };
 type BrowseView = { listing: string; entries: Entry[]; total: number; path: string[] };
 
@@ -21,16 +20,12 @@ async function submit(path: string, value: object): Promise<Status> {
   return reply.status;
 }
 
-function ApplePhotos({ state, setStatus, refresh }: { state: Status['apple']; setStatus(value: Status): void; refresh(): Promise<void> }) {
+function ApplePhotos({ state, refresh }: { state: Status['apple']; refresh(): Promise<void> }) {
   const rpc = useRpc<typeof rpcContract>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [reconnecting, setReconnecting] = useState(false);
   const [view, setView] = useState<BrowseView | null>(null);
   const [preview, setPreview] = useState<{ name: string; url: string } | null>(null);
-  const [account, setAccount] = useState('');
-  const [password, setPassword] = useState('');
-  const [code, setCode] = useState('');
   const browserHeading = useRef<HTMLHeadingElement>(null);
   const focusBrowser = useRef(false);
 
@@ -44,23 +39,6 @@ function ApplePhotos({ state, setStatus, refresh }: { state: Status['apple']; se
     try { await action(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Try the request again.'); }
     finally { setBusy(false); }
-  }
-
-  async function signIn(event: FormEvent) {
-    event.preventDefault();
-    setPassword(''); setPreview(null); setView(null);
-    await act(async () => {
-      try { setStatus(await submit('apple-connect', { account, password })); setAccount(''); setReconnecting(false); }
-      catch (error) { await refresh(); throw error; }
-    });
-  }
-
-  async function verify(answer: string) {
-    setCode('');
-    await act(async () => {
-      try { setStatus(await submit('apple-verify', { answer })); }
-      catch (error) { await refresh(); throw error; }
-    });
   }
 
   async function open(index: number | null, root = false) {
@@ -89,7 +67,7 @@ function ApplePhotos({ state, setStatus, refresh }: { state: Status['apple']; se
     await act(async () => {
       const reply = await rpc.call('download', { listing: view.listing, index, mode });
       if (!reply.ok) throw new Error(reply.error);
-      const url = `${HTTP}/apple-download?ticket=${encodeURIComponent(reply.ticket)}`;
+      const url = `/api/v1/plugins/icloud/http/photo-download?ticket=${encodeURIComponent(reply.ticket)}`;
       if (mode === 'preview') setPreview({ name: view.entries[index].name, url });
       else {
         const anchor = document.createElement('a');
@@ -102,27 +80,19 @@ function ApplePhotos({ state, setStatus, refresh }: { state: Status['apple']; se
   }
 
   return <section className="pa-photos__service" aria-label="iCloud Photos">
-    <ConnectionHeading title="iCloud Photos" action={state === 'saved' && !reconnecting && <ConnectionButton tone="primary" disabled={busy} onClick={() => void open(null, true)}>Browse library</ConnectionButton>} />
+    <ConnectionHeading title="iCloud Photos" action={state === 'shared' && <ConnectionButton tone="primary" disabled={busy} onClick={() => void open(null, true)}>Browse library</ConnectionButton>} />
     {busy && <p role="status" className="pa-photos__status">Working…</p>}
     {error && <ConnectionAlert>{error}</ConnectionAlert>}
-    {state === 'verification' ? <ConnectionSetup title="Verify your Apple account">
-      <p>Enter the six-digit code from your trusted Apple device.</p>
-      <form className="pa-photos__form" onSubmit={event => { event.preventDefault(); void verify(code); }}>
-        <label>Verification code<input type="password" value={code} onChange={event => setCode(event.target.value)} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required /></label>
-        <div className="pa-photos__actions"><ConnectionButton type="submit" tone="primary" disabled={busy}>Verify</ConnectionButton>
-          <ConnectionButton disabled={busy} onClick={() => void verify('sms')}>Send by SMS</ConnectionButton></div>
-      </form>
-      <ConnectionButton disabled={busy} onClick={() => void act(async () => setStatus(await submit('apple-disconnect', {})))}>Start over</ConnectionButton>
-    </ConnectionSetup> : state === 'disconnected' || reconnecting ? <ConnectionSetup title={reconnecting ? 'Reconnect Apple' : 'Connect your Apple account'}>
-      <p>Turn on <strong>Access iCloud Data on the Web</strong> on a trusted Apple device, then sign in here.</p>
-      <form className="pa-photos__form" onSubmit={event => void signIn(event)}>
-        <label>Apple account email<input type="email" value={account} onChange={event => setAccount(event.target.value)} autoComplete="username" maxLength={320} required /></label>
-        <label>Apple password<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" maxLength={4096} required /></label>
-        <div className="pa-photos__actions"><ConnectionButton type="submit" tone="primary" disabled={busy}>Sign in with Apple account</ConnectionButton>
-          {reconnecting && <ConnectionButton disabled={busy} onClick={() => { setReconnecting(false); setPassword(''); }}>Cancel</ConnectionButton>}</div>
-      </form>
+    {state !== 'shared' ? <ConnectionSetup title={state === 'disconnected' ? 'Connect Apple in iCloud' : 'iCloud plugin required'}>
+      <p>{state === 'disconnected'
+        ? 'Sign in once in iCloud settings, then return here to browse your photo library.'
+        : 'Enable or update the iCloud plugin to use its Apple connection for Photos.'}</p>
+      <div className="pa-photos__actions">
+        <ConnectionGuide href="/plugins/icloud?configure=icloud">Open iCloud settings ↗</ConnectionGuide>
+        <ConnectionButton disabled={busy} onClick={() => void act(refresh)}>Refresh connection</ConnectionButton>
+      </div>
     </ConnectionSetup> : <>
-      {!view && <ConnectionAccounts><ConnectionAccount initial="A" label="Apple account" status="Sign-in saved" /></ConnectionAccounts>}
+      {!view && <ConnectionAccounts><ConnectionAccount initial="A" label="iCloud connection" status="Sign-in available" /></ConnectionAccounts>}
       {view && <div className="pa-photos__browser" aria-label="Photo library browser">
         <div className="pa-photos__actions">
           {view.path.length > 0 && <ConnectionButton disabled={busy} onClick={() => void open(null)}>Up one level</ConnectionButton>}
@@ -144,12 +114,6 @@ function ApplePhotos({ state, setStatus, refresh }: { state: Status['apple']; se
         </ul>}
         {view.entries.length < view.total && <ConnectionButton disabled={busy} onClick={() => void more()}>Show more</ConnectionButton>}
       </div>}
-      <ConnectionDisclosure summary="Manage Apple connection">
-        <div className="pa-photos__actions"><ConnectionButton disabled={busy} onClick={() => { setError(''); setReconnecting(true); }}>Reconnect</ConnectionButton>
-          <ConnectionButton disabled={busy} onClick={() => void act(async () => {
-            setStatus(await submit('apple-disconnect', {})); setView(null); setPreview(null); setAccount('');
-          })}>Disconnect</ConnectionButton></div>
-      </ConnectionDisclosure>
     </>}
   </section>;
 }
@@ -215,7 +179,7 @@ function PhotosSettings() {
   useEffect(() => { void refresh(); }, []);
   return <div className="pa-photos">
     {error && <ConnectionAlert>Could not read your Photos settings. <ConnectionButton onClick={() => void refresh()}>Try again</ConnectionButton></ConnectionAlert>}
-    {status ? <><ApplePhotos state={status.apple} setStatus={next => setStatus(current => current && { ...current, apple: next.apple })} refresh={refresh} />
+    {status ? <><ApplePhotos key={status.apple} state={status.apple} refresh={refresh} />
       <Grain endpoint={status.grain} setStatus={next => setStatus(current => current && { ...current, grain: next.grain })} /></>
       : !error && <ConnectionEmpty><span role="status">Loading settings…</span></ConnectionEmpty>}
     <ConnectionFooter><ConnectionGuide href={GUIDE} /></ConnectionFooter>

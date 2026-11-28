@@ -1,7 +1,7 @@
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 
-const appleState = z.enum(['disconnected', 'verification', 'saved']);
+const appleState = z.enum(['disconnected', 'shared', 'unavailable']);
 const id = z.string().uuid();
 const entry = z.object({ name: z.string(), directory: z.boolean(), size: z.number().int().nonnegative().nullable() });
 const error = z.object({ ok: z.literal(false), error: z.string() });

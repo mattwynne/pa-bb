@@ -44,19 +44,16 @@ try {
       } else throw new Error(`Unexpected RPC ${method}`);
       return route.fulfill({ json: { ok: true, result } });
     });
-    await page.route('**/api/v1/plugins/photos/http/**', route => {
+    await page.route(/\/api\/v1\/plugins\/(?:photos\/http\/grain-[^/]+|icloud\/http\/photo-download)/, route => {
       const url = new URL(route.request().url());
       const method = url.pathname.split('/').at(-1);
-      if (method === 'apple-download') {
+      if (method === 'photo-download') {
         const mode = tickets.get(url.searchParams.get('ticket'));
         assert.ok(mode);
         return route.fulfill({ body: png, headers: mode === 'preview' ? { 'content-type': 'image/png' }
           : { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="fixture.png"' } });
       }
-      if (method === 'apple-connect') status.apple = 'verification';
-      else if (method === 'apple-verify') status.apple = 'saved';
-      else if (method === 'apple-disconnect') status.apple = 'disconnected';
-      else if (method === 'grain-connect') status.grain = fixtureUrl;
+      if (method === 'grain-connect') status.grain = fixtureUrl;
       else if (method === 'grain-disconnect') status.grain = null;
       else throw new Error(`Unexpected route ${method}`);
       return route.fulfill({ json: { ok: true, status } });
@@ -65,21 +62,21 @@ try {
     const main = page.locator('.pa-photos');
     const apple = main.getByRole('region', { name: 'iCloud Photos' });
     const grain = main.getByRole('region', { name: 'Grain' });
-    const email = apple.getByLabel('Apple account email');
-    await email.waitFor();
+    const link = apple.getByRole('link', { name: 'Open iCloud settings' });
+    await link.waitFor();
+    assert.equal(await link.getAttribute('href'), '/plugins/icloud?configure=icloud');
+    assert.equal(await apple.locator('input').count(), 0);
     assert.equal(await main.evaluate(element => element.scrollWidth > element.clientWidth), false);
-    await email.focus();
-    await page.keyboard.type('apple@example.test');
+    await link.focus();
     await page.keyboard.press('Tab');
-    const password = apple.getByLabel('Apple password', { exact: true });
-    assert.equal(await password.evaluate(el => el === document.activeElement), true);
-    assert.equal(await password.getAttribute('type'), 'password');
+    const refresh = apple.getByRole('button', { name: 'Refresh connection' });
+    assert.equal(await refresh.evaluate(el => el === document.activeElement), true);
     await page.screenshot({ path: `${artifacts}/setup-${width}.png` });
-    await password.fill('synthetic-password');
-    await apple.getByRole('button', { name: 'Sign in with Apple account' }).click();
-    const code = apple.getByLabel('Verification code', { exact: true });
-    await code.fill('123456');
-    await apple.getByRole('button', { name: 'Verify', exact: true }).click();
+    status.apple = 'unavailable';
+    await refresh.click();
+    await apple.getByText('iCloud plugin required').waitFor();
+    status.apple = 'shared';
+    await refresh.click();
     await apple.getByRole('button', { name: 'Browse library' }).click();
     await apple.getByRole('button', { name: 'Open Personal library' }).click();
     await apple.getByRole('button', { name: 'Open Empty album' }).click();
@@ -108,6 +105,6 @@ try {
     await grain.getByRole('button', { name: 'Disconnect', exact: true }).click();
     await grain.getByRole('button', { name: 'Connect Grain' }).waitFor();
     await page.close();
-    console.log(`Photos at ${width}px: setup, keyboard, 2FA, album browser, preview, download, Grain and recovery passed`);
+    console.log(`Photos at ${width}px: shared-session setup, keyboard, album browser, preview, download, Grain and recovery passed`);
   }
 } finally { await browser.close(); }

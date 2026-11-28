@@ -6,7 +6,7 @@ An independent iCloud Drive connection with protected Apple login/2FA, folder br
 bb plugin install icloud@pa-for-bb
 ```
 
-Follow the [setup and recovery guide](docs/setup.md). No folder syncs until **Enable sync** is confirmed. Use a disposable folder for the first live test. Photos and whole-Drive selection are not offered.
+Follow the [setup and recovery guide](docs/setup.md). No folder syncs until **Enable sync** is confirmed. Use a disposable folder for the first live test. Use the [Photos plugin](../photos/README.md) to browse or download iCloud Photos with this Apple session. iCloud Drive selection is per folder.
 
 ## Local-path maintenance
 

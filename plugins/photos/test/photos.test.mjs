@@ -1,47 +1,15 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
 import test from 'node:test';
 import { createFakePluginHost, makePluginAgentConfigurationContext } from '@get-bb/plugin-sdk/testing';
 import { grainSettingsFile } from '../grain-settings.ts';
-import { applePhotos } from '../apple.ts';
-import { rcloneRemote } from '../rclone.ts';
 import { registerPhotos } from '../dist/server.js';
 
 const endpoint = 'https://photos.example.test/mcp';
 const token = 'synthetic-private-grain-token';
-const appleSecret = 'synthetic-private-apple-password';
 const privateText = 'SYNTHETIC_PRIVATE_CONTENT';
 const caller = { experimental_caller: { kind: 'client' } };
-const entry = (parent, name, directory = false) => ({ Path: parent ? `${parent}/${name}` : name, Name: name, IsDir: directory, Size: 4 });
-const bytes = Buffer.from([0x00, 0xff, 0x01, 0x00]);
-
-function mockApple() {
-  const calls = [];
-  let reset = 0;
-  return { calls, resets: () => reset, closed: false, fail: false,
-    async resetAccount() { reset++; },
-    async rpc(method, body) {
-      calls.push({ method, body });
-      if (this.fail) throw new Error(`${privateText} ${appleSecret}`);
-      if (method === 'config/create') return { State: 'private-challenge', Option: { Name: 'config_2fa' }, Error: '' };
-      if (method === 'config/update') return { State: '', Option: null };
-      assert.equal(method, 'operations/list');
-      assert.equal(body.fs, 'apple-photos:');
-      if (!body.remote) return { list: [entry('', 'PrimarySync', true)] };
-      if (body.remote === 'PrimarySync') return { list: [entry(body.remote, 'All Photos', true), entry(body.remote, 'Empty', true)] };
-      if (body.remote.endsWith('/Empty')) return { list: [] };
-      return { list: [entry(body.remote, 'café #1.jpg'), ...Array.from({ length: 100 }, (_, index) => entry(body.remote, `IMG_${index}.HEIC`))] };
-    },
-    async object(parts) {
-      assert.deepEqual(parts, ['PrimarySync', 'All Photos', 'café #1.jpg']);
-      return Object.assign(Readable.from([bytes], { objectMode: false }), { statusCode: 200, headers: { 'content-length': '4' } });
-    },
-    async close() { this.closed = true; },
-  };
-}
 
 function mockGrain() {
   const calls = [];
@@ -71,62 +39,40 @@ function mockGrain() {
 function tool(name) { return { name, inputSchema: { type: 'object', properties: {} } }; }
 
 async function withHost(run) {
-  const host = createFakePluginHost({ pluginId: 'photos', agentSkillIds: ['photos'] });
-  const apple = mockApple(), grain = mockGrain();
+  let available = false;
+  const host = createFakePluginHost({ pluginId: 'photos', agentSkillIds: ['photos'], sdk: { plugins: {
+    callRpc({ pluginId, method }) {
+      assert.equal(pluginId, 'icloud');
+      if (!available) throw new Error(privateText);
+      if (method === 'photosStatus') return 'shared';
+      assert.equal(method, 'photosBrowse');
+      return { ok: false, error: 'Open the album again.' };
+    },
+  } } });
+  const grain = mockGrain();
   const temp = await mkdtemp('/tmp/photos-settings-test-');
   const grainStorage = grainSettingsFile(join(temp, 'grain'));
-  await registerPhotos(host.bb, { apple, grainStorage, grainFetch: grain.fetcher });
+  await registerPhotos(host.bb, { grainStorage, grainFetch: grain.fetcher });
   try {
     const { behavior } = host.harness;
     const post = async (path, json) => (await behavior.fetchHttp("POST", `/${path}`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(json),
     })).json();
     const rpc = (name, input) => behavior.callRpc(name, input, caller);
-    const download = ticket => behavior.fetchHttp("GET", `/apple-download?ticket=${ticket}`);
-    await run({ host, apple, grain, grainStorage, post, rpc, download });
-  } finally { await host.harness.lifecycle.dispose(); await rm(temp, { recursive: true, force: true }); assert.equal(apple.closed, true); }
+    await run({ host, grain, grainStorage, post, rpc, connect: () => { available = true; } });
+  } finally { await host.harness.lifecycle.dispose(); await rm(temp, { recursive: true, force: true }); }
 }
 
-test('Apple sign-in, nested albums, paging, selected download and safe failure diagnostics', async () => {
-  await withHost(async ({ host, apple, post, rpc, download }) => {
-    assert.deepEqual(await rpc('status', null), { apple: 'disconnected', grain: null });
-    const start = await post('apple-connect', { account: 'apple@example.test', password: appleSecret });
-    assert.equal(start.status.apple, 'verification');
-    assert.equal((await post('apple-verify', { answer: '123456' })).status.apple, 'saved');
-    assert.equal(apple.calls.find(call => call.method === 'config/create').body.parameters.service, 'photos');
-    const libraries = await rpc('browse', { parent: null });
-    const library = await rpc('browse', { parent: { listing: libraries.listing, index: 0 } });
-    const album = await rpc('browse', { parent: { listing: library.listing, index: 0 } });
-    assert.equal(album.total, 101);
-    assert.equal(album.entries.length, 100);
-    assert.equal((await rpc('page', { listing: album.listing, offset: 100 })).entries.length, 1);
-    const parent = await rpc('browse', { parent: { listing: album.listing, index: null } });
-    assert.equal(parent.entries[0].name, 'All Photos');
-    const empty = await rpc('browse', { parent: { listing: parent.listing, index: 1 } });
-    assert.equal(empty.total, 0);
-    assert.equal((await rpc('download', { listing: parent.listing, index: 0, mode: 'download' })).ok, false);
-    const input = { listing: album.listing, index: 0, mode: 'download' };
-    await assert.rejects(host.harness.behavior.callRpc('download', input, { experimental_caller: { kind: 'plugin', pluginId: 'other' } }), /Photos settings/);
-    const file = await rpc('download', input);
-    const response = await download(file.ticket);
-    assert.equal(response.status, 200);
-    assert.match(response.headers.get('content-disposition'), /^attachment.*caf%C3%A9%20%231.jpg$/);
-    assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
-    assert.equal((await download(file.ticket)).status, 404);
-    const preview = await rpc('download', { ...input, mode: 'preview' });
-    const image = await download(preview.ticket);
-    assert.equal(image.headers.get('content-type'), 'image/jpeg');
-    await image.arrayBuffer();
-    apple.fail = true;
-    const failedRead = await rpc('browse', { parent: null });
-    const logs = JSON.stringify(host.harness.inspection.logEntries);
-    assert.equal(failedRead.ok, false);
-    assert.match(logs, /Photos apple_browse unavailable/);
-    assert.doesNotMatch(logs + JSON.stringify(failedRead), new RegExp(`${appleSecret}|${privateText}`));
-    const newer = await rpc('download', input);
-    assert.equal((await post('apple-disconnect', {})).status.apple, 'disconnected');
-    assert.equal((await download(newer.ticket)).status, 404);
-    assert.equal(apple.resets(), 2);
+test('Photos delegates library access to iCloud and offers recovery if the capability is unavailable', async () => {
+  await withHost(async ({ host, rpc, connect }) => {
+    assert.deepEqual(await rpc('status', null), { apple: 'unavailable', grain: null });
+    const failure = await rpc('browse', { parent: null });
+    assert.equal(failure.ok, false);
+    assert.doesNotMatch(JSON.stringify([failure, host.harness.inspection.logEntries]), new RegExp(privateText));
+    connect();
+    assert.deepEqual(await rpc('status', null), { apple: 'shared', grain: null });
+    assert.equal((await rpc('browse', { parent: null })).error, 'Open the album again.');
+    assert.equal(host.harness.inspection.registrations.httpRoutes.some(route => route.path.includes('apple')), false);
   });
 });
 
@@ -164,34 +110,4 @@ test('Grain verifies before saving and exposes paginated tools with safe failure
     assert.equal((await post('grain-disconnect', {})).status.grain, null);
     assert.equal((await resolve()).tools.length, 0);
   });
-});
-
-const native = process.platform === 'linux' && spawnSync('rclone', ['version'], { stdio: 'ignore' }).status === 0;
-test('native rclone uses encrypted config, exclusive ownership and exact nested streaming', { skip: !native }, async () => {
-  const temp = await mkdtemp('/tmp/photos-native-test-');
-  const root = join(temp, 'state');
-  const remote = rcloneRemote(root);
-  const competing = rcloneRemote(root);
-  const signal = AbortSignal.timeout(30_000);
-  try {
-    const fixture = join(temp, 'fixture');
-    await mkdir(join(fixture, 'Album with spaces'), { recursive: true });
-    await writeFile(join(fixture, 'Album with spaces', 'café #1.jpg'), bytes);
-    await remote.resetAccount(signal);
-    await remote.rpc('config/create', { name: 'apple-photos', type: 'alias', parameters: { remote: fixture }, opt: { nonInteractive: true } }, signal);
-    assert.match(await readFile(join(root, 'rclone.conf'), 'utf8'), /^RCLONE_ENCRYPT_V0:$/m);
-    await assert.rejects(competing.rpc('rc/noop', {}, signal), { category: 'busy' });
-    const apple = applePhotos(remote, { get: async () => true, set: async () => {} });
-    const library = await apple.browse(null);
-    const album = await apple.browse({ listing: library.listing, index: 0 });
-    const { ticket } = await apple.ticket(album.listing, 0, 'download');
-    const { response } = await apple.download(ticket, signal);
-    assert.deepEqual(Buffer.concat(await Array.fromAsync(response)), bytes);
-    await apple.close();
-    await competing.rpc('rc/noop', {}, signal);
-  } finally {
-    await remote.close();
-    await competing.close();
-    await rm(temp, { recursive: true, force: true });
-  }
 });
