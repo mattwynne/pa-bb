@@ -47,6 +47,51 @@ incomplete coverage. Results use only mirror-relative names.
 
 `adapters/rclone-cloud-provider.ts` delegates enumeration, comparison and two-way updates to stock rclone bisync. `rclone-process.ts` owns process lifecycle, encrypted configuration, separately protected keys and the private Unix socket. `server.ts` drives the core through authenticated HTTP forms, typed non-secret RPC and a durable BB schedule. Login credentials and 2FA codes are not agent tools or RPC inputs.
 
+## Photo library RPCs
+
+The host-verified Photos plugin can discover personal and shared libraries with
+`photoLibraries` and start or refresh a library index with `photoIndexStatus`.
+`photoAssets` returns up to 200 rows ordered by capture date, and `photoMonths`
+gives offsets for months with known capture dates. Dates without a capture
+timestamp sort before dated rows in oldest-first order and after them in
+newest-first order. `photoAlbums` returns smart albums, user albums, and folders.
+User and smart album pages can read Apple live. Album counts can be unknown
+until an album is opened, and month offsets are available for All Photos.
+The library lists visible assets. Previously hidden or deleted rows are
+removed as Apple reports their changes.
+
+The background scan writes the newest pages first to the plugin's scoped SQLite
+database. Each page commits with its resume rank. The first page's CloudKit
+token lets the reader catch up after the rank scan. Subsequent polls refresh
+using the saved change token, at most once per minute after a successful refresh.
+Rank overlap and a final count check detect changes that could leave gaps in a
+full scan. Missing or expired tokens can require another full scan. Metadata
+is bound to the Apple account, and the newest indexed pages are readable while
+the scan runs. SQLite stores asset metadata and CloudKit cursors. Short-lived
+signed resource links are kept in a bounded memory cache.
+
+`photoVersionTickets` returns reusable opaque tickets for available thumb,
+medium, large, and original resources. Tickets issued for a version last at
+least ten minutes. The local `/photo-version` route streams up to six concurrent
+downloads, refreshes rejected signed links once, and uses Apple's media type
+or the resource's declared type when the CDN sends a generic type. Resource
+sizes and available versions come from Apple. The existing browse and
+`/photo-download` APIs remain available.
+
+The reader decrypts a read-only snapshot of the saved rclone config and uses
+rclone's cached CloudKit endpoint. CloudKit database requests are serialized
+and honor Apple's `Retry-After`. Download requests to Apple carry no session
+cookies. Photos accesses its own scoped tables and never needs the Drive
+worker's mirror lock or control socket. Account changes and maintenance pause
+admission and cancel the affected photo work. On a rejected Apple session,
+the reader checks the saved session once and asks for a reconnect if the
+session still fails. Reconnect is handled by iCloud Settings. Logs contain
+operation names and fixed failure categories.
+
+The CloudKit wire format was cross-checked against [rclone's iCloud
+backend](https://github.com/rclone/rclone/tree/v1.75.2/backend/iclouddrive) and
+[icloud.js](https://github.com/foxt/icloud.js).
+
 The read-only `diagnostics` RPC keeps successful sync summaries for seven days and failures/interrupted runs for 30 days, with independent capacity budgets so healthy traffic cannot evict errors. Responses default to a latest-20 page; older pages and errors-only queries remain available. Summaries include timings, safe counters and bounded failure evidence, never folder names, paths or provider messages. History storage failures are reported separately and never cause a provider retry. Legacy backup stages remain readable in old summaries. A separate private rotating rclone trace keeps projected native activity, counters and recognized error categories for future bisync attempts: **four files of at most 1 MiB each**, oldest replaced automatically. Read it without starting sync using `bb plugin rpc call icloud rcloneLogs --json`. Raw messages, filenames, credentials and provider payloads are not stored. Trace failures never fail or retry a provider operation. See [diagnostics](docs/setup.md#diagnostics).
 
 Other integrations can call the read-only `inventory` RPC or use

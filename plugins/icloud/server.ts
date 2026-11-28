@@ -20,10 +20,14 @@ import { MirrorRuntime } from './adapters/mirror-runtime.ts';
 import { maintenanceCli } from './adapters/maintenance-cli.ts';
 import { photoLibrary, previewLimit } from './adapters/photo-library.ts';
 import type { PhotoRemote } from './adapters/photo-library.ts';
+import { CloudKitPhotos, photoFailureCategory, readPhotoSession } from './adapters/cloudkit-photos.ts';
+import { PhotoIndex } from './adapters/photo-index.ts';
+import { PhotoPrimitives } from './adapters/photo-primitives.ts';
+import { PhotoVersions } from './adapters/photo-versions.ts';
 import { DirectPush } from './adapters/direct-push.ts';
 import type Database from 'better-sqlite3';
 
-export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudProvider; repository?: StateRepository; history?: RunHistoryRepository; worker?: RcloneProcess; runtime?: MirrorRuntime; photoRemote?: PhotoRemote }) {
+export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudProvider; repository?: StateRepository; history?: RunHistoryRepository; worker?: RcloneProcess; runtime?: MirrorRuntime; photoRemote?: PhotoRemote; photoCloud?: CloudKitPhotos; photoVersionTransport?: typeof fetch }) {
   const diagnose = diagnosticLogger(message => bb.log.warn(message));
   let provider = dependencies?.provider;
   let runtime: MirrorRuntime | undefined;
@@ -68,9 +72,10 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
   let available = false;
   try { await sync.checkAvailability(); available = true; } catch (error) { diagnose('prerequisite', category(error), { evidence: evidence(error) }); }
   const local = async (id: string) => ({ ...(runtime ? await runtime.availability(id) : { available: false, reason: 'ownership' as const }), pendingAgeMs: runtime?.pendingAgeMs(id) ?? null, applicationBlocker: runtime?.applicationBlocker(id) ?? null });
+  let photoPrimitives: PhotoPrimitives | null = null;
   const maintenanceActivity = () => {
     const service = sync.activity();
-    const active = service.busy || admittedWork > 0 || (runtime?.activity().busy ?? false);
+    const active = service.busy || admittedWork > 0 || (runtime?.activity().busy ?? false) || !!photoPrimitives?.active;
     const ready = service.admissionPaused && !active && sync.maintenanceStatus().persistence === 'confirmed';
     return { admissionPaused: service.admissionPaused, active, ready };
   };
@@ -80,8 +85,12 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       return { admissionPaused: sync.maintenanceHeld, active, ready: sync.maintenanceHeld && ready,
         ...sync.maintenanceStatus(), updaterHeld: updatePause.held };
     },
-    (operation, runId, signal) => updatePause.localMaintenance(signal, () => {
-      if (operation === 'pause') return sync.pauseMaintenance(runId);
+    (operation, runId, signal) => updatePause.localMaintenance(signal, async () => {
+      if (operation === 'pause') {
+        const outcome = await sync.pauseMaintenance(runId);
+        if (sync.maintenanceHeld) await photoPrimitives?.cancel();
+        return outcome;
+      }
       if (sync.maintenanceStatus().runId === runId && !maintenanceActivity().ready) throw new CloudError('busy');
       return sync.restoreMaintenance(runId, mirror => {
         try { return runtime?.canRestoreScheduling(mirror.id) ?? true; }
@@ -101,10 +110,24 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
   });
   const photoConnected = () => photoAccountUpdates === 0 && sync.status().connected;
   const photos = photoRemote ? photoLibrary(photoRemote, photoConnected) : null;
+  const photoCloud = dependencies?.photoCloud ?? (worker && new CloudKitPhotos(signal =>
+    readPhotoSession(worker!.root, () => worker!.readPhotoConfig(signal))));
+  if (photoCloud) {
+    try {
+      // CloudKit only reads the saved session and writes the scoped metadata DB.
+      // It never needs a mirror file turn, the daemon, or a Drive sync slot.
+      photoPrimitives = new PhotoPrimitives(photoCloud, new PhotoIndex(bb.storage.database() as Database.Database),
+        new PhotoVersions(photoCloud, diagnose, dependencies?.photoVersionTransport), diagnose,
+        () => photoConnected() && !sync.maintenanceHeld);
+    } catch { diagnose('photo_index_storage', 'unavailable'); }
+  }
   const photoAccountUpdate = async <T>(operation: () => Promise<T>) => {
     photoAccountUpdates++;
     photos?.invalidate();
-    try { return await operation(); }
+    try {
+      await photoPrimitives?.cancel(true);
+      return await operation();
+    }
     finally { photoAccountUpdates--; }
   };
   const assertPhotosCaller = ({ experimental_caller: caller }: { experimental_caller: { kind: string; pluginId?: string } }) => {
@@ -112,8 +135,8 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the host-verified Photos plugin can access the photo library.' });
     }
   };
-  const photoFailure = (stage: 'photos_browse' | 'photos_page' | 'photos_ticket' | 'photos_download', error: unknown) => {
-    const kind = category(error);
+  const photoFailure = (stage: string, error: unknown) => {
+    const kind = photoFailureCategory(error);
     if (!['busy', 'invalid_selection'].includes(kind)) diagnose(stage, kind);
     return kind === 'busy' ? 'iCloud is busy. Wait for the current operation and try again.'
       : kind === 'invalid_selection' ? 'This selection expired or changed. Open the album again.'
@@ -125,6 +148,13 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     try {
       if (!photos) throw new CloudError('unavailable');
       return { ok: true as const, ...await admit(() => operation(photos)) };
+    } catch (error) { return { ok: false as const, error: photoFailure(stage, error) }; }
+  };
+  const readPhotos = async <T extends object>(stage: string, operation: (library: PhotoPrimitives) => Promise<T>) => {
+    try {
+      if (!photoPrimitives) throw new CloudError('unavailable');
+      if (!photoConnected()) throw new CloudError('authentication');
+      return { ok: true as const, ...await admit(() => operation(photoPrimitives!)) };
     } catch (error) { return { ok: false as const, error: photoFailure(stage, error) }; }
   };
   // Push BB's own changes now; the scheduled scan pulls iCloud changes and repairs the rest.
@@ -203,6 +233,30 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     photosTicket({ listing, index, mode }, context) {
       assertPhotosCaller(context);
       return photoAction('photos_ticket', library => library.ticket(listing, index, mode));
+    },
+    photoLibraries(_, context) {
+      assertPhotosCaller(context);
+      return readPhotos('photo_libraries', library => library.libraries(context.experimental_signal));
+    },
+    photoIndexStatus({ library }, context) {
+      assertPhotosCaller(context);
+      return readPhotos('photo_index_status', photos => photos.status(library));
+    },
+    photoAssets(input, context) {
+      assertPhotosCaller(context);
+      return readPhotos('photo_assets', library => library.assets(input, context.experimental_signal));
+    },
+    photoMonths(input, context) {
+      assertPhotosCaller(context);
+      return readPhotos('photo_months', library => library.months(input, context.experimental_signal));
+    },
+    photoAlbums({ library }, context) {
+      assertPhotosCaller(context);
+      return readPhotos('photo_albums', photos => photos.albums(library, context.experimental_signal));
+    },
+    photoVersionTickets({ library, ids, version }, context) {
+      assertPhotosCaller(context);
+      return readPhotos('photo_version_tickets', photos => photos.tickets(library, ids, version, context.experimental_signal));
     },
     mirrorDirectoryCapabilities(_input, context) { assertMirrorCaller(context); return runtime ? { mirrorDirectoryGrantVersion: 1 as const } : {}; },
     mirrorDirectory({ mirrorId, revision }, context) { return mirrorAccess('mirror_directory', context, owner => owner.mirrorDirectory(mirrorId, revision)); },
@@ -315,15 +369,35 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
       return context.text(photoFailure('photos_download', error), category(error) === 'invalid_selection' ? 404 : 502, { 'Cache-Control': 'no-store' });
     } finally { if (!streamOwnsAdmission) admittedWork--; }
   }, { auth: 'local' });
+  bb.http.route('GET', '/photo-version', async context => {
+    const ticket = z.string().uuid().safeParse(context.req.query('ticket'));
+    if (!ticket.success || context.req.header('Sec-Fetch-Site') === 'cross-site') return context.text('Open the photo from Photos settings.', 404);
+    if (!photoPrimitives || sync.maintenanceHeld) return context.text('iCloud is unavailable. Check iCloud settings.', 503);
+    if (!photoConnected()) return context.text('Reconnect Apple in iCloud settings.', 401, { 'Cache-Control': 'no-store' });
+    admittedWork++;
+    let active = true;
+    const close = () => {
+      if (!active) return;
+      active = false;
+      admittedWork--;
+    };
+    try { return await photoPrimitives.versions.download(ticket.data, context.req.raw.signal, close); }
+    catch (error) {
+      close();
+      const status = category(error) === 'invalid_selection' ? 404 : category(error) === 'busy' ? 503 : 502;
+      return context.text(photoFailure('photo_version_download', error), status, { 'Cache-Control': 'no-store' });
+    }
+  }, { auth: 'local' });
 
   bb.background.schedule('selected-folder-sync', '* * * * *', async () => {
     try { await sync.tick(undefined, () => !updatePause.held); } catch (error) { diagnose('schedule', category(error), { evidence: evidence(error) }); }
   });
   bb.onDispose(async () => {
     photos?.invalidate();
+    const photoDrain = photoPrimitives?.cancel(true);
     const paused = updatePause.stop();
     runtime?.requestStop(); // fence local admission, retaining ownership until service drain
-    try { await sync.stop(); } finally { await runtime?.stop(); await paused; }
+    try { await sync.stop(); } finally { await runtime?.stop(); await paused; await photoDrain; }
   });
   bb.agents.registerTool({ name: 'icloud_list_local_folders', description: 'List initialized iCloud folders, local file availability and last cloud sync. Paused or disconnected cloud delivery does not revoke sound local access. Never ask for Apple credentials in chat.', parameters: z.object({}),
     async execute() { return { content: [{ type: 'text' as const, text: JSON.stringify(await inventory()) }] }; } });

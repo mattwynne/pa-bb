@@ -1,5 +1,5 @@
 import { rcConnectionFailure } from './rclone-connection-failure.ts';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { request } from 'node:http';
 import type { IncomingMessage } from 'node:http';
@@ -7,6 +7,7 @@ import { constants } from 'node:fs';
 import { chmod, mkdir, open, readFile, lstat, writeFile, unlink } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { promisify } from 'node:util';
 import { CloudError } from '../core/ports.ts';
 import type { TransferProgress } from '../core/ports.ts';
 import { RcloneStatsStream } from './rclone-stats.ts';
@@ -17,6 +18,7 @@ import { RcloneTrace } from './rclone-trace.ts';
 // Bound explicit interruption, not the total duration of that native work.
 export const COMMAND_TIMEOUTS = { listing: 5 * 60_000, transfer: 15 * 60_000, initialBisync: 20 * 60_000, bisync: null } as const;
 export const FLOCK_BINARY = '/usr/bin/flock';
+const executeLocal = promisify(execFile);
 
 export function safeEnvironment(): NodeJS.ProcessEnv {
   // Never inherit provider options, credentials, proxies or BB process secrets.
@@ -76,6 +78,29 @@ export class RcloneProcess {
     return ['--config', this.config, '--password-command', [process.execPath, this.helper, this.key].map(quote).join(' '),
       '--ask-password=false', '--cache-dir', join(this.root, 'cache'), '--log-level', 'ERROR',
       '--transfers', '2', '--checkers', String(checkers), '--buffer-size', '4M', '--bwlimit', '8M', '--timeout', '30s', '--contimeout', '15s', ...(this.testBandwidth ? ['--bwlimit', this.testBandwidth] : [])];
+  }
+  async readPhotoConfig(signal: AbortSignal): Promise<{ account: string; cookies: string }> {
+    // config dump is a local decryption command. It has no remote argument,
+    // does not start a backend, and takes neither the mirror lock nor an RC turn.
+    if (!this.binary || this.stopping) throw new CloudError('unavailable');
+    try {
+      const file = await open(this.config, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        const info = await file.stat();
+        if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0 || info.size > 64 * 1024) throw new Error();
+        if (!/^RCLONE_ENCRYPT_V0:$/m.test(await file.readFile('utf8'))) throw new Error();
+      } finally { await file.close(); }
+      const { stdout } = await executeLocal(this.binary, [...this.flags(), 'config', 'dump'], {
+        signal, timeout: 10_000, maxBuffer: 64 * 1024, env: safeEnvironment(),
+      });
+      const remote = JSON.parse(stdout).icloud;
+      if (typeof remote?.apple_id !== 'string' || !remote.apple_id || typeof remote.cookies !== 'string' || !remote.cookies) throw new CloudError('authentication');
+      return { account: remote.apple_id, cookies: remote.cookies };
+    } catch (error) {
+      signal.throwIfAborted();
+      if (error instanceof CloudError) throw error;
+      throw new CloudError((error as NodeJS.ErrnoException).code === 'ENOENT' ? 'authentication' : 'configuration');
+    }
   }
   async ensure() {
     if (this.stopping) throw new CloudError('interrupted');
