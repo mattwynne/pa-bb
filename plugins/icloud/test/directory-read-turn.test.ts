@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type Database from 'better-sqlite3';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { MirrorRuntime } from '../adapters/mirror-runtime.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
@@ -16,7 +16,7 @@ test('only exact cloud directory reads share native work, and drain before the n
     requestStop() {}, async stop() {},
   } as unknown as RcloneProcess;
   // No startup/admission or filesystem operation is invoked in this turn test.
-  const runtime = new NoteRuntime('/synthetic', {} as Database.Database, worker, new NoteStore('/synthetic'), emptyState);
+  const runtime = new MirrorRuntime('/synthetic', {} as Database.Database, worker, new FileStore('/synthetic'), emptyState);
   const running = runtime.run(['copy', '/synthetic/source', '/synthetic/target']);
   try {
     await entered.promise;
@@ -37,7 +37,7 @@ test('owned native worker lists cloud directories during a real throttled transf
   const root = await mkdtemp('/tmp/icloud-directory-native-');
   const { bb, harness } = createFakePluginHost({ pluginId: 'icloud' });
   const worker = new RcloneProcess(root + '/worker', process.env.RCLONE_TEST_BINARY!, '512k');
-  const runtime = new NoteRuntime(root + '/worker', bb.storage.database() as Database.Database, worker, new NoteStore(root + '/notes'), emptyState);
+  const runtime = new MirrorRuntime(root + '/worker', bb.storage.database() as Database.Database, worker, new FileStore(root + '/notes'), emptyState);
   let running: Promise<unknown> | undefined;
   try {
     await mkdir(root + '/remote/Folder', { recursive: true }); await mkdir(root + '/target');

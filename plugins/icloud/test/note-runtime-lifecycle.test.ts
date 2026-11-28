@@ -8,8 +8,8 @@ import { syncBuiltinESMExports } from 'node:module';
 import { mkdtemp, mkdir, writeFile, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { MirrorRuntime } from '../adapters/mirror-runtime.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
 import { CloudError, emptyState } from '../core/ports.ts';
 import { ICloudSync } from '../core/service.ts';
@@ -35,7 +35,7 @@ async function fixture(native = false, initialized = true) {
     worker.call = async () => ({ type: 'alias', remote: 'generated' });
     worker.withFiles = async action => action(new AbortController().signal);
   }
-  const newRuntime = () => new NoteRuntime(root, db, worker, new NoteStore(join(root, 'legacy')), () => state);
+  const newRuntime = () => new MirrorRuntime(root, db, worker, new FileStore(join(root, 'legacy')), () => state);
   const runtime = newRuntime();
   await runtime.start();
   return { root, db, state, runtime, worker, newRuntime, async close() { await runtime.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
@@ -54,14 +54,14 @@ test('filesystem handoff waits for acknowledged legacy bytes and conflict recove
       const time = Date.now().toString(16).padStart(12, '0');
       return `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
     };
-    const input = { mirrorId: 'one', path, operationId: operationId(), kind: 'replace' as const, expectedHash: createHash('sha256').update('A').digest('hex'), text: 'B' };
+    const input = { mirrorId: 'one', path, operationId: operationId(), kind: 'replace' as const, expectedHash: createHash('sha256').update('A').digest('hex'), bytes: Buffer.from('B') };
     await assert.rejects(f.runtime.mirrorDirectory('one', 0), /invalid_selection/);
     await assert.rejects(f.runtime.mirrorDirectory('other', 1), /invalid_selection/);
     const receipt = await f.runtime.commit(1, input);
     assert.equal(f.runtime.filesystemStatus('one', true), 'legacy_pending');
     await assert.rejects(f.runtime.mirrorDirectory('one', 1), /conflict/);
     await assert.rejects(f.runtime.mirrorDirectoryGrant('one', 1), /conflict/);
-    assert.equal((await f.runtime.read('one', 1, path) as { text: string }).text, 'B');
+    assert.equal((await f.runtime.read('one', 1, path) as { bytes: Buffer }).bytes.toString(), 'B');
 
     f.worker.run = async () => { await writeFile(join(directory, path), 'C'); return ''; };
     const args = ['bisync', 'generated:', directory];
@@ -71,7 +71,7 @@ test('filesystem handoff waits for acknowledged legacy bytes and conflict recove
     await assert.rejects(f.runtime.mirrorDirectoryGrant('one', 1), /conflict/);
     const conflict = await f.runtime.overlay.inspect('one', path, directory);
     assert.ok(conflict);
-    assert.equal((await f.runtime.read('one', 1, path, conflict.token) as { text: string }).text, 'C');
+    assert.equal((await f.runtime.read('one', 1, path, conflict.token) as { bytes: Buffer }).bytes.toString(), 'C');
     await f.runtime.resolve('one', 1, path, { operationId: operationId(), token: conflict.token, expectedLogicalHash: conflict.logicalHash, expectedIncomingHash: conflict.incomingHash, choice: 'keep_local' });
     f.worker.run = async () => '';
     await f.runtime.run(args);
@@ -88,7 +88,7 @@ test('filesystem handoff waits for acknowledged legacy bytes and conflict recove
       await restarted.start();
       assert.deepEqual(await restarted.mirrorDirectory('one', 1), { directory });
       await assert.rejects(restarted.commit(1, { ...input, operationId: operationId() }), /unsupported/);
-      assert.equal((await restarted.read('one', 1, path) as { text: string }).text, 'B');
+      assert.equal((await restarted.read('one', 1, path) as { bytes: Buffer }).bytes.toString(), 'B');
       await rename(directory, directory + '-replaced');
       await mkdir(directory);
       await assert.rejects(restarted.mirrorDirectory('one', 1), /source_changed/);
@@ -199,10 +199,10 @@ test('move uses native exclusion, refuses outstanding overlays, and blocks sync 
     const moving = f.runtime.move(1, input); await entered.promise;
     await assert.rejects(f.runtime.read('one', 1, 'Example.md'), /busy/);
     gate.resolve(); assert.equal((await moving).outcome, 'moved_locally_pending_sync');
-    await assert.rejects(f.runtime.commit(1, { ...input, kind: 'create', expectedHash: null, text: 'B' }), /operation_reused/);
+    await assert.rejects(f.runtime.commit(1, { ...input, kind: 'create', expectedHash: null, bytes: Buffer.from('B') }), /operation_reused/);
     // New pending head may never be bypassed by a physical move.
     const time = Date.now().toString(16).padStart(12, '0'); const operationId = `${time.slice(0,8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
-    await f.runtime.commit(1, { ...input, path: 'Pending.md', operationId, kind: 'create', expectedHash: null, text: 'B' });
+    await f.runtime.commit(1, { ...input, path: 'Pending.md', operationId, kind: 'create', expectedHash: null, bytes: Buffer.from('B') });
     await assert.rejects(f.runtime.move(1, { ...input, path: 'Pending.md', operationId: randomUUID(), destination: 'Reference/Pending.md' }), /busy/);
     // A synthetic interruption after exclusive destination creation leaves both
     // names; neither ordinary saves nor bisync can proceed through uncertainty.
@@ -274,7 +274,7 @@ test('native failure plus failed post-run reconciliation preserves both safe bou
     f.runtime.wake = () => {};
     const time = Date.now().toString(16).padStart(12, '0');
     const operationId = `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
-    await f.runtime.commit(1, { mirrorId: 'one', path: 'PRIVATE_SENTINEL.md', operationId, kind: 'create', expectedHash: null, text: 'PRIVATE_SENTINEL' });
+    await f.runtime.commit(1, { mirrorId: 'one', path: 'PRIVATE_SENTINEL.md', operationId, kind: 'create', expectedHash: null, bytes: Buffer.from('PRIVATE_SENTINEL') });
     await f.runtime.call('rc/noop', {}); // real overlay application/checkpoint
     assert.equal(f.runtime.overlay.beforeRun('one').length, 1);
     const receipt = await f.runtime.overlay.receipt(operationId);

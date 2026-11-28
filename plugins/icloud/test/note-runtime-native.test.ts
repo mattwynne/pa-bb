@@ -1,5 +1,8 @@
 // Explicit opt-in, generated alias remote only. No provider account or device.
 import test from 'node:test';
+const decode = (base64: string) => Buffer.from(base64, 'base64').toString();
+const encode = (value: string) => Buffer.from(value).toString('base64');
+
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, utimes } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -7,8 +10,8 @@ import { randomUUID, createHash } from 'node:crypto';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { plugin } from '../server.ts';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { MirrorRuntime } from '../adapters/mirror-runtime.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import type Database from 'better-sqlite3';
 import { syncArguments } from '../adapters/rclone-cloud-provider.ts';
 import { MemoryState } from './fakes.ts';
@@ -25,7 +28,7 @@ const waitFor = async (predicate: () => Promise<boolean>, ms = 10000) => {
   while (performance.now() < deadline) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 30)); }
   throw new Error('generated fixture timed out waiting for native state');
 };
-test('wired BB v2 RPC remains local throughout a real >=40s owned native command, then reaches remote', { skip: !enabled, timeout: 130000 }, async () => {
+test('wired mirror file RPC remains local throughout a real >=40s owned native command, then reaches remote', { skip: !enabled, timeout: 130000 }, async () => {
   const host = createFakePluginHost({ pluginId: 'icloud' });
   const root = join(dirname(host.bb.storage.database().name), 'sync');
   const generated = await mkdtemp('/tmp/icloud-runtime-generated-');
@@ -55,22 +58,25 @@ test('wired BB v2 RPC remains local throughout a real >=40s owned native command
     repository.value.mirrors = [{ id: 'one', folder: { id: Buffer.from('generated').toString('base64url'), name: 'Generated', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', lastSuccess: new Date().toISOString(), failure: null, blocker: null },
       { id: 'two', folder: { id: Buffer.from('other').toString('base64url'), name: 'Other', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', lastSuccess: new Date().toISOString(), failure: null, blocker: null }];
     const worker = new RcloneProcess(root, process.env.RCLONE_TEST_BINARY!, '512k');
-    const runtime = new NoteRuntime(root, host.bb.storage.database() as Database.Database, worker, new NoteStore(join(root, 'note-operations')), () => repository.value);
+    const runtime = new MirrorRuntime(root, host.bb.storage.database() as Database.Database, worker, new FileStore(join(root, 'note-operations')), () => repository.value);
     stage = 'startup'; await plugin(host.bb, { repository, worker, runtime }); started = true;
     const rpc = (method: string, input: any) => host.harness.behavior.callRpc(method, input, caller) as Promise<any>;
     const state = await host.harness.behavior.callRpc('status', null) as any;
-    assert.equal(state.noteAccessVersion, 2); assert.equal(state.mirrors[0].local.available, true);
-    assert.equal((await rpc('noteConfigure', { version: 2, revision: 1, mirrorIds: ['one', 'two'] })).value.revision, 1);
-    const target = { version: 2, mirrorId: 'one', revision: 1, path: '.hidden/Note.md' };
+    assert.equal(state.mirrorFileAccessVersion, 1); assert.equal(state.mirrors[0].local.available, true);
+    assert.equal((await rpc('mirrorConfigure', { version: 1, revision: 1, mirrorIds: ['one', 'two'] })).value.revision, 1);
+    const target = { version: 1, mirrorId: 'one', revision: 1, path: '.hidden/Note.md' };
     const conflictTarget = { ...target, mirrorId: 'two', path: '.hidden/Conflict.md' };
     const wake = runtime.wake.bind(runtime); (runtime as any).wake = () => {};
-    await rpc('noteCommit', { ...conflictTarget, operationId: operationId(), kind: 'replace', expectedHash: hash('Initial conflict base'), text: 'Local candidate' });
+    await rpc('fileCommit', { ...conflictTarget, operationId: operationId(), kind: 'replace', expectedHash: hash('Initial conflict base'), base64: encode('Local candidate') });
     await writeFile(join(secondLocal, '.hidden/Conflict.md'), 'Incoming version');
     await runtime.call('rc/noop', {});
+    // Keep the first mirror on the coordinated path until this scan settles its head.
+    await rpc('fileCommit', { ...target, path: '.hidden/Queued.bin', operationId: operationId(),
+      kind: 'create', expectedHash: null, base64: Buffer.from([0, 0xff]).toString('base64') });
     (runtime as any).wake = wake;
-    const captured = (await rpc('noteInspectConflict', conflictTarget)).value;
+    const captured = (await rpc('fileInspectConflict', conflictTarget)).value;
     assert.equal(captured.incomingHash, hash('Incoming version'));
-    await assert.rejects(host.harness.behavior.callRpc('noteInspectConflict', conflictTarget, { experimental_caller: { kind: 'plugin', pluginId: 'fastmail' } }), /Obsidian/);
+    await assert.rejects(host.harness.behavior.callRpc('fileInspectConflict', conflictTarget, { experimental_caller: { kind: 'plugin', pluginId: 'fastmail' } }), /Obsidian/);
     await writeFile(join(remote, 'generated-transfer.bin'), Buffer.alloc(24 * 1024 * 1024, 65));
     stage = 'long_run'; const at = performance.now();
     running = host.harness.behavior.runSchedule('selected-folder-sync');
@@ -82,7 +88,7 @@ test('wired BB v2 RPC remains local throughout a real >=40s owned native command
     const sdk = { plugins: {
       async list() { return { plugins: [{ id: 'icloud', enabled: true, status: 'running' }] }; },
       async callRpc(request: { method: string; input: unknown; outputSchema: { parse(value: unknown): unknown } }) {
-        const result = await host.harness.behavior.callRpc(request.method, request.input, request.method.startsWith('note') ? caller : undefined);
+        const result = await host.harness.behavior.callRpc(request.method, request.input, request.method === 'status' ? undefined : caller);
         return request.outputSchema.parse(result);
       },
     } } as unknown as ConstructorParameters<typeof ObsidianICloud>[0];
@@ -93,22 +99,25 @@ test('wired BB v2 RPC remains local throughout a real >=40s owned native command
     assert.equal((await consumer.status()).vaults[0].source?.local.available, true);
     const consumerSaved = await consumer.create({ vaultId: 'one', path: '.hidden/Consumer.md', text: '# Consumer\n- [ ] Verify\n[[Note]]\n' });
     assert.equal(consumerSaved.receipt.kind, 'save');
-    assert.equal((await consumer.read({ vaultId: 'one', path: '.hidden/Consumer.md' })).complete, true);
-    assert.equal((await consumer.search({ vaultId: 'one', text: 'Consumer' })).results.some((row: any) => row.path === '.hidden/Consumer.md'), true);
-    assert.equal((await consumer.tasks({ vaultId: 'one', path: '.hidden/Consumer.md' })).results.length, 1);
-    assert.equal((await consumer.metadata({ vaultId: 'one', path: '.hidden/Consumer.md' })).headings[0].title, 'Consumer');
-    assert.equal((await consumer.resolve({ vaultId: 'one', path: '.hidden/Consumer.md', link: 'Note' })).status, 'resolved');
+    // This fixture has no Desktop process. Exercise the coordinated read and
+    // run the resulting note bytes through Obsidian's parser.
+    const localNote = await consumerAdapter.read('one', 1, '.hidden/Consumer.md');
+    assert.equal(localNote.complete, true);
+    const parsed = new MarkdownNotes().parse(localNote.text);
+    assert.equal(parsed.tasks.length, 1);
+    assert.equal(parsed.headings[0].title, 'Consumer');
+    assert.equal(parsed.links[0].target, 'Note');
     assert.equal((await consumer.status({ vaultId: 'one', path: '.hidden/Consumer.md', operationId: consumerSaved.operationId })).receipts[0].kind, 'save');
 
     // Generated native-side change after capture: the real host-authorized
     // inspection must issue a new usable token without joining the 40s turn.
     await writeFile(join(secondLocal, '.hidden/Conflict.md'), 'Incoming version newer');
     (runtime.overlay as any).fault = (stage: string) => { if (stage === 'before_blob_fsync') throw new Error('PRIVATE_SENTINEL_REFRESH'); };
-    assert.equal((await rpc('noteInspectConflict', conflictTarget)).category, 'unavailable');
+    assert.equal((await rpc('fileInspectConflict', conflictTarget)).category, 'unavailable');
     assert.equal((await runtime.overlay.inspect('two', '.hidden/Conflict.md'))?.token, captured.token);
     (runtime.overlay as any).fault = undefined;
-    assert.equal((await rpc('noteConfigure', { version: 2, revision: 1, mirrorIds: ['one', 'two'] })).value.revision, 1);
-    const conflict = (await rpc('noteInspectConflict', conflictTarget)).value;
+    assert.equal((await rpc('mirrorConfigure', { version: 1, revision: 1, mirrorIds: ['one', 'two'] })).value.revision, 1);
+    const conflict = (await rpc('fileInspectConflict', conflictTarget)).value;
     const inspected = await consumer.status({ vaultId: 'two', path: '.hidden/Conflict.md' });
     assert.ok(inspected.conflict?.inspection?.token);
     const incoming = await consumer.read({ vaultId: 'two', path: '.hidden/Conflict.md', selector: { version: 'incoming', token: inspected.conflict!.inspection!.token } });
@@ -116,33 +125,32 @@ test('wired BB v2 RPC remains local throughout a real >=40s owned native command
 
     assert.notEqual(conflict.token, captured.token);
     assert.equal(conflict.incomingHash, hash('Incoming version newer'));
-    assert.equal((await rpc('noteRead', { ...conflictTarget, selector: { version: 'incoming', token: captured.token } })).category, 'conflict');
-    assert.equal((await rpc('noteRead', { ...conflictTarget, selector: { version: 'incoming', token: conflict.token } })).value.text, 'Incoming version newer');
+    assert.equal((await rpc('fileRead', { ...conflictTarget, selector: { version: 'incoming', token: captured.token } })).category, 'conflict');
+    assert.equal(decode((await rpc('fileRead', { ...conflictTarget, selector: { version: 'incoming', token: conflict.token } })).value.base64), 'Incoming version newer');
     const resolutionId = operationId();
-    const resolutionRequest = { ...conflictTarget, operationId: resolutionId, token: conflict.token, expectedLogicalHash: hash('Local candidate'), expectedIncomingHash: hash('Incoming version newer'), choice: 'replace', text: 'Resolved chosen' };
+    const resolutionRequest = { ...conflictTarget, operationId: resolutionId, token: conflict.token, expectedLogicalHash: hash('Local candidate'), expectedIncomingHash: hash('Incoming version newer'), choice: 'replace', base64: encode('Resolved chosen') };
     (runtime.overlay as any).fault = (stage: string) => { if (stage === 'before_resolution_head') throw new Error('PRIVATE_SENTINEL_ARCHIVE'); };
-    assert.equal((await rpc('noteResolveConflict', resolutionRequest)).category, 'unavailable');
+    assert.equal((await rpc('fileResolveConflict', resolutionRequest)).category, 'unavailable');
     assert.equal((await runtime.overlay.inspect('two', '.hidden/Conflict.md'))?.token, conflict.token);
     (runtime.overlay as any).fault = undefined;
-    assert.match(JSON.stringify(host.harness.inspection.logEntries), /note_inspect_conflict|note_resolve_conflict/);
+    assert.match(JSON.stringify(host.harness.inspection.logEntries), /file_inspect_conflict|file_resolve_conflict/);
     assert.doesNotMatch(JSON.stringify(host.harness.inspection.logEntries), /PRIVATE_SENTINEL/);
-    assert.equal((await rpc('noteResolveConflict', resolutionRequest)).value.hash, hash('Resolved chosen'));
-    assert.equal((await rpc('noteReceipts', { version: 2, revision: 1, mirrorId: 'two', operationId: resolutionId })).value[0].kind, 'resolution');
-    assert.equal((await rpc('noteRead', conflictTarget)).value.text, 'Resolved chosen');
+    assert.equal((await rpc('fileResolveConflict', resolutionRequest)).value.hash, hash('Resolved chosen'));
+    assert.equal((await rpc('fileReceipts', { version: 1, revision: 1, mirrorId: 'two', operationId: resolutionId })).value[0].kind, 'resolution');
+    assert.equal(decode((await rpc('fileRead', conflictTarget)).value.base64), 'Resolved chosen');
     assert.equal(await readFile(join(secondLocal, '.hidden/Conflict.md'), 'utf8'), 'Incoming version newer');
-    assert.equal((await rpc('noteList', { version: 2, mirrorId: 'one', revision: 1 })).value.paths.includes('.hidden/Note.md'), true);
-    const old = await rpc('noteRead', target); assert.equal(old.value.text, 'A');
-    const input = { ...target, operationId: operationId(), kind: 'replace', expectedHash: hash('A'), text: 'B' };
-    const saved = await rpc('noteCommit', input);
+    const old = await rpc('fileRead', target); assert.equal(decode(old.value.base64), 'A');
+    const input = { ...target, operationId: operationId(), kind: 'replace', expectedHash: hash('A'), base64: encode('B') };
+    const saved = await rpc('fileCommit', input);
     assert.equal(saved.value.outcome, 'saved_locally_pending_sync');
-    assert.equal((await rpc('noteRead', target)).value.text, 'B');
-    assert.equal((await rpc('noteReceipts', { version: 2, revision: 1, mirrorId: 'one', operationId: input.operationId })).value[0].hash, hash('B'));
+    assert.equal(decode((await rpc('fileRead', target)).value.base64), 'B');
+    assert.equal((await rpc('fileReceipts', { version: 1, revision: 1, mirrorId: 'one', operationId: input.operationId })).value[0].hash, hash('B'));
     const second = { ...target, mirrorId: 'two' };
-    assert.equal((await rpc('noteRead', second)).value.text, 'A2');
-    const secondInput = { ...second, operationId: operationId(), kind: 'replace', expectedHash: hash('A2'), text: 'B2' };
-    assert.equal((await rpc('noteCommit', secondInput)).value.hash, hash('B2'));
-    assert.equal((await rpc('noteRead', second)).value.text, 'B2');
-    assert.deepEqual((await rpc('noteReceipts', { version: 2, revision: 1, mirrorId: 'two', operationId: input.operationId })).value, []);
+    assert.equal(decode((await rpc('fileRead', second)).value.base64), 'A2');
+    const secondInput = { ...second, operationId: operationId(), kind: 'replace', expectedHash: hash('A2'), base64: encode('B2') };
+    assert.equal((await rpc('fileCommit', secondInput)).value.hash, hash('B2'));
+    assert.equal(decode((await rpc('fileRead', second)).value.base64), 'B2');
+    assert.deepEqual((await rpc('fileReceipts', { version: 1, revision: 1, mirrorId: 'two', operationId: input.operationId })).value, []);
     assert.equal((await readFile(join(local, '.hidden/Note.md'), 'utf8')), 'A');
     assert.equal((await readFile(join(secondLocal, '.hidden/Note.md'), 'utf8')), 'A2');
     const rpcMs = performance.now() - localAt;
@@ -170,35 +178,35 @@ test('wired BB v2 RPC remains local throughout a real >=40s owned native command
     await writeFile(join(remote, '.hidden/Note.md'), 'Remote C');
     const future = new Date(Date.now() + 10000); await utimes(join(remote, '.hidden/Note.md'), future, future);
     stage = 'remote_change'; await host.harness.behavior.runSchedule('selected-folder-sync');
-    assert.equal((await rpc('noteRead', target)).value.text, 'Remote C');
+    assert.equal(decode((await rpc('fileRead', target)).value.base64), 'Remote C');
     stage = 'paused_disconnected';
     await host.harness.behavior.callRpc('pause', { id: 'one' });
     assert.equal((await host.harness.behavior.callRpc('status', null) as any).mirrors[0].local.available, true);
-    const paused = await rpc('noteCommit', { ...target, operationId: operationId(), kind: 'replace', expectedHash: hash('Remote C'), text: 'Paused D' });
+    const paused = await rpc('fileCommit', { ...target, operationId: operationId(), kind: 'replace', expectedHash: hash('Remote C'), base64: encode('Paused D') });
     assert.equal(paused.value.hash, hash('Paused D'));
-    assert.equal((await rpc('noteRead', target)).value.text, 'Paused D');
-    assert.equal((await consumer.read({ vaultId: 'one', path: '.hidden/Note.md' })).text, 'Paused D');
+    assert.equal(decode((await rpc('fileRead', target)).value.base64), 'Paused D');
+    assert.equal((await consumerAdapter.read('one', 1, '.hidden/Note.md')).text, 'Paused D');
     await host.harness.behavior.callRpc('disconnect', null);
     const disconnected = await host.harness.behavior.callRpc('status', null) as any;
     assert.equal(disconnected.connected, false); assert.equal(disconnected.mirrors[0].local.available, true);
     assert.equal((await consumer.status()).vaults[0].source?.local.available, true);
-    assert.equal((await rpc('noteRead', target)).value.text, 'Paused D');
-    assert.equal((await rpc('noteCommit', { ...second, operationId: operationId(), kind: 'replace', expectedHash: hash('B2'), text: 'Disconnected C2' })).value.hash, hash('Disconnected C2'));
+    assert.equal(decode((await rpc('fileRead', target)).value.base64), 'Paused D');
+    assert.equal((await rpc('fileCommit', { ...second, operationId: operationId(), kind: 'replace', expectedHash: hash('B2'), base64: encode('Disconnected C2') })).value.hash, hash('Disconnected C2'));
     await host.harness.behavior.runSchedule('selected-folder-sync');
     assert.equal(await readFile(join(remote, '.hidden/Note.md'), 'utf8'), 'Remote C');
     assert.equal(await readFile(join(secondRemote, '.hidden/Note.md'), 'utf8'), 'B2');
     stage = 'bounded_failure';
     (runtime.overlay as any).fault = (point: string) => { if (point === 'before_head') throw new Error('sentinel-private-content token /private/path'); };
     const failedId = operationId();
-    const failed = await rpc('noteCommit', { ...second, operationId: failedId, kind: 'create', path: '.hidden/Private.md', expectedHash: null, text: 'sentinel-private-content' });
+    const failed = await rpc('fileCommit', { ...second, operationId: failedId, kind: 'create', path: '.hidden/Private.md', expectedHash: null, base64: encode('sentinel-private-content') });
     assert.equal(failed.category, 'unavailable');
-    assert.deepEqual((await rpc('noteReceipts', { version: 2, revision: 1, mirrorId: 'two', operationId: failedId })).value, []);
+    assert.deepEqual((await rpc('fileReceipts', { version: 1, revision: 1, mirrorId: 'two', operationId: failedId })).value, []);
     assert.doesNotMatch(JSON.stringify(failed) + JSON.stringify(host.harness.inspection.logEntries), /sentinel|private\/path|Private.md/);
     (runtime.overlay as any).fault = undefined;
-    assert.equal((await rpc('noteConfigure', { version: 2, revision: 2, mirrorIds: ['one', 'two'] })).value.revision, 2);
-    assert.equal((await rpc('noteCommit', { ...input, revision: 2 })).value.hash, hash('B'));
-    assert.equal((await rpc('noteResolveConflict', { ...resolutionRequest, revision: 2 })).value.hash, hash('Resolved chosen'));
-    assert.equal((await rpc('noteReceipts', { version: 2, revision: 2, mirrorId: 'two', operationId: resolutionId })).value[0].kind, 'resolution');
+    assert.equal((await rpc('mirrorConfigure', { version: 1, revision: 2, mirrorIds: ['one', 'two'] })).value.revision, 2);
+    assert.equal((await rpc('fileCommit', { ...input, revision: 2 })).value.hash, hash('B'));
+    assert.equal((await rpc('fileResolveConflict', { ...resolutionRequest, revision: 2 })).value.hash, hash('Resolved chosen'));
+    assert.equal((await rpc('fileReceipts', { version: 1, revision: 2, mirrorId: 'two', operationId: resolutionId })).value[0].kind, 'resolution');
     console.log(JSON.stringify({ fixture: 'wired-native-rpc', nativeMs: Math.round(nativeMs), localRpcMs: Math.round(rpcMs), mirrors: 2, pausedDisconnectedLocal: true, remoteVisible: true }));
   } catch (error) { console.error('RUNTIME_NATIVE_FAILED', stage, error instanceof assert.AssertionError ? 'assertion' : 'execution'); throw error; }
   finally {

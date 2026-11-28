@@ -20,7 +20,7 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
   const host = createFakePluginHost({ pluginId: 'obsidian' });
   const { bb, harness } = host;
   const state = {
-    noteAccessVersion: 2, mirrorAccessVersion: 3, available: true, connected: false, challenge: null,
+    mirrorFileAccessVersion: 1, mirrorAccessVersion: 3, available: true, connected: false, challenge: null,
     mirrors: [{ id: 'one', folder: { name: 'Selected vault' }, initialized: true, enabled: false, phase: 'paused',
       lastSuccess: '2026-01-01T00:00:00Z', failure: null, filesystem: initialMode,
       local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null } }],
@@ -39,7 +39,7 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
         case 'status':
           await controls.beforeStatus?.();
           return outputSchema.parse({ ...state, localFolder: directory });
-        case 'noteConfigure':
+        case 'mirrorConfigure':
           if (signal) controls.afterAreaConfigure?.();
           return outputSchema.parse({ ok: true, value: { revision: input.revision } });
         case 'mirrorDirectoryCapabilities':
@@ -60,10 +60,10 @@ async function fixture(t: TestContext, initialMode = 'ready', prepare?: (root: s
           if (signal) await indexLookup?.(signal);
           return outputSchema.parse({ directory, rootDev: controls.malformedGrant ? '01' : info.dev.toString(), rootIno: info.ino.toString() });
         }
-        case 'noteReceipts': return outputSchema.parse({
+        case 'fileReceipts': return outputSchema.parse({
           ok: true, value: legacyReceipts.filter(row => (!input.path || row.path === input.path) && (!input.operationId || row.operationId === input.operationId)),
         });
-        case 'noteRead': return outputSchema.parse({ ok: true, value: { text: 'legacy', hash: hash('legacy'), complete: true, readAt: new Date().toISOString() } });
+        case 'fileRead': return outputSchema.parse({ ok: true, value: { base64: Buffer.from('legacy').toString('base64'), hash: hash('legacy'), complete: true, readAt: new Date().toISOString() } });
         default: throw new Error(`Unexpected iCloud RPC: ${method}`);
       }
     },

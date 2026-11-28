@@ -5,9 +5,9 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, rename } from 'node:fs/promise
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { diagnosticMessage } from '../adapters/diagnostic-log.ts';
-import { NoteApplicationError } from '../adapters/note-overlay.ts';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { FileApplicationError } from '../adapters/file-overlay.ts';
+import { MirrorRuntime } from '../adapters/mirror-runtime.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
 import { CloudError, emptyState } from '../core/ports.ts';
 
@@ -21,11 +21,11 @@ async function fixture() {
   const worker = new RcloneProcess(root); worker.ensure = async () => {}; worker.call = async () => ({ type: 'alias', remote: 'generated' });
   worker.withFiles = async action => action(new AbortController().signal);
   const diagnostics: string[] = [];
-  const runtime = new NoteRuntime(root, db, worker, new NoteStore(join(root, 'legacy')), () => state, undefined, (s, c) => diagnostics.push(s + ':' + c));
+  const runtime = new MirrorRuntime(root, db, worker, new FileStore(join(root, 'legacy')), () => state, undefined, (s, c) => diagnostics.push(s + ':' + c));
   await runtime.start(); runtime.configure(1, ['one']);
   worker.withFiles = async () => { throw new CloudError('busy'); };
   const time = Date.now().toString(16).padStart(12, '0'); const operationId = `${time.slice(0,8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
-  await runtime.commit(1, { operationId, mirrorId: 'one', path: 'Example.md', kind: 'replace', expectedHash: createHash('sha256').update('original').digest('hex'), text: 'pending' });
+  await runtime.commit(1, { operationId, mirrorId: 'one', path: 'Example.md', kind: 'replace', expectedHash: createHash('sha256').update('original').digest('hex'), bytes: Buffer.from('pending') });
   await runtime.call('rc/noop', {});
   worker.withFiles = async action => action(new AbortController().signal);
   Object.assign(state.mirrors[0], { enabled: false, phase: 'failed', failure: 'interrupted' });
@@ -43,9 +43,9 @@ for (const [fault, stage, outcome] of [
   try {
     (f.runtime.overlay as any).fault = async (at: string) => { if (at === fault) throw new Error('PRIVATE_SENTINEL', { cause: 'PRIVATE_SENTINEL' }); };
     await assert.rejects(f.runtime.overlay.apply(join(f.root, 'mirrors/one'), 'one', 'Example.md'), error => {
-      assert(error instanceof NoteApplicationError);
+      assert(error instanceof FileApplicationError);
       assert.equal(error.stage, stage); assert.equal(error.outcome, outcome);
-      const message = diagnosticMessage('note_apply', error.category, { evidence: null, application: { stage: error.stage, outcome: error.outcome } });
+      const message = diagnosticMessage('file_apply', error.category, { evidence: null, application: { stage: error.stage, outcome: error.outcome } });
       assert(message.includes('application_stage='+stage+' outcome='+outcome));
       assert(!message.includes('PRIVATE_SENTINEL')); assert.equal(error.cause, undefined);
       return true;
@@ -72,7 +72,7 @@ test('explicit recovery proves and applies intact save, preserving receipt and s
   const f = await fixture();
   try {
     const receipt = f.db.prepare('SELECT * FROM icloud_note_overlay_receipts').all();
-    assert.deepEqual(f.diagnostics, ['note_apply:busy']);
+    assert.deepEqual(f.diagnostics, ['file_apply:busy']);
     await f.runtime.recoverUnapplied('one');
     assert.equal(await readFile(f.file, 'utf8'), 'pending');
     assert.equal(f.runtime.applicationBlocker('one'), null);
@@ -85,10 +85,10 @@ test('explicit recovery proves and applies intact save, preserving receipt and s
 });
 
 test('restart holds a disabled interrupted pending save until explicit recovery', async () => {
-  const f = await fixture(); let replacement: NoteRuntime | undefined;
+  const f = await fixture(); let replacement: MirrorRuntime | undefined;
   try {
     await f.runtime.stop();
-    replacement = new NoteRuntime(f.root, f.db, f.worker, new NoteStore(join(f.root, 'legacy')), () => f.state);
+    replacement = new MirrorRuntime(f.root, f.db, f.worker, new FileStore(join(f.root, 'legacy')), () => f.state);
     await replacement.start();
     await replacement.call('rc/noop', {});
     assert.equal(await readFile(f.file, 'utf8'), 'original');

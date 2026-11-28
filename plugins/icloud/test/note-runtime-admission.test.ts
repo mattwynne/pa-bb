@@ -7,8 +7,8 @@ import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { MirrorRuntime } from '../adapters/mirror-runtime.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import { syncArguments } from '../adapters/rclone-cloud-provider.ts';
 import type { State } from '../core/ports.ts';
 const enabled = process.platform === 'linux' && !!process.env.RCLONE_TEST_BINARY && process.env.ICLOUD_RUNTIME_NATIVE === '1';
@@ -19,9 +19,9 @@ async function fixture(count = 2) {
   const root = await mkdtemp('/tmp/icloud-runtime-admission-generated-'), workerRoot = join(root, 'sync'), remote = join(root, 'alias');
   const db = new Database(join(root, 'data.db')); db.pragma('journal_mode = WAL'); db.pragma('synchronous = FULL');
   const state: State = { connected: true, challenge: null, mirrors: [] };
-  let preparer: RcloneProcess | undefined, runtime: NoteRuntime | undefined;
+  let preparer: RcloneProcess | undefined, runtime: MirrorRuntime | undefined;
   const worker = () => new RcloneProcess(workerRoot, process.env.RCLONE_TEST_BINARY!);
-  const create = () => new NoteRuntime(workerRoot, db, worker(), new NoteStore(join(workerRoot, 'legacy')), () => state);
+  const create = () => new MirrorRuntime(workerRoot, db, worker(), new FileStore(join(workerRoot, 'legacy')), () => state);
   try {
     await mkdir(remote); preparer = worker(); await preparer.ensure();
     await preparer.call('config/create', { name: 'icloud', type: 'alias', parameters: { remote }, opt: { nonInteractive: true } });
@@ -36,7 +36,7 @@ async function fixture(count = 2) {
     await preparer.stop(); preparer = undefined;
     runtime = create(); await runtime.start(); runtime.configure(1, state.mirrors.map(m => m.id));
     return { root, workerRoot, remote, state, db, get runtime() { return runtime!; }, create,
-      replace(next: NoteRuntime) { runtime = next; },
+      replace(next: MirrorRuntime) { runtime = next; },
       async close() { await runtime?.stop(); db.close(); await rm(root, { recursive: true, force: true }); } };
   } catch (error) { await runtime?.stop(); await preparer?.stop(); db.close(); await rm(root, { recursive: true, force: true }); throw error; }
 }
@@ -60,7 +60,7 @@ test('durable admission revokes a save inside its pointer transaction after fsyn
   try {
     const gate = deferred(); release = gate.release; let enter!: () => void; const entered = new Promise<void>(resolve => { enter = resolve; });
     (f.runtime.overlay as any).fault = async (stage: string) => { if (stage === 'before_head') { enter(); await gate.promise; } };
-    const input = { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace' as const, expectedHash: hash('A'), text: 'B' };
+    const input = { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace' as const, expectedHash: hash('A'), bytes: Buffer.from('B') };
     const pending = f.runtime.commit(1, input); await entered;
     assert.deepEqual(f.runtime.configure(2, ['mirror-1']), { revision: 2 });
     await assert.rejects(f.runtime.receipts('mirror-0', 1, { mirrorId: 'mirror-0', operationId: input.operationId, limit: 20 }), (e: any) => e.category === 'invalid_selection');
@@ -75,7 +75,7 @@ test('durable admission revokes a save inside its pointer transaction after fsyn
     await f.runtime.stop(); const restarted = f.create(); await restarted.start(); f.replace(restarted);
     assert.throws(() => restarted.configure(2, ['mirror-0']), (e: any) => e.category === 'invalid_selection');
     assert.throws(() => restarted.configure(3, ['mirror-0']), (e: any) => e.category === 'invalid_selection');
-    assert.equal((await restarted.read('mirror-0', 3, 'Note.md') as any).text, 'B');
+    assert.equal((await restarted.read('mirror-0', 3, 'Note.md') as any).bytes.toString(), 'B');
   } finally { release(); await f.close(); }
 });
 for (const stage of ['before_head', 'after_head'] as const) test(`dispose fences ${stage} and takeover preserves the precise logical result`, { skip: !enabled, timeout: 25000 }, async () => {
@@ -83,7 +83,7 @@ for (const stage of ['before_head', 'after_head'] as const) test(`dispose fences
   try {
     const gate = deferred(); release = gate.release; let enter!: () => void; const entered = new Promise<void>(resolve => { enter = resolve; });
     (f.runtime.overlay as any).fault = async (point: string) => { if (point === stage) { enter(); await gate.promise; } };
-    const input = { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace' as const, expectedHash: hash('A'), text: 'B' };
+    const input = { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace' as const, expectedHash: hash('A'), bytes: Buffer.from('B') };
     const pending = f.runtime.commit(1, input); await entered;
     let stopped = false; const stopping = f.runtime.stop().then(() => { stopped = true; });
     await new Promise(resolve => setTimeout(resolve, 20)); assert.equal(stopped, false, 'owner keeps flock until entered publication settles');
@@ -94,7 +94,7 @@ for (const stage of ['before_head', 'after_head'] as const) test(`dispose fences
     else assert.equal((await pending).hash, hash('B'));
     await stopping;
     const next = f.create(); await next.start(); f.replace(next);
-    assert.equal((await next.read('mirror-0', 1, 'Note.md') as any).text, stage === 'after_head' ? 'B' : 'A');
+    assert.equal((await next.read('mirror-0', 1, 'Note.md') as any).bytes.toString(), stage === 'after_head' ? 'B' : 'A');
     assert.equal((await next.receipts('mirror-0', 1, { mirrorId: 'mirror-0', operationId: input.operationId, limit: 20 })).length, stage === 'after_head' ? 1 : 0);
   } finally { release(); await f.close(); }
 });
@@ -104,7 +104,7 @@ test('failed durable configuration transaction does not advance in-memory admiss
     f.db.exec("CREATE TRIGGER fail_configuration BEFORE UPDATE ON icloud_note_admission BEGIN SELECT RAISE(FAIL, 'sentinel-private-config'); END");
     assert.throws(() => f.runtime.configure(2, []));
     assert.equal((await f.runtime.availability('mirror-0')).available, true);
-    assert.equal((await f.runtime.read('mirror-0', 1, 'Note.md') as any).text, 'A');
+    assert.equal((await f.runtime.read('mirror-0', 1, 'Note.md') as any).bytes.toString(), 'A');
     f.db.exec('DROP TRIGGER fail_configuration');
     assert.deepEqual(f.runtime.configure(2, []), { revision: 2 });
     await assert.rejects(f.runtime.read('mirror-0', 1, 'Note.md'), (e: any) => e.category === 'invalid_selection');
@@ -115,7 +115,7 @@ test('root inode replacement during awaited fsync cannot publish to a rebuilt sa
   try {
     const gate = deferred(); release = gate.release; let enter!: () => void; const entered = new Promise<void>(resolve => { enter = resolve; });
     (f.runtime.overlay as any).fault = async (stage: string) => { if (stage === 'before_head') { enter(); await gate.promise; } };
-    const input = { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace' as const, expectedHash: hash('A'), text: 'B' };
+    const input = { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace' as const, expectedHash: hash('A'), bytes: Buffer.from('B') };
     const pending = f.runtime.commit(1, input); await entered;
     const local = join(f.workerRoot, 'mirrors', 'mirror-0');
     await rename(local, join(f.workerRoot, 'mirrors', 'old-mirror-0')); await mkdir(local);
@@ -130,14 +130,14 @@ test('resolution rechecks durable membership after awaited incoming proof and fs
   try {
     const wake = f.runtime.wake.bind(f.runtime); (f.runtime as any).wake = () => {};
     const id = 'mirror-0', path = 'Note.md';
-    await f.runtime.commit(1, { mirrorId: id, path, operationId: op(), kind: 'replace', expectedHash: hash('A'), text: 'Local B' });
+    await f.runtime.commit(1, { mirrorId: id, path, operationId: op(), kind: 'replace', expectedHash: hash('A'), bytes: Buffer.from('Local B') });
     await writeFile(join(f.workerRoot, 'mirrors', id, path), 'Incoming C');
     await f.runtime.call('rc/noop', {});
     const conflict = await f.runtime.overlay.inspect(id, path); assert.equal(conflict?.incomingHash, hash('Incoming C'));
     (f.runtime as any).wake = wake;
     const gate = deferred(); release = gate.release; let enter!: () => void; const entered = new Promise<void>(resolve => { enter = resolve; });
     (f.runtime.overlay as any).fault = async (stage: string) => { if (stage === 'before_resolution_head') { enter(); await gate.promise; } };
-    const input = { operationId: op(), token: conflict!.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Incoming C'), choice: 'replace' as const, text: 'Resolved D' };
+    const input = { operationId: op(), token: conflict!.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Incoming C'), choice: 'replace' as const, bytes: Buffer.from('Resolved D') };
     const pending = f.runtime.resolve(id, 1, path, input); await entered;
     f.runtime.configure(2, []); release();
     await assert.rejects(pending, (e: any) => e.category === 'invalid_selection');
@@ -156,7 +156,7 @@ test('incoming absence has a distinct durable resolution receipt without a fabri
   try {
     const id = 'mirror-0', path = 'Note.md';
     (f.runtime as any).wake = () => {};
-    await f.runtime.commit(1, { mirrorId: id, path, operationId: op(), kind: 'replace', expectedHash: hash('A'), text: 'Local B' });
+    await f.runtime.commit(1, { mirrorId: id, path, operationId: op(), kind: 'replace', expectedHash: hash('A'), bytes: Buffer.from('Local B') });
     await (await import('node:fs/promises')).unlink(join(f.workerRoot, 'mirrors', id, path));
     await f.runtime.call('rc/noop', {});
     const conflict = await f.runtime.overlay.inspect(id, path); assert.equal(conflict?.incomingAbsent, true);
@@ -177,20 +177,20 @@ test('pause/disconnect preserve local saves; retained and changed source binding
     const mirror = f.state.mirrors[0]; f.state.connected = false; mirror.enabled = false; mirror.phase = 'paused';
     assert.equal((await f.runtime.availability(mirror.id)).available, true);
     const savedId = op();
-    await f.runtime.commit(1, { mirrorId: mirror.id, path: 'Note.md', operationId: savedId, kind: 'replace', expectedHash: hash('A'), text: 'Offline B' });
-    assert.equal((await f.runtime.read(mirror.id, 1, 'Note.md') as any).text, 'Offline B');
+    await f.runtime.commit(1, { mirrorId: mirror.id, path: 'Note.md', operationId: savedId, kind: 'replace', expectedHash: hash('A'), bytes: Buffer.from('Offline B') });
+    assert.equal((await f.runtime.read(mirror.id, 1, 'Note.md') as any).bytes.toString(), 'Offline B');
     mirror.phase = 'retained'; assert.equal((await f.runtime.availability(mirror.id)).available, false);
     assert.equal((await f.runtime.receipts(mirror.id, 1, { mirrorId: mirror.id, operationId: savedId, limit: 20 }))[0].hash, hash('Offline B'));
     await assert.rejects(f.runtime.read(mirror.id, 1, 'Note.md'), (e: any) => e.category === 'source_changed');
     mirror.phase = 'paused'; mirror.folder.id = 'rebuilt-different-binding';
-    await assert.rejects(f.runtime.commit(1, { mirrorId: mirror.id, path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('Offline B'), text: 'Bad retarget' }), (e: any) => e.category === 'source_changed');
+    await assert.rejects(f.runtime.commit(1, { mirrorId: mirror.id, path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('Offline B'), bytes: Buffer.from('Bad retarget') }), (e: any) => e.category === 'source_changed');
     assert.equal((await readFile(join(f.workerRoot, 'mirrors/mirror-0/Note.md'), 'utf8')), 'A');
   } finally { await f.close(); }
 });
 test('changed local encrypted account binding refuses restart without touching acknowledged bytes', { skip: !enabled, timeout: 20000 }, async () => {
   const f = await fixture(1); let editor: RcloneProcess | undefined;
   try {
-    const input = { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace' as const, expectedHash: hash('A'), text: 'B' };
+    const input = { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace' as const, expectedHash: hash('A'), bytes: Buffer.from('B') };
     await f.runtime.commit(1, input); await f.runtime.stop();
     const alternate = join(f.root, 'alternate-generated'); await mkdir(alternate);
     editor = new RcloneProcess(f.workerRoot, process.env.RCLONE_TEST_BINARY!); await editor.ensure();
@@ -205,9 +205,9 @@ test('private bounded orphan maintenance progresses while a genuine native CLI i
   const f = await fixture(1);
   try {
     (f.runtime.overlay as any).fault = (stage: string) => { if (stage === 'before_head') throw new Error('sentinel-private-orphan'); };
-    await assert.rejects(f.runtime.access('mirror-0', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('A'), text: 'Unpublished orphan' })));
+    await assert.rejects(f.runtime.access('mirror-0', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('A'), bytes: Buffer.from('Unpublished orphan') })));
     (f.runtime.overlay as any).fault = undefined;
-    await f.runtime.access('mirror-0', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('A'), text: 'Pending B' }));
+    await f.runtime.access('mirror-0', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('A'), bytes: Buffer.from('Pending B') }));
     const orphan = hash('Unpublished orphan');
     assert.ok(f.db.prepare('SELECT hash FROM icloud_note_overlay_blob_catalog WHERE hash = ?').get(orphan));
     const from = join(f.root, 'generated-copy-source'), to = join(f.root, 'generated-copy-target');
@@ -223,7 +223,7 @@ test('private bounded orphan maintenance progresses while a genuine native CLI i
     assert.ok((f.runtime.worker as any).children.size > 0, 'maintenance did not await the native command');
     assert.equal(rcFinished, false, 'RC cannot overlap the CLI turn');
     assert.equal(await readFile(join(f.workerRoot, 'mirrors/mirror-0/Note.md'), 'utf8'), 'A');
-    assert.equal((await f.runtime.read('mirror-0', 1, 'Note.md') as any).text, 'Pending B');
+    assert.equal((await f.runtime.read('mirror-0', 1, 'Note.md') as any).bytes.toString(), 'Pending B');
     await command; await rc;
     assert.equal(await readFile(join(f.workerRoot, 'mirrors/mirror-0/Note.md'), 'utf8'), 'Pending B');
   } finally { await f.close(); }
@@ -233,12 +233,12 @@ test('a freshly dirty successor queues behind older work but coalescing keeps it
   try {
     (f.runtime as any).wake = () => {};
     const local0 = join(f.workerRoot, 'mirrors/mirror-0');
-    await f.runtime.access('mirror-0', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('A'), text: 'B' }));
+    await f.runtime.access('mirror-0', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('A'), bytes: Buffer.from('B') }));
     await f.runtime.call('rc/noop', {}); assert.equal(await readFile(join(local0, 'Note.md'), 'utf8'), 'B');
-    await f.runtime.access('mirror-1', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-1', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('A'), text: 'Other B' }));
-    await f.runtime.access('mirror-0', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('B'), text: 'C' }));
+    await f.runtime.access('mirror-1', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-1', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('A'), bytes: Buffer.from('Other B') }));
+    await f.runtime.access('mirror-0', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('B'), bytes: Buffer.from('C') }));
     assert.deepEqual(f.runtime.overlay.pending().map(p => p.mirrorId), ['mirror-1', 'mirror-0']);
-    await f.runtime.access('mirror-0', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('C'), text: 'D' }));
+    await f.runtime.access('mirror-0', 1, root => f.runtime.overlay.commit(root, { mirrorId: 'mirror-0', path: 'Note.md', operationId: op(), kind: 'replace', expectedHash: hash('C'), bytes: Buffer.from('D') }));
     assert.deepEqual(f.runtime.overlay.pending().map(p => p.mirrorId), ['mirror-1', 'mirror-0']);
   } finally { await f.close(); }
 });
@@ -249,7 +249,7 @@ test('idle quantum drains 16 ordinary paths within one second and cycles 20 mirr
     // turns that happen to complete over the course of publishing.
     for (let i = 0; i < 20; i++) {
       const id = `mirror-${i}`;
-      await f.runtime.access(id, 1, root => f.runtime.overlay.commit(root, { mirrorId: id, path: 'Queued.md', operationId: op(), kind: 'create', expectedHash: null, text: 'Generated' }));
+      await f.runtime.access(id, 1, root => f.runtime.overlay.commit(root, { mirrorId: id, path: 'Queued.md', operationId: op(), kind: 'create', expectedHash: null, bytes: Buffer.from('Generated') }));
     }
     const start = performance.now(); await f.runtime.call('rc/noop', {});
     const first = performance.now() - start;
@@ -272,13 +272,13 @@ test('global 256-path admission cap applies fairly across all 20 mirrors in boun
     const accepted: { id: string; path: string; operationId: string; text: string }[] = [];
     for (let i = 0; i < 256; i++) {
       const id = `mirror-${i % 20}`, path = `Cap-${Math.floor(i / 20)}.md`, operationId = op(), text = `Generated ${i}`;
-      await f.runtime.access(id, 1, root => f.runtime.overlay.commit(root, { mirrorId: id, path, operationId, kind: 'create', expectedHash: null, text }));
+      await f.runtime.access(id, 1, root => f.runtime.overlay.commit(root, { mirrorId: id, path, operationId, kind: 'create', expectedHash: null, bytes: Buffer.from(text) }));
       accepted.push({ id, path, operationId, text });
     }
     assert.equal(f.runtime.overlay.pending().length, 256);
     const refusedId = op();
     await assert.rejects(f.runtime.access('mirror-19', 1, root => f.runtime.overlay.commit(root, {
-      mirrorId: 'mirror-19', path: 'Cap-extra.md', operationId: refusedId, kind: 'create', expectedHash: null, text: 'Refused',
+      mirrorId: 'mirror-19', path: 'Cap-extra.md', operationId: refusedId, kind: 'create', expectedHash: null, bytes: Buffer.from('Refused'),
     })), (error: any) => error.category === 'capacity');
     assert.equal(await f.runtime.overlay.receipt(refusedId), null);
     assert.equal(f.runtime.overlay.pending().length, 256, 'refusal cannot alter accepted rows');

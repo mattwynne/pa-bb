@@ -1,7 +1,7 @@
 import { recoveryInput } from './core/receipt-recovery.ts';
 import { defineRpcContract } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
-import { searchCapabilitySchema } from './adapters/icloud-note-contract.ts';
+const searchCapabilitySchema = z.object({ version: z.literal(1), available: z.boolean(), reason: z.enum(['missing_executable', 'unsupported_version', 'unavailable']).nullable() }).strict();
 import { linkReturnDate } from './core/section-links.ts';
 const source = z.object({ id: z.string(), name: z.string(), initialized: z.boolean(), enabled: z.boolean(), cloudConnected: z.boolean(), phase: z.string(), lastSuccess: z.string().nullable(), failure: z.string().nullable(), local: z.object({ available: z.boolean(), reason: z.enum(['ownership', 'recovery_required', 'source_changed']).nullable(), pendingAgeMs: z.number().int().nonnegative().nullable(), applicationBlocker: z.enum(['application_uncertain', 'native_recovery']).nullable() }).strict() }).strict();
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
@@ -33,7 +33,7 @@ const moveOutput = moveInput.pick({ vaultId: true, path: true, destination: true
   outcome: z.enum(['moved_locally_pending_sync', 'not_moved', 'uncertain']),
 });
 export const rpcContract = defineRpcContract({
-  scanFinished: { input: z.object({ mirrorId: z.string().regex(/^[A-Za-z0-9-]{1,64}$/) }).strict(), output: z.null() },
+  mirrorScanFinished: { input: z.object({ mirrorId: z.string().regex(/^[A-Za-z0-9-]{1,64}$/) }).strict(), output: z.null() },
   inventoryRevision: {
     input: vault.extend({ folders: z.array(consumerFolder).min(1).max(2) }),
     output: z.string().regex(/^[a-f0-9-]{36}:\d{1,16}$/).nullable(),

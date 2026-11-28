@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { MirrorRuntime } from '../adapters/mirror-runtime.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import { ICloudSync } from '../core/service.ts';
 import { RcloneCloudProvider } from '../adapters/rclone-cloud-provider.ts';
 import { MemoryState } from './fakes.ts';
@@ -155,7 +155,7 @@ for (const canonicalD of [false, true]) test(`owned interrupted conflict continu
   for (const path of [source, local, baseline]) await mkdir(path, { recursive: true });
   const db = new Database(':memory:');
   const worker = new RcloneProcess(root, binary);
-  let runtime: NoteRuntime | undefined;
+  let runtime: MirrorRuntime | undefined;
   let interrupted = true, continuations = 0;
   const repository = new MemoryState(); repository.value.connected = true;
   repository.value.mirrors.push({ id: 'one', folder: { id: Buffer.from('generated').toString('base64url'), name: 'Generated', ancestors: [] }, initialized: true, enabled: true, phase: 'ready', failure: null, blocker: null, lastSuccess: null });
@@ -175,11 +175,11 @@ for (const canonicalD of [false, true]) test(`owned interrupted conflict continu
     await worker.run(syncArguments('icloud:generated', local, baseline, false)); // native old listing pair
     await writeFile(join(baseline, 'initialized'), '1', { mode: 0o600 });
     await sync.start();
-    runtime = new NoteRuntime(root, db, worker, new NoteStore(join(root, 'legacy')), () => sync.status());
+    runtime = new MirrorRuntime(root, db, worker, new FileStore(join(root, 'legacy')), () => sync.status());
     runtime.wake = () => {}; await runtime.start(); runtime.configure(1, ['one']);
     const time = Date.now().toString(16).padStart(12, '0');
     const operationId = `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`;
-    await runtime.commit(1, { mirrorId: 'one', path: 'Note.md', operationId, kind: 'replace', expectedHash: sha('Original A'), text: B });
+    await runtime.commit(1, { mirrorId: 'one', path: 'Note.md', operationId, kind: 'replace', expectedHash: sha('Original A'), bytes: Buffer.from(B) });
     await runtime.call('rc/noop', {}); // apply real B, not a manual rename fixture
     assert.equal(sha(await readFile(join(local, 'Note.md'))), sha(B));
     await put(join(source, 'Note.md'), C, 15_000);
@@ -228,7 +228,7 @@ for (const canonicalD of [false, true]) test(`owned interrupted conflict continu
       assert.equal(sync.status().mirrors[0].blocker, null);
       const conflict = await runtime.overlay.inspect('one', 'Note.md');
       assert.equal(conflict?.incomingHash, sha(C));
-      assert.equal(await runtime.overlay.readIncoming('one', 'Note.md', conflict!.token), C);
+      assert.equal((await runtime.overlay.readIncoming('one', 'Note.md', conflict!.token))?.toString(), C);
       assert.equal((await runtime.read('one', 1, 'Note.md') as any).hash, sha(B));
     }
   } finally { await sync.stop(); await runtime?.stop(); await worker.stop(); db.close(); await rm(root, { recursive: true, force: true }); }

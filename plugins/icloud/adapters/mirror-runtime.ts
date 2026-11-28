@@ -6,19 +6,20 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { CloudError, evidence } from '../core/ports.ts';
 import type { Diagnose, Mirror, State } from '../core/ports.ts';
-import { NoteError, NoteStore } from './note-store.ts';
-import type { CommitInput } from './note-store.ts';
-import { NoteApplicationError, NoteOverlay } from './note-overlay.ts';
-import type { Resolution } from './note-overlay.ts';
+import { FileError, FileStore } from './file-store.ts';
+import { mirrorChildren } from './mirror-children.ts';
+import { findDirectories } from './mirror-directories.ts';
+import type { CommitInput } from './file-store.ts';
+import { FileApplicationError, FileOverlay } from './file-overlay.ts';
+import type { Resolution } from './file-overlay.ts';
 import { RcloneProcess } from './rclone-process.ts';
-import { NoteSearch } from './note-search.ts';
-import { NoteMoves, type MoveInput } from './note-move.ts';
-import type { SearchRequest } from './note-search.ts';
+import { FileMoves, type MoveInput } from './file-move.ts';
 
 const MAX_SAFE_BINDING_ID = BigInt(Number.MAX_SAFE_INTEGER);
 const stageId = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-// Obsidian's atomic-save staging files never leave the host.
-export const obsidianStageExclude = `.obsidian-bb-{{${stageId}}}.tmp`;
+// Retain the previous staging exclusion for files left by interrupted saves.
+const stageExcludes = ['.bb-mirror-', '.obsidian-bb-'].flatMap(prefix =>
+  ['--exclude', `${prefix}{{${stageId}}}.tmp`]);
 const pushMethods = new Set(['operations/stat', 'operations/copyfile', 'operations/movefile', 'sync/move']);
 
 // The flock, not a JS timer/lease, owns the generation. All native commands,
@@ -27,11 +28,10 @@ const pushMethods = new Set(['operations/stat', 'operations/copyfile', 'operatio
 // scan reconciles a push.
 // Overlay publications
 // have a separate admission fence and can proceed during this generation's child.
-export class NoteRuntime {
-  readonly moves: NoteMoves;
+export class MirrorRuntime {
+  readonly moves: FileMoves;
   private moving = false;
-  readonly overlay: NoteOverlay;
-  readonly search: NoteSearch;
+  readonly overlay: FileOverlay;
   private readonly context = new AsyncLocalStorage<{ revision: number; mirrorId: string }>();
   private queue: Promise<void> = Promise.resolve();
   private turnsPending = 0;
@@ -55,23 +55,22 @@ export class NoteRuntime {
   private direct = new Set<string>();
   private legacyWrites = new Map<string, number>();
   constructor(readonly root: string, private db: Database.Database, readonly worker: RcloneProcess,
-    private legacy: NoteStore, private state: () => State, private clock = () => Date.now(),
+    private legacy: FileStore, private state: () => State, private clock = () => Date.now(),
     private diagnose: Diagnose = () => {}) {
-    this.moves = new NoteMoves(db, legacy, id => this.guard(id));
-    this.overlay = new NoteOverlay(join(root, 'overlay'), db, legacy, clock, undefined, id => this.guard(id));
-    this.search = new NoteSearch(legacy, { paths: id => this.overlay.searchPaths(id), reader: (id, path) => this.overlay.searchReader(this.localPath(this.mirror(id)!), id, path) });
+    this.moves = new FileMoves(db, legacy, id => this.guard(id));
+    this.overlay = new FileOverlay(join(root, 'overlay'), db, legacy, clock, undefined, id => this.guard(id));
   }
   async start() {
     // No overlay migration or durable admission before actual inherited-flock ownership.
     try { await this.worker.ensure(); }
     catch (error) {
       const failure = error instanceof CloudError && error.category === 'busy' ? 'busy' : 'unavailable';
-      this.diagnose('note_owner', failure);
+      this.diagnose('mirror_owner', failure);
       throw new CloudError(failure);
     }
     try {
       this.db.pragma('synchronous = FULL');
-      if (this.db.pragma('synchronous', { simple: true }) !== 2) throw new NoteError('unavailable');
+      if (this.db.pragma('synchronous', { simple: true }) !== 2) throw new FileError('unavailable');
       this.db.exec(`CREATE TABLE IF NOT EXISTS icloud_note_admission (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, members TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS icloud_note_bindings (mirror_id TEXT PRIMARY KEY, folder_id TEXT NOT NULL, root_dev INTEGER NOT NULL, root_ino INTEGER NOT NULL, baseline_dev INTEGER NOT NULL, baseline_ino INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS icloud_note_account (id INTEGER PRIMARY KEY CHECK(id=1), fingerprint TEXT NOT NULL);
@@ -83,8 +82,8 @@ export class NoteRuntime {
       const config = this.db.prepare('SELECT revision, members FROM icloud_note_admission WHERE id=1').get() as { revision: number; members: string } | undefined;
       if (config) {
         let members: unknown;
-        try { members = JSON.parse(config.members); } catch { throw new NoteError('uncertain'); }
-        if (!Number.isSafeInteger(config.revision) || config.revision < 0 || !Array.isArray(members) || members.length > 20 || members.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(id)) || new Set(members).size !== members.length) throw new NoteError('uncertain');
+        try { members = JSON.parse(config.members); } catch { throw new FileError('uncertain'); }
+        if (!Number.isSafeInteger(config.revision) || config.revision < 0 || !Array.isArray(members) || members.length > 20 || members.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(id)) || new Set(members).size !== members.length) throw new FileError('uncertain');
         this.revision = config.revision; this.members = new Set(members);
       }
       for (const mirror of this.state().mirrors.filter(m => m.initialized && m.phase !== 'retained')) {
@@ -92,7 +91,7 @@ export class NoteRuntime {
           const directory = await this.local(mirror);
           await this.overlay.indexLegacy(mirror.id, directory);
         }
-        catch (error) { this.blocked.add(mirror.id); if (error instanceof NoteError && error.category === 'uncertain') throw error; }
+        catch (error) { this.blocked.add(mirror.id); if (error instanceof FileError && error.category === 'uncertain') throw error; }
       }
       // A disabled interrupted mirror is an operator-held recovery, not an
       // invitation to apply queued edits merely because the plugin restarted.
@@ -101,8 +100,8 @@ export class NoteRuntime {
       this.wake();
       this.scheduleMaintenance();
     } catch (error) {
-      const failure = error instanceof NoteError ? error.category : error instanceof CloudError ? error.category : 'unavailable';
-      this.diagnose('note_start', failure);
+      const failure = error instanceof FileError ? error.category : error instanceof CloudError ? error.category : 'unavailable';
+      this.diagnose('mirror_start', failure);
       await this.worker.stop();
       throw new CloudError(failure === 'uncertain' ? 'recovery_required' : failure === 'source_changed' ? 'source_changed' : 'unavailable');
     }
@@ -210,7 +209,7 @@ export class NoteRuntime {
       this.db.prepare('INSERT INTO icloud_note_admission(id, revision, members) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, members=excluded.members').run(revision, JSON.stringify(ids));
     })();
     // A failed SQLite commit must not advance the in-memory admission epoch.
-    this.revision = revision; this.members = new Set(ids); this.search.invalidate(revision);
+    this.revision = revision; this.members = new Set(ids);
     return { revision };
   }
   private guard(id: string, exactIdentity = false) {
@@ -242,12 +241,12 @@ export class NoteRuntime {
   async access<T>(id: string, revision: number, action: (root: string) => Promise<T>, { requireBinding = false } = {}): Promise<T> {
     if (this.storageBlocked) throw new CloudError('recovery_required');
     if (!this.ready || this.closed || this.revision !== revision || !this.members.has(id)) throw new CloudError('invalid_selection');
-    if (this.moving) throw new NoteError('busy');
-    if (this.moves.blocked(id)) throw new NoteError('uncertain');
+    if (this.moving) throw new FileError('busy');
+    if (this.moves.blocked(id)) throw new FileError('uncertain');
     const availability = await this.availability(id, { requireBinding });
     if (!availability.available) throw new CloudError('source_changed');
     this.guardWithin(id, revision);
-    if (this.moving) throw new NoteError('busy');
+    if (this.moving) throw new FileError('busy');
     const task = this.context.run({ revision, mirrorId: id }, () => action(this.localPath(this.mirror(id)!)));
     this.entered.add(task);
     try { return await task; } finally { this.entered.delete(task); }
@@ -275,14 +274,14 @@ export class NoteRuntime {
   private async handoffDirectory<T>(id: string, revision: number, authorize: (directory: string) => T, options?: { requireBinding: boolean }) {
     return this.access(id, revision, async directory => {
       // An entered move may have finished uncertain while availability awaited.
-      if (this.moves.blocked(id)) throw new NoteError('uncertain');
+      if (this.moves.blocked(id)) throw new FileError('uncertain');
       const authorized = authorize(directory);
       // No await separates the checks and durable fence. A legacy writer
       // either entered first or sees the fence.
-      if (this.overlay.filesystemGate(id) !== 'ready') throw new NoteError('conflict');
+      if (this.overlay.filesystemGate(id) !== 'ready') throw new FileError('conflict');
       if (!this.direct.has(id)) {
         // A transfer already in progress may lack the staging-file exclusion.
-        if (this.nativeRunning || this.legacyWrites.has(id)) throw new NoteError('busy');
+        if (this.nativeRunning || this.legacyWrites.has(id)) throw new FileError('busy');
         this.db.prepare('INSERT INTO icloud_note_direct(mirror_id) VALUES (?)').run(id);
         this.direct.add(id);
       }
@@ -290,7 +289,7 @@ export class NoteRuntime {
     }, options);
   }
   private async legacyWrite<T>(id: string, action: () => Promise<T>): Promise<T> {
-    if (this.direct.has(id)) throw new NoteError('unsupported');
+    if (this.direct.has(id)) throw new FileError('unsupported');
     this.legacyWrites.set(id, (this.legacyWrites.get(id) ?? 0) + 1);
     try { return await action(); }
     finally {
@@ -301,28 +300,22 @@ export class NoteRuntime {
   }
   async children(input: { mirrorId: string; revision: number; folder: string }, signal?: AbortSignal) {
     return this.access(input.mirrorId, input.revision, async root => {
-      const { noteChildren } = await import('./note-children.ts');
-      const result = await noteChildren(root, input.folder, signal);
+      const result = await mirrorChildren(root, input.folder, signal);
       this.guard(input.mirrorId); return result;
     });
   }
-  async searchNotes(input: SearchRequest) {
+  async directories(input: { mirrorId: string; revision: number; markerName: string; exclude: string[] }, signal?: AbortSignal) {
     return this.access(input.mirrorId, input.revision, async root => {
-      const result = await this.search.next(input, root, () => this.guard(input.mirrorId));
+      const result = await findDirectories(root, input.markerName, input.exclude, signal);
       this.guard(input.mirrorId); return result;
     });
-  }
-  async closeSearch(revision: number, cursor: string) {
-    if (this.closed || revision !== this.revision) throw new CloudError('invalid_selection');
-    await this.search.close(cursor); return null;
   }
   async read(id: string, revision: number, path: string, incomingToken?: string) {
     return this.access(id, revision, async root => {
       if (incomingToken === undefined) return this.overlay.read(root, id, path);
-      const text = await this.overlay.readIncoming(id, path, incomingToken);
-      if (text === null) return { absent: true as const };
-      const { createHash } = await import('node:crypto');
-      return { absent: false as const, text, hash: createHash('sha256').update(text).digest('hex'), readAt: new Date(this.clock()).toISOString(), complete: true as const };
+      const bytes = await this.overlay.readIncoming(id, path, incomingToken);
+      if (bytes === null) return { absent: true as const };
+      return { absent: false as const, bytes, hash: createHash('sha256').update(bytes).digest('hex'), readAt: new Date(this.clock()).toISOString(), complete: true as const };
     });
   }
   async receipts(id: string, revision: number, query: { mirrorId: string; operationId?: string; path?: string; since?: string; limit: number }) {
@@ -334,7 +327,7 @@ export class NoteRuntime {
   }
   async moveReceipts(id: string, revision: number, operationId: string) {
     if (this.closed || revision !== this.revision || !this.members.has(id)) throw new CloudError('invalid_selection');
-    if (this.moving) throw new NoteError('busy');
+    if (this.moving) throw new FileError('busy');
     if (!this.moves.blocked(id)) return this.moves.receipts(id, operationId);
     // Inspect exact filesystem evidence under the existing native lock; no
     // link/unlink is replayed. Ambiguous two-name states remain blocked.
@@ -351,26 +344,26 @@ export class NoteRuntime {
   private async moveLegacy(revision: number, input: MoveInput, signal?: AbortSignal) {
     // Do not queue a second move behind the first or let ordinary overlay
     // publications race canonical unlink. Existing entered saves finish first.
-    if (this.moving || this.moves.blocked(input.mirrorId)) throw new NoteError('busy');
+    if (this.moving || this.moves.blocked(input.mirrorId)) throw new FileError('busy');
     await this.access(input.mirrorId, revision, async () => {});
-    if (this.moving) throw new NoteError('busy');
+    if (this.moving) throw new FileError('busy');
     this.moving = true;
     try {
       await Promise.allSettled([...this.entered]);
       return await this.idleFiles(nativeSignal => this.context.run({ mirrorId: input.mirrorId, revision }, async () => {
         this.guard(input.mirrorId);
-        for (const table of ['icloud_note_overlay_receipts', 'icloud_note_overlay_resolutions', 'icloud_note_overlay_legacy']) if (this.db.prepare(`SELECT 1 FROM ${table} WHERE operation_id=?`).get(input.operationId)) throw new NoteError('operation_reused');
+        for (const table of ['icloud_note_overlay_receipts', 'icloud_note_overlay_resolutions', 'icloud_note_overlay_legacy']) if (this.db.prepare(`SELECT 1 FROM ${table} WHERE operation_id=?`).get(input.operationId)) throw new FileError('operation_reused');
         const m = this.mirror(input.mirrorId)!;
-        if (m.failure || m.blocker || this.nativeBlocked.has(m.id)) throw new NoteError('busy');
+        if (m.failure || m.blocker || this.nativeBlocked.has(m.id)) throw new FileError('busy');
         for (const path of [input.path, input.destination]) {
-          if (this.db.prepare('SELECT 1 FROM icloud_note_overlay_heads WHERE mirror_id=? AND path=?').get(m.id, path) || this.db.prepare('SELECT 1 FROM icloud_note_overlay_legacy WHERE mirror_id=? AND path=? AND uncertain=1').get(m.id, path)) throw new NoteError('busy');
+          if (this.db.prepare('SELECT 1 FROM icloud_note_overlay_heads WHERE mirror_id=? AND path=?').get(m.id, path) || this.db.prepare('SELECT 1 FROM icloud_note_overlay_legacy WHERE mirror_id=? AND path=? AND uncertain=1').get(m.id, path)) throw new FileError('busy');
         }
         return this.moves.move(this.localPath(m), input, signal ? AbortSignal.any([signal, nativeSignal]) : nativeSignal);
       }));
     } finally { this.moving = false; }
   }
   async commit(revision: number, input: CommitInput) {
-    if (this.moves.has(input.operationId)) throw new NoteError('operation_reused');
+    if (this.moves.has(input.operationId)) throw new FileError('operation_reused');
     const result = await this.legacyWrite(input.mirrorId, () => this.access(input.mirrorId, revision, root => this.overlay.commit(root, input)));
     this.wake(); return result;
   }
@@ -378,7 +371,7 @@ export class NoteRuntime {
     // Revision/version are current authorization, not part of the immutable
     // semantic resolution operation identity. Canonicalize RPC input here.
     const semantic: Resolution = { operationId: input.operationId, token: input.token, expectedLogicalHash: input.expectedLogicalHash,
-      expectedIncomingHash: input.expectedIncomingHash, choice: input.choice, ...(input.text === undefined ? {} : { text: input.text }) };
+      expectedIncomingHash: input.expectedIncomingHash, choice: input.choice, ...(input.bytes === undefined ? {} : { bytes: input.bytes }) };
     const result = await this.legacyWrite(id, () => this.access(id, revision, root => this.overlay.resolve(root, id, path, semantic)));
     this.wake(); return result;
   }
@@ -427,11 +420,11 @@ export class NoteRuntime {
   }
   idleFiles<T>(action: (signal: AbortSignal) => Promise<T>) { return this.turn(() => this.worker.withFiles(action)); }
   private async nativeCommand(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
-    for (const mirror of this.state().mirrors) if (mirror.initialized && args.includes(this.localPath(mirror)) && this.moves.blocked(mirror.id)) throw new NoteError('uncertain');
+    for (const mirror of this.state().mirrors) if (mirror.initialized && args.includes(this.localPath(mirror)) && this.moves.blocked(mirror.id)) throw new FileError('uncertain');
     const direct = args[0] === 'bisync' ? this.state().mirrors.find(m => this.direct.has(m.id) && this.localPath(m) === args[2]) : undefined;
     if (direct) await this.local(direct, { interrupted: direct.blocker === 'rebuild' });
     this.nativeRunning = true;
-    try { return await this.worker.run(direct ? [...args, '--exclude', obsidianStageExclude] : args, capture, report); }
+    try { return await this.worker.run(direct ? [...args, ...stageExcludes] : args, capture, report); }
     finally {
       this.nativeRunning = false;
       await Promise.allSettled([...this.directoryReads]);
@@ -440,7 +433,7 @@ export class NoteRuntime {
   run(args: string[], capture?: boolean, report?: Parameters<RcloneProcess['run']>[2]) {
     return this.turn(async () => {
       const id = args[0] === 'bisync' ? this.state().mirrors.find(m => m.initialized && this.localPath(m) === args[2])?.id : undefined;
-      if (id && this.moves.blocked(id)) throw new NoteError('uncertain');
+      if (id && this.moves.blocked(id)) throw new FileError('uncertain');
       if (id && !args.includes('--resync')) {
         if (this.nativeBlocked.get(id) === 'native_failure' && this.mirror(id)?.blocker === null) this.nativeBlocked.delete(id); // explicit Retry cleared the prior blocker
         await this.quantum();
@@ -460,7 +453,7 @@ export class NoteRuntime {
           catch (error) {
             this.nativeBlocked.set(id, 'uncertain');
             throw new CloudError('recovery_required', {
-              kind: 'post_run_reconcile', reason: error instanceof NoteError && error.category === 'uncertain' ? 'uncertain' : 'unavailable',
+              kind: 'post_run_reconcile', reason: error instanceof FileError && error.category === 'uncertain' ? 'uncertain' : 'unavailable',
               command: commandEvidence?.kind === 'post_run_reconcile' ? commandEvidence.command : commandEvidence,
             });
           }
@@ -490,7 +483,7 @@ export class NoteRuntime {
       } catch (error) {
         this.nativeBlocked.set(mirror.id, 'uncertain');
         if (error instanceof CloudError) throw error;
-        throw new CloudError('recovery_required', { kind: 'post_run_reconcile', reason: error instanceof NoteError && error.category === 'uncertain' ? 'uncertain' : 'unavailable', command: null });
+        throw new CloudError('recovery_required', { kind: 'post_run_reconcile', reason: error instanceof FileError && error.category === 'uncertain' ? 'uncertain' : 'unavailable', command: null });
       }
     });
   }
@@ -518,7 +511,7 @@ export class NoteRuntime {
         count++; this.lastMirror = mirror.id;
       } catch (error) {
         this.nativeBlocked.set(item.mirrorId, 'uncertain');
-        this.diagnose('note_apply', error instanceof NoteError ? error.category : error instanceof CloudError ? error.category : 'unavailable', { evidence: null, ...(error instanceof NoteApplicationError ? { application: { stage: error.stage, outcome: error.outcome } } : { application: { stage: 'native_lock', outcome: 'uncertain' } }) });
+        this.diagnose('file_apply', error instanceof FileError ? error.category : error instanceof CloudError ? error.category : 'unavailable', { evidence: null, ...(error instanceof FileApplicationError ? { application: { stage: error.stage, outcome: error.outcome } } : { application: { stage: 'native_lock', outcome: 'uncertain' } }) });
       }
     }
     // Yield to an already queued native command. A fresh idle wake receives
@@ -536,7 +529,7 @@ export class NoteRuntime {
         more = result.examined === 64;
       }).catch(error => {
         this.storageBlocked = true;
-        this.diagnose('note_maintenance', error instanceof NoteError ? error.category : 'unavailable');
+        this.diagnose('file_maintenance', error instanceof FileError ? error.category : 'unavailable');
       }).finally(() => {
         this.maintenance = null;
         if (more) this.scheduleMaintenance();
@@ -567,22 +560,22 @@ export class NoteRuntime {
           if (this.closed) throw new CloudError('interrupted');
           await this.local(checkedMirror());
           // apply retains its own immediate identity/CAS and durable journal.
-          if (await this.overlay.apply(root, id, path) !== 'applied') throw new NoteError('uncertain');
+          if (await this.overlay.apply(root, id, path) !== 'applied') throw new FileError('uncertain');
         }
         await this.local(checkedMirror());
         checkedMirror();
-        if (this.closed || this.overlay.hasUnresolvedJournals(id) || this.overlay.pending().some(p => p.mirrorId === id)) throw new NoteError('uncertain');
+        if (this.closed || this.overlay.hasUnresolvedJournals(id) || this.overlay.pending().some(p => p.mirrorId === id)) throw new FileError('uncertain');
         this.nativeBlocked.delete(id);
       } catch (error) {
         this.nativeBlocked.set(id, 'uncertain');
-        this.diagnose('note_application_recovery', error instanceof NoteError ? error.category : error instanceof CloudError ? error.category : 'unavailable', { evidence: null, application: error instanceof NoteApplicationError ? { stage: error.stage, outcome: error.outcome } : { stage: 'reconcile', outcome: 'uncertain' } });
+        this.diagnose('file_application_recovery', error instanceof FileError ? error.category : error instanceof CloudError ? error.category : 'unavailable', { evidence: null, application: error instanceof FileApplicationError ? { stage: error.stage, outcome: error.outcome } : { stage: 'reconcile', outcome: 'uncertain' } });
         throw new CloudError('recovery_required');
       }
     });
   }
   activity() {
     return { nativeRunning: this.nativeRunning, localOperations: this.entered.size, turnsPending: this.turnsPending,
-      busy: this.closed || !this.ready || this.search.active || this.nativeRunning || this.entered.size > 0 || this.turnsPending > 0 || this.directoryReads.size > 0 || this.moving || this.wakeScheduled || this.maintenanceScheduled || this.maintenance !== null };
+      busy: this.closed || !this.ready || this.nativeRunning || this.entered.size > 0 || this.turnsPending > 0 || this.directoryReads.size > 0 || this.moving || this.wakeScheduled || this.maintenanceScheduled || this.maintenance !== null };
   }
   canRestoreScheduling(id: string) {
     return this.ready && !this.closed && !this.storageBlocked && !this.blocked.has(id) &&
@@ -597,7 +590,6 @@ export class NoteRuntime {
   stop(): Promise<void> {
     this.requestStop();
     return this.stopped ??= (async () => {
-      await this.search.stop();
       await Promise.allSettled([...this.entered, ...this.pushes]);
       await this.queue;
       await this.maintenance;

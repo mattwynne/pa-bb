@@ -15,7 +15,7 @@ try {
     const page = await context.newPage();
     let claimed = false; let unavailable = false; let snoozeFails = false;
     const methods = []; const forms = [];
-    const state = { connected: true, challenge: null, available: true, prerequisite: null, noteAccessVersion: null,
+    const state = { connected: true, challenge: null, available: true, prerequisite: null, mirrorFileAccessVersion: null,
       lastSignInCompletedAt: '2026-10-01T00:00:00.000Z', attention: { stage: 'reminder', generation: 'reminder:synthetic', snoozedUntil: null },
       mirrors: [mirror('paused'), mirror('critical', { phase: 'failed', enabled: true, failure: 'recovery_required', blocker: 'rebuild', local: { available: false, reason: 'recovery_required', pendingAgeMs: null, applicationBlocker: 'application_uncertain' } })] };
     await context.route('**/api/v1/plugins/icloud/rpc/**', async route => {

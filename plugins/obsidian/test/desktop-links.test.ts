@@ -132,20 +132,20 @@ process.exitCode = result.status ?? 1;
     async list() { return { plugins: [{ id: 'icloud', enabled: true, status: 'running' }] }; },
     async callRpc({ method, input, outputSchema }: { method: string; input: { revision: number }; outputSchema: { parse(value: unknown): unknown } }) {
       const info = await lstat(root, { bigint: true });
-      if (method === 'noteConfigure') configureCount++;
+      if (method === 'mirrorConfigure') configureCount++;
       if (method === 'mirrorDirectoryGrant') {
         grantCount++;
         if (denyGrant || grantCount >= denyAfter) throw new Error('sentinel denied grant');
       }
       const replies: Record<string, unknown> = {
-        status: { noteAccessVersion: 2, mirrorAccessVersion: 3, available: true, connected: false, challenge: null, mirrors: [
+        status: { mirrorFileAccessVersion: 1, mirrorAccessVersion: 3, available: true, connected: false, challenge: null, mirrors: [
           { id, folder: { name: 'Fixture' }, initialized: true, enabled: false, phase: 'paused', lastSuccess: null, failure: null, filesystem: 'ready',
             local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null } },
         ] },
-        noteConfigure: { ok: true, value: { revision: input?.revision } },
+        mirrorConfigure: { ok: true, value: { revision: input?.revision } },
         mirrorDirectory: { directory: root },
         mirrorDirectoryGrant: { directory: root, rootDev: String(info.dev), rootIno: String(info.ino) },
-        noteReceipts: { ok: true, value: [] },
+        fileReceipts: { ok: true, value: [] },
       };
       return outputSchema.parse(replies[method]);
     },

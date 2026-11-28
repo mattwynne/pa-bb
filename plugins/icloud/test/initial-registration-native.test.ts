@@ -1,6 +1,8 @@
 // Opt-in generated alias remote only: exercise the production BB wiring from
 // fresh selection through initial download, local note admission and normal sync.
 import test from 'node:test';
+const decode = (base64: string) => Buffer.from(base64, 'base64').toString();
+
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -63,14 +65,14 @@ test('fresh wired selections complete native initial download, register locally 
       ids.push(mirror.id);
     }
     const note = (method: string, input: unknown) => host.harness.behavior.callRpc(method, input, caller) as Promise<any>;
-    assert.equal((await note('noteConfigure', { version: 2, revision: 1, mirrorIds: ids })).ok, true);
+    assert.equal((await note('mirrorConfigure', { version: 1, revision: 1, mirrorIds: ids })).ok, true);
     for (const [index, id] of ids.entries()) {
       const name = ['Downloads', 'Desktop'][index];
-      const target = { version: 2, revision: 1, mirrorId: id, path: 'Generated.md' };
-      assert.equal((await note('noteRead', target)).value.text, `Initial ${name}`);
+      const target = { version: 1, revision: 1, mirrorId: id, path: 'Generated.md' };
+      assert.equal(decode((await note('fileRead', target)).value.base64), `Initial ${name}`);
       const text = `Saved locally in ${name}`;
-      assert.equal((await note('noteCommit', { ...target, operationId: operationId(), kind: 'replace', expectedHash: hash(`Initial ${name}`), text })).value.hash, hash(text));
-      assert.equal((await note('noteRead', target)).value.text, text);
+      assert.equal((await note('fileCommit', { ...target, operationId: operationId(), kind: 'replace', expectedHash: hash(`Initial ${name}`), base64: Buffer.from(text).toString("base64") })).value.hash, hash(text));
+      assert.equal(decode((await note('fileRead', target)).value.base64), text);
     }
     // Local publication is asynchronous; a save receipt is not a claim that
     // native bisync has already enumerated those bytes.
@@ -86,7 +88,7 @@ test('fresh wired selections complete native initial download, register locally 
     for (const name of ['Downloads', 'Desktop']) assert.equal(await readFile(join(remote, name, 'Generated.md'), 'utf8'), `Saved locally in ${name}`);
     for (const name of ['Downloads', 'Desktop']) await writeFile(join(remote, name, 'Generated.md'), `A subsequent remote change in ${name}`);
     await host.harness.behavior.runSchedule('selected-folder-sync');
-    for (const [index, id] of ids.entries()) assert.equal((await note('noteRead', { version: 2, revision: 1, mirrorId: id, path: 'Generated.md' })).value.text, `A subsequent remote change in ${['Downloads', 'Desktop'][index]}`);
+    for (const [index, id] of ids.entries()) assert.equal(decode((await note('fileRead', { version: 1, revision: 1, mirrorId: id, path: 'Generated.md' })).value.base64), `A subsequent remote change in ${['Downloads', 'Desktop'][index]}`);
     assert.equal(commands.length, 6);
     assert.equal(commands.filter(args => args.includes('--resync')).length, 2, 'only fresh initial enables may resync');
     assert.ok(commands.every(args => args[0] === 'bisync' && args.includes('--recover')));

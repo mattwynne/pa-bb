@@ -63,7 +63,7 @@ export class ICloudSync {
       }
     }
     await this.save();
-    // Remote Apple listing must not hold startup or ordinary local note admission.
+    // Remote Apple listing must not hold startup or ordinary local file admission.
   }
   restoreConnection() {
     if (!this.state.connected) return;

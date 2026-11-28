@@ -62,7 +62,7 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     }
   };
   bb.rpc.register(rpcContract, {
-    scanFinished({ mirrorId }, { experimental_caller: caller }) {
+    mirrorScanFinished({ mirrorId }, { experimental_caller: caller }) {
       if (caller.kind !== 'plugin' || caller.pluginId !== 'icloud')
         throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the iCloud plugin reports finished scans.' });
       if (!sweepStop.signal.aborted && icloud.conflictAccess().targets.some(target => target.mirrorId === mirrorId)) void sweeps.request();

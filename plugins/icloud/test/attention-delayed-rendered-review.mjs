@@ -17,7 +17,7 @@ try {
     try {
       let release; let statusUnavailable = false; let statusCalls = 0;
       const claimed = new Set();
-      const state = { connected: true, connectionCheck: 'verified', challenge: null, mirrors: [], available: true, prerequisite: null, noteAccessVersion: null, lastSignInCompletedAt: '2026-10-01T00:00:00.000Z', attention: { stage: 'reminder', generation: 'reminder:synthetic', snoozedUntil: null, inlineVisible: false } };
+      const state = { connected: true, connectionCheck: 'verified', challenge: null, mirrors: [], available: true, prerequisite: null, mirrorFileAccessVersion: null, lastSignInCompletedAt: '2026-10-01T00:00:00.000Z', attention: { stage: 'reminder', generation: 'reminder:synthetic', snoozedUntil: null, inlineVisible: false } };
       await context.route('**/api/v1/plugins/icloud/rpc/**', async route => {
         const method = new URL(route.request().url()).pathname.split('/').at(-1);
         const input = route.request().postDataJSON();

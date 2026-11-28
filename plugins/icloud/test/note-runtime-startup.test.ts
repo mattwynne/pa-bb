@@ -24,7 +24,7 @@ test('plugin startup cannot write sync state or migrate history before owning th
     await assert.rejects(plugin(host.bb, { repository, worker: candidate }), (error: any) => error.category === 'busy');
     assert.equal(saves, 0, 'a rejected replacement must not rewrite the predecessor sync state');
     assert.deepEqual(db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'icloud_%'").all(), [], 'history and note migrations both require ownership');
-    assert.match(JSON.stringify(host.harness.inspection.logEntries), /iCloud note_owner busy/);
+    assert.match(JSON.stringify(host.harness.inspection.logEntries), /iCloud mirror_owner busy/);
   } finally {
     await candidate.stop(); await owner.stop(); await host.harness.lifecycle.dispose();
   }

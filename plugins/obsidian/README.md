@@ -105,7 +105,7 @@ remain enforced by the existing parser before saving.
 - iCloud enables filesystem access after the mirror has finished initialization
   and cleared pending legacy writes and recovery. It fences legacy writes
   before granting directory access. Pending and conflicted legacy mirrors
-  remain on the legacy interface, where existing operations can finish or be
+  remain on iCloud’s coordinated file interface, where existing operations can finish or be
   resolved. Historical receipts remain available.
 - Sound initialized mirrors can be available while cloud sync runs or is
   paused, or while Apple is disconnected. The last-success timestamp is when

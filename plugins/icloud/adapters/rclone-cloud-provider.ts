@@ -116,7 +116,7 @@ export class RcloneCloudProvider implements CloudProvider {
     await this.registerNotes?.(mirror);
   }
   async synchronize(mirror: Mirror, report?: ProgressReporter) {
-    // Reconcile only bounded per-note journals, under the same native owner,
+    // Reconcile only bounded per-file journals, under the same native owner,
     // before any native sync may enumerate or upload the mirror.
     if (this.reconcileNotes) await this.withMirrorFiles(mirror, async () => {});
     const baseline = join(this.root, 'baselines', mirror.id);

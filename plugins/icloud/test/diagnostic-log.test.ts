@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { diagnosticMessage } from '../adapters/diagnostic-log.ts';
 import { CloudError, category, evidence } from '../core/ports.ts';
 test('v2 ownership, startup, application, maintenance and conflict failures name their fixed boundaries', () => {
-  for (const stage of ['startup', 'note_owner', 'note_start', 'note_apply', 'note_maintenance', 'note_inspect_conflict', 'note_resolve_conflict']) {
+  for (const stage of ['startup', 'mirror_owner', 'mirror_start', 'file_apply', 'file_maintenance', 'file_inspect_conflict', 'file_resolve_conflict']) {
     assert.equal(diagnosticMessage(stage, 'unavailable'), `iCloud ${stage} unavailable`);
   }
 });
@@ -24,7 +24,7 @@ test('diagnostic log fields whitelist stages, categories, sequences and exit evi
 });
 
 test('application fields reject private data and keep recovery stage attribution', () => {
-  assert.equal(diagnosticMessage('note_application_recovery', 'unavailable', { evidence: null, application: { stage: 'PRIVATE_SENTINEL', outcome: 'PRIVATE_SENTINEL' } }), 'iCloud note_application_recovery unavailable application_stage=unknown outcome=uncertain');
+  assert.equal(diagnosticMessage('file_application_recovery', 'unavailable', { evidence: null, application: { stage: 'PRIVATE_SENTINEL', outcome: 'PRIVATE_SENTINEL' } }), 'iCloud file_application_recovery unavailable application_stage=unknown outcome=uncertain');
 });
 
 test('post-run reconciliation evidence keeps only fixed reasons and validated native evidence', () => {

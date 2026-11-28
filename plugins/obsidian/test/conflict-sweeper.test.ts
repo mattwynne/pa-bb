@@ -126,7 +126,7 @@ test('only the iCloud plugin can report a finished scan', async () => {
   const host = createFakePluginHost({ pluginId: 'obsidian' });
   await plugin(host.bb, { catalog: new CatalogFake(), files: new FilesFake(), repository: new MemoryState() });
   try {
-    await assert.rejects(host.harness.behavior.callRpc('scanFinished', { mirrorId: 'one' }, { experimental_caller: { kind: 'plugin', pluginId: 'gtd' } } as any), /Only the iCloud plugin/);
-    assert.equal(await host.harness.behavior.callRpc('scanFinished', { mirrorId: 'one' }, { experimental_caller: { kind: 'plugin', pluginId: 'icloud' } } as any), null);
+    await assert.rejects(host.harness.behavior.callRpc('mirrorScanFinished', { mirrorId: 'one' }, { experimental_caller: { kind: 'plugin', pluginId: 'gtd' } } as any), /Only the iCloud plugin/);
+    assert.equal(await host.harness.behavior.callRpc('mirrorScanFinished', { mirrorId: 'one' }, { experimental_caller: { kind: 'plugin', pluginId: 'icloud' } } as any), null);
   } finally { await host.harness.lifecycle.dispose(); }
 });

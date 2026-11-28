@@ -53,13 +53,13 @@ async function connectSyntheticVault(pkg) {
   const stat = await lstat(vault, { bigint: true });
   const directory = { directory: vault };
   const replies = {
-    status: { noteAccessVersion: 2, mirrorAccessVersion: 3, available: true, connected: false, challenge: null, mirrors: [{
+    status: { mirrorFileAccessVersion: 1, mirrorAccessVersion: 3, available: true, connected: false, challenge: null, mirrors: [{
       id: 'one', folder: { name: 'Synthetic vault' }, initialized: true, enabled: false, phase: 'paused', lastSuccess: null, failure: null, filesystem: 'ready',
       local: { available: true, reason: null, pendingAgeMs: null, applicationBlocker: null },
     }] },
     mirrorDirectoryGrant: { ...directory, rootDev: String(stat.dev), rootIno: String(stat.ino) }, mirrorDirectory: directory,
-    noteReceipts: { ok: true, value: [] },
-    noteMoveReceipts: { ok: true, value: [] },
+    fileReceipts: { ok: true, value: [] },
+    fileMoveReceipts: { ok: true, value: [] },
   };
   await writeFile(join(fixture, 'server.js'), `
 import { defineRpcContract } from '@get-bb/plugin-sdk';
@@ -67,7 +67,7 @@ import { z } from 'zod';
 export default function (bb) {
   const replies = ${JSON.stringify(replies)};
   const handlers = { ...Object.fromEntries(Object.keys(replies).map(name => [name, () => replies[name]])),
-    noteConfigure: input => ({ ok: true, value: { revision: input.revision } }) };
+    mirrorConfigure: input => ({ ok: true, value: { revision: input.revision } }) };
   const contract = defineRpcContract(Object.fromEntries(Object.keys(handlers).map(name => [name, { input: z.unknown(), output: z.unknown() }])));
   bb.rpc.register(contract, handlers);
 }`);

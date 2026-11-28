@@ -4,8 +4,8 @@ import { randomUUID, createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile, rename, rm, stat, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { MirrorRuntime } from '../adapters/mirror-runtime.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
 import { ICloudSync } from '../core/service.ts';
 import { CloudError, emptyState } from '../core/ports.ts';
@@ -25,13 +25,13 @@ async function fixture() {
     const worker = new RcloneProcess(root); worker.ensure = async () => {};
     worker.call = async () => ({ type: 'alias', remote: 'generated' });
     worker.withFiles = async action => action(new AbortController().signal);
-    const runtime = new NoteRuntime(root, db, worker, new NoteStore(join(root, 'legacy')), () => state);
+    const runtime = new MirrorRuntime(root, db, worker, new FileStore(join(root, 'legacy')), () => state);
     runtime.wake = () => {};
     return runtime;
   };
   let runtime = create(); await runtime.start(); runtime.configure(1, ['one']);
   const save = async (path: string, text = 'Checkpoint B') => {
-    await runtime.commit(1, { mirrorId: 'one', path, operationId: op(), kind: 'create', expectedHash: null, text });
+    await runtime.commit(1, { mirrorId: 'one', path, operationId: op(), kind: 'create', expectedHash: null, bytes: Buffer.from(text) });
     await runtime.call('rc/noop', {});
   };
   const fence = () => { state.mirrors[0].blocker = 'rebuild'; state.mirrors[0].failure = 'recovery_required'; state.mirrors[0].phase = 'running'; };
@@ -66,8 +66,8 @@ test('verified sole BB copy stays held and fenced until a complete pair is captu
     assert.equal(before.length, 2);
     assert.equal((await f.runtime.availability('one')).available, false, 'only the service may clear its persisted fence');
     f.state.mirrors[0].blocker = null;
-    assert.equal((await f.runtime.read('one', 1, 'Note.md') as any).text, 'Checkpoint B');
-    assert.equal((await f.runtime.overlay.readIncoming('one', 'Note.md', conflict!.token)), 'Incoming C');
+    assert.equal((await f.runtime.read('one', 1, 'Note.md') as any).bytes.toString(), 'Checkpoint B');
+    assert.equal(((await f.runtime.overlay.readIncoming('one', 'Note.md', conflict!.token))?.toString()), 'Incoming C');
     await assert.rejects(readFile(join(f.local, 'Note.md')), 'application must not recreate canonical B');
   } finally { released.release(); await f.close(); }
 });
@@ -138,7 +138,7 @@ test('already-entered suspended save cannot publish through a newly durable reco
     await f.save('Note.md');
     (f.runtime.overlay as any).fault = async (stage: string) => { if (stage === 'before_head') { entered.release(); await released.promise; } };
     const operationId = op();
-    const save = f.runtime.commit(1, { mirrorId: 'one', path: 'Other.md', operationId, kind: 'create', expectedHash: null, text: 'Suspended' });
+    const save = f.runtime.commit(1, { mirrorId: 'one', path: 'Other.md', operationId, kind: 'create', expectedHash: null, bytes: Buffer.from('Suspended') });
     const rejected = assert.rejects(save, /recovery_required/); await entered.promise;
     await rename(join(f.local, 'Note.md'), join(f.local, 'Note.md.bb-conflict1')); f.fence();
     let invoked = false; f.runtime.worker.run = async () => { invoked = true; await writeFile(join(f.local, 'Note.md.icloud-conflict1'), 'Incoming C'); return ''; };

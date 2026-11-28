@@ -1,5 +1,8 @@
 // Generated-only host-faithful RPC + real inherited-flock/native bisync tests.
 import test from 'node:test';
+const decode = (base64: string) => Buffer.from(base64, 'base64').toString();
+const encode = (value: string) => Buffer.from(value).toString('base64');
+
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, unlink, symlink, link, chmod, rename, stat, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -7,8 +10,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createFakePluginHost } from '@get-bb/plugin-sdk/testing';
 import { plugin } from '../server.ts';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { MirrorRuntime } from '../adapters/mirror-runtime.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import { CloudError } from '../core/ports.ts';
 import { MemoryState } from './fakes.ts';
 const enabled = process.platform === 'linux' && !!process.env.RCLONE_TEST_BINARY && process.env.ICLOUD_RUNTIME_NATIVE === '1';
@@ -22,7 +25,7 @@ async function fixture(bandwidth?: string) {
   const generated = await mkdtemp('/tmp/icloud-completion-'), remote = join(generated, 'remote');
   const repository = new MemoryState(); repository.value.connected = true;
   const worker = new RcloneProcess(root, process.env.RCLONE_TEST_BINARY!, bandwidth);
-  const runtime = new NoteRuntime(root, host.bb.storage.database(), worker, new NoteStore(join(root, 'note-operations')), () => repository.value);
+  const runtime = new MirrorRuntime(root, host.bb.storage.database(), worker, new FileStore(join(root, 'note-operations')), () => repository.value);
   const rpc = (method: string, input: unknown) => host.harness.behavior.callRpc(method, input) as Promise<any>;
   const commands: string[][] = [];
   const run = worker.run.bind(worker);
@@ -76,10 +79,10 @@ test('explicit RPC completes an actual downloaded/failed registration in place, 
     assert.deepEqual((await f.rpc('diagnostics', {})).runs.slice(0, 2), originalHistory);
     await assert.rejects(f.rpc('completeInitialRegistration', { id: f.id }), /paused for recovery/);
     const note = (method: string, input: unknown) => f.host.harness.behavior.callRpc(method, input, caller) as Promise<any>;
-    assert.equal((await note('noteConfigure', { version: 2, revision: 1, mirrorIds: [f.id] })).ok, true);
-    const target = { version: 2, revision: 1, mirrorId: f.id, path: 'Generated.md' };
-    assert.equal((await note('noteRead', target)).value.text, 'Initial generated content');
-    assert.equal((await note('noteCommit', { ...target, operationId: operationId(), kind: 'replace', expectedHash: hash('Initial generated content'), text: 'Local generated edit' })).ok, true);
+    assert.equal((await note('mirrorConfigure', { version: 1, revision: 1, mirrorIds: [f.id] })).ok, true);
+    const target = { version: 1, revision: 1, mirrorId: f.id, path: 'Generated.md' };
+    assert.equal(decode((await note('fileRead', target)).value.base64), 'Initial generated content');
+    assert.equal((await note('fileCommit', { ...target, operationId: operationId(), kind: 'replace', expectedHash: hash('Initial generated content'), base64: encode('Local generated edit') })).ok, true);
     for (let i = 0; i < 100 && await readFile(join(f.local, 'Generated.md'), 'utf8') !== 'Local generated edit'; i++) await new Promise(resolve => setTimeout(resolve, 20));
     await f.host.harness.behavior.runSchedule('selected-folder-sync');
     assert.equal(await readFile(join(f.remote, 'Downloads/Generated.md'), 'utf8'), 'Initial generated content', 'completion must not auto-enable');
@@ -87,7 +90,7 @@ test('explicit RPC completes an actual downloaded/failed registration in place, 
     assert.equal(await readFile(join(f.remote, 'Downloads/Generated.md'), 'utf8'), 'Local generated edit');
     await writeFile(join(f.remote, 'Downloads/Generated.md'), 'A longer remote generated change');
     await f.host.harness.behavior.runSchedule('selected-folder-sync');
-    assert.equal((await note('noteRead', target)).value.text, 'A longer remote generated change');
+    assert.equal(decode((await note('fileRead', target)).value.base64), 'A longer remote generated change');
     assert.equal(f.commands.filter(args => args.includes('--resync')).length, 2);
     assert.equal(f.commands.length, 5);
     assert.ok(f.commands.every(args => !args.includes('--force')));

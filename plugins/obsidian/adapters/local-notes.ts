@@ -217,7 +217,7 @@ export class LocalNotes {
     const bytes = Buffer.from(text);
     if (bytes.length > NOTE_LIMITS.bytes || bytes.toString() !== text || text.includes('\0')) throw new VaultError('unsupported');
     const parent = await this.parent(root, path);
-    const stage = join(fdPath(parent.folder.fd), `.obsidian-bb-${randomUUID()}.tmp`);
+    const stage = join(fdPath(parent.folder.fd), `.bb-mirror-${randomUUID()}.tmp`);
     let staged = false;
     try {
       const file = await open(stage, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, expected ? expected.info.mode & 0o777 : 0o600);

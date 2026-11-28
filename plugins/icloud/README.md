@@ -25,9 +25,21 @@ receipt with the state change, and use read-back to reconcile an uncertain
 result. Exercise cancellation, concurrent requests and recovery using
 generated fixtures before using a new control on live data.
 
-## Read-only child enumeration
+## Local mirror file access
 
-`noteChildren` is restricted to the host-verified Obsidian caller and negotiated source revision. It enumerates only immediate directories and Markdown files in one exact relative folder through `NoteRuntime.access`; configuration/removal is checked again before publication. Directory handles are pinned and every traversed component is opened no-follow. It includes empty and attachment-only directories without reading note bytes. Each call visits at most 5,000 entries, returns at most 512 KiB of entry data, and has a two-second scan budget. Access failures, symlinks, cancellation and limits return incomplete coverage, not a confirmed zero. No filesystem root, sync change, note write or retained cursor is exposed.
+The host-verified Obsidian plugin can use the mirror file RPCs at the current
+selection revision for an initialized, admitted mirror. The file contract
+advertises `mirrorFileAccessVersion: 1`. It uses bounded relative paths, Base64
+file bytes, SHA-256 versions, operation IDs and conflict evidence. The consumer
+chooses which paths are notes, which directory marker to look for, and how to
+interpret the returned bytes.
+
+`mirrorChildren` enumerates immediate directories and regular files without
+reading their contents. `mirrorFindDirectories` finds directories containing
+a caller-supplied marker directory and skips the supplied excluded names.
+Both pin directory handles and use no-follow traversal. Scans are bounded by
+time and entry count. Access failures, cancellation and limits report
+incomplete coverage. Results use only mirror-relative names.
 
 ## Architecture
 
@@ -37,19 +49,15 @@ generated fixtures before using a new control on live data.
 
 The read-only `diagnostics` RPC keeps successful sync summaries for seven days and failures/interrupted runs for 30 days, with independent capacity budgets so healthy traffic cannot evict errors. Responses default to a latest-20 page; older pages and errors-only queries remain available. Summaries include timings, safe counters and bounded failure evidence, never folder names, paths or provider messages. History storage failures are reported separately and never cause a provider retry. Legacy backup stages remain readable in old summaries. A separate private rotating rclone trace keeps projected native activity, counters and recognized error categories for future bisync attempts: **four files of at most 1 MiB each**, oldest replaced automatically. Read it without starting sync using `bb plugin rpc call icloud rcloneLogs --json`. Raw messages, filenames, credentials and provider payloads are not stored. Trace failures never fail or retry a provider operation. See [diagnostics](docs/setup.md#diagnostics).
 
-Other integrations can call the read-only `inventory` RPC or use `icloud_list_local_folders`. It returns names, stable mirror identifiers, local note availability and last successful host sync—not raw host paths. `lastSuccess` is recorded after the host provider operation (including native bisync) returns successfully. It is a host-operation completion time, not proof that every note reached iCloud or another device. Null means no successful sync recorded: never synced or history unknown. Agent responses should report this timestamp in the user's timezone and actual sync state/errors, without calling local notes stale based on elapsed time, pauses or disconnection. The status contract deliberately has no `stale` freshness flag. Select by name/identifier, not a user-configured path. Inventory access is not consent to edit files. Retained previous mirrors remain listed separately and never sync again. [Obsidian](../obsidian/README.md) connects initialized mirrors separately for whole-vault read/write. From 0.2.0, the v2 note contract requires the host-verified Obsidian caller and an exact negotiated revision for configure/list/read/commit/receipts/conflict recovery. Both plugins must support v2; mixed versions refuse note access rather than use a raw-folder fallback. Inventory alone grants no edit access.
-
-Version **0.3.0** adds a separately negotiated, Obsidian-only ripgrep search
-capability over logical notes, including pending overlay heads. It passes pinned
-read-only descriptors to stock host ripgrep, not raw roots to the consumer.
-Search sessions are bounded and cancellable; they do not change note access v2
-storage, receipt identities, saves or native reconciliation. Missing search
-requirements disable search only. See [search semantics and limits](../obsidian/README.md#search-and-counts).
-
-The paired **0.3.1** patch accepts legitimate colons in Linux note/folder names
-without weakening anchored no-follow traversal or conditional saves. It changes
-neither storage schema nor receipt identities. Unsupported-file warnings and
-partial/null-total semantics remain for genuine omissions.
+Other integrations can call the read-only `inventory` RPC or use
+`icloud_list_local_folders`. It returns names, stable mirror identifiers, local
+file availability and the last successful host sync. `lastSuccess` records when
+the host sync operation completed. Null means no successful sync is recorded.
+Report the timestamp in the user's timezone alongside the actual state and any
+errors. Edit access requires separate source admission. Retained previous mirrors remain listed
+separately and never sync again.
+[Obsidian](../obsidian/README.md) connects initialized mirrors separately for
+whole-vault read and write access.
 
 Version **0.3.2** introduced a narrow, host-verified PA updater Pause reservation.
 The updater is now retired, but iCloud retains its durable `pa-update-pause-v1`
@@ -58,13 +66,13 @@ still blocks scheduling and ordinary Enable/Retry/Rebuild; deleting updater
 source does not release it. Settle any outstanding updater operation and verify
 `status.updatePause.jobId` is null before retiring an installed updater. Do not
 clear the stored hold or auto-resume folders to bypass recovery. User Pause,
-failed-folder state, account and Obsidian note authorization remain unchanged.
+failed-folder state, account and local mirror authorization remain unchanged.
 
 ## Filesystem mirror cutover
 
 The producer advertises `mirrorAccessVersion: 3` and a `filesystem` state for
-each mirror in status. It retains the v2 status shape, selection revision and
-note RPCs for older Obsidian clients. Only host-verified Obsidian can call
+each mirror in status. The mirror file RPCs use the existing durable selection
+revision. Only host-verified Obsidian can call
 `mirrorDirectory({ mirrorId, revision })` for a configured, initialized mirror.
 The RPC verifies the local binding and returns the directory only to that
 caller. Inventory and diagnostics omit the directory. Paused or disconnected
@@ -73,7 +81,7 @@ mirrors can still serve local data when their binding and recovery state are sou
 For index authorization, host-verified Obsidian calls
 `mirrorDirectoryCapabilities(null)`. The reply is `{ mirrorDirectoryGrantVersion: 1 }`
 when the runtime exists and `{}` otherwise. Older producers report `unknown_method`;
-other errors are not evidence of an older version. The legacy status reply is unchanged.
+other errors are surfaced as capability-check failures.
 
 Only host-verified Obsidian can call `mirrorDirectoryGrant({ mirrorId, revision })`,
 with the same numeric revision and readiness and durable handoff checks as
@@ -92,18 +100,18 @@ RPC, and the existing storage format are unchanged.
 2. Keep legacy access on mirrors marked `legacy_pending` or `legacy_conflict`.
    Let existing journaled application and native sync settle acknowledged saves.
    Inspect and resolve conflicts through the existing recovery workflow. A paused
-   or disconnected mirror may remain on v2 while an acknowledged save awaits sync.
+   or disconnected mirror may remain on coordinated file access while an acknowledged save awaits sync.
 3. The first successful directory lookup by the upgraded consumer retires legacy
    writes for that mirror. This durable switch waits for acknowledged heads,
-   unresolved records and entered writers to clear. Legacy reads and historical
-   receipts remain available. Older clients keep v2 writes on mirrors still
-   awaiting cutover. Use the upgraded consumer to write after cutover.
+   unresolved records and entered writers to clear. Historical receipts remain
+   available through the file contract. The consumer writes through its authorized
+   directory after cutover.
 
-The handoff leaves old receipt and recovery storage in place under its existing
-retention rules. It performs no bulk cleanup or baseline rebuild. After the first
-directory lookup, keep a producer that enforces the saved handoff if the consumer
-is rolled back. Wait until all consumers and unresolved recovery work have moved
-off v2 before considering removal of legacy code or storage.
+The handoff retains the original storage layout and retention rules for
+pending saves, conflicts, interrupted operations and receipts. The paired
+upgrade preserves receipt identities issued before the switch to file bytes.
+Mixed producer and consumer versions fail the capability check. If a rollout
+fails, keep the maintenance hold active while reviewing the reported state.
 
 ## Sending changes
 
@@ -114,23 +122,23 @@ that one change straight away with stock rclone through its running daemon:
 uses iCloud's server-side folder move. Pushes don't wait for a scan. They are
 skipped while a folder is paused, failed, blocked or held for maintenance.
 
-Before overwriting or moving a note, iCloud checks that the cloud copy still
+Before overwriting or moving a file, iCloud checks that the cloud copy still
 matches what BB last saw: its own last push, or the last scan's listing. If not,
 it skips the push. A skipped or failed push needs no queue or retry, because the
 change is already in the local mirror.
 
 The one-minute stock `rclone bisync` scan pulls changes made elsewhere and repairs
 anything a push missed. When both sides changed a file, bisync compares the bytes.
-Identical copies, such as a note BB just pushed, settle without a conflict.
+Identical copies, such as a file BB just pushed, settle without a conflict.
 Different copies are kept as `.icloud-conflictN` and `.bb-conflictN`, and
-Obsidian's conflict tools resolve them. Native bisync excludes the exact Obsidian
-UUID staging-name pattern on a direct mirror, so temporary files stay local.
+Obsidian's conflict tools resolve them. Native bisync excludes the exact mirror UUID staging pattern on direct mirrors.
+The previous staging pattern remains excluded for interrupted saves that left a file behind.
 
 Known limits and open problems are written up in [docs/problems](docs/problems/README.md).
 
-## Upgrading from 0.1.x
+## Coordinated upgrades
 
-Use iCloud **0.3.2** with Obsidian **0.3.1**, or later compatible 0.3.x releases. Use this same stopped-update sequence when upgrading from 0.2.x. Record which plugins and sources were enabled. Disable Obsidian, use iCloud's supported Pause controls, let active sync finish, then disable iCloud. Keep **both plugins disabled until both code updates/reloads have fully completed**, including stabilization. Enable iCloud first and check local readiness, then enable Obsidian if it was previously enabled. Resume only the sources that were enabled before maintenance. Keep previously disabled plugins disabled.
+Update iCloud and Obsidian together to builds that support the mirror file contract. Record which plugins and sources were enabled. Disable Obsidian, use iCloud's supported Pause controls, let active sync finish, then disable iCloud. Keep **both plugins disabled until both code updates/reloads have fully completed**, including stabilization. Enable iCloud first and check local readiness, then enable Obsidian if it was previously enabled. Resume only the sources that were enabled before maintenance. Keep previously disabled plugins disabled.
 
 Existing vault selections, source identities, baselines, receipts and recovery copies are preserved. If an update or startup fails, keep both plugins stopped and preserve their files for inspection and a corrected update. Do not clear baselines or locks, force resync, or load an old binary after the new storage format has been admitted.
 
@@ -149,7 +157,7 @@ Both conflicting edits are kept with numbered `icloud-conflict`/`bb-conflict` su
 
 **Sync is not a backup or an Undo feature.** From 0.1.10 onward, BB does not take whole-folder recovery copies, download file bodies for backups or run separate before/after cloud listings. Each attempt delegates directly to native bisync. Overwrites and deletions can propagate to both sides without a historical version being saved. There is no new automatic native backup-directory policy replacing the retired layer. Use a separate backup if recovery of arbitrary changes is required.
 
-Previously saved `backups/` files are not deleted, pruned, validated or used as a sync precondition. Their old 30-day/1 GiB policy no longer runs. Already saved capacity or critical blockers are not automatically cleared: review their provenance before using supported Retry or other recovery controls. The coordinated Obsidian boundary retains only the particular note being replaced, not changes from every device. Private note overlay bytes and previous versions live outside synced mirrors under the same inherited native-owner flock as bisync. A durable local save is visible to coordinated reads immediately, including while bisync runs; it does not prove delivery to iCloud. Pending bytes allow 64 MiB/256 paths globally and 16 MiB/128 paths per vault. Separate previous-version recovery allows 64 MiB; definite compact receipts allow 32,768 rows/64 MiB and retain the 30-day UUID replay fence. Uncertain references cannot be silently pruned. Capacity refuses new writes before publication. See the [note save and restoration contract](../obsidian/README.md#source-and-save-guarantees).
+Previously saved `backups/` files are not deleted, pruned, validated or used as a sync precondition. Their old 30-day/1 GiB policy no longer runs. Already saved capacity or critical blockers are not automatically cleared: review their provenance before using supported Retry or other recovery controls. Coordinated file saves retain the affected file’s previous version. Private overlay bytes and previous versions live outside synced mirrors under the same inherited native-owner flock as bisync. A durable local save is visible to coordinated reads immediately, including while bisync runs; it does not prove delivery to iCloud. Pending bytes allow 64 MiB/256 paths globally and 16 MiB/128 paths per mirror. Separate previous-version recovery allows 64 MiB; definite compact receipts allow 32,768 rows/64 MiB and retain the 30-day UUID replay fence. Uncertain references cannot be silently pruned. Capacity refuses new writes before publication. See the [note save and restoration contract](../obsidian/README.md#source-and-save-guarantees).
 
 Two transfers/checkers, 4 MiB buffers, an 8 MiB/s bandwidth limit, a 256 MiB Go soft memory limit and a 256 MiB per-bisync transfer limit bound ordinary work. A new empty mirror has a separate 2 GiB initial-transfer allowance so folders larger than the ordinary change budget can finish their first download. This is a transfer budget, not extra memory. Ordinary native bisync has no total command deadline; initial preparation retains its twenty-minute limit, and explicit interruption retains bounded graceful shutdown; the removed wrapper's five-minute listing limit is no longer part of the sync path. Large folders or burst edits may still exceed native limits or encounter provider failures. This change removes extra work, not all possible slow syncs.
 
@@ -161,7 +169,7 @@ Pause/resume preserve an established baseline. Disconnect removes stored passwor
 
 Temporary failures and interruptions keep the folder enabled and visible, preserve the last successful timestamp and retry through the next ordinary schedule. **Pause** cancels future attempts without erasing the failed outcome. Existing eligible initialized failed mirrors can use **Retry sync**, which runs native bisync checks without forced resync. Proven authorization failures require **Reconnect** and explicit per-folder **Resume**. A validated HTTP 421 rejection holds ordinary retries too, but does not prove token expiry. Reconnection does not repair recovery blockers. Capacity and configuration failures never auto-retry; after correcting the condition, use **Retry sync**. Invalid selections are configuration failures, not storage failures.
 
-A disabled interrupted mirror with a pending note application stays fenced across plugin restarts. Its existing **Retry sync** control first checks the original source/baseline identity, every retained head's exact filesystem checkpoint, intact pending bytes and matching save receipt, and absence of staged files, journals, conflicts and uncertain legacy records. Only provably unapplied initial heads can be applied through the existing conditional journaled save path before ordinary sync resumes. Any changed or ambiguous evidence leaves recovery stopped; Retry never chooses a conflicting version, clears a journal, replaces a baseline or forces resync. A broad application warning alone is not evidence that publication failed. Application diagnostics include allowlisted `application_stage` and `outcome` fields at the handled boundary, without exception messages, paths or note bytes. Stages identify reconciliation, observation, conflict capture, stage writing, journaling, publication and checkpoint completion. Outcomes distinguish `unapplied`, `applied`, `conflict` and `uncertain`; an unapplied observation is not permission to replay (a stage or journal may still remain). Publication/checkpoint failures stay uncertain unless the durable checkpoint completed. These diagnostics cannot reconstruct an old exception's cause and never weaken the existing evidence-checked Retry gate.
+A disabled interrupted mirror with a pending file application stays fenced across plugin restarts. Its existing **Retry sync** control first checks the original source/baseline identity, every retained head's exact filesystem checkpoint, intact pending bytes and matching save receipt, and absence of staged files, journals, conflicts and uncertain legacy records. Only provably unapplied initial heads can be applied through the existing conditional journaled save path before ordinary sync resumes. Any changed or ambiguous evidence leaves recovery stopped; Retry never chooses a conflicting version, clears a journal, replaces a baseline or forces resync. A broad application warning alone is not evidence that publication failed. Application diagnostics include allowlisted `application_stage` and `outcome` fields at the handled boundary, without exception messages, paths or file bytes. Stages identify reconciliation, observation, conflict capture, stage writing, journaling, publication and checkpoint completion. Outcomes distinguish `unapplied`, `applied`, `conflict` and `uncertain`; an unapplied observation is not permission to replay (a stage or journal may still remain). Publication/checkpoint failures stay uncertain unless the durable checkpoint completed. These diagnostics cannot reconstruct an old exception's cause and never weaken the existing evidence-checked Retry gate.
 
 Critical sync-record failures and ambiguous initial preparation never force a resync. Their confirmed **Create fresh mirror** path downloads current iCloud data into a different local folder and keeps the old folder and unsent edits separate; it does not merge or repair them. After an abrupt native transfer termination, rclone can preserve a non-empty bounded `<name>.<8-hex>.partial` file alongside the recovered full object. The plugin does not delete potentially unique evidence. See [recovery](docs/setup.md#recovery).
 

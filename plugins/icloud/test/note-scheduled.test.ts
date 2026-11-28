@@ -5,12 +5,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import { syncArguments } from '../adapters/rclone-cloud-provider.ts';
 const enabled = process.platform === 'linux' && !!process.env.RCLONE_TEST_BINARY && process.env.ICLOUD_SCHEDULED_REVIEW === '1';
 test('routine access during two real minute-based native bisync runs has bounded busy and returns to editing', { skip: !enabled, timeout: 145000 }, async () => {
   const root = await mkdtemp('/tmp/icloud-note-scheduled-'); const remote = root + '/remote'; const local = root + '/local'; const baseline = root + '/baseline';
-  const worker = new RcloneProcess(root + '/worker', process.env.RCLONE_TEST_BINARY); const notes = new NoteStore(root + '/note-operations');
+  const worker = new RcloneProcess(root + '/worker', process.env.RCLONE_TEST_BINARY); const notes = new FileStore(root + '/note-operations');
   const measurements: Array<{ busy: boolean; ms: number }> = []; const runs: number[] = []; let timer: ReturnType<typeof setInterval> | undefined; let running: Promise<unknown> | undefined;
   try {
     await mkdir(remote); await mkdir(local); await mkdir(baseline); await mkdir(remote + '/.hidden');
@@ -32,7 +32,7 @@ test('routine access during two real minute-based native bisync runs has bounded
     }
     await finished; await running;
     const note = await worker.withFiles(() => notes.read(local, '.hidden/Note.md'));
-    const receipt = await worker.withFiles(signal => notes.commit(local, { operationId: (() => { const time = Date.now().toString(16).padStart(12, '0'); return `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`; })(), mirrorId: 'generated', path: '.hidden/Note.md', expectedHash: note.hash, text: note.text + 'Local decision\n', kind: 'replace' }, signal));
+    const receipt = await worker.withFiles(signal => notes.commit(local, { operationId: (() => { const time = Date.now().toString(16).padStart(12, '0'); return `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`; })(), mirrorId: 'generated', path: '.hidden/Note.md', expectedHash: note.hash, bytes: Buffer.from(note.bytes.toString() + 'Local decision\n'), kind: 'replace' }, signal));
     assert.equal(receipt.outcome, 'saved_locally_pending_sync'); assert.match(await readFile(local + '/.hidden/Note.md', 'utf8'), /Local decision/);
     const busy = measurements.filter(m => m.busy); const available = measurements.filter(m => !m.busy);
     assert.equal(runs.length, 2); assert.ok(available.length > measurements.length * 0.9); assert.ok(Math.max(...measurements.map(m => m.ms)) < 1000);

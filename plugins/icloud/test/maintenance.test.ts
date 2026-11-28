@@ -1,4 +1,7 @@
 import test from 'node:test';
+const decode = (base64: string) => Buffer.from(base64, 'base64').toString();
+const encode = (value: string) => Buffer.from(value).toString('base64');
+
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -9,8 +12,8 @@ import type Database from 'better-sqlite3';
 import { plugin } from '../server.ts';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
 import { syncArguments } from '../adapters/rclone-cloud-provider.ts';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { MirrorRuntime } from '../adapters/mirror-runtime.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import type { Mirror, State } from '../core/ports.ts';
 import { statusSchema } from '../contract.ts';
 import { FakeCloudProvider, MemoryState } from './fakes.ts';
@@ -171,8 +174,8 @@ test('native note work drains through the hold while the existing owner and base
   const challenger = new RcloneProcess(root, binary);
   const repository = new MemoryState();
   repository.value = { connected: true, challenge: null, mirrors: [mirror('one')] };
-  const notes = new NoteStore(join(root, 'note-operations'));
-  const runtime = new NoteRuntime(root, db, worker, notes, () => repository.value);
+  const notes = new FileStore(join(root, 'note-operations'));
+  const runtime = new MirrorRuntime(root, db, worker, notes, () => repository.value);
   const beforeHead = defer(), finish = defer();
   try {
     await mkdir(join(remote, 'generated'));
@@ -187,19 +190,19 @@ test('native note work drains through the hold while the existing owner and base
     await plugin(host.bb, { repository, worker, runtime });
     const cli = commands(host);
     const rpc = (method: string, input: unknown) => host.harness.behavior.callRpc(method, input, obsidian) as Promise<any>;
-    await rpc('noteConfigure', { version: 2, revision: 1, mirrorIds: ['one'] });
+    await rpc('mirrorConfigure', { version: 1, revision: 1, mirrorIds: ['one'] });
     Object.assign(runtime.overlay, { fault: async (stage: string) => {
       if (stage === 'before_head') { beforeHead.release(); await finish.promise; }
     } });
-    const target = { version: 2, mirrorId: 'one', revision: 1, path: 'Note.md' };
+    const target = { version: 1, mirrorId: 'one', revision: 1, path: 'Note.md' };
     const operationId = `${Date.now().toString(16).padStart(12, '0').replace(/^(........)/, '$1-')}-7111-8111-111111111111`;
-    const save = rpc('noteCommit', { ...target, operationId, kind: 'replace', text: 'B', expectedHash: createHash('sha256').update('A').digest('hex') });
+    const save = rpc('fileCommit', { ...target, operationId, kind: 'replace', base64: encode('B'), expectedHash: createHash('sha256').update('A').digest('hex') });
     await beforeHead.promise;
     const hold = (await cli.run('pause', runId)).value;
     assert.equal(hold.admissionPaused, true);
     assert.equal(hold.active, true);
     assert.equal(hold.ready, false);
-    assert.equal((await rpc('noteRead', target)).category, 'busy');
+    assert.equal((await rpc('fileRead', target)).category, 'busy');
     await assert.rejects(rpc('mirrorDirectory', { mirrorId: 'one', revision: 1 }), /paused new mirror access/);
     await assert.rejects(challenger.ensure(), { category: 'busy' });
     finish.release();
@@ -209,6 +212,6 @@ test('native note work drains through the hold while the existing owner and base
     assert.equal(await readFile(join(remote, 'generated', 'Note.md'), 'utf8'), 'A');
     assert.deepEqual(await baselineBytes(), original);
     assert.equal((await cli.run('restore', runId)).value.lastRestore.restored, 1);
-    assert.equal((await rpc('noteRead', target)).value.text, 'B');
+    assert.equal(decode((await rpc('fileRead', target)).value.base64), 'B');
   } finally { finish.release(); await host.harness.lifecycle.dispose(); await worker.stop(); await challenger.stop(); await rm(remote, { recursive: true, force: true }); }
 });

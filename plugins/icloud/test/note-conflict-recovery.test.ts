@@ -1,36 +1,102 @@
 // Generated Linux regressions for recovery after incoming content moves again.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { NoteStore } from '../adapters/note-store.ts';
-import { NoteOverlay } from '../adapters/note-overlay.ts';
+import { FileStore } from '../adapters/file-store.ts';
+import { FileOverlay } from '../adapters/file-overlay.ts';
 const enabled = process.platform === 'linux';
-const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const operationId = () => { const time = Date.now().toString(16).padStart(12, '0'); return `${time.slice(0, 8)}-${time.slice(8)}-7${randomUUID().slice(15)}`; };
 async function fixture(preservedPair = false) {
   const root = await mkdtemp('/tmp/icloud-conflict-recovery-generated-'), mirror = join(root, 'mirror');
   await mkdir(mirror); await writeFile(join(mirror, 'Note.md'), 'A');
   if (preservedPair) { await writeFile(join(mirror, 'Note.md.icloud-conflict1'), 'Historical remote'); await writeFile(join(mirror, 'Note.md.bb-conflict1'), 'A'); }
   const db = new Database(join(root, 'index.db')); db.pragma('journal_mode = WAL'); db.pragma('synchronous = FULL');
-  const store = new NoteOverlay(join(root, 'overlay'), db, new NoteStore(join(root, 'legacy')));
+  const store = new FileOverlay(join(root, 'overlay'), db, new FileStore(join(root, 'legacy')));
   await store.start(); await store.indexLegacy('generated', mirror);
-  await store.commit(mirror, { operationId: operationId(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('A'), text: 'Local B' });
+  await store.commit(mirror, { operationId: operationId(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('A'), bytes: Buffer.from('Local B') });
   await writeFile(join(mirror, 'Note.md'), 'Incoming C');
   assert.equal(await store.apply(mirror, 'generated', 'Note.md'), 'conflict');
   return { root, mirror, db, store, async close() { db.close(); await rm(root, { recursive: true, force: true }); } };
 }
+test('binary versions and an interrupted publication survive restart with exact receipts', { skip: !enabled }, async () => {
+  const f = await fixture();
+  const mirrorId = 'generated', path = 'attachment.bin';
+  const base = Buffer.from([0, 0xfe]), local = Buffer.from([0xff, 0, 1]), incoming = Buffer.from([0x80, 0, 2]);
+  try {
+    await writeFile(join(f.mirror, path), base);
+    const save = { mirrorId, path, operationId: operationId(), kind: 'replace' as const, expectedHash: hash(base), bytes: local };
+    const receipt = await f.store.commit(f.mirror, save);
+    await writeFile(join(f.mirror, path), incoming);
+    assert.equal(await f.store.apply(f.mirror, mirrorId, path), 'conflict');
+    const conflict = await f.store.inspect(mirrorId, path);
+    assert.ok(conflict);
+
+    const interrupted = new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy')), Date.now, stage => {
+      if (stage === 'after_apply_journal') throw new Error('synthetic interruption');
+    });
+    await interrupted.start();
+    assert.deepEqual(await interrupted.commit(f.mirror, save), receipt);
+    assert.deepEqual((await interrupted.read(f.mirror, mirrorId, path)).bytes, local);
+    assert.deepEqual(await interrupted.readIncoming(mirrorId, path, conflict.token), incoming);
+    const resolution = {
+      operationId: operationId(), token: conflict.token, expectedLogicalHash: hash(local),
+      expectedIncomingHash: hash(incoming), choice: 'keep_local' as const,
+    };
+    const resolved = await interrupted.resolve(f.mirror, mirrorId, path, resolution);
+    await assert.rejects(interrupted.apply(f.mirror, mirrorId, path), { stage: 'journal_write' });
+    assert.ok(interrupted.hasUnresolvedJournals(mirrorId));
+
+    const restarted = new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy')));
+    await restarted.start();
+    assert.deepEqual(await restarted.resolve(f.mirror, mirrorId, path, resolution), resolved);
+    assert.equal(await restarted.apply(f.mirror, mirrorId, path), 'applied');
+    assert.deepEqual(await readFile(join(f.mirror, path)), local);
+  } finally { await f.close(); }
+});
+
+test('existing text-era save and resolution identities remain usable after upgrade', { skip: !enabled }, async () => {
+  const f = await fixture();
+  const mirrorId = 'generated', path = 'Retained.md';
+  try {
+    const text = 'Legacy café\r\n';
+    const save = { mirrorId, path, operationId: operationId(), kind: 'create' as const, expectedHash: null, bytes: Buffer.from(text) };
+    const receipt = await f.store.commit(f.mirror, save);
+    f.db.prepare('UPDATE icloud_note_overlay_receipts SET digest=? WHERE operation_id=?')
+      .run(hash(JSON.stringify([mirrorId, path, save.operationId, save.kind, null, text])), save.operationId);
+    const pending = new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy')));
+    await pending.start();
+    assert.deepEqual(await pending.commit(f.mirror, save), receipt);
+    await assert.rejects(pending.commit(f.mirror, { ...save, bytes: Buffer.from([0xff]) }), /operation_reused/);
+
+    const conflict = await pending.inspect(mirrorId, 'Note.md');
+    assert.ok(conflict);
+    const operation = {
+      operationId: operationId(), token: conflict.token, expectedLogicalHash: conflict.logicalHash,
+      expectedIncomingHash: conflict.incomingHash, choice: 'replace' as const,
+    };
+    const replacement = { ...operation, bytes: Buffer.from(text) };
+    const resolved = await pending.resolve(f.mirror, mirrorId, 'Note.md', replacement);
+    f.db.prepare('UPDATE icloud_note_overlay_resolutions SET digest=? WHERE operation_id=?')
+      .run(hash(JSON.stringify([mirrorId, 'Note.md', { ...operation, text }])), operation.operationId);
+    const restarted = new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy')));
+    await restarted.start();
+    assert.deepEqual(await restarted.resolve(f.mirror, mirrorId, 'Note.md', replacement), resolved);
+    await assert.rejects(restarted.resolve(f.mirror, mirrorId, 'Note.md', { ...replacement, bytes: Buffer.from('changed') }), /operation_reused/);
+  } finally { await f.close(); }
+});
 for (const choice of ['keep_local', 'replace'] as const) test(`${choice} retains the captured incoming version in accounted recovery after maintenance and restart`, { skip: !enabled }, async () => {
   const f = await fixture();
   try {
     const conflict = (await f.store.inspect('generated', 'Note.md'))!;
-    await f.store.resolve(f.mirror, 'generated', 'Note.md', { operationId: operationId(), token: conflict.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Incoming C'), choice, ...(choice === 'replace' ? { text: 'Chosen D' } : {}) });
+    await f.store.resolve(f.mirror, 'generated', 'Note.md', { operationId: operationId(), token: conflict.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Incoming C'), choice, ...(choice === 'replace' ? { bytes: Buffer.from('Chosen D') } : {}) });
     for (let i = 0; i < 4; i++) await f.store.maintain(128);
     const retained = f.db.prepare("SELECT COUNT(*) AS count FROM icloud_note_overlay_blob_refs WHERE class = 'recovery' AND mirror_id = ? AND hash = ?").get('generated', hash('Incoming C')) as { count: number };
     assert.ok(retained.count > 0, 'choosing local bytes must not discard the captured incoming bytes');
-    await new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))).start();
+    await new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy'))).start();
   } finally { await f.close(); }
 });
 for (const choice of ['keep_local', 'accept_incoming', 'replace'] as const) test(`${choice} rejects incoming content changed during the final awaited publication boundary`, { skip: !enabled }, async () => {
@@ -39,8 +105,8 @@ for (const choice of ['keep_local', 'accept_incoming', 'replace'] as const) test
     const conflict = (await f.store.inspect('generated', 'Note.md'))!;
     const id = operationId();
     (f.store as any).fault = async (stage: string) => { if (stage === 'before_resolution_head') await writeFile(join(f.mirror, 'Note.md'), 'Incoming D'); };
-    await assert.rejects(f.store.resolve(f.mirror, 'generated', 'Note.md', { operationId: id, token: conflict.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Incoming C'), choice, ...(choice === 'replace' ? { text: 'Chosen E' } : {}) }), (error: any) => error.category === 'conflict');
-    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).text, 'Local B');
+    await assert.rejects(f.store.resolve(f.mirror, 'generated', 'Note.md', { operationId: id, token: conflict.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Incoming C'), choice, ...(choice === 'replace' ? { bytes: Buffer.from('Chosen E') } : {}) }), (error: any) => error.category === 'conflict');
+    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).bytes.toString(), 'Local B');
     assert.equal(f.db.prepare('SELECT operation_id FROM icloud_note_overlay_resolutions WHERE operation_id = ?').get(id), undefined);
   } finally { await f.close(); }
 });
@@ -54,15 +120,15 @@ test('fresh conflict inspection can recover after incoming content changes again
     const second = await (f.store.inspect as any)('generated', 'Note.md', f.mirror);
     assert.notEqual(second.token, first.token, 'fresh inspection must not strand the user on an unusable old token');
     assert.equal(second.incomingHash, hash('Incoming D'));
-    assert.equal(await f.store.readIncoming('generated', 'Note.md', second.token), 'Incoming D');
+    assert.equal((await f.store.readIncoming('generated', 'Note.md', second.token))?.toString(), 'Incoming D');
     assert.deepEqual(await (f.store.inspect as any)('generated', 'Note.md', f.mirror), second, 'unchanged evidence must not churn tokens or archive references');
     await assert.rejects(f.store.resolve(f.mirror, 'generated', 'Note.md', { operationId: operationId(), token: first.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Incoming C'), choice: 'keep_local' }), (error: any) => error.category === 'conflict');
     const retained = f.db.prepare("SELECT COUNT(*) AS count FROM icloud_note_overlay_blob_refs WHERE class = 'recovery' AND mirror_id = ? AND hash = ?").get('generated', hash('Incoming C')) as { count: number };
     assert.ok(retained.count > 0);
-    const restarted = new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))); await restarted.start();
+    const restarted = new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy'))); await restarted.start();
     assert.equal((await restarted.inspect('generated', 'Note.md'))?.token, second.token);
     assert.deepEqual(await restarted.resolve(f.mirror, 'generated', 'Note.md', { operationId: operationId(), token: second.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Incoming D'), choice: 'accept_incoming' }), { outcome: 'adopted_content', hash: hash('Incoming D') });
-    assert.equal((await restarted.read(f.mirror, 'generated', 'Note.md')).text, 'Incoming D');
+    assert.equal((await restarted.read(f.mirror, 'generated', 'Note.md')).bytes.toString(), 'Incoming D');
   } finally { await f.close(); }
 });
 
@@ -85,10 +151,10 @@ test('numbered incoming copy changes at the last boundary; preserved pairs remai
     const third = (await f.store.inspect('generated', 'Note.md', f.mirror))!;
     assert.equal(third.incomingHash, hash('Numbered E'));
     assert.notEqual(third.token, second.token);
-    const restarted = new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))); await restarted.start();
+    const restarted = new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy'))); await restarted.start();
     assert.deepEqual(await restarted.inspect('generated', 'Note.md', f.mirror), third);
     await restarted.resolve(f.mirror, 'generated', 'Note.md', { operationId: operationId(), token: third.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Numbered E'), choice: 'accept_incoming' });
-    assert.equal((await restarted.read(f.mirror, 'generated', 'Note.md')).text, 'Numbered E');
+    assert.equal((await restarted.read(f.mirror, 'generated', 'Note.md')).bytes.toString(), 'Numbered E');
   } finally { await f.close(); }
 });
 
@@ -104,11 +170,11 @@ test('a recreated canonical note supersedes a preserved numbered incoming copy w
     const current = (await f.store.inspect('generated', 'Note.md', f.mirror))!;
     assert.notEqual(current.token, numbered.token);
     assert.equal(current.incomingHash, hash('Later canonical D'), 'a historical numbered copy must not hide a new canonical edit');
-    assert.equal(await f.store.readIncoming('generated', 'Note.md', current.token), 'Later canonical D');
+    assert.equal((await f.store.readIncoming('generated', 'Note.md', current.token))?.toString(), 'Later canonical D');
     assert.ok(f.db.prepare("SELECT 1 FROM icloud_note_overlay_blob_refs WHERE class='recovery' AND hash=?").get(hash('Numbered C')));
     await f.store.resolve(f.mirror, 'generated', 'Note.md', { operationId: operationId(), token: current.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Later canonical D'), choice: 'accept_incoming' });
-    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).text, 'Later canonical D');
-    await new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))).start();
+    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).bytes.toString(), 'Later canonical D');
+    await new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy'))).start();
   } finally { await f.close(); }
 });
 
@@ -124,7 +190,7 @@ test('simultaneous new canonical and numbered incoming versions do not silently 
     await writeFile(join(f.mirror, 'Note.md.bb-conflict2'), 'A');
     await assert.rejects(f.store.inspect('generated', 'Note.md', f.mirror), (error: any) => error.category === 'uncertain');
     assert.equal((await f.store.inspect('generated', 'Note.md'))?.token, before.token);
-    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).text, 'Local B');
+    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).bytes.toString(), 'Local B');
   } finally { await f.close(); }
 });
 
@@ -143,7 +209,7 @@ test('incoming archives share one recovery charge per hash, including repeated c
     const distinct = f.db.prepare("SELECT COALESCE(SUM(bytes), 0) AS bytes FROM (SELECT MAX(bytes) AS bytes FROM icloud_note_overlay_blob_refs WHERE class='recovery' GROUP BY hash)").get() as { bytes: number };
     assert.equal(actual, distinct.bytes);
     assert.equal((f.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_incoming_archive').get() as { count: number }).count, 5);
-    await new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))).start();
+    await new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy'))).start();
   } finally { await f.close(); }
 });
 
@@ -165,9 +231,9 @@ test('archive capacity refuses refresh and resolution atomically before dropping
     await writeFile(join(f.mirror, 'Note.md'), payload(66));
     await assert.rejects(f.store.inspect('generated', 'Note.md', f.mirror), (error: any) => error.category === 'capacity');
     assert.equal((await f.store.inspect('generated', 'Note.md'))?.token, before.token);
-    assert.equal(await f.store.readIncoming('generated', 'Note.md', before.token), payload(63));
+    assert.equal((await f.store.readIncoming('generated', 'Note.md', before.token))?.toString(), payload(63));
     assert.equal((f.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_incoming_archive').get() as { count: number }).count, archiveCount);
-    await new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))).start();
+    await new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy'))).start();
   } finally { await f.close(); }
 });
 
@@ -181,8 +247,8 @@ test('expired captured incoming references prune in bounded turns, while active 
     await f.store.maintain(128);
     assert.equal(f.db.prepare('SELECT 1 FROM icloud_note_overlay_incoming_archive WHERE token = ?').get(first.token), undefined);
     assert.equal((await f.store.inspect('generated', 'Note.md', f.mirror))?.token, active.token);
-    assert.equal(await f.store.readIncoming('generated', 'Note.md', active.token), 'Incoming D');
-    await new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))).start();
+    assert.equal((await f.store.readIncoming('generated', 'Note.md', active.token))?.toString(), 'Incoming D');
+    await new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy'))).start();
   } finally { await f.close(); }
 });
 
@@ -197,7 +263,7 @@ test('startup rejects corrupt archived evidence and refresh failure keeps safe d
     (f.store as any).fault = undefined;
     await f.store.inspect('generated', 'Note.md', f.mirror);
     f.db.prepare('UPDATE icloud_note_overlay_incoming_archive SET bytes=bytes+1 WHERE token=?').run(first.token);
-    await assert.rejects(new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))).start(), (error: any) => error.category === 'uncertain' && !JSON.stringify(error).includes('PRIVATE_SENTINEL'));
+    await assert.rejects(new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy'))).start(), (error: any) => error.category === 'uncertain' && !JSON.stringify(error).includes('PRIVATE_SENTINEL'));
   } finally { await f.close(); }
 });
 
@@ -207,11 +273,11 @@ test('expiring an archived identity cannot delete identical active head content'
     const first = (await f.store.inspect('generated', 'Note.md'))!;
     await writeFile(join(f.mirror, 'Note.md'), 'Incoming D');
     const next = (await f.store.inspect('generated', 'Note.md', f.mirror))!;
-    await f.store.resolve(f.mirror, 'generated', 'Note.md', { operationId: operationId(), token: next.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Incoming D'), choice: 'replace', text: 'Incoming C' });
+    await f.store.resolve(f.mirror, 'generated', 'Note.md', { operationId: operationId(), token: next.token, expectedLogicalHash: hash('Local B'), expectedIncomingHash: hash('Incoming D'), choice: 'replace', bytes: Buffer.from('Incoming C') });
     f.db.prepare('UPDATE icloud_note_overlay_incoming_archive SET captured_at = ? WHERE token = ?').run(Date.now() - 31 * 86400000, first.token);
     await f.store.maintain(128); await f.store.maintain(128);
-    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).text, 'Incoming C');
-    await new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))).start();
+    assert.equal((await f.store.read(f.mirror, 'generated', 'Note.md')).bytes.toString(), 'Incoming C');
+    await new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy'))).start();
   } finally { await f.close(); }
 });
 
@@ -240,6 +306,6 @@ test('archive-index failure cannot leak its private cause or partly resolve the 
     assert.equal((f.db.prepare('SELECT COUNT(*) AS count FROM icloud_note_overlay_incoming_archive').get() as { count: number }).count, 0);
     f.db.exec('DROP TRIGGER refuse_incoming_archive');
     await f.store.resolve(f.mirror, 'generated', 'Note.md', request);
-    await new NoteOverlay(join(f.root, 'overlay'), f.db, new NoteStore(join(f.root, 'legacy'))).start();
+    await new FileOverlay(join(f.root, 'overlay'), f.db, new FileStore(join(f.root, 'legacy'))).start();
   } finally { await f.close(); }
 });

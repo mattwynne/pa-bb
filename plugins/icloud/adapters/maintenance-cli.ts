@@ -33,7 +33,7 @@ export function maintenanceCli(
     summary: 'Inspect or control iCloud maintenance through BB.',
     commands: {
       'maintenance status': cliCommand({ summary: 'Read iCloud admission, drain and maintenance receipt status.', options: { json }, run: render }),
-      'maintenance pause': operation('pause', 'Hold iCloud scheduling and note admission for one maintenance run.'),
+      'maintenance pause': operation('pause', 'Hold iCloud scheduling and file admission for one maintenance run.'),
       'maintenance restore': operation('restore', 'Restore eligible prior scheduling after the matching hold has drained.'),
     },
   });

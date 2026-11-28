@@ -2,9 +2,9 @@ import { constants } from 'node:fs';
 import { open, opendir, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 
-/** Immediate children only, under NoteRuntime.access admission. No raw roots leave iCloud. */
-export async function noteChildren(root: string, folder: string, signal?: AbortSignal) {
-  const entries: Array<{ name: string; kind: 'directory' | 'markdown' }> = [];
+/** Immediate children only, under MirrorRuntime.access admission. No raw roots leave iCloud. */
+export async function mirrorChildren(root: string, folder: string, signal?: AbortSignal) {
+  const entries: Array<{ name: string; kind: 'directory' | 'file' }> = [];
   let incomplete = false, seen = 0, bytes = 0;
   const started = Date.now(), handles: FileHandle[] = [];
   const cancelled = () => { if (signal?.aborted) throw new Error('cancelled'); };
@@ -22,10 +22,10 @@ export async function noteChildren(root: string, folder: string, signal?: AbortS
         cancelled();
         if (++seen > 5000 || Date.now() - started > 2000) { incomplete = true; break; }
         if (child.isSymbolicLink()) { incomplete = true; continue; }
-        const kind = child.isDirectory() ? 'directory' : child.isFile() && child.name.endsWith('.md') ? 'markdown' : null;
+        const kind = child.isDirectory() ? 'directory' : child.isFile() ? 'file' : null;
         if (!kind) continue;
         if (/[\\\x00-\x1f\x7f]/.test(child.name) || Buffer.byteLength(child.name) > 1024 || folder.length + child.name.length + 1 > 1024) { incomplete = true; continue; }
-        const entry: { name: string; kind: 'directory' | 'markdown' } = { name: child.name, kind };
+        const entry: { name: string; kind: 'directory' | 'file' } = { name: child.name, kind };
         bytes += Buffer.byteLength(JSON.stringify(entry));
         if (bytes > 512 * 1024) { incomplete = true; break; }
         entries.push(entry);

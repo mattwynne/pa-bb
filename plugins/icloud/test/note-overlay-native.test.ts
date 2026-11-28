@@ -7,8 +7,8 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, utimes } from 'node:fs/promise
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { NoteOverlay } from '../adapters/note-overlay.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { FileOverlay } from '../adapters/file-overlay.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import { syncArguments } from '../adapters/rclone-cloud-provider.ts';
 const enabled = process.platform === 'linux' && !!process.env.RCLONE_TEST_BINARY && process.env.ICLOUD_OVERLAY_NATIVE === '1';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -28,8 +28,8 @@ test('stock bisync both-side edit preserves numbered copies as inspectable incom
     });
     stage = 'initial'; assert.equal(await command(true), 0);
     db = new Database(join(root, 'index.db')); db.pragma('journal_mode = WAL'); db.pragma('synchronous = FULL');
-    const files = new NoteStore(join(root, 'legacy')); const store = new NoteOverlay(join(root, 'overlay'), db, files); await store.start(); await store.indexLegacy('generated', local);
-    stage = 'apply'; await store.commit(local, { operationId: op(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('A'), text: 'B' });
+    const files = new FileStore(join(root, 'legacy')); const store = new FileOverlay(join(root, 'overlay'), db, files); await store.start(); await store.indexLegacy('generated', local);
+    stage = 'apply'; await store.commit(local, { operationId: op(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('A'), bytes: Buffer.from('B') });
     assert.equal(await store.apply(local, 'generated', 'Note.md'), 'applied'); const eligible = store.beforeRun('generated');
     await writeFile(join(remote, 'Note.md'), 'Remote C'); const future = new Date(Date.now() + 10000); await utimes(join(remote, 'Note.md'), future, future);
     stage = 'conflict_run'; assert.equal(await command(false), 0);
@@ -39,7 +39,7 @@ test('stock bisync both-side edit preserves numbered copies as inspectable incom
     assert.equal(await store.afterRun(local, 'generated', eligible, true), 0);
     const collision = (await store.inspect('generated', 'Note.md'))!;
     assert.equal(collision.incomingHash, hash('Remote C'));
-    assert.equal(await store.readIncoming('generated', 'Note.md', collision.token), 'Remote C');
+    assert.equal((await store.readIncoming('generated', 'Note.md', collision.token))?.toString(), 'Remote C');
     stage = 'resolve_first';
     await store.resolve(local, 'generated', 'Note.md', { operationId: op(), token: collision.token, expectedLogicalHash: hash('B'), expectedIncomingHash: hash('Remote C'), choice: 'accept_incoming' });
     assert.equal(await store.apply(local, 'generated', 'Note.md'), 'applied');
@@ -49,7 +49,7 @@ test('stock bisync both-side edit preserves numbered copies as inspectable incom
     const historical = await files.conflictCopies(local, 'Note.md');
     assert.ok(historical.some(c => c.observation.hash === hash('Remote C')));
     stage = 'second_conflict';
-    await store.commit(local, { operationId: op(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('Remote C'), text: 'Local D' });
+    await store.commit(local, { operationId: op(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('Remote C'), bytes: Buffer.from('Local D') });
     assert.equal(await store.apply(local, 'generated', 'Note.md'), 'applied');
     const nextEligible = store.beforeRun('generated');
     await writeFile(join(remote, 'Note.md'), 'Remote E'); const nextFuture = new Date(Date.now() + 20000); await utimes(join(remote, 'Note.md'), nextFuture, nextFuture);
@@ -59,7 +59,7 @@ test('stock bisync both-side edit preserves numbered copies as inspectable incom
     await store.afterRun(local, 'generated', nextEligible, true);
     const second = (await store.inspect('generated', 'Note.md'))!;
     assert.equal(second.incomingHash, hash('Remote E'));
-    assert.equal(await store.readIncoming('generated', 'Note.md', second.token), 'Remote E');
+    assert.equal((await store.readIncoming('generated', 'Note.md', second.token))?.toString(), 'Remote E');
     assert.ok((await files.conflictCopies(local, 'Note.md')).some(c => c.observation.hash === hash('Remote C')));
   } catch (error) { console.error('OVERLAY_CONFLICT_NATIVE_FAILED', stage, error instanceof assert.AssertionError ? 'assertion' : 'execution'); throw new Error(`overlay conflict fixture failed at ${stage}`); }
   finally { db?.close(); await rm(root, { recursive: true, force: true }); }
@@ -82,19 +82,19 @@ test('real >=40s native transfer permits a promptly durable local save, then app
     });
     stage = 'initial'; assert.equal((await command(true)).code, 0);
     db = new Database(join(root, 'index.db')); db.pragma('journal_mode = WAL'); db.pragma('synchronous = FULL');
-    const overlay = new NoteOverlay(join(root, 'overlay'), db, new NoteStore(join(root, 'legacy'))); await overlay.start(); await overlay.indexLegacy('generated', local);
+    const overlay = new FileOverlay(join(root, 'overlay'), db, new FileStore(join(root, 'legacy'))); await overlay.start(); await overlay.indexLegacy('generated', local);
     await writeFile(join(remote, 'generated-transfer.bin'), Buffer.alloc(24 * 1024 * 1024, 65));
     stage = 'long_transfer';
     const active = command(false, '512k'); await new Promise(resolve => setTimeout(resolve, 300));
     assert.ok(child && child.exitCode === null, 'native process must be active during save');
     const started = performance.now();
-    const b = await overlay.commit(local, { operationId: op(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('A'), text: 'B' });
-    const created = await overlay.commit(local, { operationId: op(), mirrorId: 'generated', path: 'Created.md', kind: 'create', expectedHash: null, text: 'Created B' });
+    const b = await overlay.commit(local, { operationId: op(), mirrorId: 'generated', path: 'Note.md', kind: 'replace', expectedHash: hash('A'), bytes: Buffer.from('B') });
+    const created = await overlay.commit(local, { operationId: op(), mirrorId: 'generated', path: 'Created.md', kind: 'create', expectedHash: null, bytes: Buffer.from('Created B') });
     assert.equal(created.outcome, 'saved_locally_pending_sync');
-    assert.equal((await overlay.read(local, 'generated', 'Created.md')).text, 'Created B');
+    assert.equal((await overlay.read(local, 'generated', 'Created.md')).bytes.toString(), 'Created B');
     const saveMs = performance.now() - started;
     assert.equal(b.outcome, 'saved_locally_pending_sync');
-    assert.equal((await overlay.read(local, 'generated', 'Note.md')).text, 'B');
+    assert.equal((await overlay.read(local, 'generated', 'Note.md')).bytes.toString(), 'B');
     assert.equal(await readFile(join(local, 'Note.md'), 'utf8'), 'A');
     assert.ok(child && child.exitCode === null, 'native child still active after local commit');
     const long = await active; assert.equal(long.code, 0); assert.ok(long.duration >= 40000);
@@ -109,8 +109,8 @@ test('real >=40s native transfer permits a promptly durable local save, then app
     const when = new Date(Date.now() + 10000);
     await utimes(join(remote, 'Note.md'), when, when); await utimes(join(remote, 'Created.md'), when, when);
     stage = 'later_remote'; assert.equal((await command(false)).code, 0);
-    assert.equal((await overlay.read(local, 'generated', 'Note.md')).text, 'Remote C');
-    assert.equal((await overlay.read(local, 'generated', 'Created.md')).text, 'Created remote C');
+    assert.equal((await overlay.read(local, 'generated', 'Note.md')).bytes.toString(), 'Remote C');
+    assert.equal((await overlay.read(local, 'generated', 'Created.md')).bytes.toString(), 'Created remote C');
     console.log(JSON.stringify({ outcome: 'pass', nativeDurationMs: Math.round(long.duration), localSaveGroupMs: Math.round(saveMs), retired: 2, laterRemoteVisible: true }));
   } catch (e) { console.error('OVERLAY_NATIVE_FAILED', stage, e instanceof assert.AssertionError ? 'assertion' : 'execution'); throw new Error(`overlay native fixture failed at ${stage}`); }
   finally { child?.kill('SIGKILL'); db?.close(); await rm(root, { recursive: true, force: true }); }

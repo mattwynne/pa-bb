@@ -7,8 +7,8 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { RcloneProcess } from '../adapters/rclone-process.ts';
-import { NoteRuntime } from '../adapters/note-runtime.ts';
-import { NoteStore } from '../adapters/note-store.ts';
+import { MirrorRuntime } from '../adapters/mirror-runtime.ts';
+import { FileStore } from '../adapters/file-store.ts';
 import { emptyState } from '../core/ports.ts';
 const enabled = process.platform === 'linux' && !!process.env.RCLONE_TEST_BINARY && process.env.ICLOUD_RUNTIME_NATIVE === '1';
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -39,16 +39,16 @@ test('SIGKILL of parent cannot admit replacement migration/publication while inh
     parent.kill('SIGKILL');
     await new Promise(resolve => parent!.once('close', resolve));
     contender = new RcloneProcess(workerRoot, process.env.RCLONE_TEST_BINARY!);
-    const runtime = new NoteRuntime(workerRoot, db, contender, new NoteStore(join(workerRoot, 'note-operations')), emptyState);
+    const runtime = new MirrorRuntime(workerRoot, db, contender, new FileStore(join(workerRoot, 'note-operations')), emptyState);
     await assert.rejects(runtime.start(), (error: any) => error.category === 'busy');
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'icloud_note_overlay_%'").all();
     assert.equal(tables.length, 0, 'replacement must not migrate before flock takeover');
     assert.equal((await stat(join(source, 'generated.bin'))).size, 4 * 1024 * 1024);
     await contender.stop();
-    let replacement: NoteRuntime | undefined;
+    let replacement: MirrorRuntime | undefined;
     for (let i = 0; i < 120 && !replacement; i++) {
       contender = new RcloneProcess(workerRoot, process.env.RCLONE_TEST_BINARY!);
-      const candidate = new NoteRuntime(workerRoot, db, contender, new NoteStore(join(workerRoot, 'note-operations')), emptyState);
+      const candidate = new MirrorRuntime(workerRoot, db, contender, new FileStore(join(workerRoot, 'note-operations')), emptyState);
       try { await candidate.start(); replacement = candidate; }
       catch (error) { assert.equal((error as any).category, 'busy'); await contender.stop(); await pause(100); }
     }

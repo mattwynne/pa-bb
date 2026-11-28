@@ -6,11 +6,11 @@ import { FilesystemVault } from './filesystem-vault.ts';
 import type { LocalReceipt, LocalReceipts } from './local-receipts.ts';
 import type { PendingOperation, PendingStatus } from '../core/ports.ts';
 import type { RecoveryInput } from '../core/receipt-recovery.ts';
-import { noteRpcContract } from './icloud-note-contract.ts';
+import { mirrorFileContract } from './icloud-mirror-contract.ts';
 import type { ManagedDesktop } from './desktop-install.ts';
 import { DesktopLinks, type DesktopConfiguration } from './desktop-links.ts';
 import { inventoryWatchProbe } from './desktop-inventory-watch.ts';
-import { VaultError } from '../core/ports.ts';
+import { MAX_NOTE_BYTES, VaultError } from '../core/ports.ts';
 import type { DesktopStatus, MirrorCatalog, VaultFiles, Diagnose, Catalog, Configuration, DesktopLinkOperation, InventoryInput, Inventory, NoteParser, PathMove } from '../core/ports.ts';
 import { validateRelativePath, validateNotePath } from './local-notes.ts';
 import { MarkdownNotes } from './markdown-notes.ts';
@@ -18,12 +18,16 @@ import { MarkdownNotes } from './markdown-notes.ts';
 const local = z.object({ available: z.boolean(), reason: z.enum(['ownership', 'recovery_required', 'source_changed']).nullable(), pendingAgeMs: z.number().int().nonnegative().nullable(), applicationBlocker: z.enum(['application_uncertain', 'native_recovery']).nullable() }).strict();
 const filesystemMode = z.enum(['ready', 'legacy_pending', 'legacy_conflict', 'unavailable']);
 const absoluteDirectory = z.string().min(1).max(4096).refine(p => isAbsolute(p) && p !== '/' && normalize(p) === p && !/[\x00-\x1f\x7f]/.test(p));
-const directoryResult = noteRpcContract.mirrorDirectory.output.extend({ directory: absoluteDirectory });
-const directoryGrantResult = noteRpcContract.mirrorDirectoryGrant.output.extend({ directory: absoluteDirectory,
-  rootDev: noteRpcContract.mirrorDirectoryGrant.output.shape.rootDev.max(20), rootIno: noteRpcContract.mirrorDirectoryGrant.output.shape.rootIno.max(20) });
+const directoryResult = mirrorFileContract.mirrorDirectory.output.extend({ directory: absoluteDirectory });
+const directoryGrantResult = mirrorFileContract.mirrorDirectoryGrant.output.extend({ directory: absoluteDirectory,
+  rootDev: mirrorFileContract.mirrorDirectoryGrant.output.shape.rootDev.max(20), rootIno: mirrorFileContract.mirrorDirectoryGrant.output.shape.rootIno.max(20) });
 const mirror = z.object({ id: z.string(), folder: z.object({ name: z.string() }), initialized: z.boolean(), enabled: z.boolean(), phase: z.enum(['paused', 'ready', 'running', 'failed', 'retained']), lastSuccess: z.string().nullable(), failure: z.string().nullable(), local: local.optional(), filesystem: filesystemMode.optional() });
-const status = z.object({ search: z.unknown().optional(), mirrorAccessVersion: z.number().int().nullish(), noteAccessVersion: z.number().int().nullable(), available: z.boolean(), connected: z.boolean(), challenge: z.string().nullable(), mirrors: z.array(mirror) });
+const status = z.object({ mirrorAccessVersion: z.number().int().nullish(), mirrorFileAccessVersion: z.number().int().nullish(), available: z.boolean(), connected: z.boolean(), challenge: z.string().nullable(), mirrors: z.array(mirror) });
 const unavailable = (setup: string, nextAction: string): Catalog => ({ setup, nextAction, sources: [], connected: false, compatible: false });
+type FileMethod = Exclude<keyof typeof mirrorFileContract, 'mirrorDirectory' | 'mirrorDirectoryCapabilities' | 'mirrorDirectoryGrant'>;
+type FileReply<K extends FileMethod> = z.output<(typeof mirrorFileContract)[K]['output']>;
+type FileValue<K extends FileMethod> = Extract<FileReply<K>, { ok: true }>['value'];
+const fileSchemas: { [K in FileMethod]: { output: z.ZodType<FileReply<K>> } } = mirrorFileContract;
 export class ICloud implements MirrorCatalog, VaultFiles {
   readonly desktopNoteReauthorizes = true as const;
   readonly localReceiptWrites?: true;
@@ -408,9 +412,10 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   async moveReceipt(vaultId: string, revision: number, operationId: string) {
     const local = await this.filesystem?.moveReceipt(vaultId, revision, operationId);
     if (local) return local;
-    const legacy = await this.call('noteMoveReceipts', { mirrorId: vaultId, revision, operationId });
+    const legacy = await this.call('fileMoveReceipts', { mirrorId: vaultId, revision, operationId });
     const row = legacy[0];
-    return row ? { vaultId, path: row.path, destination: row.destination, operationId, outcome: row.outcome } : null;
+    return row?.path.endsWith('.md') && row.destination.endsWith('.md')
+      ? { vaultId, path: row.path, destination: row.destination, operationId, outcome: row.outcome } : null;
   }
 
   snapshot(options?: { fresh: true; signal?: AbortSignal }): Promise<Catalog> {
@@ -437,14 +442,14 @@ export class ICloud implements MirrorCatalog, VaultFiles {
       const state = await this.sdk.plugins.callRpc({ pluginId: 'icloud', method: 'status', input: null, outputSchema: status, signal });
       if (signal?.aborted) throw new VaultError('cancelled');
       const filesystem = state.mirrorAccessVersion === 3 ? Object.fromEntries(state.mirrors.map(m => [m.id, m.filesystem ?? 'unavailable'])) : undefined;
-      const catalog: Catalog = { filesystem, search: { version: 1, available: !!this.desktopRunner?.running, reason: this.desktopRunner?.running ? null : 'unavailable' }, setup: 'ready', nextAction: null, connected: state.connected, compatible: state.noteAccessVersion === 2,
+      const catalog: Catalog = { filesystem, search: { version: 1, available: !!this.desktopRunner?.running, reason: this.desktopRunner?.running ? null : 'unavailable' }, setup: 'ready', nextAction: null, connected: state.connected, compatible: state.mirrorFileAccessVersion === 1,
         sources: state.mirrors.map(m => ({ id: m.id, name: m.folder.name, initialized: m.initialized, enabled: m.enabled, cloudConnected: state.connected, phase: m.phase, lastSuccess: m.lastSuccess, failure: m.failure, local: {
           available: !!m.local?.available && filesystem?.[m.id] !== 'unavailable',
           reason: m.local?.reason ?? (!m.local || filesystem?.[m.id] === 'unavailable' ? 'source_changed' : null),
           pendingAgeMs: m.local?.pendingAgeMs ?? null,
           applicationBlocker: m.local?.applicationBlocker ?? null,
         } })) };
-      if (catalog.compatible && state.mirrors.some(m => !m.local)) throw new Error('Invalid v2 local capability');
+      if (catalog.compatible && state.mirrors.some(m => !m.local)) throw new Error('Invalid local capability');
       if (!catalog.compatible) return { ...catalog, setup: 'incompatible', nextAction: 'Update iCloud and Obsidian together for compatible vault access.' };
       if (!state.available) return { ...catalog, setup: 'host_prerequisite', nextAction: 'Ask the operator to check the host requirements shown in iCloud settings.' };
       if (!state.mirrors.length) return { ...catalog, setup: 'no_folder', nextAction: 'Choose a vault folder in iCloud settings.' };
@@ -459,13 +464,13 @@ export class ICloud implements MirrorCatalog, VaultFiles {
       return unavailable('check_failed', 'Could not check iCloud. Keep your settings and choose Check again.');
     }
   }
-  private async call<K extends keyof typeof noteRpcContract>(method: K, input: unknown, uncertain = false): Promise<any> {
+  private async call<K extends FileMethod>(method: K, input: unknown, uncertain = false): Promise<FileValue<K>> {
     const catalog = await this.snapshot();
     if (!catalog.compatible) throw new VaultError(catalog.setup === 'incompatible' ? 'incompatible' : 'source_unavailable', catalog.nextAction ?? 'Check iCloud status.');
     // Configuration must remain removable and historical receipts inspectable
     // even when a source is blocked. Content access obeys current local safety.
     const mirrorId = (input as { mirrorId?: string }).mirrorId;
-    if (mirrorId && method !== 'noteReceipts' && method !== 'noteMoveReceipts' && !catalog.sources.find(s => s.id === mirrorId)?.local.available) throw new VaultError('source_unavailable', 'Local note access is unavailable. Check this source in iCloud settings.');
+    if (mirrorId && method !== 'fileReceipts' && method !== 'fileMoveReceipts' && !catalog.sources.find(s => s.id === mirrorId)?.local.available) throw new VaultError('source_unavailable', 'Local note access is unavailable. Check this source in iCloud settings.');
     return this.request(method, input, uncertain);
   }
   private async directory(mirrorId: string, revision: number, signal?: AbortSignal): Promise<string> {
@@ -503,11 +508,11 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     return local(this.filesystem);
   }
 
-  private async request<K extends keyof typeof noteRpcContract>(method: K, input: unknown, uncertain: boolean, signal?: AbortSignal): Promise<any> {
+  private async request<K extends FileMethod>(method: K, input: unknown, uncertain: boolean, signal?: AbortSignal): Promise<FileValue<K>> {
     if (signal?.aborted) throw new VaultError('cancelled');
-    const contract = noteRpcContract[method];
+    const contract = fileSchemas[method];
     try {
-      const result = await this.sdk.plugins.callRpc({ pluginId: 'icloud', method, input: { version: 2, ...(input as object) }, outputSchema: contract.output as z.ZodType<any>, signal });
+      const result = await this.sdk.plugins.callRpc({ pluginId: 'icloud', method, input: { ...(input as object), version: 1 }, outputSchema: contract.output, signal });
       if (!result.ok) {
         this.diagnose('rpc', result.category); throw new VaultError(result.category, result.nextAction, true);
       }
@@ -525,10 +530,10 @@ export class ICloud implements MirrorCatalog, VaultFiles {
 
   private admitConfiguration(value: Configuration) {
     const identity = this.configurationKey(value);
-    // iCloud persists a successful note admission revision. Its exact
+    // iCloud persists a successful mirror admission revision. Its exact
     // directory grant rechecks that revision plus current local access.
     if (this.admission?.identity === identity) return this.admission.completed;
-    const completed = this.request('noteConfigure', { revision: value.revision, mirrorIds: value.vaultIds }, false)
+    const completed = this.request('mirrorConfigure', { revision: value.revision, mirrorIds: value.vaultIds }, false)
       .then(result => {
         if (result.revision !== value.revision) throw new VaultError('incompatible');
       }).catch(error => {
@@ -546,32 +551,78 @@ export class ICloud implements MirrorCatalog, VaultFiles {
     return this.admitConfiguration(value);
   }
   vaultRoots(mirrorId: string, revision: number) {
-    return this.route(mirrorId, files => files.vaultRoots(mirrorId, revision), () => this.request('noteVaultRoots', { mirrorId, revision }, false));
+    return this.route(mirrorId, files => files.vaultRoots(mirrorId, revision), async () => {
+      const { directories, incomplete } = await this.request('mirrorFindDirectories', {
+        mirrorId, revision, markerName: '.obsidian', exclude: ['.git', 'node_modules'],
+      }, false);
+      return { roots: directories, incomplete };
+    });
   }
   children(mirrorId: string, revision: number, folder: string) {
-    return this.route(mirrorId, files => files.children(mirrorId, revision, folder), () => this.request('noteChildren', { mirrorId, revision, folder }, false));
+    return this.route(mirrorId, files => files.children(mirrorId, revision, folder), async () => {
+      const result = await this.request('mirrorChildren', { mirrorId, revision, folder: validateRelativePath(folder) }, false);
+      return {
+        entries: result.entries.filter(entry => entry.kind === 'directory' || entry.name.endsWith('.md'))
+          .map(entry => ({ name: entry.name, kind: entry.kind === 'directory' ? 'directory' as const : 'markdown' as const })),
+        incomplete: result.incomplete,
+      };
+    });
   }
-  read(mirrorId: string, revision: number, path: string) {
-    return this.route(mirrorId, files => files.read(mirrorId, revision, path), () => this.request('noteRead', { mirrorId, revision, path }, false));
+  private async readFile(mirrorId: string, revision: number, path: string, token?: string) {
+    const result = await this.request('fileRead', {
+      mirrorId, revision, path, ...(token === undefined ? {} : { selector: { version: 'incoming', token } }),
+    }, false);
+    if ('absent' in result && result.absent) return result;
+    const { base64, ...version } = result;
+    let text: string;
+    try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.from(base64, 'base64')); }
+    catch { throw new VaultError('unsupported'); }
+    if (text.includes('\0')) throw new VaultError('unsupported');
+    return { ...version, text };
   }
-  readIncoming(mirrorId: string, revision: number, path: string, token: string) {
+
+  async read(mirrorId: string, revision: number, path: string) {
+    validateNotePath(path);
+    return this.route(mirrorId, files => files.read(mirrorId, revision, path), async () => {
+      const note = await this.readFile(mirrorId, revision, path);
+      if ('absent' in note && note.absent) throw new VaultError('unavailable');
+      return note;
+    });
+  }
+  async readIncoming(mirrorId: string, revision: number, path: string, token: string) {
+    validateNotePath(path);
     return this.route(mirrorId, files => files.readIncoming(mirrorId, revision, path, token),
-      () => this.request('noteRead', { mirrorId, revision, path, selector: { version: 'incoming', token } }, false));
+      async () => {
+        const note = await this.readFile(mirrorId, revision, path, token);
+        if ('absent' in note && note.absent) return note;
+        return { ...note, absent: false as const };
+      });
   }
-  inspect(mirrorId: string, revision: number, path: string) {
-    return this.route(mirrorId, files => files.inspect(mirrorId, revision, path), () => this.request('noteInspectConflict', { mirrorId, revision, path }, false));
+  async inspect(mirrorId: string, revision: number, path: string) {
+    validateNotePath(path);
+    return this.route(mirrorId, files => files.inspect(mirrorId, revision, path), () => this.request('fileInspectConflict', { mirrorId, revision, path }, false));
   }
+  private encodeFile<T extends { text?: string }>({ text, ...input }: T) {
+    if (text === undefined) return input;
+    const bytes = Buffer.from(text, 'utf8');
+    if (bytes.length > MAX_NOTE_BYTES || bytes.toString('utf8') !== text || text.includes('\0'))
+      throw new VaultError('invalid_path');
+    return { ...input, base64: bytes.toString('base64') };
+  }
+
   private legacyWrite<T>(input: { mirrorId: string; path: string; operationId: string }, write: () => Promise<T>) {
     return this.filesystem ? this.filesystem.guardLegacyWrite(input.mirrorId, input.path, input.operationId, write) : write();
   }
 
-  commit(input: Parameters<VaultFiles['commit']>[0]) {
+  async commit(input: Parameters<VaultFiles['commit']>[0]) {
+    validateNotePath(input.path);
     const { local, ...request } = input;
-    return this.route(input.mirrorId, files => files.commit(request), () => this.legacyWrite(request, () => this.request('noteCommit', request, true)), local);
+    return this.route(input.mirrorId, files => files.commit(request), () => this.legacyWrite(request, () => this.request('fileCommit', this.encodeFile(request), true)), local);
   }
-  resolve(input: Parameters<VaultFiles['resolve']>[0]) {
+  async resolve(input: Parameters<VaultFiles['resolve']>[0]) {
+    validateNotePath(input.path);
     const { local, ...request } = input;
-    return this.route(input.mirrorId, files => files.resolve(request), () => this.legacyWrite(request, () => this.request('noteResolveConflict', request, true)), local);
+    return this.route(input.mirrorId, files => files.resolve(request), () => this.legacyWrite(request, () => this.request('fileResolveConflict', this.encodeFile(request), true)), local);
   }
   async statusPending(vaultIds: string[], filter: Parameters<NonNullable<VaultFiles['statusPending']>>[1], markers: PendingOperation[]): Promise<PendingStatus> {
     const result = await this.filesystem?.statusPending(vaultIds, filter, markers);
@@ -595,9 +646,10 @@ export class ICloud implements MirrorCatalog, VaultFiles {
   }
 
   async receipts(input: Parameters<VaultFiles['receipts']>[0]): ReturnType<VaultFiles['receipts']> {
+    if (input.path !== undefined) validateNotePath(input.path);
     const local = await this.filesystem?.receipts(input);
     if (input.operationId && local?.known) return local.receipts;
-    const legacy: Awaited<ReturnType<VaultFiles['receipts']>> = await this.call('noteReceipts', input);
+    const legacy = (await this.call('fileReceipts', input)).filter(row => row.path.endsWith('.md'));
     return [...(local?.receipts ?? []), ...legacy].sort((a, b) => b.at.localeCompare(a.at)).slice(0, input.limit);
   }
 }
