@@ -126,6 +126,8 @@ Different copies are kept as `.icloud-conflictN` and `.bb-conflictN`, and
 Obsidian's conflict tools resolve them. Native bisync excludes the exact Obsidian
 UUID staging-name pattern on a direct mirror, so temporary files stay local.
 
+Known limits and open problems are written up in [docs/problems](docs/problems/README.md).
+
 ## Upgrading from 0.1.x
 
 Use iCloud **0.3.2** with Obsidian **0.3.1**, or later compatible 0.3.x releases. Use this same stopped-update sequence when upgrading from 0.2.x. Record which plugins and sources were enabled. Disable Obsidian, use iCloud's supported Pause controls, let active sync finish, then disable iCloud. Keep **both plugins disabled until both code updates/reloads have fully completed**, including stabilization. Enable iCloud first and check local readiness, then enable Obsidian if it was previously enabled. Resume only the sources that were enabled before maintenance. Keep previously disabled plugins disabled.
