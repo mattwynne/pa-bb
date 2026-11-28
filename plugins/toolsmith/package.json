@@ -12,11 +12,15 @@
     "description": "Turn a confirmed PA capability gap into a visible BB development thread.",
     "branding": {
       "icon": "./icon.svg",
-      "experimental_icons": { "tools": "./icon.svg" }
+      "experimental_icons": {
+        "tools": "./icon.svg"
+      }
     },
     "server": "./server.ts",
     "app": "./app.tsx",
-    "skills": ["skills"]
+    "skills": [
+      "skills"
+    ]
   },
   "scripts": {
     "test": "node --test server.test.ts",
@@ -24,10 +28,12 @@
     "build": "bb plugin build"
   },
   "devDependencies": {
-    "@get-bb/plugin-sdk": "0.6.132",
+    "@get-bb/plugin-sdk": "0.6.157",
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.7",
     "typescript": "^5.7.0"
   },
-  "dependencies": { "zod": "4.6.7" }
+  "dependencies": {
+    "zod": "4.6.7"
+  }
 }
