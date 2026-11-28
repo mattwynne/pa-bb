@@ -15,7 +15,7 @@ import { MarkdownNotes } from './adapters/markdown-notes.ts';
 import { sectionLinks } from './core/section-links.ts';
 import { bbState } from './adapters/bb-state.ts';
 import { diagnosticLogger } from './adapters/diagnostic-log.ts';
-import { ConflictSweeper, type Merge } from './adapters/conflict-sweeper.ts';
+import { ConflictSweeper, SweepTrigger, type Merge } from './adapters/conflict-sweeper.ts';
 import { agentMerge } from './adapters/conflict-merge.ts';
 export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCatalog; files: VaultFiles; parser?: NoteParser; repository?: StateRepository; merge?: Merge }) {
   const diagnose = diagnosticLogger(message => bb.log.warn(message)); const parser = dependencies?.parser ?? new MarkdownNotes();
@@ -36,7 +36,6 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
   const admission = new Admission();
   // Sync conflicts resolve themselves: notes are merged, other files keep their newest version.
   const sweepStop = new AbortController();
-  let sweeping: Promise<void> | undefined;
   const sweeper = new ConflictSweeper({
     conflictPaths: (...args) => icloud.conflictAccess().vault!.conflictPaths(...args),
     conflictVersions: (...args) => icloud.conflictAccess().vault!.conflictVersions(...args),
@@ -47,9 +46,9 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     if (['merged', 'kept_local', 'kept_icloud', 'kept_newest'].includes(safe)) bb.log.info(`Obsidian conflict_sweep ${safe} kind=${kind}`);
     else if (safe !== 'gone') bb.log.warn(`Obsidian conflict_sweep ${safe} kind=${kind}`);
   });
-  const sweep = () => sweeping ??= sweeper.sweep(sweepStop.signal).finally(() => { sweeping = undefined; });
-  bb.background.schedule('conflict-sweep', '*/5 * * * *', async () => { if (!sweepStop.signal.aborted) await sweep(); });
-  bb.onDispose(async () => { sweepStop.abort(); await sweeping; icloud.cancelInstallation(); await admission.stop(); await service.stop(); await icloud.stop(); });
+  const sweeps = new SweepTrigger(signal => sweeper.sweep(signal), sweepStop.signal);
+  bb.background.schedule('conflict-sweep', '*/5 * * * *', () => sweeps.request());
+  bb.onDispose(async () => { sweepStop.abort(); await sweeps.idle(); icloud.cancelInstallation(); await admission.stop(); await service.stop(); await icloud.stop(); });
   await service.start();
   const clientOnly = (context: { experimental_caller: { kind: string } }) => { if (context.experimental_caller.kind !== 'client') throw new Error('Use Obsidian client settings for connection or conflict recovery.'); };
   const evidence = async <T>(read: () => Promise<T>, context: { experimental_caller: { kind: string } }): Promise<T> => {
@@ -63,6 +62,12 @@ export async function plugin(bb: BbPluginApi, dependencies?: { catalog: MirrorCa
     }
   };
   bb.rpc.register(rpcContract, {
+    scanFinished({ mirrorId }, { experimental_caller: caller }) {
+      if (caller.kind !== 'plugin' || caller.pluginId !== 'icloud')
+        throw new experimental_PluginRpcRefusal({ code: 'forbidden', message: 'Only the iCloud plugin reports finished scans.' });
+      if (!sweepStop.signal.aborted && icloud.conflictAccess().targets.some(target => target.mirrorId === mirrorId)) void sweeps.request();
+      return null;
+    },
     inventoryRevision(input, context) {
       const caller = context.experimental_caller;
       if (caller.kind !== 'plugin' || caller.pluginId !== 'gtd')

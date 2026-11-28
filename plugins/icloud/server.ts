@@ -43,6 +43,9 @@ export async function plugin(bb: BbPluginApi, dependencies?: { provider?: CloudP
     provider = new RcloneCloudProvider(root, (method, body) => runtime!.call(method, body), (args, capture, report) => runtime!.run(args, capture, report), () => process.checkAvailability(), () => runtime!.stop(), undefined, undefined, mirror => runtime!.registerMirror(mirror), operation => runtime!.idleFiles(operation), () => runtime!.requestStop(), (args, capture, report) => runtime!.continueInterrupted(args, capture, report), (mirror, args, capture, report) => runtime!.completeInitialRegistration(mirror, args, capture, report));
   }
   const sync: ICloudSync = new ICloudSync(provider, dependencies?.repository ?? bbState(bb), () => new Date().toISOString(), randomUUID, diagnose, dependencies?.history ?? bbRunHistory(bb));
+  // Obsidian sweeps a vault's sync conflict copies as soon as a scan finishes.
+  sync.onSynced = mirrorId => void bb.sdk.plugins.callRpc({ pluginId: 'obsidian', method: 'scanFinished', input: { mirrorId },
+    outputSchema: z.null(), signal: AbortSignal.timeout(5000) }).catch(() => {});
   const updatePause = new UpdatePause(sync, { get: () => bb.storage.kv.get('pa-update-pause-v1'), set: value => bb.storage.kv.set('pa-update-pause-v1', value) });
   let bootStage = 'note_owner';
   try {

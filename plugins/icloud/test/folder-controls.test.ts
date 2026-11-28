@@ -143,3 +143,20 @@ test('a failed initial run checkpoint can be retried by the ordinary schedule af
     assert.equal(repository.value.mirrors[0].initialized, true);
   } finally { await sync.stop(); }
 });
+
+test('a finished ordinary scan is reported once; a failed scan is not', async () => {
+  const provider = new FakeCloudProvider(); const repository = new MemoryState(); let id = 0;
+  const sync = new ICloudSync(provider, repository, () => '2026-11-16T12:00:00Z', () => `mirror-${++id}`, () => {});
+  await sync.start(); await sync.connect({ account: 'synthetic', password: 'synthetic' }); await sync.answerChallenge('123456');
+  await sync.browse(null); await sync.select('test'); await sync.enable('mirror-1');
+  const reported: string[] = [];
+  sync.onSynced = mirrorId => { reported.push(mirrorId); throw new Error('a consumer failure cannot fail the scan'); };
+  await sync.tick();
+  assert.equal(provider.synced, 1);
+  assert.deepEqual(reported, ['mirror-1']);
+  assert.equal(sync.status().mirrors[0].failure, null);
+  provider.fail = 'sync_failed';
+  await sync.tick();
+  assert.equal(provider.synced, 2);
+  assert.deepEqual(reported, ['mirror-1']);
+});

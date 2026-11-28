@@ -123,8 +123,9 @@ remain enforced by the existing parser before saving.
   text to the canonical path and removes the inspected copies. An ambiguous
   set requires inspection in the vault directory. A missing canonical file
   alone does not establish incoming absence.
-- Conflicts resolve themselves. Every five minutes Obsidian looks for sync
-  conflict copies in connected vaults and settles up to 20 per vault:
+- Conflicts resolve themselves. When iCloud finishes a scan of a connected
+  vault, and every five minutes as a fallback, Obsidian looks for sync
+  conflict copies and settles up to 20 per vault:
   - A note where one copy only adds lines keeps that copy, without a model.
   - Any other note pair is merged by a hidden, short-lived BB agent thread. The
     merge is applied only if it keeps every line both copies share. It goes

@@ -32,6 +32,8 @@ export class ICloudSync {
   private maintenanceWriting = false;
   private maintenanceUncertain = false;
   private connectionRestorePending = false;
+  // Called after each successful ordinary scan, so consumers can act on what it brought in.
+  onSynced: (mirrorId: string) => void = () => {};
   constructor(private provider: CloudProvider, private repository: StateRepository,
     private clock: () => string, private id: () => string,
     private diagnose: Diagnose, history?: RunHistoryRepository, elapsed = () => performance.now()) {
@@ -456,6 +458,7 @@ export class ICloudSync {
         this.assertRunConnection(mirror);
         // Recorded after the provider operation returns, not proof of delivery to another device.
         mirror.initialized = true; mirror.lastSuccess = this.clock(); mirror.failure = null; mirror.blocker = null; mirror.phase = mirror.enabled ? 'ready' : 'paused';
+        if (!initial && !interrupted) { try { this.onSynced(mirror.id); } catch { /* A consumer cannot fail the scan. */ } }
       } catch (error) {
         mirror.phase = 'failed'; mirror.failure = category(error); mirror.blocker = interrupted ? 'rebuild' : this.blockerFor(mirror.failure, initial); failure = mirror.failure; proof = evidence(error);
         if (initial) mirror.enabled = false;

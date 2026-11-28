@@ -75,3 +75,21 @@ export class ConflictSweeper {
     return plain === 'keep_local' ? 'kept_local' : plain === 'accept_incoming' ? 'kept_icloud' : 'merged';
   }
 }
+
+// Runs one sweep at a time. A request during a sweep runs exactly one more
+// afterwards, so a scan that finishes mid-sweep is never missed.
+export class SweepTrigger {
+  private running: Promise<void> | undefined;
+  private again = false;
+  constructor(private sweep: (signal: AbortSignal) => Promise<void>, private signal: AbortSignal) {}
+  request(): Promise<void> {
+    if (this.signal.aborted) return Promise.resolve();
+    if (this.running) { this.again = true; return this.running; }
+    this.running = this.sweep(this.signal).catch(() => {}).finally(() => {
+      this.running = undefined;
+      if (this.again) { this.again = false; void this.request(); }
+    });
+    return this.running;
+  }
+  idle() { return this.running ?? Promise.resolve(); }
+}

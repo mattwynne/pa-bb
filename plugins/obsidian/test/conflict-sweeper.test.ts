@@ -103,3 +103,30 @@ test('the merge agent runs hidden, gets both copies as data, and is archived aft
     await assert.rejects(merge({ path: 'Big.md', local: { text: 'x'.repeat(60_001), modifiedMs: 0 }, icloud: { text: '', modifiedMs: 0 } }, new AbortController().signal), { category: 'capacity' });
   } finally { await host.harness.lifecycle.dispose(); }
 });
+
+test('a request during a sweep runs exactly one more sweep afterwards', async () => {
+  const { SweepTrigger } = await import('../adapters/conflict-sweeper.ts');
+  let runs = 0, release!: () => void;
+  const trigger = new SweepTrigger(async () => { runs++; if (runs === 1) await new Promise<void>(r => { release = r; }); }, new AbortController().signal);
+  const first = trigger.request();
+  void trigger.request(); void trigger.request();
+  assert.equal(runs, 1);
+  release();
+  await first;
+  await trigger.idle();
+  assert.equal(runs, 2);
+  await trigger.request();
+  assert.equal(runs, 3);
+});
+
+test('only the iCloud plugin can report a finished scan', async () => {
+  const { createFakePluginHost } = await import('@get-bb/plugin-sdk/testing');
+  const { plugin } = await import('../server.ts');
+  const { CatalogFake, FilesFake, MemoryState } = await import('./fakes.ts');
+  const host = createFakePluginHost({ pluginId: 'obsidian' });
+  await plugin(host.bb, { catalog: new CatalogFake(), files: new FilesFake(), repository: new MemoryState() });
+  try {
+    await assert.rejects(host.harness.behavior.callRpc('scanFinished', { mirrorId: 'one' }, { experimental_caller: { kind: 'plugin', pluginId: 'gtd' } } as any), /Only the iCloud plugin/);
+    assert.equal(await host.harness.behavior.callRpc('scanFinished', { mirrorId: 'one' }, { experimental_caller: { kind: 'plugin', pluginId: 'icloud' } } as any), null);
+  } finally { await host.harness.lifecycle.dispose(); }
+});
