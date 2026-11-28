@@ -65,7 +65,7 @@ const rootFolders = new Set(['----Root-Folder----', '----Project-Root-Folder----
 export const isPhotoLibrary = (id: string) => id === 'PrimarySync' || /^SharedSync(?:-[\s\S]+)?$/.test(id);
 
 class CloudKitFailure extends CloudError {
-  constructor(readonly reason: 'auth' | 'zone_missing' | 'album_index' | 'sync_token' | 'limited' | 'http') {
+  constructor(readonly reason: 'auth' | 'zone_missing' | 'album_index' | 'sync_token' | 'bad_request' | 'limited' | 'http') {
     super(reason === 'auth' ? 'authentication' : reason === 'limited' ? 'unavailable' : 'provider_rejected');
   }
 }
@@ -91,6 +91,7 @@ function checkErrors(row: ObjectValue, status: number) {
   if ([401, 421, 423].includes(status) || isAuthCode(row.serverErrorCode)) throw new CloudKitFailure('auth');
   if (row.serverErrorCode === 'ZONE_NOT_FOUND') throw new CloudKitFailure('zone_missing');
   if (row.serverErrorCode === 'BAD_REQUEST' && row.reason === 'Index has invalid data') throw new CloudKitFailure('album_index');
+  if (status === 400 && row.serverErrorCode === 'BAD_REQUEST') throw new CloudKitFailure('bad_request');
   if (['CHANGE_TOKEN_EXPIRED', 'SYNC_TOKEN_EXPIRED'].includes(String(row.serverErrorCode))) throw new CloudKitFailure('sync_token');
   if (row.serverErrorCode || row.error || status < 200 || status >= 300) throw new CloudKitFailure('http');
 }
@@ -300,15 +301,26 @@ export class CloudKitPhotos {
     return total;
   }
 
-  async page(zone: PhotoZone, rank: number, order: PhotoOrder, limit: number, signal: AbortSignal, collection = allPhotos) {
-    const data = await this.request(zone.area, 'records/query', { zoneID: zone.zoneID, desiredKeys: photoKeys, resultsLimit: limit * 2,
-      query: { recordType: collection.list, filterBy: [
-        filter('startRank', 'INT64', rank), filter('direction', 'STRING', order === 'newest' ? 'DESCENDING' : 'ASCENDING'), ...collection.filters,
-      ] },
-    }, signal);
+  async page(zone: PhotoZone, rank: number, order: PhotoOrder, limit: number, signal: AbortSignal,
+    collection = allPhotos, continuation: string | null = null) {
+    let data: ObjectValue;
+    try {
+      data = await this.request(zone.area, 'records/query', { zoneID: zone.zoneID, desiredKeys: photoKeys, resultsLimit: limit * 2,
+        query: { recordType: collection.list, filterBy: [
+          filter('startRank', 'INT64', rank), filter('direction', 'STRING', order === 'newest' ? 'DESCENDING' : 'ASCENDING'), ...collection.filters,
+        ] },
+        ...(continuation ? { continuationMarker: continuation } : {}),
+      }, signal);
+    } catch (error) {
+      // CloudKit rejects an invalid continuation with a generic HTTP 400 BAD_REQUEST.
+      if (continuation && error instanceof CloudKitFailure && error.reason === 'bad_request') throw new CloudError('source_changed');
+      throw error;
+    }
     const records = rows(data.records, 400);
     for (const row of records) checkErrors(row, 200);
-    return { records, token: token(data.syncToken) };
+    const marker = token(data.continuationMarker);
+    if (data.continuationMarker != null && !marker) throw new CloudError('provider_rejected');
+    return { records, token: token(data.syncToken), marker };
   }
 
   async changes(zone: PhotoZone, since: string, signal: AbortSignal) {

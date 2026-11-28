@@ -7,7 +7,7 @@ import type { PhotoOrder } from './cloudkit-photos.ts';
 type Row = { asset: string; master: string | null };
 type IndexState = {
   generation: number; rank: number | null; token: string | null;
-  total: number | null; updated: string | null; anchor: string | null;
+  total: number | null; updated: string | null; continuation: string | null;
 };
 
 export class PhotoIndex {
@@ -54,15 +54,16 @@ export class PhotoIndex {
   }
 
   state(scope: string): IndexState | undefined {
-    return this.db.prepare('SELECT generation, rank, token, total, updated, anchor FROM photo_library_index WHERE scope = ?').get(scope) as IndexState | undefined;
+    return this.db.prepare('SELECT generation, rank, token, total, updated, anchor AS continuation FROM photo_library_index WHERE scope = ?')
+      .get(scope) as IndexState | undefined;
   }
 
-  begin(scope: string, total: number) {
+  begin(scope: string, total: number, rank: number) {
     this.db.prepare(`
       INSERT INTO photo_library_index (scope, generation, rank, total) VALUES (?, 1, ?, ?)
       ON CONFLICT(scope) DO UPDATE SET generation = generation + 1, rank = excluded.rank, total = excluded.total,
         token = NULL, updated = NULL, anchor = NULL
-    `).run(scope, Math.max(0, total - 1), total);
+    `).run(scope, rank, total);
     return this.state(scope)!;
   }
 
@@ -74,14 +75,15 @@ export class PhotoIndex {
     return !!this.db.prepare('SELECT 1 FROM photo_library_masters WHERE scope = ? AND id = ?').get(scope, id);
   }
 
-  apply(scope: string, previous: IndexState, records: Projection, next: Pick<IndexState, 'rank' | 'token' | 'anchor'>) {
+  apply(scope: string, previous: IndexState, records: Projection, next: Pick<IndexState, 'rank' | 'token' | 'continuation'>) {
     const write = this.db.transaction(() => {
       // A checkpoint belongs to the exact scan/delta page that was read.
       // Matching the old cursor also fences a stale job or plugin generation.
       const saved = this.db.prepare(`
         UPDATE photo_library_index SET rank = ?, token = ?, anchor = ?
         WHERE scope = ? AND generation = ? AND rank IS ? AND token IS ? AND updated IS ? AND anchor IS ?
-      `).run(next.rank, next.token, next.anchor, scope, previous.generation, previous.rank, previous.token, previous.updated, previous.anchor);
+      `).run(next.rank, next.token, next.continuation,
+        scope, previous.generation, previous.rank, previous.token, previous.updated, previous.continuation);
       if (!saved.changes) throw new CloudError('interrupted');
       const master = this.db.prepare(`INSERT INTO photo_library_masters VALUES (?, ?, ?)
         ON CONFLICT(scope, id) DO UPDATE SET payload = excluded.payload`);
@@ -149,7 +151,7 @@ export class PhotoIndex {
       LEFT JOIN photo_library_masters m ON m.scope = a.scope AND m.id = a.master
       ORDER BY s.created ${direction}, s.id ${direction}
     `).all(scope, state.generation, limit, offset, scope) as Row[];
-    return { total: state.total ?? this.indexed(scope, state), assets: rows.map(row => this.materialize(row).value) };
+    return { total: Math.max(state.total ?? 0, this.indexed(scope, state)), assets: rows.map(row => this.materialize(row).value) };
   }
 
   months(scope: string, order: PhotoOrder) {

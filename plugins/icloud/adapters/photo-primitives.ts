@@ -17,15 +17,14 @@ type Catalog<T> = { value: Promise<T>; expires: number };
 const retryDelay = 45_000;
 const refreshInterval = 60_000;
 const catalogTtl = 5 * 60_000;
+// Descending library queries clamp an oversized startRank to the newest asset.
+const newestRank = 2 ** 31 - 1;
+const maxStalledPages = 8;
 const reconnect = 'Reconnect Apple in iCloud settings';
 const indexError = 'Could not update the iCloud Photos index. Try again shortly.';
 const libraryKind = (id: string) => id === 'PrimarySync' ? 'personal' as const : 'shared' as const;
 const binding = (account: string, library: string) => JSON.stringify([account, library]);
 const albumKey = (scope: string, id: string) => JSON.stringify([scope, id]);
-
-class ScanDrift extends CloudError {
-  constructor() { super('source_changed'); }
-}
 
 export class PhotoPrimitives {
   private lifetime = new AbortController();
@@ -118,8 +117,10 @@ export class PhotoPrimitives {
     }
 
     const current = this.index.state(scope);
+    const indexed = this.index.indexed(scope, current);
+    const total = current?.total == null ? null : Math.max(current.total, indexed);
     if (this.cloud.authFailed) return {
-      state: 'error' as const, indexed: this.index.indexed(scope, current), total: current?.total ?? null,
+      state: 'error' as const, indexed, total,
       updatedAt: current?.updated ?? null, error: reconnect,
     };
     const fail = this.failures.get(scope);
@@ -130,8 +131,7 @@ export class PhotoPrimitives {
         if (signal.aborted || !this.allowed()) return;
         const reason = photoFailureCategory(error);
         this.diagnose('photo_index_refresh', reason);
-        const retry = reason === 'source_changed' ? catalogTtl : retryDelay;
-        this.failures.set(scope, { reason, retry: reason === 'authentication' ? Infinity : this.now() + retry });
+        this.failures.set(scope, { reason, retry: reason === 'authentication' ? Infinity : this.now() + retryDelay });
         if (this.failures.size > 32) this.failures.delete(this.failures.keys().next().value!);
       }).finally(() => {
         this.running.delete(task);
@@ -141,8 +141,7 @@ export class PhotoPrimitives {
       this.running.add(task);
     }
     const state = this.jobs.has(scope) ? 'indexing' : fail ? 'error' : current?.updated ? 'ready' : 'empty';
-    return { state: state as 'empty' | 'indexing' | 'ready' | 'error', indexed: this.index.indexed(scope, current),
-      total: current?.total ?? null, updatedAt: current?.updated ?? null,
+    return { state: state as 'empty' | 'indexing' | 'ready' | 'error', indexed, total, updatedAt: current?.updated ?? null,
       error: state === 'error' ? (fail?.reason === 'authentication' ? reconnect : indexError) : null,
     };
   }
@@ -154,32 +153,35 @@ export class PhotoPrimitives {
     let state = this.index.state(scope);
     for (let attempt = 0; ; attempt++) {
       try {
-        if (!state || (state.rank === null && !state.token)) {
+        // Checkpoints from the old rank walker must restart with the new fixed query.
+        if (!state || (state.rank === null ? !state.token : state.rank !== newestRank)) {
           const total = await this.cloud.count(zone, signal);
           signal.throwIfAborted();
-          state = this.index.begin(scope, total);
+          state = this.index.begin(scope, total, newestRank);
         }
-        while (state.rank !== null && state.rank >= 0) {
+        const seen = new Set(state.continuation ? [state.continuation] : []);
+        let indexed = this.index.indexed(scope, state), stalled = 0;
+        while (state.rank !== null) {
           if (!this.allowed()) return;
-          const limit: number = Math.min(state.rank + 1, pageSize);
-          const page = await this.cloud.page(zone, state.rank, 'newest', limit, signal);
+          const page = await this.cloud.page(zone, state.rank, 'newest', pageSize, signal, allPhotos, state.continuation);
           signal.throwIfAborted();
-          const projection = this.project(scope, page.records);
-          const ids = [...new Set(projection.assets.map(asset => asset.id))];
-          const prior = state.anchor ? JSON.parse(state.anchor) as string[] : null;
-          const previous = new Set(prior);
-          if (ids.length > limit || (prior && !ids.some(id => previous.has(id)))) throw new ScanDrift();
-          // Apple ranks are live. Overlap by eight items and checkpoint the
-          // previous page's membership so a resumed scan can detect rank drift.
-          const finished = state.rank < ids.length || (state.total === 0 && ids.length === 0);
-          if (!finished && ids.length <= 8) throw new ScanDrift();
-          const nextRank: number = finished ? -1 : state.rank - (ids.length - 8);
-          state = this.index.apply(scope, state, projection, {
-            rank: nextRank, token: prior ? state.token : page.token, anchor: JSON.stringify(ids),
+          if (page.marker && seen.has(page.marker)) throw new CloudError('source_changed');
+          // The wire limit counts records. Several assets can share a master.
+          // Checkpoint the cursor with the rows and retain the first page's sync token.
+          state = this.index.apply(scope, state, this.project(scope, page.records), {
+            rank: page.marker ? state.rank : null, token: state.continuation ? state.token : page.token,
+            continuation: page.marker,
           });
+          if (page.marker) {
+            seen.add(page.marker);
+            const nextIndexed = this.index.indexed(scope, state);
+            stalled = nextIndexed > indexed ? 0 : stalled + 1;
+            indexed = nextIndexed;
+            if (stalled >= maxStalledPages) throw new CloudError('source_changed');
+          }
         }
 
-        const rebuilding = state.rank === -1;
+        const rebuilding = !state.updated;
         if (state.token) {
           for (;;) {
             if (!this.allowed()) return;
@@ -194,7 +196,7 @@ export class PhotoPrimitives {
               signal.throwIfAborted();
               projection.masters.push(...this.project(scope, records).masters);
             }
-            state = this.index.apply(scope, state, projection, { rank: state.rank, token: delta.token, anchor: null });
+            state = this.index.apply(scope, state, projection, { rank: null, token: delta.token, continuation: null });
             this.versions.forget(scope, [...projection.deletedAssets, ...projection.deletedUnknown], [...projection.deletedMasters, ...projection.deletedUnknown]);
             if (delta.records.length) this.albumAssets.delete(scope);
             if (delta.records.some(row => row.recordType === 'CPLAlbum' || row.recordType === 'CPLContainerRelation' || row.deleted)) {
@@ -204,13 +206,7 @@ export class PhotoPrimitives {
             if (!delta.more) break;
           }
         }
-        const indexed = this.index.indexed(scope, state);
-        if (rebuilding) {
-          const expected = await this.cloud.count(zone, signal);
-          signal.throwIfAborted();
-          if (expected !== indexed) throw new ScanDrift();
-        }
-        this.index.finish(scope, state, new Date(this.now()).toISOString(), indexed);
+        this.index.finish(scope, state, new Date(this.now()).toISOString(), this.index.indexed(scope, state));
         if (rebuilding && state.generation > 1) {
           while (!signal.aborted && this.allowed() && this.index.prune(scope, state.generation)) await turn();
           let after: string | null = '';
@@ -222,11 +218,8 @@ export class PhotoPrimitives {
         return;
       } catch (error) {
         signal.throwIfAborted();
-        if (!(error instanceof ScanDrift) && !tokenExpired(error)) throw error;
-        const total = await this.cloud.count(zone, signal);
-        signal.throwIfAborted();
-        state = this.index.begin(scope, total);
-        if (attempt >= 1) throw error;
+        if (attempt >= 1 || (category(error) !== 'source_changed' && !tokenExpired(error))) throw error;
+        state = undefined;
       }
     }
   }

@@ -99,21 +99,23 @@ test('newest pages survive a stopped indexer, then paged deltas update metadata 
   let now = Date.UTC(2026, 0, 1);
   let nextPage: 'interrupted' | 'resumed' = 'interrupted';
   let delta = false;
-  const ranks: number[] = [];
+  const markers: (string | undefined)[] = [];
   const wire = handler(async (path, body, init) => {
     if (path.endsWith('changes/database')) return zones();
     if (path.endsWith('/batch')) return count(120);
     if (path.endsWith('records/query')) {
-      const rank: number = body.query.filterBy[0].fieldValue.value;
-      ranks.push(rank);
-      if (rank === 27 && nextPage === 'interrupted') {
+      assert.equal(body.query.filterBy[0].fieldValue.value, 2 ** 31 - 1);
+      assert.equal(body.resultsLimit, 200);
+      const marker = body.continuationMarker;
+      markers.push(marker);
+      if (marker && nextPage === 'interrupted') {
         await delay(10_000, undefined, { signal: init.signal! });
         assert.fail('The resumed index fixture was not interrupted');
       }
-      const size = body.resultsLimit / 2;
       // The API may interleave or reorder records within a rank page.
-      const values = Array.from({ length: size }, (_, i) => rank - i).reverse();
-      return Response.json({ records: [...values.map(masterRow), ...values.map(assetRow)], syncToken: rank === 119 ? 'seed' : 'later-query-token' });
+      const values = marker ? Array.from({ length: 20 }, (_, i) => i) : Array.from({ length: 100 }, (_, i) => i + 20);
+      return Response.json({ records: [...values.map(masterRow), ...values.map(assetRow)],
+        ...(marker ? { syncToken: 'later-query-token' } : { syncToken: 'seed', continuationMarker: 'next-page' }) });
     }
     if (path.endsWith('records/lookup')) {
       assert.deepEqual(body.records, [{ recordName: 'master-120' }]);
@@ -140,14 +142,14 @@ test('newest pages survive a stopped indexer, then paged deltas update metadata 
   const assetRow = (n: number) => asset(n), masterRow = (n: number) => master(n);
   let f = fixture(db, wire, () => now);
   try {
-    await eventually(() => f.primitives.status(library), value => value.indexed === 100 && ranks.length === 2);
+    await eventually(() => f.primitives.status(library), value => value.indexed === 100 && markers.length === 2);
     assert.deepEqual((await f.primitives.assets(input)).assets.map(row => row.id).slice(0, 3), ['asset-119', 'asset-118', 'asset-117']);
     assert.equal((await f.primitives.assets(input)).total, 120);
     await f.primitives.cancel();
     nextPage = 'resumed';
     f = fixture(db, wire, () => now);
     assert.equal((await eventually(() => f.primitives.status(library), value => value.state === 'ready')).indexed, 120);
-    assert.deepEqual(ranks, [119, 27, 27]);
+    assert.deepEqual(markers, [undefined, 'next-page', 'next-page']);
     const monthMarks = (await f.primitives.months(input)).months;
     assert.deepEqual(monthMarks.slice(0, 2), [{ month: '2024-04', offset: 0, count: 29 }, { month: '2024-03', offset: 29, count: 31 }]);
     const old = await f.primitives.assets({ ...input, order: 'oldest' });
@@ -164,6 +166,93 @@ test('newest pages survive a stopped indexer, then paged deltas update metadata 
     assert.equal((await f.primitives.assets(input)).assets[0].id, 'asset-120');
     assert.equal(db.prepare('SELECT token FROM photo_library_index').pluck().get(), 'delta-2');
     assert.deepEqual(f.logs, []);
+  } finally { await f.primitives.cancel(); db.close(); }
+});
+
+test('a full 8,907-asset scan replaces the old rank checkpoint and reconciles from the first page through count mismatch', async () => {
+  const db = new Database(':memory:');
+  const size = 8_907;
+  const scope = JSON.stringify([session.account, library]);
+  new PhotoIndex(db).begin(scope, size, size - 1);
+  let counts = 0, queries = 0, deltas = 0;
+  const f = fixture(db, handler((path, body) => {
+    if (path.endsWith('changes/database')) return zones();
+    if (path.endsWith('/batch')) {
+      counts++;
+      return count(size - 2);
+    }
+    if (path.endsWith('changes/zone')) {
+      deltas++;
+      assert.equal(body.zones[0].syncToken, 'first-page-token');
+      return Response.json({ zones: [{ records: [{ recordName: `asset-${size - 1}`, deleted: true }, asset(size), master(size)],
+        syncToken: 'reconciled', moreComing: false }] });
+    }
+    assert.ok(path.endsWith('records/query'));
+    assert.equal(body.resultsLimit, 200);
+    assert.deepEqual(body.query.filterBy.map((row: any) => row.fieldValue.value), [2 ** 31 - 1, 'DESCENDING']);
+    if (queries++ === 0) {
+      assert.equal(body.continuationMarker, undefined);
+      const first = size - 101;
+      const values = Array.from({ length: 101 }, (_, i) => first + i);
+      // The live response had 101 assets referencing 99 distinct masters.
+      const masters = values.slice(0, 99).map(n => master(n));
+      const assets = values.map(n => asset(n, { masterRef: { recordName: `master-${Math.min(n, size - 3)}` } }));
+      return Response.json({ records: [...masters, ...assets], syncToken: 'first-page-token', continuationMarker: String(first - 1) });
+    }
+    const top = size - 102 - (queries - 2) * 99;
+    assert.equal(body.continuationMarker, String(top));
+    const values = Array.from({ length: Math.min(99, top + 1) }, (_, i) => top - i);
+    const next = top - values.length;
+    if (queries === 2) values.push(top + 1); // The next page revisits the prior boundary.
+    return Response.json({ records: [...values.map(n => asset(n)), ...values.map(n => master(n))],
+      syncToken: 'later-query-token', ...(next >= 0 ? { continuationMarker: String(next) } : {}) });
+  }));
+  try {
+    const ready = await eventually(() => f.primitives.status(library), value => value.state === 'ready');
+    assert.deepEqual([ready.indexed, ready.total, counts, queries, deltas], [size, size, 1, 90, 1]);
+    const newest = (await f.primitives.assets(input)).assets;
+    assert.deepEqual(newest.slice(0, 4).map(row => row.id),
+      [`asset-${size}`, `asset-${size - 2}`, `asset-${size - 3}`, `asset-${size - 4}`]);
+    assert.equal(newest[1].versions.thumb?.type, 'image/jpeg');
+    assert.equal((await f.primitives.assets({ ...input, order: 'oldest' })).assets[0].id, 'asset-0');
+    assert.deepEqual(f.logs, []);
+  } finally { await f.primitives.cancel(); db.close(); }
+});
+
+test('a rejected continuation restarts once, then a stalled cursor backs off without discarding its checkpoint', async () => {
+  const db = new Database(':memory:');
+  let now = Date.UTC(2026, 0, 1), recover = false, starts = 0;
+  const markers: (string | undefined)[] = [];
+  const f = fixture(db, handler((path, body) => {
+    if (path.endsWith('changes/database')) return zones();
+    if (path.endsWith('/batch')) return count(500);
+    if (path.endsWith('changes/zone')) {
+      assert.equal(body.zones[0].syncToken, 'seed-2');
+      return emptyChanges();
+    }
+    const marker = body.continuationMarker;
+    markers.push(marker);
+    if (!marker) {
+      starts++;
+      return Response.json({ records: [asset(starts), master(starts)],
+        syncToken: `seed-${starts}`, continuationMarker: starts === 1 ? 'rejected' : 'repeated' });
+    }
+    if (marker === 'rejected') return Response.json({ serverErrorCode: 'BAD_REQUEST', reason: 'PRIVATE_PROVIDER_DETAIL' }, { status: 400 });
+    return Response.json({ records: [asset(0), master(0)], ...(recover ? {} : { continuationMarker: marker }) });
+  }), () => now);
+  try {
+    const failed = await eventually(() => f.primitives.status(library), value => value.state === 'error');
+    assert.equal(failed.indexed, 1);
+    assert.deepEqual(markers, [undefined, 'rejected', undefined, 'repeated']);
+    assert.deepEqual(f.logs, ['photo_index_refresh source_changed']);
+    now += 44_000;
+    assert.equal((await f.primitives.status(library)).state, 'error');
+    assert.equal(markers.length, 4);
+    recover = true;
+    now += 1_001;
+    const ready = await eventually(() => f.primitives.status(library), value => value.state === 'ready');
+    assert.deepEqual([ready.indexed, ready.total, starts], [2, 2, 2]);
+    assert.deepEqual(markers, [undefined, 'rejected', undefined, 'repeated', 'repeated']);
   } finally { await f.primitives.cancel(); db.close(); }
 });
 
