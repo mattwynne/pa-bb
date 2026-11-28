@@ -7,7 +7,7 @@
   "bb": {
     "name": "Photos",
     "description": "Browse and download from iCloud Photos and connect a Grain MCP server.",
-    "branding": { "icon": "Image" },
+    "branding": { "icon": "./assets/camera.svg" },
     "server": "./server.ts",
     "app": "./app.tsx"
   },
