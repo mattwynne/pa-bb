@@ -4,10 +4,12 @@ import type { rpcContract } from './contract.ts';
 import { ConnectionAccount, ConnectionAccounts, ConnectionAlert, ConnectionButton, ConnectionDisclosure, ConnectionEmpty, ConnectionFooter, ConnectionGuide, ConnectionHeading, ConnectionSetup } from './connection-ui.tsx';
 import './connection-ui.css';
 import './app.css';
+import { JournalPanel } from './journal.tsx';
 
 const GUIDE = 'https://github.com/mattwynne/pa-bb/blob/main/plugins/photos/README.md';
 const HTTP = '/api/v1/plugins/photos/http';
-type Status = { apple: 'disconnected' | 'shared' | 'unavailable'; grain: string | null };
+type Group = { handle: string; did: string | null };
+type Status = { apple: 'disconnected' | 'shared' | 'unavailable'; grain: string | null; group: Group | null };
 type Entry = { name: string; directory: boolean; size: number | null };
 type BrowseView = { listing: string; entries: Entry[]; total: number; path: string[] };
 
@@ -168,6 +170,45 @@ function Grain({ endpoint, setStatus }: { endpoint: string | null; setStatus(val
   </section>;
 }
 
+function SharingGroup({ group, setStatus }: { group: Group | null; setStatus(value: Status): void }) {
+  const [editing, setEditing] = useState(false);
+  const [handle, setHandle] = useState(group?.handle ?? '');
+  const [did, setDid] = useState(group?.did ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function act(action: () => Promise<void>) {
+    if (busy) return;
+    setBusy(true); setError('');
+    try { await action(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Try the request again.'); }
+    finally { setBusy(false); }
+  }
+
+  return <section className="pa-photos__service" aria-label="Journal sharing">
+    <ConnectionHeading title="Journal sharing" />
+    {error && <ConnectionAlert>{error}</ConnectionAlert>}
+    {editing || !group ? <ConnectionSetup title="Choose a Grain group">
+      <p>Journal galleries are shared privately with one Grain group. Enter the group’s handle, and its DID if you know it.</p>
+      <form className="pa-photos__form" onSubmit={event => {
+        event.preventDefault();
+        void act(async () => { setStatus(await submit('group-save', { handle, did: did.trim() || null })); setEditing(false); });
+      }}>
+        <label>Group handle<input placeholder="family.example.com" value={handle} onChange={event => setHandle(event.target.value)} maxLength={253} autoCapitalize="none" spellCheck={false} required /></label>
+        <label>Group DID (optional)<input placeholder="did:plc:…" value={did} onChange={event => setDid(event.target.value)} maxLength={2048} autoCapitalize="none" spellCheck={false} /></label>
+        <div className="pa-photos__actions"><ConnectionButton type="submit" tone="primary" disabled={busy}>Save group</ConnectionButton>
+          {group && <ConnectionButton disabled={busy} onClick={() => { setEditing(false); setError(''); }}>Cancel</ConnectionButton>}</div>
+      </form>
+    </ConnectionSetup> : <>
+      <ConnectionAccounts><ConnectionAccount initial={group.handle[0].toUpperCase()} label={group.handle} caption={group.did ?? undefined} status="Private group" /></ConnectionAccounts>
+      <ConnectionDisclosure summary="Manage group"><div className="pa-photos__actions">
+        <ConnectionButton disabled={busy} onClick={() => { setHandle(group.handle); setDid(group.did ?? ''); setError(''); setEditing(true); }}>Change group</ConnectionButton>
+        <ConnectionButton disabled={busy} onClick={() => void act(async () => { setStatus(await submit('group-clear', {})); setHandle(''); setDid(''); })}>Remove group</ConnectionButton>
+      </div></ConnectionDisclosure>
+    </>}
+  </section>;
+}
+
 function PhotosSettings() {
   const rpc = useRpc<typeof rpcContract>();
   const [status, setStatus] = useState<Status | null>(null);
@@ -180,7 +221,8 @@ function PhotosSettings() {
   return <div className="pa-photos">
     {error && <ConnectionAlert>Could not read your Photos settings. <ConnectionButton onClick={() => void refresh()}>Try again</ConnectionButton></ConnectionAlert>}
     {status ? <><ApplePhotos key={status.apple} state={status.apple} refresh={refresh} />
-      <Grain endpoint={status.grain} setStatus={next => setStatus(current => current && { ...current, grain: next.grain })} /></>
+      <Grain endpoint={status.grain} setStatus={next => setStatus(current => current && { ...current, grain: next.grain })} />
+      <SharingGroup group={status.group} setStatus={next => setStatus(current => current && { ...current, group: next.group })} /></>
       : !error && <ConnectionEmpty><span role="status">Loading settings…</span></ConnectionEmpty>}
     <ConnectionFooter><ConnectionGuide href={GUIDE} /></ConnectionFooter>
   </div>;
@@ -188,4 +230,5 @@ function PhotosSettings() {
 
 export default definePluginApp(app => {
   app.slots.settingsSection({ id: 'photos-connections', component: PhotosSettings });
+  app.slots.navPanel({ id: 'journal', path: 'journal', title: 'Journal', icon: 'BookImage', component: JournalPanel });
 });

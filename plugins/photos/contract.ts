@@ -4,10 +4,11 @@ import { z } from 'zod';
 const appleState = z.enum(['disconnected', 'shared', 'unavailable']);
 const id = z.string().uuid();
 const entry = z.object({ name: z.string(), directory: z.boolean(), size: z.number().int().nonnegative().nullable() });
+const group = z.object({ handle: z.string(), did: z.string().nullable() });
 const error = z.object({ ok: z.literal(false), error: z.string() });
 
 export const rpcContract = defineRpcContract({
-  status: { input: z.null(), output: z.object({ apple: appleState, grain: z.string().nullable() }) },
+  status: { input: z.null(), output: z.object({ apple: appleState, grain: z.string().nullable(), group: group.nullable() }) },
   browse: {
     input: z.object({ parent: z.object({ listing: id, index: z.number().int().nonnegative().nullable() }).strict().nullable() }).strict(),
     output: z.union([error, z.object({ ok: z.literal(true), listing: id, total: z.number(), entries: z.array(entry) })]),

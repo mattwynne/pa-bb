@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join } from 'node:path';
 import type { BbPluginApi, JsonValue, PluginAgentToolContentPart } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
@@ -5,8 +7,8 @@ import { rpcContract } from './contract.ts';
 import { failure, PhotosError } from './errors.ts';
 import type { Category } from './errors.ts';
 import { grainConfiguration, grainMcp } from './grain.ts';
-import { grainSettingsFile } from './grain-settings.ts';
-import type { GrainSettings } from './grain-settings.ts';
+import { grainGroup, grainSettingsFile, groupSettingsFile } from './grain-settings.ts';
+import type { GrainGroup, GrainSettings, StoredSetting } from './grain-settings.ts';
 import type { FetchLike } from '@modelcontextprotocol/client';
 
 const empty = z.object({}).strict();
@@ -28,13 +30,18 @@ async function readForm(request: Request) {
   finally { reader.releaseLock(); }
 }
 
-export async function registerPhotos(bb: BbPluginApi, dependencies: { grainStorage?: GrainSettings; grainFetch?: FetchLike } = {}) {
+// Browsers other than Safari cannot decode HEIC, so Journal loads this
+// unmodified LGPL decoder on demand. It is served from the installed package.
+const heicDecoder = createRequire(import.meta.url).resolve('libheif-js/libheif-wasm/libheif-bundle.mjs');
+
+export async function registerPhotos(bb: BbPluginApi, dependencies: { grainStorage?: GrainSettings; groupStorage?: StoredSetting<GrainGroup>; grainFetch?: FetchLike } = {}) {
   function dataRoot(folder: string) {
     const path = bb.storage.database().name;
     if (!isAbsolute(path)) throw new PhotosError('storage');
     return join(dirname(path), folder);
   }
   const settings = dependencies.grainStorage ?? grainSettingsFile(dataRoot('grain'));
+  const groups = dependencies.groupStorage ?? groupSettingsFile(dataRoot('grain'));
   const grain = grainMcp(message => bb.log.warn(message), dependencies.grainFetch);
   let grainConfigured = Boolean(await settings.get());
   bb.onDispose(() => { grain.invalidate(); });
@@ -51,7 +58,7 @@ export async function registerPhotos(bb: BbPluginApi, dependencies: { grainStora
         outputSchema: z.enum(['disconnected', 'shared', 'unavailable']), signal: AbortSignal.timeout(5000) });
     } catch { return 'unavailable' as const; }
   }
-  const status = async () => ({ apple: await appleStatus(), grain: (await settings.get())?.endpoint ?? null });
+  const status = async () => ({ apple: await appleStatus(), grain: (await settings.get())?.endpoint ?? null, group: await groups.get() });
   const photoRead = async <T>(stage: 'photosBrowse' | 'photosPage' | 'photosTicket', input: JsonValue, outputSchema: z.ZodType<T>, signal?: AbortSignal) => {
     try { return await bb.sdk.plugins.callRpc({ pluginId: 'icloud', method: stage, input, outputSchema, signal }); }
     catch {
@@ -108,6 +115,23 @@ export async function registerPhotos(bb: BbPluginApi, dependencies: { grainStora
     grainConfigured = false;
     grain.invalidate();
   }), 'storage', true);
+
+  form('/group-save', grainGroup, value => changeGrain(() => groups.set(value)), 'storage');
+  form('/group-clear', empty, () => changeGrain(() => groups.set(null)), 'storage');
+
+  let decoder: Promise<Buffer> | null = null;
+  bb.http.route('GET', '/libheif.mjs', async context => {
+    try {
+      decoder ??= readFile(heicDecoder);
+      return new Response(new Uint8Array(await decoder), { headers: {
+        'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff',
+      } });
+    } catch {
+      decoder = null;
+      bb.log.warn('Photos heic_decoder unavailable');
+      return context.text('The HEIC decoder is unavailable.', 503);
+    }
+  }, { auth: 'local' });
 
   async function respond(action: () => Promise<PluginAgentToolContentPart[]>) {
     try { return { content: await action() }; }
